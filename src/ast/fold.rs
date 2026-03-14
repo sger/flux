@@ -172,55 +172,64 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
 
 pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expression {
     match expr {
-        Expression::Identifier { name, span } => Expression::Identifier {
+        Expression::Identifier { name, span, id } => Expression::Identifier {
             name: folder.fold_identifier(name),
             span,
+            id,
         },
-        Expression::Integer { value, span } => Expression::Integer { value, span },
-        Expression::Float { value, span } => Expression::Float { value, span },
-        Expression::String { value, span } => Expression::String { value, span },
-        Expression::InterpolatedString { parts, span } => Expression::InterpolatedString {
+        Expression::Integer { value, span, id } => Expression::Integer { value, span, id },
+        Expression::Float { value, span, id } => Expression::Float { value, span, id },
+        Expression::String { value, span, id } => Expression::String { value, span, id },
+        Expression::InterpolatedString { parts, span, id } => Expression::InterpolatedString {
             parts: parts
                 .into_iter()
                 .map(|p| folder.fold_string_part(p))
                 .collect(),
             span,
+            id,
         },
-        Expression::Boolean { value, span } => Expression::Boolean { value, span },
+        Expression::Boolean { value, span, id } => Expression::Boolean { value, span, id },
         Expression::Prefix {
             operator,
             right,
             span,
+            id,
         } => Expression::Prefix {
             operator,
             right: Box::new(folder.fold_expr(*right)),
             span,
+            id,
         },
         Expression::Infix {
             left,
             operator,
             right,
             span,
+            id,
         } => Expression::Infix {
             left: Box::new(folder.fold_expr(*left)),
             operator,
             right: Box::new(folder.fold_expr(*right)),
             span,
+            id,
         },
         Expression::If {
             condition,
             consequence,
             alternative,
             span,
+            id,
         } => Expression::If {
             condition: Box::new(folder.fold_expr(*condition)),
             consequence: folder.fold_block(consequence),
             alternative: alternative.map(|a| folder.fold_block(a)),
             span,
+            id,
         },
-        Expression::DoBlock { block, span } => Expression::DoBlock {
+        Expression::DoBlock { block, span, id } => Expression::DoBlock {
             block: folder.fold_block(block),
             span,
+            id,
         },
         Expression::Function {
             parameters,
@@ -229,6 +238,7 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
             effects,
             body,
             span,
+            id,
         } => Expression::Function {
             parameters: parameters
                 .into_iter()
@@ -239,102 +249,133 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
             effects,
             body: folder.fold_block(body),
             span,
+            id,
         },
         Expression::Call {
             function,
             arguments,
             span,
+            id,
         } => Expression::Call {
             function: Box::new(folder.fold_expr(*function)),
             arguments: arguments.into_iter().map(|a| folder.fold_expr(a)).collect(),
             span,
+            id,
         },
-        Expression::ListLiteral { elements, span } => Expression::ListLiteral {
+        Expression::ListLiteral { elements, span, id } => Expression::ListLiteral {
             elements: elements.into_iter().map(|e| folder.fold_expr(e)).collect(),
             span,
+            id,
         },
-        Expression::ArrayLiteral { elements, span } => Expression::ArrayLiteral {
+        Expression::ArrayLiteral { elements, span, id } => Expression::ArrayLiteral {
             elements: elements.into_iter().map(|e| folder.fold_expr(e)).collect(),
             span,
+            id,
         },
-        Expression::TupleLiteral { elements, span } => Expression::TupleLiteral {
+        Expression::TupleLiteral { elements, span, id } => Expression::TupleLiteral {
             elements: elements.into_iter().map(|e| folder.fold_expr(e)).collect(),
             span,
+            id,
         },
-        Expression::EmptyList { span } => Expression::EmptyList { span },
-        Expression::Index { left, index, span } => Expression::Index {
+        Expression::EmptyList { span, id } => Expression::EmptyList { span, id },
+        Expression::Index {
+            left,
+            index,
+            span,
+            id,
+        } => Expression::Index {
             left: Box::new(folder.fold_expr(*left)),
             index: Box::new(folder.fold_expr(*index)),
             span,
+            id,
         },
-        Expression::Hash { pairs, span } => Expression::Hash {
+        Expression::Hash { pairs, span, id } => Expression::Hash {
             pairs: pairs
                 .into_iter()
                 .map(|(k, v)| (folder.fold_expr(k), folder.fold_expr(v)))
                 .collect(),
             span,
+            id,
         },
         Expression::MemberAccess {
             object,
             member,
             span,
+            id,
         } => Expression::MemberAccess {
             object: Box::new(folder.fold_expr(*object)),
             member: folder.fold_identifier(member),
             span,
+            id,
         },
         Expression::TupleFieldAccess {
             object,
             index,
             span,
+            id,
         } => Expression::TupleFieldAccess {
             object: Box::new(folder.fold_expr(*object)),
             index,
             span,
+            id,
         },
         Expression::Match {
             scrutinee,
             arms,
             span,
+            id,
         } => Expression::Match {
             scrutinee: Box::new(folder.fold_expr(*scrutinee)),
             arms: arms.into_iter().map(|a| folder.fold_match_arm(a)).collect(),
             span,
+            id,
         },
-        Expression::None { span } => Expression::None { span },
-        Expression::Some { value, span } => Expression::Some {
+        Expression::None { span, id } => Expression::None { span, id },
+        Expression::Some { value, span, id } => Expression::Some {
             value: Box::new(folder.fold_expr(*value)),
             span,
+            id,
         },
-        Expression::Left { value, span } => Expression::Left {
+        Expression::Left { value, span, id } => Expression::Left {
             value: Box::new(folder.fold_expr(*value)),
             span,
+            id,
         },
-        Expression::Right { value, span } => Expression::Right {
+        Expression::Right { value, span, id } => Expression::Right {
             value: Box::new(folder.fold_expr(*value)),
             span,
+            id,
         },
-        Expression::Cons { head, tail, span } => Expression::Cons {
+        Expression::Cons {
+            head,
+            tail,
+            span,
+            id,
+        } => Expression::Cons {
             head: Box::new(folder.fold_expr(*head)),
             tail: Box::new(folder.fold_expr(*tail)),
             span,
+            id,
         },
         Expression::Perform {
             effect,
             operation,
             args,
             span,
+            id,
         } => Expression::Perform {
             effect: folder.fold_identifier(effect),
             operation: folder.fold_identifier(operation),
             args: args.into_iter().map(|a| folder.fold_expr(a)).collect(),
             span,
+            id,
         },
         Expression::Handle {
             expr,
             effect,
             arms,
             span,
+            id,
         } => Expression::Handle {
             expr: Box::new(folder.fold_expr(*expr)),
             effect: folder.fold_identifier(effect),
@@ -353,6 +394,7 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
                 })
                 .collect(),
             span,
+            id,
         },
     }
 }

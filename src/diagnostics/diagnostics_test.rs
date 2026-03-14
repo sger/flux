@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::diagnostics::position::{Position, Span};
 use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType, NOT_A_FUNCTION, Severity,
-    diag_enhanced, format_message, format_message_named, lookup_error_code, render_display_path,
+    diagnostic_for, format_message, format_message_named, lookup_error_code, render_display_path,
 };
 
 #[test]
@@ -22,11 +22,11 @@ fn format_message_named_replaces_named_placeholders() {
 }
 
 #[test]
-fn lookup_error_code_and_diag_enhanced() {
+fn lookup_error_code_and_diagnostic_for() {
     let code = lookup_error_code("E1001").expect("E1001 exists");
     assert_eq!(code.code, NOT_A_FUNCTION.code);
 
-    let diag = diag_enhanced(&NOT_A_FUNCTION);
+    let diag = diagnostic_for(&NOT_A_FUNCTION);
     assert_eq!(diag.code(), Some("E1001"));
     assert_eq!(diag.error_type(), Some(ErrorType::Runtime));
 }
@@ -66,7 +66,7 @@ fn render_display_path_strips_cwd_prefix() {
 
 #[test]
 fn severity_ordering_is_stable() {
-    let error = diag_enhanced(&NOT_A_FUNCTION);
+    let error = diagnostic_for(&NOT_A_FUNCTION);
     let warning = Diagnostic::warning("WARN");
 
     assert_eq!(error.severity(), Severity::Error);

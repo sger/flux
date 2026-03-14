@@ -21,6 +21,9 @@ Program {
                         column: 50,
                     },
                 },
+                id: ExprId(
+                    1,
+                ),
             },
             span: Span {
                 start: Position {

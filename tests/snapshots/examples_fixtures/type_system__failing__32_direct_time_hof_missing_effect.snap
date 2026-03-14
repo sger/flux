@@ -5,17 +5,36 @@ Fixture: examples/type_system/failing/32_direct_time_hof_missing_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E400]: MISSING EFFECT
+error[E056]: Wrong Number Of Arguments
 
-Call to `time` requires effect `Time` in this function signature.
+The `time` function takes 0 arguments, but 1 were provided.
 
-  --> examples/type_system/failing/32_direct_time_hof_missing_effect.flx:4:5
+  examples/type_system/failing/32_direct_time_hof_missing_effect.flx:4:5
+  |
+1 | 
+2 | 
+3 | fn profiled() -> Int with IO {
+4 |     time(/() -> 1)
+  |     ^^^^^^^^^^^^^^
+  |     -------------- 1 arguments provided here, expected 0
+
+Help:
+  Remove 1 extra argument(s), for example: `time()`.
+
+
+error[E400]: Missing Effect
+
+requires effect `Time` but the enclosing context does not provide it
+
+  examples/type_system/failing/32_direct_time_hof_missing_effect.flx:4:5
   |
 4 |     time(/() -> 1)
-  |     ^^^^
-  |     ---- effectful call occurs here
+  |     ^^^^^^^^^^^^^^
+  |     -------------- requires `Time`
 
 Hint:
-  Add `with Time` to the enclosing function.
+  annotate the enclosing function with `with Time`
+
+Found 2 errors.
 == stdout ==
 <not executed>

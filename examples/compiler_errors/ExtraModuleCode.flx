@@ -1,0 +1,9 @@
+module ExtraModuleCode {
+    fn value() -> Int {
+        1
+    }
+}
+
+fn stray() -> Int {
+    2
+}

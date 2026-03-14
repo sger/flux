@@ -1,0 +1,199 @@
+type Tree = Node(Tree, Tree) | Tip
+
+type Builder = Top | BuildRight(Int, Builder) | BuildNode(Tree, Builder)
+
+type Direction = Down(Int) | Up(Tree)
+
+type Build = Root | GoRight(Int, Build)
+
+type Visit = Done | NodeR(Tree, Visit)
+
+fn max_int(a: Int, b: Int) -> Int {
+    if a > b { a } else { b }
+}
+
+fn pow2(exp: Int, acc: Int) -> Int {
+    if exp <= 0 {
+        acc
+    } else {
+        pow2(exp - 1, acc * 2)
+    }
+}
+
+fn make_down(depth: Int, builder: Builder) -> Tree {
+    if depth > 0 {
+        let next = BuildRight(depth - 1, builder)
+        make_down(depth - 1, next)
+    } else {
+        make_up(Node(Tip, Tip), builder)
+    }
+}
+
+fn make_up(tree: Tree, builder: Builder) -> Tree {
+    match builder {
+        BuildRight(depth, up) -> {
+            let next = BuildNode(tree, up)
+            make_down(depth, next)
+        },
+        BuildNode(left, up) -> {
+            let next = Node(left, tree)
+            make_up(next, up)
+        },
+        Top -> tree,
+    }
+}
+
+fn make_fbip(direction: Direction, builder: Builder) -> Tree {
+    match direction {
+        Down(depth) ->
+            if depth > 0 {
+                let next_dir = Down(depth - 1)
+                let next_builder = BuildRight(depth - 1, builder)
+                make_fbip(next_dir, next_builder)
+            } else {
+                let next_dir = Up(Node(Tip, Tip))
+                make_fbip(next_dir, builder)
+            },
+        Up(tree) -> match builder {
+            BuildRight(depth, up) -> {
+                let next_dir = Down(depth)
+                let next_builder = BuildNode(tree, up)
+                make_fbip(next_dir, next_builder)
+            },
+            BuildNode(left, up) -> {
+                let next_dir = Up(Node(left, tree))
+                make_fbip(next_dir, up)
+            },
+            Top -> tree,
+        },
+    }
+}
+
+fn make_rec(depth: Int) -> Tree {
+    if depth > 0 {
+        Node(make_rec(depth - 1), make_rec(depth - 1))
+    } else {
+        Node(Tip, Tip)
+    }
+}
+
+fn make_trmc_up(tree: Tree, build: Build) -> Tree {
+    match build {
+        GoRight(depth, Root) -> {
+            let right = make_trmc(depth, Root)
+            Node(tree, right)
+        },
+        GoRight(depth, up) -> {
+            let right = make_trmc(depth, Root)
+            let next = Node(tree, right)
+            make_trmc_up(next, up)
+        },
+        Root -> tree,
+    }
+}
+
+fn make_trmc(depth: Int, build: Build) -> Tree {
+    if depth > 0 {
+        let next = GoRight(depth - 1, build)
+        make_trmc(depth - 1, next)
+    } else {
+        make_trmc_up(Node(Tip, Tip), build)
+    }
+}
+
+fn make_trmc_fbip(direction: Direction, build: Build) -> Tree {
+    match direction {
+        Down(depth) ->
+            if depth > 0 {
+                let next_dir = Down(depth - 1)
+                let next_build = GoRight(depth - 1, build)
+                make_trmc_fbip(next_dir, next_build)
+            } else {
+                let next_dir = Up(Node(Tip, Tip))
+                make_trmc_fbip(next_dir, build)
+            },
+        Up(tree) -> match build {
+            GoRight(depth, Root) -> {
+                let right = make_trmc_fbip(Down(depth), Root)
+                Node(tree, right)
+            },
+            GoRight(depth, up) -> {
+                let right = make_trmc_fbip(Down(depth), Root)
+                let next_dir = Up(Node(tree, right))
+                make_trmc_fbip(next_dir, up)
+            },
+            Root -> tree,
+        },
+    }
+}
+
+fn make(depth: Int) -> Tree {
+    make_rec(depth)
+    // make_trmc(depth, Root)
+    // make_trmc_fbip(Down(depth), Root)
+    // make_fbip(Down(depth), Top)
+    // make_down(depth, Top)
+}
+
+fn checkv(tree: Tree, visit: Visit, acc: Int) -> Int {
+    match tree {
+        Node(left, right) -> {
+            let next = NodeR(right, visit)
+            checkv(left, next, acc + 1)
+        },
+        Tip -> match visit {
+            NodeR(right, next) -> checkv(right, next, acc),
+            Done -> acc,
+        },
+    }
+}
+
+fn checkr(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> checkr(left) + checkr(right) + 1,
+        Tip -> 0,
+    }
+}
+
+fn check(tree: Tree) -> Int {
+    checkv(tree, Done, 0)
+    // checkr(tree)
+}
+
+fn sum_count(count: Int, depth: Int, acc: Int) -> Int {
+    if count <= 0 {
+        acc
+    } else {
+        sum_count(count - 1, depth, acc + check(make(depth)))
+    }
+}
+
+fn show_line(msg: String, depth: Int, checksum: Int) with IO {
+    print("#{msg} of depth #{depth}\t check: #{checksum}")
+}
+
+fn run_depths(depth: Int, max_depth: Int, min_depth: Int) with IO {
+    if depth > max_depth {
+        ()
+    } else {
+        let count = pow2(max_depth + min_depth - depth, 1)
+        let checksum = sum_count(count, depth, 0)
+        show_line("#{count}\t trees", depth, checksum)
+        run_depths(depth + 2, max_depth, min_depth)
+    }
+}
+
+fn main() with IO {
+    let n = 21
+    let min_depth = 4
+    let max_depth = max_int(min_depth + 2, n)
+    let stretch_depth = max_depth + 1
+
+    show_line("stretch tree", stretch_depth, check(make(stretch_depth)))
+
+    let long_lived_tree = make(max_depth)
+
+    run_depths(min_depth, max_depth, min_depth)
+
+    show_line("long lived tree", max_depth, check(long_lived_tree))
+}

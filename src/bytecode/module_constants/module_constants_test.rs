@@ -6,7 +6,12 @@ use crate::{
     },
     diagnostics::position::{Position, Span},
     runtime::value::Value,
-    syntax::{block::Block, expression::Expression, interner::Interner, statement::Statement},
+    syntax::{
+        block::Block,
+        expression::{ExprId, Expression},
+        interner::Interner,
+        statement::Statement,
+    },
 };
 
 fn pos(line: usize, column: usize) -> Position {
@@ -32,6 +37,7 @@ fn analyze_orders_dependencies() {
                 value: Expression::Identifier {
                     name: sym_a,
                     span: Span::new(pos(1, 1), pos(1, 2)),
+                    id: ExprId::UNSET,
                 },
                 span: Span::new(pos(1, 0), pos(1, 2)),
             },
@@ -41,6 +47,7 @@ fn analyze_orders_dependencies() {
                 value: Expression::Integer {
                     value: 1,
                     span: Span::new(pos(2, 1), pos(2, 2)),
+                    id: ExprId::UNSET,
                 },
                 span: Span::new(pos(2, 0), pos(2, 2)),
             },
@@ -68,6 +75,7 @@ fn analyze_detects_cycle() {
                 value: Expression::Identifier {
                     name: sym_b,
                     span: Span::new(pos(1, 1), pos(1, 2)),
+                    id: ExprId::UNSET,
                 },
                 span: Span::new(pos(1, 0), pos(1, 2)),
             },
@@ -77,6 +85,7 @@ fn analyze_detects_cycle() {
                 value: Expression::Identifier {
                     name: sym_a,
                     span: Span::new(pos(2, 1), pos(2, 2)),
+                    id: ExprId::UNSET,
                 },
                 span: Span::new(pos(2, 0), pos(2, 2)),
             },
@@ -144,13 +153,16 @@ fn const_divide_by_zero() {
         left: Box::new(Expression::Integer {
             value: 1,
             span: Default::default(),
+            id: ExprId::UNSET,
         }),
         operator: "/".to_string(),
         right: Box::new(Expression::Integer {
             value: 0,
             span: Default::default(),
+            id: ExprId::UNSET,
         }),
         span: Default::default(),
+        id: ExprId::UNSET,
     };
     let err = eval(&expr).unwrap_err();
     assert_eq!(err.code, "E059");
@@ -163,13 +175,16 @@ fn const_mod_by_zero() {
         left: Box::new(Expression::Integer {
             value: 1,
             span: Default::default(),
+            id: ExprId::UNSET,
         }),
         operator: "%".to_string(),
         right: Box::new(Expression::Integer {
             value: 0,
             span: Default::default(),
+            id: ExprId::UNSET,
         }),
         span: Default::default(),
+        id: ExprId::UNSET,
     };
     let err = eval(&expr).unwrap_err();
     assert_eq!(err.code, "E059");
@@ -182,13 +197,16 @@ fn const_string_ordering() {
         left: Box::new(Expression::String {
             value: "b".to_string(),
             span: Default::default(),
+            id: ExprId::UNSET,
         }),
         operator: ">".to_string(),
         right: Box::new(Expression::String {
             value: "a".to_string(),
             span: Default::default(),
+            id: ExprId::UNSET,
         }),
         span: Default::default(),
+        id: ExprId::UNSET,
     };
     let result = eval(&expr).unwrap();
     assert_eq!(result, Value::Boolean(true));
@@ -200,13 +218,16 @@ fn const_float_divide_by_zero() {
         left: Box::new(Expression::Float {
             value: 1.0,
             span: Default::default(),
+            id: ExprId::UNSET,
         }),
         operator: "/".to_string(),
         right: Box::new(Expression::Float {
             value: 0.0,
             span: Default::default(),
+            id: ExprId::UNSET,
         }),
         span: Default::default(),
+        id: ExprId::UNSET,
     };
     let err = eval(&expr).unwrap_err();
     assert_eq!(err.code, "E059");
@@ -220,6 +241,7 @@ fn const_undefined_identifier_uses_resolved_name() {
     let expr = Expression::Identifier {
         name: missing,
         span: Default::default(),
+        id: ExprId::UNSET,
     };
 
     let err = eval_const_expr(&expr, &HashMap::new(), &interner).unwrap_err();
@@ -235,6 +257,7 @@ fn const_deep_recursion() {
     let mut expr = Expression::Integer {
         value: 1,
         span: Default::default(),
+        id: ExprId::UNSET,
     };
 
     for _ in 0..50 {
@@ -244,8 +267,10 @@ fn const_deep_recursion() {
             right: Box::new(Expression::Integer {
                 value: 1,
                 span: Default::default(),
+                id: ExprId::UNSET,
             }),
             span: Default::default(),
+            id: ExprId::UNSET,
         };
     }
 
@@ -259,12 +284,14 @@ fn const_large_array() {
         .map(|i| Expression::Integer {
             value: i,
             span: Default::default(),
+            id: ExprId::UNSET,
         })
         .collect();
 
     let expr = Expression::ArrayLiteral {
         elements,
         span: Default::default(),
+        id: ExprId::UNSET,
     };
 
     let result = eval(&expr).unwrap();
@@ -286,10 +313,12 @@ fn const_hash_not_supported() {
                 Expression::Integer {
                     value: i,
                     span: Default::default(),
+                    id: ExprId::UNSET,
                 },
                 Expression::Integer {
                     value: i * 2,
                     span: Default::default(),
+                    id: ExprId::UNSET,
                 },
             )
         })
@@ -298,6 +327,7 @@ fn const_hash_not_supported() {
     let expr = Expression::Hash {
         pairs,
         span: Default::default(),
+        id: ExprId::UNSET,
     };
 
     // Hash literals are not supported in module constants (require runtime GC heap)
@@ -316,9 +346,11 @@ fn const_error_with_hint() {
         function: Box::new(Expression::Identifier {
             name: sym_foo,
             span: Default::default(),
+            id: ExprId::UNSET,
         }),
         arguments: vec![],
         span: Default::default(),
+        id: ExprId::UNSET,
     };
 
     let err = eval(&expr).unwrap_err();

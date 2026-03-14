@@ -1,0 +1,21 @@
+// Multi-arg shared row variable: deferred Absent check stays valid when final binding excludes IO.
+
+fn needs_linked_absence(
+    first: (() -> Int with |e - IO),
+    second: (() -> Int with |e)
+) -> Int with |e - IO {
+    first() + second()
+}
+
+fn row_var_worker() -> Int with |e {
+    1
+}
+
+fn time_worker() -> Int with Time {
+    now_ms()
+    2
+}
+
+fn main() -> Unit with Time {
+    let _ = needs_linked_absence(row_var_worker, time_worker)
+}

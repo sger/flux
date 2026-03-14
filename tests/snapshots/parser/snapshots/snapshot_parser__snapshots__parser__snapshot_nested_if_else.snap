@@ -21,6 +21,9 @@ Program {
                                 column: 5,
                             },
                         },
+                        id: ExprId(
+                            1,
+                        ),
                     },
                     operator: ">",
                     right: Integer {
@@ -35,6 +38,9 @@ Program {
                                 column: 10,
                             },
                         },
+                        id: ExprId(
+                            2,
+                        ),
                     },
                     span: Span {
                         start: Position {
@@ -46,6 +52,9 @@ Program {
                             column: 10,
                         },
                     },
+                    id: ExprId(
+                        3,
+                    ),
                 },
                 consequence: Block {
                     statements: [
@@ -66,6 +75,9 @@ Program {
                                                 column: 9,
                                             },
                                         },
+                                        id: ExprId(
+                                            4,
+                                        ),
                                     },
                                     operator: ">",
                                     right: Integer {
@@ -80,6 +92,9 @@ Program {
                                                 column: 14,
                                             },
                                         },
+                                        id: ExprId(
+                                            5,
+                                        ),
                                     },
                                     span: Span {
                                         start: Position {
@@ -91,6 +106,9 @@ Program {
                                             column: 14,
                                         },
                                     },
+                                    id: ExprId(
+                                        6,
+                                    ),
                                 },
                                 consequence: Block {
                                     statements: [
@@ -110,6 +128,9 @@ Program {
                                                             column: 13,
                                                         },
                                                     },
+                                                    id: ExprId(
+                                                        7,
+                                                    ),
                                                 },
                                                 arguments: [
                                                     String {
@@ -124,6 +145,9 @@ Program {
                                                                 column: 26,
                                                             },
                                                         },
+                                                        id: ExprId(
+                                                            8,
+                                                        ),
                                                     },
                                                 ],
                                                 span: Span {
@@ -136,6 +160,9 @@ Program {
                                                         column: 27,
                                                     },
                                                 },
+                                                id: ExprId(
+                                                    9,
+                                                ),
                                             },
                                             has_semicolon: true,
                                             span: Span {
@@ -180,6 +207,9 @@ Program {
                                                                 column: 13,
                                                             },
                                                         },
+                                                        id: ExprId(
+                                                            10,
+                                                        ),
                                                     },
                                                     arguments: [
                                                         String {
@@ -194,6 +224,9 @@ Program {
                                                                     column: 21,
                                                                 },
                                                             },
+                                                            id: ExprId(
+                                                                11,
+                                                            ),
                                                         },
                                                     ],
                                                     span: Span {
@@ -206,6 +239,9 @@ Program {
                                                             column: 22,
                                                         },
                                                     },
+                                                    id: ExprId(
+                                                        12,
+                                                    ),
                                                 },
                                                 has_semicolon: true,
                                                 span: Span {
@@ -242,6 +278,9 @@ Program {
                                         column: 5,
                                     },
                                 },
+                                id: ExprId(
+                                    13,
+                                ),
                             },
                             has_semicolon: false,
                             span: Span {
@@ -286,6 +325,9 @@ Program {
                                                 column: 9,
                                             },
                                         },
+                                        id: ExprId(
+                                            14,
+                                        ),
                                     },
                                     arguments: [
                                         String {
@@ -300,6 +342,9 @@ Program {
                                                     column: 17,
                                                 },
                                             },
+                                            id: ExprId(
+                                                15,
+                                            ),
                                         },
                                     ],
                                     span: Span {
@@ -312,6 +357,9 @@ Program {
                                             column: 18,
                                         },
                                     },
+                                    id: ExprId(
+                                        16,
+                                    ),
                                 },
                                 has_semicolon: true,
                                 span: Span {
@@ -348,6 +396,9 @@ Program {
                         column: 1,
                     },
                 },
+                id: ExprId(
+                    17,
+                ),
             },
             has_semicolon: false,
             span: Span {

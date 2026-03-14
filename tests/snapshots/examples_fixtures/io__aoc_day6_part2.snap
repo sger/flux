@@ -3,8 +3,78 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/io/aoc_day6_part2.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 4th argument to `col_value`.
+
+  examples/io/aoc_day6_part2.flx:95:56
+   |
+81 | fn col_value(lines, num_rows, col, empty_default) {
+82 |     let digits = [
+83 |     char_at_pad(line_at(lines, row), col)
+84 |     | row <- range(0, num_rows),
+85 |     char_at_pad(line_at(lines, row), col) != " "
+86 |     ]
+87 |     if len(digits) == 0 { empty_default } else { parse_int(join(digits, "")) }
+88 | }
+89 | 
+90 | fn eval_problem(lines, num_rows, start, stop) {
+91 |     let op_line = line_at(lines, num_rows)
+92 |     let op = trim(slice_padded(op_line, start, stop))
+93 |     let cols = range(start, stop)
+94 |     if op == "*" {
+95 |         let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
+   |                                                        ^
+   |                                                        - this argument has type `Int`
+
+Note:
+  expected argument type: Option<Int>
+  found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Wrap this value in `Some(...)` or return `None`.
+
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 4th argument to `col_value`.
+
+  examples/io/aoc_day6_part2.flx:98:50
+   |
+81 | fn col_value(lines, num_rows, col, empty_default) {
+82 |     let digits = [
+83 |     char_at_pad(line_at(lines, row), col)
+84 |     | row <- range(0, num_rows),
+85 |     char_at_pad(line_at(lines, row), col) != " "
+86 |     ]
+87 |     if len(digits) == 0 { empty_default } else { parse_int(join(digits, "")) }
+88 | }
+89 | 
+90 | fn eval_problem(lines, num_rows, start, stop) {
+91 |     let op_line = line_at(lines, num_rows)
+92 |     let op = trim(slice_padded(op_line, start, stop))
+93 |     let cols = range(start, stop)
+94 |     if op == "*" {
+95 |         let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
+96 |         product(factors)
+97 |     } else {
+98 |     let terms = [col_value(lines, num_rows, col, 0) | col <- cols]
+   |                                                  ^
+   |                                                  - this argument has type `Int`
+
+Note:
+  expected argument type: Option<Int>
+  found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Wrap this value in `Some(...)` or return `None`.
+
+Found 2 errors.
 == stdout ==
 <not executed>

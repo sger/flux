@@ -3,8 +3,13 @@
 //! This trait provides a fluent API for constructing diagnostics. It's implemented
 //! by the Diagnostic struct and can be extended for custom diagnostic types.
 
+use std::rc::Rc;
+
 use crate::diagnostics::position::{Position, Span};
-use crate::diagnostics::{ErrorType, Hint, HintChain, InlineSuggestion, Label, RelatedDiagnostic};
+use crate::diagnostics::{
+    DiagnosticCategory, ErrorType, Hint, HintChain, InlineSuggestion, Label, RelatedDiagnostic,
+    StackTraceFrame,
+};
 
 /// Builder trait for constructing diagnostics with a fluent API
 ///
@@ -14,11 +19,11 @@ use crate::diagnostics::{ErrorType, Hint, HintChain, InlineSuggestion, Label, Re
 ///
 /// # Example
 /// ```
-/// use flux::diagnostics::{diag_enhanced, UNEXPECTED_TOKEN, DiagnosticBuilder};
+/// use flux::diagnostics::{diagnostic_for, UNEXPECTED_TOKEN, DiagnosticBuilder};
 /// # use flux::diagnostics::position::{Position, Span};
 /// # let span = Span::new(Position::new(1, 0), Position::new(1, 5));
 ///
-/// let diag = diag_enhanced(&UNEXPECTED_TOKEN)
+/// let diag = diagnostic_for(&UNEXPECTED_TOKEN)
 ///     .with_span(span)
 ///     .with_message("Expected ';' after statement")
 ///     .with_hint_text("Add a semicolon here");
@@ -32,6 +37,12 @@ pub trait DiagnosticBuilder: Sized {
     /// Set the error/warning code (e.g., "E101")
     fn with_code(self, code: impl Into<String>) -> Self;
 
+    /// Set a text-only display title used by the human renderer.
+    fn with_display_title(self, title: impl Into<String>) -> Self;
+
+    /// Set the semantic diagnostic category used for grouping and tooling.
+    fn with_category(self, category: DiagnosticCategory) -> Self;
+
     /// Set the error type (Compiler or Runtime)
     fn with_error_type(self, error_type: ErrorType) -> Self;
 
@@ -39,7 +50,7 @@ pub trait DiagnosticBuilder: Sized {
     fn with_message(self, message: impl Into<String>) -> Self;
 
     /// Set the source file path
-    fn with_file(self, file: impl Into<String>) -> Self;
+    fn with_file(self, file: impl Into<Rc<str>>) -> Self;
 
     /// Set the source position (converts to a zero-width span)
     fn with_position(self, position: Position) -> Self;
@@ -124,4 +135,17 @@ pub trait DiagnosticBuilder: Sized {
 
     /// Add a related diagnostic entry (note/help/related)
     fn with_related(self, related: RelatedDiagnostic) -> Self;
+
+    // ===== Runtime Stack Trace =====
+
+    /// Add a rendered runtime stack trace frame.
+    fn with_stack_trace_frame(self, frame: StackTraceFrame) -> Self;
+
+    /// Replace the runtime stack trace with the provided frames.
+    ///
+    /// This overwrites any frames already attached, including frames added via
+    /// [`DiagnosticBuilder::with_stack_trace_frame`].
+    fn with_stack_trace<I>(self, frames: I) -> Self
+    where
+        I: IntoIterator<Item = StackTraceFrame>;
 }

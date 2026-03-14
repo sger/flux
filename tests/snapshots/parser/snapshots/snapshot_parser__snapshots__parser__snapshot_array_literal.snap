@@ -23,6 +23,9 @@ Program {
                                 column: 12,
                             },
                         },
+                        id: ExprId(
+                            1,
+                        ),
                     },
                     Infix {
                         left: Integer {
@@ -37,6 +40,9 @@ Program {
                                     column: 15,
                                 },
                             },
+                            id: ExprId(
+                                2,
+                            ),
                         },
                         operator: "+",
                         right: Integer {
@@ -51,6 +57,9 @@ Program {
                                     column: 19,
                                 },
                             },
+                            id: ExprId(
+                                3,
+                            ),
                         },
                         span: Span {
                             start: Position {
@@ -62,6 +71,9 @@ Program {
                                 column: 19,
                             },
                         },
+                        id: ExprId(
+                            4,
+                        ),
                     },
                     Call {
                         function: Identifier {
@@ -78,6 +90,9 @@ Program {
                                     column: 24,
                                 },
                             },
+                            id: ExprId(
+                                5,
+                            ),
                         },
                         arguments: [
                             Integer {
@@ -92,6 +107,9 @@ Program {
                                         column: 26,
                                     },
                                 },
+                                id: ExprId(
+                                    6,
+                                ),
                             },
                         ],
                         span: Span {
@@ -104,6 +122,9 @@ Program {
                                 column: 27,
                             },
                         },
+                        id: ExprId(
+                            7,
+                        ),
                     },
                     ListLiteral {
                         elements: [
@@ -119,6 +140,9 @@ Program {
                                         column: 31,
                                     },
                                 },
+                                id: ExprId(
+                                    8,
+                                ),
                             },
                             Integer {
                                 value: 6,
@@ -132,6 +156,9 @@ Program {
                                         column: 34,
                                     },
                                 },
+                                id: ExprId(
+                                    9,
+                                ),
                             },
                         ],
                         span: Span {
@@ -144,6 +171,9 @@ Program {
                                 column: 35,
                             },
                         },
+                        id: ExprId(
+                            10,
+                        ),
                     },
                 ],
                 span: Span {
@@ -156,6 +186,9 @@ Program {
                         column: 36,
                     },
                 },
+                id: ExprId(
+                    11,
+                ),
             },
             span: Span {
                 start: Position {

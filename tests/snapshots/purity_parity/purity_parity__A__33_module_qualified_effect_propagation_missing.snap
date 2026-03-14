@@ -15,10 +15,10 @@ $ flux --no-cache --root examples/type_system examples/type_system/failing/33_mo
 exit_code: 1
 
 == vm tuples ==
-- E400 | MISSING EFFECT | effectful call occurs here
+- E400 | Missing Ambient Effect | effectful call occurs here
 
 == jit tuples ==
-- E400 | MISSING EFFECT | effectful call occurs here
+- E400 | Missing Ambient Effect | effectful call occurs here
 
 == parity ==
 match

@@ -5,14 +5,24 @@ Fixture: examples/type_system/failing/152_array_literal_callarg_conflict_prefers
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+error[E300]: Type Mismatch
 
-Cannot unify Int with String.
+I found a type mismatch.
 
-  --> examples/type_system/failing/152_array_literal_callarg_conflict_prefers_e300.flx:4:30
+  examples/type_system/failing/152_array_literal_callarg_conflict_prefers_e300.flx:4:30
   |
 4 |     let _x = takes_ints([|1, "two"|])
   |                              ^^^^^
-  |                              ----- expected Int, found String
+  |                              ----- this expression has type `String`
+
+  |                              ----- this type mismatch is reported here
+
+Note:
+  expected type: Int
+  found type: String
+  the conflicting types meet at this expression
+
+Help:
+  These two types are not compatible.
 == stdout ==
 <not executed>

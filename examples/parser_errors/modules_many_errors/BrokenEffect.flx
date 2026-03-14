@@ -1,0 +1,6 @@
+module BrokenEffect {
+    effect Console {
+        print String -> Unit,,
+        read: Unit -> String
+    }
+}

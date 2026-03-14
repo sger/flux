@@ -15,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/42_handle_unknown_effect.flx --ji
 exit_code: 1
 
 == vm tuples ==
-- E405 | UNKNOWN HANDLER EFFECT | unknown effect in handle
+- E405 | Unknown Effect | unknown effect in handle
 
 == jit tuples ==
-- E405 | UNKNOWN HANDLER EFFECT | unknown effect in handle
+- E405 | Unknown Effect | unknown effect in handle
 
 == parity ==
 match

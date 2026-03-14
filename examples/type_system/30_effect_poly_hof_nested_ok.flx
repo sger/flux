@@ -1,14 +1,14 @@
 // Nested higher-order wrappers preserve polymorphic effects.
 
-fn apply_once(f: ((Int) -> Int with e), x: Int) -> Int with e {
+fn apply_once(f: ((Int) -> Int with |e), x: Int) -> Int with |e {
     f(x)
 }
 
-fn wrap_once(f: ((Int) -> Int with e), x: Int) -> Int with e {
+fn wrap_once(f: ((Int) -> Int with |e), x: Int) -> Int with |e {
     apply_once(f, x)
 }
 
-fn wrap_twice(f: ((Int) -> Int with e), x: Int) -> Int with e {
+fn wrap_twice(f: ((Int) -> Int with |e), x: Int) -> Int with |e {
     wrap_once(f, x)
 }
 

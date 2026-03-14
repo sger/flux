@@ -1,4 +1,4 @@
-// E424: strict mode rejects function-typed runtime boundary contracts for public APIs.
+// Historical fixture: strict mode now permits function-typed public boundaries.
 public fn apply(f: (Int) -> Bool, x: Int) -> Bool {
     f(x)
 }

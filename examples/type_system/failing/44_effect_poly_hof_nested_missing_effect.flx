@@ -1,10 +1,10 @@
 // E400: nested polymorphic wrappers resolve `e` to IO from callback, caller only declares Time.
 
-fn apply_once(f: ((Int) -> Int with e), x: Int) -> Int with e {
+fn apply_once(f: ((Int) -> Int with |e), x: Int) -> Int with |e {
     f(x)
 }
 
-fn wrap_twice(f: ((Int) -> Int with e), x: Int) -> Int with e {
+fn wrap_twice(f: ((Int) -> Int with |e), x: Int) -> Int with |e {
     apply_once(f, x)
 }
 

@@ -5,18 +5,24 @@ Fixture: examples/type_system/failing/74_hm_index_non_indexable_compile_mismatch
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+error[E300]: Type Mismatch
 
-Cannot unify indexable value (Array/List/Tuple/Map) with Int.
+I found a type mismatch.
 
-  --> examples/type_system/failing/74_hm_index_non_indexable_compile_mismatch.flx:2:5
+  examples/type_system/failing/74_hm_index_non_indexable_compile_mismatch.flx:2:5
   |
 2 |     x[0]
   |     ^
-  |     - expected indexable value (Array/List/Tuple/Map), found Int
+  |     - this expression has type `Int`
+
   |     - indexed value is known at compile time
 
+Note:
+  expected type: indexable value (Array/List/Tuple/Map)
+  found type: Int
+
 Help:
+  These two types are not compatible.
   index only arrays, lists, tuples, or maps
 == stdout ==
 <not executed>

@@ -1,0 +1,24 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_lambda_arrow.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Missing Lambda Arrow
+
+I was expecting `->` after the lambda parameters, but I found an identifier.
+
+  examples/parser_errors/missing_lambda_arrow.flx:7:14
+  |
+7 |     let f = /x x + 1
+  |              ^
+  |              - this lambda parameter list ends here
+
+Note:
+  while parsing function `main` > lambda expression
+
+Help:
+  Use `/x -> expr` or `/(x, y) -> expr`.
+== stdout ==
+<not executed>

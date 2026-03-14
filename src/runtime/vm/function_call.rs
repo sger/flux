@@ -1,8 +1,9 @@
 use std::rc::Rc;
 
-use crate::diagnostics::{NOT_A_FUNCTION, RUNTIME_TYPE_ERROR};
+use crate::diagnostics::NOT_A_FUNCTION;
 use crate::runtime::RuntimeContext;
 use crate::runtime::base::get_base_function_by_index;
+use crate::runtime::base::list_ops::format_value;
 use crate::runtime::gc::GcHeap;
 use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 
@@ -34,9 +35,12 @@ impl VM {
             let actual = &self.stack[args_start + index];
             if !expected.matches_value(actual, self) {
                 let expected_name = expected.type_name();
-                return Err(self.runtime_error_enhanced(
-                    &RUNTIME_TYPE_ERROR,
-                    &[&expected_name, actual.type_name()],
+                let actual_type = actual.type_name();
+                let actual_value = format_value(self, actual);
+                return Err(self.runtime_type_error_enhanced(
+                    &expected_name,
+                    actual_type,
+                    Some(&actual_value),
                 ));
             }
         }
@@ -61,9 +65,12 @@ impl VM {
             };
             if !expected.matches_value(actual, self) {
                 let expected_name = expected.type_name();
-                return Err(self.runtime_error_enhanced(
-                    &RUNTIME_TYPE_ERROR,
-                    &[&expected_name, actual.type_name()],
+                let actual_type = actual.type_name();
+                let actual_value = format_value(self, actual);
+                return Err(self.runtime_type_error_enhanced(
+                    &expected_name,
+                    actual_type,
+                    Some(&actual_value),
                 ));
             }
         }
@@ -72,8 +79,8 @@ impl VM {
 
     fn unwind_invoke_error(&mut self, start_sp: usize, start_frame_index: usize) {
         while self.frame_index > start_frame_index {
-            let bp = self.pop_frame_bp();
-            let _ = self.reset_sp(bp.saturating_sub(1));
+            let return_slot = self.pop_frame_return_slot();
+            let _ = self.reset_sp(return_slot);
         }
         let _ = self.reset_sp(start_sp);
     }
@@ -120,6 +127,12 @@ impl VM {
     ) -> Result<(), String> {
         // OpCallBase places only args on stack; there is no callee slot to clear.
         self.execute_base_function_call_common(base_fn_idx, num_args, None)
+    }
+
+    pub(super) fn execute_call_self(&mut self, num_args: usize) -> Result<(), String> {
+        let closure = self.current_frame().closure.clone();
+        let args_start = self.sp - num_args;
+        self.call_closure_with_return_slot(closure, num_args, args_start, args_start)
     }
 
     fn execute_base_function_call_common(
@@ -180,13 +193,33 @@ impl VM {
         };
 
         self.reset_sp(callee_idx.unwrap_or(args_start))?;
-        let result = (base_fn.func)(self, args)?;
+        let result = base_fn.call_owned(self, args)?;
         self.push(result)?;
 
         Ok(())
     }
 
     fn call_closure(&mut self, closure: Rc<Closure>, num_args: usize) -> Result<(), String> {
+        let args_start = self.sp - num_args;
+        self.call_closure_at_args_start(closure, num_args, args_start)
+    }
+
+    fn call_closure_at_args_start(
+        &mut self,
+        closure: Rc<Closure>,
+        num_args: usize,
+        args_start: usize,
+    ) -> Result<(), String> {
+        self.call_closure_with_return_slot(closure, num_args, args_start, args_start - 1)
+    }
+
+    fn call_closure_with_return_slot(
+        &mut self,
+        closure: Rc<Closure>,
+        num_args: usize,
+        args_start: usize,
+        return_slot: usize,
+    ) -> Result<(), String> {
         if num_args != closure.function.num_parameters {
             return Err(format!(
                 "wrong number of arguments: want={}, got={}",
@@ -194,7 +227,7 @@ impl VM {
             ));
         }
         self.check_closure_contract_stack_args(&closure, num_args)?;
-        let frame = Frame::new(closure, self.sp - num_args);
+        let frame = Frame::new_with_return_slot(closure, args_start, return_slot);
         let num_locals = frame.closure.function.num_locals;
         let max_stack = frame.closure.function.max_stack;
         self.push_frame(frame);
@@ -351,7 +384,7 @@ impl VM {
             Value::BaseFunction(base_fn_idx) => {
                 let base_fn = get_base_function_by_index(base_fn_idx as usize)
                     .ok_or_else(|| format!("invalid Base function index {}", base_fn_idx))?;
-                (base_fn.func)(self, args)
+                base_fn.call_owned(self, args)
             }
             Value::Closure(closure) => {
                 let start_sp = self.sp;
@@ -493,13 +526,23 @@ impl RuntimeContext for VM {
         VM::invoke_value(self, callee, args)
     }
 
+    fn invoke_base_function_borrowed(
+        &mut self,
+        base_fn_index: usize,
+        args: &[&Value],
+    ) -> Result<Value, String> {
+        let base_fn = get_base_function_by_index(base_fn_index)
+            .ok_or_else(|| format!("invalid Base function index {}", base_fn_index))?;
+        base_fn.call_borrowed(self, args)
+    }
+
     #[inline]
     fn invoke_unary_value(&mut self, callee: &Value, arg: Value) -> Result<Value, String> {
         match callee {
             Value::BaseFunction(base_fn_idx) => {
                 let base_fn = get_base_function_by_index(*base_fn_idx as usize)
                     .ok_or_else(|| format!("invalid Base function index {}", base_fn_idx))?;
-                (base_fn.func)(self, vec![arg])
+                base_fn.call_owned(self, vec![arg])
             }
             Value::Closure(closure) => self.invoke_closure_arity1(closure.clone(), arg),
             other => Err(format!("not callable: {}", other.type_name())),
@@ -517,7 +560,7 @@ impl RuntimeContext for VM {
             Value::BaseFunction(base_fn_idx) => {
                 let base_fn = get_base_function_by_index(*base_fn_idx as usize)
                     .ok_or_else(|| format!("invalid Base function index {}", base_fn_idx))?;
-                (base_fn.func)(self, vec![left, right])
+                base_fn.call_owned(self, vec![left, right])
             }
             Value::Closure(closure) => self.invoke_closure_arity2(closure.clone(), left, right),
             other => Err(format!("not callable: {}", other.type_name())),
@@ -530,5 +573,15 @@ impl RuntimeContext for VM {
 
     fn gc_heap_mut(&mut self) -> &mut GcHeap {
         &mut self.gc_heap
+    }
+
+    fn callable_contract<'a>(
+        &'a self,
+        callee: &'a Value,
+    ) -> Option<&'a crate::runtime::function_contract::FunctionContract> {
+        match callee {
+            Value::Closure(closure) => closure.function.contract.as_ref(),
+            _ => None,
+        }
     }
 }

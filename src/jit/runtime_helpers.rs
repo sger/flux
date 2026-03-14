@@ -2,32 +2,32 @@
 
 //! Runtime helper functions callable from JIT-compiled code.
 //!
-//! All functions use `extern "C"` ABI and operate on `*mut Value` pointers.
+//! All functions use `extern "C"` ABI and operate on JIT tagged values.
 //! They receive a `*mut JitContext` as their first argument for arena allocation
 //! and error reporting.
-//!
-//! Convention: return `std::ptr::null_mut()` on error with message stored in
-//! `ctx.error`.
 
 use std::ptr;
 use std::rc::Rc;
 use std::slice::from_raw_parts;
 use std::str::from_utf8_unchecked;
 
-use crate::jit::context::{JitHandlerArm, JitHandlerFrame};
+use crate::jit::context::{JitHandlerArm, JitHandlerFrame, JitTaggedValue};
 use crate::primop::{PrimOp, execute_primop};
 use crate::runtime::RuntimeContext;
 use crate::runtime::{
     base::get_base_function_by_index,
+    base::list_ops::format_value,
     gc::{
         hamt::{hamt_empty, hamt_insert, hamt_lookup},
         heap_object::HeapObject,
     },
     jit_closure::JitClosure,
-    value::{AdtValue, Value},
+    value::{AdtFields, Value},
 };
 
-use super::context::JitContext;
+use super::context::{
+    JIT_TAG_BOOL, JIT_TAG_FLOAT, JIT_TAG_INT, JIT_TAG_PTR, JIT_TAG_THUNK, JitContext, JitThunk,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -38,29 +38,115 @@ unsafe fn ctx_ref<'a>(ctx: *mut JitContext) -> &'a mut JitContext {
     unsafe { &mut *ctx }
 }
 
+fn clone_tagged_arg(
+    ctx: &mut JitContext,
+    value: JitTaggedValue,
+    label: &str,
+    index: usize,
+) -> Option<Value> {
+    match ctx.clone_from_tagged(value) {
+        Some(value) => Some(value),
+        None => {
+            if ctx.error.is_none() {
+                ctx.error = Some(format!(
+                    "{label} received invalid tagged value at index {index}"
+                ));
+            }
+            None
+        }
+    }
+}
+
+fn clone_values_from_tagged_ptrs(
+    ctx: &mut JitContext,
+    values_ptr: *const JitTaggedValue,
+    len: usize,
+    label: &str,
+) -> Option<Vec<Value>> {
+    let mut values = Vec::with_capacity(len);
+    for i in 0..len {
+        let tagged = unsafe { *values_ptr.add(i) };
+        values.push(clone_tagged_arg(ctx, tagged, label, i)?);
+    }
+    Some(values)
+}
+
+fn maybe_collect_gc(ctx: &mut JitContext) {
+    if ctx.gc_heap.should_collect() {
+        ctx.collect_gc();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Error helpers
+// ---------------------------------------------------------------------------
+
+/// Lightweight helper for inline div/mod: sets "division by zero" error on
+/// the JIT context. The JIT emits a null return immediately after this call.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_division_by_zero(ctx: *mut JitContext) {
+    unsafe { ctx_ref(ctx) }.error = Some("division by zero".to_string());
+}
+
 // ---------------------------------------------------------------------------
 // Value constructors
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_make_integer(ctx: *mut JitContext, value: i64) -> *mut Value {
-    unsafe { ctx_ref(ctx) }.alloc(Value::Integer(value))
+pub extern "C" fn rt_make_integer(_ctx: *mut JitContext, value: i64) -> JitTaggedValue {
+    JitTaggedValue::int(value)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_make_float(ctx: *mut JitContext, bits: i64) -> *mut Value {
-    let value = f64::from_bits(bits as u64);
-    unsafe { ctx_ref(ctx) }.alloc(Value::Float(value))
+pub extern "C" fn rt_make_float(_ctx: *mut JitContext, bits: i64) -> JitTaggedValue {
+    JitTaggedValue::float_bits(bits)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_make_bool(ctx: *mut JitContext, value: i64) -> *mut Value {
-    unsafe { ctx_ref(ctx) }.alloc(Value::Boolean(value != 0))
+pub extern "C" fn rt_make_bool(_ctx: *mut JitContext, value: i64) -> JitTaggedValue {
+    JitTaggedValue::bool(value != 0)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_make_none(ctx: *mut JitContext) -> *mut Value {
-    unsafe { ctx_ref(ctx) }.alloc(Value::None)
+pub extern "C" fn rt_make_none(ctx: *mut JitContext) -> JitTaggedValue {
+    let ctx = unsafe { ctx_ref(ctx) };
+    JitTaggedValue::ptr(ctx.alloc(Value::None))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_force_boxed(ctx: *mut JitContext, value: JitTaggedValue) -> JitTaggedValue {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let boxed = ctx.tagged_to_boxed(value);
+    if boxed.is_null() {
+        JitTaggedValue::none()
+    } else {
+        JitTaggedValue::ptr(boxed)
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_push_gc_roots(
+    ctx: *mut JitContext,
+    values_ptr: *const JitTaggedValue,
+    len: i64,
+) {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let values = unsafe { from_raw_parts(values_ptr, len as usize) };
+    let mut roots = Vec::new();
+    for value in values {
+        if value.tag == JIT_TAG_PTR {
+            let ptr = value.as_ptr();
+            if !ptr.is_null() {
+                roots.push(ptr);
+            }
+        }
+    }
+    ctx.push_gc_roots(&roots);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_pop_gc_roots(ctx: *mut JitContext) {
+    unsafe { ctx_ref(ctx) }.pop_gc_roots();
 }
 
 #[unsafe(no_mangle)]
@@ -84,14 +170,20 @@ pub extern "C" fn rt_make_base_function(ctx: *mut JitContext, base_fn_index: i64
 pub extern "C" fn rt_make_jit_closure(
     ctx: *mut JitContext,
     function_index: i64,
-    captures_ptr: *const *mut Value,
+    captures_ptr: *const JitTaggedValue,
     ncaptures: i64,
 ) -> *mut Value {
-    let captures: Vec<Value> = (0..ncaptures as usize)
-        .map(|i| unsafe { (*captures_ptr.add(i)).as_ref().unwrap().clone() })
-        .collect();
+    let ctx = unsafe { ctx_ref(ctx) };
+    let Some(captures) = clone_values_from_tagged_ptrs(
+        ctx,
+        captures_ptr,
+        ncaptures as usize,
+        "jit closure construction",
+    ) else {
+        return ptr::null_mut();
+    };
     let closure = JitClosure::new(function_index as usize, captures);
-    unsafe { ctx_ref(ctx) }.alloc(Value::JitClosure(Rc::new(closure)))
+    ctx.alloc(Value::JitClosure(Rc::new(closure)))
 }
 
 #[unsafe(no_mangle)]
@@ -174,16 +266,29 @@ pub extern "C" fn rt_cons_tail(ctx: *mut JitContext, value: *mut Value) -> *mut 
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_add(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+pub extern "C" fn rt_add(
+    ctx: *mut JitContext,
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Integer(l + r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Float(l + r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Float(*l as f64 + r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Float(l + *r as f64)),
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l + *r),
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::float_bits((l + r).to_bits() as i64),
+        (Value::Integer(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((*l as f64 + *r).to_bits() as i64)
+        }
+        (Value::Float(l), Value::Integer(r)) => {
+            JitTaggedValue::float_bits((l + *r as f64).to_bits() as i64)
+        }
         (Value::String(l), Value::String(r)) => {
-            ctx.alloc(Value::String(format!("{}{}", l, r).into()))
+            JitTaggedValue::ptr(ctx.alloc(Value::String(format!("{}{}", l, r).into())))
         }
         _ => {
             ctx.error = Some(format!(
@@ -191,95 +296,147 @@ pub extern "C" fn rt_add(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> 
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_sub(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+pub extern "C" fn rt_sub(
+    ctx: *mut JitContext,
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Integer(l - r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Float(l - r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Float(*l as f64 - r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Float(l - *r as f64)),
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l - *r),
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::float_bits((l - r).to_bits() as i64),
+        (Value::Integer(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((*l as f64 - *r).to_bits() as i64)
+        }
+        (Value::Float(l), Value::Integer(r)) => {
+            JitTaggedValue::float_bits((l - *r as f64).to_bits() as i64)
+        }
         _ => {
             ctx.error = Some(format!(
                 "cannot subtract {} and {}",
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_mul(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+pub extern "C" fn rt_mul(
+    ctx: *mut JitContext,
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Integer(l * r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Float(l * r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Float(*l as f64 * r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Float(l * *r as f64)),
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l * *r),
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::float_bits((l * r).to_bits() as i64),
+        (Value::Integer(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((*l as f64 * *r).to_bits() as i64)
+        }
+        (Value::Float(l), Value::Integer(r)) => {
+            JitTaggedValue::float_bits((l * *r as f64).to_bits() as i64)
+        }
         _ => {
             ctx.error = Some(format!(
                 "cannot multiply {} and {}",
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_div(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+pub extern "C" fn rt_div(
+    ctx: *mut JitContext,
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
         (Value::Integer(_), Value::Integer(0)) | (Value::Float(_), Value::Integer(0)) => {
             ctx.error = Some("division by zero".to_string());
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Integer(l / r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Float(l / r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Float(*l as f64 / r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Float(l / *r as f64)),
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l / *r),
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::float_bits((l / r).to_bits() as i64),
+        (Value::Integer(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((*l as f64 / *r).to_bits() as i64)
+        }
+        (Value::Float(l), Value::Integer(r)) => {
+            JitTaggedValue::float_bits((l / *r as f64).to_bits() as i64)
+        }
         _ => {
             ctx.error = Some(format!(
                 "cannot divide {} and {}",
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_mod(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+pub extern "C" fn rt_mod(
+    ctx: *mut JitContext,
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
         (Value::Integer(_), Value::Integer(0)) | (Value::Float(_), Value::Integer(0)) => {
             ctx.error = Some("division by zero".to_string());
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Integer(l % r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Float(l % r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Float(*l as f64 % r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Float(l % *r as f64)),
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l % *r),
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::float_bits((l % r).to_bits() as i64),
+        (Value::Integer(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((*l as f64 % *r).to_bits() as i64)
+        }
+        (Value::Float(l), Value::Integer(r)) => {
+            JitTaggedValue::float_bits((l % *r as f64).to_bits() as i64)
+        }
         _ => {
             ctx.error = Some(format!(
                 "cannot modulo {} and {}",
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
@@ -289,36 +446,61 @@ pub extern "C" fn rt_mod(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> 
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_negate(ctx: *mut JitContext, a: *mut Value) -> *mut Value {
-    let a = unsafe { &*a };
+pub extern "C" fn rt_negate(ctx: *mut JitContext, a: JitTaggedValue) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
     match a {
-        Value::Integer(v) => ctx.alloc(Value::Integer(-v)),
-        Value::Float(v) => ctx.alloc(Value::Float(-v)),
+        Value::Integer(v) => JitTaggedValue::int(-v),
+        Value::Float(v) => JitTaggedValue::float_bits((-v).to_bits() as i64),
         _ => {
             ctx.error = Some(format!("cannot negate {}", a.type_name()));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_not(ctx: *mut JitContext, a: *mut Value) -> *mut Value {
-    let a = unsafe { &*a };
+pub extern "C" fn rt_not(ctx: *mut JitContext, a: JitTaggedValue) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
     match a {
-        Value::Boolean(v) => ctx.alloc(Value::Boolean(!v)),
+        Value::Boolean(v) => JitTaggedValue::bool(!v),
         _ => {
             ctx.error = Some(format!("cannot apply ! to {}", a.type_name()));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_is_truthy(_ctx: *mut JitContext, a: *mut Value) -> i64 {
-    let a = unsafe { &*a };
-    if a.is_truthy() { 1 } else { 0 }
+pub extern "C" fn rt_is_truthy(ctx: *mut JitContext, a: JitTaggedValue) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    match ctx.clone_from_tagged(a) {
+        Some(a) => i64::from(a.is_truthy()),
+        None => 0,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_bool_value(ctx: *mut JitContext, a: JitTaggedValue) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return 0;
+    };
+    match a {
+        Value::Boolean(v) => i64::from(v),
+        _ => {
+            if a.is_truthy() {
+                1
+            } else {
+                0
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -326,22 +508,40 @@ pub extern "C" fn rt_is_truthy(_ctx: *mut JitContext, a: *mut Value) -> i64 {
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_equal(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+pub extern "C" fn rt_equal(
+    ctx: *mut JitContext,
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    let result = values_equal(a, b);
-    ctx.alloc(Value::Boolean(result))
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    let result = values_equal(ctx, &a, &b);
+    JitTaggedValue::bool(result)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_not_equal(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+pub extern "C" fn rt_not_equal(
+    ctx: *mut JitContext,
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    let result = values_equal(a, b);
-    ctx.alloc(Value::Boolean(!result))
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    let result = values_equal(ctx, &a, &b);
+    JitTaggedValue::bool(!result)
 }
 
-fn values_equal(a: &Value, b: &Value) -> bool {
+fn values_equal(ctx: &JitContext, a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Integer(l), Value::Integer(r)) => l == r,
         (Value::Float(l), Value::Float(r)) => l == r,
@@ -355,6 +555,28 @@ fn values_equal(a: &Value, b: &Value) -> bool {
         (Value::Left(l), Value::Left(r)) => l == r,
         (Value::Right(l), Value::Right(r)) => l == r,
         (Value::Tuple(l), Value::Tuple(r)) => l == r,
+        (Value::AdtUnit(l), Value::AdtUnit(r)) => l == r,
+        (left, right) if left.type_name() == "Adt" && right.type_name() == "Adt" => {
+            match (left.as_adt(&ctx.gc_heap), right.as_adt(&ctx.gc_heap)) {
+                (Some(left_adt), Some(right_adt)) => {
+                    if left_adt.constructor() != right_adt.constructor() {
+                        return false;
+                    }
+                    let left_fields = left_adt.fields();
+                    let right_fields = right_adt.fields();
+                    if left_fields.len() != right_fields.len() {
+                        return false;
+                    }
+                    for i in 0..left_fields.len() {
+                        if !values_equal(ctx, &left_fields[i], &right_fields[i]) {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                _ => false,
+            }
+        }
         (Value::Left(_), Value::Right(_)) | (Value::Right(_), Value::Left(_)) => false,
         _ => false,
     }
@@ -363,24 +585,29 @@ fn values_equal(a: &Value, b: &Value) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_greater_than(
     ctx: *mut JitContext,
-    a: *mut Value,
-    b: *mut Value,
-) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Boolean(l > r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Boolean(l > r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Boolean(*l as f64 > *r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Boolean(*l > *r as f64)),
-        (Value::String(l), Value::String(r)) => ctx.alloc(Value::Boolean(l > r)),
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::bool(l > r),
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::bool(l > r),
+        (Value::Integer(l), Value::Float(r)) => JitTaggedValue::bool((*l as f64) > *r),
+        (Value::Float(l), Value::Integer(r)) => JitTaggedValue::bool(*l > *r as f64),
+        (Value::String(l), Value::String(r)) => JitTaggedValue::bool(l > r),
         _ => {
             ctx.error = Some(format!(
                 "cannot compare {} and {}",
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
@@ -388,24 +615,29 @@ pub extern "C" fn rt_greater_than(
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_less_than_or_equal(
     ctx: *mut JitContext,
-    a: *mut Value,
-    b: *mut Value,
-) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Boolean(l <= r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Boolean(l <= r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Boolean(*l as f64 <= *r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Boolean(*l <= *r as f64)),
-        (Value::String(l), Value::String(r)) => ctx.alloc(Value::Boolean(l <= r)),
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::bool(l <= r),
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::bool(l <= r),
+        (Value::Integer(l), Value::Float(r)) => JitTaggedValue::bool((*l as f64) <= *r),
+        (Value::Float(l), Value::Integer(r)) => JitTaggedValue::bool(*l <= *r as f64),
+        (Value::String(l), Value::String(r)) => JitTaggedValue::bool(l <= r),
         _ => {
             ctx.error = Some(format!(
                 "cannot compare {} and {}",
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
@@ -413,24 +645,29 @@ pub extern "C" fn rt_less_than_or_equal(
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_greater_than_or_equal(
     ctx: *mut JitContext,
-    a: *mut Value,
-    b: *mut Value,
-) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Boolean(l >= r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Boolean(l >= r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Boolean(*l as f64 >= *r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Boolean(*l >= *r as f64)),
-        (Value::String(l), Value::String(r)) => ctx.alloc(Value::Boolean(l >= r)),
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::bool(l >= r),
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::bool(l >= r),
+        (Value::Integer(l), Value::Float(r)) => JitTaggedValue::bool((*l as f64) >= *r),
+        (Value::Float(l), Value::Integer(r)) => JitTaggedValue::bool(*l >= *r as f64),
+        (Value::String(l), Value::String(r)) => JitTaggedValue::bool(l >= r),
         _ => {
             ctx.error = Some(format!(
                 "cannot compare {} and {}",
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
@@ -438,6 +675,118 @@ pub extern "C" fn rt_greater_than_or_equal(
 // ---------------------------------------------------------------------------
 // Base function calls
 // ---------------------------------------------------------------------------
+
+/// Register a mutual tail call thunk so the trampoline loop in `jit_execute`
+/// can re-invoke the target without growing the native call stack.
+///
+/// The JIT function that emits a mutual tail call stores the callee index and
+/// the tagged argument array here, then returns `JIT_TAG_THUNK` to the caller.
+/// The `JitContext::pending_thunk` field is consumed by `invoke_jit_thunk` in
+/// `src/jit/mod.rs`.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_set_thunk(
+    ctx: *mut JitContext,
+    fn_index: i64,
+    args_ptr: *const JitTaggedValue,
+    nargs: i64,
+) -> JitTaggedValue {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let args = unsafe { from_raw_parts(args_ptr, nargs as usize) }.to_vec();
+    ctx.pending_thunk = Some(JitThunk {
+        fn_index: fn_index as usize,
+        args,
+    });
+    JitTaggedValue {
+        tag: JIT_TAG_THUNK,
+        payload: 0,
+    }
+}
+
+/// Call a Base function by index, passing args as a tagged-value array
+/// (16 bytes each: `i64 tag` + `i64 payload`).
+///
+/// Unlike [`rt_call_base_function`], this avoids arena allocation for
+/// unboxed `Int` / `Float` / `Bool` arguments: they are materialised inline
+/// as stack `Value`s and passed by borrowed reference, so no `*mut Value`
+/// arena slot is needed per primitive argument.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_call_base_function_tagged(
+    ctx: *mut JitContext,
+    base_fn_index: i64,
+    args_ptr: *const JitTaggedValue,
+    nargs: i64,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    match get_base_function_by_index(base_fn_index as usize) {
+        Some(_) => {}
+        None => {
+            ctx.error = Some(format!("unknown Base function index: {}", base_fn_index));
+            return ptr::null_mut();
+        }
+    }
+
+    let nargs = nargs as usize;
+    let tagged_args = unsafe { from_raw_parts(args_ptr, nargs) };
+
+    // Materialise each arg. For Int/Float/Bool we own the Value on the stack;
+    // for PTR we borrow through the raw arena pointer. Pre-allocating
+    // `owned_storage` to `nargs` ensures it never reallocates, keeping
+    // the pointers we store in `refs` valid for the entire call.
+    let mut owned_storage: Vec<Value> = Vec::with_capacity(nargs);
+    let mut refs: Vec<*const Value> = Vec::with_capacity(nargs);
+    for &tagged in tagged_args {
+        match tagged.tag {
+            JIT_TAG_INT => {
+                owned_storage.push(Value::Integer(tagged.payload));
+                refs.push(owned_storage.last().unwrap() as *const Value);
+            }
+            JIT_TAG_FLOAT => {
+                owned_storage.push(Value::Float(f64::from_bits(tagged.payload as u64)));
+                refs.push(owned_storage.last().unwrap() as *const Value);
+            }
+            JIT_TAG_BOOL => {
+                owned_storage.push(Value::Boolean(tagged.payload != 0));
+                refs.push(owned_storage.last().unwrap() as *const Value);
+            }
+            JIT_TAG_PTR => {
+                if tagged.payload == 0 {
+                    ctx.error = Some(format!(
+                        "base function arg {} evaluated to null",
+                        refs.len()
+                    ));
+                    return ptr::null_mut();
+                }
+                refs.push(tagged.payload as *const Value);
+            }
+            _ => {
+                ctx.error = Some(format!("unknown tag {} in base function arg", tagged.tag));
+                return ptr::null_mut();
+            }
+        }
+    }
+
+    // SAFETY: `owned_storage` is not moved/reallocated after we took interior
+    // pointers (capacity == nargs, at most nargs elements pushed). Arena-backed
+    // PTR pointers remain valid — no GC fires inside `invoke_base_function_borrowed`.
+    let borrowed: Vec<&Value> = refs.into_iter().map(|p| unsafe { &*p }).collect();
+    match ctx.invoke_base_function_borrowed(base_fn_index as usize, &borrowed) {
+        Ok(result) => ctx.alloc(result),
+        Err(msg) => {
+            ctx.error = Some(ctx.render_runtime_error_from_string(
+                &msg,
+                start_line as usize,
+                start_column as usize,
+                end_line as usize,
+                end_column as usize,
+            ));
+            ptr::null_mut()
+        }
+    }
+}
 
 /// Call a Base function by index. Arguments are passed as an array of
 /// `*mut Value` pointers.
@@ -447,31 +796,42 @@ pub extern "C" fn rt_call_base_function(
     base_fn_index: i64,
     args_ptr: *const *mut Value,
     nargs: i64,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    let base_fn = match get_base_function_by_index(base_fn_index as usize) {
-        Some(b) => b,
+    match get_base_function_by_index(base_fn_index as usize) {
+        Some(_) => {}
         None => {
             ctx.error = Some(format!("unknown Base function index: {}", base_fn_index));
             return ptr::null_mut();
         }
-    };
+    }
 
-    // Collect arguments from pointer array
-    let mut args: Vec<Value> = Vec::with_capacity(nargs as usize);
+    // Collect borrowed arguments from the pointer array. Borrow-capable Base
+    // functions can use them directly; owned-only ones fall back to cloning.
+    let mut args: Vec<&Value> = Vec::with_capacity(nargs as usize);
     for i in 0..nargs as usize {
         let arg_ptr = unsafe { *args_ptr.add(i) };
         if arg_ptr.is_null() {
             ctx.error = Some(format!("base function arg {} evaluated to null", i));
             return ptr::null_mut();
         }
-        args.push(unsafe { (*arg_ptr).clone() });
+        args.push(unsafe { &*arg_ptr });
     }
 
-    match (base_fn.func)(ctx, args) {
+    match ctx.invoke_base_function_borrowed(base_fn_index as usize, &args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
-            ctx.error = Some(msg);
+            ctx.error = Some(ctx.render_runtime_error_from_string(
+                &msg,
+                start_line as usize,
+                start_column as usize,
+                end_line as usize,
+                end_column as usize,
+            ));
             ptr::null_mut()
         }
     }
@@ -483,6 +843,10 @@ pub extern "C" fn rt_call_primop(
     primop_id: i64,
     args_ptr: *const *mut Value,
     nargs: i64,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
 
@@ -507,7 +871,14 @@ pub extern "C" fn rt_call_primop(
     match execute_primop(ctx, op, args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
-            ctx.error = Some(msg);
+            ctx.error = Some(ctx.render_runtime_error_message(
+                "E1004",
+                &msg,
+                start_line as usize,
+                start_column as usize,
+                end_line as usize,
+                end_column as usize,
+            ));
             ptr::null_mut()
         }
     }
@@ -519,6 +890,10 @@ pub extern "C" fn rt_call_value(
     callee: *mut Value,
     args_ptr: *const *mut Value,
     nargs: i64,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     let callee_value = unsafe { (*callee).clone() };
@@ -535,7 +910,13 @@ pub extern "C" fn rt_call_value(
     match crate::runtime::RuntimeContext::invoke_value(ctx, callee_value, args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
-            ctx.error = Some(msg);
+            ctx.error = Some(ctx.render_runtime_error_from_string(
+                &msg,
+                start_line as usize,
+                start_column as usize,
+                end_line as usize,
+                end_column as usize,
+            ));
             ptr::null_mut()
         }
     }
@@ -574,8 +955,10 @@ pub extern "C" fn rt_check_jit_contract_call(
     function_index: i64,
     args_ptr: *const *mut Value,
     nargs: i64,
-    line: i64,
-    column: i64,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
 ) -> i64 {
     let ctx = unsafe { ctx_ref(ctx) };
     for i in 0..nargs as usize {
@@ -586,11 +969,47 @@ pub extern "C" fn rt_check_jit_contract_call(
         }
         let arg = unsafe { &*arg_ptr };
         if let Err((expected, actual)) = ctx.check_contract_arg(function_index as usize, i, arg) {
+            let preview = arg.to_string();
             ctx.error = Some(ctx.render_runtime_type_error_at(
                 &expected,
                 &actual,
-                line as usize,
-                column as usize,
+                Some(&preview),
+                start_line as usize,
+                start_column as usize,
+                end_line as usize,
+                end_column as usize,
+            ));
+            return 0;
+        }
+    }
+    1
+}
+
+fn check_jit_contract_call_args(
+    ctx: &mut JitContext,
+    function_index: usize,
+    args: &[*mut Value],
+    start_line: usize,
+    start_column: usize,
+    end_line: usize,
+    end_column: usize,
+) -> i64 {
+    for (i, arg_ptr) in args.iter().copied().enumerate() {
+        if arg_ptr.is_null() {
+            ctx.error = Some(format!("call arg {} evaluated to null", i));
+            return 0;
+        }
+        let arg = unsafe { &*arg_ptr };
+        if let Err((expected, actual)) = ctx.check_contract_arg(function_index, i, arg) {
+            let preview = arg.to_string();
+            ctx.error = Some(ctx.render_runtime_type_error_at(
+                &expected,
+                &actual,
+                Some(&preview),
+                start_line,
+                start_column,
+                end_line,
+                end_column,
             ));
             return 0;
         }
@@ -599,12 +1018,108 @@ pub extern "C" fn rt_check_jit_contract_call(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rt_check_jit_contract_call1(
+    ctx: *mut JitContext,
+    function_index: i64,
+    arg0: *mut Value,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
+) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    check_jit_contract_call_args(
+        ctx,
+        function_index as usize,
+        &[arg0],
+        start_line as usize,
+        start_column as usize,
+        end_line as usize,
+        end_column as usize,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_check_jit_contract_call2(
+    ctx: *mut JitContext,
+    function_index: i64,
+    arg0: *mut Value,
+    arg1: *mut Value,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
+) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    check_jit_contract_call_args(
+        ctx,
+        function_index as usize,
+        &[arg0, arg1],
+        start_line as usize,
+        start_column as usize,
+        end_line as usize,
+        end_column as usize,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_check_jit_contract_call3(
+    ctx: *mut JitContext,
+    function_index: i64,
+    arg0: *mut Value,
+    arg1: *mut Value,
+    arg2: *mut Value,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
+) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    check_jit_contract_call_args(
+        ctx,
+        function_index as usize,
+        &[arg0, arg1, arg2],
+        start_line as usize,
+        start_column as usize,
+        end_line as usize,
+        end_column as usize,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_check_jit_contract_call4(
+    ctx: *mut JitContext,
+    function_index: i64,
+    arg0: *mut Value,
+    arg1: *mut Value,
+    arg2: *mut Value,
+    arg3: *mut Value,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
+) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    check_jit_contract_call_args(
+        ctx,
+        function_index as usize,
+        &[arg0, arg1, arg2, arg3],
+        start_line as usize,
+        start_column as usize,
+        end_line as usize,
+        end_column as usize,
+    )
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rt_check_jit_contract_return(
     ctx: *mut JitContext,
     function_index: i64,
     value: *mut Value,
-    line: i64,
-    column: i64,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     if value.is_null() {
@@ -612,11 +1127,15 @@ pub extern "C" fn rt_check_jit_contract_return(
     }
     let value_ref = unsafe { &*value };
     if let Err((expected, actual)) = ctx.check_contract_return(function_index as usize, value_ref) {
+        let preview = value_ref.to_string();
         ctx.error = Some(ctx.render_runtime_type_error_at(
             &expected,
             &actual,
-            line as usize,
-            column as usize,
+            Some(&preview),
+            start_line as usize,
+            start_column as usize,
+            end_line as usize,
+            end_column as usize,
         ));
         return ptr::null_mut();
     }
@@ -742,7 +1261,8 @@ pub extern "C" fn rt_unwrap_right(ctx: *mut JitContext, value: *mut Value) -> *m
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_values_equal(_ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> i64 {
     let (a, b) = unsafe { (&*a, &*b) };
-    if values_equal(a, b) { 1 } else { 0 }
+    let ctx = unsafe { ctx_ref(_ctx) };
+    if values_equal(ctx, a, b) { 1 } else { 0 }
 }
 
 // ---------------------------------------------------------------------------
@@ -752,44 +1272,61 @@ pub extern "C" fn rt_values_equal(_ctx: *mut JitContext, a: *mut Value, b: *mut 
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_make_array(
     ctx: *mut JitContext,
-    elements_ptr: *const *mut Value,
+    elements_ptr: *const JitTaggedValue,
     len: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    let mut elements = Vec::with_capacity(len as usize);
-    for i in 0..len as usize {
-        let elem = unsafe { (*elements_ptr.add(i)).as_ref().unwrap().clone() };
-        elements.push(elem);
+    if len == 0 {
+        return ctx.alloc(Value::Array(Rc::new(vec![])));
     }
+    let Some(elements) =
+        clone_values_from_tagged_ptrs(ctx, elements_ptr, len as usize, "array construction")
+    else {
+        return ptr::null_mut();
+    };
     ctx.alloc(Value::Array(Rc::new(elements)))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_make_tuple(
     ctx: *mut JitContext,
-    elements_ptr: *const *mut Value,
+    elements_ptr: *const JitTaggedValue,
     len: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    let mut elements = Vec::with_capacity(len as usize);
-    for i in 0..len as usize {
-        let elem = unsafe { (*elements_ptr.add(i)).as_ref().unwrap().clone() };
-        elements.push(elem);
-    }
+    let Some(elements) =
+        clone_values_from_tagged_ptrs(ctx, elements_ptr, len as usize, "tuple construction")
+    else {
+        return ptr::null_mut();
+    };
     ctx.alloc(Value::Tuple(Rc::new(elements)))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_make_hash(
     ctx: *mut JitContext,
-    pairs_ptr: *const *mut Value,
+    pairs_ptr: *const JitTaggedValue,
     npairs: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     let mut root = hamt_empty(&mut ctx.gc_heap);
     for i in 0..npairs as usize {
-        let key = unsafe { (*pairs_ptr.add(i * 2)).as_ref().unwrap().clone() };
-        let value = unsafe { (*pairs_ptr.add(i * 2 + 1)).as_ref().unwrap().clone() };
+        let Some(key) = clone_tagged_arg(
+            ctx,
+            unsafe { *pairs_ptr.add(i * 2) },
+            "hash construction",
+            i * 2,
+        ) else {
+            return ptr::null_mut();
+        };
+        let Some(value) = clone_tagged_arg(
+            ctx,
+            unsafe { *pairs_ptr.add(i * 2 + 1) },
+            "hash construction",
+            i * 2 + 1,
+        ) else {
+            return ptr::null_mut();
+        };
         let hash_key = match key.to_hash_key() {
             Some(k) => k,
             None => {
@@ -945,9 +1482,10 @@ pub extern "C" fn rt_tuple_get(ctx: *mut JitContext, value: *mut Value, index: i
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_to_string(ctx: *mut JitContext, value: *mut Value) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
     let v = unsafe { &*value };
-    let s = v.to_string_value();
-    unsafe { ctx_ref(ctx) }.alloc(Value::String(s.into()))
+    let s = format_value(ctx, v);
+    ctx.alloc(Value::String(s.into()))
 }
 
 // ---------------------------------------------------------------------------
@@ -959,9 +1497,11 @@ pub extern "C" fn rt_make_adt(
     ctx: *mut JitContext,
     constructor_ptr: *const u8,
     constructor_len: i64,
-    fields_ptr: *const *mut Value,
+    fields_ptr: *const JitTaggedValue,
     arity: i64,
 ) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    maybe_collect_gc(ctx);
     // ABI contract: constructor bytes are emitted by the compiler/JIT and must be valid UTF-8.
     let constructor: Rc<str> = {
         let s = unsafe {
@@ -972,15 +1512,179 @@ pub extern "C" fn rt_make_adt(
 
     // Fields arrive as raw `*mut Value` pointers; clone into owned runtime values.
     // The helper assumes each pointer is non-null and points to a live Value.
-    let fields: Vec<Value> = (0..arity as usize)
-        .map(|i| unsafe { (*fields_ptr.add(i)).as_ref().unwrap().clone() })
-        .collect();
+    let Some(fields) =
+        clone_values_from_tagged_ptrs(ctx, fields_ptr, arity as usize, "adt construction")
+    else {
+        return ptr::null_mut();
+    };
 
     // Allocate ADT object in the JIT context arena and return the boxed runtime pointer.
-    unsafe { ctx_ref(ctx) }.alloc(Value::Adt(Rc::new(AdtValue {
+    // Nullary constructors use the lighter `AdtUnit` representation.
+    if fields.is_empty() {
+        ctx.alloc(Value::AdtUnit(constructor))
+    } else {
+        let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+            constructor,
+            fields: AdtFields::from_vec(fields),
+        });
+        ctx.alloc(Value::GcAdt(handle))
+    }
+}
+
+/// Unit (nullary) ADT constructor with interning — returns the same `*mut Value` for
+/// each unique constructor name within a program execution, avoiding repeated arena
+/// allocations for identical unit values such as `None`, `True`, `False`, etc.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_intern_unit_adt(
+    ctx: *mut JitContext,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let name =
+        unsafe { from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize)) };
+    ctx.intern_unit_adt(name)
+}
+
+/// Specialized 1-field ADT constructor — avoids stack-slot + loop overhead.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_adt1(
+    ctx: *mut JitContext,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+    f0: *mut Value,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    maybe_collect_gc(ctx);
+    let constructor: Rc<str> = {
+        let s = unsafe {
+            from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
+        };
+        Rc::from(s)
+    };
+    let v0 = unsafe { (*f0).clone() };
+    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
         constructor,
-        fields,
-    })))
+        fields: AdtFields::from_vec(vec![v0]),
+    });
+    ctx.alloc(Value::GcAdt(handle))
+}
+
+/// Specialized 2-field ADT constructor — avoids stack-slot + loop overhead.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_adt2(
+    ctx: *mut JitContext,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+    f0: *mut Value,
+    f1: *mut Value,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    maybe_collect_gc(ctx);
+    let constructor: Rc<str> = {
+        let s = unsafe {
+            from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
+        };
+        Rc::from(s)
+    };
+    let v0 = unsafe { (*f0).clone() };
+    let v1 = unsafe { (*f1).clone() };
+    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+        constructor,
+        fields: AdtFields::from_vec(vec![v0, v1]),
+    });
+    ctx.alloc(Value::GcAdt(handle))
+}
+
+/// Specialized 3-field ADT constructor — avoids stack-slot + loop overhead.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_adt3(
+    ctx: *mut JitContext,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+    f0: *mut Value,
+    f1: *mut Value,
+    f2: *mut Value,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    maybe_collect_gc(ctx);
+    let constructor: Rc<str> = {
+        let s = unsafe {
+            from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
+        };
+        Rc::from(s)
+    };
+    let v0 = unsafe { (*f0).clone() };
+    let v1 = unsafe { (*f1).clone() };
+    let v2 = unsafe { (*f2).clone() };
+    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+        constructor,
+        fields: AdtFields::from_vec(vec![v0, v1, v2]),
+    });
+    ctx.alloc(Value::GcAdt(handle))
+}
+
+/// Specialized 4-field ADT constructor — avoids stack-slot + loop overhead.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_adt4(
+    ctx: *mut JitContext,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+    f0: *mut Value,
+    f1: *mut Value,
+    f2: *mut Value,
+    f3: *mut Value,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    maybe_collect_gc(ctx);
+    let constructor: Rc<str> = {
+        let s = unsafe {
+            from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
+        };
+        Rc::from(s)
+    };
+    let v0 = unsafe { (*f0).clone() };
+    let v1 = unsafe { (*f1).clone() };
+    let v2 = unsafe { (*f2).clone() };
+    let v3 = unsafe { (*f3).clone() };
+    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+        constructor,
+        fields: AdtFields::from_vec(vec![v0, v1, v2, v3]),
+    });
+    ctx.alloc(Value::GcAdt(handle))
+}
+
+/// Specialized 5-field ADT constructor — avoids stack-slot + loop overhead.
+/// Covers `Node(Color, Tree, Int, Bool, Tree)` in rbtree benchmarks.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_adt5(
+    ctx: *mut JitContext,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+    f0: *mut Value,
+    f1: *mut Value,
+    f2: *mut Value,
+    f3: *mut Value,
+    f4: *mut Value,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    maybe_collect_gc(ctx);
+    let constructor: Rc<str> = {
+        let s = unsafe {
+            from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
+        };
+        Rc::from(s)
+    };
+    let v0 = unsafe { (*f0).clone() };
+    let v1 = unsafe { (*f1).clone() };
+    let v2 = unsafe { (*f2).clone() };
+    let v3 = unsafe { (*f3).clone() };
+    let v4 = unsafe { (*f4).clone() };
+    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+        constructor,
+        fields: AdtFields::from_vec(vec![v0, v1, v2, v3, v4]),
+    });
+    ctx.alloc(Value::GcAdt(handle))
 }
 
 #[unsafe(no_mangle)]
@@ -990,7 +1694,7 @@ pub extern "C" fn rt_is_adt_constructor(
     constructor_ptr: *const u8,
     constructor_len: i64,
 ) -> i64 {
-    let _ = ctx;
+    let ctx = unsafe { ctx_ref(ctx) };
     // Null values never match any constructor tag.
     if value.is_null() {
         return 0;
@@ -1001,9 +1705,9 @@ pub extern "C" fn rt_is_adt_constructor(
         unsafe { from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize)) };
 
     match unsafe { &*value } {
-        Value::Adt(adt) => {
-            // Constructor comparison is a tag-name equality check.
-            if adt.constructor.as_ref() == expected {
+        value if value.adt_constructor(&ctx.gc_heap) == Some(expected) => 1,
+        Value::AdtUnit(name) => {
+            if name.as_ref() == expected {
                 1
             } else {
                 0
@@ -1029,22 +1733,27 @@ pub extern "C" fn rt_adt_field(
     }
 
     match unsafe { &*value } {
-        Value::Adt(adt) => {
+        value @ (Value::Adt(_) | Value::GcAdt(_)) => {
             // Field index comes from JIT as i64 and is interpreted as usize.
             let idx = field_idx as usize;
-
-            if idx < adt.fields.len() {
-                // Return a freshly allocated clone for uniform pointer ownership semantics.
-                ctx.alloc(adt.fields[idx].clone())
+            if let Some(field) = value.adt_clone_field(&ctx.gc_heap, idx) {
+                ctx.alloc(field)
             } else {
+                let len = value.adt_field_count(&ctx.gc_heap).unwrap_or(0);
                 // Out-of-bounds ADT field access is reported through JitContext error state.
                 ctx.error = Some(format!(
                     "adt field index {} out of bounds (len={})",
-                    idx,
-                    adt.fields.len()
+                    idx, len
                 ));
                 ptr::null_mut()
             }
+        }
+        Value::AdtUnit(name) => {
+            ctx.error = Some(format!(
+                "adt field index {} out of bounds (AdtUnit '{}' has 0 fields)",
+                field_idx, name
+            ));
+            ptr::null_mut()
         }
         _ => {
             // Accessing fields on non-ADT values is a type error.
@@ -1159,6 +1868,8 @@ pub extern "C" fn rt_perform(
                     &format!("unhandled operation: {}.{}", effect_name, op_name),
                     line,
                     column,
+                    line,
+                    column,
                 ));
                 return ptr::null_mut();
             }
@@ -1173,6 +1884,8 @@ pub extern "C" fn rt_perform(
                         "unhandled effect: {} (no matching handle block)",
                         effect_name
                     ),
+                    line,
+                    column,
                     line,
                     column,
                 ));
@@ -1201,7 +1914,16 @@ pub extern "C" fn rt_perform(
 
     let ctx_mut = unsafe { ctx_ref(ctx) };
     match ctx_mut.invoke_value(arm_closure, call_args) {
-        Ok(result) => ctx_mut.alloc(result),
+        Ok(result) => {
+            // The handler arm's resume(v) returns v. When v is ()
+            // (empty tuple), normalize it to None (Unit) so the perform
+            // call site gets the expected type.
+            let normalized = match &result {
+                Value::Tuple(fields) if fields.is_empty() => Value::None,
+                _ => result,
+            };
+            ctx_mut.alloc(normalized)
+        }
         Err(msg) => {
             ctx_mut.error = Some(msg);
             ptr::null_mut()
@@ -1221,6 +1943,10 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_make_float", rt_make_float as *const u8),
         ("rt_make_bool", rt_make_bool as *const u8),
         ("rt_make_none", rt_make_none as *const u8),
+        ("rt_division_by_zero", rt_division_by_zero as *const u8),
+        ("rt_force_boxed", rt_force_boxed as *const u8),
+        ("rt_push_gc_roots", rt_push_gc_roots as *const u8),
+        ("rt_pop_gc_roots", rt_pop_gc_roots as *const u8),
         ("rt_make_empty_list", rt_make_empty_list as *const u8),
         ("rt_make_string", rt_make_string as *const u8),
         ("rt_make_base_function", rt_make_base_function as *const u8),
@@ -1237,6 +1963,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_negate", rt_negate as *const u8),
         ("rt_not", rt_not as *const u8),
         ("rt_is_truthy", rt_is_truthy as *const u8),
+        ("rt_bool_value", rt_bool_value as *const u8),
         ("rt_equal", rt_equal as *const u8),
         ("rt_not_equal", rt_not_equal as *const u8),
         ("rt_greater_than", rt_greater_than as *const u8),
@@ -1244,6 +1971,11 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         (
             "rt_greater_than_or_equal",
             rt_greater_than_or_equal as *const u8,
+        ),
+        ("rt_set_thunk", rt_set_thunk as *const u8),
+        (
+            "rt_call_base_function_tagged",
+            rt_call_base_function_tagged as *const u8,
         ),
         ("rt_call_base_function", rt_call_base_function as *const u8),
         ("rt_call_primop", rt_call_primop as *const u8),
@@ -1254,6 +1986,22 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         (
             "rt_check_jit_contract_call",
             rt_check_jit_contract_call as *const u8,
+        ),
+        (
+            "rt_check_jit_contract_call1",
+            rt_check_jit_contract_call1 as *const u8,
+        ),
+        (
+            "rt_check_jit_contract_call2",
+            rt_check_jit_contract_call2 as *const u8,
+        ),
+        (
+            "rt_check_jit_contract_call3",
+            rt_check_jit_contract_call3 as *const u8,
+        ),
+        (
+            "rt_check_jit_contract_call4",
+            rt_check_jit_contract_call4 as *const u8,
         ),
         (
             "rt_check_jit_contract_return",
@@ -1284,7 +2032,13 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         // Phase 4: string ops
         ("rt_to_string", rt_to_string as *const u8),
         // Phase 5: ADT helpers
+        ("rt_intern_unit_adt", rt_intern_unit_adt as *const u8),
         ("rt_make_adt", rt_make_adt as *const u8),
+        ("rt_make_adt1", rt_make_adt1 as *const u8),
+        ("rt_make_adt2", rt_make_adt2 as *const u8),
+        ("rt_make_adt3", rt_make_adt3 as *const u8),
+        ("rt_make_adt4", rt_make_adt4 as *const u8),
+        ("rt_make_adt5", rt_make_adt5 as *const u8),
         ("rt_is_adt_constructor", rt_is_adt_constructor as *const u8),
         ("rt_adt_field", rt_adt_field as *const u8),
         // Algebraic effects

@@ -1,5 +1,6 @@
 - Feature Name: Auto-Currying and Placeholder Partial Application
 - Start Date: 2026-02-26
+- Status: Not Implemented
 - Proposal PR: 
 - Flux Issue: 
 

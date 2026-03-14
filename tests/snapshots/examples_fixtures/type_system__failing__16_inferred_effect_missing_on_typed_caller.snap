@@ -5,25 +5,11 @@ Fixture: examples/type_system/failing/16_inferred_effect_missing_on_typed_caller
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E400]: MISSING EFFECT
-
-Call to `sink` requires effect `IO` in this function signature.
-
-  --> examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:8:5
-  |
-8 |     sink("hello")
-  |     ^^^^
-  |     ---- effectful call occurs here
-
-Hint:
-  Add `with IO` to the enclosing function.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Time).
 
-  --> examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:12:1
+  examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:12:1
    |
 12 | typed_time_only()
    | ^^^^^^^^^^^^^^^^^
@@ -33,11 +19,11 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  --> examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:12:1
+  examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:12:1
    |
 12 | typed_time_only()
    | ^^^^^^^^^^^^^^^^^
@@ -45,6 +31,25 @@ Effectful program is missing `fn main` root effect handler.
 
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
+
+
+error[E400]: Missing Effect
+
+requires effect `Time` but the enclosing context does not provide it
+
+  examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:12:1
+   |
+12 | typed_time_only()
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- requires `Time`
+
+Hint:
+  annotate the enclosing function with `with Time`
+
+
+Note: Downstream Errors Suppressed
+
+I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
 
 Found 3 errors.
 == stdout ==

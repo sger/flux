@@ -5,11 +5,11 @@ Fixture: examples/errors/module_and_script_error.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E018]: IMPORT NOT FOUND
+error[E018]: Import Not Found
 
 Cannot find module `Modules.Data.MyFile` to import.
 
-  --> examples/errors/module_and_script_error.flx:1:1
+  examples/errors/module_and_script_error.flx:1:1
   |
 1 | import Modules.Data.MyFile
   | ^

@@ -1,0 +1,20 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/PrivateMemberAccess.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E011]: Private Member
+
+Cannot access private member `_private_secret`.
+
+  examples/compiler_errors/adversarial/common_dev_mistakes/PrivateMemberAccess.flx:5:9
+  |
+5 |         HiddenApi._private_secret()
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+== stdout ==
+<not executed>

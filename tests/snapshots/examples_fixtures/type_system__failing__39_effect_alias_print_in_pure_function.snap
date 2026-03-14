@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/39_effect_alias_print_in_pure_function.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E400]: MISSING EFFECT
+error[E400]: Missing Ambient Effect
 
 Call to `p` requires effect `IO` in this function signature.
 
-  --> examples/type_system/failing/39_effect_alias_print_in_pure_function.flx:5:5
+  examples/type_system/failing/39_effect_alias_print_in_pure_function.flx:5:5
   |
 5 |     p("hi")
   |     ^

@@ -9,12 +9,20 @@ use crate::runtime::{
     value::Value,
 };
 
-use super::helpers::{check_arity, format_hint, type_error};
+use super::helpers::{check_arity_ref, format_hint, type_error};
 
 /// hd(list) - Returns the head (first element) of a cons list.
 pub(super) fn base_hd(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 1, "hd", "hd(list)")?;
-    match &args[0] {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_hd_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_hd_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "hd", "hd(list)")?;
+    match args[0] {
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { head, .. } => Ok(head.clone()),
             _ => Err(type_error(
@@ -41,8 +49,16 @@ pub(super) fn base_hd(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<
 
 /// tl(list) - Returns the tail of a cons list.
 pub(super) fn base_tl(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 1, "tl", "tl(list)")?;
-    match &args[0] {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_tl_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_tl_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "tl", "tl(list)")?;
+    match args[0] {
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { tail, .. } => Ok(tail.clone()),
             _ => Err(type_error(
@@ -72,8 +88,16 @@ pub(super) fn base_is_list(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 1, "is_list", "is_list(x)")?;
-    let result = match &args[0] {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_is_list_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_is_list_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "is_list", "is_list(x)")?;
+    let result = match args[0] {
         Value::None | Value::EmptyList => true,
         Value::Gc(h) => matches!(ctx.gc_heap().get(*h), HeapObject::Cons { .. }),
         _ => false,
@@ -86,8 +110,16 @@ pub(super) fn base_to_list(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 1, "to_list", "to_list(arr)")?;
-    match &args[0] {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_to_list_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_to_list_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "to_list", "to_list(arr)")?;
+    match args[0] {
         Value::Array(arr) => {
             let mut list = Value::EmptyList;
             for elem in arr.iter().rev() {
@@ -114,7 +146,15 @@ pub(super) fn base_to_array(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 1, "to_array", "to_array(list)")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_to_array_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_to_array_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "to_array", "to_array(list)")?;
     let mut elements = Vec::new();
     let mut current = args[0].clone();
     loop {
@@ -223,6 +263,16 @@ pub fn format_value(ctx: &dyn RuntimeContext, value: &Value) -> String {
                 _ => format!("({})", items.join(", ")),
             }
         }
+        Value::GcAdt(_) | Value::Adt(_) => {
+            if let Some(adt) = value.as_adt(ctx.gc_heap()) {
+                let items: Vec<String> =
+                    adt.fields().iter().map(|v| format_value(ctx, v)).collect();
+                format!("{}({})", adt.constructor(), items.join(", "))
+            } else {
+                value.to_string()
+            }
+        }
+        Value::AdtUnit(name) => name.to_string(),
         Value::Gc(h) => {
             if is_hamt(ctx.gc_heap(), *h) {
                 format_hamt(ctx.gc_heap(), *h)

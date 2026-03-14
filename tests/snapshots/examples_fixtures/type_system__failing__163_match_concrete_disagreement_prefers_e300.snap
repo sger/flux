@@ -5,20 +5,29 @@ Fixture: examples/type_system/failing/163_match_concrete_disagreement_prefers_e3
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+error[E300]: Match Arm Type Mismatch
 
-The arms of this `match` expression produce different types.
+The arms of this `match` expression do not agree on a type.
 
-  --> examples/type_system/failing/163_match_concrete_disagreement_prefers_e300.flx:4:18
+  examples/type_system/failing/163_match_concrete_disagreement_prefers_e300.flx:4:18
   |
 3 |         true -> 1,
-
   |                 - first arm returns `Int`
+
+  |                 - this arm established the expected type
 4 |         false -> "oops",
   |                  ^^^^^^
-  |                  ------ arm 2 returns `String`
+  |                  ------ arm 2 has type `String`
+
+  |                  ------ arm 2 conflicts with that type
+
+Note:
+  first arm type: Int
+  this arm type: String
+  the first arm fixes the type expected from the whole `match`
+  this arm produces the competing type
 
 Help:
-  All match arms must return the same type. Change arm 2 to return `Int`.
+  Change arm 2 so every arm returns the same type.
 == stdout ==
 <not executed>

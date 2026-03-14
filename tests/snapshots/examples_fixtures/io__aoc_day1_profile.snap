@@ -5,11 +5,32 @@ Fixture: examples/io/aoc_day1_profile.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/io/aoc_day1_profile.flx:18:9
+   |
+18 |         0 - distance
+   |         ^^^^^^^^^^^^
+   |         ------------ this expression has type `Int and Option<Int>`
+
+   |         ------------ operator operands are known at compile time
+
+Note:
+  expected type: numeric operands (Int or Float)
+  found type: Int and Option<Int>
+
+Help:
+  These two types are not compatible.
+  adjust operand types or add explicit conversion
+
+
+error[E004]: Undefined Variable
 
 I can't find a value named `parse_rotations`.
 
-  --> examples/io/aoc_day1_profile.flx:27:9
+  examples/io/aoc_day1_profile.flx:27:9
    |
 27 |         parse_rotations(rest, acc)
    |         ^^^^^^^^^^^^^^^
@@ -17,16 +38,15 @@ I can't find a value named `parse_rotations`.
 Hint:
   Define it first: let parse_rotations = ...;
 
-
 Help:
   Did you mean `parse_rotation`?
 
 
---> compiler error[E004]: UNDEFINED VARIABLE
+error[E004]: Undefined Variable
 
 I can't find a value named `solve_steps`.
 
-  --> examples/io/aoc_day1_profile.flx:43:9
+  examples/io/aoc_day1_profile.flx:43:9
    |
 43 |         solve_steps(rest, next_pos, hits + 1)
    |         ^^^^^^^^^^^
@@ -34,6 +54,6 @@ I can't find a value named `solve_steps`.
 Hint:
   Define it first: let solve_steps = ...;
 
-Found 2 errors.
+Found 3 errors.
 == stdout ==
 <not executed>

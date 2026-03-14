@@ -1,0 +1,32 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/header_counts/ErrorNoteMain.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Annotation Type Mismatch
+
+The value of `value` does not match its type annotation.
+
+  examples/compiler_errors/header_counts/ErrorNoteMain.flx:5:22
+  |
+5 |     let value: Int = "oops"
+  |                      ^^^^^^
+  |                      ------ this value has type `String`
+
+  |                --- but `value` was annotated as `Int`
+
+Note:
+  annotated type: Int
+  value type: String
+
+Help:
+  Change `value` to a `Int` value or update the annotation.
+
+
+Note: Downstream Errors Suppressed
+
+I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
+== stdout ==
+<not executed>

@@ -1,7 +1,8 @@
 - Feature Name: Bytecode Decode & Pass-Oriented Rewriting API
 - Start Date: 2026-02-12
-- Proposal PR: 
-- Flux Issue: 
+- Status: Not Implemented
+- Proposal PR:
+- Flux Issue:
 
 # Proposal 0023: Bytecode Decode & Pass-Oriented Rewriting API
 

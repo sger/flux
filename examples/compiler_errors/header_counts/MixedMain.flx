@@ -1,0 +1,7 @@
+import MixedBroken
+
+fn main() -> Unit {
+    let _x = MixedBroken.SomeInt(1)
+    let value: Int = "oops"
+    print("hi")
+}

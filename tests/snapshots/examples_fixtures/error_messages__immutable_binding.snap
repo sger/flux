@@ -5,11 +5,11 @@ Fixture: examples/error_messages/immutable_binding.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E002]: IMMUTABLE BINDING
+error[E002]: Immutable Binding
 
 Cannot reassign to immutable variable `count`.
 
-  --> examples/error_messages/immutable_binding.flx:9:1
+  examples/error_messages/immutable_binding.flx:9:1
   |
 9 | count = count + 1;
   | ^^^^^^^^^^^^^^^^^^

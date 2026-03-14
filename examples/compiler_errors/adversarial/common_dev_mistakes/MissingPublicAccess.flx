@@ -1,0 +1,7 @@
+import HiddenApi
+
+module MissingPublicAccess {
+    fn leak() -> Int {
+        HiddenApi.secret()
+    }
+}

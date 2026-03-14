@@ -5,16 +5,19 @@ Fixture: examples/type_system/failing/176_match_missing_open_brace.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
+error[E034]: Missing Match Body
 
 Expected `{` to begin match arms.
 
-  --> examples/type_system/failing/176_match_missing_open_brace.flx:1:17
+  examples/type_system/failing/176_match_missing_open_brace.flx:1:17
   |
 1 | let x = match 1 0 -> 0
   |                 ^
 
 Hint:
   Match expressions use `match value { pattern -> body, ... }`.
+
+Note:
+  while parsing `match` expression
 == stdout ==
 <not executed>

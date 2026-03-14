@@ -1,0 +1,32 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/209_stage_cascade_collapse.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E071]: Unterminated String
+
+String literal is missing closing quote.
+
+  examples/type_system/failing/209_stage_cascade_collapse.flx:4:15
+  |
+4 |     let msg = "hello
+  |               ^^^^^^
+
+Hint:
+  Add a closing " at the end of the string.
+
+
+error[E034]: Unexpected Closing Delimiter
+
+Unexpected `}` outside of a block.
+
+  examples/type_system/failing/209_stage_cascade_collapse.flx:7:1
+  |
+7 | }
+  | ^
+
+Found 2 errors.
+== stdout ==
+<not executed>

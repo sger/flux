@@ -12,56 +12,58 @@ use crate::syntax::{expression::Expression, program::Program};
 /// (e.g., cons syntax from proposal 017, async/await from proposal 026).
 struct DesugarPass;
 
-impl DesugarPass {
-    /// Try to simplify a prefix `!` expression. Returns `Some(simplified)` if
-    /// a rule applies, `None` otherwise.
-    fn try_simplify_not(inner: &Expression) -> Option<Expression> {
-        match inner {
-            // Rule 1: !!x → x
-            Expression::Prefix {
-                operator, right, ..
-            } if operator == "!" => Some(right.as_ref().clone()),
-
-            // Rule 2: !(a == b) → a != b, !(a != b) → a == b
-            Expression::Infix {
-                left,
-                operator,
-                right,
-                span,
-            } => {
-                let flipped = match operator.as_str() {
-                    "==" => Some("!="),
-                    "!=" => Some("=="),
-                    _ => None,
-                };
-                flipped.map(|op| Expression::Infix {
-                    left: left.clone(),
-                    operator: op.to_string(),
-                    right: right.clone(),
-                    span: *span,
-                })
-            }
-
-            _ => None,
-        }
-    }
-}
-
 impl Folder for DesugarPass {
     fn fold_expr(&mut self, expr: Expression) -> Expression {
         // Fold children first (bottom-up)
         let expr = fold::fold_expr(self, expr);
 
-        match &expr {
+        // Only act on `!inner` expressions.
+        let is_not = matches!(&expr, Expression::Prefix { operator, .. } if operator == "!");
+        if !is_not {
+            return expr;
+        }
+
+        // Destructure owned expression to avoid cloning sub-trees.
+        let Expression::Prefix {
+            right, span, id, ..
+        } = expr
+        else {
+            unreachable!()
+        };
+
+        match *right {
+            // Rule 1: !!x → x
             Expression::Prefix {
-                operator, right, ..
-            } if operator == "!" => {
-                if let Some(simplified) = Self::try_simplify_not(right) {
-                    return simplified;
+                ref operator,
+                right: inner,
+                ..
+            } if operator == "!" => *inner,
+
+            // Rule 2: !(a == b) → a != b, !(a != b) → a == b
+            Expression::Infix {
+                left,
+                ref operator,
+                right,
+                span: infix_span,
+                id: infix_id,
+            } if operator == "==" || operator == "!=" => {
+                let flipped = if operator == "==" { "!=" } else { "==" };
+                Expression::Infix {
+                    left,
+                    operator: flipped.to_string(),
+                    right,
+                    span: infix_span,
+                    id: infix_id,
                 }
-                expr
             }
-            _ => expr,
+
+            // No simplification; reconstruct the `!inner` expression.
+            inner => Expression::Prefix {
+                operator: "!".to_string(),
+                right: Box::new(inner),
+                span,
+                id,
+            },
         }
     }
 }

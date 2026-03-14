@@ -1,0 +1,14 @@
+// Base HOF callback effects propagate via explicit row tails.
+
+fn map_passthrough(xs: Array<Int>, f: (Int) -> Int with |e) -> Array<Int> with |e {
+    map(xs, f)
+}
+
+fn add_one(n: Int) -> Int {
+    n + 1
+}
+
+fn main() -> Unit {
+    let doubled = map_passthrough([|1, 2, 3|], add_one)
+    let _ = doubled
+}

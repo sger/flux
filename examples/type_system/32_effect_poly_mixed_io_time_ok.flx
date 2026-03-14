@@ -1,6 +1,6 @@
 // Mixed concrete effects with polymorphic callback propagation.
 
-fn run_with_context(f: (() -> Int with e)) -> Int with IO, Time, e {
+fn run_with_context(f: (() -> Int with |e)) -> Int with IO + Time | e {
     print("context")
     now_ms()
     f()

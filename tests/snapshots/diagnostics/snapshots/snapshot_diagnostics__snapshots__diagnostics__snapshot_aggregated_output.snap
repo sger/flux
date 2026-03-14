@@ -2,23 +2,23 @@
 source: tests/snapshots/diagnostics/mod.rs
 expression: output
 ---
---> a.flx
---> warning[E100]: TEST A
+• 1 warning • a.flx
+Warning[E100]: Test A
 
 message a
 
-  --> a.flx:1:5
+  a.flx:1:5
   |
 1 | let x = 1;
   |     ^
 
 
---> b.flx
---> warning[W200]: TEST B
+• 1 warning • b.flx
+Warning[W200]: Test B
 
 message b
 
-  --> b.flx:1:5
+  b.flx:1:5
   |
 1 | let y = 2;
   |     ^

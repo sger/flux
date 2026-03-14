@@ -1,0 +1,205 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/long_functions_clean_many_errors.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Missing Hash Colon
+
+This hash entry needs `:` between the key and value.
+
+  examples/parser_errors/long_functions_clean_many_errors.flx:2:22
+  |
+2 |     let hash = { "a" 1 }
+  |                      ^
+
+Hint:
+  Hash literals use `{key: value, ...}`.
+
+Note:
+  while parsing function `first_clean_long_function`
+
+
+error[E073]: Missing Comma
+
+Missing comma between arguments.
+
+  examples/parser_errors/long_functions_clean_many_errors.flx:3:20
+  |
+3 |     let _r = add(1 2)
+  |                    ^
+
+Hint:
+  Add a comma between items, e.g. `f(a, b)`.
+
+Note:
+  while parsing function `first_clean_long_function`
+
+
+error[E034]: Missing Else Body
+
+This `else` branch needs to start with `{`.
+
+  examples/parser_errors/long_functions_clean_many_errors.flx:4:35
+  |
+4 |     let _label = if true { "ok" } else "bad"
+  |                                   ^^^^
+  |                                   ---- `else` starts here
+
+Note:
+  while parsing function `first_clean_long_function` > `if` expression
+
+Help:
+  Try adding `{` after `else`.
+
+
+error[E034]: Missing Hash Colon
+
+This hash entry needs `:` between the key and value.
+
+  examples/parser_errors/long_functions_clean_many_errors.flx:5:22
+  |
+5 |     let more = { "c" 3 }
+  |                      ^
+
+Hint:
+  Hash literals use `{key: value, ...}`.
+
+Note:
+  while parsing function `first_clean_long_function`
+
+
+error[E073]: Missing Comma
+
+Missing comma between arguments.
+
+  examples/parser_errors/long_functions_clean_many_errors.flx:6:23
+  |
+6 |     let _next = add(3 4)
+  |                       ^
+
+Hint:
+  Add a comma between items, e.g. `f(a, b)`.
+
+Note:
+  while parsing function `first_clean_long_function`
+
+
+error[E034]: Missing Else Body
+
+This `else` branch needs to start with `{`.
+
+  examples/parser_errors/long_functions_clean_many_errors.flx:7:37
+  |
+7 |     let again = if false { "left" } else "right"
+  |                                     ^^^^
+  |                                     ---- `else` starts here
+
+Note:
+  while parsing function `first_clean_long_function` > `if` expression
+
+Help:
+  Try adding `{` after `else`.
+
+
+error[E034]: Missing Hash Colon
+
+This hash entry needs `:` between the key and value.
+
+  examples/parser_errors/long_functions_clean_many_errors.flx:11:22
+   |
+11 |     let info = { "b" 2 }
+   |                      ^
+
+Hint:
+  Hash literals use `{key: value, ...}`.
+
+Note:
+  while parsing function `second_clean_long_function`
+
+
+error[E073]: Missing Comma
+
+Missing comma between arguments.
+
+  examples/parser_errors/long_functions_clean_many_errors.flx:12:28
+   |
+12 |     let _s = greet("Alice" "Bob")
+   |                            ^^^^^
+
+Hint:
+  Add a comma between items, e.g. `f(a, b)`.
+
+Note:
+  while parsing function `second_clean_long_function`
+
+
+error[E034]: Missing Else Body
+
+This `else` branch needs to start with `{`.
+
+  examples/parser_errors/long_functions_clean_many_errors.flx:13:39
+   |
+13 |     let _branch = if false { "left" } else "right"
+   |                                       ^^^^
+   |                                       ---- `else` starts here
+
+Note:
+  while parsing function `second_clean_long_function` > `if` expression
+
+Help:
+  Try adding `{` after `else`.
+
+
+error[E034]: Missing Hash Colon
+
+This hash entry needs `:` between the key and value.
+
+  examples/parser_errors/long_functions_clean_many_errors.flx:14:27
+   |
+14 |     let more_data = { "d" 4 }
+   |                           ^
+
+Hint:
+  Hash literals use `{key: value, ...}`.
+
+Note:
+  while parsing function `second_clean_long_function`
+
+
+error[E073]: Missing Comma
+
+Missing comma between arguments.
+
+  examples/parser_errors/long_functions_clean_many_errors.flx:15:31
+   |
+15 |     let _call = greet("Carol" "Dave")
+   |                               ^^^^^^
+
+Hint:
+  Add a comma between items, e.g. `f(a, b)`.
+
+Note:
+  while parsing function `second_clean_long_function`
+
+
+error[E034]: Missing Else Body
+
+This `else` branch needs to start with `{`.
+
+  examples/parser_errors/long_functions_clean_many_errors.flx:16:41
+   |
+16 |     let final_branch = if true { "up" } else "down"
+   |                                         ^^^^
+   |                                         ---- `else` starts here
+
+Note:
+  while parsing function `second_clean_long_function` > `if` expression
+
+Help:
+  Try adding `{` after `else`.
+
+Found 12 errors.
+== stdout ==
+<not executed>

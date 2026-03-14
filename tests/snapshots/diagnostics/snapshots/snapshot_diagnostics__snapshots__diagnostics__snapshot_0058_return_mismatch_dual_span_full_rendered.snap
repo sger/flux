@@ -2,18 +2,21 @@
 source: tests/snapshots/diagnostics/mod.rs
 expression: output
 ---
---> compiler error[E300]: TYPE UNIFICATION ERROR
+error[E300]: Return Type Mismatch
 
-The return value of `bad` does not match its declared return type.
+The body of `bad` does not match its declared return type.
 
-  --> examples/type_system/failing/108_fun_return_string_vs_int.flx:2:5
+  examples/type_system/failing/108_fun_return_string_vs_int.flx:2:5
   |
 1 | fn bad() -> Int {
-
   |             --- `bad` was declared to return `Int`
 2 |     "oops"
   |     ^^^^^^
   |     ------ this expression has type `String`
 
+Note:
+  declared return type: Int
+  body type: String
+
 Help:
-  Return a `Int` value from `bad` or change the declared return type.
+  Return a `Int` value from `bad` or change its annotation.

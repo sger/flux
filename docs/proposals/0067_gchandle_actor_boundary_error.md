@@ -1,5 +1,6 @@
 - Feature Name: GcHandle Cross-Actor Boundary Error
 - Start Date: 2026-03-01
+- Status: Not Implemented
 - Proposal PR: pending
 - Flux Issue: pending
 
@@ -103,7 +104,7 @@ pub fn gc_value_actor_boundary(
     fix_hint: &str,             // "convert with to_array()" or "send as a tuple"
     span: Option<Span>,
 ) -> Diagnostic {
-    let mut d = diag_enhanced(E1005_GC_VALUE_CROSS_BOUNDARY)
+    let mut d = diagnostic_for(E1005_GC_VALUE_CROSS_BOUNDARY)
         .with_title("cannot send GC-managed value across actor boundary")
         .with_message(format!(
             "the value is {} which references the sending actor's private GC heap",
@@ -208,7 +209,7 @@ rather than waiting for runtime:
 // In hm_expr_typer.rs — when validating a send() call:
 if let HmExprTypeResult::Known(InferType::Con(TypeConstructor::List, _)) = arg_type {
     self.push_warning(
-        diag_enhanced(E1005_GC_VALUE_CROSS_BOUNDARY)
+        diagnostic_for(E1005_GC_VALUE_CROSS_BOUNDARY)
             .with_span(send_span)
             .with_message("argument is a cons list; this will fail at runtime")
             .with_hint("convert with `to_array()` before calling `send()`")

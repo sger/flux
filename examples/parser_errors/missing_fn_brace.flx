@@ -1,0 +1,13 @@
+// Missing `{` to begin function body.
+//
+// Expected: E034 UNEXPECTED TOKEN
+//   "Expected `{` to begin function body, found `STRING`."
+//   Secondary label: "function `greet` defined here"
+//   Help: "Add `{` after the function signature: `fn greet(...) {`"
+
+fn greet(name: String) -> String
+    "Hello, " + name
+
+fn main() -> Unit {
+    let _x = greet("world")
+}

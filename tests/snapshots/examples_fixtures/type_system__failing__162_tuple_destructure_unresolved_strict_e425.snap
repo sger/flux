@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/162_tuple_destructure_unresolved_strict_e4
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
+error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
-  --> examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx:2:18
+  examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx:2:18
   |
 2 |     let (a, b) = mystery_value
   |                  ^^^^^^^^^^^^^

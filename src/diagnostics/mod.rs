@@ -9,6 +9,7 @@ pub mod compiler_errors;
 pub mod diagnostic;
 pub mod format;
 pub mod position;
+pub mod quality;
 pub mod registry;
 pub mod rendering;
 pub mod runtime_errors;
@@ -22,12 +23,13 @@ pub use aggregator::{
 pub use builders::DiagnosticBuilder;
 pub use diagnostic::Diagnostic;
 pub use format::{format_message, format_message_named};
-pub use registry::{ERROR_CODES, diag_enhanced, lookup_error_code};
+pub use quality::*;
+pub use registry::{ERROR_CODES, diagnostic_for, lookup_error_code};
 pub use rendering::render_diagnostics_json;
 pub use rendering::{render_diagnostics, render_display_path};
 pub use types::{
-    DiagnosticPhase, ErrorCode, ErrorType, Hint, HintChain, HintKind, InlineSuggestion, Label,
-    LabelStyle, RelatedDiagnostic, RelatedKind, Severity,
+    DiagnosticCategory, DiagnosticPhase, ErrorCode, ErrorType, Hint, HintChain, HintKind,
+    InlineSuggestion, Label, LabelStyle, RelatedDiagnostic, RelatedKind, Severity, StackTraceFrame,
 };
 
 pub use compiler_errors::*;

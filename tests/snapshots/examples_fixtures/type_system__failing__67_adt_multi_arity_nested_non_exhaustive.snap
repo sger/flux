@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/67_adt_multi_arity_nested_non_exhaustive.f
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E083]: NON-EXHAUSTIVE ADT MATCH
+error[E083]: Non-Exhaustive ADT Match
 
 Match is non-exhaustive: nested `ResultI` patterns under constructor `Pair` field #1 miss constructors: ErrI.
 
-  --> examples/type_system/failing/67_adt_multi_arity_nested_non_exhaustive.flx:14:5
+  examples/type_system/failing/67_adt_multi_arity_nested_non_exhaustive.flx:14:5
    |
 14 |     match w {
    |     ^^^^^^^^^

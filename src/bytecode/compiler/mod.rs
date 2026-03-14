@@ -1,11 +1,18 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::ast::type_infer::InferProgramConfig;
+use crate::ast::type_informed_fold::type_informed_fold;
+use crate::bytecode::compiler::effect_rows::EffectRow;
+use crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult;
+use crate::ir::{
+    FunctionId, IrInstr, IrPassContext, IrProgram, IrTerminator, lower_program_to_ir,
+    run_ir_pass_pipeline,
+};
+use crate::syntax::expression::ExprId;
+use crate::types::infer_effect_row::InferEffectRow;
 use crate::types::{TypeVarId, infer_type::InferType, scheme::Scheme};
 use crate::{
-    ast::{
-        TailCall, collect_free_vars_in_program, find_tail_calls,
-        type_infer::{ExprNodeId, infer_program},
-    },
+    ast::{TailCall, collect_free_vars_in_program, type_infer::infer_program},
     bytecode::{
         binding::Binding,
         bytecode::Bytecode,
@@ -19,12 +26,14 @@ use crate::{
         symbol_table::SymbolTable,
     },
     diagnostics::{
-        CIRCULAR_DEPENDENCY, Diagnostic, DiagnosticBuilder, DiagnosticPhase, ErrorType,
-        UNKNOWN_BASE_MEMBER, lookup_error_code,
+        CIRCULAR_DEPENDENCY, Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase,
+        ErrorType, UNKNOWN_BASE_MEMBER, lookup_error_code,
         position::{Position, Span},
     },
     runtime::{
-        base::BaseModule, function_contract::FunctionContract, runtime_type::RuntimeType,
+        base::{BaseModule, scheme_for_signature_id},
+        function_contract::FunctionContract,
+        runtime_type::RuntimeType,
         value::Value,
     },
     syntax::{
@@ -106,6 +115,8 @@ pub struct Compiler {
     pub(super) function_param_counts: Vec<usize>,
     // Declared ambient effects for active function scopes innermost last.
     pub(super) function_effects: Vec<Vec<Symbol>>,
+    // Annotated function-typed parameter effect rows for active function scopes.
+    pub(super) function_param_effect_rows: Vec<HashMap<Symbol, effect_rows::EffectRow>>,
     // Effects currently handled by enclosing `handle ...` scopes.
     pub(super) handled_effects: Vec<Symbol>,
     // For each active function scope track local indexes captured by nested closures.
@@ -114,6 +125,9 @@ pub struct Compiler {
     pub free_vars: HashSet<Symbol>,
     // Program-level tail-position analysis result for the latest optimized compile pass.
     pub tail_calls: Vec<TailCall>,
+    analyze_enabled: bool,
+    // Conservative per-block local-use counts used to emit consume-style local reads.
+    pub(super) consumable_local_use_counts: Vec<HashMap<Symbol, usize>>,
     pub(super) excluded_base_symbols: HashSet<Symbol>,
     pub module_contracts: ModuleContractTable,
     pub(super) module_function_visibility: HashMap<(Symbol, Symbol), bool>,
@@ -125,10 +139,13 @@ pub struct Compiler {
     pub(super) effect_op_signatures: HashMap<(Symbol, Symbol), TypeExpr>,
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
-    pub(super) hm_expr_types: HashMap<ExprNodeId, crate::types::infer_type::InferType>,
-    pub(super) expr_ptr_to_id: HashMap<usize, ExprNodeId>,
+    pub(super) hm_expr_types: HashMap<ExprId, InferType>,
+    pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
     strict_mode: bool,
     strict_require_main: bool,
+    /// When true, run two-phase inference with type-informed optimization
+    /// between Phase 1 and Phase 2 (proposal 0077).
+    type_optimize: bool,
 }
 
 #[cfg(test)]
@@ -171,10 +188,13 @@ impl Compiler {
             in_tail_position: false,
             function_param_counts: Vec::new(),
             function_effects: Vec::new(),
+            function_param_effect_rows: Vec::new(),
             handled_effects: Vec::new(),
             captured_local_indices: Vec::new(),
             free_vars: HashSet::new(),
             tail_calls: Vec::new(),
+            analyze_enabled: false,
+            consumable_local_use_counts: Vec::new(),
             excluded_base_symbols: HashSet::new(),
             module_contracts: HashMap::new(),
             module_function_visibility: HashMap::new(),
@@ -186,9 +206,10 @@ impl Compiler {
             effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
-            expr_ptr_to_id: HashMap::new(),
+            ir_function_symbols: HashMap::new(),
             strict_mode: false,
             strict_require_main: true,
+            type_optimize: false,
         }
     }
 
@@ -227,8 +248,8 @@ impl Compiler {
         self.effect_alias_scopes.push(HashMap::new());
         self.type_env = TypeEnv::new();
         self.hm_expr_types.clear();
-        self.expr_ptr_to_id.clear();
         self.function_effects.clear();
+        self.function_param_effect_rows.clear();
         self.handled_effects.clear();
         self.effect_ops_registry.clear();
         self.effect_op_signatures.clear();
@@ -240,6 +261,44 @@ impl Compiler {
 
     pub fn set_strict_require_main(&mut self, strict_require_main: bool) {
         self.strict_require_main = strict_require_main;
+    }
+
+    /// Run HM inference for the provided program and return the final expression type map.
+    ///
+    /// This is intended for non-bytecode backends that still need the same HM
+    /// view of the final AST allocation used during code generation.
+    pub fn infer_expr_types_for_program(
+        &mut self,
+        program: &Program,
+    ) -> HashMap<ExprId, InferType> {
+        self.file_scope_symbols.clear();
+        self.imported_modules.clear();
+        self.import_aliases.clear();
+        self.imported_module_exclusions.clear();
+        self.current_module_prefix = None;
+        self.current_span = None;
+        self.excluded_base_symbols.clear();
+        self.static_type_scopes.clear();
+        self.static_type_scopes.push(HashMap::new());
+        self.effect_alias_scopes.clear();
+        self.effect_alias_scopes.push(HashMap::new());
+        self.module_contracts.clear();
+        self.module_function_visibility.clear();
+        self.module_adt_constructors.clear();
+        self.type_env = TypeEnv::new();
+        self.hm_expr_types.clear();
+        self.effect_ops_registry.clear();
+        self.effect_op_signatures.clear();
+
+        self.collect_module_function_visibility(program);
+        self.collect_module_contracts(program);
+        self.collect_effect_declarations(program);
+
+        let hm_config = self.build_infer_config(program);
+        let hm = infer_program(program, &self.interner, hm_config);
+        self.type_env = hm.type_env;
+        self.hm_expr_types = hm.expr_types;
+        self.hm_expr_types.clone()
     }
 
     pub fn take_warnings(&mut self) -> Vec<Diagnostic> {
@@ -440,6 +499,7 @@ impl Compiler {
 
         let mut next_var: TypeVarId = 0;
         let mut tp_map = HashMap::new();
+        let mut row_var_env: HashMap<Symbol, TypeVarId> = HashMap::new();
         for type_param in &contract.type_params {
             tp_map.insert(*type_param, next_var);
             next_var = next_var.saturating_add(1);
@@ -448,20 +508,30 @@ impl Compiler {
         let mut param_tys = Vec::with_capacity(contract.params.len());
         for param in &contract.params {
             let ty_expr = param.as_ref()?;
-            let inferred = TypeEnv::infer_type_from_type_expr(ty_expr, &tp_map, interner)?;
+            let inferred = TypeEnv::convert_type_expr_rec(
+                ty_expr,
+                &tp_map,
+                interner,
+                &mut row_var_env,
+                &mut next_var,
+            )?;
             param_tys.push(inferred);
         }
 
         let ret_expr = contract.ret.as_ref()?;
-        let ret_ty = TypeEnv::infer_type_from_type_expr(ret_expr, &tp_map, interner)?;
-        let effects = contract
-            .effects
-            .iter()
-            .flat_map(EffectExpr::normalized_names)
-            .collect::<Vec<_>>();
+        let ret_ty = TypeEnv::convert_type_expr_rec(
+            ret_expr,
+            &tp_map,
+            interner,
+            &mut row_var_env,
+            &mut next_var,
+        )?;
+        let effects =
+            InferEffectRow::from_effect_exprs(&contract.effects, &mut row_var_env, &mut next_var)
+                .ok()?;
 
         let infer_type = InferType::Fun(param_tys, Box::new(ret_ty), effects);
-        let mut forall = tp_map.values().copied().collect::<Vec<_>>();
+        let mut forall = infer_type.free_vars().into_iter().collect::<Vec<_>>();
         forall.sort_unstable();
         forall.dedup();
         Some(Scheme { forall, infer_type })
@@ -496,6 +566,123 @@ impl Compiler {
         }
 
         preloaded
+    }
+
+    fn build_preloaded_base_schemes(&mut self) -> HashMap<Symbol, Scheme> {
+        let mut preloaded = HashMap::new();
+        for base_fn in BaseModule::new().names() {
+            let base_name = self.interner.intern(base_fn);
+            let Some(entry) = BaseModule::new()
+                .index_of(base_fn)
+                .and_then(|i| BaseModule::new().by_index(i))
+            else {
+                continue;
+            };
+            match scheme_for_signature_id(entry.hm_signature, &mut self.interner) {
+                Ok(scheme) => {
+                    preloaded.insert(base_name, scheme);
+                }
+                Err(message) => {
+                    let span = Span::new(Position::new(1, 0), Position::new(1, 0));
+                    self.errors.push(
+                        Diagnostic::make_error_dynamic(
+                            "E426",
+                            "BASE HM SIGNATURE MISSING",
+                            ErrorType::Compiler,
+                            format!(
+                                "Base function `{}` has invalid or missing HM metadata: {}",
+                                base_fn, message
+                            ),
+                            Some(
+                                "Fix the Base HM signature in src/runtime/base/base_hm_signature.rs."
+                                    .to_string(),
+                            ),
+                            self.file_path.clone(),
+                            span,
+                        )
+                        .with_display_title("Missing Base HM Signature")
+                        .with_category(DiagnosticCategory::Internal)
+                        .with_primary_label(span, "invalid Base HM metadata"),
+                    );
+                }
+            }
+        }
+        preloaded
+    }
+
+    fn build_preload_base_member_schemes(&mut self) -> HashMap<(Symbol, Symbol), Scheme> {
+        let mut preloaded = HashMap::new();
+        let base_module = self.interner.intern("Base");
+
+        for base_fn in BaseModule::new().names() {
+            let member = self.interner.intern(base_fn);
+            let Some(entry) = BaseModule::new()
+                .index_of(base_fn)
+                .and_then(|i| BaseModule::new().by_index(i))
+            else {
+                continue;
+            };
+
+            match scheme_for_signature_id(entry.hm_signature, &mut self.interner) {
+                Ok(scheme) => {
+                    preloaded.insert((base_module, member), scheme);
+                }
+                Err(message) => {
+                    let span = Span::new(Position::new(1, 0), Position::new(1, 0));
+                    self.errors.push(
+                        Diagnostic::make_error_dynamic(
+                            "E426",
+                            "BASE HM SIGNATURE MISSING",
+                            ErrorType::Compiler,
+                            format!(
+                                "Base member `Base.{}` has invalid or missing HM metadata: {}",
+                                base_fn, message
+                            ),
+                            Some(
+                                "Fix the Base HM signature in src/runtime/base/base_hm_signature.rs."
+                                    .to_string(),
+                            ),
+                            self.file_path.clone(),
+                            span,
+                        )
+                        .with_display_title("Missing Base HM Signature")
+                        .with_category(DiagnosticCategory::Internal)
+                        .with_primary_label(span, "invalid Base HM metadata"),
+                    );
+                }
+            }
+        }
+        preloaded
+    }
+
+    fn known_base_name_set(&mut self) -> HashSet<Symbol> {
+        BaseModule::new()
+            .names()
+            .map(|name| self.interner.intern(name))
+            .collect()
+    }
+
+    /// Build the `InferProgramConfig` needed by `infer_program`.
+    ///
+    /// Collects base schemes, module member schemes, and effect signatures.
+    /// Can be called multiple times (e.g. for two-phase inference).
+    fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
+        let base_schemes = self.build_preloaded_base_schemes();
+        let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
+        let base_member_schemes = self.build_preload_base_member_schemes();
+        let known_base_names = self.known_base_name_set();
+        let base_module_symbol = self.interner.intern("Base");
+        let mut merged_member_schemes = preloaded_member_schemes;
+        merged_member_schemes.extend(base_member_schemes);
+
+        InferProgramConfig {
+            file_path: Some(self.file_path.as_str().into()),
+            preloaded_base_schemes: base_schemes,
+            preloaded_module_member_schemes: merged_member_schemes,
+            known_base_names,
+            base_module_symbol,
+            preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
+        }
     }
 
     fn collect_function_effect_seeds(&self, program: &Program) -> Vec<FunctionEffectSeed> {
@@ -636,7 +823,7 @@ impl Compiler {
     }
 
     fn infer_effects_from_block(
-        &self,
+        &mut self,
         block: &Block,
         current_module: Option<Symbol>,
         inferred: &HashMap<ContractKey, HashSet<Symbol>>,
@@ -657,7 +844,7 @@ impl Compiler {
     }
 
     fn infer_effects_from_statement(
-        &self,
+        &mut self,
         statement: &Statement,
         current_module: Option<Symbol>,
         inferred: &HashMap<ContractKey, HashSet<Symbol>>,
@@ -695,7 +882,7 @@ impl Compiler {
     }
 
     fn infer_effects_from_expr(
-        &self,
+        &mut self,
         expr: &Expression,
         current_module: Option<Symbol>,
         inferred: &HashMap<ContractKey, HashSet<Symbol>>,
@@ -977,7 +1164,7 @@ impl Compiler {
     }
 
     fn infer_call_effects(
-        &self,
+        &mut self,
         function: &Expression,
         arguments: &[Expression],
         current_module: Option<Symbol>,
@@ -997,11 +1184,14 @@ impl Compiler {
                         arity,
                     };
                     if let Some(found) = inferred.get(&key) {
-                        effects.extend(self.resolve_call_effect_row_with_args(
-                            found,
-                            self.lookup_contract(Some(module_name), *name, arity),
-                            arguments,
-                        ));
+                        effects.extend(
+                            self.resolve_call_effect_row_with_args(
+                                found,
+                                self.lookup_contract(Some(module_name), *name, arity)
+                                    .cloned(),
+                                arguments,
+                            ),
+                        );
                         resolved = true;
                     }
                 }
@@ -1014,7 +1204,7 @@ impl Compiler {
                     if let Some(found) = inferred.get(&key) {
                         effects.extend(self.resolve_call_effect_row_with_args(
                             found,
-                            self.lookup_unqualified_contract(*name, arity),
+                            self.lookup_unqualified_contract(*name, arity).cloned(),
                             arguments,
                         ));
                         resolved = true;
@@ -1040,11 +1230,14 @@ impl Compiler {
                         arity,
                     };
                     if let Some(found) = inferred.get(&key) {
-                        effects.extend(self.resolve_call_effect_row_with_args(
-                            found,
-                            self.lookup_contract(Some(module_name), *member, arity),
-                            arguments,
-                        ));
+                        effects.extend(
+                            self.resolve_call_effect_row_with_args(
+                                found,
+                                self.lookup_contract(Some(module_name), *member, arity)
+                                    .cloned(),
+                                arguments,
+                            ),
+                        );
                     }
                 }
             }
@@ -1054,9 +1247,9 @@ impl Compiler {
     }
 
     fn resolve_call_effect_row_with_args(
-        &self,
+        &mut self,
         raw_effects: &HashSet<Symbol>,
-        contract: Option<&FnContract>,
+        contract: Option<FnContract>,
         arguments: &[Expression],
     ) -> HashSet<Symbol> {
         use crate::bytecode::compiler::effect_rows::{
@@ -1070,9 +1263,7 @@ impl Compiler {
                 span: Span::default(),
             });
         }
-        let required = EffectRow::from_effect_exprs(&effects_as_expr, |effect| {
-            self.is_effect_variable(effect)
-        });
+        let required = EffectRow::from_effect_exprs(&effects_as_expr);
 
         let mut constraints = Vec::new();
         if let Some(contract) = contract {
@@ -1086,21 +1277,19 @@ impl Compiler {
                     continue;
                 };
 
-                let expected = EffectRow::from_effect_exprs(param_effects, |effect| {
-                    self.is_effect_variable(effect)
-                });
-                let actual = self.infer_argument_effect_row_for_inference(
+                let expected = EffectRow::from_effect_exprs(param_effects);
+                let Some(actual) = self.infer_argument_effect_row_for_inference(
                     argument,
                     params.len(),
                     raw_effects,
                     arguments,
-                );
-                if actual.atoms.is_empty() && actual.vars.is_empty() {
+                ) else {
                     continue;
-                }
+                };
                 constraints.push(RowConstraint::Eq(expected.clone(), actual.clone()));
-                for required_atom in expected.atoms {
-                    constraints.push(RowConstraint::Contains(actual.clone(), required_atom));
+                constraints.push(RowConstraint::Subset(expected, actual.clone()));
+                for effect in param_effects {
+                    self.collect_effect_expr_absence_constraints(effect, &actual, &mut constraints);
                 }
             }
         }
@@ -1110,55 +1299,68 @@ impl Compiler {
     }
 
     fn infer_argument_effect_row_for_inference(
-        &self,
+        &mut self,
         argument: &Expression,
         expected_arity: usize,
         inferred_effects: &HashSet<Symbol>,
         call_arguments: &[Expression],
-    ) -> crate::bytecode::compiler::effect_rows::EffectRow {
+    ) -> Option<crate::bytecode::compiler::effect_rows::EffectRow> {
         use crate::bytecode::compiler::effect_rows::EffectRow;
 
         match argument {
-            Expression::Function { effects, .. } => {
-                EffectRow::from_effect_exprs(effects, |effect| self.is_effect_variable(effect))
-            }
-            Expression::Identifier { name, .. } => self
-                .lookup_unqualified_contract(*name, expected_arity)
-                .map(|contract| {
-                    let mut set: HashSet<Symbol> = contract
-                        .effects
-                        .iter()
-                        .flat_map(EffectExpr::normalized_names)
-                        .collect();
-                    if set.is_empty() {
-                        set.extend(inferred_effects.iter().copied());
-                    }
-                    let effect_exprs: Vec<EffectExpr> = set
-                        .into_iter()
-                        .map(|name| EffectExpr::Named {
-                            name,
-                            span: Span::default(),
-                        })
-                        .collect();
-                    EffectRow::from_effect_exprs(&effect_exprs, |effect| {
-                        self.is_effect_variable(effect)
+            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Identifier { name, .. } => {
+                if let Some(local) = self.current_function_param_effect_row(*name) {
+                    return Some(local);
+                }
+
+                self.lookup_unqualified_contract(*name, expected_arity)
+                    .map(|contract| {
+                        let mut set: HashSet<Symbol> = contract
+                            .effects
+                            .iter()
+                            .flat_map(EffectExpr::normalized_names)
+                            .collect();
+                        if set.is_empty() {
+                            set.extend(inferred_effects.iter().copied());
+                        }
+                        let effect_exprs: Vec<EffectExpr> = set
+                            .into_iter()
+                            .map(|name| EffectExpr::Named {
+                                name,
+                                span: Span::default(),
+                            })
+                            .collect();
+                        EffectRow::from_effect_exprs(&effect_exprs)
                     })
-                })
-                .unwrap_or_default(),
+                    .or_else(|| self.infer_argument_effect_row_from_hm(argument))
+            }
             Expression::MemberAccess { object, member, .. } => self
                 .resolve_module_name_from_expr(object)
                 .and_then(|module| self.lookup_contract(Some(module), *member, expected_arity))
-                .map(|contract| {
-                    EffectRow::from_effect_exprs(&contract.effects, |effect| {
-                        self.is_effect_variable(effect)
-                    })
-                })
-                .unwrap_or_default(),
+                .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                .or_else(|| self.infer_argument_effect_row_from_hm(argument)),
             _ => {
                 let _ = call_arguments;
-                EffectRow::default()
+                self.infer_argument_effect_row_from_hm(argument)
             }
         }
+    }
+
+    fn infer_argument_effect_row_from_hm(&mut self, argument: &Expression) -> Option<EffectRow> {
+        let HmExprTypeResult::Known(InferType::Fun(_, _, effects)) =
+            self.hm_expr_type_strict_path(argument)
+        else {
+            return None;
+        };
+
+        let mut row = EffectRow::default();
+        row.atoms.extend(effects.concrete().iter().copied());
+        if let Some(tail) = effects.tail() {
+            let synthetic = self.interner.intern(&format!("__hm_row_{tail}"));
+            row.vars.insert(synthetic);
+        }
+        Some(row)
     }
 
     fn validate_main_entrypoint(&mut self, program: &Program) -> MainValidationState {
@@ -1192,6 +1394,7 @@ impl Compiler {
                         self.file_path.clone(),
                         *span,
                     )
+                    .with_category(DiagnosticCategory::ModuleSystem)
                     .with_primary_label(*span, "duplicate `main` declaration")
                     .with_note_label(first_span, "first `main` declared here"),
                 );
@@ -1212,6 +1415,7 @@ impl Compiler {
                         self.file_path.clone(),
                         *main_span,
                     )
+                    .with_category(DiagnosticCategory::ModuleSystem)
                     .with_primary_label(*main_span, "`main` declared with parameters"),
                 );
             }
@@ -1230,6 +1434,7 @@ impl Compiler {
                         self.file_path.clone(),
                         ret.span(),
                     )
+                    .with_category(DiagnosticCategory::ModuleSystem)
                     .with_primary_label(ret.span(), "invalid `main` return type"),
                 );
             }
@@ -1316,6 +1521,7 @@ impl Compiler {
                     self.file_path.clone(),
                     span,
                 )
+                .with_category(DiagnosticCategory::ModuleSystem)
                 .with_primary_label(span, "top-level effectful expression"),
             );
 
@@ -1333,6 +1539,7 @@ impl Compiler {
                         self.file_path.clone(),
                         span,
                     )
+                    .with_category(DiagnosticCategory::ModuleSystem)
                     .with_primary_label(span, "effectful top-level execution"),
                 );
                 missing_root_reported = true;
@@ -1395,6 +1602,7 @@ impl Compiler {
                 self.file_path.clone(),
                 main_body.span,
             )
+            .with_category(DiagnosticCategory::Effects)
             .with_primary_label(main_body.span, "undischarged effects at root boundary"),
         );
     }
@@ -1415,6 +1623,7 @@ impl Compiler {
                     self.file_path.clone(),
                     program.span,
                 )
+                .with_category(DiagnosticCategory::ModuleSystem)
                 .with_primary_label(program.span, "no `main` entrypoint found"),
             );
         }
@@ -1455,6 +1664,7 @@ impl Compiler {
                                 self.file_path.clone(),
                                 *span,
                             )
+                            .with_category(DiagnosticCategory::ModuleSystem)
                             .with_primary_label(*span, "missing parameter type annotations"),
                         );
                     }
@@ -1473,42 +1683,8 @@ impl Compiler {
                                 self.file_path.clone(),
                                 *span,
                             )
+                            .with_category(DiagnosticCategory::ModuleSystem)
                             .with_primary_label(*span, "missing return type annotation"),
-                        );
-                    }
-
-                    let function_contract_position = parameter_types
-                        .iter()
-                        .flatten()
-                        .find(|ty| Self::type_expr_contains_function(ty))
-                        .map(TypeExpr::span)
-                        .or_else(|| {
-                            return_type
-                                .as_ref()
-                                .filter(|ret| Self::type_expr_contains_function(ret))
-                                .map(TypeExpr::span)
-                        });
-                    if let Some(function_span) = function_contract_position {
-                        self.errors.push(
-                            Diagnostic::make_error_dynamic(
-                                "E424",
-                                "STRICT UNSUPPORTED FUNCTION CONTRACT",
-                                ErrorType::Compiler,
-                                format!(
-                                    "Public function `{}` uses function-typed boundary annotations that are not runtime-enforced yet.",
-                                    self.sym(*name)
-                                ),
-                                Some(
-                                    "Use concrete boundary types or keep this API internal/private until function-typed runtime contracts are implemented."
-                                        .to_string(),
-                                ),
-                                self.file_path.clone(),
-                                function_span,
-                            )
-                            .with_primary_label(
-                                function_span,
-                                "function-typed boundary contract is unsupported in strict mode",
-                            ),
                         );
                     }
 
@@ -1529,6 +1705,7 @@ impl Compiler {
                                 self.file_path.clone(),
                                 *span,
                             )
+                            .with_category(DiagnosticCategory::ModuleSystem)
                             .with_primary_label(*span, "missing explicit effect annotation"),
                         );
                     }
@@ -1566,6 +1743,8 @@ impl Compiler {
                 self.file_path.clone(),
                 span,
             )
+            .with_display_title("Strict Any Type")
+            .with_category(DiagnosticCategory::TypeInference)
             .with_primary_label(span, "`Any` used here"),
         );
     }
@@ -1586,16 +1765,6 @@ impl Compiler {
                     .iter()
                     .any(|param| Self::type_expr_contains_any(param, interner))
                     || Self::type_expr_contains_any(ret, interner)
-            }
-        }
-    }
-
-    fn type_expr_contains_function(ty: &TypeExpr) -> bool {
-        match ty {
-            TypeExpr::Function { .. } => true,
-            TypeExpr::Named { args, .. } => args.iter().any(Self::type_expr_contains_function),
-            TypeExpr::Tuple { elements, .. } => {
-                elements.iter().any(Self::type_expr_contains_function)
             }
         }
     }
@@ -1755,13 +1924,6 @@ impl Compiler {
         self.effect_op_signatures.get(&(effect, op))
     }
 
-    pub(super) fn is_effect_variable(&self, effect: Symbol) -> bool {
-        self.sym(effect)
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_lowercase())
-    }
-
     pub(super) fn to_runtime_contract(&self, contract: &FnContract) -> Option<FunctionContract> {
         to_runtime_contract(contract, &self.interner)
     }
@@ -1786,6 +1948,23 @@ impl Compiler {
             .iter()
             .rev()
             .find_map(|scope| scope.get(&name).copied())
+    }
+
+    pub(super) fn track_effect_alias_for_ir_binding(
+        &mut self,
+        binding: Symbol,
+        value: &crate::ir::IrStructuredExpr,
+    ) {
+        if let crate::ir::IrStructuredExpr::Identifier { name, span, id } = value {
+            self.track_effect_alias_for_binding(
+                binding,
+                &Expression::Identifier {
+                    name: *name,
+                    span: *span,
+                    id: *id,
+                },
+            );
+        }
     }
 
     pub(super) fn track_effect_alias_for_binding(&mut self, binding: Symbol, value: &Expression) {
@@ -1855,21 +2034,27 @@ impl Compiler {
             // Collect analysis data if requested.
             if analyze {
                 self.free_vars = collect_free_vars_in_program(&program_to_compile);
-                self.tail_calls = find_tail_calls(&program_to_compile);
+                self.analyze_enabled = true;
+                self.tail_calls.clear();
             } else {
                 self.free_vars.clear();
                 self.tail_calls.clear();
+                self.analyze_enabled = false;
             }
 
+            // Enable two-phase inference with type-informed optimization (proposal 0077).
+            self.type_optimize = true;
             self.compile(&program_to_compile)
         } else {
             // Borrow the original program directly for non-optimized paths.
             if analyze {
                 self.free_vars = collect_free_vars_in_program(program);
-                self.tail_calls = find_tail_calls(program);
+                self.analyze_enabled = true;
+                self.tail_calls.clear();
             } else {
                 self.free_vars.clear();
                 self.tail_calls.clear();
+                self.analyze_enabled = false;
             }
             self.compile(program)
         }
@@ -1949,38 +2134,79 @@ impl Compiler {
         // The resulting TypeEnv is used by `runtime_boundary_expr_type` to enrich identifier
         // type lookup for unannotated bindings.
         //
-        // Invariant: `infer_program` and PASS 2 must use the same Program allocation so
-        // pointer-keyed expression IDs remain stable.
+        // Two-phase model (when type_optimize=true, proposal 0077):
+        //   Phase 1: infer on the syntactically-optimized AST → TypeEnv for optimization
+        //   type_informed_fold: rewrite AST using TypeEnv (dead branch, const prop, inlining)
+        //   Phase 2: infer on the type-optimized AST → pointer-stable maps for PASS 2
+        //
+        // Single-phase model (when type_optimize=false):
+        //   Standard single inference pass.
+        //
+        // Invariant: PASS 2 must use the same Program allocation as the final
+        // inference pass so pointer-keyed expression IDs remain stable.
         //
         // Diagnostics from this pass are guarded by a concrete-types-only filter
         // inside `unify_reporting`: only errors where *both* conflicting types are
-        // fully resolved (no free type variables) are emitted. This prevents
-        // spurious failures in partially-typed programs where base-function return
-        // types are not yet registered in the inference environment.
+        // fully resolved (no free type variables) are emitted.
+        // When type_optimize is set, Phase 1 inference produces a TypeEnv used to
+        // guide type-informed AST optimization. Phase 2 then re-infers on the
+        // optimized AST to produce pointer-stable maps for PASS 2.
+        let type_optimized_program: Option<Program>;
         let mut hm_diagnostics = {
-            let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
-            let hm = infer_program(
-                program,
-                &self.interner,
-                Some(self.file_path.clone()),
-                preloaded_member_schemes,
-                self.effect_op_signatures.clone(),
-            );
-            self.type_env = hm.type_env;
-            self.hm_expr_types = hm.expr_types;
-            self.expr_ptr_to_id = hm.expr_ptr_to_id;
-            hm.diagnostics
-        };
-        tag_diagnostics(&mut hm_diagnostics, DiagnosticPhase::TypeInference);
+            let hm_config = self.build_infer_config(program);
+            let hm = infer_program(program, &self.interner, hm_config);
 
+            if self.type_optimize {
+                // Phase 1 complete: use TypeEnv for type-informed fold.
+                let optimized = type_informed_fold(program, &hm.type_env, &self.interner);
+
+                // Phase 2: re-infer on the optimized AST for stable expr-id maps.
+                let hm_config2 = self.build_infer_config(&optimized);
+                let hm2 = infer_program(&optimized, &self.interner, hm_config2);
+                self.type_env = hm2.type_env;
+                self.hm_expr_types = hm2.expr_types;
+                type_optimized_program = Some(optimized);
+
+                let mut diags = hm2.diagnostics;
+                tag_diagnostics(&mut diags, DiagnosticPhase::TypeInference);
+                diags
+            } else {
+                self.type_env = hm.type_env;
+                self.hm_expr_types = hm.expr_types;
+                type_optimized_program = None;
+
+                let mut diags = hm.diagnostics;
+                tag_diagnostics(&mut diags, DiagnosticPhase::TypeInference);
+                diags
+            }
+        };
+
+        // PASS 2 must use the same Program allocation as the final inference pass.
+        let program = type_optimized_program.as_ref().unwrap_or(program);
+        let mut ir_program = match lower_program_to_ir(program, &self.hm_expr_types) {
+            Ok(program) => program,
+            Err(diag) => {
+                self.errors.push(diag);
+                return Err(std::mem::take(&mut self.errors));
+            }
+        };
+        if let Err(diag) = run_ir_pass_pipeline(&mut ir_program, &IrPassContext) {
+            self.errors.push(diag);
+            return Err(std::mem::take(&mut self.errors));
+        }
+        if self.analyze_enabled {
+            self.tail_calls = collect_tail_calls_from_ir(&ir_program);
+        }
+        self.ir_function_symbols.clear();
+        self.register_ir_function_symbols(&ir_program.top_level_items, self.current_module_prefix);
         // PASS 2: Compile all statements
         // Function bodies can now reference any function defined at module level
         let mut pattern_diags = validate_program_patterns(program, &self.file_path, &self.interner);
         tag_diagnostics(&mut pattern_diags, DiagnosticPhase::Validation);
         self.errors.extend(pattern_diags);
-        for statement in &program.statements {
+        for item in &ir_program.top_level_items {
             // Continue compilation even if there are errors
-            if let Err(err) = self.compile_statement(statement) {
+            if let Err(err) = self.compile_ir_top_level_item(item, &ir_program) {
                 let mut diag = *err;
                 if diag.phase().is_none() {
                     diag.phase = Some(DiagnosticPhase::TypeCheck);
@@ -2014,6 +2240,31 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn register_ir_function_symbols(
+        &mut self,
+        items: &[crate::ir::IrTopLevelItem],
+        module_prefix: Option<Symbol>,
+    ) {
+        for item in items {
+            match item {
+                crate::ir::IrTopLevelItem::Function {
+                    name,
+                    function_id: Some(function_id),
+                    ..
+                } => {
+                    let symbol = module_prefix
+                        .map(|module_name| self.interner.intern_join(module_name, *name))
+                        .unwrap_or(*name);
+                    self.ir_function_symbols.insert(*function_id, symbol);
+                }
+                crate::ir::IrTopLevelItem::Module { name, body, .. } => {
+                    self.register_ir_function_symbols(&body.statements, Some(*name));
+                }
+                _ => {}
+            }
+        }
     }
 
     /// Drop HM diagnostics that are redundant with a compiler boundary error.
@@ -2204,13 +2455,19 @@ impl Compiler {
         // pop_pos (which would land on the operand byte after fusion).
         let adjacent = match prev_op {
             Some(OpCode::OpGetLocal) => prev_pos + 2 == pop_pos,
-            Some(OpCode::OpGetLocal0 | OpCode::OpGetLocal1) => prev_pos + 1 == pop_pos,
+            Some(
+                OpCode::OpGetLocal0
+                | OpCode::OpGetLocal1
+                | OpCode::OpConsumeLocal0
+                | OpCode::OpConsumeLocal1,
+            ) => prev_pos + 1 == pop_pos,
+            Some(OpCode::OpConsumeLocal) => prev_pos + 2 == pop_pos,
             _ => false,
         };
 
         if adjacent && !self.has_jump_target_at(pop_pos) {
             match prev_op {
-                Some(OpCode::OpGetLocal) => {
+                Some(OpCode::OpGetLocal | OpCode::OpConsumeLocal) => {
                     let local_idx =
                         self.scopes[self.scope_index].instructions[prev_pos + 1] as usize;
                     self.replace_instruction(prev_pos, make(OpCode::OpReturnLocal, &[local_idx]));
@@ -2227,7 +2484,7 @@ impl Compiler {
                     self.scopes[self.scope_index].last_instruction.position = prev_pos;
                     return;
                 }
-                Some(OpCode::OpGetLocal0) => {
+                Some(OpCode::OpGetLocal0 | OpCode::OpConsumeLocal0) => {
                     self.scopes[self.scope_index].instructions[prev_pos] =
                         OpCode::OpReturnLocal as u8;
                     self.scopes[self.scope_index].instructions[pop_pos] = 0u8;
@@ -2236,7 +2493,7 @@ impl Compiler {
                     self.scopes[self.scope_index].last_instruction.position = prev_pos;
                     return;
                 }
-                Some(OpCode::OpGetLocal1) => {
+                Some(OpCode::OpGetLocal1 | OpCode::OpConsumeLocal1) => {
                     self.scopes[self.scope_index].instructions[prev_pos] =
                         OpCode::OpReturnLocal as u8;
                     self.scopes[self.scope_index].instructions[pop_pos] = 1u8;
@@ -2254,6 +2511,57 @@ impl Compiler {
         self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnValue);
     }
 
+    pub(super) fn replace_last_local_read_with_return(&mut self) -> bool {
+        let last = self.scopes[self.scope_index].last_instruction.clone();
+        let pos = last.position;
+
+        match last.opcode {
+            Some(OpCode::OpGetLocal | OpCode::OpConsumeLocal) => {
+                let local_idx = self.scopes[self.scope_index].instructions[pos + 1] as usize;
+                self.replace_instruction(pos, make(OpCode::OpReturnLocal, &[local_idx]));
+                self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnLocal);
+                true
+            }
+            Some(OpCode::OpGetLocal0 | OpCode::OpConsumeLocal0) => {
+                // Expanding a 1-byte opcode to 2 bytes shifts all subsequent
+                // positions.  If any jump targets the byte right after this
+                // instruction it would land on the new operand byte instead of
+                // a valid opcode.  Bail out and let the caller emit
+                // OpReturnValue instead.
+                if self.scopes[self.scope_index].instructions.len() == pos + 1
+                    && self.has_jump_target_at(pos + 1)
+                {
+                    return false;
+                }
+                self.scopes[self.scope_index].instructions[pos] = OpCode::OpReturnLocal as u8;
+                if self.scopes[self.scope_index].instructions.len() == pos + 1 {
+                    self.scopes[self.scope_index].instructions.push(0u8);
+                } else {
+                    self.scopes[self.scope_index].instructions[pos + 1] = 0u8;
+                }
+                self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnLocal);
+                true
+            }
+            Some(OpCode::OpGetLocal1 | OpCode::OpConsumeLocal1) => {
+                // Same guard as OpGetLocal0 — avoid corrupting jump targets.
+                if self.scopes[self.scope_index].instructions.len() == pos + 1
+                    && self.has_jump_target_at(pos + 1)
+                {
+                    return false;
+                }
+                self.scopes[self.scope_index].instructions[pos] = OpCode::OpReturnLocal as u8;
+                if self.scopes[self.scope_index].instructions.len() == pos + 1 {
+                    self.scopes[self.scope_index].instructions.push(1u8);
+                } else {
+                    self.scopes[self.scope_index].instructions[pos + 1] = 1u8;
+                }
+                self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnLocal);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Scans the current scope's instruction stream for jump instructions
     /// targeting `target_pos`. Used by the superinstruction peephole to verify
     /// that fusing instructions at a position won't break jump targets.
@@ -2264,7 +2572,14 @@ impl Compiler {
         while ip < instructions.len() {
             let op = OpCode::from(instructions[ip]);
             match op {
-                OpCode::OpJump | OpCode::OpJumpNotTruthy | OpCode::OpJumpTruthy => {
+                OpCode::OpJump
+                | OpCode::OpJumpNotTruthy
+                | OpCode::OpJumpTruthy
+                | OpCode::OpCmpEqJumpNotTruthy
+                | OpCode::OpCmpNeJumpNotTruthy
+                | OpCode::OpCmpGtJumpNotTruthy
+                | OpCode::OpCmpLeJumpNotTruthy
+                | OpCode::OpCmpGeJumpNotTruthy => {
                     let target = read_u16(instructions, ip + 1) as usize;
                     if target == target_pos {
                         return true;
@@ -2340,10 +2655,29 @@ impl Compiler {
         result
     }
 
-    pub(super) fn with_function_context<F, R>(
+    pub(super) fn with_consumable_local_use_counts<F, R>(
+        &mut self,
+        counts: HashMap<Symbol, usize>,
+        f: F,
+    ) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        self.consumable_local_use_counts.push(counts);
+        let result = f(self);
+        self.consumable_local_use_counts.pop();
+        result
+    }
+
+    pub(super) fn current_consumable_local_use_counts(&self) -> Option<&HashMap<Symbol, usize>> {
+        self.consumable_local_use_counts.last()
+    }
+
+    pub(super) fn with_function_context_with_param_effect_rows<F, R>(
         &mut self,
         num_params: usize,
         effects: &[EffectExpr],
+        param_effect_rows: HashMap<Symbol, effect_rows::EffectRow>,
         f: F,
     ) -> R
     where
@@ -2356,20 +2690,42 @@ impl Compiler {
                 .flat_map(EffectExpr::normalized_names)
                 .collect(),
         );
+        self.function_param_effect_rows.push(param_effect_rows);
         self.captured_local_indices.push(HashSet::new());
         let result = f(self);
         self.captured_local_indices.pop();
+        self.function_param_effect_rows.pop();
         self.function_effects.pop();
         self.function_param_counts.pop();
         result
     }
 
-    pub(super) fn current_function_param_count(&self) -> Option<usize> {
-        self.function_param_counts.last().copied()
-    }
-
     pub(super) fn current_function_effects(&self) -> Option<&[Symbol]> {
         self.function_effects.last().map(Vec::as_slice)
+    }
+
+    pub(super) fn current_function_param_effect_row(
+        &self,
+        name: Symbol,
+    ) -> Option<effect_rows::EffectRow> {
+        self.function_param_effect_rows
+            .last()
+            .and_then(|rows| rows.get(&name).cloned())
+    }
+
+    pub(super) fn build_param_effect_rows(
+        &self,
+        parameters: &[Symbol],
+        parameter_types: &[Option<TypeExpr>],
+    ) -> HashMap<Symbol, effect_rows::EffectRow> {
+        let mut rows = HashMap::new();
+        for (index, param) in parameters.iter().enumerate() {
+            let Some(Some(TypeExpr::Function { effects, .. })) = parameter_types.get(index) else {
+                continue;
+            };
+            rows.insert(*param, effect_rows::EffectRow::from_effect_exprs(effects));
+        }
+        rows
     }
 
     pub(super) fn with_handled_effect<F, R>(&mut self, effect: Symbol, f: F) -> R
@@ -2478,6 +2834,63 @@ impl Compiler {
             }
         }
     }
+}
+
+fn collect_tail_calls_from_ir(program: &IrProgram) -> Vec<TailCall> {
+    let mut tail_calls = Vec::new();
+    for function in &program.functions {
+        // Build a map from BlockId to block for fast lookup.
+        let block_map: std::collections::HashMap<_, _> =
+            function.blocks.iter().map(|b| (b.id, b)).collect();
+
+        for block in &function.blocks {
+            match &block.terminator {
+                // Explicit tail-call terminator emitted by the IR lowering for
+                // self-tail-calls or direct tail-position calls at the statement level.
+                IrTerminator::TailCall { metadata, .. } => {
+                    if let Some(span) = metadata.span {
+                        tail_calls.push(TailCall { span });
+                    }
+                }
+                // Pattern produced by `lower_if_expression` for tail calls inside
+                // if-branches: the call result is the last instruction and is passed
+                // directly as the sole arg to a jump whose target block immediately
+                // returns it (merge block with one param and no instructions).
+                IrTerminator::Jump(target_id, jump_args, _) => {
+                    let Some(last_instr) = block.instrs.last() else {
+                        continue;
+                    };
+                    let IrInstr::Call {
+                        dest: call_dest,
+                        metadata,
+                        ..
+                    } = last_instr
+                    else {
+                        continue;
+                    };
+                    if jump_args != &[*call_dest] {
+                        continue;
+                    }
+                    let Some(target_block) = block_map.get(target_id) else {
+                        continue;
+                    };
+                    if !target_block.instrs.is_empty() || target_block.params.len() != 1 {
+                        continue;
+                    }
+                    let merge_param = target_block.params[0].var;
+                    if matches!(
+                        &target_block.terminator,
+                        IrTerminator::Return(ret_var, _) if *ret_var == merge_param
+                    ) && let Some(span) = metadata.span
+                    {
+                        tail_calls.push(TailCall { span });
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    tail_calls
 }
 
 impl Default for Compiler {

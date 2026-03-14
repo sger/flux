@@ -1,0 +1,21 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectTypo.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E407]: Unknown Effect
+
+Function effect annotation references unknown effect `I`.
+
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectTypo.flx:2:27
+  |
+2 |     fn bad() -> Unit with I {
+  |                           ^
+  |                           - unknown effect in function annotation
+
+Hint:
+  did you mean `IO`?
+== stdout ==
+<not executed>

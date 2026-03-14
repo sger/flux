@@ -2,16 +2,18 @@
 // ============================================================================
 // Helper constructors
 // ============================================================================
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use flux::ast::type_infer::infer_program;
+use flux::ast::type_infer::{InferProgramConfig, infer_program};
 use flux::syntax::{expression::Expression, lexer::Lexer, parser::Parser, statement::Statement};
+use flux::types::infer_effect_row::InferEffectRow;
 use flux::types::infer_type::InferType;
 use flux::types::scheme::{Scheme, generalize};
 use flux::types::type_constructor::TypeConstructor;
 use flux::types::type_env::TypeEnv;
 use flux::types::type_subst::TypeSubst;
-use flux::types::unify_error::{UnifyErrorKind, unify};
+use flux::types::unify::unify;
+use flux::types::unify_error::UnifyErrorKind;
 
 fn int() -> InferType {
     InferType::Con(TypeConstructor::Int)
@@ -46,7 +48,7 @@ fn option(t: InferType) -> InferType {
 }
 
 fn fun(params: Vec<InferType>, ret: InferType) -> InferType {
-    InferType::Fun(params, Box::new(ret), vec![])
+    InferType::Fun(params, Box::new(ret), InferEffectRow::closed_empty())
 }
 
 fn fun_with_effects(
@@ -54,7 +56,11 @@ fn fun_with_effects(
     ret: InferType,
     effects: Vec<flux::syntax::Identifier>,
 ) -> InferType {
-    InferType::Fun(params, Box::new(ret), effects)
+    InferType::Fun(
+        params,
+        Box::new(ret),
+        InferEffectRow::closed_from_symbols(effects),
+    )
 }
 
 fn tuple(elems: Vec<InferType>) -> InferType {
@@ -97,12 +103,19 @@ fn infer_program_from_source(
         }
     }
     collect_effect_sigs(&program.statements, &mut effect_op_sigs);
+    let mut interner_for_base = interner.clone();
+    let base_symbol = interner_for_base.intern("Base");
     let result = infer_program(
         &program,
         &interner,
-        Some("<test>".to_string()),
-        HashMap::new(),
-        effect_op_sigs,
+        InferProgramConfig {
+            file_path: Some("<test>".into()),
+            preloaded_base_schemes: HashMap::new(),
+            preloaded_module_member_schemes: HashMap::new(),
+            known_base_names: HashSet::new(),
+            base_module_symbol: base_symbol,
+            preloaded_effect_op_signatures: effect_op_sigs,
+        },
     );
     (result, program)
 }
@@ -387,7 +400,7 @@ fn main() -> Unit {
     assert!(
         has_diagnostic_message_fragment(
             &result,
-            "The branches of this `if` expression produce different types."
+            "The branches of this `if` expression do not agree on a type."
         ),
         "expected contextual if-branch mismatch message, got: {:#?}",
         result
@@ -403,7 +416,7 @@ fn main() -> Unit {
         .find(|d| {
             d.code() == Some("E300")
                 && d.message().is_some_and(|m| {
-                    m.contains("The branches of this `if` expression produce different types.")
+                    m.contains("The branches of this `if` expression do not agree on a type.")
                 })
         })
         .expect("expected contextual if E300 diagnostic");
@@ -457,7 +470,7 @@ fn main() -> Unit {
         .find(|d| {
             d.code() == Some("E300")
                 && d.message().is_some_and(|m| {
-                    m.contains("The branches of this `if` expression produce different types.")
+                    m.contains("The branches of this `if` expression do not agree on a type.")
                 })
         })
         .expect("expected contextual if E300 diagnostic");
@@ -483,7 +496,7 @@ fn main() -> Unit {
     assert!(
         !has_diagnostic_message_fragment(
             &result,
-            "The branches of this `if` expression produce different types."
+            "The branches of this `if` expression do not agree on a type."
         ),
         "did not expect contextual if-branch mismatch diagnostic when one branch is Any, got: {:#?}",
         result.diagnostics
@@ -503,7 +516,7 @@ fn main() -> Unit {
     assert!(
         !has_diagnostic_message_fragment(
             &result,
-            "The branches of this `if` expression produce different types."
+            "The branches of this `if` expression do not agree on a type."
         ),
         "did not expect contextual if-branch mismatch diagnostic when one branch contains nested Any, got: {:#?}",
         result.diagnostics
@@ -529,7 +542,7 @@ fn main() -> Unit {
     assert!(
         has_diagnostic_message_fragment(
             &result,
-            "The arms of this `match` expression produce different types."
+            "The arms of this `match` expression do not agree on a type."
         ),
         "expected contextual match-arm mismatch message, got: {:#?}",
         result
@@ -545,7 +558,7 @@ fn main() -> Unit {
         .find(|d| {
             d.code() == Some("E300")
                 && d.message().is_some_and(|m| {
-                    m.contains("The arms of this `match` expression produce different types.")
+                    m.contains("The arms of this `match` expression do not agree on a type.")
                 })
         })
         .expect("expected contextual match E300 diagnostic");
@@ -581,7 +594,7 @@ fn main() -> Unit {
         .filter(|d| {
             d.code() == Some("E300")
                 && d.message().is_some_and(|m| {
-                    m.contains("The arms of this `match` expression produce different types.")
+                    m.contains("The arms of this `match` expression do not agree on a type.")
                 })
         })
         .collect();
@@ -626,7 +639,7 @@ fn main() -> Unit {
     assert!(
         !has_diagnostic_message_fragment(
             &result,
-            "The arms of this `match` expression produce different types."
+            "The arms of this `match` expression do not agree on a type."
         ),
         "did not expect contextual match-arm mismatch diagnostic when one arm is Any, got: {:#?}",
         result.diagnostics
@@ -649,7 +662,7 @@ fn main() -> Unit {
     assert!(
         !has_diagnostic_message_fragment(
             &result,
-            "The arms of this `match` expression produce different types."
+            "The arms of this `match` expression do not agree on a type."
         ),
         "did not expect contextual match-arm mismatch diagnostic when one arm contains nested Any, got: {:#?}",
         result.diagnostics
@@ -707,7 +720,7 @@ fn main() -> Unit {
     assert!(
         has_diagnostic_message_fragment(
             &result,
-            "The arms of this `match` expression produce different types."
+            "The arms of this `match` expression do not agree on a type."
         ),
         "expected contextual match-arm mismatch message, got: {:#?}",
         result.diagnostics
@@ -727,14 +740,9 @@ fn main() -> Unit {
 "#;
     let (result, program) = infer_program_from_source(source);
     let match_expr = first_match_expr(&program).expect("expected match expression");
-    let key = match_expr as *const Expression as usize;
-    let node_id = result
-        .expr_ptr_to_id
-        .get(&key)
-        .expect("expected expr node id for match");
     let ty = result
         .expr_types
-        .get(node_id)
+        .get(&match_expr.expr_id())
         .expect("expected inferred type for match expression");
     assert_eq!(
         *ty,
@@ -843,14 +851,9 @@ fn main() -> Unit {
         },
         other => panic!("unexpected program statement shape: {other:?}"),
     };
-    let key = call_expr as *const Expression as usize;
-    let node_id = result
-        .expr_ptr_to_id
-        .get(&key)
-        .expect("expected expr node id for recursive call in main");
     let inferred_call_ty = result
         .expr_types
-        .get(node_id)
+        .get(&call_expr.expr_id())
         .cloned()
         .expect("expected inferred type for recursive call in main");
     assert_eq!(
@@ -922,14 +925,9 @@ fn main() -> Unit {
         },
         other => panic!("unexpected program statement shape: {other:?}"),
     };
-    let key = call_expr as *const Expression as usize;
-    let node_id = result
-        .expr_ptr_to_id
-        .get(&key)
-        .expect("expected expr node id for recursive call in main");
     let inferred_call_ty = result
         .expr_types
-        .get(node_id)
+        .get(&call_expr.expr_id())
         .cloned()
         .expect("expected inferred type for recursive call in main");
     assert_eq!(
@@ -964,10 +962,7 @@ fn main() -> Unit {
         result.diagnostics
     );
     assert!(
-        has_diagnostic_message_fragment(
-            &result,
-            "Function parameter 1 type does not match: expected `Int`, found `String`."
-        ),
+        has_diagnostic_message_fragment(&result, "Parameter 1 has the wrong type."),
         "expected function param mismatch message, got: {:#?}",
         result
             .diagnostics
@@ -999,7 +994,7 @@ fn main() -> Unit {
     assert!(
         has_diagnostic_message_fragment(
             &result,
-            "Function return types do not match: expected `Int`, found `String`."
+            "The body of this function does not match its return type."
         ),
         "expected function return mismatch message, got: {:#?}",
         result
@@ -1030,7 +1025,7 @@ fn main() -> Unit {
         result.diagnostics
     );
     assert!(
-        has_diagnostic_message_fragment(&result, "Function arity does not match."),
+        has_diagnostic_message_fragment(&result, "too many arguments"),
         "expected function arity mismatch message, got: {:#?}",
         result
             .diagnostics
@@ -1170,14 +1165,9 @@ fn main() -> Unit with Console {
 "#,
     );
     let perform = first_perform_expr(&program).expect("expected perform expression");
-    let key = perform as *const Expression as usize;
-    let node_id = result
-        .expr_ptr_to_id
-        .get(&key)
-        .expect("expected expr node id for perform");
     let ty = result
         .expr_types
-        .get(node_id)
+        .get(&perform.expr_id())
         .expect("expected inferred type for perform expression");
     assert_eq!(*ty, int());
 }
@@ -1209,6 +1199,123 @@ fn main() -> Unit with Console {
 }
 
 #[test]
+fn infer_effect_row_order_equivalence_for_function_params() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+fn call_swapped_effects(f: ((Int) -> Int with Time, IO), x: Int) -> Int with IO, Time {
+    f(x)
+}
+
+fn add_one(x: Int) -> Int with IO, Time {
+    x + 1
+}
+
+fn main() -> Unit {
+    let _ = call_swapped_effects(add_one, 1)
+}
+"#,
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no diagnostics for order-equivalent effect rows, got: {:?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.code().unwrap_or(""))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn infer_effect_row_subtract_var_signature_stays_hm_clean() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+effect Console {
+    print: String -> ()
+}
+fn run_filtered(f: (() -> Int with |e - Console)) -> Int with |e - Console {
+    f()
+}
+fn io_work() -> Int with IO {
+    print("work")
+    10
+}
+fn main() -> Unit {
+    let _ = run_filtered(io_work)
+}
+"#,
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no HM diagnostics for satisfiable row-variable subtraction signature, got: {:?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.code().unwrap_or(""))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn infer_effect_row_subset_callback_requirement_emits_e300() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+fn run_needs_io_time(f: (() -> Int with IO, Time)) -> Int with IO, Time {
+    f()
+}
+fn only_io() -> Int with IO {
+    1
+}
+fn main() -> Unit {
+    let _ = run_needs_io_time(only_io)
+}
+"#,
+    );
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected HM effect-row mismatch diagnostics, got: {:?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.code().unwrap_or(""))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn infer_effect_row_absent_ordering_linked_vars_stays_hm_clean() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+fn needs_linked_absence(
+    first: (() -> Int with |e - IO),
+    second: (() -> Int with |e)
+) -> Int with |e - IO {
+    first() + second()
+}
+fn row_var_worker() -> Int with |e {
+    1
+}
+fn time_worker() -> Int with Time {
+    now_ms()
+    2
+}
+fn main() -> Unit with Time {
+    let _ = needs_linked_absence(row_var_worker, time_worker)
+}
+"#,
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected HM to remain diagnostics-clean for linked row-var absence flow; compiler enforces call-site row constraints, got: {:?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.code().unwrap_or(""))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn infer_handle_result_matches_handled_expression_type() {
     let (result, program) = infer_program_from_source(
         r#"
@@ -1223,14 +1330,9 @@ fn main() -> Unit with Console {
 "#,
     );
     let handle = first_handle_expr(&program).expect("expected handle expression");
-    let key = handle as *const Expression as usize;
-    let node_id = result
-        .expr_ptr_to_id
-        .get(&key)
-        .expect("expected expr node id for handle");
     let ty = result
         .expr_types
-        .get(node_id)
+        .get(&handle.expr_id())
         .expect("expected inferred type for handle expression");
     assert_eq!(*ty, int());
 }
@@ -1437,8 +1539,8 @@ fn generalize_fun_partial() {
 #[test]
 fn type_env_fresh() {
     let mut env = TypeEnv::new();
-    let v0 = env.fresh();
-    let v1 = env.fresh();
+    let v0 = env.alloc_type_var_id();
+    let v1 = env.alloc_type_var_id();
     assert_ne!(v0, v1);
     assert_eq!(v0 + 1, v1);
 }
@@ -1543,7 +1645,7 @@ fn main() -> Unit {
         result.diagnostics
     );
     assert!(
-        has_diagnostic_message_fragment(&result, "The 1st argument to `greet` has the wrong type."),
+        has_diagnostic_message_fragment(&result, "wrong type in the 1st argument to `greet`"),
         "expected named call-arg contextual message, got: {:#?}",
         result.diagnostics
     );
@@ -1575,7 +1677,7 @@ fn main() -> Unit {
         .find(|d| {
             d.code() == Some("E300")
                 && d.message()
-                    .is_some_and(|m| m.contains("The 2nd argument to `pair` has the wrong type."))
+                    .is_some_and(|m| m.contains("wrong type in the 2nd argument to `pair`"))
         })
         .expect("expected contextual call-arg E300 diagnostic");
     let primary = diag
@@ -1586,6 +1688,13 @@ fn main() -> Unit {
     assert_eq!(
         primary.span, expected_arg_span,
         "expected primary label span to match mismatching argument expression span"
+    );
+    assert!(
+        diag.hints().iter().any(|hint| hint
+            .text
+            .contains("actual argument type is inferred from this expression")),
+        "expected origin note explaining conflicting type source, got: {:?}",
+        diag.hints()
     );
 }
 
@@ -1604,10 +1713,7 @@ fn main() -> Unit {
         result.diagnostics
     );
     assert!(
-        has_diagnostic_message_fragment(
-            &result,
-            "The 1st argument to this function has the wrong type."
-        ),
+        has_diagnostic_message_fragment(&result, "wrong type in the 1st argument to this function"),
         "expected anonymous call-arg contextual message, got: {:#?}",
         result.diagnostics
     );
@@ -1639,11 +1745,48 @@ fn main() -> Unit {
 "#;
     let (result, _) = infer_program_from_source(source);
     assert!(
-        !has_diagnostic_message_fragment(
-            &result,
-            "argument to `accepts_any_param_fn` has the wrong type."
-        ),
+        !has_diagnostic_message_fragment(&result, "wrong type in the 1st argument to"),
         "did not expect contextual call-arg mismatch when expected type contains Any, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn base_missing_hm_metadata_emits_e426() {
+    let source = r#"
+fn id(x: Int) -> Int { x }
+fn main() -> Unit {
+    let _ = map([|1, 2, 3|], id)
+}
+"#;
+    let lexer = Lexer::new(source);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let interner = parser.take_interner();
+    let mut interner_for_base = interner.clone();
+    let map = interner_for_base.intern("map");
+    let base = interner_for_base.intern("Base");
+    let known_base_names = HashSet::from([map]);
+    let result = infer_program(
+        &program,
+        &interner,
+        InferProgramConfig {
+            file_path: Some("<test>".into()),
+            preloaded_base_schemes: HashMap::new(),
+            preloaded_module_member_schemes: HashMap::new(),
+            known_base_names,
+            base_module_symbol: base,
+            preloaded_effect_op_signatures: HashMap::new(),
+        },
+    );
+    assert!(
+        has_diagnostic_code(&result, "E426"),
+        "expected E426 diagnostics, got: {:#?}",
         result.diagnostics
     );
 }

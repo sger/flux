@@ -169,7 +169,7 @@ Total: 4 weeks (March 2026 release window)
    - `examples/aoc/2024/day05_part1_test.flx` (`--test`): VM/JIT both pass all 4 tests.
 
 6. Residual risk note  
-   Outcome: full `examples/aoc/2024/day05.flx` remains outside the curated release matrix due known VM stack-overflow behavior in Part 2 recursion; follow-up: [0016_tail_call_accumulator_optimization.md](../proposals/0016_tail_call_accumulator_optimization.md) (owner: Proposal 0016 track).
+   Outcome: full `examples/aoc/2024/day05.flx` remains outside the curated release matrix due known VM stack-overflow behavior in Part 2 recursion; follow-up: [0016_tail_call_accumulator_optimization.md](../proposals/implemented/0016_tail_call_accumulator_optimization.md) (owner: Proposal 0016 track).
 
 7. Release-note diagnostics summary (0058/0059)  
    Outcome:
@@ -182,7 +182,7 @@ Total: 4 weeks (March 2026 release window)
 
 ### M1: HM Zero-Fallback Completion
 **Priority:** CRITICAL | **Effort:** Medium | **Risk:** Medium  
-**Proposals:** [0051_any_fallback_reduction.md](../proposals/0051_any_fallback_reduction.md), [0054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
+**Proposals:** [0051_any_fallback_reduction.md](../proposals/implemented/0051_any_fallback_reduction.md), [0054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/implemented/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
 
 **Goal:** Make HM strict-path authority for typed validation callsites.
 
@@ -202,7 +202,7 @@ Total: 4 weeks (March 2026 release window)
 
 ### M2: ADT Semantics Hardening
 **Priority:** CRITICAL | **Effort:** Medium | **Risk:** Medium  
-**Proposals:** [0047_adt_semantics_deepening.md](../proposals/0047_adt_semantics_deepening.md), [0054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
+**Proposals:** [0047_adt_semantics_deepening.md](../proposals/implemented/0047_adt_semantics_deepening.md), [0054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/implemented/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
 
 **Goal:** Stabilize ADT constructor typing and supported module-boundary behavior.
 
@@ -220,7 +220,7 @@ Total: 4 weeks (March 2026 release window)
 
 ### M3: Strong Exhaustiveness Completion
 **Priority:** CRITICAL | **Effort:** Medium | **Risk:** Medium  
-**Proposals:** [0050_totality_and_exhaustiveness_hardening.md](../proposals/0050_totality_and_exhaustiveness_hardening.md), [0054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
+**Proposals:** [0050_totality_and_exhaustiveness_hardening.md](../proposals/implemented/0050_totality_and_exhaustiveness_hardening.md), [0054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/implemented/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
 
 **Goal:** Deterministic compile-time totality checks for supported pattern spaces.
 
@@ -239,7 +239,7 @@ Total: 4 weeks (March 2026 release window)
 
 ### M4: VM/JIT Parity Freeze + Runtime Stability
 **Priority:** CRITICAL | **Effort:** Medium | **Risk:** High  
-**Proposals:** [0043_pure_flux_checklist.md](../proposals/0043_pure_flux_checklist.md), [0054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
+**Proposals:** [0043_pure_flux_checklist.md](../proposals/0043_pure_flux_checklist.md), [0054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/implemented/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
 
 **Goal:** Ensure parity and runtime behavior are release-safe.
 
@@ -264,7 +264,7 @@ cargo run --features jit -- --no-cache --test --root lib --root examples/aoc/202
 
 ### M5: Safe Performance Track (Release-Compatible)
 **Priority:** HIGH | **Effort:** Small-Medium | **Risk:** Low  
-**Proposals:** [0055_lexer_performance_and_architecture.md](../proposals/0055_lexer_performance_and_architecture.md), [0056_parser_performance_and_architecture.md](../proposals/0056_parser_performance_and_architecture.md), [0044_compiler_phase_pipeline_refactor.md](../proposals/0044_compiler_phase_pipeline_refactor.md)
+**Proposals:** [0055_lexer_performance_and_architecture.md](../proposals/implemented/0055_lexer_performance_and_architecture.md), [0056_parser_performance_and_architecture.md](../proposals/implemented/0056_parser_performance_and_architecture.md), [0044_compiler_phase_pipeline_refactor.md](../proposals/0044_compiler_phase_pipeline_refactor.md)
 
 **Status:** Complete (baseline harnesses, two low-risk hot-path changes, and parity-safe evidence locked)
 
@@ -294,7 +294,7 @@ Week-4 release evidence now includes explicit 0058/0059 diagnostics release-note
 
 ### R4-T02: Track Day05 Part 2 VM recursion risk as explicit follow-up
 **Status:** Complete (pre-merge)  
-Week-4 Evidence item 6 now includes the concrete follow-up tracker [0016_tail_call_accumulator_optimization.md](../proposals/0016_tail_call_accumulator_optimization.md) and explicit owner (`Proposal 0016 track`) for the Day05 Part 2 VM recursion risk.
+Week-4 Evidence item 6 now includes the concrete follow-up tracker [0016_tail_call_accumulator_optimization.md](../proposals/implemented/0016_tail_call_accumulator_optimization.md) and explicit owner (`Proposal 0016 track`) for the Day05 Part 2 VM recursion risk.
 
 ### R4-T03: Add contextual boundary/effect mismatch fixtures (0058 follow-up)
 **Status:** Complete (post-0.0.4 follow-up landed)  

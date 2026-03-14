@@ -1,0 +1,21 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_do_brace.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Missing Do Block
+
+This `do` block needs to start with `{`.
+
+  examples/parser_errors/missing_do_brace.flx:7:9
+  |
+7 |         let x = 1
+  |         ^^^
+  |         --- This looks like the `do` block body
+
+Help:
+  Try adding `{` after `do`.
+== stdout ==
+<not executed>

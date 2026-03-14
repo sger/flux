@@ -1,0 +1,9 @@
+// Missing `{` in do block.
+//
+// Expected: contextual error about do block syntax.
+
+fn main() -> Unit {
+    do
+        let x = 1
+        print(x)
+}

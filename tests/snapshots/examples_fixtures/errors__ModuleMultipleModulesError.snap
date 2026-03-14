@@ -5,13 +5,12 @@ Fixture: examples/errors/ModuleMultipleModulesError.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E023]: MULTIPLE MODULES
+error[E023]: Multiple Modules
 
 File contains multiple module declarations.
 
-  --> examples/errors/ModuleMultipleModulesError.flx:0:1
+  examples/errors/ModuleMultipleModulesError.flx:0:1
   |
-
 
 Hint:
   Each file should contain only one module declaration.

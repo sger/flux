@@ -22,14 +22,10 @@ Track these metrics per day:
 
 ### 0) Recommended order for tuning
 
-1. Compare Flux vs Rust/Python first:
+1. Compare Flux vs the maintained benchmark suite first:
 
 ```bash
-scripts/bench_cross_lang.sh --native --runs 30 --warmup 5 \
-  --name-prefix aoc_day1_part2 \
-  --flux-cmd './target/release/flux examples/io/aoc_day1_part2.flx' \
-  --rust-cmd './target/release/aoc_day1_part2_rust examples/io/aoc_day1.txt' \
-  --python-cmd 'python3 benchmarks/aoc/day1_part2.py examples/io/aoc_day1.txt'
+scripts/bench.sh cfold --runs 30 --warmup 5
 ```
 
 2. Then profile VM hotspots:
@@ -74,7 +70,7 @@ cp -r target/criterion baseline_criterion
 ```
 
 3. Re-run benchmark after changes.
-4. Compare with your existing bench report tooling (`scripts/bench_report.rs`).
+4. Compare the current Criterion report against the saved baseline directly.
 
 ## Suggested Targets (starting point)
 

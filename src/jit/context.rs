@@ -1,13 +1,114 @@
 use crate::runtime::{
-    RuntimeContext, function_contract::FunctionContract, gc::GcHeap, value::Value,
+    RuntimeContext, base::list_ops::format_value, function_contract::FunctionContract, gc::GcHeap,
+    value::Value,
 };
 use crate::{
     diagnostics::position::{Position, Span},
-    diagnostics::{Diagnostic, DiagnosticsAggregator, ErrorType, RUNTIME_TYPE_ERROR},
+    diagnostics::{
+        Diagnostic, DiagnosticPhase, ErrorType, render_runtime_diagnostic, runtime_type_error,
+    },
 };
 use std::collections::HashMap;
 
 use super::value_arena::ValueArena;
+
+pub const JIT_TAG_INT: i64 = 1;
+pub const JIT_TAG_FLOAT: i64 = 2;
+pub const JIT_TAG_BOOL: i64 = 3;
+pub const JIT_TAG_PTR: i64 = 4;
+pub const JIT_TAG_THUNK: i64 = 5;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct JitTaggedValue {
+    pub tag: i64,
+    pub payload: i64,
+}
+
+impl JitTaggedValue {
+    pub const fn int(value: i64) -> Self {
+        Self {
+            tag: JIT_TAG_INT,
+            payload: value,
+        }
+    }
+
+    pub const fn float_bits(bits: i64) -> Self {
+        Self {
+            tag: JIT_TAG_FLOAT,
+            payload: bits,
+        }
+    }
+
+    pub const fn bool(value: bool) -> Self {
+        Self {
+            tag: JIT_TAG_BOOL,
+            payload: value as i64,
+        }
+    }
+
+    pub fn ptr(ptr: *mut Value) -> Self {
+        Self {
+            tag: JIT_TAG_PTR,
+            payload: ptr as i64,
+        }
+    }
+
+    pub fn none() -> Self {
+        Self::ptr(std::ptr::null_mut())
+    }
+
+    pub fn as_ptr(self) -> *mut Value {
+        self.payload as *mut Value
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JitCallAbi {
+    Array,
+    Reg1,
+    Reg2,
+    Reg3,
+    Reg4,
+}
+
+impl JitCallAbi {
+    pub fn from_arity(arity: usize) -> Self {
+        match arity {
+            1 => Self::Reg1,
+            2 => Self::Reg2,
+            3 => Self::Reg3,
+            4 => Self::Reg4,
+            _ => Self::Array,
+        }
+    }
+
+    pub fn uses_array_args(self) -> bool {
+        matches!(self, Self::Array)
+    }
+
+    pub fn direct_arg_count(self) -> usize {
+        match self {
+            Self::Array => 0,
+            Self::Reg1 => 1,
+            Self::Reg2 => 2,
+            Self::Reg3 => 3,
+            Self::Reg4 => 4,
+        }
+    }
+
+    pub fn captures_param_index(self) -> usize {
+        if self.uses_array_args() {
+            3
+        } else {
+            1 + self.direct_arg_count() * 2
+        }
+    }
+
+    pub fn ncaptures_param_index(self) -> usize {
+        self.captures_param_index() + 1
+    }
+}
 
 /// A single arm of a JIT handler: maps an effect operation symbol ID to its arm closure.
 #[derive(Clone)]
@@ -16,6 +117,13 @@ pub struct JitHandlerArm {
     pub op: u32,
     /// Pre-compiled arm closure value (`Value::JitClosure`).
     pub closure: Value,
+}
+
+/// Target and arguments for a deferred mutual tail call.
+/// Set by `rt_set_thunk`; consumed by the trampoline loop in `jit_execute`.
+pub struct JitThunk {
+    pub fn_index: usize,
+    pub args: Vec<JitTaggedValue>,
 }
 
 /// An active handler pushed onto `JitContext::handler_stack` by `rt_push_handler`.
@@ -45,23 +153,49 @@ pub struct JitContext {
     pub error: Option<String>,
     /// Active effect handlers pushed by `rt_push_handler` / popped by `rt_pop_handler`.
     pub handler_stack: Vec<JitHandlerFrame>,
+    /// Explicit GC shadow roots pushed around helper safepoints.
+    pub shadow_roots: Vec<*mut Value>,
+    pub shadow_frames: Vec<usize>,
     /// Function index of the JIT-compiled identity closure used as the `resume`
     /// value passed to handler arms (shallow handlers: resume returns its argument).
     pub identity_fn_index: usize,
+    /// Pending mutual-tail-call thunk. `None` unless the last JIT return was
+    /// `JIT_TAG_THUNK`, in which case the trampoline loop re-invokes this.
+    pub pending_thunk: Option<JitThunk>,
+    /// Cache of unit (nullary) ADT values keyed by constructor name.
+    /// Each name is allocated exactly once; subsequent lookups return the same pointer.
+    pub unit_adts: HashMap<String, *mut Value>,
 }
 
 #[derive(Clone)]
 pub struct JitFunctionEntry {
     pub ptr: *const u8,
     pub num_params: usize,
+    pub call_abi: JitCallAbi,
     pub contract: Option<FunctionContract>,
 }
 
 impl JitContext {
+    fn span_from_1_based(
+        &self,
+        start_line: usize,
+        start_column_1_based: usize,
+        end_line: usize,
+        end_column_1_based: usize,
+    ) -> Span {
+        let start_col0 = start_column_1_based.saturating_sub(1);
+        let end_col0 = end_column_1_based.saturating_sub(1);
+        Span::new(
+            Position::new(start_line, start_col0),
+            Position::new(end_line, end_col0),
+        )
+    }
+
     pub(crate) fn render_runtime_type_error(
         &self,
         expected: &str,
         actual: &str,
+        value_preview: Option<&str>,
         span: Option<Span>,
     ) -> String {
         let file = self
@@ -69,45 +203,49 @@ impl JitContext {
             .clone()
             .unwrap_or_else(|| "<jit>".to_string());
         let span = span.unwrap_or_else(|| Span::new(Position::new(1, 0), Position::new(1, 0)));
-        let diag =
-            Diagnostic::make_error(&RUNTIME_TYPE_ERROR, &[expected, actual], file.clone(), span);
-        let mut agg =
-            DiagnosticsAggregator::new(std::slice::from_ref(&diag)).with_file_headers(false);
-        if let Some(src) = &self.source_text {
-            agg = agg.with_source(file, src.clone());
-        }
-        agg.report().rendered
+        let diag = runtime_type_error(expected, actual, value_preview, file.clone(), span);
+        render_runtime_diagnostic(&diag, &file, self.source_text.as_deref(), &[])
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_runtime_type_error_at(
         &self,
         expected: &str,
         actual: &str,
-        line: usize,
-        column_1_based: usize,
+        value_preview: Option<&str>,
+        start_line: usize,
+        start_column_1_based: usize,
+        end_line: usize,
+        end_column_1_based: usize,
     ) -> String {
-        let col0 = column_1_based.saturating_sub(1);
-        let span = Span::new(Position::new(line, col0), Position::new(line, col0));
-        self.render_runtime_type_error(expected, actual, Some(span))
+        let span = self.span_from_1_based(
+            start_line,
+            start_column_1_based,
+            end_line,
+            end_column_1_based,
+        );
+        self.render_runtime_type_error(expected, actual, value_preview, Some(span))
     }
 
     /// Render a generic runtime error through the diagnostics system.
     /// `line` is 1-based; `column` is 1-based.
     /// Produces the same formatted output (colour, source snippet) as VM runtime errors.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_runtime_error(
         &self,
         code: &str,
         title: &str,
         message: &str,
-        line: usize,
-        column: usize,
+        start_line: usize,
+        start_column: usize,
+        end_line: usize,
+        end_column: usize,
     ) -> String {
         let file = self
             .source_file
             .clone()
             .unwrap_or_else(|| "<jit>".to_string());
-        let col0 = column.saturating_sub(1);
-        let span = Span::new(Position::new(line, col0), Position::new(line, col0));
+        let span = self.span_from_1_based(start_line, start_column, end_line, end_column);
         let diag = Diagnostic::make_error_dynamic(
             code,
             title,
@@ -116,13 +254,75 @@ impl JitContext {
             None,
             file.clone(),
             span,
-        );
-        let mut agg =
-            DiagnosticsAggregator::new(std::slice::from_ref(&diag)).with_file_headers(false);
-        if let Some(src) = &self.source_text {
-            agg = agg.with_source(file, src.clone());
+        )
+        .with_phase(DiagnosticPhase::Runtime);
+        render_runtime_diagnostic(&diag, &file, self.source_text.as_deref(), &[])
+    }
+
+    pub(crate) fn render_runtime_error_message(
+        &self,
+        code: &str,
+        message: &str,
+        start_line: usize,
+        start_column: usize,
+        end_line: usize,
+        end_column: usize,
+    ) -> String {
+        let (title, details) = split_first_line(message);
+        self.render_runtime_error(
+            code,
+            title.trim(),
+            details.trim(),
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+        )
+    }
+
+    pub(crate) fn render_runtime_error_from_string(
+        &self,
+        message: &str,
+        start_line: usize,
+        start_column: usize,
+        end_line: usize,
+        end_column: usize,
+    ) -> String {
+        if is_rendered_runtime_diagnostic(message) {
+            return message.to_string();
         }
-        agg.report().rendered
+
+        let (message, hint) = split_hint(message);
+        let (title, details) = split_first_line(message);
+        if let Some(actual) = title.strip_prefix("not callable: ") {
+            return self.render_runtime_error(
+                "E1001",
+                "Not A Function",
+                &format!("Cannot call non-function value (got {}).", actual.trim()),
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+            );
+        }
+        let code = classify_runtime_error_code(title);
+
+        let file = self
+            .source_file
+            .clone()
+            .unwrap_or_else(|| "<jit>".to_string());
+        let span = self.span_from_1_based(start_line, start_column, end_line, end_column);
+        let diag = Diagnostic::make_error_dynamic(
+            code,
+            title.trim(),
+            ErrorType::Runtime,
+            details.trim(),
+            hint.map(|h| h.trim().to_string()),
+            file.clone(),
+            span,
+        )
+        .with_phase(DiagnosticPhase::Runtime);
+        render_runtime_diagnostic(&diag, &file, self.source_text.as_deref(), &[])
     }
 
     pub(crate) fn check_contract_arg(
@@ -182,13 +382,70 @@ impl JitContext {
             source_text: None,
             error: None,
             handler_stack: Vec::new(),
+            shadow_roots: Vec::new(),
+            shadow_frames: Vec::new(),
             identity_fn_index: usize::MAX,
+            pending_thunk: None,
+            unit_adts: HashMap::new(),
         }
+    }
+
+    /// Return a stable pointer to the unit ADT value for `name`, allocating it on first use.
+    pub fn intern_unit_adt(&mut self, name: &str) -> *mut Value {
+        if let Some(&ptr) = self.unit_adts.get(name) {
+            return ptr;
+        }
+        let ptr = self.alloc(Value::AdtUnit(std::rc::Rc::from(name)));
+        self.unit_adts.insert(name.to_string(), ptr);
+        ptr
     }
 
     /// Allocate a Value in the arena, returning a stable pointer.
     pub fn alloc(&mut self, value: Value) -> *mut Value {
         self.arena.alloc(value)
+    }
+
+    pub fn boxed_to_tagged(&mut self, value: Value) -> JitTaggedValue {
+        match value {
+            Value::Integer(v) => JitTaggedValue::int(v),
+            Value::Float(v) => JitTaggedValue::float_bits(v.to_bits() as i64),
+            Value::Boolean(v) => JitTaggedValue::bool(v),
+            other => JitTaggedValue::ptr(self.alloc(other)),
+        }
+    }
+
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    pub fn boxed_ptr_to_tagged(&mut self, value: *mut Value) -> JitTaggedValue {
+        match unsafe { value.as_ref() } {
+            Some(value) => self.boxed_to_tagged(value.clone()),
+            None => JitTaggedValue::none(),
+        }
+    }
+
+    pub fn tagged_to_boxed(&mut self, value: JitTaggedValue) -> *mut Value {
+        match value.tag {
+            JIT_TAG_INT => self.alloc(Value::Integer(value.payload)),
+            JIT_TAG_FLOAT => self.alloc(Value::Float(f64::from_bits(value.payload as u64))),
+            JIT_TAG_BOOL => self.alloc(Value::Boolean(value.payload != 0)),
+            JIT_TAG_PTR => value.as_ptr(),
+            _ => {
+                self.error = Some(format!("unknown JIT tagged value tag: {}", value.tag));
+                std::ptr::null_mut()
+            }
+        }
+    }
+
+    pub fn clone_from_tagged(&mut self, value: JitTaggedValue) -> Option<Value> {
+        match value.tag {
+            JIT_TAG_INT => Some(Value::Integer(value.payload)),
+            JIT_TAG_FLOAT => Some(Value::Float(f64::from_bits(value.payload as u64))),
+            JIT_TAG_BOOL => Some(Value::Boolean(value.payload != 0)),
+            JIT_TAG_PTR => unsafe { value.as_ptr().as_ref().cloned() },
+            _ => {
+                self.error = Some(format!("unknown JIT tagged value tag: {}", value.tag));
+                None
+            }
+        }
     }
 
     /// Take the stored error message, if any.
@@ -208,6 +465,75 @@ impl JitContext {
         self.source_file = file;
         self.source_text = source;
     }
+
+    pub fn push_gc_roots(&mut self, ptrs: &[*mut Value]) {
+        self.shadow_frames.push(self.shadow_roots.len());
+        self.shadow_roots.extend_from_slice(ptrs);
+    }
+
+    pub fn pop_gc_roots(&mut self) {
+        if let Some(start) = self.shadow_frames.pop() {
+            self.shadow_roots.truncate(start);
+        }
+    }
+
+    pub fn collect_gc(&mut self) {
+        let mut roots: Vec<Value> = Vec::with_capacity(
+            self.arena.iter().count()
+                + self.shadow_roots.len()
+                + self.globals.len()
+                + self.constants.len()
+                + self.handler_stack.len(),
+        );
+        roots.extend(self.arena.iter().cloned());
+        for ptr in &self.shadow_roots {
+            if let Some(value) = unsafe { ptr.as_ref() } {
+                roots.push(value.clone());
+            }
+        }
+        roots.extend(self.globals.iter().cloned());
+        roots.extend(self.constants.iter().cloned());
+        for frame in &self.handler_stack {
+            for arm in &frame.arms {
+                roots.push(arm.closure.clone());
+            }
+        }
+        self.gc_heap.collect_roots(roots.iter());
+    }
+}
+
+fn split_first_line(message: &str) -> (&str, &str) {
+    if let Some((title, rest)) = message.split_once('\n') {
+        (title, rest)
+    } else {
+        (message, "")
+    }
+}
+
+fn split_hint(message: &str) -> (&str, Option<&str>) {
+    if let Some((body, hint)) = message.split_once("\n\nHint:\n") {
+        (body, Some(hint))
+    } else {
+        (message, None)
+    }
+}
+
+fn is_rendered_runtime_diagnostic(message: &str) -> bool {
+    message.starts_with("• ") || message.starts_with("Error[") || message.starts_with("error[")
+}
+
+fn classify_runtime_error_code(title: &str) -> &'static str {
+    if title.contains("wrong number of arguments") {
+        "E1000"
+    } else if title.contains("division by zero") {
+        "E1008"
+    } else if title.contains("not a function") || title.contains("not callable") {
+        "E1001"
+    } else if title.contains("expected") || title.contains("expects") {
+        "E1004"
+    } else {
+        "E1009"
+    }
 }
 
 impl Default for JitContext {
@@ -224,7 +550,7 @@ impl RuntimeContext for JitContext {
             Value::BaseFunction(idx) => {
                 let base = get_base_function_by_index(idx as usize)
                     .ok_or_else(|| format!("unknown Base function index: {}", idx))?;
-                (base.func)(self, args)
+                base.call_owned(self, args)
             }
             Value::JitClosure(closure) => {
                 let entry = self
@@ -245,36 +571,120 @@ impl RuntimeContext for JitContext {
                     if let Err((expected, actual)) =
                         self.check_contract_arg(closure.function_index, index, arg)
                     {
-                        return Err(self.render_runtime_type_error(&expected, &actual, None));
+                        let preview = format_value(self, arg);
+                        return Err(self.render_runtime_type_error(
+                            &expected,
+                            &actual,
+                            Some(&preview),
+                            None,
+                        ));
                     }
                 }
 
-                let mut arg_ptrs: Vec<*mut Value> = Vec::with_capacity(args.len());
+                let mut arg_values: Vec<JitTaggedValue> = Vec::with_capacity(args.len());
                 for v in args {
-                    arg_ptrs.push(self.alloc(v));
+                    arg_values.push(self.boxed_to_tagged(v));
                 }
-                let mut capture_ptrs: Vec<*mut Value> = Vec::with_capacity(closure.captures.len());
+                let mut capture_values: Vec<JitTaggedValue> =
+                    Vec::with_capacity(closure.captures.len());
                 for v in &closure.captures {
-                    capture_ptrs.push(self.alloc(v.clone()));
+                    capture_values.push(self.boxed_to_tagged(v.clone()));
                 }
 
-                let func: unsafe extern "C" fn(
-                    *mut JitContext,
-                    *const *mut Value,
-                    i64,
-                    *const *mut Value,
-                    i64,
-                ) -> *mut Value = unsafe { std::mem::transmute(entry.ptr) };
-                let result_ptr = unsafe {
-                    func(
-                        self as *mut JitContext,
-                        arg_ptrs.as_ptr(),
-                        arg_ptrs.len() as i64,
-                        capture_ptrs.as_ptr(),
-                        capture_ptrs.len() as i64,
-                    )
+                let result = unsafe {
+                    match entry.call_abi {
+                        JitCallAbi::Array => {
+                            let func: unsafe extern "C" fn(
+                                *mut JitContext,
+                                *const JitTaggedValue,
+                                i64,
+                                *const JitTaggedValue,
+                                i64,
+                            )
+                                -> JitTaggedValue = std::mem::transmute(entry.ptr);
+                            func(
+                                self as *mut JitContext,
+                                arg_values.as_ptr(),
+                                arg_values.len() as i64,
+                                capture_values.as_ptr(),
+                                capture_values.len() as i64,
+                            )
+                        }
+                        JitCallAbi::Reg1 => {
+                            let func: unsafe extern "C" fn(
+                                *mut JitContext,
+                                JitTaggedValue,
+                                *const JitTaggedValue,
+                                i64,
+                            )
+                                -> JitTaggedValue = std::mem::transmute(entry.ptr);
+                            func(
+                                self as *mut JitContext,
+                                arg_values[0],
+                                capture_values.as_ptr(),
+                                capture_values.len() as i64,
+                            )
+                        }
+                        JitCallAbi::Reg2 => {
+                            let func: unsafe extern "C" fn(
+                                *mut JitContext,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                *const JitTaggedValue,
+                                i64,
+                            )
+                                -> JitTaggedValue = std::mem::transmute(entry.ptr);
+                            func(
+                                self as *mut JitContext,
+                                arg_values[0],
+                                arg_values[1],
+                                capture_values.as_ptr(),
+                                capture_values.len() as i64,
+                            )
+                        }
+                        JitCallAbi::Reg3 => {
+                            let func: unsafe extern "C" fn(
+                                *mut JitContext,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                *const JitTaggedValue,
+                                i64,
+                            )
+                                -> JitTaggedValue = std::mem::transmute(entry.ptr);
+                            func(
+                                self as *mut JitContext,
+                                arg_values[0],
+                                arg_values[1],
+                                arg_values[2],
+                                capture_values.as_ptr(),
+                                capture_values.len() as i64,
+                            )
+                        }
+                        JitCallAbi::Reg4 => {
+                            let func: unsafe extern "C" fn(
+                                *mut JitContext,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                *const JitTaggedValue,
+                                i64,
+                            )
+                                -> JitTaggedValue = std::mem::transmute(entry.ptr);
+                            func(
+                                self as *mut JitContext,
+                                arg_values[0],
+                                arg_values[1],
+                                arg_values[2],
+                                arg_values[3],
+                                capture_values.as_ptr(),
+                                capture_values.len() as i64,
+                            )
+                        }
+                    }
                 };
-                if result_ptr.is_null() {
+                if result.tag == JIT_TAG_PTR && result.as_ptr().is_null() {
                     return Err(self
                         .take_error()
                         .unwrap_or_else(|| "unknown JIT call error".to_string()));
@@ -282,16 +692,36 @@ impl RuntimeContext for JitContext {
                 if let Some(err) = self.take_error() {
                     return Err(err);
                 }
-                let result = unsafe { (*result_ptr).clone() };
+                let result = self
+                    .clone_from_tagged(result)
+                    .ok_or_else(|| "unknown JIT call error".to_string())?;
                 if let Err((expected, actual)) =
                     self.check_contract_return(closure.function_index, &result)
                 {
-                    return Err(self.render_runtime_type_error(&expected, &actual, None));
+                    let preview = format_value(self, &result);
+                    return Err(self.render_runtime_type_error(
+                        &expected,
+                        &actual,
+                        Some(&preview),
+                        None,
+                    ));
                 }
                 Ok(result)
             }
-            _ => Err(format!("JIT invoke_value: cannot call {}", callee)),
+            _ => Err(format!("not callable: {}", callee.type_name())),
         }
+    }
+
+    fn invoke_base_function_borrowed(
+        &mut self,
+        base_fn_index: usize,
+        args: &[&Value],
+    ) -> Result<Value, String> {
+        use crate::runtime::base::get_base_function_by_index;
+
+        let base = get_base_function_by_index(base_fn_index)
+            .ok_or_else(|| format!("unknown Base function index: {}", base_fn_index))?;
+        base.call_borrowed(self, args)
     }
 
     fn gc_heap(&self) -> &GcHeap {
@@ -300,5 +730,85 @@ impl RuntimeContext for JitContext {
 
     fn gc_heap_mut(&mut self) -> &mut GcHeap {
         &mut self.gc_heap
+    }
+
+    fn callable_contract<'a>(&'a self, callee: &'a Value) -> Option<&'a FunctionContract> {
+        match callee {
+            Value::JitClosure(closure) => self
+                .jit_functions
+                .get(closure.function_index)
+                .and_then(|entry| entry.contract.as_ref()),
+            Value::Closure(closure) => closure.function.contract.as_ref(),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use super::JitContext;
+    use crate::runtime::{
+        gc::heap_object::HeapObject,
+        value::{AdtFields, Value},
+    };
+
+    #[test]
+    fn collect_gc_preserves_shadow_rooted_gc_adt() {
+        let mut ctx = JitContext::new();
+        let list = ctx.gc_heap.alloc(HeapObject::Cons {
+            head: Value::Integer(1),
+            tail: Value::None,
+        });
+        let adt = ctx.gc_heap.alloc(HeapObject::Adt {
+            constructor: Rc::from("Node"),
+            fields: AdtFields::from_vec(vec![Value::Gc(list)]),
+        });
+        let root = ctx.alloc(Value::GcAdt(adt));
+        ctx.push_gc_roots(&[root]);
+
+        ctx.gc_heap.alloc(HeapObject::Cons {
+            head: Value::Integer(99),
+            tail: Value::None,
+        });
+
+        ctx.collect_gc();
+        assert_eq!(ctx.gc_heap.live_count(), 2);
+        assert_eq!(
+            unsafe { &*root }.adt_constructor(&ctx.gc_heap),
+            Some("Node")
+        );
+
+        ctx.pop_gc_roots();
+        ctx.arena.reset();
+        ctx.collect_gc();
+        assert_eq!(ctx.gc_heap.live_count(), 0);
+    }
+
+    #[test]
+    fn collect_gc_preserves_arena_rooted_gc_adt_without_shadow_roots() {
+        let mut ctx = JitContext::new();
+        let list = ctx.gc_heap.alloc(HeapObject::Cons {
+            head: Value::Integer(1),
+            tail: Value::None,
+        });
+        let adt = ctx.gc_heap.alloc(HeapObject::Adt {
+            constructor: Rc::from("Node"),
+            fields: AdtFields::from_vec(vec![Value::Gc(list)]),
+        });
+        let root = ctx.alloc(Value::GcAdt(adt));
+
+        ctx.gc_heap.alloc(HeapObject::Cons {
+            head: Value::Integer(99),
+            tail: Value::None,
+        });
+
+        ctx.collect_gc();
+        assert_eq!(ctx.gc_heap.live_count(), 2);
+        assert_eq!(
+            unsafe { &*root }.adt_constructor(&ctx.gc_heap),
+            Some("Node")
+        );
     }
 }

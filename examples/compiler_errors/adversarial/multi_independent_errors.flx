@@ -1,0 +1,13 @@
+fn add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+fn bad() -> Unit {
+    let first: Int = "oops"
+    let second = add(1)
+    print("still effectful")
+}
+
+fn main() -> Unit {
+    bad()
+}

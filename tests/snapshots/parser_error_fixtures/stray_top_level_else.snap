@@ -1,0 +1,29 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/stray_top_level_else.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E031]: Expected Expression
+
+Expected expression, found `else`.
+
+  examples/parser_errors/stray_top_level_else.flx:1:1
+  |
+1 | else
+  | ^^^^
+
+
+error[E031]: Expected Expression
+
+Expected expression, found `->`.
+
+  examples/parser_errors/stray_top_level_else.flx:2:11
+  |
+2 | fn main() -> Unit {}
+  |           ^^
+
+Found 2 errors.
+== stdout ==
+<not executed>

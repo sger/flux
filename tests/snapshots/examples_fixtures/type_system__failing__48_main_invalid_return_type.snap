@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/48_main_invalid_return_type.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E412]: INVALID MAIN RETURN TYPE
+error[E412]: Invalid Main Return Type
 
 `fn main` must return `Unit` (or omit return type).
 
-  --> examples/type_system/failing/48_main_invalid_return_type.flx:3:14
+  examples/type_system/failing/48_main_invalid_return_type.flx:3:14
   |
 3 | fn main() -> Int {
   |              ^^^

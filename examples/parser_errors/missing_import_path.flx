@@ -1,0 +1,9 @@
+// Missing path in import statement.
+//
+// Expected: error about invalid import syntax.
+
+import
+
+fn main() -> Unit {
+    print("hello")
+}

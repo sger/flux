@@ -134,7 +134,7 @@ fn snapshot_0058_call_arg_named_fn_full_rendered() {
         file_path,
         source,
         "E300",
-        "The 1st argument to `greet` has the wrong type.",
+        "I found the wrong type in the 1st argument to `greet`.",
     );
 
     assert_snapshot!(output);
@@ -170,7 +170,7 @@ fn snapshot_0058_return_mismatch_dual_span_full_rendered() {
         file_path,
         source,
         "E300",
-        "The return value of `bad` does not match its declared return type.",
+        "The body of `bad` does not match its declared return type.",
     );
 
     assert_snapshot!(output);

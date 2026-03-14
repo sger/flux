@@ -1,0 +1,8 @@
+fn add(a, b) {
+    a + b
+}
+
+fn main() {
+    let f = add
+    let ignored = f(1)
+}

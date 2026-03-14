@@ -5,21 +5,24 @@ Fixture: examples/errors/match_guard_syntax_error.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E031]: EXPECTED EXPRESSION
+error[E031]: Expected Expression
 
-Expected expression, found ->.
+Expected expression, found `->`.
 
-  --> examples/errors/match_guard_syntax_error.flx:5:16
+  examples/errors/match_guard_syntax_error.flx:5:16
   |
 5 |     Some(v) if -> v,
   |                ^^
 
+Note:
+  while parsing `match` expression
 
---> compiler error[E031]: EXPECTED EXPRESSION
 
-Expected expression, found ;.
+error[E031]: Expected Expression
 
-  --> examples/errors/match_guard_syntax_error.flx:7:2
+Expected expression, found `;`.
+
+  examples/errors/match_guard_syntax_error.flx:7:2
   |
 7 | };
   |  ^

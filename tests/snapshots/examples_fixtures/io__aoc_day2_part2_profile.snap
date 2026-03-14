@@ -5,11 +5,11 @@ Fixture: examples/io/aoc_day2_part2_profile.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E011]: PRIVATE MEMBER
+error[E011]: Private Member
 
 Cannot access private member `solve_parsed_ranges`.
 
-  --> examples/io/aoc_day2_part2_profile.flx:10:21
+  examples/io/aoc_day2_part2_profile.flx:10:21
    |
 10 |         let total = Day2.solve_parsed_ranges(parsed_ranges)
    |                     ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -18,11 +18,11 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
---> compiler error[E011]: PRIVATE MEMBER
+error[E011]: Private Member
 
 Cannot access private member `parse_ranges`.
 
-  --> examples/io/aoc_day2_part2_profile.flx:15:21
+  examples/io/aoc_day2_part2_profile.flx:15:21
    |
 15 | let parsed_ranges = Day2.parse_ranges("examples/io/aoc_day2.txt")
    |                     ^^^^^^^^^^^^^^^^^
@@ -31,11 +31,11 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Time).
 
-  --> examples/io/aoc_day2_part2_profile.flx:18:1
+  examples/io/aoc_day2_part2_profile.flx:18:1
    |
 18 | let t0 = now_ms()
    | ^^^^^^^^^^^^^^^^^
@@ -45,11 +45,11 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  --> examples/io/aoc_day2_part2_profile.flx:18:1
+  examples/io/aoc_day2_part2_profile.flx:18:1
    |
 18 | let t0 = now_ms()
    | ^^^^^^^^^^^^^^^^^
@@ -59,11 +59,25 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E400]: Missing Effect
+
+requires effect `Time` but the enclosing context does not provide it
+
+  examples/io/aoc_day2_part2_profile.flx:18:10
+   |
+18 | let t0 = now_ms()
+   |          ^^^^^^^^
+   |          -------- requires `Time`
+
+Hint:
+  annotate the enclosing function with `with Time`
+
+
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Time).
 
-  --> examples/io/aoc_day2_part2_profile.flx:20:1
+  examples/io/aoc_day2_part2_profile.flx:20:1
    |
 20 | let t1 = now_ms()
    | ^^^^^^^^^^^^^^^^^
@@ -73,11 +87,25 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E400]: Missing Effect
+
+requires effect `Time` but the enclosing context does not provide it
+
+  examples/io/aoc_day2_part2_profile.flx:20:10
+   |
+20 | let t1 = now_ms()
+   |          ^^^^^^^^
+   |          -------- requires `Time`
+
+Hint:
+  annotate the enclosing function with `with Time`
+
+
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/io/aoc_day2_part2_profile.flx:22:1
+  examples/io/aoc_day2_part2_profile.flx:22:1
    |
 22 | print("iterations:")
    | ^^^^^^^^^^^^^^^^^^^^
@@ -87,11 +115,25 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/io/aoc_day2_part2_profile.flx:22:1
+   |
+22 | print("iterations:")
+   | ^^^^^^^^^^^^^^^^^^^^
+   | -------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/io/aoc_day2_part2_profile.flx:23:1
+  examples/io/aoc_day2_part2_profile.flx:23:1
    |
 23 | print(iterations)
    | ^^^^^^^^^^^^^^^^^
@@ -101,11 +143,25 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/io/aoc_day2_part2_profile.flx:23:1
+   |
+23 | print(iterations)
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/io/aoc_day2_part2_profile.flx:24:1
+  examples/io/aoc_day2_part2_profile.flx:24:1
    |
 24 | print("checksum:")
    | ^^^^^^^^^^^^^^^^^^
@@ -115,11 +171,25 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/io/aoc_day2_part2_profile.flx:24:1
+   |
+24 | print("checksum:")
+   | ^^^^^^^^^^^^^^^^^^
+   | ------------------ requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/io/aoc_day2_part2_profile.flx:25:1
+  examples/io/aoc_day2_part2_profile.flx:25:1
    |
 25 | print(checksum)
    | ^^^^^^^^^^^^^^^
@@ -129,11 +199,25 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/io/aoc_day2_part2_profile.flx:25:1
+   |
+25 | print(checksum)
+   | ^^^^^^^^^^^^^^^
+   | --------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/io/aoc_day2_part2_profile.flx:26:1
+  examples/io/aoc_day2_part2_profile.flx:26:1
    |
 26 | print("elapsed_ms:")
    | ^^^^^^^^^^^^^^^^^^^^
@@ -143,11 +227,25 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/io/aoc_day2_part2_profile.flx:26:1
+   |
+26 | print("elapsed_ms:")
+   | ^^^^^^^^^^^^^^^^^^^^
+   | -------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/io/aoc_day2_part2_profile.flx:27:1
+  examples/io/aoc_day2_part2_profile.flx:27:1
    |
 27 | print(t1 - t0)
    | ^^^^^^^^^^^^^^
@@ -156,6 +254,20 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 11 errors.
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/io/aoc_day2_part2_profile.flx:27:1
+   |
+27 | print(t1 - t0)
+   | ^^^^^^^^^^^^^^
+   | -------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 19 errors.
 == stdout ==
 <not executed>

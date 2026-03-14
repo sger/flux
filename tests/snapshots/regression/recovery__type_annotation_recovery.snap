@@ -4,43 +4,40 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/recovery/type_annotation_recovery.flx
 exit_code: 1
 
---> compiler error[E034]: UNEXPECTED TOKEN
+error[E034]: Unexpected Token
 
-Expected a type expression, got =.
+I was expecting a type here, but I found `=`.
 
-  --> tests/fixtures/recovery/type_annotation_recovery.flx:1:8
+  tests/fixtures/recovery/type_annotation_recovery.flx:1:8
   |
 1 | let x: = 1
   |        ^
 
 
---> compiler error[E034]: UNEXPECTED TOKEN
+error[E034]: Unexpected Token
 
-Expected a type expression, got ,.
+I was expecting a type here, but I found `{`.
 
-  --> tests/fixtures/recovery/type_annotation_recovery.flx:4:9
-  |
-4 | fn f(a: , b: Int) {
-  |         ^
-
-
---> compiler error[E034]: UNEXPECTED TOKEN
-
-Expected a type expression, got {.
-
-  --> tests/fixtures/recovery/type_annotation_recovery.flx:9:11
+  tests/fixtures/recovery/type_annotation_recovery.flx:9:11
   |
 9 | fn g() -> {
   |           ^
 
+Note:
+  while parsing function `g`
 
---> compiler error[E034]: UNEXPECTED TOKEN
 
-Expected a type expression, got ->.
+error[E034]: Unexpected Token
 
-  --> tests/fixtures/recovery/type_annotation_recovery.flx:14:15
+I was expecting a type here, but I found `->`.
+
+  tests/fixtures/recovery/type_annotation_recovery.flx:14:15
    |
 14 | let lam = /x: -> x
    |               ^^
 
-Found 4 errors.
+Note:
+  while parsing lambda expression
+  Suppressed 1 cascading parser diagnostic(s) likely caused by an earlier syntax error.
+
+Found 3 errors.

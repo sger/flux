@@ -5,11 +5,11 @@ Fixture: examples/errors/module_path_mismatch_import.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E018]: IMPORT NOT FOUND
+error[E018]: Import Not Found
 
 Cannot find module `Modules.Data.List` to import.
 
-  --> examples/errors/module_path_mismatch_import.flx:1:1
+  examples/errors/module_path_mismatch_import.flx:1:1
   |
 1 | import Modules.Data.List
   | ^

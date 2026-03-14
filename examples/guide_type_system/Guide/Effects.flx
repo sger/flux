@@ -9,7 +9,7 @@ module Guide.Effects {
         value
     }
 
-    public fn map_twice(f: ((Int) -> Int with e), x: Int) -> Int with e {
+    public fn map_twice(f: ((Int) -> Int with |e), x: Int) -> Int with |e {
         f(f(x))
     }
 }

@@ -1,0 +1,23 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_closing_brace.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E076]: Missing Closing Delimiter
+
+Expected a closing `}` to match this opening `{` in function `add`.
+
+  examples/parser_errors/missing_closing_brace.flx:8:31
+  |
+8 | fn add(a: Int, b: Int) -> Int {
+  |                               ^
+
+Note:
+  while parsing function `add`
+
+Help:
+  Add `}` to close the body of function `add`.
+== stdout ==
+<not executed>

@@ -1,7 +1,7 @@
 use super::compiler_errors::*;
 use super::diagnostic::Diagnostic;
 use super::runtime_errors::*;
-use super::types::{ErrorCode, Severity};
+use super::types::{DiagnosticCategory, ErrorCode, Severity};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -136,16 +136,48 @@ fn error_code_map() -> &'static HashMap<&'static str, &'static ErrorCode> {
     })
 }
 
+/// Return the default category associated with a stable diagnostic code.
+pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
+    match code {
+        "E001" | "E002" | "E003" | "E004" | "E005" | "E006" | "E007" | "E012" | "E080" | "E085" => {
+            Some(DiagnosticCategory::NameResolution)
+        }
+        "E008" | "E009" | "E010" | "E011" | "E013" | "E017" | "E024" | "E029" | "E078" | "E079"
+        | "E086" | "E410" | "E411" | "E412" | "E413" | "E414" | "E415" | "E416" | "E417"
+        | "E418" => Some(DiagnosticCategory::ModuleSystem),
+        "E030" => Some(DiagnosticCategory::ParserKeyword),
+        "E031" | "E032" | "E033" | "E036" | "E071" | "E072" => {
+            Some(DiagnosticCategory::ParserExpression)
+        }
+        "E034" => Some(DiagnosticCategory::ParserExpression),
+        "E035" => Some(DiagnosticCategory::ParserPattern),
+        "E073" => Some(DiagnosticCategory::ParserSeparator),
+        "E076" => Some(DiagnosticCategory::ParserDelimiter),
+        "E423" => Some(DiagnosticCategory::TypeInference),
+        "E426" => Some(DiagnosticCategory::Internal),
+        "E056" | "E300" | "E301" => Some(DiagnosticCategory::TypeInference),
+        "E400" | "E401" | "E402" | "E403" | "E404" | "E405" | "E406" | "E407" | "E419" | "E420"
+        | "E421" | "E422" | "E425" => Some(DiagnosticCategory::Effects),
+        "E1004" => Some(DiagnosticCategory::RuntimeType),
+        _ if code.starts_with("E100") || code.starts_with("E101") || code.starts_with("E102") => {
+            Some(DiagnosticCategory::RuntimeExecution)
+        }
+        _ => None,
+    }
+}
+
 /// Look up error code by code string (e.g., "E007", "E1001")
 pub fn lookup_error_code(code: &str) -> Option<&'static ErrorCode> {
     error_code_map().get(code).copied()
 }
 
 /// Create a diagnostic from an error code (without message formatting)
-pub fn diag_enhanced(code: &'static ErrorCode) -> Diagnostic {
+pub fn diagnostic_for(code: &'static ErrorCode) -> Diagnostic {
     Diagnostic {
         severity: Severity::Error,
         title: code.title.to_string(),
+        display_title: None,
+        category: default_diagnostic_category(code.code),
         code: Some(code.code.to_string()),
         error_type: Some(code.error_type),
         message: None,
@@ -156,6 +188,7 @@ pub fn diag_enhanced(code: &'static ErrorCode) -> Diagnostic {
         suggestions: Vec::new(),
         hint_chains: Vec::new(),
         related: Vec::new(),
+        stack_trace: Vec::new(),
         phase: None,
     }
 }

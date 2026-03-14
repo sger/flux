@@ -1,0 +1,21 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectOpTypo.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E404]: Unknown Effect Operation
+
+Effect `Console` has no declared operation `prnit`.
+
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectOpTypo.flx:6:5
+  |
+6 |     perform Console.prnit("x")
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     -------------------------- unknown operation in perform
+
+Hint:
+  Add the operation to the effect declaration or rename it.
+== stdout ==
+<not executed>

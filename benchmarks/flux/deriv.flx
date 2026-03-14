@@ -1,0 +1,173 @@
+type Expr = Val(Int) | Var(Int) | Add(Expr, Expr) | Mul(Expr, Expr) | Pow(Expr, Expr) | Ln(Expr)
+
+fn pown(a: Int, n: Int) -> Int {
+    if n == 0 {
+        1
+    } else if n == 1 {
+        a
+    } else {
+        let b = pown(a, n / 2)
+        let factor = if n % 2 == 0 { 1 } else { a }
+        b * b * factor
+    }
+}
+
+fn add_val_left(n: Int, g: Expr) -> Expr {
+    match g {
+        Val(m) -> Val(n + m),
+        other -> if n == 0 {
+            other
+        } else {
+            match other {
+                Add(left, right) -> match left {
+                    Val(m) -> add(Val(n + m), right),
+                    _ -> match right {
+                        Val(m) -> add(Val(n + m), left),
+                        _ -> Add(Val(n), other),
+                    },
+                },
+                _ -> Add(Val(n), other),
+            }
+        },
+    }
+}
+
+fn add_non_val_left(f: Expr, g: Expr) -> Expr {
+    match g {
+        Val(0) -> f,
+        Val(n) -> add(Val(n), f),
+        Add(left, right) -> match left {
+            Val(n) -> add(Val(n), add(f, right)),
+            _ -> Add(f, Add(left, right)),
+        },
+        _ -> Add(f, g),
+    }
+}
+
+fn add(f: Expr, g: Expr) -> Expr {
+    match f {
+        Val(n) -> add_val_left(n, g),
+        Add(left, right) -> add(left, add(right, g)),
+        _ -> add_non_val_left(f, g),
+    }
+}
+
+fn mul_val_left(n: Int, g: Expr) -> Expr {
+    match g {
+        Val(m) -> Val(n * m),
+        other -> if n == 0 {
+            Val(0)
+        } else if n == 1 {
+            other
+        } else {
+            match other {
+                Mul(left, right) -> match left {
+                    Val(m) -> mul(Val(n * m), right),
+                    _ -> match right {
+                        Val(m) -> mul(Val(n * m), left),
+                        _ -> Mul(Val(n), other),
+                    },
+                },
+                _ -> Mul(Val(n), other),
+            }
+        },
+    }
+}
+
+fn mul_non_val_left(f: Expr, g: Expr) -> Expr {
+    match g {
+        Val(0) -> Val(0),
+        Val(1) -> f,
+        Val(n) -> mul(Val(n), f),
+        Mul(left, right) -> match left {
+            Val(n) -> mul(Val(n), mul(f, right)),
+            _ -> Mul(f, Mul(left, right)),
+        },
+        _ -> Mul(f, g),
+    }
+}
+
+fn mul(f: Expr, g: Expr) -> Expr {
+    match f {
+        Val(n) -> mul_val_left(n, g),
+        Mul(left, right) -> mul(left, mul(right, g)),
+        _ -> mul_non_val_left(f, g),
+    }
+}
+
+fn pow(f: Expr, g: Expr) -> Expr {
+    match f {
+        Val(m) -> match g {
+            Val(n) -> Val(pown(m, n)),
+            other -> if m == 0 {
+                Val(0)
+            } else {
+                match other {
+                    Val(0) -> Val(1),
+                    Val(1) -> Val(m),
+                    _ -> Pow(Val(m), other),
+                }
+            },
+        },
+        other -> match g {
+            Val(0) -> Val(1),
+            Val(1) -> other,
+            _ -> match other {
+                Val(0) -> Val(0),
+                _ -> Pow(other, g),
+            },
+        },
+    }
+}
+
+fn ln(f: Expr) -> Expr {
+    match f {
+        Val(1) -> Val(0),
+        other -> Ln(other),
+    }
+}
+
+fn deriv(x: Int, expr: Expr) -> Expr {
+    match expr {
+        Val(_) -> Val(0),
+        Var(y) -> if x == y { Val(1) } else { Val(0) },
+        Add(f, g) -> add(deriv(x, f), deriv(x, g)),
+        Mul(f, g) -> add(mul(f, deriv(x, g)), mul(g, deriv(x, f))),
+        Pow(f, g) ->
+            mul(
+                pow(f, g),
+                add(
+                    mul(mul(g, deriv(x, f)), pow(f, Val(-1))),
+                    mul(ln(f), deriv(x, g)),
+                ),
+            ),
+        Ln(f) -> mul(deriv(x, f), pow(f, Val(-1))),
+    }
+}
+
+fn count(expr: Expr) -> Int {
+    match expr {
+        Val(_) -> 1,
+        Var(_) -> 1,
+        Add(f, g) -> count(f) + count(g),
+        Mul(f, g) -> count(f) + count(g),
+        Pow(f, g) -> count(f) + count(g),
+        Ln(f) -> count(f),
+    }
+}
+
+fn nest(step: Int, remaining: Int, expr: Expr) with IO {
+    if remaining == 0 {
+        ()
+    } else {
+        let next = deriv(1, expr)
+        print("#{step + 1} count: #{count(next)}")
+        nest(step + 1, remaining - 1, next)
+    }
+}
+
+fn main() with IO {
+    let x = Var(1)
+    let expr0 = pow(x, x)
+    nest(0, 10, expr0)
+}

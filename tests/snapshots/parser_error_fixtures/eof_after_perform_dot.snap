@@ -1,0 +1,21 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/eof_after_perform_dot.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Missing Effect Operation Name
+
+Expected operation name after `perform Effect.`.
+
+  examples/parser_errors/eof_after_perform_dot.flx:2:20
+  |
+2 |     perform Console.
+  |                    ^
+  |                    - this `perform` expression ends here
+
+Help:
+  Perform expressions use `perform Effect.op(args...)`.
+== stdout ==
+<not executed>

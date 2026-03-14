@@ -5,11 +5,11 @@ Fixture: examples/errors/invalid_float_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/errors/invalid_float_error.flx:4:1
+  examples/errors/invalid_float_error.flx:4:1
   |
 4 | print(x);
   | ^^^^^^^^^
@@ -19,11 +19,11 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  --> examples/errors/invalid_float_error.flx:4:1
+  examples/errors/invalid_float_error.flx:4:1
   |
 4 | print(x);
   | ^^^^^^^^^
@@ -32,6 +32,20 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-Found 2 errors.
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/errors/invalid_float_error.flx:4:1
+  |
+4 | print(x);
+  | ^^^^^^^^
+  | -------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 3 errors.
 == stdout ==
 <not executed>

@@ -1,0 +1,14 @@
+module MultiDeclarationErrors {
+    data Pair {
+        Pair(Int String),
+        123
+    }
+
+    effect Console {
+        print String -> Unit
+        log: String String -> Unit
+        123: Int -> Unit
+    }
+
+    type Result = Ok(Int String) | Err(String)
+}

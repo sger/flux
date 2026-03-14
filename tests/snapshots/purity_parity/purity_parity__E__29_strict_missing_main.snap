@@ -15,10 +15,10 @@ $ flux --no-cache --strict examples/type_system/failing/29_strict_missing_main.f
 exit_code: 1
 
 == vm tuples ==
-- E415 | MISSING MAIN FUNCTION (STRICT) | 
+- E415 | Missing Main Function (strict) | 
 
 == jit tuples ==
-- E415 | MISSING MAIN FUNCTION (STRICT) | 
+- E415 | Missing Main Function (strict) | 
 
 == parity ==
 match

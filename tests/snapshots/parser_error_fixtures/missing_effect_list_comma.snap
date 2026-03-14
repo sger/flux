@@ -1,0 +1,26 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_effect_list_comma.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Missing Function Body
+
+This function body needs to start with `{`.
+
+  examples/parser_errors/missing_effect_list_comma.flx:1:26
+  |
+1 | fn main() -> Int with IO Time {
+  |                          ^^^^
+  |                          ---- This looks like the function body
+
+  | - `main` starts here
+
+Note:
+  while parsing function `main`
+
+Help:
+  Try adding `{` after the function signature.
+== stdout ==
+<not executed>

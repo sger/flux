@@ -5,11 +5,11 @@ Fixture: examples/namespaces/qualified_collision_ok.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E018]: IMPORT NOT FOUND
+error[E018]: Import Not Found
 
 Cannot find module `Modules.Foo.List` to import.
 
-  --> examples/namespaces/qualified_collision_ok.flx:1:1
+  examples/namespaces/qualified_collision_ok.flx:1:1
   |
 1 | import Modules.Foo.List
   | ^
@@ -19,11 +19,11 @@ Hint:
   Looked for module `Modules.Foo.List` under roots: examples/namespaces, src (imported from examples/namespaces/qualified_collision_ok.flx).
 
 
---> compiler error[E018]: IMPORT NOT FOUND
+error[E018]: Import Not Found
 
 Cannot find module `Modules.Bar.List` to import.
 
-  --> examples/namespaces/qualified_collision_ok.flx:2:1
+  examples/namespaces/qualified_collision_ok.flx:2:1
   |
 2 | import Modules.Bar.List
   | ^

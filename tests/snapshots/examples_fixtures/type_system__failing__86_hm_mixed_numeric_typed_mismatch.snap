@@ -5,18 +5,47 @@ Fixture: examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+error[E300]: Type Mismatch
 
-Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with Int and Float.
+I found a type mismatch.
 
-  --> examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:2:18
+  examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:2:18
   |
 2 |     let x: Int = 1 + 2.5
   |                  ^^^^^^^
-  |                  ------- expected matching '+' operands (Int+Int, Float+Float, or String+String), found Int and Float
-  |                  ------- operator operands are known at compile time
+  |                  ------- this expression has type `Float`
+
+  |                  ------- this type mismatch is reported here
+
+Note:
+  expected type: Int
+  found type: Float
+  the conflicting types meet at this expression
 
 Help:
-  adjust operand types or add explicit conversion
+  Try `to_int(...)` if truncating a `Float` to an `Int` is intended.
+
+
+error[E300]: Return Type Mismatch
+
+The body of `main` does not match its declared return type.
+
+  examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:3:5
+  |
+1 | fn main() -> Unit {
+  |              ---- `main` was declared to return `Unit`
+2 |     let x: Int = 1 + 2.5
+3 |     x
+  |     ^
+  |     - this expression has type `Int`
+
+Note:
+  declared return type: Unit
+  body type: Int
+
+Help:
+  Return a `Unit` value from `main` or change its annotation.
+
+Found 2 errors.
 == stdout ==
 <not executed>
