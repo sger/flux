@@ -1914,7 +1914,16 @@ pub extern "C" fn rt_perform(
 
     let ctx_mut = unsafe { ctx_ref(ctx) };
     match ctx_mut.invoke_value(arm_closure, call_args) {
-        Ok(result) => ctx_mut.alloc(result),
+        Ok(result) => {
+            // The handler arm's resume(v) returns v. When v is ()
+            // (empty tuple), normalize it to None (Unit) so the perform
+            // call site gets the expected type.
+            let normalized = match &result {
+                Value::Tuple(fields) if fields.is_empty() => Value::None,
+                _ => result,
+            };
+            ctx_mut.alloc(normalized)
+        }
         Err(msg) => {
             ctx_mut.error = Some(msg);
             ptr::null_mut()

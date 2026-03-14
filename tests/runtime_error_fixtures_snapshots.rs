@@ -9,12 +9,48 @@ use std::process::Command;
 
 fn normalize_cli_text(text: &str, workspace_root: &Path) -> String {
     let normalized = examples_snapshot::normalize_transcript(text, workspace_root);
+    // Strip non-deterministic thread IDs from panic messages:
+    // "thread 'main' (1234567)" → "thread 'main'"
+    let normalized = strip_thread_ids(&normalized);
     let lines = normalized
         .lines()
         .map(str::trim_end)
         .collect::<Vec<_>>()
         .join("\n");
     lines.trim().to_string()
+}
+
+fn strip_thread_ids(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(pos) = rest.find("thread '") {
+        result.push_str(&rest[..pos]);
+        let after_thread = &rest[pos..];
+        // Find the closing quote of the thread name
+        if let Some(quote_end) = after_thread[8..].find('\'') {
+            let name_end = pos + 8 + quote_end + 1; // past closing quote
+            let after_name = &rest[name_end..];
+            // Check if followed by " (digits)"
+            if after_name.starts_with(" (")
+                && let Some(paren_end) = after_name.find(')')
+            {
+                let between = &after_name[2..paren_end];
+                if between.chars().all(|c| c.is_ascii_digit()) {
+                    // Strip the " (digits)" part
+                    result.push_str(&rest[pos..name_end]);
+                    rest = &rest[name_end + paren_end + 1..];
+                    continue;
+                }
+            }
+            result.push_str(&rest[pos..name_end]);
+            rest = &rest[name_end..];
+        } else {
+            result.push_str(&rest[pos..pos + 8]);
+            rest = &rest[pos + 8..];
+        }
+    }
+    result.push_str(rest);
+    result
 }
 
 fn run_flux_file(

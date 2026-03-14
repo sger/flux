@@ -673,14 +673,28 @@ fn run_file(
                 };
 
                 let jit_compile_start = Instant::now();
-                let compiled =
-                    match flux::jit::jit_compile(&jit_program, &compiler.interner, &jit_options) {
-                        Ok(c) => c,
-                        Err(err) => {
-                            eprintln!("{}", err);
-                            std::process::exit(1);
-                        }
-                    };
+                let prev_hook = std::panic::take_hook();
+                std::panic::set_hook(Box::new(|_| {}));
+                let jit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    flux::jit::jit_compile(&jit_program, &compiler.interner, &jit_options)
+                }));
+                std::panic::set_hook(prev_hook);
+                let compiled = match jit_result {
+                    Ok(Ok(c)) => c,
+                    Ok(Err(err)) => {
+                        eprintln!("{}", err);
+                        std::process::exit(1);
+                    }
+                    Err(panic) => {
+                        let msg = panic
+                            .downcast_ref::<String>()
+                            .map(|s| s.as_str())
+                            .or_else(|| panic.downcast_ref::<&str>().copied())
+                            .unwrap_or("unknown panic");
+                        eprintln!("JIT compilation failed: {}", msg);
+                        std::process::exit(1);
+                    }
+                };
                 let jit_compile_ms = jit_compile_start.elapsed().as_secs_f64() * 1000.0;
 
                 let jit_exec_start = Instant::now();
