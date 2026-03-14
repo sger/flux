@@ -488,8 +488,8 @@ impl GcHeap {
             0.0
         };
 
-        let mut counts = [0usize; 3];
-        let mut bytes = [0usize; 3];
+        let mut counts = [0usize; ObjectKind::ALL.len()];
+        let mut bytes = [0usize; ObjectKind::ALL.len()];
         let mut total_live_bytes = 0usize;
         let mut all_objects: Vec<(u32, ObjectKind, usize)> = Vec::new();
 

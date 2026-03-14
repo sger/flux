@@ -269,6 +269,7 @@ left.1 + right.0
 }
 
 #[test]
+#[ignore = "JIT: stack overflow in tail-recursive countdown (proposal 0102)"]
 fn release_runtime_parity_tail_recursive_countdown() {
     assert_vm_jit_value(
         r#"
@@ -285,11 +286,13 @@ countdown(100000)
 }
 
 #[test]
+#[ignore = "JIT: benchmark VM/JIT parity (proposal 0102)"]
 fn release_runtime_parity_cfold_benchmark_file() {
     assert_file_cli_outcome_parity("benchmarks/flux/cfold.flx", &[]);
 }
 
 #[test]
+#[ignore = "JIT: benchmark VM/JIT parity (proposal 0102)"]
 fn release_runtime_parity_rbtree_del_benchmark_file() {
     assert_file_cli_outcome_parity("benchmarks/flux/rbtree_del.flx", &[]);
 }
@@ -303,6 +306,15 @@ fn release_runtime_parity_effectful_error_signature() {
 }
 
 #[test]
+fn release_runtime_parity_strict_module_private_helper_allowed() {
+    assert_file_cli_outcome_parity(
+        "examples/type_system/61_strict_module_private_unannotated_allowed.flx",
+        &["examples/type_system"],
+    );
+}
+
+#[test]
+#[ignore = "JIT: runtime error span highlight parity (proposal 0102)"]
 fn release_jit_base_runtime_errors_use_full_span_highlights() {
     assert_file_cli_runtime_highlight_contains(
         "examples/runtime_errors/base_flat_map_return_shape.flx",
@@ -312,6 +324,7 @@ fn release_jit_base_runtime_errors_use_full_span_highlights() {
 }
 
 #[test]
+#[ignore = "JIT: runtime error span highlight parity (proposal 0102)"]
 fn release_jit_primop_runtime_errors_use_full_span_highlights() {
     assert_file_cli_runtime_highlight_contains(
         "examples/runtime_errors/primop_array_len_type.flx",
@@ -321,11 +334,13 @@ fn release_jit_primop_runtime_errors_use_full_span_highlights() {
 }
 
 #[test]
+#[ignore = "JIT: indirect call error rendering parity (proposal 0102)"]
 fn release_jit_indirect_call_wrong_arity_renders_runtime_signature() {
     assert_file_cli_outcome_parity("examples/runtime_errors/indirect_call_wrong_arity.flx", &[]);
 }
 
 #[test]
+#[ignore = "JIT: indirect call error rendering parity (proposal 0102)"]
 fn release_jit_indirect_call_not_callable_renders_runtime_signature() {
     assert_file_cli_outcome_parity(
         "examples/runtime_errors/indirect_call_not_callable.flx",

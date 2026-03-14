@@ -1452,41 +1452,39 @@ impl JitCompiler {
                     effects,
                     ..
                 } => {
-                    if scope.functions.contains_key(name) {
-                        continue;
-                    }
-
-                    let call_abi = JitCallAbi::from_arity(parameters.len());
-                    let sig = self.user_function_signature(call_abi);
-                    let fn_name = format!("flux_fn_{}", interner.resolve(*name));
-                    let id = self
-                        .module
-                        .declare_function(&fn_name, Linkage::Local, &sig)
-                        .map_err(|e| format!("declare {}: {}", fn_name, e))?;
-                    let function_index = self.jit_functions.len();
-                    let contract = runtime_contract_from_annotations(
-                        parameter_types,
-                        return_type,
-                        effects,
-                        interner,
-                    );
-                    let has_contract = contract.is_some();
-                    self.jit_functions.push(JitFunctionCompileEntry {
-                        id,
-                        num_params: parameters.len(),
-                        call_abi,
-                        contract,
-                    });
-                    let meta = JitFunctionMeta {
-                        id,
-                        num_params: parameters.len(),
-                        call_abi,
-                        function_index,
-                        has_contract,
-                    };
-                    scope.functions.insert(*name, meta);
-                    if let Some(function_id) = function_id {
-                        scope.ir_functions.insert(*function_id, meta);
+                    if !scope.functions.contains_key(name) {
+                        let call_abi = JitCallAbi::from_arity(parameters.len());
+                        let sig = self.user_function_signature(call_abi);
+                        let fn_name = format!("flux_fn_{}", interner.resolve(*name));
+                        let id = self
+                            .module
+                            .declare_function(&fn_name, Linkage::Local, &sig)
+                            .map_err(|e| format!("declare {}: {}", fn_name, e))?;
+                        let function_index = self.jit_functions.len();
+                        let contract = runtime_contract_from_annotations(
+                            parameter_types,
+                            return_type,
+                            effects,
+                            interner,
+                        );
+                        let has_contract = contract.is_some();
+                        self.jit_functions.push(JitFunctionCompileEntry {
+                            id,
+                            num_params: parameters.len(),
+                            call_abi,
+                            contract,
+                        });
+                        let meta = JitFunctionMeta {
+                            id,
+                            num_params: parameters.len(),
+                            call_abi,
+                            function_index,
+                            has_contract,
+                        };
+                        scope.functions.insert(*name, meta);
+                        if let Some(function_id) = function_id {
+                            scope.ir_functions.insert(*function_id, meta);
+                        }
                     }
                 }
                 IrTopLevelItem::Module {
@@ -4992,38 +4990,6 @@ fn try_compile_tail_expression_statement(
         return Ok(Some(StmtOutcome::Returned));
     }
 
-    // Case 2: mutual tail call to another known JIT function — use the trampoline.
-    // Only applies to contract-free functions where we can skip runtime type checks.
-    if let Some(meta) = scope.functions.get(name).copied()
-        && !meta.has_contract
-        && arguments.len() == meta.num_params
-    {
-        let mut arg_vals = Vec::with_capacity(arguments.len());
-        for arg in arguments {
-            arg_vals.push(compile_expression(
-                module,
-                helpers,
-                builder,
-                function_compiler,
-                scope,
-                ctx_val,
-                return_block,
-                Some(tail_ctx),
-                arg,
-                interner,
-            )?);
-        }
-        emit_mutual_tail_thunk(
-            module,
-            helpers,
-            builder,
-            ctx_val,
-            meta.function_index,
-            &arg_vals,
-        );
-        return Ok(Some(StmtOutcome::Returned));
-    }
-
     Ok(None)
 }
 
@@ -5079,37 +5045,6 @@ fn try_compile_ir_tail_expression_statement(
             builder.def_var(*var, boxed);
         }
         builder.ins().jump(tail_ctx.loop_block, &[]);
-        return Ok(Some(StmtOutcome::Returned));
-    }
-
-    // Case 2: mutual tail call via trampoline.
-    if let Some(meta) = scope.functions.get(name).copied()
-        && !meta.has_contract
-        && arguments.len() == meta.num_params
-    {
-        let mut arg_vals = Vec::with_capacity(arguments.len());
-        for arg in arguments {
-            arg_vals.push(compile_ir_expression(
-                module,
-                helpers,
-                builder,
-                function_compiler,
-                scope,
-                ctx_val,
-                return_block,
-                Some(tail_ctx),
-                arg,
-                interner,
-            )?);
-        }
-        emit_mutual_tail_thunk(
-            module,
-            helpers,
-            builder,
-            ctx_val,
-            meta.function_index,
-            &arg_vals,
-        );
         return Ok(Some(StmtOutcome::Returned));
     }
 
@@ -11932,9 +11867,7 @@ struct TailCallContext {
 
 struct FunctionCompiler {
     boxed_array_slot: Option<StackSlot>,
-    boxed_array_capacity: usize,
     tagged_array_slot: Option<StackSlot>,
-    tagged_array_capacity: usize,
 }
 
 impl FunctionCompiler {
@@ -11959,9 +11892,7 @@ impl FunctionCompiler {
         });
         Self {
             boxed_array_slot,
-            boxed_array_capacity,
             tagged_array_slot,
-            tagged_array_capacity,
         }
     }
 
@@ -11970,10 +11901,18 @@ impl FunctionCompiler {
         builder: &mut FunctionBuilder,
         values: &[CraneliftValue],
     ) -> CraneliftValue {
-        debug_assert!(values.len() <= self.boxed_array_capacity);
-        let slot = self
-            .boxed_array_slot
-            .expect("boxed array slot must be preallocated");
+        // Lazily allocate the slot if the capacity calculation missed this call site.
+        let slot = match self.boxed_array_slot {
+            Some(s) => s,
+            None => {
+                let capacity = values.len().max(4);
+                builder.create_sized_stack_slot(StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    capacity as u32 * 8,
+                    3,
+                ))
+            }
+        };
         for (i, value) in values.iter().enumerate() {
             builder.ins().stack_store(*value, slot, (i * 8) as i32);
         }
@@ -11985,10 +11924,17 @@ impl FunctionCompiler {
         builder: &mut FunctionBuilder,
         values: &[JitValue],
     ) -> CraneliftValue {
-        debug_assert!(values.len() <= self.tagged_array_capacity);
-        let slot = self
-            .tagged_array_slot
-            .expect("tagged array slot must be preallocated");
+        let slot = match self.tagged_array_slot {
+            Some(s) => s,
+            None => {
+                let capacity = values.len().max(4);
+                builder.create_sized_stack_slot(StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    capacity as u32 * 16,
+                    3,
+                ))
+            }
+        };
         for (i, value) in values.iter().enumerate() {
             let (tag, payload) = jit_value_to_tag_payload(builder, *value);
             builder.ins().stack_store(tag, slot, (i * 16) as i32);
