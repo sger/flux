@@ -141,13 +141,13 @@ impl InferEffectRow {
             // Concrete names are normalized at parse/syntax layer before insertion.
             concrete.extend(effect.normalized_concrete_names());
             if let Some(row_var) = effect.row_var() {
-                if let Some(existing_name) = tail_name {
-                    if existing_name != row_var {
-                        return Err(MultipleRowVarError {
-                            first: existing_name,
-                            second: row_var,
-                        });
-                    }
+                if let Some(existing_name) = tail_name
+                    && existing_name != row_var
+                {
+                    return Err(MultipleRowVarError {
+                        first: existing_name,
+                        second: row_var,
+                    });
                 }
                 tail_name = Some(row_var);
                 // Row variables are interned through `row_var_env` to keep a stable

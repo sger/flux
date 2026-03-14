@@ -6,11 +6,6 @@ use std::{
 use super::suggestions::suggest_effect_name;
 use crate::{
     ast::type_infer::display_infer_type,
-    ir::{
-        IrStructuredExpr, IrStructuredHandleArm, IrStructuredMatchArm, IrStructuredPattern,
-        IrStructuredStringPart, ir_structured_block_to_block, ir_structured_expr_to_expression,
-        ir_structured_pattern_to_pattern,
-    },
     bytecode::{
         binding::Binding,
         compiler::{
@@ -41,6 +36,11 @@ use crate::{
         position::{Position, Span},
         quality::{EffectConstraintOrigin, with_effect_constraint_origin},
         types::ErrorType,
+    },
+    ir::{
+        IrStructuredExpr, IrStructuredHandleArm, IrStructuredMatchArm, IrStructuredPattern,
+        IrStructuredStringPart, ir_structured_block_to_block, ir_structured_expr_to_expression,
+        ir_structured_pattern_to_pattern,
     },
     primop::{PrimEffect, resolve_primop_call},
     runtime::{
@@ -241,8 +241,9 @@ impl Compiler {
             } => {
                 let condition = ir_structured_expr_to_expression(condition);
                 let consequence = ir_structured_block_to_block(consequence, &[]);
-                let alternative =
-                    alternative.as_ref().map(|block| ir_structured_block_to_block(block, &[]));
+                let alternative = alternative
+                    .as_ref()
+                    .map(|block| ir_structured_block_to_block(block, &[]));
                 self.compile_if_expression(&condition, &consequence, &alternative)
             }
             IrStructuredExpr::Function {
@@ -301,10 +302,7 @@ impl Compiler {
                 self.compile_perform(*effect, *operation, &args)
             }
             IrStructuredExpr::Handle {
-                expr,
-                effect,
-                arms,
-                ..
+                expr, effect, arms, ..
             } => {
                 let expr = ir_structured_expr_to_expression(expr);
                 let arms = arms
@@ -322,7 +320,10 @@ impl Compiler {
         }
     }
 
-    fn compile_ir_non_tail_expression(&mut self, expression: &IrStructuredExpr) -> CompileResult<()> {
+    fn compile_ir_non_tail_expression(
+        &mut self,
+        expression: &IrStructuredExpr,
+    ) -> CompileResult<()> {
         self.with_tail_position(false, |compiler| compiler.compile_ir_expr(expression))
     }
 
@@ -449,7 +450,9 @@ impl Compiler {
                     self.load_symbol(temp_symbol);
                     self.emit(OpCode::OpTupleIndex, &[index]);
                     match inner_symbol.symbol_scope {
-                        SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]),
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[inner_symbol.index])
+                        }
                         SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[inner_symbol.index]),
                         _ => {
                             return Err(Self::boxed(Diagnostic::make_error(
@@ -465,7 +468,8 @@ impl Compiler {
                 Ok(())
             }
             IrStructuredPattern::Constructor { .. } => {
-                let crate::ir::IrStructuredPattern::Constructor { name, fields, span } = pattern else {
+                let crate::ir::IrStructuredPattern::Constructor { name, fields, span } = pattern
+                else {
                     unreachable!()
                 };
                 let Some(constructor_info) = self.adt_registry.lookup_constructor(*name) else {
@@ -521,7 +525,9 @@ impl Compiler {
                     self.emit(OpCode::OpAdtField, &[field_idx]);
 
                     match inner_symbol.symbol_scope {
-                        SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]),
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[inner_symbol.index])
+                        }
                         SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[inner_symbol.index]),
                         _ => {
                             return Err(Self::boxed(Diagnostic::make_error(
@@ -595,18 +601,18 @@ impl Compiler {
     ) -> CompileResult<ConditionalJump> {
         // Validate constructor exists and arity matches (same as compile_pattern_check).
         let constructor_name = self.interner.resolve(*name).to_string();
-        if let Some(info) = self.adt_registry.lookup_constructor(*name) {
-            if fields.len() != info.arity {
-                return Err(Self::boxed(
-                    constructor_pattern_arity_mismatch(
-                        pattern_span,
-                        &constructor_name,
-                        info.arity,
-                        fields.len(),
-                    )
-                    .with_file(self.file_path.clone()),
-                ));
-            }
+        if let Some(info) = self.adt_registry.lookup_constructor(*name)
+            && fields.len() != info.arity
+        {
+            return Err(Self::boxed(
+                constructor_pattern_arity_mismatch(
+                    pattern_span,
+                    &constructor_name,
+                    info.arity,
+                    fields.len(),
+                )
+                .with_file(self.file_path.clone()),
+            ));
         }
         // If the constructor is unknown, compile_pattern_check will produce the
         // proper diagnostic.  The caller guarantees this path is only taken for
@@ -702,18 +708,18 @@ impl Compiler {
         local_idx: usize,
     ) -> CompileResult<ConditionalJump> {
         let constructor_name = self.interner.resolve(*name).to_string();
-        if let Some(info) = self.adt_registry.lookup_constructor(*name) {
-            if fields.len() != info.arity {
-                return Err(Self::boxed(
-                    constructor_pattern_arity_mismatch(
-                        pattern_span,
-                        &constructor_name,
-                        info.arity,
-                        fields.len(),
-                    )
-                    .with_file(self.file_path.clone()),
-                ));
-            }
+        if let Some(info) = self.adt_registry.lookup_constructor(*name)
+            && fields.len() != info.arity
+        {
+            return Err(Self::boxed(
+                constructor_pattern_arity_mismatch(
+                    pattern_span,
+                    &constructor_name,
+                    info.arity,
+                    fields.len(),
+                )
+                .with_file(self.file_path.clone()),
+            ));
         }
 
         let const_idx = self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
@@ -800,10 +806,10 @@ impl Compiler {
             if !Self::is_simple_adt_pattern(fields) {
                 return false;
             }
-            if !self
+            if self
                 .adt_registry
                 .lookup_constructor(*name)
-                .is_some_and(|info| info.arity == fields.len())
+                .is_none_or(|info| info.arity != fields.len())
             {
                 return false;
             }
@@ -2543,7 +2549,9 @@ impl Compiler {
                         name,
                         fields,
                         *pat_span,
-                        temp_symbol.as_ref().expect("temp_symbol must exist for standard path"),
+                        temp_symbol
+                            .as_ref()
+                            .expect("temp_symbol must exist for standard path"),
                     )?
                 };
                 vec![jump]

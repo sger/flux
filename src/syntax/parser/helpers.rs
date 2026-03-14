@@ -1759,11 +1759,10 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
             String::new(), // No file context in parser
             self.current_token.span(),
         );
-        if self.current_token.token_type == TokenType::Ident {
-            if let Some(suggestion) = self.parser_identifier_typo_hint(&self.current_token.literal)
-            {
-                diag = diag.with_help(suggestion);
-            }
+        if self.current_token.token_type == TokenType::Ident
+            && let Some(suggestion) = self.parser_identifier_typo_hint(&self.current_token.literal)
+        {
+            diag = diag.with_help(suggestion);
         }
         self.emit_parser_diagnostic(diag);
     }

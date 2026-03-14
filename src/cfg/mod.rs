@@ -38,7 +38,12 @@ pub fn patch_function_ids_from_core(
     let name_to_id: HashMap<Identifier, FunctionId> = core_items
         .iter()
         .filter_map(|item| {
-            if let IrTopLevelItem::Function { name, function_id: Some(id), .. } = item {
+            if let IrTopLevelItem::Function {
+                name,
+                function_id: Some(id),
+                ..
+            } = item
+            {
                 Some((*name, *id))
             } else {
                 None
@@ -57,7 +62,9 @@ fn patch_function_ids_recursive(
 ) {
     for item in items {
         match item {
-            IrTopLevelItem::Function { name, function_id, .. } => {
+            IrTopLevelItem::Function {
+                name, function_id, ..
+            } => {
                 if let Some(&core_id) = name_to_id.get(name) {
                     // Replace with the Core IR function_id.
                     *function_id = Some(core_id);
@@ -176,7 +183,6 @@ pub enum IrStringPart {
     Literal(String),
     Interpolation(IrVar),
 }
-
 
 #[derive(Debug, Clone)]
 pub struct IrHandleArm {
@@ -492,7 +498,12 @@ fn ir_fmt_terminator(t: &IrTerminator) -> String {
             let args_s: Vec<_> = args.iter().map(|v| ir_fmt_var(*v)).collect();
             format!("Jump {}({})", ir_fmt_block(*b), args_s.join(", "))
         }
-        IrTerminator::Branch { cond, then_block, else_block, .. } => format!(
+        IrTerminator::Branch {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => format!(
             "Branch {} ? {} : {}",
             ir_fmt_var(*cond),
             ir_fmt_block(*then_block),
@@ -500,7 +511,11 @@ fn ir_fmt_terminator(t: &IrTerminator) -> String {
         ),
         IrTerminator::TailCall { callee, args, .. } => {
             let args_s: Vec<_> = args.iter().map(|v| ir_fmt_var(*v)).collect();
-            format!("TailCall {}({})", ir_fmt_call_target(callee), args_s.join(", "))
+            format!(
+                "TailCall {}({})",
+                ir_fmt_call_target(callee),
+                args_s.join(", ")
+            )
         }
         IrTerminator::Unreachable(_) => "Unreachable".to_string(),
     }
@@ -531,7 +546,12 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
             format!("Prefix({}, {})", operator, ir_fmt_var(*right))
         }
         IrExpr::Binary(op, lhs, rhs) => {
-            format!("Binary({:?}, {}, {})", op, ir_fmt_var(*lhs), ir_fmt_var(*rhs))
+            format!(
+                "Binary({:?}, {}, {})",
+                op,
+                ir_fmt_var(*lhs),
+                ir_fmt_var(*rhs)
+            )
         }
         IrExpr::MakeTuple(vars) => {
             let s: Vec<_> = vars.iter().map(|v| ir_fmt_var(*v)).collect();
@@ -565,7 +585,11 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
             format!("Index({}, {})", ir_fmt_var(*left), ir_fmt_var(*index))
         }
         IrExpr::MemberAccess { object, member, .. } => {
-            format!("MemberAccess({}, #{})", ir_fmt_var(*object), member.as_u32())
+            format!(
+                "MemberAccess({}, #{})",
+                ir_fmt_var(*object),
+                member.as_u32()
+            )
         }
         IrExpr::TupleFieldAccess { object, index } => {
             format!("TupleFieldAccess({}, {})", ir_fmt_var(*object), index)
@@ -585,7 +609,11 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
         IrExpr::ListHead { value } => format!("ListHead({})", ir_fmt_var(*value)),
         IrExpr::ListTail { value } => format!("ListTail({})", ir_fmt_var(*value)),
         IrExpr::AdtTagTest { value, constructor } => {
-            format!("AdtTagTest({}, #{})", ir_fmt_var(*value), constructor.as_u32())
+            format!(
+                "AdtTagTest({}, #{})",
+                ir_fmt_var(*value),
+                constructor.as_u32()
+            )
         }
         IrExpr::AdtField { value, index } => {
             format!("AdtField({}, {})", ir_fmt_var(*value), index)
@@ -597,7 +625,11 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
         IrExpr::Cons { head, tail } => {
             format!("Cons({}, {})", ir_fmt_var(*head), ir_fmt_var(*tail))
         }
-        IrExpr::Perform { effect, operation, args } => {
+        IrExpr::Perform {
+            effect,
+            operation,
+            args,
+        } => {
             let s: Vec<_> = args.iter().map(|v| ir_fmt_var(*v)).collect();
             format!(
                 "Perform(#{}.#{}, [{}])",
@@ -649,7 +681,9 @@ impl IrProgram {
                         IrInstr::Assign { dest, expr, .. } => {
                             out.push_str(&format!("    v{} = {}\n", dest.0, ir_fmt_expr(expr)));
                         }
-                        IrInstr::Call { dest, target, args, .. } => {
+                        IrInstr::Call {
+                            dest, target, args, ..
+                        } => {
                             let args_s: Vec<_> = args.iter().map(|v| format!("v{}", v.0)).collect();
                             out.push_str(&format!(
                                 "    v{} = call {}({})\n",
@@ -658,11 +692,29 @@ impl IrProgram {
                                 args_s.join(", ")
                             ));
                         }
-                        IrInstr::HandleScope { effect, arms, body_entry, dest, .. } => {
-                            let arm_s: Vec<_> = arms.iter().map(|a| format!("#{} -> fn{}", a.operation_name.as_u32(), a.function_id.0)).collect();
+                        IrInstr::HandleScope {
+                            effect,
+                            arms,
+                            body_entry,
+                            dest,
+                            ..
+                        } => {
+                            let arm_s: Vec<_> = arms
+                                .iter()
+                                .map(|a| {
+                                    format!(
+                                        "#{} -> fn{}",
+                                        a.operation_name.as_u32(),
+                                        a.function_id.0
+                                    )
+                                })
+                                .collect();
                             out.push_str(&format!(
                                 "    v{} = HandleScope(#{}, body=B{}, arms=[{}])\n",
-                                dest.0, effect.as_u32(), body_entry.0, arm_s.join(", ")
+                                dest.0,
+                                effect.as_u32(),
+                                body_entry.0,
+                                arm_s.join(", ")
                             ));
                         }
                     }
@@ -675,14 +727,9 @@ impl IrProgram {
     }
 
     /// Like `dump_text` but resolves symbol IDs to human-readable names via `interner`.
-    pub fn dump_text_with_interner(
-        &self,
-        interner: &crate::syntax::interner::Interner,
-    ) -> String {
+    pub fn dump_text_with_interner(&self, interner: &crate::syntax::interner::Interner) -> String {
         let sym = |s: Identifier| interner.resolve(s).to_string();
-        let fmt_name = |n: Option<Identifier>| {
-            n.map(|s| sym(s)).unwrap_or_else(|| "<anon>".to_string())
-        };
+        let fmt_name = |n: Option<Identifier>| n.map(&sym).unwrap_or_else(|| "<anon>".to_string());
         let fmt_target = |t: &IrCallTarget| match t {
             IrCallTarget::Direct(fid) => format!("fn{}", fid.0),
             IrCallTarget::Named(name) => sym(*name),
@@ -697,7 +744,12 @@ impl IrProgram {
                     let a: Vec<_> = args.iter().map(|v| fv(*v)).collect();
                     format!("Jump {}({})", fb(*b), a.join(", "))
                 }
-                IrTerminator::Branch { cond, then_block, else_block, .. } => format!(
+                IrTerminator::Branch {
+                    cond,
+                    then_block,
+                    else_block,
+                    ..
+                } => format!(
                     "Branch {} ? {} : {}",
                     fv(*cond),
                     fb(*then_block),
@@ -733,7 +785,9 @@ impl IrProgram {
                         IrInstr::Assign { dest, expr, .. } => {
                             out.push_str(&format!("    v{} = {}\n", dest.0, ir_fmt_expr(expr)));
                         }
-                        IrInstr::Call { dest, target, args, .. } => {
+                        IrInstr::Call {
+                            dest, target, args, ..
+                        } => {
                             let a: Vec<_> = args.iter().map(|v| format!("v{}", v.0)).collect();
                             out.push_str(&format!(
                                 "    v{} = call {}({})\n",
@@ -742,15 +796,27 @@ impl IrProgram {
                                 a.join(", ")
                             ));
                         }
-                        IrInstr::HandleScope { effect, arms, body_entry, dest, .. } => {
-                            let arm_s: Vec<_> = arms.iter().map(|a| {
-                                let op_name = interner.resolve(a.operation_name);
-                                format!("{} -> fn{}", op_name, a.function_id.0)
-                            }).collect();
+                        IrInstr::HandleScope {
+                            effect,
+                            arms,
+                            body_entry,
+                            dest,
+                            ..
+                        } => {
+                            let arm_s: Vec<_> = arms
+                                .iter()
+                                .map(|a| {
+                                    let op_name = interner.resolve(a.operation_name);
+                                    format!("{} -> fn{}", op_name, a.function_id.0)
+                                })
+                                .collect();
                             let eff_name = interner.resolve(*effect);
                             out.push_str(&format!(
                                 "    v{} = HandleScope({}, body=B{}, arms=[{}])\n",
-                                dest.0, eff_name, body_entry.0, arm_s.join(", ")
+                                dest.0,
+                                eff_name,
+                                body_entry.0,
+                                arm_s.join(", ")
                             ));
                         }
                     }

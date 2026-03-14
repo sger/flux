@@ -853,12 +853,14 @@ impl VM {
                 match adt {
                     Value::Adt(_) | Value::GcAdt(_) => {
                         let len = adt.adt_field_count(&self.gc_heap).unwrap_or(0);
-                        let value = adt.adt_clone_field(&self.gc_heap, field_idx).ok_or_else(|| {
-                            format!(
-                                "OpAdtField: field index {} out of bounds (adt has {} fields)",
-                                field_idx, len
-                            )
-                        })?;
+                        let value = adt.adt_clone_field(&self.gc_heap, field_idx).ok_or_else(
+                            || {
+                                format!(
+                                    "OpAdtField: field index {} out of bounds (adt has {} fields)",
+                                    field_idx, len
+                                )
+                            },
+                        )?;
                         self.push(value)?;
                         Ok(2) // 1 opcode + 1 field_idx
                     }
@@ -940,9 +942,10 @@ impl VM {
                 let adt = self.pop_untracked()?;
                 match adt {
                     Value::Adt(_) | Value::GcAdt(_) => {
-                        let (f0, f1) = adt.adt_clone_two_fields(&self.gc_heap).ok_or_else(|| {
-                            "OpAdtFields2: ADT has fewer than 2 fields".to_string()
-                        })?;
+                        let (f0, f1) =
+                            adt.adt_clone_two_fields(&self.gc_heap).ok_or_else(|| {
+                                "OpAdtFields2: ADT has fewer than 2 fields".to_string()
+                            })?;
                         self.push(f0)?;
                         self.push(f1)?;
                         Ok(1) // just the opcode byte

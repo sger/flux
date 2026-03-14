@@ -46,7 +46,13 @@ fn balance1(left_tree: Tree, right_tree: Tree) -> Tree {
                     ),
                     other_right => Tree::Node(
                         Color::Black,
-                        Box::new(Tree::Node(Color::Red, Box::new(other_left), ky, vy, Box::new(other_right))),
+                        Box::new(Tree::Node(
+                            Color::Red,
+                            Box::new(other_left),
+                            ky,
+                            vy,
+                            Box::new(other_right),
+                        )),
                         kv,
                         vv,
                         tail,
@@ -73,7 +79,13 @@ fn balance2(left_tree: Tree, right_tree: Tree) -> Tree {
                 other_left => match *r2 {
                     Tree::Node(Color::Red, l2, kx2, vx2, r) => Tree::Node(
                         Color::Red,
-                        Box::new(Tree::Node(Color::Black, tree0, kv, vv, Box::new(other_left))),
+                        Box::new(Tree::Node(
+                            Color::Black,
+                            tree0,
+                            kv,
+                            vv,
+                            Box::new(other_left),
+                        )),
                         ky,
                         vy,
                         Box::new(Tree::Node(Color::Black, l2, kx2, vx2, r)),
@@ -83,7 +95,13 @@ fn balance2(left_tree: Tree, right_tree: Tree) -> Tree {
                         tree0,
                         kv,
                         vv,
-                        Box::new(Tree::Node(Color::Red, Box::new(other_left), ky, vy, Box::new(other_right))),
+                        Box::new(Tree::Node(
+                            Color::Red,
+                            Box::new(other_left),
+                            ky,
+                            vy,
+                            Box::new(other_right),
+                        )),
                     ),
                 },
             },
@@ -93,9 +111,16 @@ fn balance2(left_tree: Tree, right_tree: Tree) -> Tree {
     }
 }
 
+#[allow(clippy::if_same_then_else)]
 fn ins(tree: Tree, kx: i64, vx: bool) -> Tree {
     match tree {
-        Tree::Leaf => Tree::Node(Color::Red, Box::new(Tree::Leaf), kx, vx, Box::new(Tree::Leaf)),
+        Tree::Leaf => Tree::Node(
+            Color::Red,
+            Box::new(Tree::Leaf),
+            kx,
+            vx,
+            Box::new(Tree::Leaf),
+        ),
         Tree::Node(Color::Red, a, ky, vy, b) => {
             if kx < ky {
                 Tree::Node(Color::Red, Box::new(ins(*a, kx, vx)), ky, vy, b)

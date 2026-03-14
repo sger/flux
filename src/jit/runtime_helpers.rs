@@ -25,7 +25,9 @@ use crate::runtime::{
     value::{AdtFields, Value},
 };
 
-use super::context::{JitContext, JitThunk, JIT_TAG_BOOL, JIT_TAG_FLOAT, JIT_TAG_INT, JIT_TAG_PTR, JIT_TAG_THUNK};
+use super::context::{
+    JIT_TAG_BOOL, JIT_TAG_FLOAT, JIT_TAG_INT, JIT_TAG_PTR, JIT_TAG_THUNK, JitContext, JitThunk,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -46,7 +48,9 @@ fn clone_tagged_arg(
         Some(value) => Some(value),
         None => {
             if ctx.error.is_none() {
-                ctx.error = Some(format!("{label} received invalid tagged value at index {index}"));
+                ctx.error = Some(format!(
+                    "{label} received invalid tagged value at index {index}"
+                ));
             }
             None
         }
@@ -170,9 +174,12 @@ pub extern "C" fn rt_make_jit_closure(
     ncaptures: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    let Some(captures) =
-        clone_values_from_tagged_ptrs(ctx, captures_ptr, ncaptures as usize, "jit closure construction")
-    else {
+    let Some(captures) = clone_values_from_tagged_ptrs(
+        ctx,
+        captures_ptr,
+        ncaptures as usize,
+        "jit closure construction",
+    ) else {
         return ptr::null_mut();
     };
     let closure = JitClosure::new(function_index as usize, captures);
@@ -273,9 +280,7 @@ pub extern "C" fn rt_add(
     };
     match (&a, &b) {
         (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l + *r),
-        (Value::Float(l), Value::Float(r)) => {
-            JitTaggedValue::float_bits((l + r).to_bits() as i64)
-        }
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::float_bits((l + r).to_bits() as i64),
         (Value::Integer(l), Value::Float(r)) => {
             JitTaggedValue::float_bits((*l as f64 + *r).to_bits() as i64)
         }
@@ -311,9 +316,7 @@ pub extern "C" fn rt_sub(
     };
     match (&a, &b) {
         (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l - *r),
-        (Value::Float(l), Value::Float(r)) => {
-            JitTaggedValue::float_bits((l - r).to_bits() as i64)
-        }
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::float_bits((l - r).to_bits() as i64),
         (Value::Integer(l), Value::Float(r)) => {
             JitTaggedValue::float_bits((*l as f64 - *r).to_bits() as i64)
         }
@@ -346,9 +349,7 @@ pub extern "C" fn rt_mul(
     };
     match (&a, &b) {
         (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l * *r),
-        (Value::Float(l), Value::Float(r)) => {
-            JitTaggedValue::float_bits((l * r).to_bits() as i64)
-        }
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::float_bits((l * r).to_bits() as i64),
         (Value::Integer(l), Value::Float(r)) => {
             JitTaggedValue::float_bits((*l as f64 * *r).to_bits() as i64)
         }
@@ -385,9 +386,7 @@ pub extern "C" fn rt_div(
             JitTaggedValue::none()
         }
         (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l / *r),
-        (Value::Float(l), Value::Float(r)) => {
-            JitTaggedValue::float_bits((l / r).to_bits() as i64)
-        }
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::float_bits((l / r).to_bits() as i64),
         (Value::Integer(l), Value::Float(r)) => {
             JitTaggedValue::float_bits((*l as f64 / *r).to_bits() as i64)
         }
@@ -424,9 +423,7 @@ pub extern "C" fn rt_mod(
             JitTaggedValue::none()
         }
         (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l % *r),
-        (Value::Float(l), Value::Float(r)) => {
-            JitTaggedValue::float_bits((l % r).to_bits() as i64)
-        }
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::float_bits((l % r).to_bits() as i64),
         (Value::Integer(l), Value::Float(r)) => {
             JitTaggedValue::float_bits((*l as f64 % *r).to_bits() as i64)
         }
@@ -757,15 +754,16 @@ pub extern "C" fn rt_call_base_function_tagged(
             }
             JIT_TAG_PTR => {
                 if tagged.payload == 0 {
-                    ctx.error =
-                        Some(format!("base function arg {} evaluated to null", refs.len()));
+                    ctx.error = Some(format!(
+                        "base function arg {} evaluated to null",
+                        refs.len()
+                    ));
                     return ptr::null_mut();
                 }
                 refs.push(tagged.payload as *const Value);
             }
             _ => {
-                ctx.error =
-                    Some(format!("unknown tag {} in base function arg", tagged.tag));
+                ctx.error = Some(format!("unknown tag {} in base function arg", tagged.tag));
                 return ptr::null_mut();
             }
         }
@@ -1313,9 +1311,12 @@ pub extern "C" fn rt_make_hash(
     let ctx = unsafe { ctx_ref(ctx) };
     let mut root = hamt_empty(&mut ctx.gc_heap);
     for i in 0..npairs as usize {
-        let Some(key) =
-            clone_tagged_arg(ctx, unsafe { *pairs_ptr.add(i * 2) }, "hash construction", i * 2)
-        else {
+        let Some(key) = clone_tagged_arg(
+            ctx,
+            unsafe { *pairs_ptr.add(i * 2) },
+            "hash construction",
+            i * 2,
+        ) else {
             return ptr::null_mut();
         };
         let Some(value) = clone_tagged_arg(
@@ -1540,9 +1541,8 @@ pub extern "C" fn rt_intern_unit_adt(
     constructor_len: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    let name = unsafe {
-        from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
-    };
+    let name =
+        unsafe { from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize)) };
     ctx.intern_unit_adt(name)
 }
 

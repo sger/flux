@@ -7,6 +7,7 @@ use flux::{
     syntax::{lexer::Lexer, module_graph::ModuleGraph, parser::Parser},
 };
 
+#[allow(dead_code)]
 pub struct FixtureSnapshotCase {
     pub snapshot_name: String,
     pub transcript: String,
@@ -46,6 +47,7 @@ pub fn snapshot_name(fixtures_root: &Path, fixture: &Path) -> String {
     name.replace('/', "__")
 }
 
+#[allow(dead_code)]
 pub fn run_fixture_dir_snapshots(
     workspace_root: &Path,
     fixtures_dir_rel: &str,
@@ -118,6 +120,7 @@ pub fn normalize_transcript(text: &str, workspace_root: &Path) -> String {
     normalized
 }
 
+#[allow(dead_code)]
 pub fn build_transcript(
     fixture: &Path,
     fixture_rel: &str,

@@ -8,13 +8,13 @@ pub mod context;
 pub mod runtime_helpers;
 pub mod value_arena;
 
-use crate::runtime::value::Value;
-use crate::syntax::{interner::Interner, program::Program};
 use crate::bytecode::compiler::Compiler;
 use crate::ir::{IrPassContext, lower_program_to_ir, run_ir_pass_pipeline};
+use crate::runtime::value::Value;
+use crate::syntax::{interner::Interner, program::Program};
 
 use compiler::JitCompiler;
-use context::{JitCallAbi, JitContext, JitTaggedValue, JitThunk, JIT_TAG_PTR, JIT_TAG_THUNK};
+use context::{JIT_TAG_PTR, JIT_TAG_THUNK, JitCallAbi, JitContext, JitTaggedValue, JitThunk};
 
 /// Runtime options for JIT execution.
 #[derive(Default)]
@@ -149,7 +149,13 @@ unsafe fn invoke_jit_thunk(ctx: &mut JitContext, thunk: &JitThunk) -> JitTaggedV
                     i64,
                 ) -> JitTaggedValue;
                 let f: F = std::mem::transmute(fn_ptr);
-                f(ctx_ptr, thunk.args.as_ptr(), thunk.args.len() as i64, null_ptr, zero)
+                f(
+                    ctx_ptr,
+                    thunk.args.as_ptr(),
+                    thunk.args.len() as i64,
+                    null_ptr,
+                    zero,
+                )
             }
             JitCallAbi::Reg1 => {
                 let (t0, p0) = thunk_arg(&thunk.args, 0);

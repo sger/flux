@@ -7,11 +7,12 @@ use std::{
     rc::Rc,
 };
 
-use cranelift_codegen::ir::{StackSlot, StackSlotData};
 use cranelift_codegen::ir::{
     AbiParam, BlockArg, Function, InstBuilder, MemFlags, UserFuncName, Value as CraneliftValue,
-    condcodes::{FloatCC, IntCC}, types,
+    condcodes::{FloatCC, IntCC},
+    types,
 };
+use cranelift_codegen::ir::{StackSlot, StackSlotData};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::JITModule;
@@ -20,9 +21,8 @@ use cranelift_module::{DataDescription, FuncId, Linkage, Module};
 use crate::ast::free_vars::collect_free_vars;
 use crate::diagnostics::position::Span;
 use crate::ir::{
-    FunctionId, IrCallTarget, IrConst, IrExpr, IrFunction, IrInstr, IrProgram,
-    IrStructuredBlock, IrStructuredExpr, IrStructuredPattern, IrTerminator, IrTopLevelItem,
-    IrVar,
+    FunctionId, IrCallTarget, IrConst, IrExpr, IrFunction, IrInstr, IrProgram, IrStructuredBlock,
+    IrStructuredExpr, IrStructuredPattern, IrTerminator, IrTopLevelItem, IrVar,
 };
 use crate::primop::{PrimOp, resolve_primop_call};
 use crate::runtime::base::{BaseModule, is_base_fastcall_allowlisted};
@@ -34,7 +34,9 @@ use crate::syntax::{
 };
 use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
 
-use super::context::{JitCallAbi, JitFunctionEntry, JIT_TAG_BOOL, JIT_TAG_FLOAT, JIT_TAG_INT, JIT_TAG_PTR};
+use super::context::{
+    JIT_TAG_BOOL, JIT_TAG_FLOAT, JIT_TAG_INT, JIT_TAG_PTR, JitCallAbi, JitFunctionEntry,
+};
 use super::runtime_helpers::rt_symbols;
 
 /// Pointer type used for all Value pointers in JIT code.
@@ -419,7 +421,9 @@ fn emit_tagged_stack_array(
     for (i, value) in values.iter().enumerate() {
         let (tag, payload) = jit_value_to_tag_payload(builder, *value);
         builder.ins().stack_store(tag, slot, (i * 16) as i32);
-        builder.ins().stack_store(payload, slot, (i * 16 + 8) as i32);
+        builder
+            .ins()
+            .stack_store(payload, slot, (i * 16 + 8) as i32);
     }
     let ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
     (slot, ptr)
@@ -863,7 +867,7 @@ impl JitCompiler {
         self.predeclare_ir_functions(&program.top_level_items, &mut scope, interner)?;
         self.predeclare_ir_literal_functions(&literal_specs, &mut scope, interner)?;
         self.compile_ir_functions(program, &scope, interner)?;
-        self.compile_ir_literal_functions(&literal_specs, &program, &scope, interner)?;
+        self.compile_ir_literal_functions(&literal_specs, program, &scope, interner)?;
         self.record_named_functions(&scope, interner);
 
         {
@@ -885,7 +889,10 @@ impl JitCompiler {
 
             let mut last_val = None;
             for item in &program.top_level_items {
-                if matches!(item, IrTopLevelItem::Function { .. } | IrTopLevelItem::Data { .. }) {
+                if matches!(
+                    item,
+                    IrTopLevelItem::Function { .. } | IrTopLevelItem::Data { .. }
+                ) {
                     continue;
                 }
                 let outcome = compile_ir_top_level_item(
@@ -1178,7 +1185,12 @@ impl JitCompiler {
         Ok(())
     }
 
-    fn predeclare_imports(&self, top_level_statements: &[Statement], scope: &mut Scope, interner: &Interner) {
+    fn predeclare_imports(
+        &self,
+        top_level_statements: &[Statement],
+        scope: &mut Scope,
+        interner: &Interner,
+    ) {
         for stmt in top_level_statements {
             if let Statement::Import {
                 name,
@@ -1283,7 +1295,9 @@ impl JitCompiler {
                 IrStructuredPattern::Identifier { name, .. } => out.push(*name),
                 IrStructuredPattern::Some { pattern, .. }
                 | IrStructuredPattern::Left { pattern, .. }
-                | IrStructuredPattern::Right { pattern, .. } => collect_ir_pattern_names(pattern, out),
+                | IrStructuredPattern::Right { pattern, .. } => {
+                    collect_ir_pattern_names(pattern, out)
+                }
                 IrStructuredPattern::Cons { head, tail, .. } => {
                     collect_ir_pattern_names(head, out);
                     collect_ir_pattern_names(tail, out);
@@ -1833,7 +1847,12 @@ impl JitCompiler {
                         (idx * 16 + 8) as i32,
                     );
                     let cap_ptr = boxed_value_from_tagged_parts(
-                        module, helpers, &mut builder, ctx_val, cap_tag, cap_payload,
+                        module,
+                        helpers,
+                        &mut builder,
+                        ctx_val,
+                        cap_tag,
+                        cap_payload,
                     );
                     let binding = LocalBinding {
                         var: declare_local(&mut builder, JitValueKind::Boxed),
@@ -1859,7 +1878,12 @@ impl JitCompiler {
                                 (idx * 16 + 8) as i32,
                             );
                             boxed_value_from_tagged_parts(
-                                module, helpers, &mut builder, ctx_val, tag, payload,
+                                module,
+                                helpers,
+                                &mut builder,
+                                ctx_val,
+                                tag,
+                                payload,
                             )
                         }
                         None => {
@@ -2090,8 +2114,8 @@ impl JitCompiler {
             };
             let captures_ptr = (!spec.captures.is_empty() || spec.self_name.is_some())
                 .then(|| entry_params[spec.meta.call_abi.captures_param_index()]);
-            let ncaptures = captures_ptr
-                .map(|_| entry_params[spec.meta.call_abi.ncaptures_param_index()]);
+            let ncaptures =
+                captures_ptr.map(|_| entry_params[spec.meta.call_abi.ncaptures_param_index()]);
 
             if args_ptr.is_some() {
                 let nargs = entry_params[2];
@@ -2131,7 +2155,12 @@ impl JitCompiler {
                         (idx * 16 + 8) as i32,
                     );
                     let cap_ptr = boxed_value_from_tagged_parts(
-                        module, helpers, &mut builder, ctx_val, cap_tag, cap_payload,
+                        module,
+                        helpers,
+                        &mut builder,
+                        ctx_val,
+                        cap_tag,
+                        cap_payload,
                     );
                     let binding = LocalBinding {
                         var: declare_local(&mut builder, JitValueKind::Boxed),
@@ -2158,7 +2187,12 @@ impl JitCompiler {
                             (idx * 16 + 8) as i32,
                         );
                         boxed_value_from_tagged_parts(
-                            module, helpers, &mut builder, ctx_val, tag, payload,
+                            module,
+                            helpers,
+                            &mut builder,
+                            ctx_val,
+                            tag,
+                            payload,
                         )
                     }
                     None => {
@@ -2187,10 +2221,13 @@ impl JitCompiler {
             {
                 let make_jit_closure =
                     get_helper_func_ref(module, helpers, &mut builder, "rt_make_jit_closure");
-                let fn_idx = builder.ins().iconst(PTR_TYPE, spec.meta.function_index as i64);
-                let call = builder
+                let fn_idx = builder
                     .ins()
-                    .call(make_jit_closure, &[ctx_val, fn_idx, captures_ptr, ncaptures]);
+                    .iconst(PTR_TYPE, spec.meta.function_index as i64);
+                let call = builder.ins().call(
+                    make_jit_closure,
+                    &[ctx_val, fn_idx, captures_ptr, ncaptures],
+                );
                 let closure = builder.inst_results(call)[0];
                 let binding = LocalBinding {
                     var: declare_local(&mut builder, JitValueKind::Boxed),
@@ -2336,8 +2373,8 @@ impl JitCompiler {
             };
             let captures_ptr = (!spec.captures.is_empty() || spec.self_name.is_some())
                 .then(|| entry_params[spec.meta.call_abi.captures_param_index()]);
-            let ncaptures = captures_ptr
-                .map(|_| entry_params[spec.meta.call_abi.ncaptures_param_index()]);
+            let ncaptures =
+                captures_ptr.map(|_| entry_params[spec.meta.call_abi.ncaptures_param_index()]);
 
             if args_ptr.is_some() {
                 let nargs = entry_params[2];
@@ -2377,7 +2414,12 @@ impl JitCompiler {
                         (idx * 16 + 8) as i32,
                     );
                     let cap_ptr = boxed_value_from_tagged_parts(
-                        module, helpers, &mut builder, ctx_val, cap_tag, cap_payload,
+                        module,
+                        helpers,
+                        &mut builder,
+                        ctx_val,
+                        cap_tag,
+                        cap_payload,
                     );
                     let binding = LocalBinding {
                         var: declare_local(&mut builder, JitValueKind::Boxed),
@@ -2404,7 +2446,12 @@ impl JitCompiler {
                             (idx * 16 + 8) as i32,
                         );
                         boxed_value_from_tagged_parts(
-                            module, helpers, &mut builder, ctx_val, tag, payload,
+                            module,
+                            helpers,
+                            &mut builder,
+                            ctx_val,
+                            tag,
+                            payload,
                         )
                     }
                     None => {
@@ -2433,10 +2480,13 @@ impl JitCompiler {
             {
                 let make_jit_closure =
                     get_helper_func_ref(module, helpers, &mut builder, "rt_make_jit_closure");
-                let fn_idx = builder.ins().iconst(PTR_TYPE, spec.meta.function_index as i64);
-                let call = builder
+                let fn_idx = builder
                     .ins()
-                    .call(make_jit_closure, &[ctx_val, fn_idx, captures_ptr, ncaptures]);
+                    .iconst(PTR_TYPE, spec.meta.function_index as i64);
+                let call = builder.ins().call(
+                    make_jit_closure,
+                    &[ctx_val, fn_idx, captures_ptr, ncaptures],
+                );
                 let closure = builder.inst_results(call)[0];
                 let binding = LocalBinding {
                     var: declare_local(&mut builder, JitValueKind::Boxed),
@@ -2877,114 +2927,116 @@ fn compile_jit_ir_cfg_expr(
                 {
                     Ok(JitValue::float(builder.ins().fdiv(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::Eq if lhs.kind == rhs.kind => Ok(JitValue::bool(
-                    {
-                        let cmp = match lhs.kind {
-                            JitValueKind::Int | JitValueKind::Bool => {
-                                builder.ins().icmp(IntCC::Equal, lhs.value, rhs.value)
-                            }
-                            JitValueKind::Float => {
-                                builder.ins().fcmp(FloatCC::Equal, lhs.value, rhs.value)
-                            }
-                            JitValueKind::Boxed => {
-                                return Err("unsupported boxed JIT CFG equality".to_string())
-                            }
-                        };
-                        let one = builder.ins().iconst(types::I64, 1);
-                        let zero = builder.ins().iconst(types::I64, 0);
-                        builder.ins().select(cmp, one, zero)
-                    },
-                )),
-                crate::ir::IrBinaryOp::NotEq if lhs.kind == rhs.kind => Ok(JitValue::bool(
-                    {
-                        let cmp = match lhs.kind {
-                            JitValueKind::Int | JitValueKind::Bool => {
-                                builder.ins().icmp(IntCC::NotEqual, lhs.value, rhs.value)
-                            }
-                            JitValueKind::Float => {
-                                builder.ins().fcmp(FloatCC::NotEqual, lhs.value, rhs.value)
-                            }
-                            JitValueKind::Boxed => {
-                                return Err("unsupported boxed JIT CFG inequality".to_string())
-                            }
-                        };
-                        let one = builder.ins().iconst(types::I64, 1);
-                        let zero = builder.ins().iconst(types::I64, 0);
-                        builder.ins().select(cmp, one, zero)
-                    },
-                )),
-                crate::ir::IrBinaryOp::Lt if lhs.kind == rhs.kind => Ok(JitValue::bool(
-                    {
-                        let cmp = match lhs.kind {
-                            JitValueKind::Int | JitValueKind::Bool => {
-                                builder.ins().icmp(IntCC::SignedLessThan, lhs.value, rhs.value)
-                            }
-                            JitValueKind::Float => {
-                                builder.ins().fcmp(FloatCC::LessThan, lhs.value, rhs.value)
-                            }
-                            JitValueKind::Boxed => {
-                                return Err("unsupported boxed JIT CFG less-than".to_string())
-                            }
-                        };
-                        let one = builder.ins().iconst(types::I64, 1);
-                        let zero = builder.ins().iconst(types::I64, 0);
-                        builder.ins().select(cmp, one, zero)
-                    },
-                )),
-                crate::ir::IrBinaryOp::Gt if lhs.kind == rhs.kind => Ok(JitValue::bool(
-                    {
-                        let cmp = match lhs.kind {
-                            JitValueKind::Int | JitValueKind::Bool => {
-                                builder.ins().icmp(IntCC::SignedGreaterThan, lhs.value, rhs.value)
-                            }
-                            JitValueKind::Float => {
-                                builder.ins().fcmp(FloatCC::GreaterThan, lhs.value, rhs.value)
-                            }
-                            JitValueKind::Boxed => {
-                                return Err("unsupported boxed JIT CFG greater-than".to_string())
-                            }
-                        };
-                        let one = builder.ins().iconst(types::I64, 1);
-                        let zero = builder.ins().iconst(types::I64, 0);
-                        builder.ins().select(cmp, one, zero)
-                    },
-                )),
-                crate::ir::IrBinaryOp::Ge if lhs.kind == rhs.kind => Ok(JitValue::bool(
-                    {
-                        let cmp = match lhs.kind {
-                            JitValueKind::Int | JitValueKind::Bool => builder
+                crate::ir::IrBinaryOp::Eq if lhs.kind == rhs.kind => Ok(JitValue::bool({
+                    let cmp = match lhs.kind {
+                        JitValueKind::Int | JitValueKind::Bool => {
+                            builder.ins().icmp(IntCC::Equal, lhs.value, rhs.value)
+                        }
+                        JitValueKind::Float => {
+                            builder.ins().fcmp(FloatCC::Equal, lhs.value, rhs.value)
+                        }
+                        JitValueKind::Boxed => {
+                            return Err("unsupported boxed JIT CFG equality".to_string());
+                        }
+                    };
+                    let one = builder.ins().iconst(types::I64, 1);
+                    let zero = builder.ins().iconst(types::I64, 0);
+                    builder.ins().select(cmp, one, zero)
+                })),
+                crate::ir::IrBinaryOp::NotEq if lhs.kind == rhs.kind => Ok(JitValue::bool({
+                    let cmp = match lhs.kind {
+                        JitValueKind::Int | JitValueKind::Bool => {
+                            builder.ins().icmp(IntCC::NotEqual, lhs.value, rhs.value)
+                        }
+                        JitValueKind::Float => {
+                            builder.ins().fcmp(FloatCC::NotEqual, lhs.value, rhs.value)
+                        }
+                        JitValueKind::Boxed => {
+                            return Err("unsupported boxed JIT CFG inequality".to_string());
+                        }
+                    };
+                    let one = builder.ins().iconst(types::I64, 1);
+                    let zero = builder.ins().iconst(types::I64, 0);
+                    builder.ins().select(cmp, one, zero)
+                })),
+                crate::ir::IrBinaryOp::Lt if lhs.kind == rhs.kind => Ok(JitValue::bool({
+                    let cmp = match lhs.kind {
+                        JitValueKind::Int | JitValueKind::Bool => {
+                            builder
                                 .ins()
-                                .icmp(IntCC::SignedGreaterThanOrEqual, lhs.value, rhs.value),
-                            JitValueKind::Float => builder
+                                .icmp(IntCC::SignedLessThan, lhs.value, rhs.value)
+                        }
+                        JitValueKind::Float => {
+                            builder.ins().fcmp(FloatCC::LessThan, lhs.value, rhs.value)
+                        }
+                        JitValueKind::Boxed => {
+                            return Err("unsupported boxed JIT CFG less-than".to_string());
+                        }
+                    };
+                    let one = builder.ins().iconst(types::I64, 1);
+                    let zero = builder.ins().iconst(types::I64, 0);
+                    builder.ins().select(cmp, one, zero)
+                })),
+                crate::ir::IrBinaryOp::Gt if lhs.kind == rhs.kind => Ok(JitValue::bool({
+                    let cmp = match lhs.kind {
+                        JitValueKind::Int | JitValueKind::Bool => {
+                            builder
                                 .ins()
-                                .fcmp(FloatCC::GreaterThanOrEqual, lhs.value, rhs.value),
-                            JitValueKind::Boxed => {
-                                return Err("unsupported boxed JIT CFG greater-equal".to_string())
-                            }
-                        };
-                        let one = builder.ins().iconst(types::I64, 1);
-                        let zero = builder.ins().iconst(types::I64, 0);
-                        builder.ins().select(cmp, one, zero)
-                    },
-                )),
-                crate::ir::IrBinaryOp::Le if lhs.kind == rhs.kind => Ok(JitValue::bool(
-                    {
-                        let cmp = match lhs.kind {
-                            JitValueKind::Int | JitValueKind::Bool => {
-                                builder.ins().icmp(IntCC::SignedLessThanOrEqual, lhs.value, rhs.value)
-                            }
-                            JitValueKind::Float => {
-                                builder.ins().fcmp(FloatCC::LessThanOrEqual, lhs.value, rhs.value)
-                            }
-                            JitValueKind::Boxed => {
-                                return Err("unsupported boxed JIT CFG less-equal".to_string())
-                            }
-                        };
-                        let one = builder.ins().iconst(types::I64, 1);
-                        let zero = builder.ins().iconst(types::I64, 0);
-                        builder.ins().select(cmp, one, zero)
-                    },
-                )),
+                                .icmp(IntCC::SignedGreaterThan, lhs.value, rhs.value)
+                        }
+                        JitValueKind::Float => {
+                            builder
+                                .ins()
+                                .fcmp(FloatCC::GreaterThan, lhs.value, rhs.value)
+                        }
+                        JitValueKind::Boxed => {
+                            return Err("unsupported boxed JIT CFG greater-than".to_string());
+                        }
+                    };
+                    let one = builder.ins().iconst(types::I64, 1);
+                    let zero = builder.ins().iconst(types::I64, 0);
+                    builder.ins().select(cmp, one, zero)
+                })),
+                crate::ir::IrBinaryOp::Ge if lhs.kind == rhs.kind => Ok(JitValue::bool({
+                    let cmp = match lhs.kind {
+                        JitValueKind::Int | JitValueKind::Bool => builder.ins().icmp(
+                            IntCC::SignedGreaterThanOrEqual,
+                            lhs.value,
+                            rhs.value,
+                        ),
+                        JitValueKind::Float => {
+                            builder
+                                .ins()
+                                .fcmp(FloatCC::GreaterThanOrEqual, lhs.value, rhs.value)
+                        }
+                        JitValueKind::Boxed => {
+                            return Err("unsupported boxed JIT CFG greater-equal".to_string());
+                        }
+                    };
+                    let one = builder.ins().iconst(types::I64, 1);
+                    let zero = builder.ins().iconst(types::I64, 0);
+                    builder.ins().select(cmp, one, zero)
+                })),
+                crate::ir::IrBinaryOp::Le if lhs.kind == rhs.kind => Ok(JitValue::bool({
+                    let cmp = match lhs.kind {
+                        JitValueKind::Int | JitValueKind::Bool => {
+                            builder
+                                .ins()
+                                .icmp(IntCC::SignedLessThanOrEqual, lhs.value, rhs.value)
+                        }
+                        JitValueKind::Float => {
+                            builder
+                                .ins()
+                                .fcmp(FloatCC::LessThanOrEqual, lhs.value, rhs.value)
+                        }
+                        JitValueKind::Boxed => {
+                            return Err("unsupported boxed JIT CFG less-equal".to_string());
+                        }
+                    };
+                    let one = builder.ins().iconst(types::I64, 1);
+                    let zero = builder.ins().iconst(types::I64, 0);
+                    builder.ins().select(cmp, one, zero)
+                })),
                 // Typed integer ops — emitted by the type_directed_unboxing IR pass.
                 // No kind guard needed: the IR guarantees both operands are Int.
                 crate::ir::IrBinaryOp::IAdd => {
@@ -3084,11 +3136,11 @@ fn try_compile_jit_ir_cfg_function_body(
         // pending phi (use_var) nodes correctly.
         let has_self_tail_call = function.blocks.iter().any(|b| {
             matches!(&b.terminator, IrTerminator::TailCall { callee, .. }
-                if match callee {
-                    IrCallTarget::Named(name) => function.name == Some(*name),
-                    IrCallTarget::Direct(id) => *id == function.id,
-                    IrCallTarget::Var(_) => false,
-                })
+            if match callee {
+                IrCallTarget::Named(name) => function.name == Some(*name),
+                IrCallTarget::Direct(id) => *id == function.id,
+                IrCallTarget::Var(_) => false,
+            })
         });
 
         for block in &function.blocks {
@@ -3114,22 +3166,20 @@ fn try_compile_jit_ir_cfg_function_body(
                         crate::ir::IrType::Bool => JitValueKind::Bool,
                         _ => continue,
                     };
-                    if let Some(existing) = bindings.get(&param.var).cloned() {
-                        if existing.kind == JitValueKind::Boxed {
-                            let ptr = builder.use_var(existing.var);
-                            let payload = builder.ins().load(
-                                types::I64,
-                                MemFlags::new(),
-                                ptr,
-                                8,
-                            );
-                            let unboxed_var = declare_local(builder, target_kind);
-                            builder.def_var(unboxed_var, payload);
-                            bindings.insert(
-                                param.var,
-                                LocalBinding { var: unboxed_var, kind: target_kind },
-                            );
-                        }
+                    if let Some(existing) = bindings.get(&param.var).cloned()
+                        && existing.kind == JitValueKind::Boxed
+                    {
+                        let ptr = builder.use_var(existing.var);
+                        let payload = builder.ins().load(types::I64, MemFlags::new(), ptr, 8);
+                        let unboxed_var = declare_local(builder, target_kind);
+                        builder.def_var(unboxed_var, payload);
+                        bindings.insert(
+                            param.var,
+                            LocalBinding {
+                                var: unboxed_var,
+                                kind: target_kind,
+                            },
+                        );
                     }
                 }
             }
@@ -3147,13 +3197,7 @@ fn try_compile_jit_ir_cfg_function_body(
                 match instr {
                     IrInstr::Assign { dest, expr, .. } => {
                         let value = compile_jit_ir_cfg_expr(
-                            module,
-                            helpers,
-                            builder,
-                            ctx_val,
-                            &bindings,
-                            expr,
-                            interner,
+                            module, helpers, builder, ctx_val, &bindings, expr, interner,
                         )?;
                         emit_return_on_null_jit_value(module, helpers, builder, ctx_val, value);
                         let binding = bindings.entry(*dest).or_insert_with(|| LocalBinding {
@@ -3169,16 +3213,16 @@ fn try_compile_jit_ir_cfg_function_body(
                         metadata,
                     } => {
                         let meta = match target {
-                            IrCallTarget::Named(name) => scope
-                                .functions
-                                .get(name)
-                                .copied()
-                                .ok_or_else(|| "missing JIT CFG named call target".to_string())?,
-                            IrCallTarget::Direct(id) => scope
-                                .ir_functions
-                                .get(id)
-                                .copied()
-                                .ok_or_else(|| "missing JIT CFG direct call target".to_string())?,
+                            IrCallTarget::Named(name) => {
+                                scope.functions.get(name).copied().ok_or_else(|| {
+                                    "missing JIT CFG named call target".to_string()
+                                })?
+                            }
+                            IrCallTarget::Direct(id) => {
+                                scope.ir_functions.get(id).copied().ok_or_else(|| {
+                                    "missing JIT CFG direct call target".to_string()
+                                })?
+                            }
                             IrCallTarget::Var(var) => {
                                 let callee = use_local(
                                     builder,
@@ -3205,10 +3249,11 @@ fn try_compile_jit_ir_cfg_function_body(
                                     &arg_vals,
                                     metadata.span.unwrap_or_default(),
                                 )?;
-                                let binding = bindings.entry(*dest).or_insert_with(|| LocalBinding {
-                                    var: declare_local(builder, value.kind),
-                                    kind: value.kind,
-                                });
+                                let binding =
+                                    bindings.entry(*dest).or_insert_with(|| LocalBinding {
+                                        var: declare_local(builder, value.kind),
+                                        kind: value.kind,
+                                    });
                                 builder.def_var(binding.var, value.value);
                                 continue;
                             }
@@ -3263,7 +3308,8 @@ fn try_compile_jit_ir_cfg_function_body(
                                 .cloned()
                                 .ok_or_else(|| "missing JIT CFG jump binding".to_string())?,
                         );
-                        let boxed = box_and_guard_jit_value(module, helpers, builder, ctx_val, value);
+                        let boxed =
+                            box_and_guard_jit_value(module, helpers, builder, ctx_val, value);
                         jump_args.push(BlockArg::Value(boxed));
                     }
                     builder.ins().jump(target_block, &jump_args);
@@ -3282,11 +3328,7 @@ fn try_compile_jit_ir_cfg_function_body(
                             .ok_or_else(|| "missing JIT CFG branch binding".to_string())?,
                     );
                     let cond_b1 = compile_jit_ir_cfg_truthiness_condition(
-                        module,
-                        helpers,
-                        builder,
-                        ctx_val,
-                        cond_value,
+                        module, helpers, builder, ctx_val, cond_value,
                     );
                     builder.ins().brif(
                         cond_b1,
@@ -3309,10 +3351,9 @@ fn try_compile_jit_ir_cfg_function_body(
                         for (idx, (_, var)) in tail_ctx.params.iter().enumerate() {
                             let value = use_local(
                                 builder,
-                                bindings
-                                    .get(&args[idx])
-                                    .cloned()
-                                    .ok_or_else(|| "missing JIT CFG tail-call binding".to_string())?,
+                                bindings.get(&args[idx]).cloned().ok_or_else(|| {
+                                    "missing JIT CFG tail-call binding".to_string()
+                                })?,
                             );
                             let value =
                                 box_and_guard_jit_value(module, helpers, builder, ctx_val, value);
@@ -3326,10 +3367,9 @@ fn try_compile_jit_ir_cfg_function_body(
                     for arg in args {
                         let value = use_local(
                             builder,
-                            bindings
-                                .get(arg)
-                                .cloned()
-                                .ok_or_else(|| "missing JIT CFG tail-call arg binding".to_string())?,
+                            bindings.get(arg).cloned().ok_or_else(|| {
+                                "missing JIT CFG tail-call arg binding".to_string()
+                            })?,
                         );
                         arg_vals.push(value);
                     }
@@ -3668,13 +3708,7 @@ fn compile_statement(
                 id: ExprId::UNSET,
             };
             let fn_val = compile_function_literal(
-                module,
-                helpers,
-                builder,
-                scope,
-                ctx_val,
-                &expr,
-                interner,
+                module, helpers, builder, scope, ctx_val, &expr, interner,
             )?;
             bind_local(builder, scope, *name, JitValue::boxed(fn_val));
             Ok(StmtOutcome::None)
@@ -3764,7 +3798,9 @@ fn compile_ir_expression(
 
                 let intern_adt =
                     get_helper_func_ref(module, helpers, builder, "rt_intern_unit_adt");
-                let call = builder.ins().call(intern_adt, &[ctx_val, name_ptr, name_len]);
+                let call = builder
+                    .ins()
+                    .call(intern_adt, &[ctx_val, name_ptr, name_len]);
 
                 Ok(JitValue::boxed(builder.inst_results(call)[0]))
             } else {
@@ -3958,8 +3994,12 @@ fn compile_ir_expression(
                 }
             }
             if lhs.kind == JitValueKind::Float && rhs.kind == JitValueKind::Float {
-                let lhsf = builder.ins().bitcast(types::F64, MemFlags::new(), lhs.value);
-                let rhsf = builder.ins().bitcast(types::F64, MemFlags::new(), rhs.value);
+                let lhsf = builder
+                    .ins()
+                    .bitcast(types::F64, MemFlags::new(), lhs.value);
+                let rhsf = builder
+                    .ins()
+                    .bitcast(types::F64, MemFlags::new(), rhs.value);
                 match operator.as_str() {
                     "+" => {
                         let result = builder.ins().fadd(lhsf, rhsf);
@@ -3987,12 +4027,8 @@ fn compile_ir_expression(
                             "!=" => cranelift_codegen::ir::condcodes::FloatCC::NotEqual,
                             ">" => cranelift_codegen::ir::condcodes::FloatCC::GreaterThan,
                             "<" => cranelift_codegen::ir::condcodes::FloatCC::LessThan,
-                            "<=" => {
-                                cranelift_codegen::ir::condcodes::FloatCC::LessThanOrEqual
-                            }
-                            ">=" => {
-                                cranelift_codegen::ir::condcodes::FloatCC::GreaterThanOrEqual
-                            }
+                            "<=" => cranelift_codegen::ir::condcodes::FloatCC::LessThanOrEqual,
+                            ">=" => cranelift_codegen::ir::condcodes::FloatCC::GreaterThanOrEqual,
                             _ => unreachable!(),
                         };
                         let cmp = builder.ins().fcmp(cc, lhsf, rhsf);
@@ -4027,8 +4063,7 @@ fn compile_ir_expression(
                     let ge_tag = builder.inst_results(ge_call)[0];
                     let ge_payload = builder.inst_results(ge_call)[1];
                     let not_ref = get_helper_func_ref(module, helpers, builder, "rt_not");
-                    let not_call =
-                        builder.ins().call(not_ref, &[ctx_val, ge_tag, ge_payload]);
+                    let not_call = builder.ins().call(not_ref, &[ctx_val, ge_tag, ge_payload]);
                     let result = boxed_value_from_tagged_parts(
                         module,
                         helpers,
@@ -4087,9 +4122,9 @@ fn compile_ir_expression(
         IrStructuredExpr::Float { value, .. } => Ok(JitValue::float(
             builder.ins().iconst(types::I64, value.to_bits() as i64),
         )),
-        IrStructuredExpr::Boolean { value, .. } => {
-            Ok(JitValue::bool(builder.ins().iconst(types::I64, *value as i64)))
-        }
+        IrStructuredExpr::Boolean { value, .. } => Ok(JitValue::bool(
+            builder.ins().iconst(types::I64, *value as i64),
+        )),
         IrStructuredExpr::None { .. } => {
             let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
             let call = builder.ins().call(make_none, &[ctx_val]);
@@ -4223,28 +4258,26 @@ fn compile_ir_expression(
             alternative.as_ref(),
             interner,
         ),
-        IrStructuredExpr::DoBlock { block, .. } => {
-            compile_ir_block_expression(
-                module,
-                helpers,
-                builder,
-                function_compiler,
-                scope,
-                ctx_val,
-                return_block,
-                tail_call,
-                block,
-                interner,
-            )
-            .map(|eval| match eval {
-                BlockEval::Value(v) => v,
-                BlockEval::Returned => {
-                    let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
-                    let call = builder.ins().call(make_none, &[ctx_val]);
-                    JitValue::boxed(builder.inst_results(call)[1])
-                }
-            })
-        }
+        IrStructuredExpr::DoBlock { block, .. } => compile_ir_block_expression(
+            module,
+            helpers,
+            builder,
+            function_compiler,
+            scope,
+            ctx_val,
+            return_block,
+            tail_call,
+            block,
+            interner,
+        )
+        .map(|eval| match eval {
+            BlockEval::Value(v) => v,
+            BlockEval::Returned => {
+                let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
+                let call = builder.ins().call(make_none, &[ctx_val]);
+                JitValue::boxed(builder.inst_results(call)[1])
+            }
+        }),
         IrStructuredExpr::Call {
             function,
             arguments,
@@ -4388,21 +4421,19 @@ fn compile_ir_expression(
         ),
         IrStructuredExpr::Match {
             scrutinee, arms, ..
-        } => {
-            compile_ir_match_expression(
-                module,
-                helpers,
-                builder,
-                function_compiler,
-                scope,
-                ctx_val,
-                return_block,
-                tail_call,
-                scrutinee,
-                arms,
-                interner,
-            )
-        }
+        } => compile_ir_match_expression(
+            module,
+            helpers,
+            builder,
+            function_compiler,
+            scope,
+            ctx_val,
+            return_block,
+            tail_call,
+            scrutinee,
+            arms,
+            interner,
+        ),
         IrStructuredExpr::Perform {
             effect,
             operation,
@@ -4425,10 +4456,7 @@ fn compile_ir_expression(
             *span,
         ),
         IrStructuredExpr::Handle {
-            expr,
-            effect,
-            arms,
-            ..
+            expr, effect, arms, ..
         } => compile_ir_jit_handle(
             module,
             helpers,
@@ -5105,11 +5133,9 @@ fn compile_expression(
         Expression::Integer { value, .. } => {
             Ok(JitValue::int(builder.ins().iconst(types::I64, *value)))
         }
-        Expression::Float { value, .. } => {
-            Ok(JitValue::float(
-                builder.ins().iconst(types::I64, value.to_bits() as i64),
-            ))
-        }
+        Expression::Float { value, .. } => Ok(JitValue::float(
+            builder.ins().iconst(types::I64, value.to_bits() as i64),
+        )),
         Expression::Boolean { value, .. } => {
             let v = builder.ins().iconst(types::I64, *value as i64);
             Ok(JitValue::bool(v))
@@ -5235,7 +5261,9 @@ fn compile_expression(
 
                 let intern_adt =
                     get_helper_func_ref(module, helpers, builder, "rt_intern_unit_adt");
-                let call = builder.ins().call(intern_adt, &[ctx_val, name_ptr, name_len]);
+                let call = builder
+                    .ins()
+                    .call(intern_adt, &[ctx_val, name_ptr, name_len]);
 
                 Ok(JitValue::boxed(builder.inst_results(call)[0]))
             } else {
@@ -5377,7 +5405,7 @@ fn compile_expression(
                 module,
                 helpers,
                 builder,
-                    function_compiler,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -5436,8 +5464,12 @@ fn compile_expression(
                 }
             }
             if lhs.kind == JitValueKind::Float && rhs.kind == JitValueKind::Float {
-                let lhsf = builder.ins().bitcast(types::F64, MemFlags::new(), lhs.value);
-                let rhsf = builder.ins().bitcast(types::F64, MemFlags::new(), rhs.value);
+                let lhsf = builder
+                    .ins()
+                    .bitcast(types::F64, MemFlags::new(), lhs.value);
+                let rhsf = builder
+                    .ins()
+                    .bitcast(types::F64, MemFlags::new(), rhs.value);
                 match operator.as_str() {
                     "+" => {
                         let result = builder.ins().fadd(lhsf, rhsf);
@@ -5465,12 +5497,8 @@ fn compile_expression(
                             "!=" => cranelift_codegen::ir::condcodes::FloatCC::NotEqual,
                             ">" => cranelift_codegen::ir::condcodes::FloatCC::GreaterThan,
                             "<" => cranelift_codegen::ir::condcodes::FloatCC::LessThan,
-                            "<=" => {
-                                cranelift_codegen::ir::condcodes::FloatCC::LessThanOrEqual
-                            }
-                            ">=" => {
-                                cranelift_codegen::ir::condcodes::FloatCC::GreaterThanOrEqual
-                            }
+                            "<=" => cranelift_codegen::ir::condcodes::FloatCC::LessThanOrEqual,
+                            ">=" => cranelift_codegen::ir::condcodes::FloatCC::GreaterThanOrEqual,
                             _ => unreachable!(),
                         };
                         let cmp = builder.ins().fcmp(cc, lhsf, rhsf);
@@ -5506,8 +5534,7 @@ fn compile_expression(
                     let ge_tag = builder.inst_results(ge_call)[0];
                     let ge_payload = builder.inst_results(ge_call)[1];
                     let not_ref = get_helper_func_ref(module, helpers, builder, "rt_not");
-                    let not_call =
-                        builder.ins().call(not_ref, &[ctx_val, ge_tag, ge_payload]);
+                    let not_call = builder.ins().call(not_ref, &[ctx_val, ge_tag, ge_payload]);
                     let result = boxed_value_from_tagged_parts(
                         module,
                         helpers,
@@ -5724,8 +5751,7 @@ fn compile_expression(
                         // Fallback for arity 0 and arity >= 6: use generic rt_make_adt.
                         let fields_ptr = function_compiler.emit_tagged_array(builder, &arg_vals);
                         let arity_value = builder.ins().iconst(PTR_TYPE, arity as i64);
-                        let make_adt =
-                            get_helper_func_ref(module, helpers, builder, "rt_make_adt");
+                        let make_adt = get_helper_func_ref(module, helpers, builder, "rt_make_adt");
                         builder.ins().call(
                             make_adt,
                             &[ctx_val, name_ptr, name_len, fields_ptr, arity_value],
@@ -6502,7 +6528,9 @@ fn collect_ir_adt_definitions_from_item(
             let mut constructor_names = Vec::with_capacity(variants.len());
             for variant in variants {
                 let name_sym = variant.name;
-                scope.adt_constructors.insert(name_sym, variant.fields.len());
+                scope
+                    .adt_constructors
+                    .insert(name_sym, variant.fields.len());
                 scope.adt_constructor_owner.insert(name_sym, *name);
                 constructor_names.push(name_sym);
             }
@@ -6772,13 +6800,7 @@ fn compile_match_expression(
                 interner,
             )?;
             let cond = compile_truthiness_condition(
-                module,
-                helpers,
-                builder,
-                &arm_scope,
-                ctx_val,
-                guard_expr,
-                guard_val,
+                module, helpers, builder, &arm_scope, ctx_val, guard_expr, guard_val,
             );
             let fail_block = match next_test {
                 Some(next) => next,
@@ -7031,13 +7053,7 @@ fn compile_ir_match_expression(
                 interner,
             )?;
             let cond = compile_ir_truthiness_condition(
-                module,
-                helpers,
-                builder,
-                &arm_scope,
-                ctx_val,
-                guard_expr,
-                guard_val,
+                module, helpers, builder, &arm_scope, ctx_val, guard_expr, guard_val,
             );
             let fail_block = match next_test {
                 Some(next) => next,
@@ -7215,7 +7231,10 @@ fn validate_ir_jit_match_arms(
 
     let first = all_constructor_names[0];
     let Some(first_adt) = scope.adt_constructor_owner.get(&first).copied() else {
-        return Err(format!("Unknown constructor `{}`.", interner.resolve(first)));
+        return Err(format!(
+            "Unknown constructor `{}`.",
+            interner.resolve(first)
+        ));
     };
     for constructor in &all_constructor_names {
         let Some(owner) = scope.adt_constructor_owner.get(constructor).copied() else {
@@ -7335,7 +7354,10 @@ fn validate_ir_pattern_constructors_for_jit(
     match pattern {
         IrStructuredPattern::Constructor { name, fields, .. } => {
             let Some(expected_arity) = scope.adt_constructors.get(name).copied() else {
-                return Err(format!("Unknown constructor `{}`.", interner.resolve(*name)));
+                return Err(format!(
+                    "Unknown constructor `{}`.",
+                    interner.resolve(*name)
+                ));
             };
             if fields.len() != expected_arity {
                 return Err(format!(
@@ -8021,21 +8043,27 @@ fn bind_ir_top_level_pattern_value(
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
             emit_return_on_null_value(builder, inner);
-            bind_ir_top_level_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
+            bind_ir_top_level_pattern_value(
+                module, helpers, builder, scope, ctx_val, pattern, inner,
+            )
         }
         IrStructuredPattern::Left { pattern, .. } => {
             let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_left");
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
             emit_return_on_null_value(builder, inner);
-            bind_ir_top_level_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
+            bind_ir_top_level_pattern_value(
+                module, helpers, builder, scope, ctx_val, pattern, inner,
+            )
         }
         IrStructuredPattern::Right { pattern, .. } => {
             let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_right");
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
             emit_return_on_null_value(builder, inner);
-            bind_ir_top_level_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
+            bind_ir_top_level_pattern_value(
+                module, helpers, builder, scope, ctx_val, pattern, inner,
+            )
         }
         IrStructuredPattern::Tuple { elements, .. } => {
             let tuple_get = get_helper_func_ref(module, helpers, builder, "rt_tuple_get");
@@ -8184,8 +8212,9 @@ fn compile_if_expression(
         condition,
         interner,
     )?;
-    let cond_b1 =
-        compile_truthiness_condition(module, helpers, builder, scope, ctx_val, condition, cond_val);
+    let cond_b1 = compile_truthiness_condition(
+        module, helpers, builder, scope, ctx_val, condition, cond_val,
+    );
 
     let then_block = builder.create_block();
     let else_block = builder.create_block();
@@ -8349,13 +8378,7 @@ fn compile_ir_if_expression(
         interner,
     )?;
     let cond_b1 = compile_ir_truthiness_condition(
-        module,
-        helpers,
-        builder,
-        scope,
-        ctx_val,
-        condition,
-        cond_val,
+        module, helpers, builder, scope, ctx_val, condition, cond_val,
     );
 
     let then_block = builder.create_block();
@@ -8829,8 +8852,7 @@ fn compile_base_function_call(
         .ins()
         .iconst(PTR_TYPE, (call_span.end.column + 1) as i64);
 
-    let call_base =
-        get_helper_func_ref(module, helpers, builder, "rt_call_base_function_tagged");
+    let call_base = get_helper_func_ref(module, helpers, builder, "rt_call_base_function_tagged");
     let call = builder.ins().call(
         call_base,
         &[
@@ -8893,8 +8915,7 @@ fn compile_ir_base_function_call(
         .ins()
         .iconst(PTR_TYPE, (call_span.end.column + 1) as i64);
 
-    let call_base =
-        get_helper_func_ref(module, helpers, builder, "rt_call_base_function_tagged");
+    let call_base = get_helper_func_ref(module, helpers, builder, "rt_call_base_function_tagged");
     let call = builder.ins().call(
         call_base,
         &[
@@ -8951,7 +8972,9 @@ fn compile_primop_call(
             PrimOp::IAdd => return Ok(JitValue::int(builder.ins().iadd(lhs.value, rhs.value))),
             PrimOp::ISub => return Ok(JitValue::int(builder.ins().isub(lhs.value, rhs.value))),
             PrimOp::IMul => return Ok(JitValue::int(builder.ins().imul(lhs.value, rhs.value))),
-            PrimOp::IDiv | PrimOp::IMod if lhs.kind == JitValueKind::Int && rhs.kind == JitValueKind::Int => {
+            PrimOp::IDiv | PrimOp::IMod
+                if lhs.kind == JitValueKind::Int && rhs.kind == JitValueKind::Int =>
+            {
                 let is_zero = builder.ins().icmp_imm(IntCC::Equal, rhs.value, 0);
                 let err_block = builder.create_block();
                 let ok_block = builder.create_block();
@@ -8975,7 +8998,9 @@ fn compile_primop_call(
             | PrimOp::ICmpLt
             | PrimOp::ICmpLe
             | PrimOp::ICmpGt
-            | PrimOp::ICmpGe if lhs.kind == JitValueKind::Int && rhs.kind == JitValueKind::Int => {
+            | PrimOp::ICmpGe
+                if lhs.kind == JitValueKind::Int && rhs.kind == JitValueKind::Int =>
+            {
                 let cc = match primop {
                     PrimOp::ICmpEq => IntCC::Equal,
                     PrimOp::ICmpNe => IntCC::NotEqual,
@@ -8994,8 +9019,12 @@ fn compile_primop_call(
             PrimOp::FAdd | PrimOp::FSub | PrimOp::FMul | PrimOp::FDiv
                 if lhs.kind == JitValueKind::Float && rhs.kind == JitValueKind::Float =>
             {
-                let lhsf = builder.ins().bitcast(types::F64, MemFlags::new(), lhs.value);
-                let rhsf = builder.ins().bitcast(types::F64, MemFlags::new(), rhs.value);
+                let lhsf = builder
+                    .ins()
+                    .bitcast(types::F64, MemFlags::new(), lhs.value);
+                let rhsf = builder
+                    .ins()
+                    .bitcast(types::F64, MemFlags::new(), rhs.value);
                 let result = match primop {
                     PrimOp::FAdd => builder.ins().fadd(lhsf, rhsf),
                     PrimOp::FSub => builder.ins().fsub(lhsf, rhsf),
@@ -9011,9 +9040,15 @@ fn compile_primop_call(
             | PrimOp::FCmpLt
             | PrimOp::FCmpLe
             | PrimOp::FCmpGt
-            | PrimOp::FCmpGe if lhs.kind == JitValueKind::Float && rhs.kind == JitValueKind::Float => {
-                let lhsf = builder.ins().bitcast(types::F64, MemFlags::new(), lhs.value);
-                let rhsf = builder.ins().bitcast(types::F64, MemFlags::new(), rhs.value);
+            | PrimOp::FCmpGe
+                if lhs.kind == JitValueKind::Float && rhs.kind == JitValueKind::Float =>
+            {
+                let lhsf = builder
+                    .ins()
+                    .bitcast(types::F64, MemFlags::new(), lhs.value);
+                let rhsf = builder
+                    .ins()
+                    .bitcast(types::F64, MemFlags::new(), rhs.value);
                 let cc = match primop {
                     PrimOp::FCmpEq => cranelift_codegen::ir::condcodes::FloatCC::Equal,
                     PrimOp::FCmpNe => cranelift_codegen::ir::condcodes::FloatCC::NotEqual,
@@ -9154,8 +9189,12 @@ fn compile_ir_primop_call(
             PrimOp::FAdd | PrimOp::FSub | PrimOp::FMul | PrimOp::FDiv
                 if lhs.kind == JitValueKind::Float && rhs.kind == JitValueKind::Float =>
             {
-                let lhsf = builder.ins().bitcast(types::F64, MemFlags::new(), lhs.value);
-                let rhsf = builder.ins().bitcast(types::F64, MemFlags::new(), rhs.value);
+                let lhsf = builder
+                    .ins()
+                    .bitcast(types::F64, MemFlags::new(), lhs.value);
+                let rhsf = builder
+                    .ins()
+                    .bitcast(types::F64, MemFlags::new(), rhs.value);
                 let result = match primop {
                     PrimOp::FAdd => builder.ins().fadd(lhsf, rhsf),
                     PrimOp::FSub => builder.ins().fsub(lhsf, rhsf),
@@ -9174,17 +9213,19 @@ fn compile_ir_primop_call(
             | PrimOp::FCmpGe
                 if lhs.kind == JitValueKind::Float && rhs.kind == JitValueKind::Float =>
             {
-                let lhsf = builder.ins().bitcast(types::F64, MemFlags::new(), lhs.value);
-                let rhsf = builder.ins().bitcast(types::F64, MemFlags::new(), rhs.value);
+                let lhsf = builder
+                    .ins()
+                    .bitcast(types::F64, MemFlags::new(), lhs.value);
+                let rhsf = builder
+                    .ins()
+                    .bitcast(types::F64, MemFlags::new(), rhs.value);
                 let cc = match primop {
                     PrimOp::FCmpEq => cranelift_codegen::ir::condcodes::FloatCC::Equal,
                     PrimOp::FCmpNe => cranelift_codegen::ir::condcodes::FloatCC::NotEqual,
                     PrimOp::FCmpLt => cranelift_codegen::ir::condcodes::FloatCC::LessThan,
                     PrimOp::FCmpLe => cranelift_codegen::ir::condcodes::FloatCC::LessThanOrEqual,
                     PrimOp::FCmpGt => cranelift_codegen::ir::condcodes::FloatCC::GreaterThan,
-                    PrimOp::FCmpGe => {
-                        cranelift_codegen::ir::condcodes::FloatCC::GreaterThanOrEqual
-                    }
+                    PrimOp::FCmpGe => cranelift_codegen::ir::condcodes::FloatCC::GreaterThanOrEqual,
                     _ => unreachable!(),
                 };
                 let cmp = builder.ins().fcmp(cc, lhsf, rhsf);
@@ -9213,9 +9254,7 @@ fn compile_ir_primop_call(
         .ins()
         .iconst(PTR_TYPE, (span.start.column + 1) as i64);
     let end_line_val = builder.ins().iconst(PTR_TYPE, span.end.line as i64);
-    let end_col_val = builder
-        .ins()
-        .iconst(PTR_TYPE, (span.end.column + 1) as i64);
+    let end_col_val = builder.ins().iconst(PTR_TYPE, (span.end.column + 1) as i64);
     let call_primop = get_helper_func_ref(module, helpers, builder, "rt_call_primop");
     let call = builder.ins().call(
         call_primop,
@@ -9391,9 +9430,8 @@ fn compile_user_function_call(
         };
         let raw_tag = builder.inst_results(call)[0];
         let raw_payload = builder.inst_results(call)[1];
-        let raw_result = boxed_value_from_tagged_parts(
-            module, helpers, builder, ctx_val, raw_tag, raw_payload,
-        );
+        let raw_result =
+            boxed_value_from_tagged_parts(module, helpers, builder, ctx_val, raw_tag, raw_payload);
         emit_return_on_null_value(builder, raw_result);
         return Ok(JitValue::boxed(raw_result));
     }
@@ -9552,17 +9590,16 @@ fn compile_user_function_call(
             let (tag2, payload2) = jit_value_to_tag_payload(builder, arg_vals[2]);
             let (tag3, payload3) = jit_value_to_tag_payload(builder, arg_vals[3]);
             let args = [
-                ctx_val, tag0, payload0, tag1, payload1, tag2, payload2, tag3, payload3,
-                null_ptr, zero,
+                ctx_val, tag0, payload0, tag1, payload1, tag2, payload2, tag3, payload3, null_ptr,
+                zero,
             ];
             builder.ins().call(callee_ref, &args)
         }
     };
     let raw_tag = builder.inst_results(call)[0];
     let raw_payload = builder.inst_results(call)[1];
-    let raw_result = boxed_value_from_tagged_parts(
-        module, helpers, builder, ctx_val, raw_tag, raw_payload,
-    );
+    let raw_result =
+        boxed_value_from_tagged_parts(module, helpers, builder, ctx_val, raw_tag, raw_payload);
     let check_ret = get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_return");
     let checked_ret_call = builder.ins().call(
         check_ret,
@@ -9679,9 +9716,8 @@ fn compile_ir_user_function_call(
         };
         let raw_tag = builder.inst_results(call)[0];
         let raw_payload = builder.inst_results(call)[1];
-        let raw_result = boxed_value_from_tagged_parts(
-            module, helpers, builder, ctx_val, raw_tag, raw_payload,
-        );
+        let raw_result =
+            boxed_value_from_tagged_parts(module, helpers, builder, ctx_val, raw_tag, raw_payload);
         emit_return_on_null_value(builder, raw_result);
         return Ok(JitValue::boxed(raw_result));
     }
@@ -9840,17 +9876,16 @@ fn compile_ir_user_function_call(
             let (tag2, payload2) = jit_value_to_tag_payload(builder, arg_vals[2]);
             let (tag3, payload3) = jit_value_to_tag_payload(builder, arg_vals[3]);
             let args = [
-                ctx_val, tag0, payload0, tag1, payload1, tag2, payload2, tag3, payload3,
-                null_ptr, zero,
+                ctx_val, tag0, payload0, tag1, payload1, tag2, payload2, tag3, payload3, null_ptr,
+                zero,
             ];
             builder.ins().call(callee_ref, &args)
         }
     };
     let raw_tag = builder.inst_results(call)[0];
     let raw_payload = builder.inst_results(call)[1];
-    let raw_result = boxed_value_from_tagged_parts(
-        module, helpers, builder, ctx_val, raw_tag, raw_payload,
-    );
+    let raw_result =
+        boxed_value_from_tagged_parts(module, helpers, builder, ctx_val, raw_tag, raw_payload);
     let check_ret = get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_return");
     let checked_ret_call = builder.ins().call(
         check_ret,
@@ -10147,7 +10182,9 @@ fn compile_jit_cfg_user_function_call(
     );
     let checked_ret = builder.inst_results(checked_ret_call)[0];
     emit_return_on_null_value(builder, checked_ret);
-    builder.ins().jump(done_block, &[BlockArg::Value(checked_ret)]);
+    builder
+        .ins()
+        .jump(done_block, &[BlockArg::Value(checked_ret)]);
     builder.seal_block(call_block);
 
     builder.switch_to_block(done_block);
@@ -10810,7 +10847,9 @@ fn collect_literal_function_specs(top_level_statements: &[Statement]) -> Vec<Lit
     collector.specs
 }
 
-fn collect_ir_literal_function_specs(top_level_items: &[IrTopLevelItem]) -> Vec<IrLiteralFunctionSpec> {
+fn collect_ir_literal_function_specs(
+    top_level_items: &[IrTopLevelItem],
+) -> Vec<IrLiteralFunctionSpec> {
     let mut collector = IrLiteralCollector::new();
     collector.collect_items(top_level_items);
     collector.specs
@@ -11503,11 +11542,8 @@ impl IrLiteralCollector {
                         }],
                         span: arm.span,
                     };
-                    let key = LiteralKey::from_ir_function(
-                        &[arm.resume_param],
-                        body.span,
-                        arm.span,
-                    );
+                    let key =
+                        LiteralKey::from_ir_function(&[arm.resume_param], body.span, arm.span);
                     if !self.seen.contains(&key) {
                         let arm_expr = IrStructuredExpr::Function {
                             parameters: {
@@ -11522,7 +11558,14 @@ impl IrLiteralCollector {
                             span: arm.span,
                             id: ExprId::UNSET,
                         };
-                        if let IrStructuredExpr::Function { parameters, parameter_types, return_type, body, .. } = arm_expr {
+                        if let IrStructuredExpr::Function {
+                            parameters,
+                            parameter_types,
+                            return_type,
+                            body,
+                            ..
+                        } = arm_expr
+                        {
                             self.collect_capture_spec(
                                 LiteralKey::from_ir_function(&parameters, body.span, arm.span),
                                 &parameters,
@@ -11593,7 +11636,11 @@ fn collect_ir_free_vars_in_item(
                 nested_bound.insert(*param);
             }
             let nested_free = collect_ir_free_vars_in_block(body, &nested_bound);
-            free.extend(nested_free.into_iter().filter(|ident| bound.contains(ident)));
+            free.extend(
+                nested_free
+                    .into_iter()
+                    .filter(|ident| bound.contains(ident)),
+            );
             bound.insert(*name);
         }
         IrTopLevelItem::Module { body, .. } => {
@@ -11710,7 +11757,9 @@ fn collect_ir_free_vars_in_expr(
         | IrStructuredExpr::TupleFieldAccess { object, .. } => {
             collect_ir_free_vars_in_expr(object, bound, free)
         }
-        IrStructuredExpr::Match { scrutinee, arms, .. } => {
+        IrStructuredExpr::Match {
+            scrutinee, arms, ..
+        } => {
             collect_ir_free_vars_in_expr(scrutinee, bound, free);
             for arm in arms {
                 let mut arm_bound = bound.clone();
@@ -11943,7 +11992,9 @@ impl FunctionCompiler {
         for (i, value) in values.iter().enumerate() {
             let (tag, payload) = jit_value_to_tag_payload(builder, *value);
             builder.ins().stack_store(tag, slot, (i * 16) as i32);
-            builder.ins().stack_store(payload, slot, (i * 16 + 8) as i32);
+            builder
+                .ins()
+                .stack_store(payload, slot, (i * 16 + 8) as i32);
         }
         builder.ins().stack_addr(PTR_TYPE, slot, 0)
     }
@@ -11991,10 +12042,13 @@ fn max_tagged_array_len_in_ir_items(items: &[IrTopLevelItem]) -> usize {
 
 fn scan_stmt_tagged_array_usage(stmt: &Statement, max_len: &mut usize) {
     match stmt {
-        Statement::Let { value, .. }
-        | Statement::Assign { value, .. } => scan_expr_tagged_array_usage(value, max_len),
+        Statement::Let { value, .. } | Statement::Assign { value, .. } => {
+            scan_expr_tagged_array_usage(value, max_len)
+        }
         Statement::LetDestructure { value, .. } => scan_expr_tagged_array_usage(value, max_len),
-        Statement::Expression { expression, .. } => scan_expr_tagged_array_usage(expression, max_len),
+        Statement::Expression { expression, .. } => {
+            scan_expr_tagged_array_usage(expression, max_len)
+        }
         Statement::Return { value, .. } => {
             if let Some(value) = value {
                 scan_expr_tagged_array_usage(value, max_len);
@@ -12010,8 +12064,9 @@ fn scan_stmt_tagged_array_usage(stmt: &Statement, max_len: &mut usize) {
 
 fn scan_ir_item_tagged_array_usage(item: &IrTopLevelItem, max_len: &mut usize) {
     match item {
-        IrTopLevelItem::Let { value, .. }
-        | IrTopLevelItem::Assign { value, .. } => scan_ir_expr_tagged_array_usage(value, max_len),
+        IrTopLevelItem::Let { value, .. } | IrTopLevelItem::Assign { value, .. } => {
+            scan_ir_expr_tagged_array_usage(value, max_len)
+        }
         IrTopLevelItem::LetDestructure { value, .. } => {
             scan_ir_expr_tagged_array_usage(value, max_len)
         }
@@ -12083,8 +12138,7 @@ fn scan_expr_tagged_array_usage(expr: &Expression, max_len: &mut usize) {
                 scan_expr_tagged_array_usage(arg, max_len);
             }
         }
-        Expression::TupleLiteral { elements, .. }
-        | Expression::ArrayLiteral { elements, .. } => {
+        Expression::TupleLiteral { elements, .. } | Expression::ArrayLiteral { elements, .. } => {
             note_tagged_array_usage(max_len, elements.len());
             for element in elements {
                 scan_expr_tagged_array_usage(element, max_len);
@@ -12106,8 +12160,7 @@ fn scan_expr_tagged_array_usage(expr: &Expression, max_len: &mut usize) {
             scan_expr_tagged_array_usage(left, max_len);
             scan_expr_tagged_array_usage(index, max_len);
         }
-        Expression::MemberAccess { object, .. }
-        | Expression::TupleFieldAccess { object, .. } => {
+        Expression::MemberAccess { object, .. } | Expression::TupleFieldAccess { object, .. } => {
             scan_expr_tagged_array_usage(object, max_len);
         }
         Expression::Match {
@@ -12390,10 +12443,7 @@ fn can_compile_jit_ir_cfg_function(function: &IrFunction) -> bool {
                     kinds.insert(*dest, kind);
                 }
                 IrInstr::Call {
-                    dest,
-                    target,
-                    args,
-                    ..
+                    dest, target, args, ..
                 } => {
                     // Named and Direct calls require a scope.functions lookup at
                     // runtime which may not find base functions or functions not yet
@@ -12420,16 +12470,16 @@ fn can_compile_jit_ir_cfg_function(function: &IrFunction) -> bool {
                     return false;
                 }
             }
-                IrTerminator::Jump(target, args, _) => {
-                    let Some(target_index) = block_indices.get(target).copied() else {
-                        return false;
-                    };
-                    if target_index <= index {
-                        return false;
-                    }
-                    if function.blocks[target_index].params.len() != args.len() {
-                        return false;
-                    }
+            IrTerminator::Jump(target, args, _) => {
+                let Some(target_index) = block_indices.get(target).copied() else {
+                    return false;
+                };
+                if target_index <= index {
+                    return false;
+                }
+                if function.blocks[target_index].params.len() != args.len() {
+                    return false;
+                }
                 if args.iter().any(|var| !kinds.contains_key(var)) {
                     return false;
                 }
@@ -12508,10 +12558,13 @@ fn max_boxed_array_len_in_ir_items(items: &[IrTopLevelItem]) -> usize {
 
 fn scan_stmt_boxed_array_usage(stmt: &Statement, max_len: &mut usize) {
     match stmt {
-        Statement::Let { value, .. }
-        | Statement::Assign { value, .. } => scan_expr_boxed_array_usage(value, max_len),
+        Statement::Let { value, .. } | Statement::Assign { value, .. } => {
+            scan_expr_boxed_array_usage(value, max_len)
+        }
         Statement::LetDestructure { value, .. } => scan_expr_boxed_array_usage(value, max_len),
-        Statement::Expression { expression, .. } => scan_expr_boxed_array_usage(expression, max_len),
+        Statement::Expression { expression, .. } => {
+            scan_expr_boxed_array_usage(expression, max_len)
+        }
         Statement::Return { value, .. } => {
             if let Some(value) = value {
                 scan_expr_boxed_array_usage(value, max_len);
@@ -12527,8 +12580,9 @@ fn scan_stmt_boxed_array_usage(stmt: &Statement, max_len: &mut usize) {
 
 fn scan_ir_item_boxed_array_usage(item: &IrTopLevelItem, max_len: &mut usize) {
     match item {
-        IrTopLevelItem::Let { value, .. }
-        | IrTopLevelItem::Assign { value, .. } => scan_ir_expr_boxed_array_usage(value, max_len),
+        IrTopLevelItem::Let { value, .. } | IrTopLevelItem::Assign { value, .. } => {
+            scan_ir_expr_boxed_array_usage(value, max_len)
+        }
         IrTopLevelItem::LetDestructure { value, .. } => {
             scan_ir_expr_boxed_array_usage(value, max_len)
         }
@@ -12617,8 +12671,7 @@ fn scan_expr_boxed_array_usage(expr: &Expression, max_len: &mut usize) {
                 scan_expr_boxed_array_usage(value, max_len);
             }
         }
-        Expression::MemberAccess { object, .. }
-        | Expression::TupleFieldAccess { object, .. } => {
+        Expression::MemberAccess { object, .. } | Expression::TupleFieldAccess { object, .. } => {
             scan_expr_boxed_array_usage(object, max_len);
         }
         Expression::Match {

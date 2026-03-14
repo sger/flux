@@ -539,7 +539,7 @@ fn mixed_closer_nested_delimiters_does_not_invent_outer_unclosed_brace() {
         parse_no_panic(input).expect("mixed-closer fixture should not panic");
 
     assert!(
-        diagnostics.len() >= 1,
+        !diagnostics.is_empty(),
         "expected parser diagnostics for mixed closer fixture"
     );
     assert!(

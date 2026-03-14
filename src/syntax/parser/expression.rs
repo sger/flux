@@ -1096,14 +1096,13 @@ impl Parser {
             None
         };
 
-        let expression = Some(Expression::If {
+        Some(Expression::If {
             condition: Box::new(condition),
             consequence,
             alternative,
             span: Span::new(start, self.current_token.end_position),
             id: self.next_expr_id(),
-        });
-        expression
+        })
     }
 
     pub(super) fn parse_do_block_expression(&mut self) -> Option<Expression> {
@@ -1330,14 +1329,13 @@ impl Parser {
         }
 
         let end = self.current_token.span().end;
-        let expression = Some(Expression::Handle {
+        Some(Expression::Handle {
             expr: Box::new(left),
             effect,
             arms,
             span: Span::new(start, end),
             id: self.next_expr_id(),
-        });
-        expression
+        })
     }
 
     pub(super) fn parse_match_expression(&mut self) -> Option<Expression> {
