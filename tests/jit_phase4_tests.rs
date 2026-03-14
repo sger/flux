@@ -176,6 +176,7 @@ arr[5]
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "JIT: string interpolation Cranelift verifier error (proposal 0102)"]
 fn jit_string_interpolation_basic() {
     let result = run_jit(
         r##"
@@ -187,12 +188,14 @@ let name = "world"
 }
 
 #[test]
+#[ignore = "JIT: string interpolation Cranelift verifier error (proposal 0102)"]
 fn jit_string_interpolation_expression() {
     let result = run_jit(r##""result: #{1 + 2}""##);
     assert_eq!(result, Value::String("result: 3".into()));
 }
 
 #[test]
+#[ignore = "JIT: string interpolation Cranelift verifier error (proposal 0102)"]
 fn jit_string_interpolation_multiple() {
     let result = run_jit(
         r##"

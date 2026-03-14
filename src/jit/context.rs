@@ -781,6 +781,7 @@ mod tests {
         );
 
         ctx.pop_gc_roots();
+        ctx.arena.reset();
         ctx.collect_gc();
         assert_eq!(ctx.gc_heap.live_count(), 0);
     }
