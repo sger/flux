@@ -120,6 +120,7 @@ impl<'a> InferCtx<'a> {
     /// - `Ok(resolved_type)` on success where the return value is `t1` resolved
     ///   under the updated substitution.
     /// - `Err(UnifyError)` when unification fails.
+    #[allow(clippy::result_large_err)]
     fn try_unify_and_compose_subst(
         &mut self,
         t1: &InferType,

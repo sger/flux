@@ -16,7 +16,10 @@ fn mk_expr(n: i64, v: i64) -> Expr {
     if n == 0 {
         if v == 0 { Expr::Var(()) } else { Expr::Val(v) }
     } else {
-        Expr::Add(Box::new(mk_expr(n - 1, v + 1)), Box::new(mk_expr(n - 1, dec(v))))
+        Expr::Add(
+            Box::new(mk_expr(n - 1, v + 1)),
+            Box::new(mk_expr(n - 1, dec(v))),
+        )
     }
 }
 

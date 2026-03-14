@@ -1,7 +1,9 @@
 use std::{cell::RefCell, fmt, rc::Rc};
 
 use crate::runtime::{
-    closure::Closure, compiled_function::CompiledFunction, continuation::Continuation,
+    closure::Closure,
+    compiled_function::CompiledFunction,
+    continuation::Continuation,
     gc::{gc_handle::GcHandle, gc_heap::GcHeap, heap_object::HeapObject},
     handler_descriptor::HandlerDescriptor,
     hash_key::HashKey,
@@ -84,6 +86,7 @@ impl AdtFields {
 
     /// Consume into an iterator that yields owned values without heap allocation
     /// for the common 1-3 field cases.
+    #[allow(clippy::should_implement_trait)]
     pub fn into_iter(self) -> AdtFieldsIntoIter {
         match self {
             AdtFields::One(a) => AdtFieldsIntoIter::Inline {
@@ -171,7 +174,9 @@ impl Iterator for AdtFieldsIntoIter {
                 if *pos >= *len {
                     return None;
                 }
-                let val = values[*pos].take().expect("inline iterator slot already consumed");
+                let val = values[*pos]
+                    .take()
+                    .expect("inline iterator slot already consumed");
                 *pos += 1;
                 Some(val)
             }

@@ -281,6 +281,51 @@ pub(crate) fn solve_row_constraints(constraints: &[RowConstraint]) -> RowSolutio
     }
 }
 
+fn apply_absent_constraints(state: &mut RowSolveState, absent: &[(EffectRow, Symbol)]) {
+    let mut unresolved_vars: HashSet<Symbol> = HashSet::new();
+
+    for (row, atom) in absent {
+        if row.atoms.contains(atom) {
+            state
+                .violations
+                .push(RowConstraintViolation::InvalidSubtract { atom: *atom });
+            continue;
+        }
+
+        let found_bound = row.vars.iter().any(|var| {
+            state
+                .bindings
+                .get(var)
+                .is_some_and(|bound| bound.contains(atom))
+        });
+
+        if found_bound {
+            state
+                .violations
+                .push(RowConstraintViolation::InvalidSubtract { atom: *atom });
+            continue;
+        }
+
+        // Absence is proven if at least one var is bound (and its bindings don't contain
+        // the atom — already checked above). Only flag unresolved when *all* vars lack
+        // bindings, meaning we cannot confirm or deny the atom's presence.
+        let all_unbound = row.vars.iter().all(|var| !state.bindings.contains_key(var));
+        if all_unbound {
+            for var in &row.vars {
+                unresolved_vars.insert(*var);
+            }
+        }
+    }
+
+    if !unresolved_vars.is_empty() {
+        let mut vars: Vec<Symbol> = unresolved_vars.into_iter().collect();
+        vars.sort_by_key(|symbol| symbol.as_u32());
+        state
+            .violations
+            .push(RowConstraintViolation::UnresolvedVars { vars });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,50 +409,5 @@ mod tests {
         ];
         let sol = solve_row_constraints(&constraints);
         assert_eq!(sol.violations.len(), 1);
-    }
-}
-
-fn apply_absent_constraints(state: &mut RowSolveState, absent: &[(EffectRow, Symbol)]) {
-    let mut unresolved_vars: HashSet<Symbol> = HashSet::new();
-
-    for (row, atom) in absent {
-        if row.atoms.contains(atom) {
-            state
-                .violations
-                .push(RowConstraintViolation::InvalidSubtract { atom: *atom });
-            continue;
-        }
-
-        let found_bound = row.vars.iter().any(|var| {
-            state
-                .bindings
-                .get(var)
-                .is_some_and(|bound| bound.contains(atom))
-        });
-
-        if found_bound {
-            state
-                .violations
-                .push(RowConstraintViolation::InvalidSubtract { atom: *atom });
-            continue;
-        }
-
-        // Absence is proven if at least one var is bound (and its bindings don't contain
-        // the atom — already checked above). Only flag unresolved when *all* vars lack
-        // bindings, meaning we cannot confirm or deny the atom's presence.
-        let all_unbound = row.vars.iter().all(|var| !state.bindings.contains_key(var));
-        if all_unbound {
-            for var in &row.vars {
-                unresolved_vars.insert(*var);
-            }
-        }
-    }
-
-    if !unresolved_vars.is_empty() {
-        let mut vars: Vec<Symbol> = unresolved_vars.into_iter().collect();
-        vars.sort_by_key(|symbol| symbol.as_u32());
-        state
-            .violations
-            .push(RowConstraintViolation::UnresolvedVars { vars });
     }
 }

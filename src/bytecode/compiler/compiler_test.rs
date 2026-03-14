@@ -21,8 +21,8 @@ fn parse_program(source: &str) -> (crate::syntax::program::Program, Interner) {
     (program, interner)
 }
 
-fn find_compiled_function<'a>(
-    constants: &'a [Value],
+fn find_compiled_function(
+    constants: &[Value],
     name: &str,
 ) -> Option<std::rc::Rc<crate::runtime::compiled_function::CompiledFunction>> {
     constants.iter().find_map(|value| match value {
@@ -138,8 +138,9 @@ fn compile_with_opts_handles_cfg_lowered_option_match_function() {
 
 #[test]
 fn compile_with_opts_handles_cfg_lowered_constructor_match_function() {
-    let (program, interner) =
-        parse_program("data MaybeInt { SomeInt(Int), NoneInt }\nfn f(x) { match x { SomeInt(n) -> n, NoneInt -> 0 } }");
+    let (program, interner) = parse_program(
+        "data MaybeInt { SomeInt(Int), NoneInt }\nfn f(x) { match x { SomeInt(n) -> n, NoneInt -> 0 } }",
+    );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile_with_opts(&program, true, true).unwrap();
 

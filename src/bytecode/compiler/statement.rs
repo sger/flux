@@ -1,10 +1,13 @@
-use std::{collections::{HashMap, HashSet}, rc::Rc};
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
 use crate::ir::{
     BlockId, IrBlock, IrCallTarget, IrConst, IrExpr, IrFunction, IrInstr, IrProgram,
-    IrStructuredBlock, IrStructuredExpr, IrStructuredHandleArm, IrStructuredMatchArm,
-    IrTerminator, IrTopLevelItem, IrVar, ir_structured_block_to_block,
-    ir_structured_expr_to_expression, ir_structured_pattern_to_pattern,
+    IrStructuredBlock, IrStructuredExpr, IrStructuredHandleArm, IrStructuredMatchArm, IrTerminator,
+    IrTopLevelItem, IrVar, ir_structured_block_to_block, ir_structured_expr_to_expression,
+    ir_structured_pattern_to_pattern,
 };
 use crate::{
     ast::type_infer::display_infer_type,
@@ -41,6 +44,7 @@ use super::hm_expr_typer::HmExprTypeResult;
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
 
 impl Compiler {
+    #[allow(dead_code)]
     fn emit_store_binding(&mut self, binding: &crate::bytecode::binding::Binding) {
         match binding.symbol_scope {
             SymbolScope::Local => {
@@ -104,9 +108,9 @@ impl Compiler {
             } => {
                 self.ir_expr_contains_tail_call(condition, tail_call_spans)
                     || self.ir_block_contains_tail_call(consequence, tail_call_spans)
-                    || alternative
-                        .as_ref()
-                        .is_some_and(|block| self.ir_block_contains_tail_call(block, tail_call_spans))
+                    || alternative.as_ref().is_some_and(|block| {
+                        self.ir_block_contains_tail_call(block, tail_call_spans)
+                    })
             }
             IrStructuredExpr::DoBlock { block, .. } => {
                 self.ir_block_contains_tail_call(block, tail_call_spans)
@@ -212,9 +216,10 @@ impl Compiler {
         block: &IrStructuredBlock,
         tail_call_spans: &[Span],
     ) -> bool {
-        block.statements.iter().any(|item| {
-            self.ir_top_level_item_contains_tail_call(item, tail_call_spans)
-        })
+        block
+            .statements
+            .iter()
+            .any(|item| self.ir_top_level_item_contains_tail_call(item, tail_call_spans))
     }
 
     fn collect_tail_call_spans_for_ir_function(function: &IrFunction) -> Vec<Span> {
@@ -228,6 +233,7 @@ impl Compiler {
             .collect()
     }
 
+    #[allow(dead_code)]
     fn can_compile_ir_cfg_function(function: &IrFunction) -> bool {
         fn supported_expr(expr: &IrExpr) -> bool {
             match expr {
@@ -413,8 +419,11 @@ impl Compiler {
         let tail_call_spans: &[Span] = if let Some(spans) = tail_call_spans_override {
             spans
         } else {
-            owned_tail_call_spans =
-                self.tail_calls.iter().map(|tail_call| tail_call.span).collect::<Vec<_>>();
+            owned_tail_call_spans = self
+                .tail_calls
+                .iter()
+                .map(|tail_call| tail_call.span)
+                .collect::<Vec<_>>();
             &owned_tail_call_spans
         };
 
@@ -476,17 +485,17 @@ impl Compiler {
         // Then check for import collision (only if not a duplicate in same scope)
         if self.scope_index == 0 && self.file_scope_symbols.contains(&name) {
             let name_str = self.sym(name);
-            return Err(Self::boxed(self.make_import_collision_error(name_str, span)));
+            return Err(Self::boxed(
+                self.make_import_collision_error(name_str, span),
+            ));
         }
 
         let symbol = self.symbol_table.define(name, span);
 
         if let Some(annotation) = type_annotation {
-            if let Some(expected_infer) = TypeEnv::infer_type_from_type_expr(
-                annotation,
-                &Default::default(),
-                &self.interner,
-            ) {
+            if let Some(expected_infer) =
+                TypeEnv::infer_type_from_type_expr(annotation, &Default::default(), &self.interner)
+            {
                 if let Some((expected_str, actual_str)) =
                     self.known_concrete_ir_expr_type_mismatch(&expected_infer, value)
                 {
@@ -509,9 +518,10 @@ impl Compiler {
                     true,
                 )?;
             } else if self.strict_mode {
-                return Err(Self::boxed(
-                    self.unresolved_boundary_error_for_span(value.span(), "typed let initializer"),
-                ));
+                return Err(Self::boxed(self.unresolved_boundary_error_for_span(
+                    value.span(),
+                    "typed let initializer",
+                )));
             }
         }
 
@@ -645,8 +655,7 @@ impl Compiler {
         }
         let name_str = self.sym(name).to_string();
         let alias_str = alias.map(|a| self.sym(a).to_string());
-        let binding_name_str =
-            import_binding_name(&name_str, alias_str.as_deref()).to_string();
+        let binding_name_str = import_binding_name(&name_str, alias_str.as_deref()).to_string();
         let binding_name = self.interner.intern(&binding_name_str);
 
         if self.file_scope_symbols.contains(&binding_name) {
@@ -661,6 +670,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn try_compile_ir_cfg_function_body(
         &mut self,
         function: &IrFunction,
@@ -677,11 +687,15 @@ impl Compiler {
         }
         for block in &function.blocks {
             for param in &block.params {
-                bindings.entry(param.var).or_insert_with(|| self.symbol_table.define_temp());
+                bindings
+                    .entry(param.var)
+                    .or_insert_with(|| self.symbol_table.define_temp());
             }
             for instr in &block.instrs {
                 if let IrInstr::Assign { dest, .. } = instr {
-                    bindings.entry(*dest).or_insert_with(|| self.symbol_table.define_temp());
+                    bindings
+                        .entry(*dest)
+                        .or_insert_with(|| self.symbol_table.define_temp());
                 }
             }
         }
@@ -713,16 +727,16 @@ impl Compiler {
                     }
                     IrTerminator::Jump(target, args, _) => {
                         let target_block = block_map.get(target).ok_or_else(|| {
-                            Self::boxed(Diagnostic::warning("missing CFG bytecode jump target block"))
+                            Self::boxed(Diagnostic::warning(
+                                "missing CFG bytecode jump target block",
+                            ))
                         })?;
                         self.compile_ir_cfg_jump_args(target_block, args, &bindings)?;
                         let jump_pos = self.emit(OpCode::OpJump, &[9999]);
                         pending_jumps.push((jump_pos, *target));
                     }
                     IrTerminator::Branch {
-                        cond,
-                        else_block,
-                        ..
+                        cond, else_block, ..
                     } => {
                         let cond_binding = bindings.get(cond).ok_or_else(|| {
                             Self::boxed(Diagnostic::warning(
@@ -753,6 +767,7 @@ impl Compiler {
         })())
     }
 
+    #[allow(dead_code)]
     fn compile_ir_cfg_instr(
         &mut self,
         instr: &IrInstr,
@@ -763,7 +778,9 @@ impl Compiler {
             IrInstr::Assign { dest, expr, .. } => {
                 self.compile_ir_cfg_expr(expr, bindings)?;
                 let binding = bindings.get(dest).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning("missing CFG bytecode binding for IR var"))
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode binding for IR var",
+                    ))
                 })?;
                 self.emit_store_binding(binding);
                 Ok(())
@@ -773,7 +790,9 @@ impl Compiler {
             } => {
                 self.compile_ir_cfg_call(target, args, bindings, current_name)?;
                 let binding = bindings.get(dest).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning("missing CFG bytecode binding for IR call dest"))
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode binding for IR call dest",
+                    ))
                 })?;
                 self.emit_store_binding(binding);
                 Ok(())
@@ -781,6 +800,7 @@ impl Compiler {
         }
     }
 
+    #[allow(dead_code)]
     fn compile_ir_cfg_expr(
         &mut self,
         expr: &IrExpr,
@@ -809,7 +829,9 @@ impl Compiler {
             }
             IrExpr::Var(var) => {
                 self.load_symbol(bindings.get(var).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning("missing CFG bytecode binding for IR var"))
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode binding for IR var",
+                    ))
                 })?);
                 Ok(())
             }
@@ -836,21 +858,27 @@ impl Compiler {
             }
             IrExpr::TupleArityTest { value, .. } => {
                 self.load_symbol(bindings.get(value).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning("missing CFG bytecode tuple-test binding"))
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode tuple-test binding",
+                    ))
                 })?);
                 self.emit(OpCode::OpIsTuple, &[]);
                 Ok(())
             }
             IrExpr::TupleFieldAccess { object, index } => {
                 self.load_symbol(bindings.get(object).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning("missing CFG bytecode tuple-field binding"))
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode tuple-field binding",
+                    ))
                 })?);
                 self.emit(OpCode::OpTupleIndex, &[*index]);
                 Ok(())
             }
             IrExpr::TagPayload { value, tag } => {
                 self.load_symbol(bindings.get(value).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning("missing CFG bytecode tag-payload binding"))
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode tag-payload binding",
+                    ))
                 })?);
                 match tag {
                     crate::ir::IrTagTest::Some => self.emit(OpCode::OpUnwrapSome, &[]),
@@ -866,7 +894,9 @@ impl Compiler {
             }
             IrExpr::ListTest { value, tag } => {
                 self.load_symbol(bindings.get(value).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning("missing CFG bytecode list-test binding"))
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode list-test binding",
+                    ))
                 })?);
                 match tag {
                     crate::ir::IrListTest::Empty => self.emit(OpCode::OpIsEmptyList, &[]),
@@ -876,14 +906,18 @@ impl Compiler {
             }
             IrExpr::ListHead { value } => {
                 self.load_symbol(bindings.get(value).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning("missing CFG bytecode list-head binding"))
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode list-head binding",
+                    ))
                 })?);
                 self.emit(OpCode::OpConsHead, &[]);
                 Ok(())
             }
             IrExpr::ListTail { value } => {
                 self.load_symbol(bindings.get(value).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning("missing CFG bytecode list-tail binding"))
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode list-tail binding",
+                    ))
                 })?);
                 self.emit(OpCode::OpConsTail, &[]);
                 Ok(())
@@ -899,7 +933,10 @@ impl Compiler {
                 self.emit(OpCode::OpTrue, &[]);
                 let jump_to_end = self.emit(OpCode::OpJump, &[9999]);
                 let false_pos = self.current_instructions().len();
-                self.replace_instruction(jump_to_false, make(OpCode::OpIsAdtJump, &[const_idx, false_pos]));
+                self.replace_instruction(
+                    jump_to_false,
+                    make(OpCode::OpIsAdtJump, &[const_idx, false_pos]),
+                );
                 self.emit(OpCode::OpPop, &[]);
                 self.emit(OpCode::OpFalse, &[]);
                 let end_pos = self.current_instructions().len();
@@ -908,7 +945,9 @@ impl Compiler {
             }
             IrExpr::AdtField { value, index } => {
                 self.load_symbol(bindings.get(value).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning("missing CFG bytecode adt-field binding"))
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode adt-field binding",
+                    ))
                 })?);
                 self.emit(OpCode::OpAdtField, &[*index]);
                 Ok(())
@@ -952,6 +991,7 @@ impl Compiler {
         }
     }
 
+    #[allow(dead_code)]
     fn compile_ir_cfg_jump_args(
         &mut self,
         target: &IrBlock,
@@ -963,12 +1003,15 @@ impl Compiler {
                 Self::boxed(Diagnostic::warning("missing CFG bytecode jump arg binding"))
             })?);
             self.emit_store_binding(bindings.get(&param.var).ok_or_else(|| {
-                Self::boxed(Diagnostic::warning("missing CFG bytecode block param binding"))
+                Self::boxed(Diagnostic::warning(
+                    "missing CFG bytecode block param binding",
+                ))
             })?);
         }
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn compile_ir_cfg_terminator(
         &mut self,
         terminator: &IrTerminator,
@@ -1002,23 +1045,23 @@ impl Compiler {
                                 ))
                             })?);
                         }
-                IrCallTarget::Direct(_) => {
-                    let function_id = match callee {
-                        IrCallTarget::Direct(id) => id,
-                        _ => unreachable!(),
-                    };
-                    let symbol =
-                        self.ir_function_symbols
-                            .get(function_id)
-                            .and_then(|symbol| self.symbol_table.resolve(*symbol))
-                            .ok_or_else(|| {
-                                Self::boxed(Diagnostic::warning(
-                                    "missing direct CFG bytecode tail-call target binding",
-                                ))
-                            })?;
-                    self.load_symbol(&symbol);
-                }
-            }
+                        IrCallTarget::Direct(_) => {
+                            let function_id = match callee {
+                                IrCallTarget::Direct(id) => id,
+                                _ => unreachable!(),
+                            };
+                            let symbol = self
+                                .ir_function_symbols
+                                .get(function_id)
+                                .and_then(|symbol| self.symbol_table.resolve(*symbol))
+                                .ok_or_else(|| {
+                                    Self::boxed(Diagnostic::warning(
+                                        "missing direct CFG bytecode tail-call target binding",
+                                    ))
+                                })?;
+                            self.load_symbol(&symbol);
+                        }
+                    }
                 }
                 for arg in args {
                     self.load_symbol(bindings.get(arg).ok_or_else(|| {
@@ -1041,6 +1084,7 @@ impl Compiler {
         }
     }
 
+    #[allow(dead_code)]
     fn compile_ir_cfg_call(
         &mut self,
         target: &IrCallTarget,
@@ -1071,15 +1115,15 @@ impl Compiler {
                         IrCallTarget::Direct(id) => id,
                         _ => unreachable!(),
                     };
-                    let symbol =
-                        self.ir_function_symbols
-                            .get(function_id)
-                            .and_then(|symbol| self.symbol_table.resolve(*symbol))
-                            .ok_or_else(|| {
-                                Self::boxed(Diagnostic::warning(
-                                    "missing direct CFG bytecode call target binding",
-                                ))
-                            })?;
+                    let symbol = self
+                        .ir_function_symbols
+                        .get(function_id)
+                        .and_then(|symbol| self.symbol_table.resolve(*symbol))
+                        .ok_or_else(|| {
+                            Self::boxed(Diagnostic::warning(
+                                "missing direct CFG bytecode call target binding",
+                            ))
+                        })?;
                     self.load_symbol(&symbol);
                 }
             }
@@ -1099,6 +1143,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn compile_ir_function_statement(
         &mut self,
         name: Symbol,
@@ -1346,14 +1391,14 @@ impl Compiler {
         self.current_module_prefix = Some(binding_name);
 
         let module_body = ir_structured_block_to_block(body, &[]);
-        let constants = match compile_module_constants(&module_body, binding_name, &mut self.interner)
-        {
-            Ok(result) => result,
-            Err(err) => {
-                self.current_module_prefix = previous_module;
-                return Err(Self::boxed(self.convert_const_compile_error(err, position)));
-            }
-        };
+        let constants =
+            match compile_module_constants(&module_body, binding_name, &mut self.interner) {
+                Ok(result) => result,
+                Err(err) => {
+                    self.current_module_prefix = previous_module;
+                    return Err(Self::boxed(self.convert_const_compile_error(err, position)));
+                }
+            };
         self.module_constants.extend(constants);
 
         for item in &body.statements {

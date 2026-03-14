@@ -215,6 +215,7 @@ pub fn with_parser_breadcrumb(diag: Diagnostic, breadcrumb: Option<&str>) -> Dia
 }
 
 /// Build a type mismatch diagnostic with expected/actual notes and a best-effort help hint.
+#[allow(clippy::too_many_arguments)]
 pub fn type_mismatch_diagnostic(
     file: impl Into<Rc<str>>,
     span: Span,
@@ -351,6 +352,7 @@ pub fn render_runtime_diagnostic(
 }
 
 /// Attach a short explanation that a runtime diagnostic came from a dynamic boundary.
+#[allow(clippy::too_many_arguments)]
 pub fn dynamic_explained_diagnostic(
     code: &str,
     title: &str,

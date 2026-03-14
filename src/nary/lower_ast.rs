@@ -60,13 +60,19 @@ struct AstLowerer<'a> {
 
 impl<'a> AstLowerer<'a> {
     fn new(hm_expr_types: &'a HashMap<ExprId, InferType>) -> Self {
-        Self { hm_expr_types, fresh: 0 }
+        Self {
+            hm_expr_types,
+            fresh: 0,
+        }
     }
 
     /// Allocate a fresh synthetic `Identifier` for compiler-generated bindings.
     /// Used by future passes that need to introduce new named temporaries.
     #[allow(dead_code)]
-    fn fresh_name(&mut self, interner: &mut crate::syntax::interner::Interner) -> crate::syntax::Identifier {
+    fn fresh_name(
+        &mut self,
+        interner: &mut crate::syntax::interner::Interner,
+    ) -> crate::syntax::Identifier {
         let id = self.fresh;
         self.fresh += 1;
         interner.intern(&format!("$tmp{id}"))
@@ -84,7 +90,13 @@ impl<'a> AstLowerer<'a> {
     fn lower_top_level(&mut self, stmt: &Statement, out: &mut Vec<CoreDef>) {
         match stmt {
             // Named function definition → CoreDef wrapping a curried Lam.
-            Statement::Function { name, parameters, body, span, .. } => {
+            Statement::Function {
+                name,
+                parameters,
+                body,
+                span,
+                ..
+            } => {
                 let body_expr = self.lower_block(body);
                 // Always wrap in Lam, even for parameterless functions — the
                 // Core→IR lowerer uses the Lam marker to distinguish function
@@ -104,7 +116,9 @@ impl<'a> AstLowerer<'a> {
             }
 
             // Value binding → CoreDef for the RHS expression.
-            Statement::Let { name, value, span, .. } => {
+            Statement::Let {
+                name, value, span, ..
+            } => {
                 out.push(CoreDef {
                     name: *name,
                     expr: self.lower_expr(value),
@@ -124,7 +138,9 @@ impl<'a> AstLowerer<'a> {
             }
 
             // Expression statement → anonymous CoreDef (evaluated for effects).
-            Statement::Expression { expression, span, .. } => {
+            Statement::Expression {
+                expression, span, ..
+            } => {
                 out.push(CoreDef {
                     name: crate::syntax::symbol::Symbol::new(0), // anonymous sentinel
                     expr: self.lower_expr(expression),
@@ -134,7 +150,11 @@ impl<'a> AstLowerer<'a> {
             }
 
             // Destructuring let → synthetic tmp var + Case alt for the pattern.
-            Statement::LetDestructure { pattern, value, span } => {
+            Statement::LetDestructure {
+                pattern,
+                value,
+                span,
+            } => {
                 let rhs = self.lower_expr(value);
                 let core_pat = lower_pattern(pattern);
                 // Wrap: let $destructure = value in case $destructure of { pat -> () }
@@ -150,7 +170,7 @@ impl<'a> AstLowerer<'a> {
                         name: crate::syntax::symbol::Symbol::new(0),
                         expr: self.lower_expr(val),
                         is_recursive: false,
-                            span: *span,
+                        span: *span,
                     });
                 }
             }
@@ -194,19 +214,31 @@ impl<'a> AstLowerer<'a> {
 
     /// Lower the full statement slice by prepending one statement at a time.
     fn prepend_stmts(&mut self, stmts: &[Statement], body: CoreExpr, span: Span) -> CoreExpr {
-        stmts.iter().rev().fold(body, |acc, stmt| {
-            self.prepend_one_stmt(stmt, acc, span)
-        })
+        stmts
+            .iter()
+            .rev()
+            .fold(body, |acc, stmt| self.prepend_one_stmt(stmt, acc, span))
     }
 
-    fn prepend_stmt(&mut self, _one: &[Statement], all_but_last: &[Statement], tail: CoreExpr, span: Span) -> CoreExpr {
+    fn prepend_stmt(
+        &mut self,
+        _one: &[Statement],
+        all_but_last: &[Statement],
+        tail: CoreExpr,
+        span: Span,
+    ) -> CoreExpr {
         self.prepend_stmts(all_but_last, tail, span)
     }
 
     /// Wrap `tail` with the binding/effect introduced by a single statement.
     fn prepend_one_stmt(&mut self, stmt: &Statement, tail: CoreExpr, _span: Span) -> CoreExpr {
         match stmt {
-            Statement::Let { name, value, span: s, .. } => CoreExpr::Let {
+            Statement::Let {
+                name,
+                value,
+                span: s,
+                ..
+            } => CoreExpr::Let {
                 var: *name,
                 rhs: Box::new(self.lower_expr(value)),
                 body: Box::new(tail),
@@ -223,14 +255,22 @@ impl<'a> AstLowerer<'a> {
                 tail
             }
 
-            Statement::Assign { name, value, span: s } => CoreExpr::Let {
+            Statement::Assign {
+                name,
+                value,
+                span: s,
+            } => CoreExpr::Let {
                 var: *name,
                 rhs: Box::new(self.lower_expr(value)),
                 body: Box::new(tail),
                 span: *s,
             },
 
-            Statement::LetDestructure { pattern, value, span: s } => {
+            Statement::LetDestructure {
+                pattern,
+                value,
+                span: s,
+            } => {
                 // Bind the scrutinee to a tmp var and use Case to extract fields.
                 let rhs = self.lower_expr(value);
                 let core_pat = lower_pattern(pattern);
@@ -239,7 +279,12 @@ impl<'a> AstLowerer<'a> {
                 let tmp_name = crate::syntax::symbol::Symbol::new(self.fresh + 1_000_000);
                 self.fresh += 1;
                 let tmp_var = CoreExpr::Var(tmp_name, *s);
-                let alt = CoreAlt { pat: core_pat, guard: None, rhs: tail, span: *s };
+                let alt = CoreAlt {
+                    pat: core_pat,
+                    guard: None,
+                    rhs: tail,
+                    span: *s,
+                };
                 CoreExpr::Let {
                     var: tmp_name,
                     rhs: Box::new(rhs),
@@ -253,7 +298,11 @@ impl<'a> AstLowerer<'a> {
             }
 
             // Expression statement: evaluate for its effect, discard result.
-            Statement::Expression { expression, has_semicolon: true, span: s } => {
+            Statement::Expression {
+                expression,
+                has_semicolon: true,
+                span: s,
+            } => {
                 let tmp_name = crate::syntax::symbol::Symbol::new(self.fresh + 2_000_000);
                 self.fresh += 1;
                 CoreExpr::Let {
@@ -266,7 +315,11 @@ impl<'a> AstLowerer<'a> {
 
             // Expression without semicolon in a non-last position is unusual.
             // Treat as sequencing (result discarded).
-            Statement::Expression { expression, has_semicolon: false, span: s } => {
+            Statement::Expression {
+                expression,
+                has_semicolon: false,
+                span: s,
+            } => {
                 let tmp_name = crate::syntax::symbol::Symbol::new(self.fresh + 2_000_000);
                 self.fresh += 1;
                 CoreExpr::Let {
@@ -297,12 +350,18 @@ impl<'a> AstLowerer<'a> {
     /// Lower the last (or only) statement in a block as an expression.
     fn lower_stmt_as_expr(&mut self, stmt: &Statement, span: Span) -> CoreExpr {
         match stmt {
-            Statement::Expression { expression, has_semicolon: false, .. } => {
-                self.lower_expr(expression)
-            }
+            Statement::Expression {
+                expression,
+                has_semicolon: false,
+                ..
+            } => self.lower_expr(expression),
             // Semicolon-terminated expression discards its value — evaluate
             // for effect, then return unit.
-            Statement::Expression { expression, has_semicolon: true, span: s } => {
+            Statement::Expression {
+                expression,
+                has_semicolon: true,
+                span: s,
+            } => {
                 let tmp = crate::syntax::symbol::Symbol::new(self.fresh + 2_000_000);
                 self.fresh += 1;
                 CoreExpr::Let {
@@ -328,49 +387,67 @@ impl<'a> AstLowerer<'a> {
 
     pub fn lower_expr(&mut self, expr: &Expression) -> CoreExpr {
         match expr {
-            Expression::Identifier { name, span, .. } => {
-                CoreExpr::Var(*name, *span)
-            }
+            Expression::Identifier { name, span, .. } => CoreExpr::Var(*name, *span),
 
-            Expression::Integer { value, span, .. } => {
-                CoreExpr::Lit(CoreLit::Int(*value), *span)
-            }
+            Expression::Integer { value, span, .. } => CoreExpr::Lit(CoreLit::Int(*value), *span),
 
-            Expression::Float { value, span, .. } => {
-                CoreExpr::Lit(CoreLit::Float(*value), *span)
-            }
+            Expression::Float { value, span, .. } => CoreExpr::Lit(CoreLit::Float(*value), *span),
 
             Expression::String { value, span, .. } => {
                 CoreExpr::Lit(CoreLit::String(value.clone()), *span)
             }
 
-            Expression::Boolean { value, span, .. } => {
-                CoreExpr::Lit(CoreLit::Bool(*value), *span)
-            }
+            Expression::Boolean { value, span, .. } => CoreExpr::Lit(CoreLit::Bool(*value), *span),
 
             Expression::InterpolatedString { parts, span, .. } => {
-                let args: Vec<CoreExpr> = parts.iter().map(|p| match p {
-                    StringPart::Literal(s) => CoreExpr::Lit(CoreLit::String(s.clone()), *span),
-                    StringPart::Interpolation(e) => self.lower_expr(e),
-                }).collect();
-                CoreExpr::PrimOp { op: CorePrimOp::Interpolate, args, span: *span }
+                let args: Vec<CoreExpr> = parts
+                    .iter()
+                    .map(|p| match p {
+                        StringPart::Literal(s) => CoreExpr::Lit(CoreLit::String(s.clone()), *span),
+                        StringPart::Interpolation(e) => self.lower_expr(e),
+                    })
+                    .collect();
+                CoreExpr::PrimOp {
+                    op: CorePrimOp::Interpolate,
+                    args,
+                    span: *span,
+                }
             }
 
-            Expression::Prefix { operator, right, span, .. } => {
+            Expression::Prefix {
+                operator,
+                right,
+                span,
+                ..
+            } => {
                 let arg = self.lower_expr(right);
                 let op = match operator.as_str() {
                     "-" => CorePrimOp::Neg,
                     "!" => CorePrimOp::Not,
                     _ => CorePrimOp::Neg, // fallback
                 };
-                CoreExpr::PrimOp { op, args: vec![arg], span: *span }
+                CoreExpr::PrimOp {
+                    op,
+                    args: vec![arg],
+                    span: *span,
+                }
             }
 
-            Expression::Infix { left, operator, right, span, id } => {
-                self.lower_infix(left, operator, right, *span, *id)
-            }
+            Expression::Infix {
+                left,
+                operator,
+                right,
+                span,
+                id,
+            } => self.lower_infix(left, operator, right, *span, *id),
 
-            Expression::If { condition, consequence, alternative, span, .. } => {
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                span,
+                ..
+            } => {
                 let cond = self.lower_expr(condition);
                 let true_branch = self.lower_block(consequence);
                 let false_branch = alternative
@@ -413,7 +490,12 @@ impl<'a> AstLowerer<'a> {
                 }
             }
 
-            Expression::Function { parameters, body, span, .. } => {
+            Expression::Function {
+                parameters,
+                body,
+                span,
+                ..
+            } => {
                 let body_expr = self.lower_block(body);
                 if parameters.is_empty() {
                     // Nullary lambda — keep the Lam wrapper so the Core→IR
@@ -429,23 +511,40 @@ impl<'a> AstLowerer<'a> {
                 }
             }
 
-            Expression::Call { function, arguments, span, .. } => {
+            Expression::Call {
+                function,
+                arguments,
+                span,
+                ..
+            } => {
                 let func = self.lower_expr(function);
                 let args: Vec<CoreExpr> = arguments.iter().map(|a| self.lower_expr(a)).collect();
                 // Always emit App, even for zero-arg calls — Flux functions
                 // must be invoked explicitly (they can have side effects).
-                CoreExpr::App { func: Box::new(func), args, span: *span }
+                CoreExpr::App {
+                    func: Box::new(func),
+                    args,
+                    span: *span,
+                }
             }
 
             Expression::ListLiteral { elements, span, .. } => {
                 // [a, b, c] → PrimOp(MakeList, [a, b, c])
                 let args: Vec<CoreExpr> = elements.iter().map(|e| self.lower_expr(e)).collect();
-                CoreExpr::PrimOp { op: CorePrimOp::MakeList, args, span: *span }
+                CoreExpr::PrimOp {
+                    op: CorePrimOp::MakeList,
+                    args,
+                    span: *span,
+                }
             }
 
             Expression::ArrayLiteral { elements, span, .. } => {
                 let args: Vec<CoreExpr> = elements.iter().map(|e| self.lower_expr(e)).collect();
-                CoreExpr::PrimOp { op: CorePrimOp::MakeArray, args, span: *span }
+                CoreExpr::PrimOp {
+                    op: CorePrimOp::MakeArray,
+                    args,
+                    span: *span,
+                }
             }
 
             Expression::TupleLiteral { elements, span, .. } => {
@@ -454,29 +553,51 @@ impl<'a> AstLowerer<'a> {
                     CoreExpr::Lit(CoreLit::Unit, *span)
                 } else {
                     let args: Vec<CoreExpr> = elements.iter().map(|e| self.lower_expr(e)).collect();
-                    CoreExpr::PrimOp { op: CorePrimOp::MakeTuple, args, span: *span }
+                    CoreExpr::PrimOp {
+                        op: CorePrimOp::MakeTuple,
+                        args,
+                        span: *span,
+                    }
                 }
             }
 
-            Expression::EmptyList { span, .. } => {
-                CoreExpr::Con { tag: CoreTag::Nil, fields: Vec::new(), span: *span }
-            }
+            Expression::EmptyList { span, .. } => CoreExpr::Con {
+                tag: CoreTag::Nil,
+                fields: Vec::new(),
+                span: *span,
+            },
 
             Expression::Hash { pairs, span, .. } => {
                 // Flatten pairs: [k1, v1, k2, v2, ...] for MakeHash.
-                let args: Vec<CoreExpr> = pairs.iter().flat_map(|(k, v)| {
-                    [self.lower_expr(k), self.lower_expr(v)]
-                }).collect();
-                CoreExpr::PrimOp { op: CorePrimOp::MakeHash, args, span: *span }
+                let args: Vec<CoreExpr> = pairs
+                    .iter()
+                    .flat_map(|(k, v)| [self.lower_expr(k), self.lower_expr(v)])
+                    .collect();
+                CoreExpr::PrimOp {
+                    op: CorePrimOp::MakeHash,
+                    args,
+                    span: *span,
+                }
             }
 
-            Expression::Index { left, index, span, .. } => {
+            Expression::Index {
+                left, index, span, ..
+            } => {
                 let l = self.lower_expr(left);
                 let i = self.lower_expr(index);
-                CoreExpr::PrimOp { op: CorePrimOp::Index, args: vec![l, i], span: *span }
+                CoreExpr::PrimOp {
+                    op: CorePrimOp::Index,
+                    args: vec![l, i],
+                    span: *span,
+                }
             }
 
-            Expression::MemberAccess { object, member, span, .. } => {
+            Expression::MemberAccess {
+                object,
+                member,
+                span,
+                ..
+            } => {
                 let obj = self.lower_expr(object);
                 CoreExpr::PrimOp {
                     op: CorePrimOp::MemberAccess(*member),
@@ -485,7 +606,12 @@ impl<'a> AstLowerer<'a> {
                 }
             }
 
-            Expression::TupleFieldAccess { object, index, span, .. } => {
+            Expression::TupleFieldAccess {
+                object,
+                index,
+                span,
+                ..
+            } => {
                 let obj = self.lower_expr(object);
                 CoreExpr::PrimOp {
                     op: CorePrimOp::TupleField(*index),
@@ -494,38 +620,73 @@ impl<'a> AstLowerer<'a> {
                 }
             }
 
-            Expression::Match { scrutinee, arms, span, .. } => {
+            Expression::Match {
+                scrutinee,
+                arms,
+                span,
+                ..
+            } => {
                 let scrut = self.lower_expr(scrutinee);
                 let alts: Vec<CoreAlt> = arms.iter().map(|arm| self.lower_match_arm(arm)).collect();
-                CoreExpr::Case { scrutinee: Box::new(scrut), alts, span: *span }
+                CoreExpr::Case {
+                    scrutinee: Box::new(scrut),
+                    alts,
+                    span: *span,
+                }
             }
 
-            Expression::None { span, .. } => {
-                CoreExpr::Con { tag: CoreTag::None, fields: Vec::new(), span: *span }
-            }
+            Expression::None { span, .. } => CoreExpr::Con {
+                tag: CoreTag::None,
+                fields: Vec::new(),
+                span: *span,
+            },
 
             Expression::Some { value, span, .. } => {
                 let v = self.lower_expr(value);
-                CoreExpr::Con { tag: CoreTag::Some, fields: vec![v], span: *span }
+                CoreExpr::Con {
+                    tag: CoreTag::Some,
+                    fields: vec![v],
+                    span: *span,
+                }
             }
 
             Expression::Left { value, span, .. } => {
                 let v = self.lower_expr(value);
-                CoreExpr::Con { tag: CoreTag::Left, fields: vec![v], span: *span }
+                CoreExpr::Con {
+                    tag: CoreTag::Left,
+                    fields: vec![v],
+                    span: *span,
+                }
             }
 
             Expression::Right { value, span, .. } => {
                 let v = self.lower_expr(value);
-                CoreExpr::Con { tag: CoreTag::Right, fields: vec![v], span: *span }
+                CoreExpr::Con {
+                    tag: CoreTag::Right,
+                    fields: vec![v],
+                    span: *span,
+                }
             }
 
-            Expression::Cons { head, tail, span, .. } => {
+            Expression::Cons {
+                head, tail, span, ..
+            } => {
                 let h = self.lower_expr(head);
                 let t = self.lower_expr(tail);
-                CoreExpr::Con { tag: CoreTag::Cons, fields: vec![h, t], span: *span }
+                CoreExpr::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![h, t],
+                    span: *span,
+                }
             }
 
-            Expression::Perform { effect, operation, args, span, .. } => {
+            Expression::Perform {
+                effect,
+                operation,
+                args,
+                span,
+                ..
+            } => {
                 let arg_exprs: Vec<CoreExpr> = args.iter().map(|a| self.lower_expr(a)).collect();
                 CoreExpr::Perform {
                     effect: *effect,
@@ -535,11 +696,16 @@ impl<'a> AstLowerer<'a> {
                 }
             }
 
-            Expression::Handle { expr, effect, arms, span, .. } => {
+            Expression::Handle {
+                expr,
+                effect,
+                arms,
+                span,
+                ..
+            } => {
                 let body = self.lower_expr(expr);
-                let handlers: Vec<CoreHandler> = arms.iter()
-                    .map(|arm| self.lower_handle_arm(arm))
-                    .collect();
+                let handlers: Vec<CoreHandler> =
+                    arms.iter().map(|arm| self.lower_handle_arm(arm)).collect();
                 CoreExpr::Handle {
                     body: Box::new(body),
                     effect: *effect,
@@ -564,7 +730,11 @@ impl<'a> AstLowerer<'a> {
         if operator == "|>" {
             let func = self.lower_expr(right);
             let arg = self.lower_expr(left);
-            return CoreExpr::App { func: Box::new(func), args: vec![arg], span };
+            return CoreExpr::App {
+                func: Box::new(func),
+                args: vec![arg],
+                span,
+            };
         }
 
         // Determine the concrete result type from HM inference.
@@ -576,26 +746,26 @@ impl<'a> AstLowerer<'a> {
 
         let op = match operator {
             // Arithmetic — specialized by result type when known.
-            "+" if is_int   => CorePrimOp::IAdd,
+            "+" if is_int => CorePrimOp::IAdd,
             "+" if is_float => CorePrimOp::FAdd,
             "+" => CorePrimOp::Add,
-            "-" if is_int   => CorePrimOp::ISub,
+            "-" if is_int => CorePrimOp::ISub,
             "-" if is_float => CorePrimOp::FSub,
             "-" => CorePrimOp::Sub,
-            "*" if is_int   => CorePrimOp::IMul,
+            "*" if is_int => CorePrimOp::IMul,
             "*" if is_float => CorePrimOp::FMul,
             "*" => CorePrimOp::Mul,
-            "/" if is_int   => CorePrimOp::IDiv,
+            "/" if is_int => CorePrimOp::IDiv,
             "/" if is_float => CorePrimOp::FDiv,
             "/" => CorePrimOp::Div,
-            "%" if is_int   => CorePrimOp::IMod,
+            "%" if is_int => CorePrimOp::IMod,
             "%" => CorePrimOp::Mod,
             // Comparisons and logical — always generic (result is Bool).
             "==" => CorePrimOp::Eq,
             "!=" => CorePrimOp::NEq,
-            "<"  => CorePrimOp::Lt,
+            "<" => CorePrimOp::Lt,
             "<=" => CorePrimOp::Le,
-            ">"  => CorePrimOp::Gt,
+            ">" => CorePrimOp::Gt,
             ">=" => CorePrimOp::Ge,
             "&&" => CorePrimOp::And,
             "||" => CorePrimOp::Or,
@@ -604,13 +774,21 @@ impl<'a> AstLowerer<'a> {
                 // Unknown operator — emit as generic Add (fallback placeholder).
                 let l = self.lower_expr(left);
                 let r = self.lower_expr(right);
-                return CoreExpr::PrimOp { op: CorePrimOp::Add, args: vec![l, r], span };
+                return CoreExpr::PrimOp {
+                    op: CorePrimOp::Add,
+                    args: vec![l, r],
+                    span,
+                };
             }
         };
 
         let l = self.lower_expr(left);
         let r = self.lower_expr(right);
-        CoreExpr::PrimOp { op, args: vec![l, r], span }
+        CoreExpr::PrimOp {
+            op,
+            args: vec![l, r],
+            span,
+        }
     }
 
     // ── Pattern lowering ─────────────────────────────────────────────────────
@@ -671,20 +849,30 @@ impl<'a> AstLowerer<'a> {
                                 span,
                             },
                             is_recursive: false,
-                                    span,
+                            span,
                         });
                     }
                     // Nested non-variable patterns are skipped for now.
                 }
             }
             CorePat::Var(name) => {
-                out.push(CoreDef { name, expr: rhs, is_recursive: false, span });
+                out.push(CoreDef {
+                    name,
+                    expr: rhs,
+                    is_recursive: false,
+                    span,
+                });
             }
             _ => {
                 // General case: bind to a tmp.
                 let tmp = crate::syntax::symbol::Symbol::new(5_000_000 + self.fresh);
                 self.fresh += 1;
-                out.push(CoreDef { name: tmp, expr: rhs, is_recursive: false, span });
+                out.push(CoreDef {
+                    name: tmp,
+                    expr: rhs,
+                    is_recursive: false,
+                    span,
+                });
             }
         }
     }
@@ -706,7 +894,10 @@ fn lower_pattern(pat: &Pattern) -> CorePat {
                 _ => CorePat::Wildcard, // complex expression patterns → wildcard
             }
         }
-        Pattern::None { .. } => CorePat::Con { tag: CoreTag::None, fields: Vec::new() },
+        Pattern::None { .. } => CorePat::Con {
+            tag: CoreTag::None,
+            fields: Vec::new(),
+        },
         Pattern::Some { pattern, .. } => CorePat::Con {
             tag: CoreTag::Some,
             fields: vec![lower_pattern(pattern)],
@@ -743,24 +934,37 @@ mod tests {
         syntax::{interner::Interner, lexer::Lexer, parser::Parser},
     };
 
-    fn parse_and_infer(src: &str) -> (crate::syntax::program::Program, HashMap<ExprId, InferType>, Interner) {
+    fn parse_and_infer(
+        src: &str,
+    ) -> (
+        crate::syntax::program::Program,
+        HashMap<ExprId, InferType>,
+        Interner,
+    ) {
         let mut parser = Parser::new(Lexer::new(src));
         let program = parser.parse_program();
         let mut interner = parser.take_interner();
         let base_sym = interner.intern("base");
-        let hm = infer_program(&program, &interner, InferProgramConfig {
-            file_path: None,
-            preloaded_base_schemes: HashMap::new(),
-            preloaded_module_member_schemes: HashMap::new(),
-            known_base_names: std::collections::HashSet::new(),
-            base_module_symbol: base_sym,
-            preloaded_effect_op_signatures: HashMap::new(),
-        });
+        let hm = infer_program(
+            &program,
+            &interner,
+            InferProgramConfig {
+                file_path: None,
+                preloaded_base_schemes: HashMap::new(),
+                preloaded_module_member_schemes: HashMap::new(),
+                known_base_names: std::collections::HashSet::new(),
+                base_module_symbol: base_sym,
+                preloaded_effect_op_signatures: HashMap::new(),
+            },
+        );
         let types = hm.expr_types;
         (program, types, interner)
     }
 
-    fn collect_primops(program: &crate::syntax::program::Program, types: &HashMap<ExprId, InferType>) -> Vec<CorePrimOp> {
+    fn collect_primops(
+        program: &crate::syntax::program::Program,
+        types: &HashMap<ExprId, InferType>,
+    ) -> Vec<CorePrimOp> {
         let core = lower_program_ast(program, types);
         let mut ops = Vec::new();
         for def in &core.defs {
@@ -774,20 +978,28 @@ mod tests {
         match expr {
             CoreExpr::PrimOp { op, args, .. } => {
                 out.push(op.clone());
-                for a in args { collect_ops_in_expr(a, out); }
+                for a in args {
+                    collect_ops_in_expr(a, out);
+                }
             }
             CoreExpr::Lam { body, .. } => collect_ops_in_expr(body, out),
             CoreExpr::App { func, args, .. } => {
                 collect_ops_in_expr(func, out);
-                for a in args { collect_ops_in_expr(a, out); }
+                for a in args {
+                    collect_ops_in_expr(a, out);
+                }
             }
             CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
                 collect_ops_in_expr(rhs, out);
                 collect_ops_in_expr(body, out);
             }
-            CoreExpr::Case { scrutinee, alts, .. } => {
+            CoreExpr::Case {
+                scrutinee, alts, ..
+            } => {
                 collect_ops_in_expr(scrutinee, out);
-                for alt in alts { collect_ops_in_expr(&alt.rhs, out); }
+                for alt in alts {
+                    collect_ops_in_expr(&alt.rhs, out);
+                }
             }
             _ => {}
         }
@@ -798,10 +1010,15 @@ mod tests {
         let src = "fn add(x: Int, y: Int) -> Int { x + y }";
         let (prog, types, _) = parse_and_infer(src);
         let ops = collect_primops(&prog, &types);
-        assert!(ops.contains(&CorePrimOp::IAdd),
-            "expected IAdd for Int addition, got: {:?}", ops);
-        assert!(!ops.contains(&CorePrimOp::Add),
-            "should not emit generic Add for typed Int addition");
+        assert!(
+            ops.contains(&CorePrimOp::IAdd),
+            "expected IAdd for Int addition, got: {:?}",
+            ops
+        );
+        assert!(
+            !ops.contains(&CorePrimOp::Add),
+            "should not emit generic Add for typed Int addition"
+        );
     }
 
     #[test]
@@ -809,7 +1026,11 @@ mod tests {
         let src = "fn mul(x: Int, y: Int) -> Int { x * y }";
         let (prog, types, _) = parse_and_infer(src);
         let ops = collect_primops(&prog, &types);
-        assert!(ops.contains(&CorePrimOp::IMul), "expected IMul, got: {:?}", ops);
+        assert!(
+            ops.contains(&CorePrimOp::IMul),
+            "expected IMul, got: {:?}",
+            ops
+        );
     }
 
     #[test]
@@ -817,7 +1038,11 @@ mod tests {
         let src = "fn fadd(x: Float, y: Float) -> Float { x + y }";
         let (prog, types, _) = parse_and_infer(src);
         let ops = collect_primops(&prog, &types);
-        assert!(ops.contains(&CorePrimOp::FAdd), "expected FAdd, got: {:?}", ops);
+        assert!(
+            ops.contains(&CorePrimOp::FAdd),
+            "expected FAdd, got: {:?}",
+            ops
+        );
     }
 
     #[test]
@@ -830,8 +1055,18 @@ mod tests {
         let (prog, types, _) = parse_and_infer(src);
         let ops = collect_primops(&prog, &types);
         // String + String should emit generic Add (no IAdd/FAdd)
-        assert!(ops.contains(&CorePrimOp::Add), "expected generic Add for String addition, got: {:?}", ops);
-        assert!(!ops.contains(&CorePrimOp::IAdd), "should not emit IAdd for String addition");
-        assert!(!ops.contains(&CorePrimOp::FAdd), "should not emit FAdd for String addition");
+        assert!(
+            ops.contains(&CorePrimOp::Add),
+            "expected generic Add for String addition, got: {:?}",
+            ops
+        );
+        assert!(
+            !ops.contains(&CorePrimOp::IAdd),
+            "should not emit IAdd for String addition"
+        );
+        assert!(
+            !ops.contains(&CorePrimOp::FAdd),
+            "should not emit FAdd for String addition"
+        );
     }
 }

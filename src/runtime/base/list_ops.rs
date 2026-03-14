@@ -265,7 +265,8 @@ pub fn format_value(ctx: &dyn RuntimeContext, value: &Value) -> String {
         }
         Value::GcAdt(_) | Value::Adt(_) => {
             if let Some(adt) = value.as_adt(ctx.gc_heap()) {
-                let items: Vec<String> = adt.fields().iter().map(|v| format_value(ctx, v)).collect();
+                let items: Vec<String> =
+                    adt.fields().iter().map(|v| format_value(ctx, v)).collect();
                 format!("{}({})", adt.constructor(), items.join(", "))
             } else {
                 value.to_string()
