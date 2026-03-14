@@ -470,7 +470,13 @@ pub extern "C" fn rt_not(ctx: *mut JitContext, a: JitTaggedValue) -> JitTaggedVa
     let Some(a) = ctx.clone_from_tagged(a) else {
         return JitTaggedValue::none();
     };
-    JitTaggedValue::bool(!a.is_truthy())
+    match a {
+        Value::Boolean(v) => JitTaggedValue::bool(!v),
+        _ => {
+            ctx.error = Some(format!("cannot apply ! to {}", a.type_name()));
+            JitTaggedValue::none()
+        }
+    }
 }
 
 #[unsafe(no_mangle)]

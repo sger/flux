@@ -11,7 +11,7 @@ pub mod value_arena;
 use crate::runtime::value::Value;
 use crate::syntax::{interner::Interner, program::Program};
 use crate::bytecode::compiler::Compiler;
-use crate::cfg::{IrPassContext, lower_program_to_ir, patch_function_ids_from_core, run_ir_pass_pipeline};
+use crate::ir::{IrPassContext, lower_program_to_ir, run_ir_pass_pipeline};
 
 use compiler::JitCompiler;
 use context::{JitCallAbi, JitContext, JitTaggedValue, JitThunk, JIT_TAG_PTR, JIT_TAG_THUNK};
@@ -49,32 +49,8 @@ pub fn jit_compile(
         interner.clone(),
     );
     let hm_expr_types = hm_compiler.infer_expr_types_for_program(program);
-
-    // ── Core IR pipeline (primary) ───────────────────────────────────────────
-    let mut core = crate::nary::lower_ast::lower_program_ast(program, &hm_expr_types);
-    crate::nary::passes::run_core_passes(&mut core);
-    let core_ir = crate::nary::to_ir::lower_core_to_ir(&core);
-
-    // ── Structured-IR pipeline (metadata) ────────────────────────────────────
-    // Needed by JIT infrastructure: imports, ADT definitions, literal function
-    // specs, base directives, contracts, and structured bodies for fallback.
     let mut ir_program =
         lower_program_to_ir(program, &hm_expr_types).map_err(diagnostic_to_string)?;
-
-    // Route function CFG through Core IR.
-    let old_functions = std::mem::take(&mut ir_program.functions);
-    let kept_old_ids = patch_function_ids_from_core(
-        &mut ir_program.top_level_items,
-        &core_ir.top_level_items,
-    );
-    ir_program.functions = core_ir.functions;
-    for old_id in kept_old_ids {
-        if let Some(old_fn) = old_functions.iter().find(|f| f.id == old_id) {
-            ir_program.functions.push(old_fn.clone());
-        }
-    }
-    ir_program.core = Some(core);
-
     run_ir_pass_pipeline(&mut ir_program, &IrPassContext).map_err(diagnostic_to_string)?;
 
     let mut compiler = JitCompiler::new(hm_expr_types)?;

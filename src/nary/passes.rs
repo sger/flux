@@ -227,6 +227,7 @@ fn subst(expr: CoreExpr, var: crate::syntax::Identifier, replacement: &CoreExpr)
                 .into_iter()
                 .map(|mut alt| {
                     if !pat_binds(&alt.pat, var) {
+                        alt.guard = alt.guard.map(|g| subst(g, var, replacement));
                         alt.rhs = subst(alt.rhs, var, replacement);
                     }
                     alt
@@ -547,9 +548,11 @@ fn appears_free(var: crate::syntax::Identifier, expr: &CoreExpr) -> bool {
         }
         CoreExpr::Case { scrutinee, alts, .. } => {
             appears_free(var, scrutinee)
-                || alts
-                    .iter()
-                    .any(|alt| !pat_binds(&alt.pat, var) && appears_free(var, &alt.rhs))
+                || alts.iter().any(|alt| {
+                    !pat_binds(&alt.pat, var)
+                        && (alt.guard.as_ref().is_some_and(|g| appears_free(var, g))
+                            || appears_free(var, &alt.rhs))
+                })
         }
         CoreExpr::Con { fields, .. } => fields.iter().any(|f| appears_free(var, f)),
         CoreExpr::PrimOp { args, .. } => args.iter().any(|a| appears_free(var, a)),

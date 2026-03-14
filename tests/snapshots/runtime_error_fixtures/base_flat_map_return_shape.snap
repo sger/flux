@@ -10,21 +10,23 @@ stderr:
 • 1 error • examples/runtime_errors/base_flat_map_return_shape.flx
 error[E1009]: flat_map: callback must return an Array when input is Array, got Int
 
-  examples/runtime_errors/base_flat_map_return_shape.flx:1:1
+  examples/runtime_errors/base_flat_map_return_shape.flx:2:19
   |
-1 | fn main() {
-  | ^^^^^^^^^^^
 2 |     let ignored = flat_map(#[1], /x -> x)
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-3 | }
-  | ^
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^
 
 Stack trace:
-  at main (examples/runtime_errors/base_flat_map_return_shape.flx:1:1)
+  at main (examples/runtime_errors/base_flat_map_return_shape.flx:2:19)
   at <main>
 == jit ==
 status: 1
 stdout:
 <empty>
 stderr:
-missing JIT CFG closure function
+• 1 error • examples/runtime_errors/base_flat_map_return_shape.flx
+error[E1009]: flat_map: callback must return an Array when input is Array, got Int
+
+  examples/runtime_errors/base_flat_map_return_shape.flx:2:19
+  |
+2 |     let ignored = flat_map(#[1], /x -> x)
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^
