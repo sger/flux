@@ -5,18 +5,23 @@ Fixture: examples/type_system/failing/140_recursive_self_reference_return_precis
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+error[E300]: Annotation Type Mismatch
 
 The value of `value` does not match its type annotation.
 
-  --> examples/type_system/failing/140_recursive_self_reference_return_precision.flx:10:25
+  examples/type_system/failing/140_recursive_self_reference_return_precision.flx:10:25
    |
 10 |     let value: String = countdown(2)
    |                         ^^^^^^^^^^^^
-   |                         ------------ this is `Int`
+   |                         ------------ this value has type `Int`
+
    |                ------ but `value` was annotated as `String`
 
+Note:
+  annotated type: String
+  value type: Int
+
 Help:
-  Change `value` to a `String` value or update the annotation to `Int`.
+  Try `to_string(...)` to convert a `Int` into a `String`.
 == stdout ==
 <not executed>

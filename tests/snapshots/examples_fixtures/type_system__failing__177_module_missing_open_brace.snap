@@ -5,16 +5,19 @@ Fixture: examples/type_system/failing/177_module_missing_open_brace.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
+error[E034]: Missing Module Body
 
-Expected `{` to begin module body.
+This module body needs to start with `{`.
 
-  --> examples/type_system/failing/177_module_missing_open_brace.flx:2:1
+  examples/type_system/failing/177_module_missing_open_brace.flx:2:1
   |
 2 | let x = 1
   | ^^^
 
 Hint:
   Module declarations use `module Name { ... }`.
+
+Note:
+  while parsing module `Demo`
 == stdout ==
 <not executed>

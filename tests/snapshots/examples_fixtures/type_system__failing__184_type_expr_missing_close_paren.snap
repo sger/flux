@@ -1,16 +1,15 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
-assertion_line: 21
 ---
 Fixture: examples/type_system/failing/184_type_expr_missing_close_paren.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
+error[E034]: Missing Closing Delimiter
 
 Expected `)` to close tuple type.
 
-  --> examples/type_system/failing/184_type_expr_missing_close_paren.flx:1:31
+  examples/type_system/failing/184_type_expr_missing_close_paren.flx:1:31
   |
 1 | fn bad(x: (Int, String -> Int { x }
   |                               ^
@@ -18,19 +17,27 @@ Expected `)` to close tuple type.
 Hint:
   Tuple types use `(A, B, ...)`.
 
+Note:
+  while parsing function `bad`
 
---> compiler error[E034]: UNEXPECTED TOKEN
 
-Expected `{` to begin function body, found `}`.
+error[E034]: Missing Function Body
 
-  --> examples/type_system/failing/184_type_expr_missing_close_paren.flx:1:35
+This function body needs to start with `{`.
+
+  examples/type_system/failing/184_type_expr_missing_close_paren.flx:1:35
   |
 1 | fn bad(x: (Int, String -> Int { x }
   |                                   ^
-  | - function `bad` defined here
+  |                                   - This looks like the function body
+
+  | - `bad` starts here
+
+Note:
+  while parsing function `bad`
 
 Help:
-  Add `{` after the function signature: `fn bad(...) {`
+  Try adding `{` after the function signature.
 
 Found 2 errors.
 == stdout ==

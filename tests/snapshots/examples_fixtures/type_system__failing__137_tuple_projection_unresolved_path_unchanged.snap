@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/137_tuple_projection_unresolved_path_uncha
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
+error[E004]: Undefined Variable
 
 I can't find a value named `mystery`.
 
-  --> examples/type_system/failing/137_tuple_projection_unresolved_path_unchanged.flx:2:22
+  examples/type_system/failing/137_tuple_projection_unresolved_path_unchanged.flx:2:22
   |
 2 |     let value: Int = mystery.0
   |                      ^^^^^^^

@@ -5,131 +5,165 @@ Fixture: examples/perf/complexity_scaling.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E400]: MISSING EFFECT
+error[E300]: Argument Type Mismatch
 
-Call to `now_ms` requires effect `Time` in this function signature.
+I found the wrong type in the 3rd argument to `bench_list_head`.
 
-  --> examples/perf/complexity_scaling.flx:56:14
+  examples/perf/complexity_scaling.flx:57:47
    |
+ 8 |     fn bench_list_head(lst, reps, acc) {
+ 9 |         if reps <= 0 {
+10 |             acc
+11 |         } else {
+12 |         bench_list_head(lst, reps - 1, acc + hd(lst))
+13 |     }
+14 | }
+15 | 
+16 | fn bench_array_first(arr, reps, acc) {
+17 |     if reps <= 0 {
+18 |         acc
+19 |     } else {
+20 |     bench_array_first(arr, reps - 1, acc + first(arr))
+21 | }
+22 | }
+23 | 
+24 | fn bench_list_len(lst, reps, acc) {
+25 |     if reps <= 0 {
+26 |         acc
+27 |     } else {
+28 |     bench_list_len(lst, reps - 1, acc + len(lst))
+29 | }
+30 | }
+31 | 
+32 | fn bench_array_concat(arr, reps, acc) {
+33 |     if reps <= 0 {
+34 |         acc
+35 |     } else {
+36 |     let out = concat(arr, [|1|])
+37 |     bench_array_concat(arr, reps - 1, acc + len(out))
+38 | }
+39 | }
+40 | 
+41 | fn value_at(arr, idx) {
+42 |     match arr[idx] {
+43 |         Some(x) -> x,
+44 |         _ -> 0,
+45 |     }
+46 | }
+47 | 
+48 | fn run_cases(sizes, idx, reps_o1, reps_on) {
+49 |     if idx >= len(sizes) {
+50 |         None
+51 |     } else {
+52 |     let n = value_at(sizes, idx)
+53 |     let arr = range(0, n)
+54 |     let lst = to_list(arr)
+55 | 
 56 |     let t0 = now_ms()
-   |              ^^^^^^
-   |              ------ effectful call occurs here
+57 |     let sink1 = bench_list_head(lst, reps_o1, 0)
+   |                                               ^
+   |                                               - this argument has type `Int`
 
-Hint:
-  Add `with Time` to the enclosing function.
+Note:
+  expected argument type: Option<Int>
+  found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Wrap this value in `Some(...)` or return `None`.
 
 
---> compiler error[E400]: MISSING EFFECT
+error[E300]: Argument Type Mismatch
 
-Call to `now_ms` requires effect `Time` in this function signature.
+I found the wrong type in the 3rd argument to `bench_array_first`.
 
-  --> examples/perf/complexity_scaling.flx:58:14
+  examples/perf/complexity_scaling.flx:61:49
    |
+16 | fn bench_array_first(arr, reps, acc) {
+17 |     if reps <= 0 {
+18 |         acc
+19 |     } else {
+20 |     bench_array_first(arr, reps - 1, acc + first(arr))
+21 | }
+22 | }
+23 | 
+24 | fn bench_list_len(lst, reps, acc) {
+25 |     if reps <= 0 {
+26 |         acc
+27 |     } else {
+28 |     bench_list_len(lst, reps - 1, acc + len(lst))
+29 | }
+30 | }
+31 | 
+32 | fn bench_array_concat(arr, reps, acc) {
+33 |     if reps <= 0 {
+34 |         acc
+35 |     } else {
+36 |     let out = concat(arr, [|1|])
+37 |     bench_array_concat(arr, reps - 1, acc + len(out))
+38 | }
+39 | }
+40 | 
+41 | fn value_at(arr, idx) {
+42 |     match arr[idx] {
+43 |         Some(x) -> x,
+44 |         _ -> 0,
+45 |     }
+46 | }
+47 | 
+48 | fn run_cases(sizes, idx, reps_o1, reps_on) {
+49 |     if idx >= len(sizes) {
+50 |         None
+51 |     } else {
+52 |     let n = value_at(sizes, idx)
+53 |     let arr = range(0, n)
+54 |     let lst = to_list(arr)
+55 | 
+56 |     let t0 = now_ms()
+57 |     let sink1 = bench_list_head(lst, reps_o1, 0)
 58 |     let t1 = now_ms()
-   |              ^^^^^^
-   |              ------ effectful call occurs here
-
-Hint:
-  Add `with Time` to the enclosing function.
-
-
---> compiler error[E400]: MISSING EFFECT
-
-Call to `now_ms` requires effect `Time` in this function signature.
-
-  --> examples/perf/complexity_scaling.flx:60:14
-   |
+59 | 
 60 |     let t2 = now_ms()
-   |              ^^^^^^
-   |              ------ effectful call occurs here
+61 |     let sink2 = bench_array_first(arr, reps_o1, 0)
+   |                                                 ^
+   |                                                 - this argument has type `Int`
 
-Hint:
-  Add `with Time` to the enclosing function.
+Note:
+  expected argument type: Option<Int>
+  found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Wrap this value in `Some(...)` or return `None`.
 
 
---> compiler error[E400]: MISSING EFFECT
+error[E300]: Type Mismatch
 
-Call to `now_ms` requires effect `Time` in this function signature.
+I found a type mismatch.
 
-  --> examples/perf/complexity_scaling.flx:62:14
+  examples/perf/complexity_scaling.flx:78:28
    |
-62 |     let t3 = now_ms()
-   |              ^^^^^^
-   |              ------ effectful call occurs here
+78 |     + " sink=" + to_string(sink1 + sink2 + sink3 + sink4)
+   |                            ^^^^^^^^^^^^^
+   |                            ------------- this expression has type `Int`
 
-Hint:
-  Add `with Time` to the enclosing function.
+   |                            ------------- this type mismatch is reported here
 
+Note:
+  expected type: Option<Int>
+  found type: Int
+  the conflicting types meet at this expression
 
---> compiler error[E400]: MISSING EFFECT
-
-Call to `now_ms` requires effect `Time` in this function signature.
-
-  --> examples/perf/complexity_scaling.flx:64:14
-   |
-64 |     let t4 = now_ms()
-   |              ^^^^^^
-   |              ------ effectful call occurs here
-
-Hint:
-  Add `with Time` to the enclosing function.
+Help:
+  Wrap this value in `Some(...)` or return `None`.
 
 
---> compiler error[E400]: MISSING EFFECT
+Note: Downstream Errors Suppressed
 
-Call to `now_ms` requires effect `Time` in this function signature.
+I hid 9 later-stage diagnostics (9 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
 
-  --> examples/perf/complexity_scaling.flx:66:14
-   |
-66 |     let t5 = now_ms()
-   |              ^^^^^^
-   |              ------ effectful call occurs here
-
-Hint:
-  Add `with Time` to the enclosing function.
-
-
---> compiler error[E400]: MISSING EFFECT
-
-Call to `now_ms` requires effect `Time` in this function signature.
-
-  --> examples/perf/complexity_scaling.flx:68:14
-   |
-68 |     let t6 = now_ms()
-   |              ^^^^^^
-   |              ------ effectful call occurs here
-
-Hint:
-  Add `with Time` to the enclosing function.
-
-
---> compiler error[E400]: MISSING EFFECT
-
-Call to `now_ms` requires effect `Time` in this function signature.
-
-  --> examples/perf/complexity_scaling.flx:70:14
-   |
-70 |     let t7 = now_ms()
-   |              ^^^^^^
-   |              ------ effectful call occurs here
-
-Hint:
-  Add `with Time` to the enclosing function.
-
-
---> compiler error[E400]: MISSING EFFECT
-
-Call to `print` requires effect `IO` in this function signature.
-
-  --> examples/perf/complexity_scaling.flx:72:5
-   |
-72 |     print(
-   |     ^^^^^
-   |     ----- effectful call occurs here
-
-Hint:
-  Add `with IO` to the enclosing function.
-
-Found 9 errors.
+Found 3 errors.
 == stdout ==
 <not executed>

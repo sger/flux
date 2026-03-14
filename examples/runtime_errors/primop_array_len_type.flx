@@ -1,0 +1,3 @@
+fn main() -> Unit {
+    let ignored = array_len(1)
+}

@@ -1,6 +1,7 @@
 use crate::{
     diagnostics::{
-        invalid_float, invalid_integer, missing_string_interpolation_close,
+        empty_string_interpolation, invalid_float, invalid_integer,
+        missing_string_interpolation_close,
         position::{Position, Span},
         unterminated_interpolation,
     },
@@ -47,13 +48,14 @@ impl Parser {
                     .symbol
                     .expect("ident token should have symbol"),
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             });
         }
 
         // Only collect dotted segments for module paths (PascalCase names)
         // Don't collect ALL_CAPS constants like PI, TAU, MAX
         // Deferred identifier policy cleanup: keep PascalCase module-path heuristic for v0.0.4.
-        // Follow-up track: docs/proposals/0055_lexer_performance_and_architecture.md.
+        // Follow-up track: docs/proposals/implemented/0055_lexer_performance_and_architecture.md.
         if !self.is_peek_token(TokenType::Dot) || !super::is_pascal_case_ident(&self.peek2_token) {
             return Some(Expression::Identifier {
                 name: self
@@ -61,15 +63,18 @@ impl Parser {
                     .symbol
                     .expect("ident token should have symbol"),
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             });
         }
 
         let mut name = self.current_token.literal.to_string();
         while self.is_peek_token(TokenType::Dot) && super::is_pascal_case_ident(&self.peek2_token) {
             self.next_token(); // consume '.'
-            if !self.expect_peek_context(
+            if !self.expect_peek_context_with_details(
                 TokenType::Ident,
-                "Expected identifier after `.` in qualified path.".to_string(),
+                "Missing Qualified Path Segment",
+                crate::diagnostics::DiagnosticCategory::ParserExpression,
+                "Qualified paths need an identifier after `.`.".to_string(),
                 "Qualified paths use `Module.Name`.".to_string(),
             ) {
                 return None;
@@ -83,6 +88,7 @@ impl Parser {
         Some(Expression::Identifier {
             name: symbol,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -92,9 +98,10 @@ impl Parser {
             Ok(value) => Some(Expression::Integer {
                 value,
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             }),
             Err(_) => {
-                self.errors.push(invalid_integer(
+                self.emit_parser_diagnostic(invalid_integer(
                     self.current_token.span(),
                     &self.current_token.literal,
                 ));
@@ -109,9 +116,10 @@ impl Parser {
             Ok(value) => Some(Expression::Float {
                 value,
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             }),
             Err(_) => {
-                self.errors.push(invalid_float(
+                self.emit_parser_diagnostic(invalid_float(
                     self.current_token.span(),
                     &self.current_token.literal,
                 ));
@@ -128,6 +136,7 @@ impl Parser {
         Some(Expression::String {
             value: first_part,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -183,10 +192,7 @@ impl Parser {
 
             // Detect empty interpolation `#{}`
             if self.current_token.token_type == TokenType::RBrace {
-                self.errors.push(crate::diagnostics::unexpected_token(
-                    self.current_token.span(),
-                    "Empty interpolation `#{}` — provide an expression between the braces.",
-                ));
+                self.emit_parser_diagnostic(empty_string_interpolation(self.current_token.span()));
                 // Continue parsing the rest of the string to avoid cascade
                 // The RBrace has been consumed as current_token, so check what follows
                 if self.is_peek_token(TokenType::InterpolationStart) {
@@ -247,6 +253,12 @@ impl Parser {
                     .push(unterminated_interpolation(self.peek_token.span()));
                 if self.peek_token.token_type == TokenType::UnterminatedString {
                     self.suppress_unterminated_string_error_at = Some(self.peek_token.position);
+                    self.errors.retain(|diag| {
+                        !(diag.code() == Some("E071")
+                            && diag
+                                .span()
+                                .is_some_and(|span| span.start == self.peek_token.position))
+                    });
                 } else {
                     self.suppress_unterminated_string_error_at = None;
                 }
@@ -258,14 +270,16 @@ impl Parser {
         Some(Expression::InterpolatedString {
             parts,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
-    pub(super) fn parse_boolean(&self) -> Option<Expression> {
+    pub(super) fn parse_boolean(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
         Some(Expression::Boolean {
             value: self.current_token.token_type == TokenType::True,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 }

@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/80_type_adt_constructor_arity_mismatch.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E085]: CONSTRUCTOR PATTERN ARITY MISMATCH
+error[E085]: Constructor Pattern Arity Mismatch
 
 Constructor pattern `Pair` expects 2 argument(s) but got 1.
 
-  --> examples/type_system/failing/80_type_adt_constructor_arity_mismatch.flx:7:9
+  examples/type_system/failing/80_type_adt_constructor_arity_mismatch.flx:7:9
   |
 7 |         Pair(a) -> a,
   |         ^^^^^^^

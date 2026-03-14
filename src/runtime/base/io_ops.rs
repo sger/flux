@@ -6,14 +6,22 @@ use std::{
 
 use crate::runtime::{RuntimeContext, value::Value};
 
-use super::helpers::{arg_array, arg_string, check_arity, format_hint, type_error};
+use super::helpers::{arg_array_ref, arg_string_ref, check_arity_ref, format_hint, type_error};
 
 pub(super) fn base_read_file(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 1, "read_file", "read_file(path)")?;
-    let path = arg_string(&args, 0, "read_file", "argument", "read_file(path)")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_read_file_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_read_file_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "read_file", "read_file(path)")?;
+    let path = arg_string_ref(args, 0, "read_file", "argument", "read_file(path)")?;
     let content = fs::read_to_string(path).map_err(|e| {
         format!(
             "read_file: could not read file: {}{}",
@@ -28,8 +36,16 @@ pub(super) fn base_read_lines(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 1, "read_lines", "read_lines(path)")?;
-    let path = arg_string(&args, 0, "read_lines", "argument", "read_lines(path)")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_read_lines_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_read_lines_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "read_lines", "read_lines(path)")?;
+    let path = arg_string_ref(args, 0, "read_lines", "argument", "read_lines(path)")?;
     let content = fs::read_to_string(path).map_err(|e| {
         format!(
             "read_lines: could not read file: {}{}",
@@ -49,7 +65,15 @@ pub(super) fn base_read_stdin(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 0, "read_stdin", "read_stdin()")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_read_stdin_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_read_stdin_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 0, "read_stdin", "read_stdin()")?;
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input).map_err(|e| {
         format!(
@@ -65,8 +89,16 @@ pub(super) fn base_parse_int(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 1, "parse_int", "parse_int(s)")?;
-    let text = arg_string(&args, 0, "parse_int", "argument", "parse_int(s)")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_parse_int_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_parse_int_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "parse_int", "parse_int(s)")?;
+    let text = arg_string_ref(args, 0, "parse_int", "argument", "parse_int(s)")?;
     let parsed = text.trim().parse::<i64>().map_err(|_| {
         format!(
             "parse_int: could not parse '{}' as Int{}",
@@ -81,8 +113,16 @@ pub(super) fn base_parse_ints(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 1, "parse_ints", "parse_ints(lines)")?;
-    let lines = arg_array(&args, 0, "parse_ints", "argument", "parse_ints(lines)")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_parse_ints_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_parse_ints_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "parse_ints", "parse_ints(lines)")?;
+    let lines = arg_array_ref(args, 0, "parse_ints", "argument", "parse_ints(lines)")?;
 
     let mut out = Vec::with_capacity(lines.len());
     for value in lines {
@@ -116,16 +156,24 @@ pub(super) fn base_split_ints(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 2, "split_ints", "split_ints(s, delim)")?;
-    let s = arg_string(
-        &args,
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_split_ints_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_split_ints_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 2, "split_ints", "split_ints(s, delim)")?;
+    let s = arg_string_ref(
+        args,
         0,
         "split_ints",
         "first argument",
         "split_ints(s, delim)",
     )?;
-    let delim = arg_string(
-        &args,
+    let delim = arg_string_ref(
+        args,
         1,
         "split_ints",
         "second argument",
@@ -166,7 +214,15 @@ pub(super) fn base_now_ms(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 0, "now_ms", "now_ms()")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_now_ms_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_now_ms_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 0, "now_ms", "now_ms()")?;
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| {
@@ -181,8 +237,16 @@ pub(super) fn base_now_ms(
 }
 
 pub(super) fn base_time(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 1, "time", "time(fn)")?;
-    match &args[0] {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_time_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_time_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "time", "time(fn)")?;
+    match args[0] {
         Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(

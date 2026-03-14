@@ -1,6 +1,6 @@
-// Effect polymorphism (`with e`) for higher-order functions.
+// Effect polymorphism (`with |e`) for higher-order functions.
 
-fn apply_twice(f: ((Int) -> Int with e), x: Int) -> Int with e {
+fn apply_twice(f: ((Int) -> Int with |e), x: Int) -> Int with |e {
     f(f(x))
 }
 

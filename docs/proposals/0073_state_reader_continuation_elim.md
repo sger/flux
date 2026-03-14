@@ -1,5 +1,6 @@
 - Feature Name: Eliminate Continuation Allocation for State and Reader Effects
 - Start Date: 2026-03-01
+- Status: Not Implemented
 - Proposal PR: pending
 - Flux Issue: pending
 

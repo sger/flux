@@ -27,13 +27,13 @@ fn check_arity_range_rejects_out_of_range() {
 fn arg_string_returns_type_error() {
     let args = vec![Value::Integer(1)];
     let err = arg_string(&args, 0, "join", "argument", "join(arr, delim)").unwrap_err();
-    assert!(err.contains("expected"));
+    assert!(err.contains("wrong runtime type"));
     assert!(err.contains("String"));
 }
 
 #[test]
 fn type_error_formats_message() {
     let msg = type_error("len", "argument", "String", "Int", "len(value)");
-    assert!(msg.contains("len expected argument to be String"));
-    assert!(msg.contains("got Int"));
+    assert!(msg.contains("expected type: String"));
+    assert!(msg.contains("found type:    Int"));
 }

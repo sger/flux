@@ -5,26 +5,31 @@ Fixture: examples/type_system/failing/07_typed_let_float_into_int.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+error[E300]: Annotation Type Mismatch
 
 The value of `answer` does not match its type annotation.
 
-  --> examples/type_system/failing/07_typed_let_float_into_int.flx:1:19
+  examples/type_system/failing/07_typed_let_float_into_int.flx:1:19
   |
 1 | let answer: Int = 42.5
   |                   ^^^^
-  |                   ---- this is `Float`
+  |                   ---- this value has type `Float`
+
   |             --- but `answer` was annotated as `Int`
 
+Note:
+  annotated type: Int
+  value type: Float
+
 Help:
-  Change `answer` to a `Int` value or update the annotation to `Float`.
+  Try `to_int(...)` if truncating a `Float` to an `Int` is intended.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/type_system/failing/07_typed_let_float_into_int.flx:14:1
+  examples/type_system/failing/07_typed_let_float_into_int.flx:14:1
    |
 14 | print("#{label}: #{add(answer, 8)}")
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -34,11 +39,11 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  --> examples/type_system/failing/07_typed_let_float_into_int.flx:14:1
+  examples/type_system/failing/07_typed_let_float_into_int.flx:14:1
    |
 14 | print("#{label}: #{add(answer, 8)}")
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -48,11 +53,25 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/failing/07_typed_let_float_into_int.flx:14:1
+   |
+14 | print("#{label}: #{add(answer, 8)}")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------------ requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/type_system/failing/07_typed_let_float_into_int.flx:15:1
+  examples/type_system/failing/07_typed_let_float_into_int.flx:15:1
    |
 15 | print(distance_tag(point))
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -61,6 +80,20 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 4 errors.
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/failing/07_typed_let_float_into_int.flx:15:1
+   |
+15 | print(distance_tag(point))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | -------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 6 errors.
 == stdout ==
 <not executed>

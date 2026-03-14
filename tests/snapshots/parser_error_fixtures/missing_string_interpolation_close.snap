@@ -1,0 +1,48 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_string_interpolation_close.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Missing Closing Delimiter
+
+Expected `}` to close string interpolation.
+
+  examples/parser_errors/missing_string_interpolation_close.flx:3:24
+  |
+3 |     print("Hello #{name")
+  |                        ^^
+
+Hint:
+  Interpolation segments use `#{expr}` inside strings.
+
+
+error[E071]: Unterminated String
+
+String literal is missing closing quote.
+
+  examples/parser_errors/missing_string_interpolation_close.flx:3:24
+  |
+3 |     print("Hello #{name")
+  |                        ^^
+
+Hint:
+  Add a closing " at the end of the string.
+
+
+error[E071]: Unterminated String
+
+String literal is missing closing quote.
+
+  examples/parser_errors/missing_string_interpolation_close.flx:4:2
+  |
+4 | }
+  |  ^
+
+Hint:
+  Add a closing " at the end of the string.
+
+Found 3 errors.
+== stdout ==
+<not executed>

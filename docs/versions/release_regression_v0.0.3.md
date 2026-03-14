@@ -83,18 +83,18 @@ Manual spot checks (recommended):
 
 ## 5) Performance Regression Gates (Should Pass)
 
-Run at least one stable benchmark suite and regenerate perf report:
+Run at least one stable benchmark suite and compare the latest Criterion output against a saved baseline:
 
 ```bash
 cargo bench --bench lexer_bench
 rm -rf baseline_criterion
 cp -r target/criterion baseline_criterion
 cargo bench --bench lexer_bench
-rust-script scripts/bench_report.rs
 ```
 
 Expected output:
-- `reports/PERF_REPORT.md` updated.
+- `target/criterion/report/index.html` updated.
+- baseline and current Criterion outputs are available for comparison.
 
 Release policy (recommended):
 - investigate any >5% slowdown on key benches before release.

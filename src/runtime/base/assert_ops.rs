@@ -1,6 +1,6 @@
 use crate::runtime::{RuntimeContext, gc::HeapObject, value::Value};
 
-use super::helpers::check_arity;
+use super::helpers::check_arity_ref;
 
 /// Structural equality that handles GC cons-list comparison by value rather
 /// than by heap identity. Falls back to `PartialEq` for all other types.
@@ -11,6 +11,28 @@ fn values_equal(ctx: &dyn RuntimeContext, a: &Value, b: &Value) -> bool {
     match (a, b) {
         // Both are empty-list sentinels — treat as equal regardless of variant.
         (Value::None | Value::EmptyList, Value::None | Value::EmptyList) => true,
+        (Value::AdtUnit(left), Value::AdtUnit(right)) => left == right,
+        (left, right) if left.type_name() == "Adt" && right.type_name() == "Adt" => {
+            match (left.as_adt(ctx.gc_heap()), right.as_adt(ctx.gc_heap())) {
+                (Some(left_adt), Some(right_adt)) => {
+                    if left_adt.constructor() != right_adt.constructor() {
+                        return false;
+                    }
+                    let left_fields = left_adt.fields();
+                    let right_fields = right_adt.fields();
+                    if left_fields.len() != right_fields.len() {
+                        return false;
+                    }
+                    for i in 0..left_fields.len() {
+                        if !values_equal(ctx, &left_fields[i], &right_fields[i]) {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                _ => false,
+            }
+        }
         (Value::Gc(ha), Value::Gc(hb)) => {
             if ha == hb {
                 return true; // Same heap slot — trivially equal.
@@ -36,7 +58,9 @@ fn values_equal(ctx: &dyn RuntimeContext, a: &Value, b: &Value) -> bool {
 /// `[1, 2, 3]` rather than `<gc@N>`.
 fn display_value(ctx: &dyn RuntimeContext, v: &Value) -> String {
     match v {
-        Value::Gc(_) | Value::Tuple(_) | Value::Array(_) => super::list_ops::format_value(ctx, v),
+        Value::Gc(_) | Value::GcAdt(_) | Value::Tuple(_) | Value::Array(_) | Value::Adt(_) => {
+            super::list_ops::format_value(ctx, v)
+        }
         _ => format!("{}", v),
     }
 }
@@ -45,14 +69,22 @@ pub(super) fn base_assert_eq(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 2, "assert_eq", "assert_eq(actual, expected)")?;
-    if values_equal(ctx, &args[0], &args[1]) {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_assert_eq_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_assert_eq_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 2, "assert_eq", "assert_eq(actual, expected)")?;
+    if values_equal(ctx, args[0], args[1]) {
         Ok(Value::None)
     } else {
         Err(format!(
             "assert_eq failed\n  expected: {}\n  actual:   {}",
-            display_value(ctx, &args[1]),
-            display_value(ctx, &args[0])
+            display_value(ctx, args[1]),
+            display_value(ctx, args[0])
         ))
     }
 }
@@ -61,13 +93,21 @@ pub(super) fn base_assert_neq(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 2, "assert_neq", "assert_neq(actual, expected)")?;
-    if !values_equal(ctx, &args[0], &args[1]) {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_assert_neq_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_assert_neq_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 2, "assert_neq", "assert_neq(actual, expected)")?;
+    if !values_equal(ctx, args[0], args[1]) {
         Ok(Value::None)
     } else {
         Err(format!(
             "assert_neq failed: both values equal {}",
-            display_value(ctx, &args[0])
+            display_value(ctx, args[0])
         ))
     }
 }
@@ -76,8 +116,16 @@ pub(super) fn base_assert_true(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 1, "assert_true", "assert_true(cond)")?;
-    match &args[0] {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_assert_true_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_assert_true_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "assert_true", "assert_true(cond)")?;
+    match args[0] {
         Value::Boolean(true) => Ok(Value::None),
         Value::Boolean(false) => Err("assert_true failed: got false".to_string()),
         other => Err(format!(
@@ -91,8 +139,16 @@ pub(super) fn base_assert_false(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 1, "assert_false", "assert_false(cond)")?;
-    match &args[0] {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_assert_false_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_assert_false_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "assert_false", "assert_false(cond)")?;
+    match args[0] {
         Value::Boolean(false) => Ok(Value::None),
         Value::Boolean(true) => Err("assert_false failed: got true".to_string()),
         other => Err(format!(
@@ -106,14 +162,22 @@ pub(super) fn base_assert_throws(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(
-        &args,
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_assert_throws_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_assert_throws_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(
+        args,
         2,
         "assert_throws",
         "assert_throws(fn, expected_message)",
     )?;
 
-    let expected = match &args[1] {
+    let expected = match args[1] {
         Value::String(s) => s.to_string(),
         other => {
             return Err(format!(
@@ -123,7 +187,7 @@ pub(super) fn base_assert_throws(
         }
     };
 
-    match &args[0] {
+    match args[0] {
         Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
         other => {
             return Err(format!(

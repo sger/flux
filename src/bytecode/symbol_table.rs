@@ -133,18 +133,23 @@ impl SymbolTable {
     /// Used for generating "did you mean?" suggestions.
     pub fn all_symbol_names(&self) -> Vec<Symbol> {
         let mut names = Vec::new();
+        let mut seen = std::collections::HashSet::new();
 
         // Add symbols from current scope
         for name in self.store.keys() {
             // Filter out temporary symbols
-            if name.as_u32() != u32::MAX {
+            if name.as_u32() != u32::MAX && seen.insert(*name) {
                 names.push(*name);
             }
         }
 
-        // Add symbols from outer scopes
+        // Add symbols from outer scopes (deduplicated: inner scope shadows outer)
         if let Some(outer) = &self.outer {
-            names.extend(outer.all_symbol_names());
+            for name in outer.all_symbol_names() {
+                if seen.insert(name) {
+                    names.push(name);
+                }
+            }
         }
 
         names

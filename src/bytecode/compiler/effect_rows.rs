@@ -9,43 +9,40 @@ pub(crate) struct EffectRow {
 }
 
 impl EffectRow {
-    pub(crate) fn from_effect_exprs<F>(effects: &[EffectExpr], is_var: F) -> Self
-    where
-        F: Fn(Symbol) -> bool,
-    {
+    /// Builds a row from an effect list, partitioning concrete atoms and row variables.
+    pub(crate) fn from_effect_exprs(effects: &[EffectExpr]) -> Self {
         let mut row = Self::default();
         for effect in effects {
-            let piece = Self::from_effect_expr(effect, &is_var);
+            let piece = Self::from_effect_expr(effect);
             row.atoms.extend(piece.atoms);
             row.vars.extend(piece.vars);
         }
         row
     }
 
-    pub(crate) fn from_effect_expr<F>(effect: &EffectExpr, is_var: &F) -> Self
-    where
-        F: Fn(Symbol) -> bool,
-    {
+    pub(crate) fn from_effect_expr(effect: &EffectExpr) -> Self {
         match effect {
             EffectExpr::Named { name, .. } => {
                 let mut row = Self::default();
-                if is_var(*name) {
-                    row.vars.insert(*name);
-                } else {
-                    row.atoms.insert(*name);
-                }
+                row.atoms.insert(*name);
+                row
+            }
+            EffectExpr::RowVar { name, .. } => {
+                // Row variables are always treated as open row bindings.
+                let mut row = Self::default();
+                row.vars.insert(*name);
                 row
             }
             EffectExpr::Add { left, right, .. } => {
-                let mut row = Self::from_effect_expr(left, is_var);
-                let right_row = Self::from_effect_expr(right, is_var);
+                let mut row = Self::from_effect_expr(left);
+                let right_row = Self::from_effect_expr(right);
                 row.atoms.extend(right_row.atoms);
                 row.vars.extend(right_row.vars);
                 row
             }
             EffectExpr::Subtract { left, right, .. } => {
-                let mut row = Self::from_effect_expr(left, is_var);
-                let right_row = Self::from_effect_expr(right, is_var);
+                let mut row = Self::from_effect_expr(left);
+                let right_row = Self::from_effect_expr(right);
                 for atom in right_row.atoms {
                     row.atoms.remove(&atom);
                 }
@@ -81,11 +78,14 @@ impl EffectRow {
 pub(crate) enum RowConstraint {
     Eq(EffectRow, EffectRow),
     Contains(EffectRow, Symbol),
+    Absent(EffectRow, Symbol),
+    // Reserved: not currently emitted by compiler callers; kept for solver completeness.
     Extend {
         out: EffectRow,
         input: EffectRow,
         atom: Symbol,
     },
+    // Reserved: not currently emitted by compiler callers; kept for solver completeness.
     Subtract {
         out: EffectRow,
         input: EffectRow,
@@ -97,6 +97,7 @@ pub(crate) enum RowConstraint {
 #[derive(Debug, Clone)]
 pub(crate) enum RowConstraintViolation {
     InvalidSubtract { atom: Symbol },
+    UnresolvedVars { vars: Vec<Symbol> },
     UnsatisfiedSubset { missing: Vec<Symbol> },
 }
 
@@ -161,6 +162,7 @@ impl RowSolveState {
 pub(crate) fn solve_row_constraints(constraints: &[RowConstraint]) -> RowSolution {
     let mut state = RowSolveState::default();
     let mut queue: VecDeque<RowConstraint> = constraints.iter().cloned().collect();
+    let mut deferred_absent: Vec<(EffectRow, Symbol)> = Vec::new();
 
     while let Some(constraint) = queue.pop_front() {
         match constraint {
@@ -188,12 +190,25 @@ pub(crate) fn solve_row_constraints(constraints: &[RowConstraint]) -> RowSolutio
             }
             RowConstraint::Contains(row, atom) => {
                 state.mark_vars_constrained(&row);
-                if row.atoms.contains(&atom) || row.vars.is_empty() {
+                if row.atoms.contains(&atom) {
+                    continue;
+                }
+                if row.vars.is_empty() {
+                    state
+                        .violations
+                        .push(RowConstraintViolation::UnsatisfiedSubset {
+                            missing: vec![atom],
+                        });
                     continue;
                 }
                 for var in row.vars {
                     state.bindings.entry(var).or_default().insert(atom);
                 }
+            }
+            RowConstraint::Absent(row, atom) => {
+                // Evaluate `Absent` after row bindings stabilize; queue-order checks can miss
+                // conflicts when later argument constraints bind shared effect variables.
+                deferred_absent.push((row, atom));
             }
             RowConstraint::Extend { out, input, atom } => {
                 let mut extended = input.clone();
@@ -241,10 +256,158 @@ pub(crate) fn solve_row_constraints(constraints: &[RowConstraint]) -> RowSolutio
     }
 
     state.resolve_links();
+    apply_absent_constraints(&mut state, &deferred_absent);
+
+    // Deduplicate violations: sort by (discriminant, first payload key) then
+    // collapse adjacent entries with the same discriminant so callers always
+    // receive a clean list without repeated identical violation kinds.
+    state.violations.sort_by_key(|v| match v {
+        RowConstraintViolation::InvalidSubtract { atom } => (0u8, atom.as_u32()),
+        RowConstraintViolation::UnresolvedVars { vars } => {
+            (1u8, vars.first().map_or(0, |s| s.as_u32()))
+        }
+        RowConstraintViolation::UnsatisfiedSubset { missing } => {
+            (2u8, missing.first().map_or(0, |s| s.as_u32()))
+        }
+    });
+    state
+        .violations
+        .dedup_by(|a, b| std::mem::discriminant(a) == std::mem::discriminant(b));
 
     RowSolution {
         bindings: state.bindings,
         constrained_vars: state.constrained_vars,
         violations: state.violations,
+    }
+}
+
+fn apply_absent_constraints(state: &mut RowSolveState, absent: &[(EffectRow, Symbol)]) {
+    let mut unresolved_vars: HashSet<Symbol> = HashSet::new();
+
+    for (row, atom) in absent {
+        if row.atoms.contains(atom) {
+            state
+                .violations
+                .push(RowConstraintViolation::InvalidSubtract { atom: *atom });
+            continue;
+        }
+
+        let found_bound = row.vars.iter().any(|var| {
+            state
+                .bindings
+                .get(var)
+                .is_some_and(|bound| bound.contains(atom))
+        });
+
+        if found_bound {
+            state
+                .violations
+                .push(RowConstraintViolation::InvalidSubtract { atom: *atom });
+            continue;
+        }
+
+        // Absence is proven if at least one var is bound (and its bindings don't contain
+        // the atom — already checked above). Only flag unresolved when *all* vars lack
+        // bindings, meaning we cannot confirm or deny the atom's presence.
+        let all_unbound = row.vars.iter().all(|var| !state.bindings.contains_key(var));
+        if all_unbound {
+            for var in &row.vars {
+                unresolved_vars.insert(*var);
+            }
+        }
+    }
+
+    if !unresolved_vars.is_empty() {
+        let mut vars: Vec<Symbol> = unresolved_vars.into_iter().collect();
+        vars.sort_by_key(|symbol| symbol.as_u32());
+        state
+            .violations
+            .push(RowConstraintViolation::UnresolvedVars { vars });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sym(n: u32) -> Symbol {
+        Symbol::new(n)
+    }
+
+    fn row(atoms: &[u32], vars: &[u32]) -> EffectRow {
+        EffectRow {
+            atoms: atoms.iter().copied().map(sym).collect(),
+            vars: vars.iter().copied().map(sym).collect(),
+        }
+    }
+
+    #[test]
+    fn eq_binds_atoms_to_both_var_sets() {
+        let constraints = vec![RowConstraint::Eq(row(&[10], &[1]), row(&[20], &[2]))];
+        let sol = solve_row_constraints(&constraints);
+        assert!(sol.bindings[&sym(1)].contains(&sym(10)));
+        assert!(sol.bindings[&sym(1)].contains(&sym(20)));
+        assert!(sol.bindings[&sym(2)].contains(&sym(10)));
+        assert!(sol.bindings[&sym(2)].contains(&sym(20)));
+    }
+
+    #[test]
+    fn contains_emits_violation_for_closed_row_missing_atom() {
+        let constraints = vec![RowConstraint::Contains(row(&[10], &[]), sym(20))];
+        let sol = solve_row_constraints(&constraints);
+        assert_eq!(sol.violations.len(), 1);
+        assert!(matches!(
+            sol.violations[0],
+            RowConstraintViolation::UnsatisfiedSubset { .. }
+        ));
+    }
+
+    #[test]
+    fn absent_deferred_fires_after_resolve_links() {
+        // var 1 is bound to atom 10 by Eq; Absent(row with var 1, 10) should fail.
+        let constraints = vec![
+            RowConstraint::Eq(row(&[10], &[1]), row(&[], &[])),
+            RowConstraint::Absent(row(&[], &[1]), sym(10)),
+        ];
+        let sol = solve_row_constraints(&constraints);
+        assert!(!sol.violations.is_empty());
+    }
+
+    #[test]
+    fn subset_emits_violation_for_missing_atoms() {
+        let constraints = vec![RowConstraint::Subset(row(&[10, 20], &[]), row(&[10], &[]))];
+        let sol = solve_row_constraints(&constraints);
+        assert_eq!(sol.violations.len(), 1);
+        assert!(matches!(
+            sol.violations[0],
+            RowConstraintViolation::UnsatisfiedSubset { ref missing } if missing.contains(&sym(20))
+        ));
+    }
+
+    #[test]
+    fn resolve_links_propagates_transitively() {
+        // var 1 linked to var 2 via Eq; var 2 bound to atom 30 via Contains.
+        let constraints = vec![
+            RowConstraint::Eq(row(&[], &[1]), row(&[], &[2])),
+            RowConstraint::Contains(row(&[], &[2]), sym(30)),
+        ];
+        let sol = solve_row_constraints(&constraints);
+        assert!(
+            sol.bindings
+                .get(&sym(1))
+                .is_some_and(|b| b.contains(&sym(30)))
+        );
+    }
+
+    #[test]
+    fn violations_are_deduplicated() {
+        // Three identical Subset failures for the same missing atom.
+        let constraints = vec![
+            RowConstraint::Subset(row(&[10], &[]), row(&[], &[])),
+            RowConstraint::Subset(row(&[10], &[]), row(&[], &[])),
+            RowConstraint::Subset(row(&[10], &[]), row(&[], &[])),
+        ];
+        let sol = solve_row_constraints(&constraints);
+        assert_eq!(sol.violations.len(), 1);
     }
 }

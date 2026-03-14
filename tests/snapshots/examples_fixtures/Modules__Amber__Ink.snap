@@ -5,11 +5,11 @@ Fixture: examples/Modules/Amber/Ink.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E024]: MODULE PATH MISMATCH
+error[E024]: Module Path Mismatch
 
 Module name `Modules.Amber.Ink` doesn't match file path `examples/Modules/Amber/Ink.flx`.
 
-  --> examples/Modules/Amber/Ink.flx:4:1
+  examples/Modules/Amber/Ink.flx:4:1
   |
 4 | module Modules.Amber.Ink {
   | ^

@@ -4,11 +4,11 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/recovery/double_comma_in_call_then_continue.flx
 exit_code: 1
 
---> compiler error[E034]: UNEXPECTED TOKEN
+error[E034]: Unexpected Token
 
 Expected expression after `,`, got `,`.
 
-  --> tests/fixtures/recovery/double_comma_in_call_then_continue.flx:1:6
+  tests/fixtures/recovery/double_comma_in_call_then_continue.flx:1:6
   |
 1 | f(1, , 2);
   |      ^

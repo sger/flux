@@ -5,21 +5,24 @@ Fixture: examples/errors/invalid_pattern_syntax_error.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E020]: INVALID PATTERN
+error[E020]: Invalid Pattern
 
 Expected a pattern, found `+`.
 
-  --> examples/errors/invalid_pattern_syntax_error.flx:3:5
+  examples/errors/invalid_pattern_syntax_error.flx:3:5
   |
 3 |     + -> 1,
   |     ^
 
+Note:
+  while parsing `match` expression
 
---> compiler error[E031]: EXPECTED EXPRESSION
 
-Expected expression, found ;.
+error[E031]: Expected Expression
 
-  --> examples/errors/invalid_pattern_syntax_error.flx:4:2
+Expected expression, found `;`.
+
+  examples/errors/invalid_pattern_syntax_error.flx:4:2
   |
 4 | };
   |  ^

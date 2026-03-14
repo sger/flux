@@ -2,7 +2,7 @@
 
 > Canonical classification for Proposal 0028 Phase 5.
 > Related:
-> - Base proposal: `docs/proposals/0028_base.md`
+> - Base proposal: `docs/proposals/implemented/0028_base.md`
 > - Base function implementation architecture: `docs/internals/base_functions.md`
 > - Runtime call routing internals: `docs/internals/primops_vs_base_functions.md`
 

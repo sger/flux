@@ -6,6 +6,7 @@ pub mod free_vars;
 pub mod rename;
 pub mod tail_position;
 pub mod type_infer;
+pub mod type_informed_fold;
 pub mod visit;
 
 pub use complexity::analyze_complexity;

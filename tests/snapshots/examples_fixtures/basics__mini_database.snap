@@ -3,8 +3,93 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/mini_database.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/basics/mini_database.flx:43:11
+   |
+43 |     print(first_record["name"])
+   |           ^^^^^^^^^^^^
+   |           ------------ this expression has type `Option<Map<String, Int>>`
+
+   |           ------------ indexed value is known at compile time
+
+Note:
+  expected type: indexable value (Array/List/Tuple/Map)
+  found type: Option<Map<String, Int>>
+
+Help:
+  This value might be `None`. Use `match` to unwrap it before using it here.
+  index only arrays, lists, tuples, or maps
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/basics/mini_database.flx:47:11
+   |
+47 |     print(second_record["name"])
+   |           ^^^^^^^^^^^^^
+   |           ------------- this expression has type `Option<Map<String, Int>>`
+
+   |           ------------- indexed value is known at compile time
+
+Note:
+  expected type: indexable value (Array/List/Tuple/Map)
+  found type: Option<Map<String, Int>>
+
+Help:
+  This value might be `None`. Use `match` to unwrap it before using it here.
+  index only arrays, lists, tuples, or maps
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/basics/mini_database.flx:54:11
+   |
+54 |     print(found["name"])
+   |           ^^^^^
+   |           ----- this expression has type `Option<Map<String, Int>>`
+
+   |           ----- indexed value is known at compile time
+
+Note:
+  expected type: indexable value (Array/List/Tuple/Map)
+  found type: Option<Map<String, Int>>
+
+Help:
+  This value might be `None`. Use `match` to unwrap it before using it here.
+  index only arrays, lists, tuples, or maps
+
+
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/basics/mini_database.flx:57:11
+   |
+57 |     print(maybe_charlie["name"])
+   |           ^^^^^^^^^^^^^
+   |           ------------- this expression has type `Option<Map<String, Int>>`
+
+   |           ------------- indexed value is known at compile time
+
+Note:
+  expected type: indexable value (Array/List/Tuple/Map)
+  found type: Option<Map<String, Int>>
+
+Help:
+  This value might be `None`. Use `match` to unwrap it before using it here.
+  index only arrays, lists, tuples, or maps
+
+Found 4 errors.
 == stdout ==
 <not executed>

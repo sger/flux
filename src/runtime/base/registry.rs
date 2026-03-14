@@ -1,4 +1,6 @@
-use crate::runtime::base_function::BaseFunction;
+use crate::runtime::{base::base_hm_signature_id::BaseHmSignatureId, base_function::BaseFunction};
+#[cfg(test)]
+use crate::{runtime::base::scheme_for_signature_id, syntax::interner::Interner};
 
 use super::BASE_FUNCTIONS;
 
@@ -68,6 +70,10 @@ impl BaseModule {
         BASE_FUNCTIONS.iter().map(|b| b.name)
     }
 
+    pub fn hm_signatures(self) -> impl Iterator<Item = (&'static str, BaseHmSignatureId)> {
+        BASE_FUNCTIONS.iter().map(|b| (b.name, b.hm_signature))
+    }
+
     /// Returns the Base entry count.
     pub fn len(self) -> usize {
         BASE_FUNCTIONS.len()
@@ -110,8 +116,23 @@ pub fn is_base_fastcall_allowlisted(name: &str) -> bool {
 }
 
 #[cfg(test)]
+pub fn validate_base_hm_signatures(interner: &mut Interner) -> Result<(), (&'static str, String)> {
+    for base_fn in BASE_FUNCTIONS {
+        if let Err(err) = scheme_for_signature_id(base_fn.hm_signature, interner) {
+            return Err((base_fn.name, err));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+
+    use crate::{
+        runtime::base::{registry::validate_base_hm_signatures, scheme_for_signature_id},
+        syntax::interner::Interner,
+    };
 
     use super::{
         BASE_FASTCALL_ALLOWLIST, BASE_FUNCTIONS, BaseModule, is_base_fastcall_allowlisted,
@@ -215,6 +236,22 @@ mod tests {
                 "non-allowlisted name '{}' unexpectedly returns true",
                 name
             );
+        }
+    }
+
+    #[test]
+    fn base_hm_signatures_cover_all_registered_entries() {
+        let base = BaseModule::new();
+        assert_eq!(base.hm_signatures().count(), base.len())
+    }
+
+    #[test]
+    fn base_hm_signatures_lower_to_schemes() {
+        let mut interner = Interner::new();
+        validate_base_hm_signatures(&mut interner).expect("all Base HM signatures must lower");
+        for (_, sig_id) in BaseModule::new().hm_signatures() {
+            scheme_for_signature_id(sig_id, &mut interner)
+                .expect("each Base signature must lower to a scheme");
         }
     }
 }

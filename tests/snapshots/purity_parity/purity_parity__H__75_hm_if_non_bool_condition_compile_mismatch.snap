@@ -15,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/75_hm_if_non_bool_condition_compi
 exit_code: 1
 
 == vm tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected Bool, found Int
+- E300 | Type Mismatch | this expression has type `Int`
 
 == jit tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected Bool, found Int
+- E300 | Type Mismatch | this expression has type `Int`
 
 == parity ==
 match

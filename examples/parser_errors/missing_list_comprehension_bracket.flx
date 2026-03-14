@@ -1,0 +1,4 @@
+fn main() with IO {
+    let nums = [1, 2, 3]
+    print([x * 2 | x <- nums)
+}

@@ -1,0 +1,20 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMemberTypo.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E080]: Unknown Base Member
+
+Base has no member named `prnit`.
+
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMemberTypo.flx:3:9
+  |
+3 |         Base.prnit("x")
+  |         ^^^^^^^^^^
+
+Hint:
+  Check the Base surface or remove this name from `except`.
+== stdout ==
+<not executed>

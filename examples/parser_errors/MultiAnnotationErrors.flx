@@ -1,0 +1,9 @@
+module MultiAnnotationErrors {
+    fn bad_param(name String) -> String { name }
+    fn bad_return(x: Int) String { x }
+
+    fn inside() -> Unit {
+        let value Int = 1
+        let f = \(x Int, y String) -> x
+    }
+}

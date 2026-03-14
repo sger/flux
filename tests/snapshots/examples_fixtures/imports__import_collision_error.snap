@@ -5,11 +5,11 @@ Fixture: examples/imports/import_collision_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E017]: IMPORT SCOPE
+error[E017]: Import Scope
 
 Import statements must be at the top of the file.
 
-  --> examples/imports/import_collision_error.flx:3:5
+  examples/imports/import_collision_error.flx:3:5
   |
 3 |     import Modules.Math
   |     ^^^^^^^^^^^^^^^^^^^

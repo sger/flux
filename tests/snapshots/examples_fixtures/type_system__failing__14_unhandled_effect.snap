@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/14_unhandled_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E403]: UNKNOWN EFFECT
+error[E403]: Unknown Effect
 
 Effect `Console` is not declared.
 
-  --> examples/type_system/failing/14_unhandled_effect.flx:2:1
+  examples/type_system/failing/14_unhandled_effect.flx:2:1
   |
 2 | perform Console.print("hello")
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -19,11 +19,11 @@ Hint:
   Declare the effect before using `perform`.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Console).
 
-  --> examples/type_system/failing/14_unhandled_effect.flx:2:1
+  examples/type_system/failing/14_unhandled_effect.flx:2:1
   |
 2 | perform Console.print("hello")
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -33,11 +33,11 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  --> examples/type_system/failing/14_unhandled_effect.flx:2:1
+  examples/type_system/failing/14_unhandled_effect.flx:2:1
   |
 2 | perform Console.print("hello")
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

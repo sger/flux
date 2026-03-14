@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx
+Category: C
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E421 | Effect Requirement Mismatch | this call violates an effect-row subtraction constraint
+
+== jit tuples ==
+- E421 | Effect Requirement Mismatch | this call violates an effect-row subtraction constraint
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

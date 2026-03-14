@@ -1,0 +1,13 @@
+// Missing `->` in match arm.
+//
+// Expected: contextual error about match syntax.
+//   Help about match arm syntax.
+
+fn main() -> Unit {
+    let x = 5
+    let _result = match x {
+        1 "one",
+        2 "two",
+        _ "other",
+    }
+}

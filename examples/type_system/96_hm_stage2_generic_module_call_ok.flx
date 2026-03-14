@@ -1,0 +1,26 @@
+// 0051 Stage 2: HM fallback for module generic params (convert_type_expr -> None).
+// When a module function has a generic param T, the contract cannot provide a concrete
+// RuntimeType. Stage 2 falls back to the HM-instantiated function type at the call site
+// to verify argument types. All calls below are consistent -- no error expected.
+
+import TypeSystem.HmGenericModule as M
+
+fn test_id_int() -> Int {
+    M.id(42)
+}
+
+fn test_id_string() -> String {
+    M.id("hello")
+}
+
+fn test_prepend_int_array() -> Array<Int> {
+    M.prepend(1, [|2, 3, 4|])
+}
+
+fn test_prepend_string_array() -> Array<String> {
+    M.prepend("a", [|"b", "c"|])
+}
+
+fn main() -> Unit {
+    None
+}

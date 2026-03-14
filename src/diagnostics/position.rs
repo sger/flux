@@ -8,11 +8,13 @@ pub struct Position {
 }
 
 impl Position {
+    /// Construct a source position from a 1-based line and 0-based column.
     pub fn new(line: usize, column: usize) -> Self {
         Self { line, column }
     }
 }
 
+/// A source span with explicit start and end positions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Span {
     pub start: Position,
@@ -20,6 +22,7 @@ pub struct Span {
 }
 
 impl Span {
+    /// Construct a source span from explicit start and end positions.
     pub fn new(start: Position, end: Position) -> Self {
         Self { start, end }
     }

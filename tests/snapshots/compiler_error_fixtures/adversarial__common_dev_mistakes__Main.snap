@@ -1,0 +1,126 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/Main.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `sum`.
+
+  examples/compiler_errors/adversarial/common_dev_mistakes/CollectionsConfusion.flx:7:13
+  |
+1 | module CollectionsConfusion {
+2 |     fn sum(xs: List<Int>) -> Int {
+3 |         len(xs)
+4 |     }
+5 | 
+6 |     fn bad() -> Int {
+7 |         sum([|1, 2, 3|])
+  |             ^^^^^^^^^^^
+  |             ----------- this argument has type `Array<Int>`
+
+Note:
+  expected argument type: List<Int>
+  found argument type: Array<Int>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `List<Int>` value as the 1st argument.
+
+
+Note: Module Skipped
+
+I skipped module `examples/compiler_errors/adversarial/common_dev_mistakes/Main.flx` because its dependency `CollectionsConfusion` already has errors.
+
+  examples/compiler_errors/adversarial/common_dev_mistakes/Main.flx:0:1
+  |
+
+
+error[E011]: Private Member
+
+Cannot access private member `secret`.
+
+  examples/compiler_errors/adversarial/common_dev_mistakes/MissingPublicAccess.flx:5:9
+  |
+5 |         HiddenApi.secret()
+  |         ^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+error[E011]: Private Member
+
+Cannot access private member `_private_secret`.
+
+  examples/compiler_errors/adversarial/common_dev_mistakes/PrivateMemberAccess.flx:5:9
+  |
+5 |         HiddenApi._private_secret()
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+error[E080]: Unknown Base Member
+
+Base has no member named `prnit`.
+
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMemberTypo.flx:3:9
+  |
+3 |         Base.prnit("x")
+  |         ^^^^^^^^^^
+
+Hint:
+  Check the Base surface or remove this name from `except`.
+
+
+error[E407]: Unknown Effect
+
+Function effect annotation references unknown effect `I`.
+
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectTypo.flx:2:27
+  |
+2 |     fn bad() -> Unit with I {
+  |                           ^
+  |                           - unknown effect in function annotation
+
+Hint:
+  did you mean `IO`?
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `prnit`.
+
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownIdentifierTypo.flx:3:9
+  |
+3 |         prnit("x")
+  |         ^^^^^
+
+Hint:
+  Define it first: let prnit = ...;
+
+Help:
+  Did you mean `print`?
+
+
+error[E056]: Wrong Number Of Arguments
+
+The `add` function takes 2 arguments, but 1 were provided.
+
+  examples/compiler_errors/adversarial/common_dev_mistakes/WrongArity.flx:7:9
+  |
+7 |         add(1)
+  |         ^^^^^^
+  |         ------ 1 arguments provided here, expected 2
+
+Help:
+  Add 1 missing argument(s), for example: `add(arg1, arg2)`.
+
+Found 7 errors and 1 note across 8 modules.
+== stdout ==
+<not executed>

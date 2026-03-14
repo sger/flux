@@ -5,11 +5,11 @@ Fixture: examples/functions/immutability_valid.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E001]: DUPLICATE NAME
+error[E001]: Duplicate Name
 
 Duplicate binding: `counter` is already defined.
 
-  --> examples/functions/immutability_valid.flx:16:9
+  examples/functions/immutability_valid.flx:16:9
    |
 16 |         let counter = n + 1;
    |         ^^^^^^^^^^^^^^^^^^^^
@@ -18,9 +18,36 @@ Hint:
   Use a different name or remove the previous definition.
 
    = note: first defined here
-  --> examples/functions/immutability_valid.flx:13:5
+  examples/functions/immutability_valid.flx:13:5
    |
 13 |     let counter = 0;
    |     ^^^^^^^^^^^^^^^^
+
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `double`.
+
+  examples/functions/immutability_valid.flx:32:32
+   |
+27 |     fn double(n) {
+28 |         return n * 2;
+29 |     }
+30 | 
+31 | 
+32 |     let first_doubled = double(first(numbers));
+   |                                ^^^^^^^^^^^^^^
+   |                                -------------- this argument has type `Option<Int>`
+
+Note:
+  expected argument type: Int
+  found argument type: Option<Int>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  This value might be `None`. Use `match` to unwrap it before using it here.
+
+Found 2 errors.
 == stdout ==
 <not executed>

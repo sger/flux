@@ -1,9 +1,12 @@
+use crate::diagnostics::{missing_comma, unclosed_delimiter, unexpected_token};
 use crate::syntax::{
     expression::Expression, interner::Interner, lexer::Lexer, parser::Parser, program::Program,
     statement::Statement, token::Token, token_type::TokenType,
 };
 
-use super::{is_pascal_case_ident, is_uppercase_ident};
+use super::{
+    RecoveryBoundary, is_pascal_case_ident, is_structural_parse_diagnostic_code, is_uppercase_ident,
+};
 
 fn parse_ok(input: &str) -> (Program, Interner) {
     let lexer = Lexer::new(input);
@@ -24,6 +27,104 @@ fn parse_with_errors(input: &str) -> (Program, Parser) {
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
     (program, parser)
+}
+
+#[test]
+fn requested_recovery_boundary_is_consumed_once() {
+    let lexer = Lexer::new("let x = 1");
+    let mut parser = Parser::new(lexer);
+
+    parser.request_recovery_boundary(RecoveryBoundary::Statement);
+    assert_eq!(
+        parser.take_requested_recovery_boundary(),
+        Some(RecoveryBoundary::Statement)
+    );
+    assert_eq!(parser.take_requested_recovery_boundary(), None);
+}
+
+#[test]
+fn structural_parser_diagnostics_are_classified_centrally() {
+    assert!(is_structural_parse_diagnostic_code(Some("E034")));
+    assert!(is_structural_parse_diagnostic_code(Some("E071")));
+    assert!(is_structural_parse_diagnostic_code(Some("E076")));
+    assert!(!is_structural_parse_diagnostic_code(Some("E030")));
+    assert!(!is_structural_parse_diagnostic_code(Some("E073")));
+}
+
+#[test]
+fn structural_diagnostic_starts_suppression_and_recovery_clears_it() {
+    let lexer = Lexer::new("let x = 1");
+    let mut parser = Parser::new(lexer);
+    parser.begin_statement_recovery();
+
+    assert!(parser.push_parser_diagnostic(unclosed_delimiter(
+        crate::diagnostics::position::Span::new(
+            parser.current_token.position,
+            parser.current_token.position
+        ),
+        "(",
+        ")",
+        None,
+    )));
+    assert!(parser.recovery_state.structural_root().is_some());
+    assert!(!parser.push_parser_diagnostic(missing_comma(
+        parser.current_token.span(),
+        "arguments",
+        "`f(a, b)`",
+    )));
+
+    parser.request_recovery_boundary(RecoveryBoundary::Statement);
+    parser.synchronize_recovery_boundary(RecoveryBoundary::Statement);
+
+    assert!(parser.recovery_state.structural_root().is_none());
+    assert!(parser.push_parser_diagnostic(unexpected_token(
+        parser.current_token.span(),
+        "non-structural followup after recovery",
+    )));
+}
+
+#[test]
+fn single_parser_context_keeps_single_breadcrumb() {
+    let lexer = Lexer::new("let x = 1");
+    let mut parser = Parser::new(lexer);
+    let _context = parser.enter_parser_context(super::ParserContext::Function("main".to_string()));
+
+    assert_eq!(
+        parser.current_parser_breadcrumb().as_deref(),
+        Some("function `main`")
+    );
+}
+
+#[test]
+fn nested_parser_contexts_render_outer_to_inner_chain() {
+    let lexer = Lexer::new("let x = 1");
+    let mut parser = Parser::new(lexer);
+    let _fn_context =
+        parser.enter_parser_context(super::ParserContext::Function("main".to_string()));
+    let _lambda_context = parser.enter_parser_context(super::ParserContext::Lambda);
+    let _match_context = parser.enter_parser_context(super::ParserContext::MatchExpression);
+
+    assert_eq!(
+        parser.current_parser_breadcrumb().as_deref(),
+        Some("function `main` > lambda expression > `match` expression")
+    );
+}
+
+#[test]
+fn deep_parser_contexts_truncate_middle_of_breadcrumb_chain() {
+    let lexer = Lexer::new("let x = 1");
+    let mut parser = Parser::new(lexer);
+    let _module_context =
+        parser.enter_parser_context(super::ParserContext::Module("Outer".to_string()));
+    let _fn_context =
+        parser.enter_parser_context(super::ParserContext::Function("main".to_string()));
+    let _lambda_context = parser.enter_parser_context(super::ParserContext::Lambda);
+    let _match_context = parser.enter_parser_context(super::ParserContext::MatchExpression);
+
+    assert_eq!(
+        parser.current_parser_breadcrumb().as_deref(),
+        Some("module `Outer` > ... > lambda expression > `match` expression")
+    );
 }
 
 #[test]
@@ -302,9 +403,28 @@ fn parses_typed_function_signature_with_effect_row_ops() {
 }
 
 #[test]
+fn parses_open_row_tail_only_effect() {
+    let (program, interner) = parse_ok("fn run() -> Int with |e { 1 }");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Function { effects, .. } => {
+            assert_eq!(
+                effects
+                    .iter()
+                    .map(|e| e.display_with(&interner))
+                    .collect::<Vec<_>>(),
+                vec!["|e".to_string()]
+            );
+        }
+        _ => panic!("expected function statement"),
+    }
+}
+
+#[test]
 fn parses_function_type_annotation_with_effect_row_ops() {
     let (program, interner) =
-        parse_ok("let f: (Int) -> Int with e + IO - Console = \\(x: Int) -> x;");
+        parse_ok("let f: (Int) -> Int with IO | e - Console = \\(x: Int) -> x;");
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
@@ -314,11 +434,71 @@ fn parses_function_type_annotation_with_effect_row_ops() {
         } => {
             assert_eq!(
                 ty.display_with(&interner),
-                "Int -> Int with e + IO - Console"
+                "Int -> Int with IO + |e - Console"
             );
         }
         _ => panic!("expected typed let statement"),
     }
+}
+
+#[test]
+fn rejects_implicit_row_variable_syntax() {
+    let (_program, parser) = parse_with_errors("fn f() -> Int with e + IO { 1 }");
+    assert!(
+        !parser.errors.is_empty(),
+        "expected parser error for implicit row variable syntax"
+    );
+
+    let renderer = parser
+        .errors
+        .iter()
+        .map(|d| d.message().unwrap_or("").to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        renderer.contains("Implicit row variables"),
+        "expected implicit-row-variable parser diagnostic, got: {renderer}"
+    );
+}
+
+#[test]
+fn rejects_uppercase_row_tail_variable() {
+    let (_program, parser) = parse_with_errors("fn f() -> Int with IO | E { 1 }");
+    assert!(
+        !parser.errors.is_empty(),
+        "expected parser error for upppercase row tail variable"
+    );
+
+    let renderer = parser
+        .errors
+        .iter()
+        .map(|d| d.message().unwrap_or("").to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        renderer.contains("tail variables must be lowercase"),
+        "expected lowercase-tail parser diagnostic, got: {renderer}"
+    );
+}
+
+#[test]
+fn rejects_missing_row_tail_variable() {
+    let (_program, parser) = parse_with_errors("fn f() -> Int with IO | { 1 }");
+    assert!(
+        !parser.errors.is_empty(),
+        "expected parser error for missing row tail variable"
+    );
+
+    let renderer = parser
+        .errors
+        .iter()
+        .map(|d| d.message().unwrap_or("").to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        renderer.contains("Expected row variable name after `|`"),
+        "expected missing-row-tail parser diagnostic, got: {renderer}"
+    );
 }
 
 #[test]
@@ -502,7 +682,7 @@ fn missing_open_brace_reports_contextual_error() {
     );
     let msg = parser.errors[0].message.as_deref().unwrap_or("");
     assert!(
-        msg.contains("Expected `{` to begin function body"),
+        msg.contains("This function body needs to start with `{`."),
         "expected contextual brace error, got: {msg}"
     );
 }

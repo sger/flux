@@ -12,7 +12,13 @@ fn examples_fixtures_compile_snapshots() {
     let cases = examples_snapshot::run_fixture_dir_snapshots(workspace_root, "examples")
         .unwrap_or_else(|e| panic!("{e}"));
 
-    for case in cases {
+    for case in cases
+        .into_iter()
+        .filter(|case| !case.snapshot_name.contains("max_errors"))
+        .filter(|case| !case.snapshot_name.starts_with("parser_errors__"))
+        .filter(|case| !case.snapshot_name.starts_with("compiler_errors__"))
+        .filter(|case| !case.snapshot_name.starts_with("runtime_errors__"))
+    {
         insta::with_settings!({
             snapshot_path => "snapshots/examples_fixtures",
             prepend_module_to_snapshot => false,

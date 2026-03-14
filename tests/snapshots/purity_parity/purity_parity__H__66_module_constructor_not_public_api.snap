@@ -1,6 +1,5 @@
 ---
 source: tests/purity_vm_jit_parity_snapshots.rs
-assertion_line: 53
 ---
 Fixture: examples/type_system/failing/66_module_constructor_not_public_api.flx
 Category: H
@@ -16,12 +15,12 @@ $ flux --no-cache --strict --root examples/type_system examples/type_system/fail
 exit_code: 1
 
 == vm tuples ==
-- E425 | STRICT UNRESOLVED BOUNDARY TYPE | runtime boundary check is unresolved in strict mode
-- E086 | CROSS-MODULE CONSTRUCTOR ACCESS | 
+- E425 | Unresolved Boundary Type | runtime boundary check is unresolved in strict mode
+- E086 | Cross-Module Constructor Access | 
 
 == jit tuples ==
-- E425 | STRICT UNRESOLVED BOUNDARY TYPE | runtime boundary check is unresolved in strict mode
-- E086 | CROSS-MODULE CONSTRUCTOR ACCESS | 
+- E425 | Unresolved Boundary Type | runtime boundary check is unresolved in strict mode
+- E086 | Cross-Module Constructor Access | 
 
 == parity ==
 match

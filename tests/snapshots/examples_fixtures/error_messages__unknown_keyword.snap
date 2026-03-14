@@ -5,16 +5,31 @@ Fixture: examples/error_messages/unknown_keyword.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E030]: UNKNOWN KEYWORD
+error[E030]: Unknown Keyword
 
 Unknown keyword `function`. Flux uses `fn` for function declarations.
 
-  --> examples/error_messages/unknown_keyword.flx:6:1
+  examples/error_messages/unknown_keyword.flx:6:1
   |
 6 | function add(a, b) {
   | ^^^^^^^^
 
 Hint:
   Did you mean `fn`?
+
+
+error[E034]: Missing Hash Colon
+
+This hash entry needs `:` between the key and value.
+
+  examples/error_messages/unknown_keyword.flx:8:1
+  |
+8 | }
+  | ^
+
+Hint:
+  Hash literals use `{key: value, ...}`.
+
+Found 2 errors.
 == stdout ==
 <not executed>

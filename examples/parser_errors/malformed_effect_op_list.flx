@@ -1,0 +1,6 @@
+effect Console {
+    print: String -> Unit,,
+    read: Unit -> String
+}
+
+fn main() -> Unit {}

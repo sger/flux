@@ -6,24 +6,41 @@ use crate::runtime::{
     value::Value,
 };
 
-use super::helpers::{arg_array, arg_int, check_arity, format_hint, type_error};
+use super::helpers::{
+    arg_array_ref, arg_int_ref, check_arity, check_arity_ref, format_hint, type_error,
+};
 use super::list_ops;
 
 pub(super) fn base_len(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 1, "len", "len(value)")?;
-    match &args[0] {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_len_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_len_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "len", "len(value)")?;
+    match args[0] {
         Value::String(s) => Ok(Value::Integer(s.len() as i64)),
         Value::Array(arr) => Ok(Value::Integer(arr.len() as i64)),
         Value::Tuple(tuple) => Ok(Value::Integer(tuple.len() as i64)),
         Value::None | Value::EmptyList => Ok(Value::Integer(0)),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => match list_ops::list_len(ctx, &args[0]) {
+            HeapObject::Cons { .. } => match list_ops::list_len(ctx, args[0]) {
                 Some(len) => Ok(Value::Integer(len as i64)),
                 None => Err("len: malformed list".to_string()),
             },
             HeapObject::HamtNode { .. } | HeapObject::HamtCollision { .. } => {
                 Ok(Value::Integer(hamt_len(ctx.gc_heap(), *h) as i64))
             }
+            HeapObject::Adt { .. } => Err(type_error(
+                "len",
+                "argument",
+                "String, Array, Tuple, List, or Map",
+                "Adt",
+                "len(value)",
+            )),
         },
         other => Err(type_error(
             "len",
@@ -36,8 +53,16 @@ pub(super) fn base_len(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result
 }
 
 pub(super) fn base_first(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 1, "first", "first(collection)")?;
-    match &args[0] {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_first_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_first_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "first", "first(collection)")?;
+    match args[0] {
         Value::Array(arr) => {
             if arr.is_empty() {
                 Ok(Value::None)
@@ -67,8 +92,16 @@ pub(super) fn base_first(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resu
 }
 
 pub(super) fn base_last(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 1, "last", "last(collection)")?;
-    match &args[0] {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_last_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_last_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "last", "last(collection)")?;
+    match args[0] {
         Value::Array(arr) => {
             if arr.is_empty() {
                 Ok(Value::None)
@@ -78,7 +111,7 @@ pub(super) fn base_last(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resul
         }
         Value::None | Value::EmptyList => Ok(Value::None),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => match list_ops::collect_list(ctx, &args[0]) {
+            HeapObject::Cons { .. } => match list_ops::collect_list(ctx, args[0]) {
                 Some(elems) if elems.is_empty() => Ok(Value::None),
                 Some(elems) => Ok(elems.into_iter().last().unwrap()),
                 None => Err("last: malformed list".to_string()),
@@ -102,8 +135,16 @@ pub(super) fn base_last(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resul
 }
 
 pub(super) fn base_rest(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 1, "rest", "rest(collection)")?;
-    match &args[0] {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_rest_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_rest_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "rest", "rest(collection)")?;
+    match args[0] {
         Value::Array(arr) => {
             if arr.is_empty() {
                 Ok(Value::None)
@@ -191,26 +232,29 @@ pub(super) fn base_concat(
 
 pub(super) fn base_reverse(
     ctx: &mut dyn RuntimeContext,
-    mut args: Vec<Value>,
+    args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 1, "reverse", "reverse(collection)")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_reverse_borrowed(ctx, &borrowed)
+}
 
-    match &args[0] {
-        Value::Array(_) => {
-            let arr_val = args.swap_remove(0);
-            match arr_val {
-                Value::Array(mut arr) => {
-                    Rc::make_mut(&mut arr).reverse();
-                    Ok(Value::Array(arr))
-                }
-                _ => unreachable!(),
-            }
+pub(super) fn base_reverse_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "reverse", "reverse(collection)")?;
+
+    match args[0] {
+        Value::Array(arr) => {
+            let mut out = (**arr).clone();
+            out.reverse();
+            Ok(Value::Array(out.into()))
         }
         Value::None | Value::EmptyList => Ok(Value::None),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
                 let elements =
-                    list_ops::collect_list(ctx, &args[0]).ok_or("reverse: malformed list")?;
+                    list_ops::collect_list(ctx, args[0]).ok_or("reverse: malformed list")?;
                 let mut list = Value::None;
                 for elem in elements {
                     let handle = ctx.gc_heap_mut().alloc(HeapObject::Cons {
@@ -243,9 +287,17 @@ pub(super) fn base_contains(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 2, "contains", "contains(collection, elem)")?;
-    let elem = &args[1];
-    match &args[0] {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_contains_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_contains_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 2, "contains", "contains(collection, elem)")?;
+    let elem = args[1];
+    match args[0] {
         Value::Array(arr) => {
             let found = arr.iter().any(|item| item == elem);
             Ok(Value::Boolean(found))
@@ -254,7 +306,7 @@ pub(super) fn base_contains(
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
                 let elements =
-                    list_ops::collect_list(ctx, &args[0]).ok_or("contains: malformed list")?;
+                    list_ops::collect_list(ctx, args[0]).ok_or("contains: malformed list")?;
                 let found = elements.iter().any(|item| item == elem);
                 Ok(Value::Boolean(found))
             }
@@ -277,28 +329,24 @@ pub(super) fn base_contains(
 }
 
 pub(super) fn base_slice(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 3, "slice", "slice(arr, start, end)")?;
-    let arr = arg_array(
-        &args,
-        0,
-        "slice",
-        "first argument",
-        "slice(arr, start, end)",
-    )?;
-    let start = arg_int(
-        &args,
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_slice_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_slice_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 3, "slice", "slice(arr, start, end)")?;
+    let arr = arg_array_ref(args, 0, "slice", "first argument", "slice(arr, start, end)")?;
+    let start = arg_int_ref(
+        args,
         1,
         "slice",
         "second argument",
         "slice(arr, start, end)",
     )?;
-    let end = arg_int(
-        &args,
-        2,
-        "slice",
-        "third argument",
-        "slice(arr, start, end)",
-    )?;
+    let end = arg_int_ref(args, 2, "slice", "third argument", "slice(arr, start, end)")?;
     let len = arr.len() as i64;
     let start = if start < 0 { 0 } else { start as usize };
     let end = if end > len {
@@ -317,9 +365,17 @@ pub(super) fn base_slice(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
 ///
 /// End is exclusive. Supports ascending and descending ranges.
 pub(super) fn base_range(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 2, "range", "range(start, end)")?;
-    let start = arg_int(&args, 0, "range", "first argument", "range(start, end)")?;
-    let end = arg_int(&args, 1, "range", "second argument", "range(start, end)")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_range_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_range_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 2, "range", "range(start, end)")?;
+    let start = arg_int_ref(args, 0, "range", "first argument", "range(start, end)")?;
+    let end = arg_int_ref(args, 1, "range", "second argument", "range(start, end)")?;
 
     let mut out = Vec::new();
     if start < end {
@@ -339,7 +395,7 @@ pub(super) fn base_range(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
 }
 
 fn aggregate_numeric(
-    values: &[Value],
+    values: &[&Value],
     name: &str,
     signature: &str,
     product: bool,
@@ -399,15 +455,26 @@ fn aggregate_numeric(
 
 /// sum(collection) - Sum numeric elements in an array or list.
 pub(super) fn base_sum(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 1, "sum", "sum(collection)")?;
-    match &args[0] {
-        Value::Array(arr) => aggregate_numeric(arr, "sum", "sum(collection)", false),
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_sum_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_sum_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "sum", "sum(collection)")?;
+    match args[0] {
+        Value::Array(arr) => {
+            let values: Vec<&Value> = arr.iter().collect();
+            aggregate_numeric(&values, "sum", "sum(collection)", false)
+        }
         Value::None | Value::EmptyList => Ok(Value::Integer(0)),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
-                let elements =
-                    list_ops::collect_list(ctx, &args[0]).ok_or("sum: malformed list")?;
-                aggregate_numeric(&elements, "sum", "sum(collection)", false)
+                let elements = list_ops::collect_list(ctx, args[0]).ok_or("sum: malformed list")?;
+                let values: Vec<&Value> = elements.iter().collect();
+                aggregate_numeric(&values, "sum", "sum(collection)", false)
             }
             _ => Err(type_error(
                 "sum",
@@ -432,15 +499,27 @@ pub(super) fn base_product(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 1, "product", "product(collection)")?;
-    match &args[0] {
-        Value::Array(arr) => aggregate_numeric(arr, "product", "product(collection)", true),
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_product_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_product_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "product", "product(collection)")?;
+    match args[0] {
+        Value::Array(arr) => {
+            let values: Vec<&Value> = arr.iter().collect();
+            aggregate_numeric(&values, "product", "product(collection)", true)
+        }
         Value::None | Value::EmptyList => Ok(Value::Integer(1)),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
                 let elements =
-                    list_ops::collect_list(ctx, &args[0]).ok_or("product: malformed list")?;
-                aggregate_numeric(&elements, "product", "product(collection)", true)
+                    list_ops::collect_list(ctx, args[0]).ok_or("product: malformed list")?;
+                let values: Vec<&Value> = elements.iter().collect();
+                aggregate_numeric(&values, "product", "product(collection)", true)
             }
             _ => Err(type_error(
                 "product",

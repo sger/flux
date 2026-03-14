@@ -1,0 +1,51 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/adversarial/stage_all_errors/Main.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E400]: Missing Ambient Effect
+
+Call to `print` requires effect `IO` in this function signature.
+
+  examples/compiler_errors/adversarial/stage_all_errors/EffectBroken.flx:3:9
+  |
+3 |         print("hi")
+  |         ^^^^^
+  |         ----- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+
+
+Note: Module Skipped
+
+I skipped module `examples/compiler_errors/adversarial/stage_all_errors/Main.flx` because its dependency `EffectBroken` already has errors.
+
+  examples/compiler_errors/adversarial/stage_all_errors/Main.flx:0:1
+  |
+
+
+error[E300]: Annotation Type Mismatch
+
+The value of `value` does not match its type annotation.
+
+  examples/compiler_errors/adversarial/stage_all_errors/TypeBroken.flx:3:26
+  |
+3 |         let value: Int = "oops"
+  |                          ^^^^^^
+  |                          ------ this value has type `String`
+
+  |                    --- but `value` was annotated as `Int`
+
+Note:
+  annotated type: Int
+  value type: String
+
+Help:
+  Change `value` to a `Int` value or update the annotation.
+
+Found 2 errors and 1 note across 3 modules.
+== stdout ==
+<not executed>

@@ -4,17 +4,17 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/recovery/missing_closer_then_continue.flx
 exit_code: 1
 
---> compiler error[E076]: UNCLOSED DELIMITER
+error[E076]: Missing Closing Delimiter
 
 Expected a closing `]` to match this opening `[`.
 
-  --> tests/fixtures/recovery/missing_closer_then_continue.flx:1:9
+  tests/fixtures/recovery/missing_closer_then_continue.flx:1:9
   |
 1 | let a = [1, 2, 3;
   |         ^
 
 note: Expected `]` before this token.
-  --> tests/fixtures/recovery/missing_closer_then_continue.flx:1:17
+  tests/fixtures/recovery/missing_closer_then_continue.flx:1:17
   |
 1 | let a = [1, 2, 3;
   |                 ^

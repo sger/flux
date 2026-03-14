@@ -1,0 +1,33 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/CollectionsConfusion.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `sum`.
+
+  examples/compiler_errors/adversarial/common_dev_mistakes/CollectionsConfusion.flx:7:13
+  |
+1 | module CollectionsConfusion {
+2 |     fn sum(xs: List<Int>) -> Int {
+3 |         len(xs)
+4 |     }
+5 | 
+6 |     fn bad() -> Int {
+7 |         sum([|1, 2, 3|])
+  |             ^^^^^^^^^^^
+  |             ----------- this argument has type `Array<Int>`
+
+Note:
+  expected argument type: List<Int>
+  found argument type: Array<Int>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `List<Int>` value as the 1st argument.
+== stdout ==
+<not executed>

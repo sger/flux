@@ -5,11 +5,11 @@ Fixture: examples/type_system/01_typed_let_and_functions.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E071]: UNTERMINATED STRING
+error[E071]: Unterminated String
 
 String literal is missing closing quote.
 
-  --> examples/type_system/01_typed_let_and_functions.flx:2:21
+  examples/type_system/01_typed_let_and_functions.flx:2:21
   |
 2 | let label: String = "The answer
   |                     ^^^^^^^^^^^
@@ -18,34 +18,46 @@ Hint:
   Add a closing " at the end of the string.
 
 
---> compiler error[E034]: UNEXPECTED TOKEN
+error[E034]: Missing Type Annotation Colon
 
 Missing `:` in let binding type annotation. Write it as `point: Type`.
 
-  --> examples/type_system/01_typed_let_and_functions.flx:3:11
+  examples/type_system/01_typed_let_and_functions.flx:3:11
   |
 3 | let point (Int, Int) = (10, 20)
   |           ^
 
+Hint:
+  Type annotations use `name: Type`.
 
---> compiler error[E034]: UNEXPECTED TOKEN
 
-Empty interpolation `#{}` — provide an expression between the braces.
+error[E034]: Empty String Interpolation
 
-  --> examples/type_system/01_typed_let_and_functions.flx:11:14
+Empty interpolation `#{}` needs an expression between the braces.
+
+  examples/type_system/01_typed_let_and_functions.flx:11:14
    |
 11 |     "Point(#{}, #{y})"
    |              ^
 
+Hint:
+  Interpolation segments use `#{expr}` inside strings.
 
---> compiler error[E076]: UNCLOSED DELIMITER
+Note:
+  while parsing function `distance_tag`
+
+
+error[E076]: Missing Closing Delimiter
 
 Expected a closing `}` to match this opening `{` in function `main`.
 
-  --> examples/type_system/01_typed_let_and_functions.flx:14:18
+  examples/type_system/01_typed_let_and_functions.flx:14:18
    |
 14 | fn main() with I {
    |                  ^
+
+Note:
+  while parsing function `main`
 
 Help:
   Add `}` to close the body of function `main`.

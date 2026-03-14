@@ -1,0 +1,20 @@
+// E421: concrete subtraction fails when the removed effect is present.
+
+effect Console {
+    print: String -> ()
+}
+
+fn run_filtered(f: (() -> Int with IO - Console)) -> Int with IO - Console {
+    f()
+}
+
+fn io_console_work() -> Int with IO, Console {
+    perform Console.print("console")
+    print("io")
+    1
+}
+
+fn main() with IO, Console {
+    run_filtered(io_console_work)
+    None
+}

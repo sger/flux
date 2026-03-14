@@ -5,38 +5,44 @@ Fixture: examples/type_system/failing/109_fun_return_bool_vs_unit.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+error[E300]: Return Type Mismatch
 
-The return value of `bad_bool` does not match its declared return type.
+The body of `bad_bool` does not match its declared return type.
 
-  --> examples/type_system/failing/109_fun_return_bool_vs_unit.flx:2:5
+  examples/type_system/failing/109_fun_return_bool_vs_unit.flx:2:5
   |
 1 | fn bad_bool() -> Bool {
-
   |                  ---- `bad_bool` was declared to return `Bool`
 2 |     0
   |     ^
   |     - this expression has type `Int`
 
+Note:
+  declared return type: Bool
+  body type: Int
+
 Help:
-  Return a `Bool` value from `bad_bool` or change the declared return type.
+  Booleans are not numeric in Flux. Use `true` or `false` here.
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+error[E300]: Return Type Mismatch
 
-The return value of `main` does not match its declared return type.
+The body of `main` does not match its declared return type.
 
-  --> examples/type_system/failing/109_fun_return_bool_vs_unit.flx:6:5
+  examples/type_system/failing/109_fun_return_bool_vs_unit.flx:6:5
   |
 5 | fn main() -> Unit {
-
   |              ---- `main` was declared to return `Unit`
 6 |     bad_bool()
   |     ^^^^^^^^^^
   |     ---------- this expression has type `Bool`
 
+Note:
+  declared return type: Unit
+  body type: Bool
+
 Help:
-  Return a `Unit` value from `main` or change the declared return type.
+  Return a `Unit` value from `main` or change its annotation.
 
 Found 2 errors.
 == stdout ==

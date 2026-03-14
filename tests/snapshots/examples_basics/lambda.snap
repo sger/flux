@@ -3,8 +3,26 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/lambda.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Parameter Type Mismatch
+
+Parameter 2 has the wrong type.
+
+  examples/basics/lambda.flx:64:15
+   |
+64 | let tripled = myMap(nums, /x -> x * 3);
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+   |               ------------------------ parameter 2 has type `Int`
+
+   |               ------------------------ this type mismatch is reported here
+
+Note:
+  expected parameter type: Option<Int>
+  found parameter type: Int
+  the conflicting types meet at this expression
+
+Help:
+  Wrap this value in `Some(...)` or return `None`.
 == stdout ==
 <not executed>

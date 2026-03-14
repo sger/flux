@@ -4,11 +4,11 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/nested/deep_parens.flx
 exit_code: 1
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> tests/fixtures/nested/deep_parens.flx:1:1
+  tests/fixtures/nested/deep_parens.flx:1:1
   |
 1 | print(((((1 + 2) * 3) - 4) / 5) == 0);
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -18,11 +18,11 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  --> tests/fixtures/nested/deep_parens.flx:1:1
+  tests/fixtures/nested/deep_parens.flx:1:1
   |
 1 | print(((((1 + 2) * 3) - 4) / 5) == 0);
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -31,4 +31,18 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-Found 2 errors.
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  tests/fixtures/nested/deep_parens.flx:1:1
+  |
+1 | print(((((1 + 2) * 3) - 4) / 5) == 0);
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 3 errors.

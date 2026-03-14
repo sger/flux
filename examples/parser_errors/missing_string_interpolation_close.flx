@@ -1,0 +1,4 @@
+fn main() with IO {
+    let name = "Flux"
+    print("Hello #{name")
+}

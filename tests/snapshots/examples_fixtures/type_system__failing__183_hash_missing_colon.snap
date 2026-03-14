@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/183_hash_missing_colon.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
+error[E034]: Missing Hash Colon
 
-Expected `:` between hash key and value.
+This hash entry needs `:` between the key and value.
 
-  --> examples/type_system/failing/183_hash_missing_colon.flx:1:15
+  examples/type_system/failing/183_hash_missing_colon.flx:1:15
   |
 1 | let h = { "a" 1 }
   |               ^

@@ -1,0 +1,7 @@
+import HiddenApi
+
+module PrivateMemberAccess {
+    fn leak() -> Int {
+        HiddenApi._private_secret()
+    }
+}

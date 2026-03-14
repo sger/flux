@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/147_constructor_pattern_arity_none_too_man
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E085]: CONSTRUCTOR PATTERN ARITY MISMATCH
+error[E085]: Constructor Pattern Arity Mismatch
 
 Constructor pattern `NoneI` expects 0 argument(s) but got 1.
 
-  --> examples/type_system/failing/147_constructor_pattern_arity_none_too_many.flx:8:9
+  examples/type_system/failing/147_constructor_pattern_arity_none_too_many.flx:8:9
   |
 8 |         NoneI(v) -> v,
   |         ^^^^^^^^

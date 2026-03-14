@@ -1,9 +1,14 @@
 use std::{cell::RefCell, fmt, rc::Rc};
 
 use crate::runtime::{
-    closure::Closure, compiled_function::CompiledFunction, continuation::Continuation,
-    gc::gc_handle::GcHandle, handler_descriptor::HandlerDescriptor, hash_key::HashKey,
-    jit_closure::JitClosure, perform_descriptor::PerformDescriptor,
+    closure::Closure,
+    compiled_function::CompiledFunction,
+    continuation::Continuation,
+    gc::{gc_handle::GcHandle, gc_heap::GcHeap, heap_object::HeapObject},
+    handler_descriptor::HandlerDescriptor,
+    hash_key::HashKey,
+    jit_closure::JitClosure,
+    perform_descriptor::PerformDescriptor,
 };
 
 /// Inner data for an ADT constructor value, boxed behind a single `Rc` so that
@@ -12,7 +17,203 @@ use crate::runtime::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdtValue {
     pub constructor: Rc<str>,
-    pub fields: Vec<Value>,
+    pub fields: AdtFields,
+}
+
+/// Inline storage for ADT fields. Stores up to 3 fields without a heap
+/// allocation; falls back to `Vec` for larger constructors.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AdtFields {
+    One(Value),
+    Two(Value, Value),
+    Three(Value, Value, Value),
+    Many(Vec<Value>),
+}
+
+impl AdtFields {
+    /// Build from a pre-collected `Vec<Value>`. Moves values into inline
+    /// storage when the count is ≤ 3.
+    pub fn from_vec(mut v: Vec<Value>) -> Self {
+        match v.len() {
+            1 => AdtFields::One(v.pop().unwrap()),
+            2 => {
+                let b = v.pop().unwrap();
+                let a = v.pop().unwrap();
+                AdtFields::Two(a, b)
+            }
+            3 => {
+                let c = v.pop().unwrap();
+                let b = v.pop().unwrap();
+                let a = v.pop().unwrap();
+                AdtFields::Three(a, b, c)
+            }
+            _ => AdtFields::Many(v),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            AdtFields::One(_) => 1,
+            AdtFields::Two(..) => 2,
+            AdtFields::Three(..) => 3,
+            AdtFields::Many(v) => v.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        false // AdtFields never empty; zero-field ADTs use Value::AdtUnit
+    }
+
+    pub fn get(&self, idx: usize) -> Option<&Value> {
+        match (self, idx) {
+            (AdtFields::One(a), 0) => Some(a),
+            (AdtFields::Two(a, _), 0) => Some(a),
+            (AdtFields::Two(_, b), 1) => Some(b),
+            (AdtFields::Three(a, _, _), 0) => Some(a),
+            (AdtFields::Three(_, b, _), 1) => Some(b),
+            (AdtFields::Three(_, _, c), 2) => Some(c),
+            (AdtFields::Many(v), i) => v.get(i),
+            _ => None,
+        }
+    }
+
+    pub fn iter(&self) -> AdtFieldsIter<'_> {
+        AdtFieldsIter {
+            fields: self,
+            idx: 0,
+        }
+    }
+
+    /// Consume into an iterator that yields owned values without heap allocation
+    /// for the common 1-3 field cases.
+    #[allow(clippy::should_implement_trait)]
+    pub fn into_iter(self) -> AdtFieldsIntoIter {
+        match self {
+            AdtFields::One(a) => AdtFieldsIntoIter::Inline {
+                values: [Some(a), None, None],
+                pos: 0,
+                len: 1,
+            },
+            AdtFields::Two(a, b) => AdtFieldsIntoIter::Inline {
+                values: [Some(a), Some(b), None],
+                pos: 0,
+                len: 2,
+            },
+            AdtFields::Three(a, b, c) => AdtFieldsIntoIter::Inline {
+                values: [Some(a), Some(b), Some(c)],
+                pos: 0,
+                len: 3,
+            },
+            AdtFields::Many(v) => AdtFieldsIntoIter::Vec(v.into_iter()),
+        }
+    }
+
+    /// Destructure a 2-field ADT into its two fields without allocating an iterator.
+    /// Returns `None` if the field count is not exactly 2.
+    pub fn into_two(self) -> Option<(Value, Value)> {
+        match self {
+            AdtFields::Two(a, b) => Some((a, b)),
+            AdtFields::Many(mut v) if v.len() == 2 => {
+                let b = v.pop().unwrap();
+                let a = v.pop().unwrap();
+                Some((a, b))
+            }
+            _ => None,
+        }
+    }
+
+    /// Consume and return the value at `idx` without allocating an iterator.
+    /// Returns `None` if `idx` is out of bounds.
+    pub fn into_nth(self, idx: usize) -> Option<Value> {
+        match (self, idx) {
+            (AdtFields::One(a), 0) => Some(a),
+            (AdtFields::Two(a, _), 0) => Some(a),
+            (AdtFields::Two(_, b), 1) => Some(b),
+            (AdtFields::Three(a, _, _), 0) => Some(a),
+            (AdtFields::Three(_, b, _), 1) => Some(b),
+            (AdtFields::Three(_, _, c), 2) => Some(c),
+            (AdtFields::Many(mut v), i) if i < v.len() => Some(v.remove(i)),
+            _ => None,
+        }
+    }
+}
+
+pub struct AdtFieldsIter<'a> {
+    fields: &'a AdtFields,
+    idx: usize,
+}
+
+impl<'a> Iterator for AdtFieldsIter<'a> {
+    type Item = &'a Value;
+    fn next(&mut self) -> Option<Self::Item> {
+        let val = self.fields.get(self.idx)?;
+        self.idx += 1;
+        Some(val)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.fields.len() - self.idx;
+        (remaining, Some(remaining))
+    }
+}
+
+pub enum AdtFieldsIntoIter {
+    /// Inline storage for 1-3 fields — no heap allocation.
+    Inline {
+        values: [Option<Value>; 3],
+        pos: usize,
+        len: usize,
+    },
+    Vec(std::vec::IntoIter<Value>),
+}
+
+impl Iterator for AdtFieldsIntoIter {
+    type Item = Value;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            AdtFieldsIntoIter::Inline { values, pos, len } => {
+                if *pos >= *len {
+                    return None;
+                }
+                let val = values[*pos]
+                    .take()
+                    .expect("inline iterator slot already consumed");
+                *pos += 1;
+                Some(val)
+            }
+            AdtFieldsIntoIter::Vec(it) => it.next(),
+        }
+    }
+}
+
+impl std::ops::Index<usize> for AdtFields {
+    type Output = Value;
+    fn index(&self, idx: usize) -> &Value {
+        self.get(idx).expect("AdtFields index out of bounds")
+    }
+}
+
+pub enum AdtRef<'a> {
+    Rc(&'a AdtValue),
+    Gc {
+        constructor: &'a Rc<str>,
+        fields: &'a AdtFields,
+    },
+}
+
+impl<'a> AdtRef<'a> {
+    pub fn constructor(&self) -> &str {
+        match self {
+            AdtRef::Rc(adt) => adt.constructor.as_ref(),
+            AdtRef::Gc { constructor, .. } => constructor.as_ref(),
+        }
+    }
+
+    pub fn fields(&self) -> &'a AdtFields {
+        match self {
+            AdtRef::Rc(adt) => &adt.fields,
+            AdtRef::Gc { fields, .. } => fields,
+        }
+    }
 }
 
 /// Runtime value used by the VM stack, globals, constants, and closures.
@@ -46,7 +247,7 @@ pub struct AdtValue {
 /// Using `Rc<str>` instead of `Rc<String>` avoids double indirection.
 /// Using `Rc<Vec<Value>>` and `Rc<HashMap<...>>` makes cloning O(1) instead of O(n).
 ///
-/// See [Proposal 0019](../../docs/proposals/0019_zero_copy_value_passing.md) for details.
+/// See [Proposal 0019](../../docs/proposals/implemented/0019_zero_copy_value_passing.md) for details.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     /// Internal VM stack sentinel for uninitialized/inactive slots.
@@ -87,8 +288,13 @@ pub enum Value {
     Tuple(Rc<Vec<Value>>),
     /// GC-managed heap object (cons cell, HAMT map node).
     Gc(GcHandle),
+    /// GC-managed ADT payload.
+    GcAdt(GcHandle),
     /// User-defined ADT constructor value: `Circle(1.0)`, `Red`, `Node(l, v, r)`.
     Adt(Rc<AdtValue>),
+    /// Zero-field ADT constructor: `Tip`, `Red`, `None` (user-defined).
+    /// Avoids heap-allocating an `Rc<AdtValue>` + empty `Vec` for nullary constructors.
+    AdtUnit(Rc<str>),
     /// A captured one-shot delimited continuation (result of `OpPerform`).
     /// Calling this value with one argument resumes the suspended computation.
     Continuation(Rc<RefCell<Continuation>>),
@@ -131,6 +337,7 @@ impl fmt::Display for Value {
                 }
             }
             Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
+            Value::GcAdt(handle) => write!(f, "<gc-adt@{}>", handle.index()),
             Value::Adt(adt) => {
                 if adt.fields.is_empty() {
                     write!(f, "{}", adt.constructor)
@@ -139,6 +346,7 @@ impl fmt::Display for Value {
                     write!(f, "{}({})", adt.constructor, items.join(", "))
                 }
             }
+            Value::AdtUnit(name) => write!(f, "{}", name),
             Value::Continuation(_) => write!(f, "<continuation>"),
             Value::HandlerDescriptor(_) | Value::PerformDescriptor(_) => {
                 write!(f, "<internal>")
@@ -171,7 +379,7 @@ impl Value {
             Value::Array(_) => "Array",
             Value::Tuple(_) => "Tuple",
             Value::Gc(_) => "Gc",
-            Value::Adt(_) => "Adt",
+            Value::GcAdt(_) | Value::Adt(_) | Value::AdtUnit(_) => "Adt",
             Value::Continuation(_) => "Continuation",
             Value::HandlerDescriptor(_) => "HandlerDescriptor",
             Value::PerformDescriptor(_) => "PerformDescriptor",
@@ -239,6 +447,7 @@ impl Value {
                 }
             }
             Value::Gc(handle) => format!("<gc@{}>", handle.index()),
+            Value::GcAdt(handle) => format!("<gc-adt@{}>", handle.index()),
             Value::Adt(adt) => {
                 if adt.fields.is_empty() {
                     adt.constructor.to_string()
@@ -248,9 +457,54 @@ impl Value {
                     format!("{}({})", adt.constructor, items.join(", "))
                 }
             }
+            Value::AdtUnit(name) => name.to_string(),
             Value::Continuation(_) => "<continuation>".to_string(),
             Value::HandlerDescriptor(_) | Value::PerformDescriptor(_) => "<internal>".to_string(),
         }
+    }
+
+    pub fn as_adt<'a>(&'a self, heap: &'a GcHeap) -> Option<AdtRef<'a>> {
+        match self {
+            Value::Adt(adt) => Some(AdtRef::Rc(adt)),
+            Value::GcAdt(handle) => match heap.get(*handle) {
+                HeapObject::Adt {
+                    constructor,
+                    fields,
+                } => Some(AdtRef::Gc {
+                    constructor,
+                    fields,
+                }),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    pub fn adt_constructor<'a>(&'a self, heap: &'a GcHeap) -> Option<&'a str> {
+        match self {
+            Value::Adt(adt) => Some(adt.constructor.as_ref()),
+            Value::GcAdt(handle) => match heap.get(*handle) {
+                HeapObject::Adt { constructor, .. } => Some(constructor.as_ref()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    pub fn adt_field_count(&self, heap: &GcHeap) -> Option<usize> {
+        self.as_adt(heap).map(|adt| adt.fields().len())
+    }
+
+    pub fn adt_clone_field(&self, heap: &GcHeap, idx: usize) -> Option<Value> {
+        self.as_adt(heap)
+            .and_then(|adt| adt.fields().get(idx).cloned())
+    }
+
+    pub fn adt_clone_two_fields(&self, heap: &GcHeap) -> Option<(Value, Value)> {
+        let adt = self.as_adt(heap)?;
+        let f0 = adt.fields().get(0)?.clone();
+        let f1 = adt.fields().get(1)?.clone();
+        Some((f0, f1))
     }
 }
 

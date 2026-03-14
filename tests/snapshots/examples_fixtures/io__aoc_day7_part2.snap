@@ -3,8 +3,42 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/io/aoc_day7_part2.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 5th argument to `simulate`.
+
+  examples/io/aoc_day7_part2.flx:142:54
+    |
+125 | fn simulate(lines, row_idx, width, active_counts, finished) {
+126 |     if row_idx >= len(lines) {
+127 |         finished + sum(active_counts)
+128 |     } else {
+129 |     let row_txt_sim = line_at(lines, row_idx)
+130 |     let next0 = zeros(width)
+131 |     let r = process_cols(row_txt_sim, 0, width, active_counts, next0, finished)
+132 |     simulate(lines, row_idx + 1, width, step_next(r), step_done(r))
+133 | }
+134 | }
+135 | 
+136 | let input7 = read_lines("examples/io/aoc_day7.txt")
+137 | let width7 = max_width(input7, 0, 0)
+138 | let s7 = find_s(input7, 0)
+139 | let srow7 = int_at(s7, 0)
+140 | let scol7 = int_at(s7, 1)
+141 | let start_counts7 = add_at(zeros(width7), scol7, 1)
+142 | print(simulate(input7, srow7, width7, start_counts7, 0))
+    |                                                      ^
+    |                                                      - this argument has type `Int`
+
+Note:
+  expected argument type: Array<Int>
+  found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `Array<Int>` value as the 5th argument.
 == stdout ==
 <not executed>

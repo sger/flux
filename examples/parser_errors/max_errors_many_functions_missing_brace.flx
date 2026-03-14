@@ -1,0 +1,184 @@
+// More than 50 independent parser errors in one file.
+//
+// Each function is missing its opening `{`, producing one stable parser error.
+// This fixture is intended for targeted max-error-cap tests rather than ordinary snapshots.
+
+fn bad00() -> Unit
+    print("bad00")
+
+fn bad01() -> Unit
+    print("bad01")
+
+fn bad02() -> Unit
+    print("bad02")
+
+fn bad03() -> Unit
+    print("bad03")
+
+fn bad04() -> Unit
+    print("bad04")
+
+fn bad05() -> Unit
+    print("bad05")
+
+fn bad06() -> Unit
+    print("bad06")
+
+fn bad07() -> Unit
+    print("bad07")
+
+fn bad08() -> Unit
+    print("bad08")
+
+fn bad09() -> Unit
+    print("bad09")
+
+fn bad10() -> Unit
+    print("bad10")
+
+fn bad11() -> Unit
+    print("bad11")
+
+fn bad12() -> Unit
+    print("bad12")
+
+fn bad13() -> Unit
+    print("bad13")
+
+fn bad14() -> Unit
+    print("bad14")
+
+fn bad15() -> Unit
+    print("bad15")
+
+fn bad16() -> Unit
+    print("bad16")
+
+fn bad17() -> Unit
+    print("bad17")
+
+fn bad18() -> Unit
+    print("bad18")
+
+fn bad19() -> Unit
+    print("bad19")
+
+fn bad20() -> Unit
+    print("bad20")
+
+fn bad21() -> Unit
+    print("bad21")
+
+fn bad22() -> Unit
+    print("bad22")
+
+fn bad23() -> Unit
+    print("bad23")
+
+fn bad24() -> Unit
+    print("bad24")
+
+fn bad25() -> Unit
+    print("bad25")
+
+fn bad26() -> Unit
+    print("bad26")
+
+fn bad27() -> Unit
+    print("bad27")
+
+fn bad28() -> Unit
+    print("bad28")
+
+fn bad29() -> Unit
+    print("bad29")
+
+fn bad30() -> Unit
+    print("bad30")
+
+fn bad31() -> Unit
+    print("bad31")
+
+fn bad32() -> Unit
+    print("bad32")
+
+fn bad33() -> Unit
+    print("bad33")
+
+fn bad34() -> Unit
+    print("bad34")
+
+fn bad35() -> Unit
+    print("bad35")
+
+fn bad36() -> Unit
+    print("bad36")
+
+fn bad37() -> Unit
+    print("bad37")
+
+fn bad38() -> Unit
+    print("bad38")
+
+fn bad39() -> Unit
+    print("bad39")
+
+fn bad40() -> Unit
+    print("bad40")
+
+fn bad41() -> Unit
+    print("bad41")
+
+fn bad42() -> Unit
+    print("bad42")
+
+fn bad43() -> Unit
+    print("bad43")
+
+fn bad44() -> Unit
+    print("bad44")
+
+fn bad45() -> Unit
+    print("bad45")
+
+fn bad46() -> Unit
+    print("bad46")
+
+fn bad47() -> Unit
+    print("bad47")
+
+fn bad48() -> Unit
+    print("bad48")
+
+fn bad49() -> Unit
+    print("bad49")
+
+fn bad50() -> Unit
+    print("bad50")
+
+fn bad51() -> Unit
+    print("bad51")
+
+fn bad52() -> Unit
+    print("bad52")
+
+fn bad53() -> Unit
+    print("bad53")
+
+fn bad54() -> Unit
+    print("bad54")
+
+fn bad55() -> Unit
+    print("bad55")
+
+fn bad56() -> Unit
+    print("bad56")
+
+fn bad57() -> Unit
+    print("bad57")
+
+fn bad58() -> Unit
+    print("bad58")
+
+fn bad59() -> Unit
+    print("bad59")

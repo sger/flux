@@ -36,6 +36,11 @@ pub mod vm;
 
 pub trait RuntimeContext {
     fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String>;
+    fn invoke_base_function_borrowed(
+        &mut self,
+        base_fn_index: usize,
+        args: &[&Value],
+    ) -> Result<Value, String>;
     fn invoke_unary_value(&mut self, callee: &Value, arg: Value) -> Result<Value, String> {
         self.invoke_value(callee.clone(), vec![arg])
     }
@@ -49,6 +54,13 @@ pub trait RuntimeContext {
     }
     fn gc_heap(&self) -> &gc::GcHeap;
     fn gc_heap_mut(&mut self) -> &mut gc::GcHeap;
+    fn callable_contract<'a>(
+        &'a self,
+        _callee: &'a Value,
+    ) -> Option<&'a function_contract::FunctionContract> {
+        None
+    }
 }
 
 pub type BaseFn = fn(&mut dyn RuntimeContext, Vec<Value>) -> Result<Value, String>;
+pub type BorrowedBaseFn = fn(&mut dyn RuntimeContext, &[&Value]) -> Result<Value, String>;

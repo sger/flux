@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/178_import_except_missing_open_bracket.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
+error[E034]: Missing Import Except List
 
 Expected `[` after `except` in import.
 
-  --> examples/type_system/failing/178_import_except_missing_open_bracket.flx:1:23
+  examples/type_system/failing/178_import_except_missing_open_bracket.flx:1:23
   |
 1 | import Foo.Bar except x, y ]
   |                       ^

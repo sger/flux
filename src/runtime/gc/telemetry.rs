@@ -17,14 +17,16 @@ use super::heap_object::HeapObject;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ObjectKind {
     Cons = 0,
-    HamtNode = 1,
-    HamtCollision = 2,
+    Adt = 1,
+    HamtNode = 2,
+    HamtCollision = 3,
 }
 
 impl ObjectKind {
     pub fn from_object(obj: &HeapObject) -> Self {
         match obj {
             HeapObject::Cons { .. } => ObjectKind::Cons,
+            HeapObject::Adt { .. } => ObjectKind::Adt,
             HeapObject::HamtNode { .. } => ObjectKind::HamtNode,
             HeapObject::HamtCollision { .. } => ObjectKind::HamtCollision,
         }
@@ -33,14 +35,16 @@ impl ObjectKind {
     pub fn label(self) -> &'static str {
         match self {
             ObjectKind::Cons => "Cons",
+            ObjectKind::Adt => "Adt",
             ObjectKind::HamtNode => "HamtNode",
             ObjectKind::HamtCollision => "HamtCollision",
         }
     }
 
     /// All variants for iteration.
-    pub const ALL: [ObjectKind; 3] = [
+    pub const ALL: [ObjectKind; 4] = [
         ObjectKind::Cons,
+        ObjectKind::Adt,
         ObjectKind::HamtNode,
         ObjectKind::HamtCollision,
     ];
@@ -112,7 +116,7 @@ pub struct HeapSnapshot {
 /// Tracks per-kind allocation statistics, per-cycle collection metrics,
 /// and provides heap snapshot inspection.
 pub struct GcTelemetry {
-    kind_stats: [KindStats; 3],
+    kind_stats: [KindStats; 4],
     cycles: Vec<CycleMetrics>,
     cycle_start: Option<Instant>,
     threshold_before: usize,
@@ -125,6 +129,7 @@ impl GcTelemetry {
     pub fn new() -> Self {
         Self {
             kind_stats: [
+                KindStats::default(),
                 KindStats::default(),
                 KindStats::default(),
                 KindStats::default(),

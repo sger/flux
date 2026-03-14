@@ -1,30 +1,37 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
-assertion_line: 21
 ---
 Fixture: examples/type_system/failing/103_missing_colon_lambda_param.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
+error[E034]: Missing Type Annotation Colon
 
 Missing `:` in lambda parameter type annotation. Write it as `x: Type`.
 
-  --> examples/type_system/failing/103_missing_colon_lambda_param.flx:1:12
+  examples/type_system/failing/103_missing_colon_lambda_param.flx:1:12
   |
 1 | let f = /x Int -> x
   |            ^^^
 
-
---> compiler error[E034]: UNEXPECTED TOKEN
-
-Expected `->` after lambda parameters, found `EOF`.
-
-  --> examples/type_system/failing/103_missing_colon_lambda_param.flx:2:1
-  |
-
-
 Hint:
+  Type annotations use `name: Type`.
+
+
+error[E034]: Missing Lambda Arrow
+
+I was expecting `->` after the lambda parameters, but I found the end of the file.
+
+  examples/type_system/failing/103_missing_colon_lambda_param.flx:1:19
+  |
+1 | let f = /x Int -> x
+  |                   ^
+  |                   - this lambda parameter list ends here
+
+Note:
+  while parsing lambda expression
+
+Help:
   Use `/x -> expr` or `/(x, y) -> expr`.
 
 Found 2 errors.

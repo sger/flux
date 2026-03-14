@@ -16,26 +16,31 @@ use crate::{
             },
         },
         debug_info::FunctionDebugInfo,
-        op_code::OpCode,
+        op_code::{OpCode, make},
         symbol_scope::SymbolScope,
     },
     diagnostics::{
         ADT_NON_EXHAUSTIVE_MATCH, CONSTRUCTOR_ARITY_MISMATCH, DUPLICATE_PARAMETER, Diagnostic,
-        DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
-        ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING,
-        ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN,
-        LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER,
-        UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
-        UNKNOWN_PREFIX_OPERATOR,
-        compiler_errors::UNREACHABLE_PATTERN_ARM,
+        DiagnosticBuilder, DiagnosticCategory, ICE_SYMBOL_SCOPE_PATTERN,
+        ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
+        ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
+        ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED,
+        NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER, UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR,
+        UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
         compiler_errors::{
-            call_arg_type_mismatch, constructor_pattern_arity_mismatch,
+            UNREACHABLE_PATTERN_ARM, call_arg_type_mismatch, constructor_pattern_arity_mismatch,
             cross_module_constructor_access_error, cross_module_constructor_access_warning,
             guarded_wildcard_non_exhaustive, type_unification_error, wrong_argument_count,
         },
-        diag_enhanced,
+        diagnostic_for, dynamic_explained_diagnostic,
         position::{Position, Span},
+        quality::{EffectConstraintOrigin, with_effect_constraint_origin},
         types::ErrorType,
+    },
+    ir::{
+        IrStructuredExpr, IrStructuredHandleArm, IrStructuredMatchArm, IrStructuredPattern,
+        IrStructuredStringPart, ir_structured_block_to_block, ir_structured_expr_to_expression,
+        ir_structured_pattern_to_pattern,
     },
     primop::{PrimEffect, resolve_primop_call},
     runtime::{
@@ -48,13 +53,14 @@ use crate::{
     },
     syntax::{
         block::Block,
+        effect_expr::EffectExpr,
         expression::{Expression, HandleArm, MatchArm, Pattern, StringPart},
         module_graph::is_valid_module_name,
         statement::Statement,
         symbol::Symbol,
         type_expr::TypeExpr,
     },
-    types::{infer_type::InferType, type_env::TypeEnv, type_subst::TypeSubst, unify_error::unify},
+    types::{infer_type::InferType, type_env::TypeEnv, type_subst::TypeSubst, unify::unify},
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
@@ -69,7 +75,842 @@ enum GeneralCoverageDomain {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ConditionalJump {
+    position: usize,
+    leaves_condition_on_jump: bool,
+    /// For 2-operand jumps (e.g. `OpIsAdtJump`): the first operand that must be
+    /// preserved when patching the jump target. `None` for single-operand jumps.
+    first_operand: Option<usize>,
+}
+
 impl Compiler {
+    pub(super) fn compile_ir_expr(&mut self, expression: &IrStructuredExpr) -> CompileResult<()> {
+        match expression {
+            IrStructuredExpr::Integer { value, .. } => {
+                let idx = self.add_constant(Value::Integer(*value));
+                self.emit_constant_index(idx);
+                Ok(())
+            }
+            IrStructuredExpr::Float { value, .. } => {
+                let idx = self.add_constant(Value::Float(*value));
+                self.emit_constant_index(idx);
+                Ok(())
+            }
+            IrStructuredExpr::String { value, .. } => {
+                let idx = self.add_constant(Value::String(value.clone().into()));
+                self.emit_constant_index(idx);
+                Ok(())
+            }
+            IrStructuredExpr::Boolean { value, .. } => {
+                if *value {
+                    self.emit(OpCode::OpTrue, &[]);
+                } else {
+                    self.emit(OpCode::OpFalse, &[]);
+                }
+                Ok(())
+            }
+            IrStructuredExpr::InterpolatedString { parts, .. } => {
+                let string_parts = parts
+                    .iter()
+                    .map(|part| match part {
+                        IrStructuredStringPart::Literal(text) => StringPart::Literal(text.clone()),
+                        IrStructuredStringPart::Interpolation(expr) => StringPart::Interpolation(
+                            Box::new(ir_structured_expr_to_expression(expr)),
+                        ),
+                    })
+                    .collect::<Vec<_>>();
+                self.compile_interpolated_string(&string_parts)
+            }
+            IrStructuredExpr::DoBlock { block, .. } => {
+                self.compile_ir_block_with_tail(block)?;
+                if !self.compile_ir_block_has_value_tail(block) {
+                    self.emit(OpCode::OpNone, &[]);
+                }
+                Ok(())
+            }
+            IrStructuredExpr::ListLiteral { elements, .. } => {
+                let list_sym = self.interner.intern("list");
+                let symbol = self
+                    .symbol_table
+                    .resolve(list_sym)
+                    .expect("base list must be defined");
+                self.load_symbol(&symbol);
+                for element in elements {
+                    self.compile_ir_non_tail_expression(element)?;
+                }
+                self.emit(OpCode::OpCall, &[elements.len()]);
+                Ok(())
+            }
+            IrStructuredExpr::ArrayLiteral { elements, .. } => {
+                for element in elements {
+                    self.compile_ir_non_tail_expression(element)?;
+                }
+                self.emit_array_count(elements.len());
+                Ok(())
+            }
+            IrStructuredExpr::TupleLiteral { elements, .. } => {
+                for element in elements {
+                    self.compile_ir_non_tail_expression(element)?;
+                }
+                self.emit_tuple_count(elements.len());
+                Ok(())
+            }
+            IrStructuredExpr::EmptyList { .. } => {
+                let list_sym = self.interner.intern("list");
+                let symbol = self
+                    .symbol_table
+                    .resolve(list_sym)
+                    .expect("base list must be defined");
+                self.load_symbol(&symbol);
+                self.emit(OpCode::OpCall, &[0]);
+                Ok(())
+            }
+            IrStructuredExpr::Hash { pairs, .. } => {
+                for (key, value) in pairs {
+                    self.compile_ir_non_tail_expression(key)?;
+                    self.compile_ir_non_tail_expression(value)?;
+                }
+                self.emit_hash_count(pairs.len() * 2);
+                Ok(())
+            }
+            IrStructuredExpr::Index { left, index, .. } => {
+                let left_expr = ir_structured_expr_to_expression(left);
+                let index_expr = ir_structured_expr_to_expression(index);
+                self.validate_index_expression_types(&left_expr, &index_expr)?;
+                self.compile_ir_non_tail_expression(left)?;
+                self.compile_ir_non_tail_expression(index)?;
+                self.emit(OpCode::OpIndex, &[]);
+                Ok(())
+            }
+            IrStructuredExpr::TupleFieldAccess { object, index, .. } => {
+                self.compile_ir_non_tail_expression(object)?;
+                self.emit(OpCode::OpTupleIndex, &[*index]);
+                Ok(())
+            }
+            IrStructuredExpr::None { .. } => {
+                self.emit(OpCode::OpNone, &[]);
+                Ok(())
+            }
+            IrStructuredExpr::Some { value, .. } => {
+                self.compile_ir_non_tail_expression(value)?;
+                self.emit(OpCode::OpSome, &[]);
+                Ok(())
+            }
+            IrStructuredExpr::Left { value, .. } => {
+                self.compile_ir_non_tail_expression(value)?;
+                self.emit(OpCode::OpLeft, &[]);
+                Ok(())
+            }
+            IrStructuredExpr::Right { value, .. } => {
+                self.compile_ir_non_tail_expression(value)?;
+                self.emit(OpCode::OpRight, &[]);
+                Ok(())
+            }
+            IrStructuredExpr::Cons { head, tail, .. } => {
+                if let IrStructuredExpr::None { span, .. } = tail.as_ref() {
+                    return Err(Self::boxed(Diagnostic::make_error(
+                        &LEGACY_LIST_TAIL_NONE,
+                        &[],
+                        self.file_path.clone(),
+                        *span,
+                    )));
+                }
+                self.compile_ir_non_tail_expression(head)?;
+                self.compile_ir_non_tail_expression(tail)?;
+                self.emit(OpCode::OpCons, &[]);
+                Ok(())
+            }
+            IrStructuredExpr::Identifier { .. } => {
+                let expression = ir_structured_expr_to_expression(expression);
+                self.compile_expression(&expression)
+            }
+            IrStructuredExpr::Prefix { .. } => {
+                let expression = ir_structured_expr_to_expression(expression);
+                self.compile_expression(&expression)
+            }
+            IrStructuredExpr::Infix { .. } => {
+                let expression = ir_structured_expr_to_expression(expression);
+                self.compile_expression(&expression)
+            }
+            IrStructuredExpr::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                let condition = ir_structured_expr_to_expression(condition);
+                let consequence = ir_structured_block_to_block(consequence, &[]);
+                let alternative = alternative
+                    .as_ref()
+                    .map(|block| ir_structured_block_to_block(block, &[]));
+                self.compile_if_expression(&condition, &consequence, &alternative)
+            }
+            IrStructuredExpr::Function {
+                parameters,
+                parameter_types,
+                return_type,
+                effects,
+                body,
+                ..
+            } => {
+                let body = ir_structured_block_to_block(body, &[]);
+                self.compile_function_literal(
+                    parameters,
+                    parameter_types,
+                    return_type,
+                    effects,
+                    &body,
+                )
+            }
+            IrStructuredExpr::Call { .. } => {
+                let expression = ir_structured_expr_to_expression(expression);
+                self.compile_expression(&expression)
+            }
+            IrStructuredExpr::MemberAccess { .. } => {
+                let expression = ir_structured_expr_to_expression(expression);
+                self.compile_expression(&expression)
+            }
+            IrStructuredExpr::Match {
+                scrutinee,
+                arms,
+                span,
+                ..
+            } => {
+                let scrutinee = ir_structured_expr_to_expression(scrutinee);
+                let arms = arms
+                    .iter()
+                    .map(|arm: &IrStructuredMatchArm| MatchArm {
+                        pattern: ir_structured_pattern_to_pattern(&arm.pattern),
+                        guard: arm.guard.as_ref().map(ir_structured_expr_to_expression),
+                        body: ir_structured_expr_to_expression(&arm.body),
+                        span: arm.span,
+                    })
+                    .collect::<Vec<_>>();
+                self.compile_match_expression(&scrutinee, &arms, *span)
+            }
+            IrStructuredExpr::Perform {
+                effect,
+                operation,
+                args,
+                ..
+            } => {
+                let args = args
+                    .iter()
+                    .map(ir_structured_expr_to_expression)
+                    .collect::<Vec<_>>();
+                self.compile_perform(*effect, *operation, &args)
+            }
+            IrStructuredExpr::Handle {
+                expr, effect, arms, ..
+            } => {
+                let expr = ir_structured_expr_to_expression(expr);
+                let arms = arms
+                    .iter()
+                    .map(|arm: &IrStructuredHandleArm| HandleArm {
+                        operation_name: arm.operation_name,
+                        resume_param: arm.resume_param,
+                        params: arm.params.clone(),
+                        body: ir_structured_expr_to_expression(&arm.body),
+                        span: arm.span,
+                    })
+                    .collect::<Vec<_>>();
+                self.compile_handle(&expr, *effect, &arms)
+            }
+        }
+    }
+
+    fn compile_ir_non_tail_expression(
+        &mut self,
+        expression: &IrStructuredExpr,
+    ) -> CompileResult<()> {
+        self.with_tail_position(false, |compiler| compiler.compile_ir_expr(expression))
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn compile_ir_pattern_bind(
+        &mut self,
+        temp_symbol: &Binding,
+        pattern: &IrStructuredPattern,
+    ) -> CompileResult<()> {
+        match pattern {
+            IrStructuredPattern::Identifier { name, span } => {
+                self.load_symbol(temp_symbol);
+                let symbol = self.symbol_table.define(*name, *span);
+                match symbol.symbol_scope {
+                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
+                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_SYMBOL_SCOPE_PATTERN,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                };
+                Ok(())
+            }
+            IrStructuredPattern::Some { pattern: inner, .. } => {
+                let inner_symbol = self.symbol_table.define_temp();
+                self.load_symbol(temp_symbol);
+                self.emit(OpCode::OpUnwrapSome, &[]);
+                match inner_symbol.symbol_scope {
+                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]),
+                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[inner_symbol.index]),
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_SOME_BINDING,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                };
+                self.compile_ir_pattern_bind(&inner_symbol, inner)
+            }
+            IrStructuredPattern::Left { pattern: inner, .. } => {
+                let inner_symbol = self.symbol_table.define_temp();
+                self.load_symbol(temp_symbol);
+                self.emit(OpCode::OpUnwrapLeft, &[]);
+                match inner_symbol.symbol_scope {
+                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]),
+                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[inner_symbol.index]),
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_LEFT_BINDING,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                };
+                self.compile_ir_pattern_bind(&inner_symbol, inner)
+            }
+            IrStructuredPattern::Right { pattern: inner, .. } => {
+                let inner_symbol = self.symbol_table.define_temp();
+                self.load_symbol(temp_symbol);
+                self.emit(OpCode::OpUnwrapRight, &[]);
+                match inner_symbol.symbol_scope {
+                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]),
+                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[inner_symbol.index]),
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_RIGHT_BINDING,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                };
+                self.compile_ir_pattern_bind(&inner_symbol, inner)
+            }
+            IrStructuredPattern::EmptyList { .. }
+            | IrStructuredPattern::Wildcard { .. }
+            | IrStructuredPattern::Literal { .. }
+            | IrStructuredPattern::None { .. } => Ok(()),
+            IrStructuredPattern::Cons { head, tail, .. } => {
+                let head_symbol = self.symbol_table.define_temp();
+                self.load_symbol(temp_symbol);
+                self.emit(OpCode::OpConsHead, &[]);
+                match head_symbol.symbol_scope {
+                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[head_symbol.index]),
+                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[head_symbol.index]),
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_MATCH,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                };
+                self.compile_ir_pattern_bind(&head_symbol, head)?;
+
+                let tail_symbol = self.symbol_table.define_temp();
+                self.load_symbol(temp_symbol);
+                self.emit(OpCode::OpConsTail, &[]);
+                match tail_symbol.symbol_scope {
+                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[tail_symbol.index]),
+                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[tail_symbol.index]),
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_MATCH,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                };
+                self.compile_ir_pattern_bind(&tail_symbol, tail)
+            }
+            IrStructuredPattern::Tuple { elements, .. } => {
+                for (index, element) in elements.iter().enumerate() {
+                    let inner_symbol = self.symbol_table.define_temp();
+                    self.load_symbol(temp_symbol);
+                    self.emit(OpCode::OpTupleIndex, &[index]);
+                    match inner_symbol.symbol_scope {
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[inner_symbol.index])
+                        }
+                        SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[inner_symbol.index]),
+                        _ => {
+                            return Err(Self::boxed(Diagnostic::make_error(
+                                &ICE_TEMP_SYMBOL_MATCH,
+                                &[],
+                                self.file_path.clone(),
+                                Span::new(Position::default(), Position::default()),
+                            )));
+                        }
+                    };
+                    self.compile_ir_pattern_bind(&inner_symbol, element)?;
+                }
+                Ok(())
+            }
+            IrStructuredPattern::Constructor { .. } => {
+                let crate::ir::IrStructuredPattern::Constructor { name, fields, span } = pattern
+                else {
+                    unreachable!()
+                };
+                let Some(constructor_info) = self.adt_registry.lookup_constructor(*name) else {
+                    if let Some((member_name, qualifier)) =
+                        self.module_constructor_boundary_from_qualified_identifier(*name)
+                    {
+                        if self.strict_mode {
+                            return Err(Self::boxed(
+                                cross_module_constructor_access_error(
+                                    *span,
+                                    member_name.as_str(),
+                                    qualifier.as_str(),
+                                )
+                                .with_file(self.file_path.clone()),
+                            ));
+                        }
+                        self.warnings.push(
+                            cross_module_constructor_access_warning(
+                                *span,
+                                member_name.as_str(),
+                                qualifier.as_str(),
+                            )
+                            .with_file(self.file_path.clone()),
+                        );
+                    }
+                    let name_str = self.interner.resolve(*name).to_string();
+                    return Err(Self::boxed(
+                        diagnostic_for(&UNKNOWN_CONSTRUCTOR)
+                            .with_span(*span)
+                            .with_message(format!("Unknown constructor `{}`.", name_str)),
+                    ));
+                };
+                if fields.len() != constructor_info.arity {
+                    let name_str = self.interner.resolve(*name).to_string();
+                    return Err(Self::boxed(
+                        constructor_pattern_arity_mismatch(
+                            *span,
+                            &name_str,
+                            constructor_info.arity,
+                            fields.len(),
+                        )
+                        .with_file(self.file_path.clone()),
+                    ));
+                }
+
+                for (field_idx, field_pat) in fields.iter().enumerate() {
+                    if matches!(field_pat, IrStructuredPattern::Wildcard { .. }) {
+                        continue;
+                    }
+
+                    let inner_symbol = self.symbol_table.define_temp();
+                    self.load_symbol(temp_symbol);
+                    self.emit(OpCode::OpAdtField, &[field_idx]);
+
+                    match inner_symbol.symbol_scope {
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[inner_symbol.index])
+                        }
+                        SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[inner_symbol.index]),
+                        _ => {
+                            return Err(Self::boxed(Diagnostic::make_error(
+                                &ICE_TEMP_SYMBOL_MATCH,
+                                &[],
+                                self.file_path.clone(),
+                                Span::new(Position::default(), Position::default()),
+                            )));
+                        }
+                    };
+                    self.compile_ir_pattern_bind(&inner_symbol, field_pat)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Patch a conditional jump's target, handling single-, two-, and three-operand jump opcodes.
+    fn patch_cond_jump(&mut self, jump: &ConditionalJump, target: usize) {
+        let op = OpCode::from(self.current_instructions()[jump.position]);
+        if op == OpCode::OpIsAdtJumpLocal {
+            // 3-operand instruction: [local_idx: u8, const_idx: u16, jump_offset: u16].
+            // Read local_idx and const_idx from the already-emitted bytes, then rewrite
+            // all 6 bytes in-place with the patched jump target.
+            let local_idx = self.current_instructions()[jump.position + 1] as usize;
+            let const_hi = self.current_instructions()[jump.position + 2] as usize;
+            let const_lo = self.current_instructions()[jump.position + 3] as usize;
+            let const_idx = (const_hi << 8) | const_lo;
+            self.replace_instruction(jump.position, make(op, &[local_idx, const_idx, target]));
+            return;
+        }
+        match jump.first_operand {
+            None => self.change_operand(jump.position, target),
+            Some(first) => {
+                self.replace_instruction(jump.position, make(op, &[first, target]));
+            }
+        }
+    }
+
+    /// Returns `true` if this Constructor pattern qualifies for the fast
+    /// `OpIsAdtJump` + `OpAdtFields2` path: all fields are simple
+    /// (Identifier or Wildcard) and arity is 0, 1, or 2.
+    fn is_simple_adt_pattern(fields: &[Pattern]) -> bool {
+        fields.len() <= 2
+            && fields
+                .iter()
+                .all(|f| matches!(f, Pattern::Identifier { .. } | Pattern::Wildcard { .. }))
+    }
+
+    /// Fast path for `Pattern::Constructor` arms where all fields are
+    /// Identifier or Wildcard and arity ≤ 2.
+    ///
+    /// Emits:
+    /// - `load_symbol(scrutinee)` (one Rc clone)
+    /// - `OpIsAdtJump const_idx <placeholder>` — peeks at constructor, jumps
+    ///   on mismatch leaving the ADT on the stack.  Falls through on match
+    ///   with the ADT still on the stack.
+    /// - Field extraction from the on-stack ADT (no further loads):
+    ///   - arity 0: `OpPop` (clean up the ADT)
+    ///   - arity 1: `OpAdtField 0` (pops ADT, pushes field)
+    ///   - arity 2: `OpAdtFields2` (pops ADT, pushes field0 then field1)
+    /// - Identifier bindings: `define(name)` + `OpSetLocal` for each non-wildcard field.
+    ///
+    /// Returns the `ConditionalJump` that must be patched to the next arm.
+    fn compile_adt_arm_simple(
+        &mut self,
+        name: &crate::syntax::symbol::Symbol,
+        fields: &[Pattern],
+        pattern_span: Span,
+        scrutinee: &Binding,
+    ) -> CompileResult<ConditionalJump> {
+        // Validate constructor exists and arity matches (same as compile_pattern_check).
+        let constructor_name = self.interner.resolve(*name).to_string();
+        if let Some(info) = self.adt_registry.lookup_constructor(*name)
+            && fields.len() != info.arity
+        {
+            return Err(Self::boxed(
+                constructor_pattern_arity_mismatch(
+                    pattern_span,
+                    &constructor_name,
+                    info.arity,
+                    fields.len(),
+                )
+                .with_file(self.file_path.clone()),
+            ));
+        }
+        // If the constructor is unknown, compile_pattern_check will produce the
+        // proper diagnostic.  The caller guarantees this path is only taken for
+        // constructors whose arity equals `fields.len()` (checked via
+        // `is_known_simple_adt_arm` before this call).
+
+        let const_idx = self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+
+        self.load_symbol(scrutinee);
+        let jump_pos = self.emit(OpCode::OpIsAdtJump, &[const_idx, 9999]);
+
+        match fields.len() {
+            0 => {
+                // ADT (AdtUnit) is on stack after a successful match; pop it.
+                self.emit(OpCode::OpPop, &[]);
+            }
+            1 => {
+                // ADT is on stack; extract field 0 with the existing opcode.
+                self.emit(OpCode::OpAdtField, &[0]);
+                if let Pattern::Identifier {
+                    name: field_name,
+                    span,
+                } = &fields[0]
+                {
+                    let sym = self.symbol_table.define(*field_name, *span);
+                    match sym.symbol_scope {
+                        SymbolScope::Local => {
+                            self.emit(OpCode::OpSetLocal, &[sym.index]);
+                        }
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[sym.index]);
+                        }
+                        _ => {}
+                    }
+                } else {
+                    // Wildcard: field is on stack but unused; discard it.
+                    self.emit(OpCode::OpPop, &[]);
+                }
+            }
+            2 => {
+                // ADT is on stack; extract both fields atomically.
+                self.emit(OpCode::OpAdtFields2, &[]);
+                // Stack after: [..., field0, field1]  (field1 on top)
+                // Bind field1 first (top of stack), then field0.
+                for field_pat in fields.iter().rev() {
+                    if let Pattern::Identifier {
+                        name: field_name,
+                        span,
+                    } = field_pat
+                    {
+                        let sym = self.symbol_table.define(*field_name, *span);
+                        match sym.symbol_scope {
+                            SymbolScope::Local => {
+                                self.emit(OpCode::OpSetLocal, &[sym.index]);
+                            }
+                            SymbolScope::Global => {
+                                self.emit(OpCode::OpSetGlobal, &[sym.index]);
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        // Wildcard: discard the field.
+                        self.emit(OpCode::OpPop, &[]);
+                    }
+                }
+            }
+            _ => unreachable!("compile_adt_arm_simple: arity > 2 should not be called"),
+        }
+
+        Ok(ConditionalJump {
+            position: jump_pos,
+            // ADT clone is on the stack when jumping → needs OpPop at the next arm.
+            leaves_condition_on_jump: true,
+            first_operand: Some(const_idx),
+        })
+    }
+
+    /// Variant of `compile_adt_arm_simple` for when the scrutinee is a consumable local variable.
+    ///
+    /// Emits `OpIsAdtJumpLocal` (peeks at the local slot without cloning) followed by
+    /// `OpConsumeLocal` (moves the value to the stack with `Rc` strong_count == 1). This
+    /// allows `Rc::try_unwrap` in `OpAdtFields2` / `OpAdtField` to succeed, eliminating
+    /// the clone-then-drop cycle that `OpGetLocal` + `OpAdtFields2` would otherwise produce.
+    ///
+    /// Unlike `compile_adt_arm_simple`, the returned `ConditionalJump` has
+    /// `leaves_condition_on_jump: false` — no value is left on the stack when the jump is
+    /// taken, so the next arm needs no `OpPop` prefix.
+    fn compile_adt_arm_simple_local(
+        &mut self,
+        name: &crate::syntax::symbol::Symbol,
+        fields: &[Pattern],
+        pattern_span: Span,
+        local_idx: usize,
+    ) -> CompileResult<ConditionalJump> {
+        let constructor_name = self.interner.resolve(*name).to_string();
+        if let Some(info) = self.adt_registry.lookup_constructor(*name)
+            && fields.len() != info.arity
+        {
+            return Err(Self::boxed(
+                constructor_pattern_arity_mismatch(
+                    pattern_span,
+                    &constructor_name,
+                    info.arity,
+                    fields.len(),
+                )
+                .with_file(self.file_path.clone()),
+            ));
+        }
+
+        let const_idx = self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+
+        // Peek at the local slot without cloning (no stack push).
+        // On match: fall through; on mismatch: jump (local unchanged, nothing on stack).
+        let jump_pos = self.emit(OpCode::OpIsAdtJumpLocal, &[local_idx, const_idx, 9999]);
+
+        // Move the matched value from the local slot onto the stack.
+        // After this, local[local_idx] == Uninit and Rc strong_count == 1.
+        self.emit_consume_local(local_idx);
+
+        match fields.len() {
+            0 => {
+                // AdtUnit on stack; pop it.
+                self.emit(OpCode::OpPop, &[]);
+            }
+            1 => {
+                self.emit(OpCode::OpAdtField, &[0]);
+                if let Pattern::Identifier {
+                    name: field_name,
+                    span,
+                } = &fields[0]
+                {
+                    let sym = self.symbol_table.define(*field_name, *span);
+                    match sym.symbol_scope {
+                        SymbolScope::Local => {
+                            self.emit(OpCode::OpSetLocal, &[sym.index]);
+                        }
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[sym.index]);
+                        }
+                        _ => {}
+                    }
+                } else {
+                    self.emit(OpCode::OpPop, &[]);
+                }
+            }
+            2 => {
+                // Rc strong_count == 1 here → Rc::try_unwrap succeeds → zero field clones.
+                self.emit(OpCode::OpAdtFields2, &[]);
+                for field_pat in fields.iter().rev() {
+                    if let Pattern::Identifier {
+                        name: field_name,
+                        span,
+                    } = field_pat
+                    {
+                        let sym = self.symbol_table.define(*field_name, *span);
+                        match sym.symbol_scope {
+                            SymbolScope::Local => {
+                                self.emit(OpCode::OpSetLocal, &[sym.index]);
+                            }
+                            SymbolScope::Global => {
+                                self.emit(OpCode::OpSetGlobal, &[sym.index]);
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        self.emit(OpCode::OpPop, &[]);
+                    }
+                }
+            }
+            _ => unreachable!("compile_adt_arm_simple_local: arity > 2 should not be called"),
+        }
+
+        Ok(ConditionalJump {
+            position: jump_pos,
+            // Nothing is left on the stack when jumping → no OpPop needed at the next arm.
+            leaves_condition_on_jump: false,
+            first_operand: None,
+        })
+    }
+
+    /// Returns `true` if every arm in `arms` satisfies the simple ADT fast-path conditions:
+    /// no guard, `Constructor` pattern, arity ≤ 2, all-identifier/wildcard fields, known ADT.
+    fn all_arms_simple_adt(&mut self, arms: &[MatchArm]) -> bool {
+        for arm in arms {
+            if arm.guard.is_some() {
+                return false;
+            }
+            let Pattern::Constructor { name, fields, .. } = &arm.pattern else {
+                return false;
+            };
+            if !Self::is_simple_adt_pattern(fields) {
+                return false;
+            }
+            if self
+                .adt_registry
+                .lookup_constructor(*name)
+                .is_none_or(|info| info.arity != fields.len())
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// If `scrutinee` is a simple identifier that refers to a consumable local variable
+    /// used exactly once in the enclosing function body, returns its local slot index.
+    /// Otherwise returns `None`.
+    ///
+    /// When `Some(idx)` is returned it is safe to replace the temp-variable pattern with
+    /// `OpIsAdtJumpLocal(idx, …)` + `OpConsumeLocal(idx)`, keeping `Rc` strong_count == 1
+    /// at the point of field extraction.
+    fn scrutinee_as_simple_consumable_local(&mut self, scrutinee: &Expression) -> Option<usize> {
+        let Expression::Identifier { name, .. } = scrutinee else {
+            return None;
+        };
+        let name = *name;
+        let symbol = self.resolve_visible_symbol(name)?;
+        if !self.is_consumable_local(&symbol) {
+            return None;
+        }
+        let counts = self.current_consumable_local_use_counts()?.clone();
+        if counts.get(&name) != Some(&1) {
+            return None;
+        }
+        Some(symbol.index)
+    }
+
+    fn emit_conditional_jump_not_truthy_for_compiled_comparison(
+        &mut self,
+        comparison_op: OpCode,
+    ) -> ConditionalJump {
+        ConditionalJump {
+            position: self.emit_jump_not_truthy_comparison(comparison_op),
+            leaves_condition_on_jump: false,
+            first_operand: None,
+        }
+    }
+
+    fn compile_jump_not_truthy_condition(
+        &mut self,
+        condition: &Expression,
+    ) -> CompileResult<ConditionalJump> {
+        if let Expression::Infix {
+            left,
+            operator,
+            right,
+            ..
+        } = condition
+        {
+            let comparison_op = match operator.as_str() {
+                "==" => Some(OpCode::OpEqual),
+                "!=" => Some(OpCode::OpNotEqual),
+                ">" => Some(OpCode::OpGreaterThan),
+                ">=" => Some(OpCode::OpGreaterThanOrEqual),
+                "<=" => Some(OpCode::OpLessThanOrEqual),
+                "<" => Some(OpCode::OpGreaterThan),
+                _ => None,
+            };
+
+            if let Some(comparison_op) = comparison_op {
+                if operator == "<" {
+                    self.compile_non_tail_expression(right)?;
+                    self.compile_non_tail_expression(left)?;
+                } else {
+                    self.compile_non_tail_expression(left)?;
+                    self.compile_non_tail_expression(right)?;
+                }
+                return Ok(
+                    self.emit_conditional_jump_not_truthy_for_compiled_comparison(comparison_op)
+                );
+            }
+        }
+
+        self.compile_non_tail_expression(condition)?;
+        Ok(ConditionalJump {
+            position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+            leaves_condition_on_jump: true,
+            first_operand: None,
+        })
+    }
+
+    fn effect_constraint_origin(
+        &self,
+        function: &Expression,
+        expected_row: Option<String>,
+    ) -> EffectConstraintOrigin {
+        let call_name = self.call_function_name(function);
+        let mut origin = EffectConstraintOrigin::new(
+            function.span(),
+            format!("this call to `{call_name}` creates the effect obligation"),
+            format!("constraint source: effect-row checking for `{call_name}`"),
+        );
+        if let Some(expected_row) = expected_row {
+            origin = origin.with_expected_row(expected_row);
+        }
+        origin
+    }
+
     fn effect_operation_function_parts<'a>(
         &'a self,
         effect: Symbol,
@@ -152,14 +993,18 @@ impl Compiler {
                     self.emit(OpCode::OpFalse, &[]);
                 }
             }
-            Expression::Identifier { name, span } => {
+            Expression::Identifier { name, span, .. } => {
                 let name = *name;
                 if let Some(symbol) = self.resolve_visible_symbol(name) {
-                    self.load_symbol(&symbol);
+                    if !self.try_emit_consumed_local(name) {
+                        self.load_symbol(&symbol);
+                    }
                 } else if let Some(prefix) = self.current_module_prefix {
                     let qualified = self.interner.intern_join(prefix, name);
                     if let Some(symbol) = self.resolve_visible_symbol(qualified) {
-                        self.load_symbol(&symbol);
+                        if !self.try_emit_consumed_local(qualified) {
+                            self.load_symbol(&symbol);
+                        }
                     } else if let Some(constant_value) = self.module_constants.get(&qualified) {
                         // Module constant - inline the value
                         self.emit_constant_value(constant_value.clone());
@@ -168,7 +1013,7 @@ impl Compiler {
                         if info.arity != 0 {
                             let name_str = self.interner.resolve(name).to_string();
                             return Err(Self::boxed(
-                                diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                                diagnostic_for(&CONSTRUCTOR_ARITY_MISMATCH)
                                     .with_span(*span)
                                     .with_message(format!(
                                         "Constructor `{}` expects {} argument(s) but got 0.",
@@ -214,7 +1059,7 @@ impl Compiler {
                     if info.arity != 0 {
                         let name_str = self.interner.resolve(name).to_string();
                         return Err(Self::boxed(
-                            diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                            diagnostic_for(&CONSTRUCTOR_ARITY_MISMATCH)
                                 .with_span(*span)
                                 .with_message(format!(
                                     "Constructor `{}` expects {} argument(s) but got 0.",
@@ -446,10 +1291,13 @@ impl Compiler {
                     return Ok(());
                 }
 
-                // Check if this is a self recursive tail call
-                let is_self_tail_call = self.in_tail_position && self.is_self_call(function);
+                let is_direct_self_call = self.is_self_call(function);
+                let is_self_tail_call = self.in_tail_position && is_direct_self_call;
+                let is_self_non_tail_call = !self.in_tail_position && is_direct_self_call;
 
-                self.compile_non_tail_expression(function)?;
+                if !is_self_non_tail_call {
+                    self.compile_non_tail_expression(function)?;
+                }
 
                 let mut consumable_counts: HashMap<Symbol, usize> = HashMap::new();
 
@@ -470,6 +1318,8 @@ impl Compiler {
                 // Emit OpTailCall for self recursive tail calls otherwise OpCall
                 if is_self_tail_call {
                     self.emit(OpCode::OpTailCall, &[arguments.len()]);
+                } else if is_self_non_tail_call {
+                    self.emit(OpCode::OpCallSelf, &[arguments.len()]);
                 } else {
                     self.emit(OpCode::OpCall, &[arguments.len()]);
                 }
@@ -634,11 +1484,12 @@ impl Compiler {
                 scrutinee,
                 arms,
                 span,
+                ..
             } => {
                 self.compile_match_expression(scrutinee, arms, *span)?;
             }
             Expression::Cons { head, tail, .. } => {
-                if let Expression::None { span } = tail.as_ref() {
+                if let Expression::None { span, .. } = tail.as_ref() {
                     return Err(Self::boxed(Diagnostic::make_error(
                         &LEGACY_LIST_TAIL_NONE,
                         &[],
@@ -683,9 +1534,7 @@ impl Compiler {
         };
 
         if !contract.effects.is_empty() {
-            let required_row = EffectRow::from_effect_exprs(&contract.effects, |effect| {
-                self.is_effect_variable(effect)
-            });
+            let required_row = EffectRow::from_effect_exprs(&contract.effects);
             let constraints = self.collect_effect_row_constraints(&contract, arguments);
             let solution = solve_row_constraints(&constraints);
 
@@ -695,61 +1544,28 @@ impl Compiler {
                 ));
             }
 
-            if !constraints.is_empty() {
-                let unresolved: Vec<Symbol> = required_row
-                    .unresolved_vars(&solution)
-                    .into_iter()
-                    .filter(|effect_var| !self.is_effect_available(*effect_var))
-                    .collect();
+            let unresolved: Vec<Symbol> = required_row
+                .unresolved_vars(&solution)
+                .into_iter()
+                .filter(|effect_var| !self.is_effect_available(*effect_var))
+                .collect();
 
-                if unresolved.len() == 1 {
-                    let effect_name = self.sym(unresolved[0]).to_string();
-                    return Err(Self::boxed(
-                        Diagnostic::make_error_dynamic(
-                            "E419",
-                            "UNRESOLVED EFFECT VARIABLE",
-                            ErrorType::Compiler,
-                            format!(
-                                "Cannot resolve effect variable `{}` for this call.",
-                                effect_name
-                            ),
-                            Some(format!(
-                                "Add an explicit effect annotation (for example `with {}`) or pass a callback with concrete effects.",
-                                effect_name
-                            )),
-                            self.file_path.clone(),
-                            function.span(),
-                        )
-                        .with_primary_label(function.span(), "effect variable is unconstrained"),
-                    ));
-                } else if unresolved.len() > 1 {
-                    let mut names: Vec<String> = unresolved
-                        .iter()
-                        .map(|symbol| self.sym(*symbol).to_string())
-                        .collect();
-                    names.sort();
-                    return Err(Self::boxed(
-                        Diagnostic::make_error_dynamic(
-                            "E420",
-                            "AMBIGUOUS EFFECT VARIABLES",
-                            ErrorType::Compiler,
-                            format!(
-                                "Call leaves multiple effect variables unresolved: {}.",
-                                names.join(", ")
-                            ),
-                            Some(
-                                "Add explicit `with ...` annotations or use callbacks with concrete effects to disambiguate."
-                                    .to_string(),
-                            ),
-                            self.file_path.clone(),
-                            function.span(),
-                        )
-                        .with_primary_label(function.span(), "effect variables are ambiguous"),
-                    ));
-                }
+            if !unresolved.is_empty() {
+                let origin = self.effect_constraint_origin(function, None);
+                return Err(Self::boxed(self.unresolved_effect_vars_diagnostic(
+                    &unresolved,
+                    function.span(),
+                    &origin,
+                )));
             }
 
-            for required_name in required_row.concrete_effects(&solution) {
+            let mut required_effects: Vec<Symbol> = required_row
+                .concrete_effects(&solution)
+                .into_iter()
+                .collect();
+            required_effects.sort_by_key(|symbol| self.sym(*symbol).to_string());
+
+            for required_name in required_effects {
                 if !self.is_effect_available(required_name) {
                     let function_name = match function {
                         Expression::Identifier { name, .. } => self.sym(*name).to_string(),
@@ -770,6 +1586,9 @@ impl Compiler {
                             self.file_path.clone(),
                             function.span(),
                         )
+                        .with_display_title("Missing Ambient Effect")
+                        .with_category(DiagnosticCategory::Effects)
+                        .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                         .with_primary_label(function.span(), "effectful call occurs here"),
                     ));
                 }
@@ -801,11 +1620,50 @@ impl Compiler {
                             self.file_path.clone(),
                             argument.span(),
                         )
+                        .with_display_title("Unresolved Boundary Type")
+                        .with_category(DiagnosticCategory::TypeInference)
                         .with_primary_label(
                             argument.span(),
                             "runtime boundary check is unresolved in strict mode",
                         ),
                     ));
+                }
+                // Stage 2 (0051): when the contract has no concrete RuntimeType (e.g. generic
+                // param T or user ADT), fall back to HM's call-site-instantiated function type.
+                // Only fires when HM has fully resolved the function's param type and the
+                // argument type, and they don't match. Skipped if HM already emitted E300 for
+                // this argument to avoid duplicate diagnostics.
+                if !self.type_error_already_reported_for(argument) {
+                    use super::hm_expr_typer::HmExprTypeResult;
+                    if let HmExprTypeResult::Known(InferType::Fun(hm_params, _, _)) =
+                        self.hm_expr_type_strict_path(function)
+                        && let Some(hm_expected) = hm_params.get(index)
+                        && hm_expected.free_vars().is_empty()
+                        && !hm_expected.contains_any()
+                        && let HmExprTypeResult::Known(actual) =
+                            self.hm_expr_type_strict_path(argument)
+                        && actual.free_vars().is_empty()
+                        && !actual.contains_any()
+                    {
+                        let types_match = if let Ok(subst) = unify(hm_expected, &actual) {
+                            hm_expected.apply_type_subst(&subst) == actual.apply_type_subst(&subst)
+                        } else {
+                            false
+                        };
+                        if !types_match {
+                            let expected_str = display_infer_type(hm_expected, &self.interner);
+                            let actual_str = display_infer_type(&actual, &self.interner);
+                            return Err(Self::boxed(call_arg_type_mismatch(
+                                self.file_path.clone(),
+                                argument.span(),
+                                Some(&function_name),
+                                index + 1,
+                                def_span,
+                                &expected_str,
+                                &actual_str,
+                            )));
+                        }
+                    }
                 }
                 continue;
             };
@@ -942,30 +1800,84 @@ impl Compiler {
         Some((member.to_string(), qualifier.to_string()))
     }
 
+    fn unresolved_effect_vars_diagnostic(
+        &self,
+        vars: &[Symbol],
+        span: Span,
+        origin: &EffectConstraintOrigin,
+    ) -> Diagnostic {
+        if vars.len() == 1 {
+            let effect_name = self.sym(vars[0]).to_string();
+            with_effect_constraint_origin(dynamic_explained_diagnostic(
+                "E419",
+                "UNRESOLVED EFFECT VARIABLE",
+                format!(
+                    "I cannot resolve the effect variable `{effect_name}` introduced by this call."
+                ),
+                self.file_path.clone(),
+                span,
+                "this call leaves an effect variable unconstrained",
+                [format!("unresolved effect variable: {effect_name}")],
+                format!(
+                    "Add an explicit effect annotation such as `with {effect_name}` or pass a callback with concrete effects."
+                ),
+            ), origin)
+            .with_display_title("Unresolved Effect Row")
+            .with_category(DiagnosticCategory::Effects)
+            .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
+        } else {
+            let mut names: Vec<String> = vars
+                .iter()
+                .map(|symbol| self.sym(*symbol).to_string())
+                .collect();
+            names.sort();
+            with_effect_constraint_origin(dynamic_explained_diagnostic(
+                "E420",
+                "AMBIGUOUS EFFECT VARIABLES",
+                format!(
+                    "I cannot determine which effects this call should carry because these effect variables stay ambiguous: {}.",
+                    names.join(", ")
+                ),
+                self.file_path.clone(),
+                span,
+                "this call leaves multiple effect variables ambiguous",
+                [format!("ambiguous effect variables: {}", names.join(", "))],
+                "Add explicit `with ...` annotations or use callbacks with concrete effects to disambiguate.",
+            ), origin)
+            .with_display_title("Unresolved Effect Row")
+            .with_category(DiagnosticCategory::Effects)
+            .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
+        }
+    }
+
     fn diagnostic_for_row_violation(
         &self,
         function: &Expression,
         violation: &RowConstraintViolation,
     ) -> Diagnostic {
+        let origin = self.effect_constraint_origin(function, None);
         match violation {
             RowConstraintViolation::InvalidSubtract { atom } => {
                 let effect_name = self.sym(*atom).to_string();
-                Diagnostic::make_error_dynamic(
-                    "E421",
-                    "INVALID EFFECT SUBTRACTION",
-                    ErrorType::Compiler,
-                    format!(
-                        "Cannot subtract effect `{}` from a row that does not contain it.",
-                        effect_name
+                with_effect_constraint_origin(
+                    dynamic_explained_diagnostic(
+                        "E421",
+                        "INVALID EFFECT SUBTRACTION",
+                        format!("I cannot subtract effect `{effect_name}` from this effect row."),
+                        self.file_path.clone(),
+                        function.span(),
+                        "this call violates an effect-row subtraction constraint",
+                        [format!("requested subtraction: {effect_name}")],
+                        "Handle or include this effect before subtracting it from an effect row.",
                     ),
-                    Some(
-                        "Handle or include this effect before subtracting it from an effect row."
-                            .to_string(),
-                    ),
-                    self.file_path.clone(),
-                    function.span(),
+                    &origin,
                 )
-                .with_primary_label(function.span(), "effect row constraint failed")
+                .with_display_title("Effect Requirement Mismatch")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
+            }
+            RowConstraintViolation::UnresolvedVars { vars } => {
+                self.unresolved_effect_vars_diagnostic(vars, function.span(), &origin)
             }
             RowConstraintViolation::UnsatisfiedSubset { missing } => {
                 let mut names: Vec<String> = missing
@@ -973,22 +1885,22 @@ impl Compiler {
                     .map(|effect| self.sym(*effect).to_string())
                     .collect();
                 names.sort();
-                Diagnostic::make_error_dynamic(
+                with_effect_constraint_origin(dynamic_explained_diagnostic(
                     "E422",
                     "UNSATISFIED EFFECT SUBSET",
-                    ErrorType::Compiler,
                     format!(
-                        "Effect row is missing required effects: {}.",
+                        "This call requires effects that are missing from the surrounding effect row: {}.",
                         names.join(", ")
-                    ),
-                    Some(
-                        "Add missing effects to the enclosing function or handle them before this call."
-                            .to_string(),
                     ),
                     self.file_path.clone(),
                     function.span(),
-                )
-                .with_primary_label(function.span(), "effect row constraint failed")
+                    "this call needs effects that are not currently available",
+                    [format!("missing required effects: {}", names.join(", "))],
+                    "Add the missing effects to the enclosing function or handle them before this call.",
+                ), &origin)
+                .with_display_title("Effect Requirement Mismatch")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
             }
         }
     }
@@ -1040,6 +1952,9 @@ impl Compiler {
                 self.file_path.clone(),
                 function.span(),
             )
+            .with_display_title("Missing Ambient Effect")
+            .with_category(DiagnosticCategory::Effects)
+            .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
             .with_primary_label(function.span(), "effectful call occurs here"),
         ))
     }
@@ -1053,7 +1968,7 @@ impl Compiler {
     }
 
     fn collect_effect_row_constraints(
-        &self,
+        &mut self,
         contract: &FnContract,
         arguments: &[Expression],
     ) -> Vec<RowConstraint> {
@@ -1069,56 +1984,73 @@ impl Compiler {
                 continue;
             };
 
-            let expected = EffectRow::from_effect_exprs(param_effects, |effect| {
-                self.is_effect_variable(effect)
-            });
-            let actual = self.infer_argument_function_effect_row(argument, params.len());
-
-            // Keep current permissive behavior when argument effect info is unavailable.
-            if actual.atoms.is_empty() && actual.vars.is_empty() {
+            let expected = EffectRow::from_effect_exprs(param_effects);
+            let Some(actual) = self.infer_argument_function_effect_row(argument, params.len())
+            else {
+                // Keep current permissive behavior when argument effect info is unavailable.
                 continue;
-            }
+            };
 
             constraints.push(RowConstraint::Eq(expected.clone(), actual.clone()));
-            for required_atom in expected.atoms {
-                constraints.push(RowConstraint::Contains(actual.clone(), required_atom));
+            constraints.push(RowConstraint::Subset(expected, actual.clone()));
+            for effect in param_effects {
+                self.collect_effect_expr_absence_constraints(effect, &actual, &mut constraints);
             }
         }
 
         constraints
     }
 
-    fn infer_argument_function_effect_row(
+    pub(super) fn collect_effect_expr_absence_constraints(
         &self,
+        effect: &EffectExpr,
+        actual: &EffectRow,
+        constraints: &mut Vec<RowConstraint>,
+    ) {
+        match effect {
+            EffectExpr::Named { .. } | EffectExpr::RowVar { .. } => {}
+            EffectExpr::Add { left, right, .. } => {
+                self.collect_effect_expr_absence_constraints(left, actual, constraints);
+                self.collect_effect_expr_absence_constraints(right, actual, constraints);
+            }
+            EffectExpr::Subtract { left, right, .. } => {
+                self.collect_effect_expr_absence_constraints(left, actual, constraints);
+                self.collect_effect_expr_absence_constraints(right, actual, constraints);
+
+                let right_row = EffectRow::from_effect_expr(right);
+
+                for atom in right_row.atoms {
+                    constraints.push(RowConstraint::Absent(actual.clone(), atom));
+                }
+            }
+        }
+    }
+
+    fn infer_argument_function_effect_row(
+        &mut self,
         argument: &Expression,
         expected_arity: usize,
-    ) -> EffectRow {
+    ) -> Option<EffectRow> {
         match argument {
-            Expression::Function { effects, .. } => {
-                EffectRow::from_effect_exprs(effects, |effect| self.is_effect_variable(effect))
+            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Identifier { name, .. } => {
+                if let Some(local) = self.current_function_param_effect_row(*name) {
+                    return Some(local);
+                }
+                self.lookup_unqualified_contract(*name, expected_arity)
+                    .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                    .or_else(|| self.infer_argument_effect_row_from_hm(argument))
             }
-            Expression::Identifier { name, .. } => self
-                .lookup_unqualified_contract(*name, expected_arity)
-                .map(|contract| {
-                    EffectRow::from_effect_exprs(&contract.effects, |effect| {
-                        self.is_effect_variable(effect)
-                    })
-                })
-                .unwrap_or_default(),
             Expression::MemberAccess { object, member, .. } => {
                 let module_name = self.resolve_module_name_from_expr(object);
                 module_name
                     .and_then(|module_name| {
                         self.lookup_contract(Some(module_name), *member, expected_arity)
                     })
-                    .map(|contract| {
-                        EffectRow::from_effect_exprs(&contract.effects, |effect| {
-                            self.is_effect_variable(effect)
-                        })
-                    })
-                    .unwrap_or_default()
+                    .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                    .or_else(|| self.infer_argument_effect_row_from_hm(argument))
             }
-            _ => EffectRow::default(),
+            _ => self.infer_argument_effect_row_from_hm(argument),
         }
     }
 
@@ -1349,13 +2281,18 @@ impl Compiler {
             }
         }
 
-        self.with_function_context(parameters.len(), effects, |compiler| {
-            compiler.compile_block_with_tail(body)
-        })?;
+        let param_effect_rows = self.build_param_effect_rows(parameters, parameters_types);
+        self.with_function_context_with_param_effect_rows(
+            parameters.len(),
+            effects,
+            param_effect_rows,
+            |compiler| compiler.compile_block_with_tail(body),
+        )?;
 
         if self.block_has_value_tail(body) {
             if self.is_last_instruction(OpCode::OpPop) {
                 self.replace_last_pop_with_return();
+            } else if self.replace_last_local_read_with_return() {
             } else if !self.is_last_instruction(OpCode::OpReturnValue)
                 && !self.is_last_instruction(OpCode::OpReturnLocal)
             {
@@ -1459,9 +2396,7 @@ impl Compiler {
         alternative: &Option<Block>,
     ) -> CompileResult<()> {
         self.validate_boolean_expression(condition, "if condition")?;
-        self.compile_non_tail_expression(condition)?;
-
-        let jump_not_truthy_pos = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
+        let condition_jump = self.compile_jump_not_truthy_condition(condition)?;
 
         let consequence_has_value = self.block_has_value_tail(consequence);
         // Consequence branch inherits tail position
@@ -1480,11 +2415,13 @@ impl Compiler {
         }
 
         let jump_pos = self.emit(OpCode::OpJump, &[9999]);
-        self.change_operand(jump_not_truthy_pos, self.current_instructions().len());
+        self.change_operand(condition_jump.position, self.current_instructions().len());
 
         // Pop the condition value that was left on stack when we jumped here
         // (OpJumpNotTruthy keeps value on stack when jumping for short-circuit support)
-        self.emit(OpCode::OpPop, &[]);
+        if condition_jump.leaves_condition_on_jump {
+            self.emit(OpCode::OpPop, &[]);
+        }
 
         // Alternative branch also inherits tail position
         if let Some(alt) = alternative {
@@ -1522,55 +2459,146 @@ impl Compiler {
         for diag in self.collect_unreachable_arm_warnings(arms) {
             self.warnings.push(diag);
         }
-        // Compile scrutinee once and store it in a temp symbol.
+        // Optimisation: if the scrutinee is a simple consumable local used exactly once AND
+        // every arm is a simple ADT pattern (no guards, arity ≤ 2, all-identifier/wildcard
+        // fields, known constructor), skip the temp variable entirely.
+        //
+        // Instead, each arm emits `OpIsAdtJumpLocal(local_idx, …)` which peeks at the local
+        // slot without cloning (Rc strong_count stays 1), then on match emits
+        // `OpConsumeLocal(local_idx)` to move the value to the stack — so `Rc::try_unwrap`
+        // succeeds in `OpAdtFields2`, moving fields without any clone/drop overhead.
+        let consume_local_idx: Option<usize> = if self.all_arms_simple_adt(arms) {
+            self.scrutinee_as_simple_consumable_local(scrutinee)
+        } else {
+            None
+        };
+
+        // Compile scrutinee once and store it in a temp symbol (standard path only).
         // Keep it in the current scope so top-level matches use globals, not stack-backed locals.
-        self.compile_non_tail_expression(scrutinee)?;
-        let temp_symbol = self.symbol_table.define_temp();
-        match temp_symbol.symbol_scope {
-            SymbolScope::Global => {
-                self.emit(OpCode::OpSetGlobal, &[temp_symbol.index]);
-            }
-            SymbolScope::Local => {
-                self.emit(OpCode::OpSetLocal, &[temp_symbol.index]);
-            }
-            _ => {
-                return Err(Self::boxed(Diagnostic::make_error(
-                    &ICE_TEMP_SYMBOL_MATCH,
-                    &[],
-                    self.file_path.clone(),
-                    Span::new(Position::default(), Position::default()),
-                )));
-            }
+        let temp_symbol: Option<Binding> = if consume_local_idx.is_none() {
+            self.compile_non_tail_expression(scrutinee)?;
+            let sym = self.symbol_table.define_temp();
+            match sym.symbol_scope {
+                SymbolScope::Global => {
+                    self.emit(OpCode::OpSetGlobal, &[sym.index]);
+                }
+                SymbolScope::Local => {
+                    self.emit(OpCode::OpSetLocal, &[sym.index]);
+                }
+                _ => {
+                    return Err(Self::boxed(Diagnostic::make_error(
+                        &ICE_TEMP_SYMBOL_MATCH,
+                        &[],
+                        self.file_path.clone(),
+                        Span::new(Position::default(), Position::default()),
+                    )));
+                }
+            };
+            Some(sym)
+        } else {
+            None
         };
 
         let mut end_jumps = Vec::new();
-        let mut next_arm_jumps: Vec<usize> = Vec::new();
+        let mut next_arm_jumps: Vec<ConditionalJump> = Vec::new();
 
         // Compile each arm
         for arm in arms {
             if !next_arm_jumps.is_empty() {
-                let arm_start = self.current_instructions().len();
-                for jump_pos in next_arm_jumps.drain(..) {
-                    self.change_operand(jump_pos, arm_start);
+                let pop_start = self.current_instructions().len();
+                let arm_start = if next_arm_jumps
+                    .iter()
+                    .any(|jump| jump.leaves_condition_on_jump)
+                {
+                    self.emit(OpCode::OpPop, &[]);
+                    self.current_instructions().len()
+                } else {
+                    pop_start
+                };
+                for jump in next_arm_jumps.drain(..) {
+                    let target = if jump.leaves_condition_on_jump {
+                        pop_start
+                    } else {
+                        arm_start
+                    };
+                    self.patch_cond_jump(&jump, target);
                 }
-                // A failed pattern/guard jump leaves its condition on stack.
-                self.emit(OpCode::OpPop, &[]);
             }
 
-            // Check whether pattern matches and collect jumps to the next arm.
-            let mut arm_next_jumps = self.compile_pattern_check(&temp_symbol, &arm.pattern)?;
-
-            self.enter_block_scope();
-            self.compile_pattern_bind(&temp_symbol, &arm.pattern)?;
+            // Fast path: Constructor patterns with all-identifier/wildcard fields,
+            // arity ≤ 2, a known constructor, and no guard.
+            // When `consume_local_idx` is set, uses OpIsAdtJumpLocal which avoids cloning
+            // and keeps Rc strong_count == 1 so OpAdtFields2's Rc::try_unwrap succeeds.
+            let mut arm_next_jumps = if arm.guard.is_none()
+                && let Pattern::Constructor {
+                    name,
+                    fields,
+                    span: pat_span,
+                } = &arm.pattern
+                && Self::is_simple_adt_pattern(fields)
+                && self
+                    .adt_registry
+                    .lookup_constructor(*name)
+                    .is_some_and(|info| info.arity == fields.len())
+            {
+                self.enter_block_scope();
+                let jump = if let Some(local_idx) = consume_local_idx {
+                    self.compile_adt_arm_simple_local(name, fields, *pat_span, local_idx)?
+                } else {
+                    self.compile_adt_arm_simple(
+                        name,
+                        fields,
+                        *pat_span,
+                        temp_symbol
+                            .as_ref()
+                            .expect("temp_symbol must exist for standard path"),
+                    )?
+                };
+                vec![jump]
+            } else {
+                // General path: separate check + bind.
+                let ts = temp_symbol
+                    .as_ref()
+                    .expect("temp_symbol must exist for general path");
+                let jumps = self.compile_pattern_check(ts, &arm.pattern)?;
+                self.enter_block_scope();
+                self.compile_pattern_bind(ts, &arm.pattern)?;
+                jumps
+            };
 
             // Guard runs only after a successful pattern match and in the arm binding scope.
             if let Some(guard) = &arm.guard {
                 self.validate_boolean_expression(guard, "match guard")?;
-                self.compile_non_tail_expression(guard)?;
-                arm_next_jumps.push(self.emit(OpCode::OpJumpNotTruthy, &[9999]));
+                arm_next_jumps.push(self.compile_jump_not_truthy_condition(guard)?);
             }
 
-            if self.in_tail_position {
+            // Compute arm-binding-specific use counts so that bindings used exactly
+            // once in the arm body (e.g. `left`, `right` in a Node pattern) are emitted
+            // as `OpConsumeLocal` instead of `OpGetLocal`, keeping Rc strong_count == 1
+            // and enabling `Rc::try_unwrap` to succeed in `OpAdtFields2` / `OpAdtField`.
+            let merged_counts = {
+                let outer_clone = self.current_consumable_local_use_counts().cloned();
+                if let Some(mut merged) = outer_clone {
+                    let mut arm_body_counts: HashMap<Symbol, usize> = HashMap::new();
+                    self.collect_consumable_param_uses(&arm.body, &mut arm_body_counts);
+                    for (sym, count) in arm_body_counts {
+                        merged.entry(sym).or_insert(count);
+                    }
+                    Some(merged)
+                } else {
+                    None
+                }
+            };
+            let in_tail = self.in_tail_position;
+            if let Some(counts) = merged_counts {
+                self.with_consumable_local_use_counts(counts, |compiler| -> CompileResult<()> {
+                    if in_tail {
+                        compiler.with_tail_position(true, |c| c.compile_expression(&arm.body))
+                    } else {
+                        compiler.compile_expression(&arm.body)
+                    }
+                })?;
+            } else if in_tail {
                 self.with_tail_position(true, |compiler| compiler.compile_expression(&arm.body))?;
             } else {
                 self.compile_expression(&arm.body)?;
@@ -1584,11 +2612,24 @@ impl Compiler {
 
         // If no arm matched (or all guards failed), leave a sentinel value on stack.
         if !next_arm_jumps.is_empty() {
-            let no_match_start = self.current_instructions().len();
-            for jump_pos in next_arm_jumps {
-                self.change_operand(jump_pos, no_match_start);
+            let pop_start = self.current_instructions().len();
+            let no_match_start = if next_arm_jumps
+                .iter()
+                .any(|jump| jump.leaves_condition_on_jump)
+            {
+                self.emit(OpCode::OpPop, &[]);
+                self.current_instructions().len()
+            } else {
+                pop_start
+            };
+            for jump in next_arm_jumps {
+                let target = if jump.leaves_condition_on_jump {
+                    pop_start
+                } else {
+                    no_match_start
+                };
+                self.patch_cond_jump(&jump, target);
             }
-            self.emit(OpCode::OpPop, &[]);
         }
         self.emit(OpCode::OpNone, &[]);
 
@@ -1600,11 +2641,11 @@ impl Compiler {
         Ok(())
     }
 
-    pub(super) fn compile_pattern_check(
+    fn compile_pattern_check(
         &mut self,
         scrutinee: &Binding,
         pattern: &Pattern,
-    ) -> CompileResult<Vec<usize>> {
+    ) -> CompileResult<Vec<ConditionalJump>> {
         match pattern {
             Pattern::Wildcard { .. } => {
                 // Wildcard always matches, so we never jump to next arm
@@ -1613,7 +2654,11 @@ impl Compiler {
                 // So we return a dummy jump position that will never be used
                 // For simplicity, emit a condition that's always true
                 self.emit(OpCode::OpTrue, &[]);
-                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
+                Ok(vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }])
             }
             Pattern::Literal { expression, .. } => {
                 // Push pattern value onto stack: [scrutinee, pattern]
@@ -1621,20 +2666,26 @@ impl Compiler {
                 // OpJumpNotTruthy jumps when false (no match), continues when true (match)
                 self.load_symbol(scrutinee);
                 self.compile_non_tail_expression(expression)?;
-                self.emit(OpCode::OpEqual, &[]);
-                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
+                Ok(vec![
+                    self.emit_conditional_jump_not_truthy_for_compiled_comparison(OpCode::OpEqual),
+                ])
             }
             Pattern::None { .. } => {
                 // Check if scrutinee is None
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpNone, &[]);
-                self.emit(OpCode::OpEqual, &[]);
-                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
+                Ok(vec![
+                    self.emit_conditional_jump_not_truthy_for_compiled_comparison(OpCode::OpEqual),
+                ])
             }
             Pattern::Some { pattern: inner, .. } => {
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsSome, &[]);
-                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+                let mut jumps = vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }];
 
                 match inner.as_ref() {
                     Pattern::Wildcard { .. } | Pattern::Identifier { .. } => Ok(jumps),
@@ -1668,7 +2719,11 @@ impl Compiler {
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsLeft, &[]);
 
-                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+                let mut jumps = vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }];
 
                 match inner.as_ref() {
                     Pattern::Wildcard { .. } | Pattern::Identifier { .. } => Ok(jumps),
@@ -1704,7 +2759,11 @@ impl Compiler {
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsRight, &[]);
 
-                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+                let mut jumps = vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }];
 
                 match inner.as_ref() {
                     Pattern::Wildcard { .. } | Pattern::Identifier { .. } => Ok(jumps),
@@ -1740,19 +2799,31 @@ impl Compiler {
                 // Identifier patterns always match; value binding is performed in
                 // `compile_pattern_bind` after a successful check.
                 self.emit(OpCode::OpTrue, &[]);
-                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
+                Ok(vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }])
             }
             Pattern::EmptyList { .. } => {
                 // Check if scrutinee is an empty list
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsEmptyList, &[]);
-                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
+                Ok(vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }])
             }
             Pattern::Cons { head, tail, .. } => {
                 // Check if scrutinee is a non-empty cons cell
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsCons, &[]);
-                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+                let mut jumps = vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }];
 
                 // Check head pattern
                 let head_symbol = self.symbol_table.define_temp();
@@ -1817,7 +2888,11 @@ impl Compiler {
             Pattern::Tuple { elements, .. } => {
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsTuple, &[]);
-                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+                let mut jumps = vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }];
 
                 for (index, element) in elements.iter().enumerate() {
                     match element {
@@ -1878,7 +2953,7 @@ impl Compiler {
                     }
                     let name_str = self.interner.resolve(*name).to_string();
                     return Err(Self::boxed(
-                        diag_enhanced(&UNKNOWN_CONSTRUCTOR)
+                        diagnostic_for(&UNKNOWN_CONSTRUCTOR)
                             .with_span(*span)
                             .with_message(format!("Unknown constructor `{}`.", name_str)),
                     ));
@@ -1907,7 +2982,11 @@ impl Compiler {
                     self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
                 self.emit(OpCode::OpIsAdt, &[const_idx]);
 
-                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+                let mut jumps = vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }];
 
                 // 3. For each non-wildcard/non-identifier field pattern, extract and sub-check
                 for (field_idx, field_pat) in fields.iter().enumerate() {
@@ -2140,7 +3219,7 @@ impl Compiler {
                     }
                     let name_str = self.interner.resolve(*name).to_string();
                     return Err(Self::boxed(
-                        diag_enhanced(&UNKNOWN_CONSTRUCTOR)
+                        diagnostic_for(&UNKNOWN_CONSTRUCTOR)
                             .with_span(*span)
                             .with_message(format!("Unknown constructor `{}`.", name_str)),
                     ));
@@ -2240,6 +3319,9 @@ impl Compiler {
                     self.file_path.clone(),
                     function.span(),
                 )
+                .with_display_title("Missing Ambient Effect")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                 .with_primary_label(function.span(), "effectful call occurs here"),
             ));
         }
@@ -2292,6 +3374,9 @@ impl Compiler {
                     self.file_path.clone(),
                     function.span(),
                 )
+                .with_display_title("Missing Ambient Effect")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                 .with_primary_label(function.span(), "effectful call occurs here"),
             ));
         }
@@ -2331,6 +3416,9 @@ impl Compiler {
                     self.file_path.clone(),
                     span,
                 )
+                .with_display_title("Unknown Effect")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                 .with_primary_label(span, "unknown effect in perform"),
             ));
         };
@@ -2350,6 +3438,9 @@ impl Compiler {
                     self.file_path.clone(),
                     span,
                 )
+                .with_display_title("Unknown Effect Operation")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                 .with_primary_label(span, "unknown operation in perform"),
             ));
         }
@@ -2372,6 +3463,9 @@ impl Compiler {
                     self.file_path.clone(),
                     span,
                 )
+                .with_display_title("Wrong Number Of Arguments")
+                .with_category(DiagnosticCategory::TypeInference)
+                .with_phase(crate::diagnostics::DiagnosticPhase::TypeInference)
                 .with_primary_label(span, "perform argument count mismatch"),
             ));
         }
@@ -2413,6 +3507,9 @@ impl Compiler {
                     self.file_path.clone(),
                     span,
                 )
+                .with_display_title("Missing Ambient Effect")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                 .with_primary_label(span, "effectful perform occurs here"),
             ));
         }
@@ -2466,6 +3563,9 @@ impl Compiler {
                     self.file_path.clone(),
                     expr.span(),
                 )
+                .with_display_title("Unknown Effect")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                 .with_primary_label(expr.span(), "unknown effect in handle"),
             ));
         };
@@ -2490,6 +3590,9 @@ impl Compiler {
                         self.file_path.clone(),
                         arm.span,
                     )
+                    .with_display_title("Unknown Effect Operation")
+                    .with_category(DiagnosticCategory::Effects)
+                    .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                     .with_primary_label(arm.span, "unknown operation arm"),
                 ));
             }
@@ -2518,6 +3621,9 @@ impl Compiler {
                     self.file_path.clone(),
                     expr.span(),
                 )
+                .with_display_title("Missing Effect Handler Arm")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                 .with_primary_label(expr.span(), "handled expression"),
             ));
         }
@@ -2553,6 +3659,9 @@ impl Compiler {
                         self.file_path.clone(),
                         arm.span,
                     )
+                    .with_display_title("Wrong Number Of Arguments")
+                    .with_category(DiagnosticCategory::TypeInference)
+                    .with_phase(crate::diagnostics::DiagnosticPhase::TypeInference)
                     .with_primary_label(arm.span, "handler arm parameter mismatch"),
                 ));
             }
@@ -2664,15 +3773,22 @@ impl Compiler {
             return false;
         }
         if let Some(symbol) = self.resolve_visible_symbol(name)
-            && self.is_consumable_tail_param(&symbol)
+            && self.is_consumable_local(&symbol)
         {
-            self.emit(OpCode::OpConsumeLocal, &[symbol.index]);
+            self.emit_consume_local(symbol.index);
             return true;
         }
         false
     }
 
-    fn collect_consumable_param_uses_statement(
+    fn try_emit_consumed_local(&mut self, name: Symbol) -> bool {
+        let Some(counts) = self.current_consumable_local_use_counts().cloned() else {
+            return false;
+        };
+        self.try_emit_consumed_param(name, &counts)
+    }
+
+    pub(super) fn collect_consumable_param_uses_statement(
         &mut self,
         statement: &Statement,
         counts: &mut HashMap<Symbol, usize>,
@@ -2703,7 +3819,7 @@ impl Compiler {
         }
     }
 
-    fn collect_consumable_param_uses(
+    pub(super) fn collect_consumable_param_uses(
         &mut self,
         expression: &Expression,
         counts: &mut HashMap<Symbol, usize>,
@@ -2711,7 +3827,7 @@ impl Compiler {
         match expression {
             Expression::Identifier { name, .. } => {
                 if let Some(symbol) = self.symbol_table.resolve(*name)
-                    && self.is_consumable_tail_param(&symbol)
+                    && self.is_consumable_local(&symbol)
                 {
                     *counts.entry(*name).or_insert(0) += 1;
                 }
@@ -2838,7 +3954,7 @@ impl Compiler {
         }
     }
 
-    fn is_consumable_tail_param(&self, symbol: &Binding) -> bool {
+    fn is_consumable_local(&self, symbol: &Binding) -> bool {
         if symbol.symbol_scope != SymbolScope::Local {
             return false;
         }
@@ -2848,10 +3964,7 @@ impl Compiler {
         {
             return false;
         }
-        match self.current_function_param_count() {
-            Some(num_params) => symbol.index < num_params,
-            None => false,
-        }
+        true
     }
 
     fn try_emit_adt_constructor_call(
@@ -2940,7 +4053,7 @@ impl Compiler {
         if actual_arity != expected_arity {
             let name_str = self.interner.resolve(name).to_string();
             return Err(Self::boxed(
-                diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                diagnostic_for(&CONSTRUCTOR_ARITY_MISMATCH)
                     .with_span(span)
                     .with_message(format!(
                         "Constructor `{}` expects {} argument(s) but got {}.",
@@ -3034,7 +4147,7 @@ impl Compiler {
                 }
                 let missing_text = missing.join(", ");
                 Err(Self::boxed(
-                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match is non-exhaustive: missing Bool case(s): {}.",
@@ -3068,7 +4181,7 @@ impl Compiler {
                 }
                 let missing_text = missing.join(", ");
                 Err(Self::boxed(
-                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match is non-exhaustive: missing Option case(s): {}.",
@@ -3102,7 +4215,7 @@ impl Compiler {
                 }
                 let missing_text = missing.join(", ");
                 Err(Self::boxed(
-                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match is non-exhaustive: missing Either case(s): {}.",
@@ -3136,7 +4249,7 @@ impl Compiler {
                 }
                 let missing_text = missing.join(", ");
                 Err(Self::boxed(
-                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match is non-exhaustive: missing list case(s): {}.",
@@ -3153,7 +4266,7 @@ impl Compiler {
                     return Err(Self::boxed(guarded_wildcard_non_exhaustive(span)));
                 }
                 Err(Self::boxed(
-                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(
                             "Match over tuple domains is conservatively non-exhaustive without an unguarded catch-all arm."
@@ -3169,7 +4282,7 @@ impl Compiler {
                     return Err(Self::boxed(guarded_wildcard_non_exhaustive(span)));
                 }
                 Err(Self::boxed(
-                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(
                             "Match is non-exhaustive without an unguarded catch-all arm."
@@ -3344,7 +4457,7 @@ impl Compiler {
                 let first_adt = self.interner.resolve(adt_name).to_string();
                 let mixed_adt = self.interner.resolve(info.adt_name).to_string();
                 return Err(Self::boxed(
-                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match arms mix constructors from different ADTs: `{}` and `{}`.",
@@ -3381,7 +4494,7 @@ impl Compiler {
                 .collect::<Vec<_>>()
                 .join(", ");
             return Err(Self::boxed(
-                diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                     .with_span(span)
                     .with_message(format!(
                         "Match on `{}` is non-exhaustive because all constructor arms are guarded.",
@@ -3407,7 +4520,7 @@ impl Compiler {
             let adt_name_str = self.interner.resolve(adt_name).to_string();
             let missing_list = missing.join(", ");
             return Err(Self::boxed(
-                diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                     .with_span(span)
                     .with_message(format!(
                         "Match on `{}` is missing constructors: {}.",
@@ -3520,7 +4633,7 @@ impl Compiler {
                 };
                 if info.adt_name != nested_adt_name {
                     return Err(Self::boxed(
-                        diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                        diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                             .with_span(span)
                             .with_message(format!(
                                 "Nested constructor patterns {} mix ADTs.",
@@ -3546,7 +4659,7 @@ impl Compiler {
                 let nested_adt = self.interner.resolve(nested_adt_name);
                 let missing_list = missing.join(", ");
                 return Err(Self::boxed(
-                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match is non-exhaustive: nested `{}` patterns {} miss constructors: {}.",
@@ -3629,7 +4742,7 @@ impl Compiler {
             }
         } else if patterns.iter().any(|p| matches!(p, Pattern::Tuple { .. })) {
             return Err(Self::boxed(
-                diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                     .with_span(span)
                     .with_message(format!(
                         "Match is non-exhaustive: nested tuple patterns {} are mixed-shape and cannot be proven exhaustive conservatively.",
@@ -3655,7 +4768,7 @@ impl Compiler {
         if has_empty || has_cons {
             if !has_empty {
                 return Err(Self::boxed(
-                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match is non-exhaustive: nested list patterns {} miss the empty list case.",
@@ -3668,7 +4781,7 @@ impl Compiler {
             }
             if !has_cons {
                 return Err(Self::boxed(
-                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match is non-exhaustive: nested list patterns {} miss non-empty list cases.",

@@ -1,0 +1,20 @@
+// Several independent parser errors in one file.
+//
+// Expected:
+// - Missing `{` for `first`
+// - Missing `->` in match arm
+// - Missing `{` for `else`
+// The parser should report all recoverable independent errors.
+
+fn first(x: Int) -> Int
+    x + 1
+
+fn main() -> Unit {
+    let value = match 1 {
+        1 "one",
+        _ -> "other",
+    }
+
+    let _label = if true { "ok" } else "bad"
+    print(value)
+}

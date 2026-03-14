@@ -2,7 +2,7 @@
 
 > Source: `src/runtime/base/`
 > Proposal context:
-> - Base prelude architecture: `docs/proposals/0028_base.md`
+> - Base prelude architecture: `docs/proposals/implemented/0028_base.md`
 > - Base API classification and review policy: `docs/internals/base_api.md`
 > - Flow stdlib architecture: `docs/proposals/0030_flow.md`
 
@@ -95,4 +95,4 @@ Base lookup helpers:
 
 Notes:
 - Index order is ABI-sensitive for bytecode/JIT dispatch.
-- Any index-affecting change must be coordinated with cache/versioning policy from `docs/proposals/0028_base.md`.
+- Any index-affecting change must be coordinated with cache/versioning policy from `docs/proposals/implemented/0028_base.md`.

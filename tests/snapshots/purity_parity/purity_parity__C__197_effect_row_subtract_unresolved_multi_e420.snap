@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx
+Category: C
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E420 | Unresolved Effect Row | this call leaves multiple effect variables ambiguous
+
+== jit tuples ==
+- E420 | Unresolved Effect Row | this call leaves multiple effect variables ambiguous
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

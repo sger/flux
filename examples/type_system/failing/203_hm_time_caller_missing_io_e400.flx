@@ -1,0 +1,16 @@
+// E400: a `with Time` function calls a function that requires IO.
+// The HM-layer diagnostic should name `IO` as the missing effect and
+// suggest annotating the enclosing function with `with IO`.
+
+fn log_event(msg: String) -> Unit with IO {
+    print(msg)
+}
+
+fn record_time() -> Unit with Time {
+    let _ = now_ms()
+    log_event("recorded")
+}
+
+fn main() with IO, Time {
+    record_time()
+}

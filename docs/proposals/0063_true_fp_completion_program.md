@@ -1,5 +1,6 @@
 - Feature Name: True FP completion program
 - Start Date: 2026-02-28
+- Status: Partially Implemented
 - Proposal PR: 
 - Flux Issue: 
 

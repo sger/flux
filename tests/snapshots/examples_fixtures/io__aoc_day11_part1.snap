@@ -5,16 +5,39 @@ Fixture: examples/io/aoc_day11_part1.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/io/aoc_day11_part1.flx:66:13
+   |
+66 |     [|name, outs|]
+   |             ^^^^
+   |             ---- this expression has type `Array<String>`
+
+   |             ---- this type mismatch is reported here
+
+Note:
+  expected type: String
+  found type: Array<String>
+  the conflicting types meet at this expression
+
+Help:
+  These two types are not compatible.
+
+
+error[E004]: Undefined Variable
 
 I can't find a value named `dfs_count`.
 
-  --> examples/io/aoc_day11_part1.flx:79:13
+  examples/io/aoc_day11_part1.flx:79:13
    |
 79 |     let r = dfs_count(nxt, graph, memo)
    |             ^^^^^^^^^
 
 Hint:
   Define it first: let dfs_count = ...;
+
+Found 2 errors.
 == stdout ==
 <not executed>

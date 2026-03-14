@@ -1,0 +1,9 @@
+// Missing comma between function arguments.
+//
+// Expected: contextual error about missing separator.
+
+fn add(a: Int, b: Int) -> Int { a + b }
+
+fn main() -> Unit {
+    let _r = add(1 2)
+}

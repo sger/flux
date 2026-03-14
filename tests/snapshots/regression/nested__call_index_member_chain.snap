@@ -4,11 +4,11 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/nested/call_index_member_chain.flx
 exit_code: 1
 
---> compiler error[E004]: UNDEFINED VARIABLE
+error[E004]: Undefined Variable
 
 I can't find a value named `foo`.
 
-  --> tests/fixtures/nested/call_index_member_chain.flx:1:1
+  tests/fixtures/nested/call_index_member_chain.flx:1:1
   |
 1 | foo(1, bar(2, baz(3)))[0].qux(4);
   | ^^^

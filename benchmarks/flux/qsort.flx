@@ -1,0 +1,91 @@
+let n = 32
+let rand_mod = 4294967296
+
+fn bad_rand(seed: Int) -> Int {
+    (seed * 1664525 + 1013904223) % rand_mod
+}
+
+fn mk_random_array(seed: Int, size: Int, acc: Array<Int>) -> Array<Int> {
+    if size <= 0 {
+        acc
+    } else {
+        mk_random_array(bad_rand(seed), size - 1, concat(acc, [|seed|]))
+    }
+}
+
+fn collect_lt(xs: Array<Int>, pivot: Int, idx: Int, acc: Array<Int>) -> Array<Int> {
+    if idx >= array_len(xs) {
+        acc
+    } else {
+        let x = array_get(xs, idx)
+        if x < pivot {
+            collect_lt(xs, pivot, idx + 1, concat(acc, [|x|]))
+        } else {
+            collect_lt(xs, pivot, idx + 1, acc)
+        }
+    }
+}
+
+fn collect_ge(xs: Array<Int>, pivot: Int, idx: Int, acc: Array<Int>) -> Array<Int> {
+    if idx >= array_len(xs) {
+        acc
+    } else {
+        let x = array_get(xs, idx)
+        if x < pivot {
+            collect_ge(xs, pivot, idx + 1, acc)
+        } else {
+            collect_ge(xs, pivot, idx + 1, concat(acc, [|x|]))
+        }
+    }
+}
+
+fn qsort(xs: Array<Int>) -> Array<Int> {
+    if array_len(xs) <= 1 {
+        xs
+    } else {
+        let pivot = array_get(xs, 0)
+        let left = collect_lt(xs, pivot, 1, [||])
+        let right = collect_ge(xs, pivot, 1, [||])
+        concat(qsort(left), concat([|pivot|], qsort(right)))
+    }
+}
+
+fn check_sorted_checksum(arr: Array<Int>, i: Int, hi: Int) -> Int {
+    if hi < 0 {
+        0
+    } else if i < hi {
+        if array_get(arr, i) <= array_get(arr, i + 1) {
+            check_sorted_checksum(arr, i + 1, hi)
+        } else {
+            -1
+        }
+    } else {
+        array_get(arr, hi) + hi + 1
+    }
+}
+
+fn sort_and_checksum(i: Int) -> Int {
+    let arr = mk_random_array(i, i, [||])
+    let sorted = qsort(arr)
+    check_sorted_checksum(sorted, 0, array_len(sorted) - 1)
+}
+
+fn bench_inner(limit: Int, i: Int, acc: Int) -> Int {
+    if i < limit {
+        bench_inner(limit, i + 1, acc + sort_and_checksum(i))
+    } else {
+        acc
+    }
+}
+
+fn bench_outer(limit: Int, iter: Int, acc: Int) -> Int {
+    if iter < limit {
+        bench_outer(limit, iter + 1, bench_inner(limit, 0, acc))
+    } else {
+        acc
+    }
+}
+
+fn main() with IO {
+    print("#{bench_outer(n, 0, 0)}")
+}

@@ -1,0 +1,15 @@
+data Bad {
+    Item(Int String),
+}
+
+effect Console {
+    print String -> Unit
+}
+
+fn main() -> Unit {
+    let value = match 1 {
+        0 "zero",
+        _ -> 1,
+    }
+    print(value)
+}

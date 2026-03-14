@@ -5,11 +5,11 @@ Fixture: examples/aoc/2024/Day02Solver.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E011]: PRIVATE MEMBER
+error[E011]: Private Member
 
 Cannot access private member `int_at`.
 
-  --> examples/aoc/2024/Day02Solver.flx:24:27
+  examples/aoc/2024/Day02Solver.flx:24:27
    |
 24 |                 push(acc, Shared.int_at(xs, idx) - Shared.int_at(xs, idx + 1)),
    |                           ^^^^^^^^^^^^^
@@ -18,11 +18,11 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
---> compiler error[E011]: PRIVATE MEMBER
+error[E011]: Private Member
 
 Cannot access private member `int_at`.
 
-  --> examples/aoc/2024/Day02Solver.flx:47:44
+  examples/aoc/2024/Day02Solver.flx:47:44
    |
 47 |             let keep_head = prepend_to_all(Shared.int_at(xs, 0), try_drops(tail))
    |                                            ^^^^^^^^^^^^^

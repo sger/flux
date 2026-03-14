@@ -1,0 +1,18 @@
+// Concrete subtraction remains valid when the removed effect is absent.
+
+effect Console {
+    print: String -> ()
+}
+
+fn wrap(f: (() -> Int with IO + Console - Console)) -> Int with IO + Console - Console {
+    f()
+}
+
+fn io_only() -> Int with IO {
+    print("io-only")
+    7
+}
+
+fn main() with IO {
+    print(to_string(wrap(io_only)))
+}

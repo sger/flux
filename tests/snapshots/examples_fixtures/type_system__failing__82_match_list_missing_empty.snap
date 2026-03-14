@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/82_match_list_missing_empty.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E015]: NON-EXHAUSTIVE MATCH
+error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive: missing list case(s): [].
 
-  --> examples/type_system/failing/82_match_list_missing_empty.flx:4:1
+  examples/type_system/failing/82_match_list_missing_empty.flx:4:1
   |
 4 | match xs {
   | ^^^^^^^^^^

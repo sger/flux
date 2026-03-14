@@ -122,6 +122,21 @@ mod tests {
     }
 
     #[test]
+    fn unterminated_string_emits_lexer_diagnostic() {
+        let input = "\"abc";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::UnterminatedString);
+
+        let diagnostics = lexer.take_diagnostics();
+        assert_eq!(diagnostics.len(), 1);
+        let diag = &diagnostics[0];
+        assert_eq!(diag.code(), Some("E071"));
+        assert_eq!(diag.span(), Some(tok.span()));
+    }
+
+    #[test]
     fn unterminated_string_with_comment_like_text_keeps_full_length() {
         let input = "\"http://example.com";
         let mut lexer = Lexer::new(input);
@@ -778,6 +793,10 @@ fn fib(n) {
         // Should emit error for unterminated comment
         let tok = lexer.next_token();
         assert_eq!(tok.token_type, TokenType::UnterminatedBlockComment);
+        let diagnostics = lexer.take_diagnostics();
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code(), Some("E074"));
+        assert_eq!(diagnostics[0].span(), Some(tok.span()));
     }
 
     #[test]
@@ -797,6 +816,24 @@ fn fib(n) {
 
         let tok = lexer.next_token();
         assert_eq!(tok.token_type, TokenType::UnterminatedBlockComment);
+    }
+
+    #[test]
+    fn illegal_character_emits_lexer_diagnostic() {
+        let mut lexer = Lexer::new("@");
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::Illegal);
+
+        let diagnostics = lexer.take_diagnostics();
+        assert_eq!(diagnostics.len(), 1);
+        let diag = &diagnostics[0];
+        assert_eq!(diag.code(), Some("E031"));
+        assert_eq!(diag.span(), Some(tok.span()));
+        assert!(
+            diag.message()
+                .is_some_and(|message| message.contains("invalid token"))
+        );
     }
 
     #[test]

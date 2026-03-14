@@ -15,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/85_hm_function_effect_mismatch.fl
 exit_code: 1
 
 == vm tuples ==
-- E034 | UNEXPECTED TOKEN | 
+- E300 | Argument Type Mismatch | this argument has type `(Int) -> Int with IO`
 
 == jit tuples ==
-- E034 | UNEXPECTED TOKEN | 
+- E300 | Argument Type Mismatch | this argument has type `(Int) -> Int with IO`
 
 == parity ==
 match

@@ -1,6 +1,6 @@
-// E400: `with e` resolves to IO from callback, but caller only declares Time.
+// E400: `with |e` resolves to IO from callback, but caller only declares Time.
 
-fn apply_twice(f: ((Int) -> Int with e), x: Int) -> Int with e {
+fn apply_twice(f: ((Int) -> Int with |e), x: Int) -> Int with |e {
     f(f(x))
 }
 
