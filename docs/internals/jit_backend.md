@@ -2,7 +2,7 @@
 
 > Source: `src/jit/` — requires `--features jit` to build
 
-The JIT backend compiles the Flux AST directly to native machine code using [Cranelift](https://cranelift.dev/), bypassing the bytecode compiler and VM entirely.
+The JIT backend compiles Flux programs to native machine code using [Cranelift](https://cranelift.dev/), bypassing the bytecode compiler and VM entirely.
 
 ## Building and Running
 
@@ -18,30 +18,53 @@ cargo run --features jit -- --test examples/tests/array_test.flx --jit
 AST
  │
  ▼
-JIT Compiler (src/jit/compiler.rs)
- │   Cranelift IR (CLIF)
- ▼
-Cranelift Codegen
- │   native machine code
- ▼
-JIT Context (src/jit/context.rs)
- │   executes via function pointer
- ▼
-Value Arena (src/jit/value_arena.rs)
- │   pointer-stable allocations
- ▼
-Runtime Helpers (src/jit/runtime_helpers.rs)
-    extern "C" callbacks for GC, Base functions, closures
+HM Type Inference
+ │
+ ├──► Core IR (nary/)  ──►  CFG IR (cfg/)
+ │                              │
+ ├──► Structured IR (cfg/lower.rs)
+ │         │
+ └──► merge ◄───────────────────┘
+         │
+         ▼
+    IrProgram  (unified CFG IR)
+         │
+         ▼
+    JIT Compiler (src/jit/compiler.rs)
+         │   Cranelift IR (CLIF)
+         ▼
+    Cranelift Codegen
+         │   native machine code
+         ▼
+    JIT Context (src/jit/context.rs)
+         │   executes via function pointer
+         ▼
+    Runtime Helpers (src/jit/runtime_helpers.rs)
+        extern "C" callbacks for GC, Base functions, closures
 ```
+
+## JIT Value Representation
+
+The JIT uses a two-tier value system:
+
+- **Unboxed**: `JitValueKind::Int` and `JitValueKind::Bool` keep values as raw `i64` in
+  Cranelift registers. No allocation needed for integer arithmetic, comparisons, or
+  boolean logic.
+- **Boxed**: `JitValueKind::Boxed` uses `*mut Value` arena pointers. Boxing is deferred
+  until values escape (stored in ADT, returned from function, captured in closure, etc.).
+
+This means `fib(30)` can run entirely in registers without touching the heap.
 
 ## JIT Compiler (`compiler.rs`)
 
-Translates each Flux AST function to Cranelift IR. Key points:
+Translates CFG IR (`IrFunction` / `IrBlock`) to Cranelift IR. Key points:
 
 - All `Value` pointers are `i64` in Cranelift IR (`PTR_TYPE = types::I64`).
 - Functions are compiled independently and linked via `FuncId`.
 - Literal deduplication: function literals at the same source span (tracked by `LiteralKey`) are compiled once.
 - Closures capture free variables as extra pointer arguments injected at call sites.
+- Typed arithmetic (`IAdd`, `FMul`, etc.) from the Core IR emits specialized Cranelift
+  instructions without runtime type dispatch.
 
 The compiler emits calls to runtime helper functions for anything that requires heap allocation or Base function dispatch.
 
@@ -91,6 +114,8 @@ The JIT reuses the same components as the VM:
 | GC heap | `runtime/gc/gc_heap.rs` — `JitContext` owns a `GcHeap` |
 | `RuntimeContext` trait | Both VM and JIT context implement it |
 | Error codes | `diagnostics/` — same error codes and messages |
+| CFG IR | `cfg/mod.rs` — both backends consume `IrProgram` |
+| Core IR passes | `nary/passes.rs` — optimizations benefit both backends |
 
 This means adding a new Base function automatically makes it available in JIT mode — no JIT-specific code needed.
 
@@ -98,4 +123,7 @@ This means adding a new Base function automatically makes it available in JIT mo
 
 - `--trace` is not supported in JIT mode (no bytecode to trace).
 - Bytecode cache (`.fxc` files) is not used in JIT mode — each run recompiles.
-- Some language features may have partial JIT support — check `src/jit/compiler.rs` for unimplemented arms.
+- Module-internal functions may report "missing JIT CFG closure function" — these
+  functions are compiled via the AST fallback in the VM but don't have JIT equivalents yet.
+- Effect handlers (`handle`/`perform`) have partial JIT support — some patterns produce
+  "missing literal function metadata in JIT" errors.

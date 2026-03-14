@@ -67,6 +67,7 @@ fn main() {
     let test_mode = args.iter().any(|arg| arg == "--test");
     let strict_mode = args.iter().any(|arg| arg == "--strict");
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
+    let dump_core = args.iter().any(|arg| arg == "--dump-core");
     #[cfg(feature = "jit")]
     let use_jit = args.iter().any(|arg| arg == "--jit");
     #[cfg(not(feature = "jit"))]
@@ -113,6 +114,9 @@ fn main() {
     }
     if all_errors {
         args.retain(|arg| arg != "--all-errors");
+    }
+    if dump_core {
+        args.retain(|arg| arg != "--dump-core");
     }
     let gc_threshold = match extract_gc_threshold(&mut args) {
         Some(value) => value,
@@ -176,6 +180,7 @@ fn main() {
                 strict_mode,
                 diagnostics_format,
                 all_errors,
+                dump_core,
             );
         }
         return;
@@ -234,6 +239,7 @@ fn main() {
                     strict_mode,
                     diagnostics_format,
                     all_errors,
+                    dump_core,
                 );
             }
         }
@@ -264,6 +270,27 @@ fn main() {
                 return;
             }
             show_bytecode(
+                &args[2],
+                enable_optimize,
+                enable_analyze,
+                max_errors,
+                strict_mode,
+                diagnostics_format,
+            );
+        }
+        "core-ir" => {
+            if args.len() < 3 {
+                eprintln!("Usage: flux core-ir <file.flx>");
+                return;
+            }
+            if !is_flx_file(&args[2]) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
+                return;
+            }
+            show_core_ir(
                 &args[2],
                 enable_optimize,
                 enable_analyze,
@@ -377,6 +404,7 @@ Usage:
   flux run <file.flx>
   flux tokens <file.flx>
   flux bytecode <file.flx>
+  flux core-ir <file.flx>
   flux lint <file.flx>
   flux fmt [--check] <file.flx>
   flux cache-info <file.flx>
@@ -434,6 +462,7 @@ fn run_file(
     strict_mode: bool,
     diagnostics_format: DiagnosticOutputFormat,
     all_errors: bool,
+    dump_core: bool,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -449,7 +478,7 @@ fn run_file(
             });
             let cache_key = hash_cache_key(&base_cache_key, &strict_hash);
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
-            if !no_cache && !use_jit {
+            if !no_cache && !use_jit && !dump_core {
                 if let Some(bytecode) =
                     cache.load(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
                 {
@@ -643,6 +672,16 @@ fn run_file(
                     all_errors,
                     true,
                 );
+            }
+
+            // --- Core IR dump (--dump-core) ---
+            if dump_core {
+                if let Some(core) = &compiler.last_core {
+                    let dumped =
+                        flux::nary::display::display_program(core, &compiler.interner);
+                    eprintln!("── Core IR ─────────────────────────────────────────────\n{dumped}────────────────────────────────────────────────────────");
+                }
+                return;
             }
 
             // --- JIT execution path ---
@@ -1625,6 +1664,103 @@ fn show_bytecode(
                     println!("\nFunction <{}> (constant {}):", name, i);
                     print!("{}", disassemble(&f.instructions));
                 }
+            }
+        }
+        Err(e) => eprintln!("Error reading {}: {}", path, e),
+    }
+}
+
+fn show_core_ir(
+    path: &str,
+    enable_optimize: bool,
+    enable_analyze: bool,
+    max_errors: usize,
+    strict_mode: bool,
+    diagnostics_format: DiagnosticOutputFormat,
+) {
+    match fs::read_to_string(path) {
+        Ok(source) => {
+            let lexer = Lexer::new(&source);
+            let mut parser = Parser::new(lexer);
+            let program = parser.parse_program();
+            let mut warnings = parser.take_warnings();
+            for diag in &mut warnings {
+                if diag.file().is_none() {
+                    diag.set_file(path.to_string());
+                }
+            }
+
+            if !parser.errors.is_empty() {
+                emit_diagnostics(
+                    &parser.errors,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
+                std::process::exit(1);
+            }
+
+            if !warnings.is_empty() {
+                emit_diagnostics(
+                    &warnings,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
+            }
+
+            let interner = parser.take_interner();
+            let mut compiler = Compiler::new_with_interner(path, interner);
+            compiler.set_strict_mode(strict_mode);
+            let compile_result =
+                compiler.compile_with_opts(&program, enable_optimize, enable_analyze);
+            let mut compiler_warnings = compiler.take_warnings();
+            for diag in &mut compiler_warnings {
+                if diag.file().is_none() {
+                    diag.set_file(path.to_string());
+                }
+            }
+            if !compiler_warnings.is_empty() {
+                emit_diagnostics(
+                    &compiler_warnings,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
+            }
+            if let Err(diags) = compile_result {
+                emit_diagnostics(
+                    &diags,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
+                std::process::exit(1);
+            }
+
+            if let Some(ir) = &compiler.last_ir {
+                let text = ir.dump_text_with_interner(&compiler.interner);
+                println!("Core IR (CFG) from {}:", path);
+                println!("{}", "─".repeat(50));
+                print!("{text}");
+            } else {
+                eprintln!("No Core IR produced for {path}");
             }
         }
         Err(e) => eprintln!("Error reading {}: {}", path, e),

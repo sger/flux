@@ -3,8 +3,40 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/99_multi_error_continuation.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E002]: Immutable Binding
+
+Cannot reassign to immutable variable `x`.
+
+  examples/type_system/failing/99_multi_error_continuation.flx:4:5
+  |
+4 |     x = 2
+  |     ^^^^^
+
+Hint:
+  In Flux, bindings are immutable. Compute a new value with a new binding name (for example: `let next_x = ...`).
+
+
+error[E300]: Annotation Type Mismatch
+
+The value of `y` does not match its type annotation.
+
+  examples/type_system/failing/99_multi_error_continuation.flx:5:18
+  |
+5 |     let y: Int = "oops"
+  |                  ^^^^^^
+  |                  ------ this value has type `String`
+
+  |            --- but `y` was annotated as `Int`
+
+Note:
+  annotated type: Int
+  value type: String
+
+Help:
+  Change `y` to a `Int` value or update the annotation.
+
+Found 2 errors.
 == stdout ==
 <not executed>

@@ -19,18 +19,18 @@ use cranelift_module::{DataDescription, FuncId, Linkage, Module};
 
 use crate::ast::free_vars::collect_free_vars;
 use crate::diagnostics::position::Span;
-use crate::ir::{
-    FunctionId, IrCallTarget, IrConst, IrExpr, IrFunction, IrInstr, IrProgram,
-    IrStructuredBlock, IrStructuredExpr, IrStructuredPattern, IrTerminator, IrTopLevelItem,
-    IrVar,
+use crate::cfg::{
+    BlockId, FunctionId, IrCallTarget, IrConst, IrExpr, IrFunction, IrInstr, IrProgram,
+    IrTerminator, IrTopLevelItem, IrVar,
 };
 use crate::primop::{PrimOp, resolve_primop_call};
 use crate::runtime::base::{BaseModule, is_base_fastcall_allowlisted};
 use crate::runtime::{function_contract::FunctionContract, runtime_type::RuntimeType};
 use crate::syntax::expression::ExprId;
 use crate::syntax::{
-    Identifier, block::Block, expression::Expression, expression::Pattern, interner::Interner,
-    program::Program, statement::Statement, type_expr::TypeExpr,
+    Identifier, block::Block, expression::Expression, expression::HandleArm, expression::MatchArm,
+    expression::Pattern, expression::StringPart, interner::Interner, program::Program,
+    statement::Statement, type_expr::TypeExpr,
 };
 use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
 
@@ -147,7 +147,7 @@ struct IrLiteralFunctionSpec {
     parameters: Vec<Identifier>,
     parameter_types: Vec<Option<TypeExpr>>,
     return_type: Option<TypeExpr>,
-    body: IrStructuredBlock,
+    body: Block,
     captures: Vec<Identifier>,
     self_name: Option<Identifier>,
 }
@@ -165,8 +165,11 @@ struct CompiledFunctionSpec<'a> {
 struct IrCompiledFunctionSpec<'a> {
     meta: JitFunctionMeta,
     parameters: &'a [Identifier],
-    body: &'a IrStructuredBlock,
+    body: &'a Block,
     cfg_function: Option<&'a IrFunction>,
+    /// Full IR program — needed by CFG handle-scope compilation to look up
+    /// handler-arm functions by `FunctionId`.
+    program: Option<&'a IrProgram>,
     captures: &'a [Identifier],
     self_name: Option<Identifier>,
     function_name: Option<Identifier>,
@@ -481,7 +484,7 @@ fn compile_ir_truthiness_condition(
     builder: &mut FunctionBuilder,
     scope: &Scope,
     ctx_val: CraneliftValue,
-    expr: &IrStructuredExpr,
+    expr: &Expression,
     value: JitValue,
 ) -> CraneliftValue {
     let truthy_i64 = if ir_expr_has_known_bool_type(scope, expr) {
@@ -558,40 +561,40 @@ fn expr_has_known_bool_type(scope: &Scope, expr: &Expression) -> bool {
     )
 }
 
-fn ir_expr_id(expr: &IrStructuredExpr) -> ExprId {
+fn ir_expr_id(expr: &Expression) -> ExprId {
     match expr {
-        IrStructuredExpr::Identifier { id, .. }
-        | IrStructuredExpr::Integer { id, .. }
-        | IrStructuredExpr::Float { id, .. }
-        | IrStructuredExpr::String { id, .. }
-        | IrStructuredExpr::InterpolatedString { id, .. }
-        | IrStructuredExpr::Boolean { id, .. }
-        | IrStructuredExpr::Prefix { id, .. }
-        | IrStructuredExpr::Infix { id, .. }
-        | IrStructuredExpr::If { id, .. }
-        | IrStructuredExpr::DoBlock { id, .. }
-        | IrStructuredExpr::Function { id, .. }
-        | IrStructuredExpr::Call { id, .. }
-        | IrStructuredExpr::ListLiteral { id, .. }
-        | IrStructuredExpr::ArrayLiteral { id, .. }
-        | IrStructuredExpr::TupleLiteral { id, .. }
-        | IrStructuredExpr::EmptyList { id, .. }
-        | IrStructuredExpr::Index { id, .. }
-        | IrStructuredExpr::Hash { id, .. }
-        | IrStructuredExpr::MemberAccess { id, .. }
-        | IrStructuredExpr::TupleFieldAccess { id, .. }
-        | IrStructuredExpr::Match { id, .. }
-        | IrStructuredExpr::None { id, .. }
-        | IrStructuredExpr::Some { id, .. }
-        | IrStructuredExpr::Left { id, .. }
-        | IrStructuredExpr::Right { id, .. }
-        | IrStructuredExpr::Cons { id, .. }
-        | IrStructuredExpr::Perform { id, .. }
-        | IrStructuredExpr::Handle { id, .. } => *id,
+        Expression::Identifier { id, .. }
+        | Expression::Integer { id, .. }
+        | Expression::Float { id, .. }
+        | Expression::String { id, .. }
+        | Expression::InterpolatedString { id, .. }
+        | Expression::Boolean { id, .. }
+        | Expression::Prefix { id, .. }
+        | Expression::Infix { id, .. }
+        | Expression::If { id, .. }
+        | Expression::DoBlock { id, .. }
+        | Expression::Function { id, .. }
+        | Expression::Call { id, .. }
+        | Expression::ListLiteral { id, .. }
+        | Expression::ArrayLiteral { id, .. }
+        | Expression::TupleLiteral { id, .. }
+        | Expression::EmptyList { id, .. }
+        | Expression::Index { id, .. }
+        | Expression::Hash { id, .. }
+        | Expression::MemberAccess { id, .. }
+        | Expression::TupleFieldAccess { id, .. }
+        | Expression::Match { id, .. }
+        | Expression::None { id, .. }
+        | Expression::Some { id, .. }
+        | Expression::Left { id, .. }
+        | Expression::Right { id, .. }
+        | Expression::Cons { id, .. }
+        | Expression::Perform { id, .. }
+        | Expression::Handle { id, .. } => *id,
     }
 }
 
-fn ir_expr_has_known_bool_type(scope: &Scope, expr: &IrStructuredExpr) -> bool {
+fn ir_expr_has_known_bool_type(scope: &Scope, expr: &Expression) -> bool {
     matches!(
         scope.hm_expr_types.get(&ir_expr_id(expr)),
         Some(InferType::Con(TypeConstructor::Bool))
@@ -862,8 +865,10 @@ impl JitCompiler {
         let literal_specs = collect_ir_literal_function_specs(&program.top_level_items);
         self.predeclare_ir_functions(&program.top_level_items, &mut scope, interner)?;
         self.predeclare_ir_literal_functions(&literal_specs, &mut scope, interner)?;
+        self.predeclare_handle_arm_functions(&program, &mut scope)?;
         self.compile_ir_functions(program, &scope, interner)?;
         self.compile_ir_literal_functions(&literal_specs, &program, &scope, interner)?;
+        self.compile_handle_arm_functions(&program, &scope, interner)?;
         self.record_named_functions(&scope, interner);
 
         {
@@ -1278,30 +1283,30 @@ impl JitCompiler {
     }
 
     fn predeclare_ir_globals(&self, top_level_items: &[IrTopLevelItem], scope: &mut Scope) {
-        fn collect_ir_pattern_names(pattern: &IrStructuredPattern, out: &mut Vec<Identifier>) {
+        fn collect_ir_pattern_names(pattern: &Pattern, out: &mut Vec<Identifier>) {
             match pattern {
-                IrStructuredPattern::Identifier { name, .. } => out.push(*name),
-                IrStructuredPattern::Some { pattern, .. }
-                | IrStructuredPattern::Left { pattern, .. }
-                | IrStructuredPattern::Right { pattern, .. } => collect_ir_pattern_names(pattern, out),
-                IrStructuredPattern::Cons { head, tail, .. } => {
+                Pattern::Identifier { name, .. } => out.push(*name),
+                Pattern::Some { pattern, .. }
+                | Pattern::Left { pattern, .. }
+                | Pattern::Right { pattern, .. } => collect_ir_pattern_names(pattern, out),
+                Pattern::Cons { head, tail, .. } => {
                     collect_ir_pattern_names(head, out);
                     collect_ir_pattern_names(tail, out);
                 }
-                IrStructuredPattern::Tuple { elements, .. } => {
+                Pattern::Tuple { elements, .. } => {
                     for element in elements {
                         collect_ir_pattern_names(element, out);
                     }
                 }
-                IrStructuredPattern::Constructor { fields, .. } => {
+                Pattern::Constructor { fields, .. } => {
                     for field in fields {
                         collect_ir_pattern_names(field, out);
                     }
                 }
-                IrStructuredPattern::Wildcard { .. }
-                | IrStructuredPattern::Literal { .. }
-                | IrStructuredPattern::None { .. }
-                | IrStructuredPattern::EmptyList { .. } => {}
+                Pattern::Wildcard { .. }
+                | Pattern::Literal { .. }
+                | Pattern::None { .. }
+                | Pattern::EmptyList { .. } => {}
             }
         }
 
@@ -1481,7 +1486,7 @@ impl JitCompiler {
                     ..
                 } => {
                     scope.imported_modules.insert(*module_name);
-                    for inner in &body.statements {
+                    for inner in body {
                         let IrTopLevelItem::Function {
                             name: fn_name,
                             function_id,
@@ -1572,6 +1577,7 @@ impl JitCompiler {
                     parameters,
                     body,
                     cfg_function: function_id.and_then(|id| program.function(id)),
+                    program: Some(program),
                     captures: &[],
                     self_name: None,
                     function_name: Some(*name),
@@ -1592,7 +1598,7 @@ impl JitCompiler {
                 continue;
             };
 
-            for inner in &body.statements {
+            for inner in body {
                 let IrTopLevelItem::Function {
                     name,
                     function_id,
@@ -1621,6 +1627,7 @@ impl JitCompiler {
                         parameters,
                         body,
                         cfg_function: function_id.and_then(|id| program.function(id)),
+                        program: Some(program),
                         captures: &[],
                         self_name: None,
                         function_name: Some(*name),
@@ -2011,7 +2018,7 @@ impl JitCompiler {
             .filter(|function| {
                 matches!(
                     function.origin,
-                    crate::ir::IrFunctionOrigin::FunctionLiteral
+                    crate::cfg::IrFunctionOrigin::FunctionLiteral
                 )
             })
             .map(|function| {
@@ -2040,6 +2047,7 @@ impl JitCompiler {
                     parameters: &spec.parameters,
                     body: &spec.body,
                     cfg_function: cfg_functions.get(&spec.key).copied(),
+                    program: Some(program),
                     captures: &spec.captures,
                     self_name: spec.self_name,
                     function_name: spec.self_name,
@@ -2047,6 +2055,116 @@ impl JitCompiler {
                 },
                 interner,
                 "define literal function",
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Pre-declare and compile handle-arm functions found via `IrInstr::HandleScope`.
+    /// Collect all handle-arm function IDs from `HandleScope` instructions across
+    /// all `IrFunction` blocks.
+    fn collect_handle_arm_fn_ids(program: &IrProgram) -> Vec<FunctionId> {
+        let mut arm_fn_ids: Vec<FunctionId> = Vec::new();
+        for func in &program.functions {
+            for block in &func.blocks {
+                for instr in &block.instrs {
+                    if let IrInstr::HandleScope { arms, .. } = instr {
+                        for arm in arms {
+                            arm_fn_ids.push(arm.function_id);
+                        }
+                    }
+                }
+            }
+        }
+        arm_fn_ids
+    }
+
+    /// Pre-declare handle arm functions so they are available in
+    /// `scope.ir_functions` when named functions containing `HandleScope`
+    /// instructions are compiled.
+    fn predeclare_handle_arm_functions(
+        &mut self,
+        program: &IrProgram,
+        scope: &mut Scope,
+    ) -> Result<(), String> {
+        let arm_fn_ids = Self::collect_handle_arm_fn_ids(program);
+        for &fn_id in &arm_fn_ids {
+            if scope.ir_functions.contains_key(&fn_id) {
+                continue;
+            }
+            let Some(ir_fn) = program.function(fn_id) else {
+                continue;
+            };
+            let real_params = ir_fn.params.len().saturating_sub(ir_fn.captures.len());
+            let call_abi = JitCallAbi::from_arity(real_params);
+            let sig = self.user_function_signature(call_abi);
+            let fn_name = format!("flux_handle_arm_{}", fn_id.0);
+            let id = self
+                .module
+                .declare_function(&fn_name, Linkage::Local, &sig)
+                .map_err(|e| format!("declare {}: {}", fn_name, e))?;
+            let function_index = self.jit_functions.len();
+            self.jit_functions.push(JitFunctionCompileEntry {
+                id,
+                num_params: real_params,
+                call_abi,
+                contract: None,
+            });
+            let meta = JitFunctionMeta {
+                id,
+                num_params: real_params,
+                call_abi,
+                function_index,
+                has_contract: false,
+            };
+            scope.ir_functions.insert(fn_id, meta);
+        }
+        Ok(())
+    }
+
+    /// Compile the bodies of handle arm functions via CFG.  Must be called
+    /// after `predeclare_handle_arm_functions` has registered them.
+    fn compile_handle_arm_functions(
+        &mut self,
+        program: &IrProgram,
+        scope: &Scope,
+        interner: &Interner,
+    ) -> Result<(), String> {
+        let arm_fn_ids = Self::collect_handle_arm_fn_ids(program);
+        for &fn_id in &arm_fn_ids {
+            let Some(meta) = scope.ir_functions.get(&fn_id).copied() else {
+                continue;
+            };
+            let Some(ir_fn) = program.function(fn_id) else {
+                continue;
+            };
+            let params: Vec<Identifier> = ir_fn
+                .params
+                .iter()
+                .skip(ir_fn.captures.len())
+                .map(|p| p.name)
+                .collect();
+            let captures: Vec<Identifier> = ir_fn.captures.clone();
+            // Use a minimal structured block as placeholder — CFG path will handle compilation.
+            let placeholder_body = Block {
+                statements: Vec::new(),
+                span: ir_fn.body_span,
+            };
+            self.compile_ir_function_body(
+                scope,
+                IrCompiledFunctionSpec {
+                    meta,
+                    parameters: &params,
+                    body: &placeholder_body,
+                    cfg_function: Some(ir_fn),
+                    program: Some(program),
+                    captures: &captures,
+                    self_name: None,
+                    function_name: None,
+                    local_functions: &[],
+                },
+                interner,
+                &format!("define handle arm fn{}", fn_id.0),
             )?;
         }
         Ok(())
@@ -2473,6 +2591,7 @@ impl JitCompiler {
                     spec.parameters,
                     &tail_ctx,
                     interner,
+                    spec.program,
                 )
                 .transpose()?
                 .is_some()
@@ -2488,7 +2607,7 @@ impl JitCompiler {
                 let last_index = spec.body.statements.len().saturating_sub(1);
                 for (idx, body_item) in spec.body.statements.iter().enumerate() {
                     if idx == last_index
-                        && let Some(outcome) = try_compile_ir_tail_expression_statement(
+                        && let Some(outcome) = try_compile_tail_expression_statement(
                             module,
                             helpers,
                             &mut builder,
@@ -2513,7 +2632,7 @@ impl JitCompiler {
                             StmtOutcome::None => continue,
                         }
                     }
-                    let outcome = compile_ir_top_level_item(
+                    let outcome = compile_statement(
                         module,
                         helpers,
                         &mut builder,
@@ -2619,6 +2738,7 @@ fn compile_jit_ir_cfg_expr(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    scope: &Scope,
     ctx_val: CraneliftValue,
     values: &HashMap<IrVar, LocalBinding>,
     expr: &IrExpr,
@@ -2671,10 +2791,10 @@ fn compile_jit_ir_cfg_expr(
             );
             let value = box_and_guard_jit_value(module, helpers, builder, ctx_val, value);
             let helper_name = match tag {
-                crate::ir::IrTagTest::None => "rt_is_none",
-                crate::ir::IrTagTest::Some => "rt_is_some",
-                crate::ir::IrTagTest::Left => "rt_is_left",
-                crate::ir::IrTagTest::Right => "rt_is_right",
+                crate::cfg::IrTagTest::None => "rt_is_none",
+                crate::cfg::IrTagTest::Some => "rt_is_some",
+                crate::cfg::IrTagTest::Left => "rt_is_left",
+                crate::cfg::IrTagTest::Right => "rt_is_right",
             };
             let helper = get_helper_func_ref(module, helpers, builder, helper_name);
             let call = builder.ins().call(helper, &[ctx_val, value]);
@@ -2690,10 +2810,10 @@ fn compile_jit_ir_cfg_expr(
             );
             let value = box_and_guard_jit_value(module, helpers, builder, ctx_val, value);
             let helper_name = match tag {
-                crate::ir::IrTagTest::Some => "rt_unwrap_some",
-                crate::ir::IrTagTest::Left => "rt_unwrap_left",
-                crate::ir::IrTagTest::Right => "rt_unwrap_right",
-                crate::ir::IrTagTest::None => {
+                crate::cfg::IrTagTest::Some => "rt_unwrap_some",
+                crate::cfg::IrTagTest::Left => "rt_unwrap_left",
+                crate::cfg::IrTagTest::Right => "rt_unwrap_right",
+                crate::cfg::IrTagTest::None => {
                     return Err("invalid JIT CFG None payload".to_string());
                 }
             };
@@ -2713,8 +2833,8 @@ fn compile_jit_ir_cfg_expr(
             );
             let value = box_and_guard_jit_value(module, helpers, builder, ctx_val, value);
             let helper_name = match tag {
-                crate::ir::IrListTest::Empty => "rt_is_empty_list",
-                crate::ir::IrListTest::Cons => "rt_is_cons",
+                crate::cfg::IrListTest::Empty => "rt_is_empty_list",
+                crate::cfg::IrListTest::Cons => "rt_is_cons",
             };
             let helper = get_helper_func_ref(module, helpers, builder, helper_name);
             let call = builder.ins().call(helper, &[ctx_val, value]);
@@ -2837,47 +2957,52 @@ fn compile_jit_ir_cfg_expr(
                     .ok_or_else(|| "missing JIT CFG rhs binding".to_string())?,
             );
             match op {
-                crate::ir::IrBinaryOp::Add
+                crate::cfg::IrBinaryOp::Add
                     if lhs.kind == JitValueKind::Int && rhs.kind == JitValueKind::Int =>
                 {
                     Ok(JitValue::int(builder.ins().iadd(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::Sub
+                crate::cfg::IrBinaryOp::Sub
                     if lhs.kind == JitValueKind::Int && rhs.kind == JitValueKind::Int =>
                 {
                     Ok(JitValue::int(builder.ins().isub(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::Mul
+                crate::cfg::IrBinaryOp::Mul
                     if lhs.kind == JitValueKind::Int && rhs.kind == JitValueKind::Int =>
                 {
                     Ok(JitValue::int(builder.ins().imul(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::Div
+                crate::cfg::IrBinaryOp::Div
                     if lhs.kind == JitValueKind::Int && rhs.kind == JitValueKind::Int =>
                 {
                     Ok(JitValue::int(builder.ins().sdiv(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::Add
+                crate::cfg::IrBinaryOp::Mod
+                    if lhs.kind == JitValueKind::Int && rhs.kind == JitValueKind::Int =>
+                {
+                    Ok(JitValue::int(builder.ins().srem(lhs.value, rhs.value)))
+                }
+                crate::cfg::IrBinaryOp::Add
                     if lhs.kind == JitValueKind::Float && rhs.kind == JitValueKind::Float =>
                 {
                     Ok(JitValue::float(builder.ins().fadd(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::Sub
+                crate::cfg::IrBinaryOp::Sub
                     if lhs.kind == JitValueKind::Float && rhs.kind == JitValueKind::Float =>
                 {
                     Ok(JitValue::float(builder.ins().fsub(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::Mul
+                crate::cfg::IrBinaryOp::Mul
                     if lhs.kind == JitValueKind::Float && rhs.kind == JitValueKind::Float =>
                 {
                     Ok(JitValue::float(builder.ins().fmul(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::Div
+                crate::cfg::IrBinaryOp::Div
                     if lhs.kind == JitValueKind::Float && rhs.kind == JitValueKind::Float =>
                 {
                     Ok(JitValue::float(builder.ins().fdiv(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::Eq if lhs.kind == rhs.kind => Ok(JitValue::bool(
+                crate::cfg::IrBinaryOp::Eq if lhs.kind == rhs.kind => Ok(JitValue::bool(
                     {
                         let cmp = match lhs.kind {
                             JitValueKind::Int | JitValueKind::Bool => {
@@ -2895,7 +3020,7 @@ fn compile_jit_ir_cfg_expr(
                         builder.ins().select(cmp, one, zero)
                     },
                 )),
-                crate::ir::IrBinaryOp::NotEq if lhs.kind == rhs.kind => Ok(JitValue::bool(
+                crate::cfg::IrBinaryOp::NotEq if lhs.kind == rhs.kind => Ok(JitValue::bool(
                     {
                         let cmp = match lhs.kind {
                             JitValueKind::Int | JitValueKind::Bool => {
@@ -2913,7 +3038,7 @@ fn compile_jit_ir_cfg_expr(
                         builder.ins().select(cmp, one, zero)
                     },
                 )),
-                crate::ir::IrBinaryOp::Lt if lhs.kind == rhs.kind => Ok(JitValue::bool(
+                crate::cfg::IrBinaryOp::Lt if lhs.kind == rhs.kind => Ok(JitValue::bool(
                     {
                         let cmp = match lhs.kind {
                             JitValueKind::Int | JitValueKind::Bool => {
@@ -2931,7 +3056,7 @@ fn compile_jit_ir_cfg_expr(
                         builder.ins().select(cmp, one, zero)
                     },
                 )),
-                crate::ir::IrBinaryOp::Gt if lhs.kind == rhs.kind => Ok(JitValue::bool(
+                crate::cfg::IrBinaryOp::Gt if lhs.kind == rhs.kind => Ok(JitValue::bool(
                     {
                         let cmp = match lhs.kind {
                             JitValueKind::Int | JitValueKind::Bool => {
@@ -2949,7 +3074,7 @@ fn compile_jit_ir_cfg_expr(
                         builder.ins().select(cmp, one, zero)
                     },
                 )),
-                crate::ir::IrBinaryOp::Ge if lhs.kind == rhs.kind => Ok(JitValue::bool(
+                crate::cfg::IrBinaryOp::Ge if lhs.kind == rhs.kind => Ok(JitValue::bool(
                     {
                         let cmp = match lhs.kind {
                             JitValueKind::Int | JitValueKind::Bool => builder
@@ -2967,7 +3092,7 @@ fn compile_jit_ir_cfg_expr(
                         builder.ins().select(cmp, one, zero)
                     },
                 )),
-                crate::ir::IrBinaryOp::Le if lhs.kind == rhs.kind => Ok(JitValue::bool(
+                crate::cfg::IrBinaryOp::Le if lhs.kind == rhs.kind => Ok(JitValue::bool(
                     {
                         let cmp = match lhs.kind {
                             JitValueKind::Int | JitValueKind::Bool => {
@@ -2987,33 +3112,393 @@ fn compile_jit_ir_cfg_expr(
                 )),
                 // Typed integer ops — emitted by the type_directed_unboxing IR pass.
                 // No kind guard needed: the IR guarantees both operands are Int.
-                crate::ir::IrBinaryOp::IAdd => {
+                crate::cfg::IrBinaryOp::IAdd => {
                     Ok(JitValue::int(builder.ins().iadd(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::ISub => {
+                crate::cfg::IrBinaryOp::ISub => {
                     Ok(JitValue::int(builder.ins().isub(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::IMul => {
+                crate::cfg::IrBinaryOp::IMul => {
                     Ok(JitValue::int(builder.ins().imul(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::IDiv => {
+                crate::cfg::IrBinaryOp::IDiv => {
                     Ok(JitValue::int(builder.ins().sdiv(lhs.value, rhs.value)))
                 }
+                crate::cfg::IrBinaryOp::IMod => {
+                    Ok(JitValue::int(builder.ins().srem(lhs.value, rhs.value)))
+                }
                 // Typed float ops — same guarantee for Float operands.
-                crate::ir::IrBinaryOp::FAdd => {
+                crate::cfg::IrBinaryOp::FAdd => {
                     Ok(JitValue::float(builder.ins().fadd(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::FSub => {
+                crate::cfg::IrBinaryOp::FSub => {
                     Ok(JitValue::float(builder.ins().fsub(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::FMul => {
+                crate::cfg::IrBinaryOp::FMul => {
                     Ok(JitValue::float(builder.ins().fmul(lhs.value, rhs.value)))
                 }
-                crate::ir::IrBinaryOp::FDiv => {
+                crate::cfg::IrBinaryOp::FDiv => {
                     Ok(JitValue::float(builder.ins().fdiv(lhs.value, rhs.value)))
                 }
                 _ => Err("unsupported JIT CFG expression".to_string()),
             }
+        }
+        // Wrapper constructors
+        IrExpr::EmptyList => {
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_make_empty_list");
+            let call = builder.ins().call(helper, &[ctx_val]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
+        IrExpr::Some(var) => {
+            let value = use_local(
+                builder,
+                values.get(var).cloned().ok_or("missing JIT CFG some binding")?,
+            );
+            let value = box_and_guard_jit_value(module, helpers, builder, ctx_val, value);
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_make_some");
+            let call = builder.ins().call(helper, &[ctx_val, value]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
+        IrExpr::Left(var) => {
+            let value = use_local(
+                builder,
+                values.get(var).cloned().ok_or("missing JIT CFG left binding")?,
+            );
+            let value = box_and_guard_jit_value(module, helpers, builder, ctx_val, value);
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_make_left");
+            let call = builder.ins().call(helper, &[ctx_val, value]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
+        IrExpr::Right(var) => {
+            let value = use_local(
+                builder,
+                values.get(var).cloned().ok_or("missing JIT CFG right binding")?,
+            );
+            let value = box_and_guard_jit_value(module, helpers, builder, ctx_val, value);
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_make_right");
+            let call = builder.ins().call(helper, &[ctx_val, value]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
+        IrExpr::Cons { head, tail } => {
+            let head = use_local(
+                builder,
+                values.get(head).cloned().ok_or("missing JIT CFG cons head")?,
+            );
+            let tail = use_local(
+                builder,
+                values.get(tail).cloned().ok_or("missing JIT CFG cons tail")?,
+            );
+            let head = box_and_guard_jit_value(module, helpers, builder, ctx_val, head);
+            let tail = box_and_guard_jit_value(module, helpers, builder, ctx_val, tail);
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_make_cons");
+            let call = builder.ins().call(helper, &[ctx_val, head, tail]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
+        // Data construction
+        IrExpr::MakeTuple(vars) | IrExpr::MakeArray(vars) => {
+            let mut jit_vals = Vec::with_capacity(vars.len());
+            for var in vars {
+                let v = use_local(
+                    builder,
+                    values.get(var).cloned().ok_or("missing JIT CFG collection elem")?,
+                );
+                jit_vals.push(v);
+            }
+            let (_slot, elems_ptr) = emit_tagged_stack_array(builder, &jit_vals);
+            let len_val = builder.ins().iconst(PTR_TYPE, vars.len() as i64);
+            let helper_name = if matches!(expr, IrExpr::MakeTuple(_)) {
+                "rt_make_tuple"
+            } else {
+                "rt_make_array"
+            };
+            let helper = get_helper_func_ref(module, helpers, builder, helper_name);
+            let call = builder.ins().call(helper, &[ctx_val, elems_ptr, len_val]);
+            let result = builder.inst_results(call)[0];
+            emit_return_on_null_value(builder, result);
+            Ok(JitValue::boxed(result))
+        }
+        IrExpr::MakeList(vars) => {
+            if vars.is_empty() {
+                let helper = get_helper_func_ref(module, helpers, builder, "rt_make_empty_list");
+                let call = builder.ins().call(helper, &[ctx_val]);
+                return Ok(JitValue::boxed(builder.inst_results(call)[0]));
+            }
+            let make_cons = get_helper_func_ref(module, helpers, builder, "rt_make_cons");
+            let make_empty = get_helper_func_ref(module, helpers, builder, "rt_make_empty_list");
+            let empty_call = builder.ins().call(make_empty, &[ctx_val]);
+            let mut acc = builder.inst_results(empty_call)[0];
+            for var in vars.iter().rev() {
+                let v = use_local(
+                    builder,
+                    values.get(var).cloned().ok_or("missing JIT CFG list elem")?,
+                );
+                let v = box_and_guard_jit_value(module, helpers, builder, ctx_val, v);
+                let call = builder.ins().call(make_cons, &[ctx_val, v, acc]);
+                acc = builder.inst_results(call)[0];
+            }
+            Ok(JitValue::boxed(acc))
+        }
+        IrExpr::MakeHash(pairs) => {
+            let mut jit_vals = Vec::with_capacity(pairs.len() * 2);
+            for (k, v) in pairs {
+                let kv = use_local(
+                    builder,
+                    values.get(k).cloned().ok_or("missing JIT CFG hash key")?,
+                );
+                jit_vals.push(kv);
+                let vv = use_local(
+                    builder,
+                    values.get(v).cloned().ok_or("missing JIT CFG hash value")?,
+                );
+                jit_vals.push(vv);
+            }
+            let (_slot, pairs_ptr) = emit_tagged_stack_array(builder, &jit_vals);
+            let npairs_val = builder.ins().iconst(PTR_TYPE, pairs.len() as i64);
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_make_hash");
+            let call = builder.ins().call(helper, &[ctx_val, pairs_ptr, npairs_val]);
+            let result = builder.inst_results(call)[0];
+            emit_return_on_null_value(builder, result);
+            Ok(JitValue::boxed(result))
+        }
+        IrExpr::MakeAdt(name, fields) => {
+            let name_str = interner.resolve(*name);
+            let data = module
+                .declare_anonymous_data(false, false)
+                .map_err(|e| e.to_string())?;
+            let mut desc = DataDescription::new();
+            desc.define(name_str.as_bytes().to_vec().into_boxed_slice());
+            module.define_data(data, &desc).map_err(|e| e.to_string())?;
+            let gv = module.declare_data_in_func(data, builder.func);
+            let name_ptr = builder.ins().global_value(PTR_TYPE, gv);
+            let name_len = builder.ins().iconst(PTR_TYPE, name_str.len() as i64);
+            let mut jit_vals = Vec::with_capacity(fields.len());
+            for var in fields {
+                let v = use_local(
+                    builder,
+                    values.get(var).cloned().ok_or("missing JIT CFG adt field")?,
+                );
+                jit_vals.push(v);
+            }
+            let (_slot, fields_ptr) = emit_tagged_stack_array(builder, &jit_vals);
+            let nfields = builder.ins().iconst(PTR_TYPE, fields.len() as i64);
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_make_adt");
+            let call = builder.ins().call(helper, &[ctx_val, name_ptr, name_len, fields_ptr, nfields]);
+            let result = builder.inst_results(call)[0];
+            emit_return_on_null_value(builder, result);
+            Ok(JitValue::boxed(result))
+        }
+        IrExpr::MakeClosure(fn_id, captures) => {
+            let meta = scope
+                .ir_functions
+                .get(fn_id)
+                .copied()
+                .ok_or("missing JIT CFG closure function")?;
+            let fn_idx = builder.ins().iconst(PTR_TYPE, meta.function_index as i64);
+            if captures.is_empty() {
+                let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
+                let zero = builder.ins().iconst(PTR_TYPE, 0);
+                let make_closure = get_helper_func_ref(module, helpers, builder, "rt_make_jit_closure");
+                let call = builder.ins().call(make_closure, &[ctx_val, fn_idx, null_ptr, zero]);
+                return Ok(JitValue::boxed(builder.inst_results(call)[0]));
+            }
+            let mut cap_vals = Vec::with_capacity(captures.len());
+            for var in captures {
+                let v = use_local(
+                    builder,
+                    values.get(var).cloned().ok_or("missing JIT CFG closure capture")?,
+                );
+                cap_vals.push(v);
+            }
+            let (_slot, captures_ptr) = emit_tagged_stack_array(builder, &cap_vals);
+            let ncaptures = builder.ins().iconst(PTR_TYPE, captures.len() as i64);
+            let make_closure = get_helper_func_ref(module, helpers, builder, "rt_make_jit_closure");
+            let call = builder.ins().call(make_closure, &[ctx_val, fn_idx, captures_ptr, ncaptures]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
+        // Operations
+        IrExpr::LoadName(name) => {
+            if let Some(&idx) = scope.globals.get(name) {
+                let get_global = get_helper_func_ref(module, helpers, builder, "rt_get_global");
+                let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
+                let call = builder.ins().call(get_global, &[ctx_val, idx_val]);
+                return Ok(JitValue::boxed(builder.inst_results(call)[0]));
+            }
+            if let Some(&base_idx) = scope.base_functions.get(name) {
+                let make_base = get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
+                let idx_val = builder.ins().iconst(PTR_TYPE, base_idx as i64);
+                let call = builder.ins().call(make_base, &[ctx_val, idx_val]);
+                return Ok(JitValue::boxed(builder.inst_results(call)[0]));
+            }
+            if let Some(meta) = scope.functions.get(name).copied() {
+                let make_closure = get_helper_func_ref(module, helpers, builder, "rt_make_jit_closure");
+                let fn_idx = builder.ins().iconst(PTR_TYPE, meta.function_index as i64);
+                let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
+                let zero = builder.ins().iconst(PTR_TYPE, 0);
+                let call = builder.ins().call(make_closure, &[ctx_val, fn_idx, null_ptr, zero]);
+                return Ok(JitValue::boxed(builder.inst_results(call)[0]));
+            }
+            Err(format!("unresolved JIT CFG LoadName: {:?}", name))
+        }
+        IrExpr::Prefix { operator, right } => {
+            let operand = use_local(
+                builder,
+                values.get(right).cloned().ok_or("missing JIT CFG prefix operand")?,
+            );
+            if operator == "-" && operand.kind == JitValueKind::Int {
+                return Ok(JitValue::int(builder.ins().ineg(operand.value)));
+            }
+            if operator == "!" && operand.kind == JitValueKind::Bool {
+                let one = builder.ins().iconst(types::I64, 1);
+                return Ok(JitValue::bool(builder.ins().bxor(operand.value, one)));
+            }
+            let helper_name = match operator.as_str() {
+                "-" => "rt_negate",
+                "!" => "rt_not",
+                _ => return Err(format!("unknown JIT CFG prefix operator: {}", operator)),
+            };
+            let (tag, payload) = jit_value_to_tag_payload(builder, operand);
+            let func_ref = get_helper_func_ref(module, helpers, builder, helper_name);
+            let call = builder.ins().call(func_ref, &[ctx_val, tag, payload]);
+            let result = boxed_value_from_tagged_parts(
+                module,
+                helpers,
+                builder,
+                ctx_val,
+                builder.inst_results(call)[0],
+                builder.inst_results(call)[1],
+            );
+            emit_return_on_null_value(builder, result);
+            Ok(JitValue::boxed(result))
+        }
+        IrExpr::Index { left, index } => {
+            let left = use_local(
+                builder,
+                values.get(left).cloned().ok_or("missing JIT CFG index left")?,
+            );
+            let index_v = use_local(
+                builder,
+                values.get(index).cloned().ok_or("missing JIT CFG index right")?,
+            );
+            let left = box_and_guard_jit_value(module, helpers, builder, ctx_val, left);
+            let index_v = box_and_guard_jit_value(module, helpers, builder, ctx_val, index_v);
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_index");
+            let call = builder.ins().call(helper, &[ctx_val, left, index_v]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
+        IrExpr::InterpolatedString(parts) => {
+            let rt_to_string = get_helper_func_ref(module, helpers, builder, "rt_to_string");
+            let rt_add = get_helper_func_ref(module, helpers, builder, "rt_add");
+            let mut acc: Option<CraneliftValue> = None;
+            for part in parts {
+                let part_val = match part {
+                    crate::cfg::IrStringPart::Literal(s) => {
+                        let data = module
+                            .declare_anonymous_data(false, false)
+                            .map_err(|e| e.to_string())?;
+                        let mut desc = DataDescription::new();
+                        desc.define(s.as_bytes().to_vec().into_boxed_slice());
+                        module.define_data(data, &desc).map_err(|e| e.to_string())?;
+                        let gv = module.declare_data_in_func(data, builder.func);
+                        let ptr = builder.ins().global_value(PTR_TYPE, gv);
+                        let len = builder.ins().iconst(PTR_TYPE, s.len() as i64);
+                        let make_string = get_helper_func_ref(module, helpers, builder, "rt_make_string");
+                        let call = builder.ins().call(make_string, &[ctx_val, ptr, len]);
+                        builder.inst_results(call)[0]
+                    }
+                    crate::cfg::IrStringPart::Interpolation(var) => {
+                        let v = use_local(
+                            builder,
+                            values.get(var).cloned().ok_or("missing JIT CFG interpolation var")?,
+                        );
+                        let v = box_and_guard_jit_value(module, helpers, builder, ctx_val, v);
+                        let call = builder.ins().call(rt_to_string, &[ctx_val, v]);
+                        builder.inst_results(call)[0]
+                    }
+                };
+                acc = Some(match acc {
+                    None => part_val,
+                    Some(prev) => {
+                        let tag = builder.ins().iconst(types::I64, JIT_TAG_PTR);
+                        let call = builder.ins().call(rt_add, &[ctx_val, tag, prev, tag, part_val]);
+                        builder.inst_results(call)[1]
+                    }
+                });
+            }
+            match acc {
+                Some(val) => Ok(JitValue::boxed(val)),
+                None => {
+                    let make_string = get_helper_func_ref(module, helpers, builder, "rt_make_string");
+                    let null = builder.ins().iconst(PTR_TYPE, 0);
+                    let zero = builder.ins().iconst(PTR_TYPE, 0);
+                    let call = builder.ins().call(make_string, &[ctx_val, null, zero]);
+                    Ok(JitValue::boxed(builder.inst_results(call)[0]))
+                }
+            }
+        }
+        IrExpr::Perform { effect, operation, args } => {
+            let mut arg_vals: Vec<CraneliftValue> = Vec::with_capacity(args.len());
+            for var in args {
+                let v = use_local(
+                    builder,
+                    values.get(var).cloned().ok_or("missing JIT CFG perform arg")?,
+                );
+                arg_vals.push(box_and_guard_jit_value(module, helpers, builder, ctx_val, v));
+            }
+
+            let args_ptr = if arg_vals.is_empty() {
+                builder.ins().iconst(PTR_TYPE, 0)
+            } else {
+                let slot = builder.create_sized_stack_slot(
+                    cranelift_codegen::ir::StackSlotData::new(
+                        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                        (arg_vals.len() as u32).max(1) * 8,
+                        3,
+                    ),
+                );
+                for (i, val) in arg_vals.iter().enumerate() {
+                    builder.ins().stack_store(*val, slot, (i * 8) as i32);
+                }
+                builder.ins().stack_addr(PTR_TYPE, slot, 0)
+            };
+            let nargs_val = builder.ins().iconst(PTR_TYPE, arg_vals.len() as i64);
+            let effect_val = builder.ins().iconst(PTR_TYPE, effect.as_u32() as i64);
+            let op_val = builder.ins().iconst(PTR_TYPE, operation.as_u32() as i64);
+
+            let effect_str: &'static str = Box::leak(interner.resolve(*effect).to_owned().into_boxed_str());
+            let op_str: &'static str = Box::leak(interner.resolve(*operation).to_owned().into_boxed_str());
+            let effect_name_ptr = builder.ins().iconst(PTR_TYPE, effect_str.as_ptr() as i64);
+            let effect_name_len = builder.ins().iconst(PTR_TYPE, effect_str.len() as i64);
+            let op_name_ptr = builder.ins().iconst(PTR_TYPE, op_str.as_ptr() as i64);
+            let op_name_len = builder.ins().iconst(PTR_TYPE, op_str.len() as i64);
+            // No span available from CFG IR metadata; use 0,0.
+            let line_val = builder.ins().iconst(PTR_TYPE, 0);
+            let col_val = builder.ins().iconst(PTR_TYPE, 0);
+
+            let rt_perform = get_helper_func_ref(module, helpers, builder, "rt_perform");
+            let call = builder.ins().call(
+                rt_perform,
+                &[
+                    ctx_val,
+                    effect_val,
+                    op_val,
+                    args_ptr,
+                    nargs_val,
+                    effect_name_ptr,
+                    effect_name_len,
+                    op_name_ptr,
+                    op_name_len,
+                    line_val,
+                    col_val,
+                ],
+            );
+            let result = builder.inst_results(call)[0];
+            emit_return_on_null_value(builder, result);
+            Ok(JitValue::boxed(result))
+        }
+        IrExpr::Handle { .. } => {
+            // Handle is compiled as IrInstr::HandleScope at the instruction level,
+            // not as an expression. This variant should not appear in CFG IR.
+            Err("IrExpr::Handle should not appear in CFG IR".to_string())
         }
         _ => Err("unsupported JIT CFG expression".to_string()),
     }
@@ -3032,22 +3517,39 @@ fn try_compile_jit_ir_cfg_function_body(
     return_block: cranelift_codegen::ir::Block,
     body_entry_block: cranelift_codegen::ir::Block,
     function: &IrFunction,
-    parameter_names: &[Identifier],
+    _parameter_names: &[Identifier],
     tail_ctx: &TailCallContext,
     interner: &Interner,
+    program: Option<&IrProgram>,
 ) -> Option<Result<(), String>> {
     if !can_compile_jit_ir_cfg_function(function) {
         return None;
     }
 
+    // Core IR may merge declared params with returned lambda params
+    // (e.g. `fn f(a, b) { \x -> ... }` becomes `Lam(a, Lam(b, Lam(x, ...)))`).
+    // When the IR function has more params than the AST declared, bail out
+    // to the structured path which handles currying correctly.
+    let expected_params = _parameter_names.len()
+        + function.captures.len();
+    if function.params.len() != expected_params {
+        return None;
+    }
+
     Some((|| {
         let mut bindings: HashMap<IrVar, LocalBinding> = HashMap::new();
-        for (param, name) in function.params.iter().zip(parameter_names.iter()) {
+        // IR params include captures (first) followed by actual parameters.
+        // Use the IrParam's own `name` field to look up bindings in scope.locals,
+        // which the outer compile_ir_function_body already populated for both
+        // captures and declared parameters.
+        for param in &function.params {
             let binding = scope
                 .locals
-                .get(name)
+                .get(&param.name)
                 .cloned()
-                .ok_or_else(|| "missing JIT CFG parameter binding".to_string())?;
+                .ok_or_else(|| {
+                    "missing JIT CFG parameter binding".to_string()
+                })?;
             bindings.insert(param.var, binding);
         }
 
@@ -3076,29 +3578,67 @@ fn try_compile_jit_ir_cfg_function_body(
         // from init_block and sealed init_block before calling here.
         // Do NOT emit a second terminator — switch_to_block below is enough.
 
-        // If any block contains a self-tail-call, it will emit a back-edge
-        // jump to the entry block AFTER the entry block has been processed.
-        // Cranelift's FunctionBuilder supports deferred sealing: a block with
-        // incomplete predecessors can be left unsealed until all its back-edge
-        // jumps have been registered, at which point seal_block resolves any
-        // pending phi (use_var) nodes correctly.
-        let has_self_tail_call = function.blocks.iter().any(|b| {
-            matches!(&b.terminator, IrTerminator::TailCall { callee, .. }
-                if match callee {
-                    IrCallTarget::Named(name) => function.name == Some(*name),
-                    IrCallTarget::Direct(id) => *id == function.id,
-                    IrCallTarget::Var(_) => false,
-                })
-        });
+        // Build the set of blocks that have backward-edge predecessors.
+        // These blocks must not be sealed until all their predecessors have
+        // been emitted. Self-tail-calls produce a back-edge to the entry
+        // block; `lower_case` join blocks are allocated before their arm
+        // blocks, so arms that Jump backward also produce back-edges.
+        let block_indices_map: HashMap<_, _> = function
+            .blocks
+            .iter()
+            .enumerate()
+            .map(|(i, b)| (b.id, i))
+            .collect();
+        let mut deferred_seal: HashSet<BlockId> = HashSet::new();
+        for (src_index, block) in function.blocks.iter().enumerate() {
+            let targets: Vec<BlockId> = match &block.terminator {
+                IrTerminator::Jump(target, _, _) => vec![*target],
+                IrTerminator::Branch { then_block, else_block, .. } => {
+                    vec![*then_block, *else_block]
+                }
+                IrTerminator::TailCall { callee, .. } => {
+                    let is_self = match callee {
+                        IrCallTarget::Named(name) => function.name == Some(*name),
+                        IrCallTarget::Direct(id) => *id == function.id,
+                        IrCallTarget::Var(_) => false,
+                    };
+                    if is_self { vec![function.entry] } else { vec![] }
+                }
+                _ => vec![],
+            };
+            for target in targets {
+                if let Some(&target_index) = block_indices_map.get(&target)
+                    && target_index <= src_index
+                {
+                    deferred_seal.insert(target);
+                }
+            }
+        }
+
+        // Identify continuation blocks for HandleScope — these need
+        // rt_pop_handler emitted at the start of the block.
+        let mut handle_scope_cont_blocks: HashSet<BlockId> = HashSet::new();
+        for block in &function.blocks {
+            for instr in &block.instrs {
+                if let IrInstr::HandleScope { body_result, .. } = instr {
+                    // The continuation block has body_result as a block param.
+                    for b in &function.blocks {
+                        if b.params.iter().any(|p| p.var == *body_result) {
+                            handle_scope_cont_blocks.insert(b.id);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
 
         for block in &function.blocks {
             let cl_block = block_map[&block.id];
             builder.switch_to_block(cl_block);
-            // Defer sealing the entry block when there are self-tail-call
-            // back-edges so that the phi for loop variables is built correctly.
-            // Every other block only has forward-jump predecessors, which have
-            // already been processed by the time we seal them here.
-            if !(block.id == function.entry && has_self_tail_call) {
+            // Seal blocks whose predecessors have all been emitted.
+            // Blocks with backward-edge predecessors are sealed after
+            // the main loop.
+            if !deferred_seal.contains(&block.id) {
                 builder.seal_block(cl_block);
             }
 
@@ -3110,26 +3650,26 @@ fn try_compile_jit_ir_cfg_function_body(
             if block.id == function.entry {
                 for param in &function.params {
                     let target_kind = match param.ty {
-                        crate::ir::IrType::Int => JitValueKind::Int,
-                        crate::ir::IrType::Bool => JitValueKind::Bool,
+                        crate::cfg::IrType::Int => JitValueKind::Int,
+                        crate::cfg::IrType::Bool => JitValueKind::Bool,
                         _ => continue,
                     };
-                    if let Some(existing) = bindings.get(&param.var).cloned() {
-                        if existing.kind == JitValueKind::Boxed {
-                            let ptr = builder.use_var(existing.var);
-                            let payload = builder.ins().load(
-                                types::I64,
-                                MemFlags::new(),
-                                ptr,
-                                8,
-                            );
-                            let unboxed_var = declare_local(builder, target_kind);
-                            builder.def_var(unboxed_var, payload);
-                            bindings.insert(
-                                param.var,
-                                LocalBinding { var: unboxed_var, kind: target_kind },
-                            );
-                        }
+                    if let Some(existing) = bindings.get(&param.var).cloned()
+                        && existing.kind == JitValueKind::Boxed
+                    {
+                        let ptr = builder.use_var(existing.var);
+                        let payload = builder.ins().load(
+                            types::I64,
+                            MemFlags::new(),
+                            ptr,
+                            8,
+                        );
+                        let unboxed_var = declare_local(builder, target_kind);
+                        builder.def_var(unboxed_var, payload);
+                        bindings.insert(
+                            param.var,
+                            LocalBinding { var: unboxed_var, kind: target_kind },
+                        );
                     }
                 }
             }
@@ -3143,6 +3683,12 @@ fn try_compile_jit_ir_cfg_function_body(
                 builder.def_var(binding.var, value);
             }
 
+            // Emit rt_pop_handler at the start of HandleScope continuation blocks.
+            if handle_scope_cont_blocks.contains(&block.id) {
+                let rt_pop = get_helper_func_ref(module, helpers, builder, "rt_pop_handler");
+                builder.ins().call(rt_pop, &[ctx_val]);
+            }
+
             for instr in &block.instrs {
                 match instr {
                     IrInstr::Assign { dest, expr, .. } => {
@@ -3150,6 +3696,7 @@ fn try_compile_jit_ir_cfg_function_body(
                             module,
                             helpers,
                             builder,
+                            scope,
                             ctx_val,
                             &bindings,
                             expr,
@@ -3168,51 +3715,6 @@ fn try_compile_jit_ir_cfg_function_body(
                         args,
                         metadata,
                     } => {
-                        let meta = match target {
-                            IrCallTarget::Named(name) => scope
-                                .functions
-                                .get(name)
-                                .copied()
-                                .ok_or_else(|| "missing JIT CFG named call target".to_string())?,
-                            IrCallTarget::Direct(id) => scope
-                                .ir_functions
-                                .get(id)
-                                .copied()
-                                .ok_or_else(|| "missing JIT CFG direct call target".to_string())?,
-                            IrCallTarget::Var(var) => {
-                                let callee = use_local(
-                                    builder,
-                                    bindings.get(var).cloned().ok_or_else(|| {
-                                        "missing JIT CFG var call target".to_string()
-                                    })?,
-                                );
-                                let mut arg_vals = Vec::with_capacity(args.len());
-                                for arg in args {
-                                    let value = use_local(
-                                        builder,
-                                        bindings.get(arg).cloned().ok_or_else(|| {
-                                            "missing JIT CFG call arg binding".to_string()
-                                        })?,
-                                    );
-                                    arg_vals.push(value);
-                                }
-                                let value = compile_jit_cfg_generic_call(
-                                    module,
-                                    helpers,
-                                    builder,
-                                    ctx_val,
-                                    callee,
-                                    &arg_vals,
-                                    metadata.span.unwrap_or_default(),
-                                )?;
-                                let binding = bindings.entry(*dest).or_insert_with(|| LocalBinding {
-                                    var: declare_local(builder, value.kind),
-                                    kind: value.kind,
-                                });
-                                builder.def_var(binding.var, value.value);
-                                continue;
-                            }
-                        };
                         let mut arg_vals = Vec::with_capacity(args.len());
                         for arg in args {
                             let value = use_local(
@@ -3223,20 +3725,178 @@ fn try_compile_jit_ir_cfg_function_body(
                             );
                             arg_vals.push(value);
                         }
-                        let value = compile_jit_cfg_user_function_call(
-                            module,
-                            helpers,
-                            builder,
-                            ctx_val,
-                            meta,
-                            &arg_vals,
-                            metadata.span.unwrap_or_default(),
-                        )?;
+                        let call_span = metadata.span.unwrap_or_default();
+                        let value = match target {
+                            IrCallTarget::Named(name) => {
+                                if let Some(meta) = scope.functions.get(name).copied() {
+                                    compile_jit_cfg_user_function_call(
+                                        module, helpers, builder, ctx_val, meta, &arg_vals,
+                                        call_span,
+                                    )?
+                                } else if let Some(&base_idx) = scope.base_functions.get(name) {
+                                    compile_jit_cfg_base_function_call(
+                                        module, helpers, builder, ctx_val, base_idx,
+                                        &arg_vals, call_span,
+                                    )?
+                                } else {
+                                    return Err(format!(
+                                        "missing JIT CFG named call target: {:?}",
+                                        interner.resolve(*name),
+                                    ));
+                                }
+                            }
+                            IrCallTarget::Direct(id) => {
+                                let meta = scope.ir_functions.get(id).copied().ok_or_else(|| {
+                                    "missing JIT CFG direct call target".to_string()
+                                })?;
+                                compile_jit_cfg_user_function_call(
+                                    module, helpers, builder, ctx_val, meta, &arg_vals,
+                                    call_span,
+                                )?
+                            }
+                            IrCallTarget::Var(var) => {
+                                let callee = use_local(
+                                    builder,
+                                    bindings.get(var).cloned().ok_or_else(|| {
+                                        "missing JIT CFG var call target".to_string()
+                                    })?,
+                                );
+                                compile_jit_cfg_generic_call(
+                                    module, helpers, builder, ctx_val, callee, &arg_vals,
+                                    call_span,
+                                )?
+                            }
+                        };
                         let binding = bindings.entry(*dest).or_insert_with(|| LocalBinding {
                             var: declare_local(builder, value.kind),
                             kind: value.kind,
                         });
                         builder.def_var(binding.var, value.value);
+                    }
+                    IrInstr::HandleScope {
+                        effect,
+                        arms,
+                        dest,
+                        ..
+                    } => {
+                        // Create a closure for each handler arm and push the handler.
+                        let num_arms = arms.len();
+                        let mut op_sym_vals: Vec<CraneliftValue> = Vec::new();
+                        let mut closure_vals: Vec<CraneliftValue> = Vec::new();
+
+                        for arm in arms {
+                            op_sym_vals.push(
+                                builder
+                                    .ins()
+                                    .iconst(PTR_TYPE, arm.operation_name.as_u32() as i64),
+                            );
+                            let arm_meta = scope
+                                .ir_functions
+                                .get(&arm.function_id)
+                                .copied()
+                                .ok_or("missing JIT CFG handle arm function")?;
+                            let arm_fn = program
+                                .and_then(|p| p.function(arm.function_id))
+                                .ok_or("missing handle arm IrFunction")?;
+
+                            // Build closure with captures from current bindings.
+                            let fn_idx = builder
+                                .ins()
+                                .iconst(PTR_TYPE, arm_meta.function_index as i64);
+                            if arm_fn.captures.is_empty() {
+                                let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
+                                let zero = builder.ins().iconst(PTR_TYPE, 0);
+                                let make_closure = get_helper_func_ref(
+                                    module, helpers, builder, "rt_make_jit_closure",
+                                );
+                                let call = builder.ins().call(
+                                    make_closure,
+                                    &[ctx_val, fn_idx, null_ptr, zero],
+                                );
+                                closure_vals.push(builder.inst_results(call)[0]);
+                            } else {
+                                let mut cap_vals: Vec<JitValue> = Vec::new();
+                                for cap_name in &arm_fn.captures {
+                                    // Captures are by name — look up in scope.locals.
+                                    let cap_binding = scope
+                                        .locals
+                                        .get(cap_name)
+                                        .cloned()
+                                        .ok_or_else(|| {
+                                            format!(
+                                                "missing handle arm capture: {:?}",
+                                                cap_name
+                                            )
+                                        })?;
+                                    cap_vals.push(use_local(builder, cap_binding));
+                                }
+                                let (_slot, captures_ptr) =
+                                    emit_tagged_stack_array(builder, &cap_vals);
+                                let ncaptures = builder
+                                    .ins()
+                                    .iconst(PTR_TYPE, cap_vals.len() as i64);
+                                let make_closure = get_helper_func_ref(
+                                    module, helpers, builder, "rt_make_jit_closure",
+                                );
+                                let call = builder.ins().call(
+                                    make_closure,
+                                    &[ctx_val, fn_idx, captures_ptr, ncaptures],
+                                );
+                                closure_vals.push(builder.inst_results(call)[0]);
+                            }
+                        }
+
+                        // Store op symbols in a stack slot.
+                        let ops_slot = builder.create_sized_stack_slot(
+                            cranelift_codegen::ir::StackSlotData::new(
+                                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                                (num_arms.max(1) as u32) * 8,
+                                3,
+                            ),
+                        );
+                        for (i, ov) in op_sym_vals.iter().enumerate() {
+                            builder.ins().stack_store(*ov, ops_slot, (i * 8) as i32);
+                        }
+                        let ops_ptr = builder.ins().stack_addr(PTR_TYPE, ops_slot, 0);
+
+                        // Store closures in a stack slot.
+                        let closures_slot = builder.create_sized_stack_slot(
+                            cranelift_codegen::ir::StackSlotData::new(
+                                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                                (num_arms.max(1) as u32) * 8,
+                                3,
+                            ),
+                        );
+                        for (i, cv) in closure_vals.iter().enumerate() {
+                            builder
+                                .ins()
+                                .stack_store(*cv, closures_slot, (i * 8) as i32);
+                        }
+                        let closures_ptr =
+                            builder.ins().stack_addr(PTR_TYPE, closures_slot, 0);
+
+                        let effect_val =
+                            builder.ins().iconst(PTR_TYPE, effect.as_u32() as i64);
+                        let narms_val =
+                            builder.ins().iconst(PTR_TYPE, num_arms as i64);
+
+                        let rt_push = get_helper_func_ref(
+                            module, helpers, builder, "rt_push_handler",
+                        );
+                        builder.ins().call(
+                            rt_push,
+                            &[ctx_val, effect_val, ops_ptr, closures_ptr, narms_val],
+                        );
+
+                        // dest will be set by the continuation block's block param.
+                        // Initialise it to null so Cranelift sees a definition.
+                        let binding =
+                            bindings.entry(*dest).or_insert_with(|| LocalBinding {
+                                var: declare_local(builder, JitValueKind::Boxed),
+                                kind: JitValueKind::Boxed,
+                            });
+                        let null = builder.ins().iconst(PTR_TYPE, 0);
+                        builder.def_var(binding.var, null);
                     }
                 }
             }
@@ -3338,29 +3998,40 @@ fn try_compile_jit_ir_cfg_function_body(
                     // returned — skip the jump_with_jit_value call below.
                     let value: Option<JitValue> = match callee {
                         IrCallTarget::Named(name) => {
-                            let meta = scope.functions.get(name).copied().ok_or_else(|| {
-                                "missing JIT CFG named tail-call target".to_string()
-                            })?;
-                            if !meta.has_contract && meta.num_params == arg_vals.len() {
-                                emit_mutual_tail_thunk(
+                            if let Some(meta) = scope.functions.get(name).copied() {
+                                if !meta.has_contract && meta.num_params == arg_vals.len() {
+                                    emit_mutual_tail_thunk(
+                                        module,
+                                        helpers,
+                                        builder,
+                                        ctx_val,
+                                        meta.function_index,
+                                        &arg_vals,
+                                    );
+                                    None
+                                } else {
+                                    Some(compile_jit_cfg_user_function_call(
+                                        module,
+                                        helpers,
+                                        builder,
+                                        ctx_val,
+                                        meta,
+                                        &arg_vals,
+                                        Span::default(),
+                                    )?)
+                                }
+                            } else if let Some(&base_idx) = scope.base_functions.get(name) {
+                                Some(compile_jit_cfg_base_function_call(
                                     module,
                                     helpers,
                                     builder,
                                     ctx_val,
-                                    meta.function_index,
-                                    &arg_vals,
-                                );
-                                None
-                            } else {
-                                Some(compile_jit_cfg_user_function_call(
-                                    module,
-                                    helpers,
-                                    builder,
-                                    ctx_val,
-                                    meta,
+                                    base_idx,
                                     &arg_vals,
                                     Span::default(),
                                 )?)
+                            } else {
+                                return Err("missing JIT CFG named tail-call target".to_string());
                             }
                         }
                         IrCallTarget::Direct(id) => {
@@ -3412,17 +4083,15 @@ fn try_compile_jit_ir_cfg_function_body(
                     }
                 }
                 IrTerminator::Unreachable(_) => {
-                    return Err("unsupported JIT CFG terminator".to_string());
+                    builder.ins().trap(cranelift_codegen::ir::TrapCode::user(1).unwrap());
                 }
             }
         }
 
-        // Seal the entry block now that all blocks — including any
-        // self-tail-call blocks that emit back-edge jumps to it — have been
-        // fully processed.  For functions without self-tail-calls the entry
-        // block was sealed in the loop above and this is a no-op.
-        if has_self_tail_call {
-            builder.seal_block(block_map[&function.entry]);
+        // Seal all deferred blocks now that all predecessors have been
+        // emitted (self-tail-call back-edges, join block back-edges, etc.).
+        for block_id in &deferred_seal {
+            builder.seal_block(block_map[block_id]);
         }
 
         Ok(())
@@ -3718,11 +4387,11 @@ fn compile_ir_expression(
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
-    expr: &IrStructuredExpr,
+    expr: &Expression,
     interner: &Interner,
 ) -> Result<JitValue, String> {
     match expr {
-        IrStructuredExpr::Identifier { name, .. } => {
+        Expression::Identifier { name, .. } => {
             if let Some(binding) = scope.locals.get(name).cloned() {
                 Ok(use_local(builder, binding))
             } else if let Some(meta) = scope.functions.get(name).copied() {
@@ -3771,8 +4440,8 @@ fn compile_ir_expression(
                 Err(format!("undefined identifier: {}", interner.resolve(*name)))
             }
         }
-        IrStructuredExpr::MemberAccess { object, member, .. } => {
-            if let IrStructuredExpr::Identifier { name, .. } = object.as_ref() {
+        Expression::MemberAccess { object, member, .. } => {
+            if let Expression::Identifier { name, .. } = object.as_ref() {
                 if is_base_symbol(*name, interner) {
                     let member_name = interner.resolve(*member);
                     let Some(index) = BaseModule::new().index_of(member_name) else {
@@ -3822,7 +4491,7 @@ fn compile_ir_expression(
 
             Err("unsupported member access in JIT (only Module.member is supported)".to_string())
         }
-        IrStructuredExpr::Prefix {
+        Expression::Prefix {
             operator, right, ..
         } => {
             let operand = compile_ir_expression(
@@ -3864,7 +4533,7 @@ fn compile_ir_expression(
             );
             Ok(JitValue::boxed(result))
         }
-        IrStructuredExpr::Infix {
+        Expression::Infix {
             left,
             operator,
             right,
@@ -3925,8 +4594,7 @@ fn compile_ir_expression(
                         let dbz =
                             get_helper_func_ref(module, helpers, builder, "rt_division_by_zero");
                         builder.ins().call(dbz, &[ctx_val]);
-                        let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
-                        builder.ins().return_(&[null_ptr]);
+                        emit_return_null_tagged(builder);
                         builder.seal_block(err_block);
 
                         builder.switch_to_block(ok_block);
@@ -4056,7 +4724,7 @@ fn compile_ir_expression(
             );
             Ok(JitValue::boxed(result))
         }
-        IrStructuredExpr::Function {
+        Expression::Function {
             parameters,
             parameter_types,
             return_type,
@@ -4081,26 +4749,26 @@ fn compile_ir_expression(
             )?;
             Ok(JitValue::boxed(closure))
         }
-        IrStructuredExpr::Integer { value, .. } => {
+        Expression::Integer { value, .. } => {
             Ok(JitValue::int(builder.ins().iconst(types::I64, *value)))
         }
-        IrStructuredExpr::Float { value, .. } => Ok(JitValue::float(
+        Expression::Float { value, .. } => Ok(JitValue::float(
             builder.ins().iconst(types::I64, value.to_bits() as i64),
         )),
-        IrStructuredExpr::Boolean { value, .. } => {
+        Expression::Boolean { value, .. } => {
             Ok(JitValue::bool(builder.ins().iconst(types::I64, *value as i64)))
         }
-        IrStructuredExpr::None { .. } => {
+        Expression::None { .. } => {
             let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
             let call = builder.ins().call(make_none, &[ctx_val]);
             Ok(JitValue::boxed(builder.inst_results(call)[1]))
         }
-        IrStructuredExpr::EmptyList { .. } => {
+        Expression::EmptyList { .. } => {
             let make_empty = get_helper_func_ref(module, helpers, builder, "rt_make_empty_list");
             let call = builder.ins().call(make_empty, &[ctx_val]);
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
-        IrStructuredExpr::String { value, .. } => {
+        Expression::String { value, .. } => {
             let make_string = get_helper_func_ref(module, helpers, builder, "rt_make_string");
             let bytes = value.as_bytes();
             let data = module
@@ -4115,7 +4783,7 @@ fn compile_ir_expression(
             let call = builder.ins().call(make_string, &[ctx_val, ptr, len]);
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
-        IrStructuredExpr::TupleLiteral { elements, .. } => {
+        Expression::TupleLiteral { elements, .. } => {
             let mut elem_vals = Vec::with_capacity(elements.len());
             for elem in elements {
                 let val = compile_ir_expression(
@@ -4142,15 +4810,15 @@ fn compile_ir_expression(
                 .call(make_tuple, &[ctx_val, elems_ptr, len_val]);
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
-        IrStructuredExpr::InterpolatedString { parts, .. } => {
-            use crate::ir::IrStructuredStringPart;
+        Expression::InterpolatedString { parts, .. } => {
+            use crate::syntax::expression::StringPart;
             let rt_to_string = get_helper_func_ref(module, helpers, builder, "rt_to_string");
             let rt_add = get_helper_func_ref(module, helpers, builder, "rt_add");
 
             let mut acc: Option<CraneliftValue> = None;
             for part in parts {
                 let part_val = match part {
-                    IrStructuredStringPart::Literal(s) => {
+                    StringPart::Literal(s) => {
                         let bytes = s.as_bytes();
                         let data = module
                             .declare_anonymous_data(false, false)
@@ -4166,7 +4834,7 @@ fn compile_ir_expression(
                         let call = builder.ins().call(make_string, &[ctx_val, ptr, len]);
                         builder.inst_results(call)[0]
                     }
-                    IrStructuredStringPart::Interpolation(expr) => {
+                    StringPart::Interpolation(expr) => {
                         let val = compile_ir_expression(
                             module,
                             helpers,
@@ -4187,8 +4855,11 @@ fn compile_ir_expression(
                 acc = Some(match acc {
                     None => part_val,
                     Some(prev) => {
-                        let call = builder.ins().call(rt_add, &[ctx_val, prev, part_val]);
-                        builder.inst_results(call)[0]
+                        let tag = builder.ins().iconst(types::I64, JIT_TAG_PTR);
+                        let call = builder
+                            .ins()
+                            .call(rt_add, &[ctx_val, tag, prev, tag, part_val]);
+                        builder.inst_results(call)[1]
                     }
                 });
             }
@@ -4204,7 +4875,7 @@ fn compile_ir_expression(
                 }
             }
         }
-        IrStructuredExpr::If {
+        Expression::If {
             condition,
             consequence,
             alternative,
@@ -4223,7 +4894,7 @@ fn compile_ir_expression(
             alternative.as_ref(),
             interner,
         ),
-        IrStructuredExpr::DoBlock { block, .. } => {
+        Expression::DoBlock { block, .. } => {
             compile_ir_block_expression(
                 module,
                 helpers,
@@ -4245,7 +4916,7 @@ fn compile_ir_expression(
                 }
             })
         }
-        IrStructuredExpr::Call {
+        Expression::Call {
             function,
             arguments,
             span,
@@ -4267,7 +4938,7 @@ fn compile_ir_expression(
                     interner,
                 );
             }
-            if let IrStructuredExpr::Identifier { name, .. } = function.as_ref() {
+            if let Expression::Identifier { name, .. } = function.as_ref() {
                 if let Some(&arity) = scope.adt_constructors.get(name) {
                     return compile_ir_adt_constructor_call(
                         module,
@@ -4317,8 +4988,8 @@ fn compile_ir_expression(
                     );
                 }
             }
-            if let IrStructuredExpr::MemberAccess { object, member, .. } = function.as_ref()
-                && let IrStructuredExpr::Identifier { name, .. } = object.as_ref()
+            if let Expression::MemberAccess { object, member, .. } = function.as_ref()
+                && let Expression::Identifier { name, .. } = object.as_ref()
             {
                 let module_name = scope.import_aliases.get(name).copied().or_else(|| {
                     if scope.imported_modules.contains(name)
@@ -4366,15 +5037,15 @@ fn compile_ir_expression(
                 interner,
             )
         }
-        IrStructuredExpr::ListLiteral { .. }
-        | IrStructuredExpr::ArrayLiteral { .. }
-        | IrStructuredExpr::Hash { .. }
-        | IrStructuredExpr::Index { .. }
-        | IrStructuredExpr::TupleFieldAccess { .. }
-        | IrStructuredExpr::Some { .. }
-        | IrStructuredExpr::Left { .. }
-        | IrStructuredExpr::Right { .. }
-        | IrStructuredExpr::Cons { .. } => compile_ir_collection_expression(
+        Expression::ListLiteral { .. }
+        | Expression::ArrayLiteral { .. }
+        | Expression::Hash { .. }
+        | Expression::Index { .. }
+        | Expression::TupleFieldAccess { .. }
+        | Expression::Some { .. }
+        | Expression::Left { .. }
+        | Expression::Right { .. }
+        | Expression::Cons { .. } => compile_ir_collection_expression(
             module,
             helpers,
             builder,
@@ -4386,7 +5057,7 @@ fn compile_ir_expression(
             expr,
             interner,
         ),
-        IrStructuredExpr::Match {
+        Expression::Match {
             scrutinee, arms, ..
         } => {
             compile_ir_match_expression(
@@ -4403,7 +5074,7 @@ fn compile_ir_expression(
                 interner,
             )
         }
-        IrStructuredExpr::Perform {
+        Expression::Perform {
             effect,
             operation,
             args,
@@ -4424,7 +5095,7 @@ fn compile_ir_expression(
             interner,
             *span,
         ),
-        IrStructuredExpr::Handle {
+        Expression::Handle {
             expr,
             effect,
             arms,
@@ -4455,11 +5126,11 @@ fn compile_ir_collection_expression(
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
-    expr: &IrStructuredExpr,
+    expr: &Expression,
     interner: &Interner,
 ) -> Result<JitValue, String> {
     match expr {
-        IrStructuredExpr::TupleFieldAccess { object, index, .. } => {
+        Expression::TupleFieldAccess { object, index, .. } => {
             let tuple_val = compile_ir_expression(
                 module,
                 helpers,
@@ -4482,7 +5153,7 @@ fn compile_ir_collection_expression(
             emit_return_on_null_value(builder, result);
             Ok(JitValue::boxed(result))
         }
-        IrStructuredExpr::Cons { head, tail, .. } => {
+        Expression::Cons { head, tail, .. } => {
             let head_val = compile_ir_expression(
                 module,
                 helpers,
@@ -4515,7 +5186,7 @@ fn compile_ir_collection_expression(
                 .call(make_cons, &[ctx_val, head_val, tail_val]);
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
-        IrStructuredExpr::Some { value, .. } => {
+        Expression::Some { value, .. } => {
             let inner = compile_ir_expression(
                 module,
                 helpers,
@@ -4533,7 +5204,7 @@ fn compile_ir_collection_expression(
             let call = builder.ins().call(make_some, &[ctx_val, inner]);
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
-        IrStructuredExpr::Left { value, .. } => {
+        Expression::Left { value, .. } => {
             let inner = compile_ir_expression(
                 module,
                 helpers,
@@ -4551,7 +5222,7 @@ fn compile_ir_collection_expression(
             let call = builder.ins().call(make_left, &[ctx_val, inner]);
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
-        IrStructuredExpr::Right { value, .. } => {
+        Expression::Right { value, .. } => {
             let inner = compile_ir_expression(
                 module,
                 helpers,
@@ -4569,7 +5240,7 @@ fn compile_ir_collection_expression(
             let call = builder.ins().call(make_right, &[ctx_val, inner]);
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
-        IrStructuredExpr::ArrayLiteral { elements, .. } => {
+        Expression::ArrayLiteral { elements, .. } => {
             let mut elem_vals = Vec::with_capacity(elements.len());
             for elem in elements {
                 let val = compile_ir_expression(
@@ -4596,7 +5267,7 @@ fn compile_ir_collection_expression(
                 .call(make_array, &[ctx_val, elems_ptr, len_val]);
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
-        IrStructuredExpr::ListLiteral { elements, .. } => {
+        Expression::ListLiteral { elements, .. } => {
             let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
             let make_cons = get_helper_func_ref(module, helpers, builder, "rt_make_cons");
             let none_call = builder.ins().call(make_none, &[ctx_val]);
@@ -4620,7 +5291,7 @@ fn compile_ir_collection_expression(
             }
             Ok(JitValue::boxed(acc))
         }
-        IrStructuredExpr::Hash { pairs, .. } => {
+        Expression::Hash { pairs, .. } => {
             let npairs = pairs.len();
             let mut pair_vals = Vec::with_capacity(npairs * 2);
             for (key, value) in pairs {
@@ -4661,7 +5332,7 @@ fn compile_ir_collection_expression(
                 .call(make_hash, &[ctx_val, pairs_ptr, npairs_val]);
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
-        IrStructuredExpr::Index { left, index, .. } => {
+        Expression::Index { left, index, .. } => {
             let left_val = compile_ir_expression(
                 module,
                 helpers,
@@ -4973,95 +5644,6 @@ fn try_compile_tail_expression_statement(
         let mut arg_vals = Vec::with_capacity(arguments.len());
         for arg in arguments {
             arg_vals.push(compile_expression(
-                module,
-                helpers,
-                builder,
-                function_compiler,
-                scope,
-                ctx_val,
-                return_block,
-                Some(tail_ctx),
-                arg,
-                interner,
-            )?);
-        }
-        emit_mutual_tail_thunk(
-            module,
-            helpers,
-            builder,
-            ctx_val,
-            meta.function_index,
-            &arg_vals,
-        );
-        return Ok(Some(StmtOutcome::Returned));
-    }
-
-    Ok(None)
-}
-
-fn try_compile_ir_tail_expression_statement(
-    module: &mut JITModule,
-    helpers: &HelperFuncs,
-    builder: &mut FunctionBuilder,
-    function_compiler: &FunctionCompiler,
-    scope: &mut Scope,
-    ctx_val: CraneliftValue,
-    return_block: Option<cranelift_codegen::ir::Block>,
-    tail_ctx: &TailCallContext,
-    item: &IrTopLevelItem,
-    interner: &Interner,
-) -> Result<Option<StmtOutcome>, String> {
-    let IrTopLevelItem::Expression { expression, .. } = item else {
-        return Ok(None);
-    };
-    let IrStructuredExpr::Call {
-        function,
-        arguments,
-        ..
-    } = expression
-    else {
-        return Ok(None);
-    };
-    let IrStructuredExpr::Identifier { name, .. } = function.as_ref() else {
-        return Ok(None);
-    };
-
-    // Case 1: self-tail-call — jump back to the loop block.
-    if let Some(fn_name) = tail_ctx.function_name
-        && *name == fn_name
-        && arguments.len() == tail_ctx.params.len()
-    {
-        let mut arg_vals = Vec::with_capacity(arguments.len());
-        for arg in arguments {
-            arg_vals.push(compile_ir_expression(
-                module,
-                helpers,
-                builder,
-                function_compiler,
-                scope,
-                ctx_val,
-                return_block,
-                Some(tail_ctx),
-                arg,
-                interner,
-            )?);
-        }
-        for (idx, (_, var)) in tail_ctx.params.iter().enumerate() {
-            let boxed = box_jit_value(module, helpers, builder, ctx_val, arg_vals[idx]);
-            builder.def_var(*var, boxed);
-        }
-        builder.ins().jump(tail_ctx.loop_block, &[]);
-        return Ok(Some(StmtOutcome::Returned));
-    }
-
-    // Case 2: mutual tail call via trampoline.
-    if let Some(meta) = scope.functions.get(name).copied()
-        && !meta.has_contract
-        && arguments.len() == meta.num_params
-    {
-        let mut arg_vals = Vec::with_capacity(arguments.len());
-        for arg in arguments {
-            arg_vals.push(compile_ir_expression(
                 module,
                 helpers,
                 builder,
@@ -5402,8 +5984,7 @@ fn compile_expression(
                         let dbz =
                             get_helper_func_ref(module, helpers, builder, "rt_division_by_zero");
                         builder.ins().call(dbz, &[ctx_val]);
-                        let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
-                        builder.ins().return_(&[null_ptr]);
+                        emit_return_null_tagged(builder);
                         builder.seal_block(err_block);
 
                         // Normal path: emit sdiv/srem.
@@ -6066,8 +6647,11 @@ fn compile_expression(
                 acc = Some(match acc {
                     None => part_val,
                     Some(prev) => {
-                        let call = builder.ins().call(rt_add, &[ctx_val, prev, part_val]);
-                        builder.inst_results(call)[0]
+                        let tag = builder.ins().iconst(types::I64, JIT_TAG_PTR);
+                        let call = builder
+                            .ins()
+                            .call(rt_add, &[ctx_val, tag, prev, tag, part_val]);
+                        builder.inst_results(call)[1]
                     }
                 });
             }
@@ -6219,7 +6803,7 @@ fn compile_ir_jit_perform(
     tail_call: Option<&TailCallContext>,
     effect: crate::syntax::symbol::Symbol,
     op: crate::syntax::symbol::Symbol,
-    args: &[IrStructuredExpr],
+    args: &[Expression],
     interner: &Interner,
     span: crate::diagnostics::position::Span,
 ) -> Result<JitValue, String> {
@@ -6388,9 +6972,9 @@ fn compile_ir_jit_handle(
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
-    expr: &IrStructuredExpr,
+    expr: &Expression,
     effect: crate::syntax::symbol::Symbol,
-    arms: &[crate::ir::IrStructuredHandleArm],
+    arms: &[HandleArm],
     interner: &Interner,
 ) -> Result<JitValue, String> {
     let num_arms = arms.len();
@@ -6406,8 +6990,8 @@ fn compile_ir_jit_handle(
 
         let mut params = vec![arm.resume_param];
         params.extend_from_slice(&arm.params);
-        let arm_block = IrStructuredBlock {
-            statements: vec![IrTopLevelItem::Expression {
+        let arm_block = Block {
+            statements: vec![Statement::Expression {
                 expression: arm.body.clone(),
                 has_semicolon: false,
                 span: arm.span,
@@ -6509,7 +7093,7 @@ fn collect_ir_adt_definitions_from_item(
             scope.adt_variants.insert(*name, constructor_names);
         }
         IrTopLevelItem::Module { body, .. } => {
-            for item in &body.statements {
+            for item in body {
                 collect_ir_adt_definitions_from_item(item, scope, interner);
             }
         }
@@ -6839,8 +7423,8 @@ fn compile_ir_match_expression(
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
-    scrutinee: &IrStructuredExpr,
-    arms: &[crate::ir::IrStructuredMatchArm],
+    scrutinee: &Expression,
+    arms: &[MatchArm],
     interner: &Interner,
 ) -> Result<JitValue, String> {
     if arms.is_empty() {
@@ -6888,7 +7472,7 @@ fn compile_ir_match_expression(
         }
 
         match &arm.pattern {
-            IrStructuredPattern::Wildcard { .. } | IrStructuredPattern::Identifier { .. } => {
+            Pattern::Wildcard { .. } | Pattern::Identifier { .. } => {
                 builder.ins().jump(matched_block, &[]);
                 if has_guard {
                     let next = builder.create_block();
@@ -6898,7 +7482,7 @@ fn compile_ir_match_expression(
                     pending_test = None;
                 }
             }
-            IrStructuredPattern::Cons { .. } => {
+            Pattern::Cons { .. } => {
                 let is_cons = get_helper_func_ref(module, helpers, builder, "rt_is_cons");
                 let call = builder.ins().call(is_cons, &[ctx_val, scrutinee_val]);
                 let is_cons_i64 = builder.inst_results(call)[0];
@@ -6908,7 +7492,7 @@ fn compile_ir_match_expression(
                 next_test = Some(next);
                 pending_test = Some(next);
             }
-            IrStructuredPattern::None { .. } => {
+            Pattern::None { .. } => {
                 let is_none = get_helper_func_ref(module, helpers, builder, "rt_is_none");
                 let call = builder.ins().call(is_none, &[ctx_val, scrutinee_val]);
                 let result = builder.inst_results(call)[0];
@@ -6918,7 +7502,7 @@ fn compile_ir_match_expression(
                 next_test = Some(next);
                 pending_test = Some(next);
             }
-            IrStructuredPattern::EmptyList { .. } => {
+            Pattern::EmptyList { .. } => {
                 let is_el = get_helper_func_ref(module, helpers, builder, "rt_is_empty_list");
                 let call = builder.ins().call(is_el, &[ctx_val, scrutinee_val]);
                 let result = builder.inst_results(call)[0];
@@ -6928,7 +7512,7 @@ fn compile_ir_match_expression(
                 next_test = Some(next);
                 pending_test = Some(next);
             }
-            IrStructuredPattern::Some { .. } => {
+            Pattern::Some { .. } => {
                 let is_some = get_helper_func_ref(module, helpers, builder, "rt_is_some");
                 let call = builder.ins().call(is_some, &[ctx_val, scrutinee_val]);
                 let result = builder.inst_results(call)[0];
@@ -6938,7 +7522,7 @@ fn compile_ir_match_expression(
                 next_test = Some(next);
                 pending_test = Some(next);
             }
-            IrStructuredPattern::Left { .. } => {
+            Pattern::Left { .. } => {
                 let is_left = get_helper_func_ref(module, helpers, builder, "rt_is_left");
                 let call = builder.ins().call(is_left, &[ctx_val, scrutinee_val]);
                 let result = builder.inst_results(call)[0];
@@ -6948,7 +7532,7 @@ fn compile_ir_match_expression(
                 next_test = Some(next);
                 pending_test = Some(next);
             }
-            IrStructuredPattern::Right { .. } => {
+            Pattern::Right { .. } => {
                 let is_right = get_helper_func_ref(module, helpers, builder, "rt_is_right");
                 let call = builder.ins().call(is_right, &[ctx_val, scrutinee_val]);
                 let result = builder.inst_results(call)[0];
@@ -6958,7 +7542,7 @@ fn compile_ir_match_expression(
                 next_test = Some(next);
                 pending_test = Some(next);
             }
-            IrStructuredPattern::Literal { expression, .. } => {
+            Pattern::Literal { expression, .. } => {
                 let lit_val = compile_ir_expression(
                     module,
                     helpers,
@@ -6983,7 +7567,7 @@ fn compile_ir_match_expression(
                 next_test = Some(next);
                 pending_test = Some(next);
             }
-            IrStructuredPattern::Tuple { .. } | IrStructuredPattern::Constructor { .. } => {
+            Pattern::Tuple { .. } | Pattern::Constructor { .. } => {
                 let next = builder.create_block();
                 let mut test_scope = scope.clone();
                 emit_ir_pattern_check(
@@ -7187,13 +7771,13 @@ fn validate_jit_match_arms(
 
 fn validate_ir_jit_match_arms(
     scope: &Scope,
-    arms: &[crate::ir::IrStructuredMatchArm],
+    arms: &[MatchArm],
     interner: &Interner,
 ) -> Result<(), String> {
     let all_constructor_names: Vec<Identifier> = arms
         .iter()
         .filter_map(|arm| match &arm.pattern {
-            IrStructuredPattern::Constructor { name, .. } => Some(*name),
+            Pattern::Constructor { name, .. } => Some(*name),
             _ => None,
         })
         .collect();
@@ -7205,7 +7789,7 @@ fn validate_ir_jit_match_arms(
         .iter()
         .filter_map(|arm| {
             if arm.guard.is_none()
-                && let IrStructuredPattern::Constructor { name, .. } = &arm.pattern
+                && let Pattern::Constructor { name, .. } = &arm.pattern
             {
                 return Some(*name);
             }
@@ -7237,7 +7821,7 @@ fn validate_ir_jit_match_arms(
         arm.guard.is_none()
             && matches!(
                 arm.pattern,
-                IrStructuredPattern::Wildcard { .. } | IrStructuredPattern::Identifier { .. }
+                Pattern::Wildcard { .. } | Pattern::Identifier { .. }
             )
     });
     if has_catch_all {
@@ -7328,12 +7912,12 @@ fn validate_pattern_constructors_for_jit(
 }
 
 fn validate_ir_pattern_constructors_for_jit(
-    pattern: &IrStructuredPattern,
+    pattern: &Pattern,
     scope: &Scope,
     interner: &Interner,
 ) -> Result<(), String> {
     match pattern {
-        IrStructuredPattern::Constructor { name, fields, .. } => {
+        Pattern::Constructor { name, fields, .. } => {
             let Some(expected_arity) = scope.adt_constructors.get(name).copied() else {
                 return Err(format!("Unknown constructor `{}`.", interner.resolve(*name)));
             };
@@ -7350,26 +7934,26 @@ fn validate_ir_pattern_constructors_for_jit(
             }
             Ok(())
         }
-        IrStructuredPattern::Some { pattern, .. }
-        | IrStructuredPattern::Left { pattern, .. }
-        | IrStructuredPattern::Right { pattern, .. } => {
+        Pattern::Some { pattern, .. }
+        | Pattern::Left { pattern, .. }
+        | Pattern::Right { pattern, .. } => {
             validate_ir_pattern_constructors_for_jit(pattern, scope, interner)
         }
-        IrStructuredPattern::Cons { head, tail, .. } => {
+        Pattern::Cons { head, tail, .. } => {
             validate_ir_pattern_constructors_for_jit(head, scope, interner)?;
             validate_ir_pattern_constructors_for_jit(tail, scope, interner)
         }
-        IrStructuredPattern::Tuple { elements, .. } => {
+        Pattern::Tuple { elements, .. } => {
             for element in elements {
                 validate_ir_pattern_constructors_for_jit(element, scope, interner)?;
             }
             Ok(())
         }
-        IrStructuredPattern::Wildcard { .. }
-        | IrStructuredPattern::Identifier { .. }
-        | IrStructuredPattern::Literal { .. }
-        | IrStructuredPattern::None { .. }
-        | IrStructuredPattern::EmptyList { .. } => Ok(()),
+        Pattern::Wildcard { .. }
+        | Pattern::Identifier { .. }
+        | Pattern::Literal { .. }
+        | Pattern::None { .. }
+        | Pattern::EmptyList { .. } => Ok(()),
     }
 }
 
@@ -7470,12 +8054,12 @@ fn bind_ir_pattern_value(
     builder: &mut FunctionBuilder,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
-    pattern: &IrStructuredPattern,
+    pattern: &Pattern,
     value: CraneliftValue,
 ) -> Result<(), String> {
     match pattern {
-        IrStructuredPattern::Wildcard { .. } => Ok(()),
-        IrStructuredPattern::Identifier { name, .. } => {
+        Pattern::Wildcard { .. } => Ok(()),
+        Pattern::Identifier { name, .. } => {
             let binding = LocalBinding {
                 var: declare_local(builder, JitValueKind::Boxed),
                 kind: JitValueKind::Boxed,
@@ -7484,7 +8068,7 @@ fn bind_ir_pattern_value(
             scope.locals.insert(*name, binding);
             Ok(())
         }
-        IrStructuredPattern::Cons { head, tail, .. } => {
+        Pattern::Cons { head, tail, .. } => {
             let cons_head = get_helper_func_ref(module, helpers, builder, "rt_cons_head");
             let cons_tail = get_helper_func_ref(module, helpers, builder, "rt_cons_tail");
             let h_call = builder.ins().call(cons_head, &[ctx_val, value]);
@@ -7497,31 +8081,31 @@ fn bind_ir_pattern_value(
             bind_ir_pattern_value(module, helpers, builder, scope, ctx_val, tail, t_val)?;
             Ok(())
         }
-        IrStructuredPattern::None { .. }
-        | IrStructuredPattern::EmptyList { .. }
-        | IrStructuredPattern::Literal { .. } => Ok(()),
-        IrStructuredPattern::Some { pattern, .. } => {
+        Pattern::None { .. }
+        | Pattern::EmptyList { .. }
+        | Pattern::Literal { .. } => Ok(()),
+        Pattern::Some { pattern, .. } => {
             let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_some");
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
             emit_return_on_null_value(builder, inner);
             bind_ir_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
         }
-        IrStructuredPattern::Left { pattern, .. } => {
+        Pattern::Left { pattern, .. } => {
             let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_left");
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
             emit_return_on_null_value(builder, inner);
             bind_ir_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
         }
-        IrStructuredPattern::Right { pattern, .. } => {
+        Pattern::Right { pattern, .. } => {
             let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_right");
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
             emit_return_on_null_value(builder, inner);
             bind_ir_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
         }
-        IrStructuredPattern::Tuple { elements, .. } => {
+        Pattern::Tuple { elements, .. } => {
             let tuple_get = get_helper_func_ref(module, helpers, builder, "rt_tuple_get");
             for (index, element) in elements.iter().enumerate() {
                 let index_val = builder.ins().iconst(PTR_TYPE, index as i64);
@@ -7532,7 +8116,7 @@ fn bind_ir_pattern_value(
             }
             Ok(())
         }
-        IrStructuredPattern::Constructor { fields, .. } => {
+        Pattern::Constructor { fields, .. } => {
             let adt_field = get_helper_func_ref(module, helpers, builder, "rt_adt_field");
             for (index, field_pattern) in fields.iter().enumerate() {
                 let idx_val = builder.ins().iconst(PTR_TYPE, index as i64);
@@ -7736,59 +8320,59 @@ fn emit_ir_pattern_check(
     function_compiler: &FunctionCompiler,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
-    pattern: &IrStructuredPattern,
+    pattern: &Pattern,
     value: CraneliftValue,
     pass_block: cranelift_codegen::ir::Block,
     fail_block: cranelift_codegen::ir::Block,
     interner: &Interner,
 ) -> Result<(), String> {
     match pattern {
-        IrStructuredPattern::Wildcard { .. } | IrStructuredPattern::Identifier { .. } => {
+        Pattern::Wildcard { .. } | Pattern::Identifier { .. } => {
             builder.ins().jump(pass_block, &[]);
         }
-        IrStructuredPattern::Cons { .. } => {
+        Pattern::Cons { .. } => {
             let is_cons = get_helper_func_ref(module, helpers, builder, "rt_is_cons");
             let call = builder.ins().call(is_cons, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
             builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
         }
-        IrStructuredPattern::EmptyList { .. } => {
+        Pattern::EmptyList { .. } => {
             let is_el = get_helper_func_ref(module, helpers, builder, "rt_is_empty_list");
             let call = builder.ins().call(is_el, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
             builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
         }
-        IrStructuredPattern::None { .. } => {
+        Pattern::None { .. } => {
             let is_none = get_helper_func_ref(module, helpers, builder, "rt_is_none");
             let call = builder.ins().call(is_none, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
             builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
         }
-        IrStructuredPattern::Some { .. } => {
+        Pattern::Some { .. } => {
             let is_some = get_helper_func_ref(module, helpers, builder, "rt_is_some");
             let call = builder.ins().call(is_some, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
             builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
         }
-        IrStructuredPattern::Left { .. } => {
+        Pattern::Left { .. } => {
             let is_left = get_helper_func_ref(module, helpers, builder, "rt_is_left");
             let call = builder.ins().call(is_left, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
             builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
         }
-        IrStructuredPattern::Right { .. } => {
+        Pattern::Right { .. } => {
             let is_right = get_helper_func_ref(module, helpers, builder, "rt_is_right");
             let call = builder.ins().call(is_right, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
             builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
         }
-        IrStructuredPattern::Literal { expression, .. } => {
+        Pattern::Literal { expression, .. } => {
             let lit_val = compile_ir_expression(
                 module,
                 helpers,
@@ -7808,7 +8392,7 @@ fn emit_ir_pattern_check(
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
             builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
         }
-        IrStructuredPattern::Tuple { elements, .. } => {
+        Pattern::Tuple { elements, .. } => {
             let is_tuple = get_helper_func_ref(module, helpers, builder, "rt_is_tuple");
             let call = builder.ins().call(is_tuple, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
@@ -7840,7 +8424,7 @@ fn emit_ir_pattern_check(
                 )?;
             }
         }
-        IrStructuredPattern::Constructor { name, fields, .. } => {
+        Pattern::Constructor { name, fields, .. } => {
             let name_str = interner.resolve(*name);
             let bytes = name_str.as_bytes().to_vec();
             let data = module
@@ -7989,11 +8573,11 @@ fn bind_ir_top_level_pattern_value(
     builder: &mut FunctionBuilder,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
-    pattern: &IrStructuredPattern,
+    pattern: &Pattern,
     value: CraneliftValue,
 ) -> Result<(), String> {
     match pattern {
-        IrStructuredPattern::Identifier { name, .. } => {
+        Pattern::Identifier { name, .. } => {
             if let Some(&idx) = scope.globals.get(name) {
                 let set_global = get_helper_func_ref(module, helpers, builder, "rt_set_global");
                 let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
@@ -8003,7 +8587,7 @@ fn bind_ir_top_level_pattern_value(
                 bind_ir_pattern_value(module, helpers, builder, scope, ctx_val, pattern, value)
             }
         }
-        IrStructuredPattern::Cons { head, tail, .. } => {
+        Pattern::Cons { head, tail, .. } => {
             let cons_head = get_helper_func_ref(module, helpers, builder, "rt_cons_head");
             let cons_tail = get_helper_func_ref(module, helpers, builder, "rt_cons_tail");
             let h_call = builder.ins().call(cons_head, &[ctx_val, value]);
@@ -8016,28 +8600,28 @@ fn bind_ir_top_level_pattern_value(
             bind_ir_top_level_pattern_value(module, helpers, builder, scope, ctx_val, tail, t_val)?;
             Ok(())
         }
-        IrStructuredPattern::Some { pattern, .. } => {
+        Pattern::Some { pattern, .. } => {
             let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_some");
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
             emit_return_on_null_value(builder, inner);
             bind_ir_top_level_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
         }
-        IrStructuredPattern::Left { pattern, .. } => {
+        Pattern::Left { pattern, .. } => {
             let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_left");
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
             emit_return_on_null_value(builder, inner);
             bind_ir_top_level_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
         }
-        IrStructuredPattern::Right { pattern, .. } => {
+        Pattern::Right { pattern, .. } => {
             let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_right");
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
             emit_return_on_null_value(builder, inner);
             bind_ir_top_level_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
         }
-        IrStructuredPattern::Tuple { elements, .. } => {
+        Pattern::Tuple { elements, .. } => {
             let tuple_get = get_helper_func_ref(module, helpers, builder, "rt_tuple_get");
             for (index, element) in elements.iter().enumerate() {
                 let index_val = builder.ins().iconst(PTR_TYPE, index as i64);
@@ -8050,7 +8634,7 @@ fn bind_ir_top_level_pattern_value(
             }
             Ok(())
         }
-        IrStructuredPattern::Constructor { fields, .. } => {
+        Pattern::Constructor { fields, .. } => {
             let adt_field = get_helper_func_ref(module, helpers, builder, "rt_adt_field");
             for (index, field_pattern) in fields.iter().enumerate() {
                 let idx_val = builder.ins().iconst(PTR_TYPE, index as i64);
@@ -8069,10 +8653,10 @@ fn bind_ir_top_level_pattern_value(
             }
             Ok(())
         }
-        IrStructuredPattern::Wildcard { .. }
-        | IrStructuredPattern::None { .. }
-        | IrStructuredPattern::EmptyList { .. }
-        | IrStructuredPattern::Literal { .. } => Ok(()),
+        Pattern::Wildcard { .. }
+        | Pattern::None { .. }
+        | Pattern::EmptyList { .. }
+        | Pattern::Literal { .. } => Ok(()),
     }
 }
 
@@ -8126,36 +8710,21 @@ fn compile_ir_block_expression(
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
-    block: &IrStructuredBlock,
+    block: &Block,
     interner: &Interner,
 ) -> Result<BlockEval, String> {
-    let mut block_scope = scope.clone();
-    for (idx, item) in block.statements.iter().enumerate() {
-        let is_last = idx + 1 == block.statements.len();
-        let outcome = compile_ir_top_level_item(
-            module,
-            helpers,
-            builder,
-            function_compiler,
-            &mut block_scope,
-            ctx_val,
-            return_block,
-            tail_call,
-            false,
-            item,
-            interner,
-        )?;
-        match outcome {
-            StmtOutcome::Value(v) if is_last => return Ok(BlockEval::Value(v)),
-            StmtOutcome::Returned => return Ok(BlockEval::Returned),
-            StmtOutcome::Value(_) | StmtOutcome::None => {}
-        }
-    }
-    let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
-    let call = builder.ins().call(make_none, &[ctx_val]);
-    Ok(BlockEval::Value(JitValue::boxed(
-        builder.inst_results(call)[1],
-    )))
+    compile_block_expression(
+        module,
+        helpers,
+        builder,
+        function_compiler,
+        scope,
+        ctx_val,
+        return_block,
+        tail_call,
+        block,
+        interner,
+    )
 }
 
 fn compile_if_expression(
@@ -8331,9 +8900,9 @@ fn compile_ir_if_expression(
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
-    condition: &IrStructuredExpr,
-    consequence: &IrStructuredBlock,
-    alternative: Option<&IrStructuredBlock>,
+    condition: &Expression,
+    consequence: &Block,
+    alternative: Option<&Block>,
     interner: &Interner,
 ) -> Result<JitValue, String> {
     let cond_val = compile_ir_expression(
@@ -8633,9 +9202,9 @@ fn compile_ir_short_circuit_expression(
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
-    left: &IrStructuredExpr,
+    left: &Expression,
     operator: &str,
-    right: &IrStructuredExpr,
+    right: &Expression,
     interner: &Interner,
 ) -> Result<JitValue, String> {
     let lhs = compile_ir_expression(
@@ -8860,7 +9429,7 @@ fn compile_ir_base_function_call(
     tail_call: Option<&TailCallContext>,
     call_span: crate::diagnostics::position::Span,
     base_idx: usize,
-    arguments: &[IrStructuredExpr],
+    arguments: &[Expression],
     interner: &Interner,
 ) -> Result<JitValue, String> {
     let mut arg_vals = Vec::with_capacity(arguments.len());
@@ -9080,7 +9649,7 @@ fn compile_ir_primop_call(
     tail_call: Option<&TailCallContext>,
     primop: PrimOp,
     span: Span,
-    arguments: &[IrStructuredExpr],
+    arguments: &[Expression],
     interner: &Interner,
 ) -> Result<JitValue, String> {
     let mut raw_arg_vals = Vec::with_capacity(arguments.len());
@@ -9262,11 +9831,11 @@ fn resolve_call_primop(
 
 fn resolve_ir_call_primop(
     scope: &Scope,
-    function: &IrStructuredExpr,
-    arguments: &[IrStructuredExpr],
+    function: &Expression,
+    arguments: &[Expression],
     interner: &Interner,
 ) -> Option<PrimOp> {
-    let IrStructuredExpr::Identifier { name, .. } = function else {
+    let Expression::Identifier { name, .. } = function else {
         return None;
     };
     if scope.excluded_base_symbols.contains(name) {
@@ -9599,7 +10168,7 @@ fn compile_ir_user_function_call(
     tail_call: Option<&TailCallContext>,
     meta: JitFunctionMeta,
     call_span: crate::diagnostics::position::Span,
-    arguments: &[IrStructuredExpr],
+    arguments: &[Expression],
     interner: &Interner,
 ) -> Result<JitValue, String> {
     let mut arg_vals = Vec::with_capacity(arguments.len());
@@ -9873,6 +10442,40 @@ fn compile_ir_user_function_call(
     builder.switch_to_block(done_block);
     let result = builder.block_params(done_block)[0];
     builder.seal_block(done_block);
+    Ok(JitValue::boxed(result))
+}
+
+fn compile_jit_cfg_base_function_call(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+    base_idx: usize,
+    arg_vals: &[JitValue],
+    call_span: Span,
+) -> Result<JitValue, String> {
+    let (_slot, args_ptr) = emit_tagged_stack_array(builder, arg_vals);
+    let idx_val = builder.ins().iconst(PTR_TYPE, base_idx as i64);
+    let nargs_val = builder.ins().iconst(PTR_TYPE, arg_vals.len() as i64);
+    let start_line_val = builder.ins().iconst(PTR_TYPE, call_span.start.line as i64);
+    let start_col_val = builder
+        .ins()
+        .iconst(PTR_TYPE, (call_span.start.column + 1) as i64);
+    let end_line_val = builder.ins().iconst(PTR_TYPE, call_span.end.line as i64);
+    let end_col_val = builder
+        .ins()
+        .iconst(PTR_TYPE, (call_span.end.column + 1) as i64);
+    let call_base =
+        get_helper_func_ref(module, helpers, builder, "rt_call_base_function_tagged");
+    let call = builder.ins().call(
+        call_base,
+        &[
+            ctx_val, idx_val, args_ptr, nargs_val, start_line_val, start_col_val,
+            end_line_val, end_col_val,
+        ],
+    );
+    let result = builder.inst_results(call)[0];
+    emit_return_on_null_value(builder, result);
     Ok(JitValue::boxed(result))
 }
 
@@ -10294,8 +10897,8 @@ fn compile_ir_generic_call(
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
     call_span: crate::diagnostics::position::Span,
-    function: &IrStructuredExpr,
-    arguments: &[IrStructuredExpr],
+    function: &Expression,
+    arguments: &[Expression],
     interner: &Interner,
 ) -> Result<JitValue, String> {
     let callee = compile_ir_expression(
@@ -10372,7 +10975,7 @@ fn compile_ir_adt_constructor_call(
     tail_call: Option<&TailCallContext>,
     name: Identifier,
     arity: usize,
-    arguments: &[IrStructuredExpr],
+    arguments: &[Expression],
     interner: &Interner,
 ) -> Result<JitValue, String> {
     let name_str = interner.resolve(name);
@@ -10572,7 +11175,7 @@ fn compile_ir_function_literal(
     parameter_types: &[Option<TypeExpr>],
     return_type: &Option<TypeExpr>,
     effects: &[crate::syntax::effect_expr::EffectExpr],
-    body: &IrStructuredBlock,
+    body: &Block,
     span: Span,
     _interner: &Interner,
 ) -> Result<CraneliftValue, String> {
@@ -10796,9 +11399,9 @@ fn ir_top_level_has_explicit_main_call(
         matches!(
             item,
             IrTopLevelItem::Expression {
-                expression: IrStructuredExpr::Call { function, arguments, .. },
+                expression: Expression::Call { function, arguments, .. },
                 ..
-            } if matches!(function.as_ref(), IrStructuredExpr::Identifier { name, .. } if interner.resolve(*name) == "main")
+            } if matches!(function.as_ref(), Expression::Identifier { name, .. } if interner.resolve(*name) == "main")
                 && arguments.is_empty()
         )
     })
@@ -11211,30 +11814,30 @@ impl IrLiteralCollector {
         self.scopes.pop();
     }
 
-    fn bind_pattern_identifiers(&mut self, pattern: &IrStructuredPattern) {
+    fn bind_pattern_identifiers(&mut self, pattern: &Pattern) {
         match pattern {
-            IrStructuredPattern::Identifier { name, .. } => self.define(*name),
-            IrStructuredPattern::Some { pattern, .. }
-            | IrStructuredPattern::Left { pattern, .. }
-            | IrStructuredPattern::Right { pattern, .. } => self.bind_pattern_identifiers(pattern),
-            IrStructuredPattern::Cons { head, tail, .. } => {
+            Pattern::Identifier { name, .. } => self.define(*name),
+            Pattern::Some { pattern, .. }
+            | Pattern::Left { pattern, .. }
+            | Pattern::Right { pattern, .. } => self.bind_pattern_identifiers(pattern),
+            Pattern::Cons { head, tail, .. } => {
                 self.bind_pattern_identifiers(head);
                 self.bind_pattern_identifiers(tail);
             }
-            IrStructuredPattern::Tuple { elements, .. } => {
+            Pattern::Tuple { elements, .. } => {
                 for element in elements {
                     self.bind_pattern_identifiers(element);
                 }
             }
-            IrStructuredPattern::Constructor { fields, .. } => {
+            Pattern::Constructor { fields, .. } => {
                 for field in fields {
                     self.bind_pattern_identifiers(field);
                 }
             }
-            IrStructuredPattern::Wildcard { .. }
-            | IrStructuredPattern::Literal { .. }
-            | IrStructuredPattern::None { .. }
-            | IrStructuredPattern::EmptyList { .. } => {}
+            Pattern::Wildcard { .. }
+            | Pattern::Literal { .. }
+            | Pattern::None { .. }
+            | Pattern::EmptyList { .. } => {}
         }
     }
 
@@ -11251,7 +11854,7 @@ impl IrLiteralCollector {
         parameters: &[Identifier],
         parameter_types: &[Option<TypeExpr>],
         return_type: &Option<TypeExpr>,
-        body: &IrStructuredBlock,
+        body: &Block,
         self_name: Option<Identifier>,
     ) {
         if self.seen.contains(&key) {
@@ -11325,19 +11928,19 @@ impl IrLiteralCollector {
                 for p in parameters {
                     self.define(*p);
                 }
-                for item in &body.statements {
-                    self.collect_item(item);
+                for stmt in &body.statements {
+                    self.collect_stmt_for_ir(stmt);
                 }
                 self.pop_scope();
             }
             IrTopLevelItem::Module { body, .. } => {
                 self.push_scope();
-                for item in &body.statements {
+                for item in body {
                     if let IrTopLevelItem::Function { name, .. } = item {
                         self.define(*name);
                     }
                 }
-                for item in &body.statements {
+                for item in body {
                     match item {
                         IrTopLevelItem::Function {
                             name,
@@ -11350,8 +11953,8 @@ impl IrLiteralCollector {
                             for p in parameters {
                                 self.define(*p);
                             }
-                            for inner in &body.statements {
-                                self.collect_item(inner);
+                            for stmt in &body.statements {
+                                self.collect_stmt_for_ir(stmt);
                             }
                             self.pop_scope();
                         }
@@ -11366,9 +11969,73 @@ impl IrLiteralCollector {
         }
     }
 
-    fn collect_expr(&mut self, expr: &IrStructuredExpr) {
+    fn collect_stmt_for_ir(&mut self, stmt: &Statement) {
+        match stmt {
+            Statement::Let { name, value, .. } => {
+                self.collect_expr(value);
+                self.define(*name);
+            }
+            Statement::LetDestructure { pattern, value, .. } => {
+                self.collect_expr(value);
+                self.bind_pattern_identifiers(pattern);
+            }
+            Statement::Assign { value, .. } => self.collect_expr(value),
+            Statement::Expression { expression, .. } => self.collect_expr(expression),
+            Statement::Return { value, .. } => {
+                if let Some(v) = value {
+                    self.collect_expr(v);
+                }
+            }
+            Statement::Function {
+                name,
+                parameters,
+                parameter_types,
+                return_type,
+                body,
+                span,
+                ..
+            } => {
+                let key = LiteralKey::from_ir_function(parameters, body.span, *span);
+                self.collect_capture_spec(
+                    key,
+                    parameters,
+                    parameter_types,
+                    return_type,
+                    body,
+                    Some(*name),
+                );
+                self.define(*name);
+                self.push_scope();
+                self.define(*name);
+                for p in parameters {
+                    self.define(*p);
+                }
+                for s in &body.statements {
+                    self.collect_stmt_for_ir(s);
+                }
+                self.pop_scope();
+            }
+            Statement::Module { body, .. } => {
+                self.push_scope();
+                for s in &body.statements {
+                    if let Statement::Function { name, .. } = s {
+                        self.define(*name);
+                    }
+                }
+                for s in &body.statements {
+                    self.collect_stmt_for_ir(s);
+                }
+                self.pop_scope();
+            }
+            Statement::Import { .. }
+            | Statement::Data { .. }
+            | Statement::EffectDecl { .. } => {}
+        }
+    }
+
+    fn collect_expr(&mut self, expr: &Expression) {
         match expr {
-            IrStructuredExpr::Function {
+            Expression::Function {
                 parameters,
                 parameter_types,
                 return_type,
@@ -11392,17 +12059,17 @@ impl IrLiteralCollector {
                 for p in parameters {
                     self.define(*p);
                 }
-                for item in &body.statements {
-                    self.collect_item(item);
+                for stmt in &body.statements {
+                    self.collect_stmt_for_ir(stmt);
                 }
                 self.pop_scope();
             }
-            IrStructuredExpr::Prefix { right, .. }
-            | IrStructuredExpr::Some { value: right, .. }
-            | IrStructuredExpr::Left { value: right, .. }
-            | IrStructuredExpr::Right { value: right, .. } => self.collect_expr(right),
-            IrStructuredExpr::Infix { left, right, .. }
-            | IrStructuredExpr::Cons {
+            Expression::Prefix { right, .. }
+            | Expression::Some { value: right, .. }
+            | Expression::Left { value: right, .. }
+            | Expression::Right { value: right, .. } => self.collect_expr(right),
+            Expression::Infix { left, right, .. }
+            | Expression::Cons {
                 head: left,
                 tail: right,
                 ..
@@ -11410,7 +12077,7 @@ impl IrLiteralCollector {
                 self.collect_expr(left);
                 self.collect_expr(right);
             }
-            IrStructuredExpr::If {
+            Expression::If {
                 condition,
                 consequence,
                 alternative,
@@ -11418,26 +12085,26 @@ impl IrLiteralCollector {
             } => {
                 self.collect_expr(condition);
                 self.push_scope();
-                for item in &consequence.statements {
-                    self.collect_item(item);
+                for stmt in &consequence.statements {
+                    self.collect_stmt_for_ir(stmt);
                 }
                 self.pop_scope();
                 if let Some(alt) = alternative {
                     self.push_scope();
-                    for item in &alt.statements {
-                        self.collect_item(item);
+                    for stmt in &alt.statements {
+                        self.collect_stmt_for_ir(stmt);
                     }
                     self.pop_scope();
                 }
             }
-            IrStructuredExpr::DoBlock { block, .. } => {
+            Expression::DoBlock { block, .. } => {
                 self.push_scope();
-                for item in &block.statements {
-                    self.collect_item(item);
+                for stmt in &block.statements {
+                    self.collect_stmt_for_ir(stmt);
                 }
                 self.pop_scope();
             }
-            IrStructuredExpr::Call {
+            Expression::Call {
                 function,
                 arguments,
                 ..
@@ -11447,26 +12114,26 @@ impl IrLiteralCollector {
                     self.collect_expr(arg);
                 }
             }
-            IrStructuredExpr::ListLiteral { elements, .. }
-            | IrStructuredExpr::ArrayLiteral { elements, .. }
-            | IrStructuredExpr::TupleLiteral { elements, .. } => {
+            Expression::ListLiteral { elements, .. }
+            | Expression::ArrayLiteral { elements, .. }
+            | Expression::TupleLiteral { elements, .. } => {
                 for element in elements {
                     self.collect_expr(element);
                 }
             }
-            IrStructuredExpr::Index { left, index, .. } => {
+            Expression::Index { left, index, .. } => {
                 self.collect_expr(left);
                 self.collect_expr(index);
             }
-            IrStructuredExpr::Hash { pairs, .. } => {
+            Expression::Hash { pairs, .. } => {
                 for (key, value) in pairs {
                     self.collect_expr(key);
                     self.collect_expr(value);
                 }
             }
-            IrStructuredExpr::MemberAccess { object, .. }
-            | IrStructuredExpr::TupleFieldAccess { object, .. } => self.collect_expr(object),
-            IrStructuredExpr::Match {
+            Expression::MemberAccess { object, .. }
+            | Expression::TupleFieldAccess { object, .. } => self.collect_expr(object),
+            Expression::Match {
                 scrutinee, arms, ..
             } => {
                 self.collect_expr(scrutinee);
@@ -11480,23 +12147,23 @@ impl IrLiteralCollector {
                     self.pop_scope();
                 }
             }
-            IrStructuredExpr::InterpolatedString { parts, .. } => {
+            Expression::InterpolatedString { parts, .. } => {
                 for part in parts {
-                    if let crate::ir::IrStructuredStringPart::Interpolation(expr) = part {
+                    if let StringPart::Interpolation(expr) = part {
                         self.collect_expr(expr);
                     }
                 }
             }
-            IrStructuredExpr::Perform { args, .. } => {
+            Expression::Perform { args, .. } => {
                 for arg in args {
                     self.collect_expr(arg);
                 }
             }
-            IrStructuredExpr::Handle { expr, arms, .. } => {
+            Expression::Handle { expr, arms, .. } => {
                 self.collect_expr(expr);
                 for arm in arms {
-                    let body = IrStructuredBlock {
-                        statements: vec![IrTopLevelItem::Expression {
+                    let body = Block {
+                        statements: vec![Statement::Expression {
                             expression: arm.body.clone(),
                             has_semicolon: false,
                             span: arm.span,
@@ -11509,7 +12176,7 @@ impl IrLiteralCollector {
                         arm.span,
                     );
                     if !self.seen.contains(&key) {
-                        let arm_expr = IrStructuredExpr::Function {
+                        let arm_expr = Expression::Function {
                             parameters: {
                                 let mut params = vec![arm.resume_param];
                                 params.extend_from_slice(&arm.params);
@@ -11522,7 +12189,7 @@ impl IrLiteralCollector {
                             span: arm.span,
                             id: ExprId::UNSET,
                         };
-                        if let IrStructuredExpr::Function { parameters, parameter_types, return_type, body, .. } = arm_expr {
+                        if let Expression::Function { parameters, parameter_types, return_type, body, .. } = arm_expr {
                             self.collect_capture_spec(
                                 LiteralKey::from_ir_function(&parameters, body.span, arm.span),
                                 &parameters,
@@ -11535,53 +12202,53 @@ impl IrLiteralCollector {
                     }
                 }
             }
-            IrStructuredExpr::Identifier { .. }
-            | IrStructuredExpr::Integer { .. }
-            | IrStructuredExpr::Float { .. }
-            | IrStructuredExpr::String { .. }
-            | IrStructuredExpr::Boolean { .. }
-            | IrStructuredExpr::EmptyList { .. }
-            | IrStructuredExpr::None { .. } => {}
+            Expression::Identifier { .. }
+            | Expression::Integer { .. }
+            | Expression::Float { .. }
+            | Expression::String { .. }
+            | Expression::Boolean { .. }
+            | Expression::EmptyList { .. }
+            | Expression::None { .. } => {}
         }
     }
 }
 
 fn collect_ir_free_vars_in_block(
-    block: &IrStructuredBlock,
+    block: &Block,
     bound: &HashSet<Identifier>,
 ) -> HashSet<Identifier> {
     let mut locals = bound.clone();
     let mut free = HashSet::new();
-    for item in &block.statements {
-        collect_ir_free_vars_in_item(item, &mut locals, &mut free);
+    for stmt in &block.statements {
+        collect_ir_free_vars_in_stmt(stmt, &mut locals, &mut free);
     }
     free
 }
 
-fn collect_ir_free_vars_in_item(
-    item: &IrTopLevelItem,
+fn collect_ir_free_vars_in_stmt(
+    stmt: &Statement,
     bound: &mut HashSet<Identifier>,
     free: &mut HashSet<Identifier>,
 ) {
-    match item {
-        IrTopLevelItem::Let { name, value, .. } => {
+    match stmt {
+        Statement::Let { name, value, .. } => {
             collect_ir_free_vars_in_expr(value, bound, free);
             bound.insert(*name);
         }
-        IrTopLevelItem::LetDestructure { pattern, value, .. } => {
+        Statement::LetDestructure { pattern, value, .. } => {
             collect_ir_free_vars_in_expr(value, bound, free);
             bind_ir_pattern_names_to_set(pattern, bound);
         }
-        IrTopLevelItem::Assign { value, .. } => collect_ir_free_vars_in_expr(value, bound, free),
-        IrTopLevelItem::Expression { expression, .. } => {
+        Statement::Assign { value, .. } => collect_ir_free_vars_in_expr(value, bound, free),
+        Statement::Expression { expression, .. } => {
             collect_ir_free_vars_in_expr(expression, bound, free)
         }
-        IrTopLevelItem::Return { value, .. } => {
+        Statement::Return { value, .. } => {
             if let Some(value) = value {
                 collect_ir_free_vars_in_expr(value, bound, free);
             }
         }
-        IrTopLevelItem::Function {
+        Statement::Function {
             name,
             parameters,
             body,
@@ -11596,35 +12263,35 @@ fn collect_ir_free_vars_in_item(
             free.extend(nested_free.into_iter().filter(|ident| bound.contains(ident)));
             bound.insert(*name);
         }
-        IrTopLevelItem::Module { body, .. } => {
+        Statement::Module { body, .. } => {
             let mut nested_bound = bound.clone();
-            for item in &body.statements {
-                if let IrTopLevelItem::Function { name, .. } = item {
+            for stmt in &body.statements {
+                if let Statement::Function { name, .. } = stmt {
                     nested_bound.insert(*name);
                 }
             }
-            for item in &body.statements {
-                collect_ir_free_vars_in_item(item, &mut nested_bound, free);
+            for stmt in &body.statements {
+                collect_ir_free_vars_in_stmt(stmt, &mut nested_bound, free);
             }
         }
-        IrTopLevelItem::Import { .. }
-        | IrTopLevelItem::Data { .. }
-        | IrTopLevelItem::EffectDecl { .. } => {}
+        Statement::Import { .. }
+        | Statement::Data { .. }
+        | Statement::EffectDecl { .. } => {}
     }
 }
 
 fn collect_ir_free_vars_in_expr(
-    expr: &IrStructuredExpr,
+    expr: &Expression,
     bound: &HashSet<Identifier>,
     free: &mut HashSet<Identifier>,
 ) {
     match expr {
-        IrStructuredExpr::Identifier { name, .. } => {
+        Expression::Identifier { name, .. } => {
             if !bound.contains(name) {
                 free.insert(*name);
             }
         }
-        IrStructuredExpr::Function {
+        Expression::Function {
             parameters, body, ..
         } => {
             let mut nested_bound = bound.clone();
@@ -11637,14 +12304,14 @@ fn collect_ir_free_vars_in_expr(
                     .filter(|ident| bound.contains(ident)),
             );
         }
-        IrStructuredExpr::Prefix { right, .. }
-        | IrStructuredExpr::Some { value: right, .. }
-        | IrStructuredExpr::Left { value: right, .. }
-        | IrStructuredExpr::Right { value: right, .. } => {
+        Expression::Prefix { right, .. }
+        | Expression::Some { value: right, .. }
+        | Expression::Left { value: right, .. }
+        | Expression::Right { value: right, .. } => {
             collect_ir_free_vars_in_expr(right, bound, free)
         }
-        IrStructuredExpr::Infix { left, right, .. }
-        | IrStructuredExpr::Cons {
+        Expression::Infix { left, right, .. }
+        | Expression::Cons {
             head: left,
             tail: right,
             ..
@@ -11652,7 +12319,7 @@ fn collect_ir_free_vars_in_expr(
             collect_ir_free_vars_in_expr(left, bound, free);
             collect_ir_free_vars_in_expr(right, bound, free);
         }
-        IrStructuredExpr::If {
+        Expression::If {
             condition,
             consequence,
             alternative,
@@ -11672,14 +12339,14 @@ fn collect_ir_free_vars_in_expr(
                 );
             }
         }
-        IrStructuredExpr::DoBlock { block, .. } => {
+        Expression::DoBlock { block, .. } => {
             free.extend(
                 collect_ir_free_vars_in_block(block, bound)
                     .into_iter()
                     .filter(|ident| bound.contains(ident)),
             );
         }
-        IrStructuredExpr::Call {
+        Expression::Call {
             function,
             arguments,
             ..
@@ -11689,28 +12356,28 @@ fn collect_ir_free_vars_in_expr(
                 collect_ir_free_vars_in_expr(arg, bound, free);
             }
         }
-        IrStructuredExpr::ListLiteral { elements, .. }
-        | IrStructuredExpr::ArrayLiteral { elements, .. }
-        | IrStructuredExpr::TupleLiteral { elements, .. } => {
+        Expression::ListLiteral { elements, .. }
+        | Expression::ArrayLiteral { elements, .. }
+        | Expression::TupleLiteral { elements, .. } => {
             for element in elements {
                 collect_ir_free_vars_in_expr(element, bound, free);
             }
         }
-        IrStructuredExpr::Index { left, index, .. } => {
+        Expression::Index { left, index, .. } => {
             collect_ir_free_vars_in_expr(left, bound, free);
             collect_ir_free_vars_in_expr(index, bound, free);
         }
-        IrStructuredExpr::Hash { pairs, .. } => {
+        Expression::Hash { pairs, .. } => {
             for (key, value) in pairs {
                 collect_ir_free_vars_in_expr(key, bound, free);
                 collect_ir_free_vars_in_expr(value, bound, free);
             }
         }
-        IrStructuredExpr::MemberAccess { object, .. }
-        | IrStructuredExpr::TupleFieldAccess { object, .. } => {
+        Expression::MemberAccess { object, .. }
+        | Expression::TupleFieldAccess { object, .. } => {
             collect_ir_free_vars_in_expr(object, bound, free)
         }
-        IrStructuredExpr::Match { scrutinee, arms, .. } => {
+        Expression::Match { scrutinee, arms, .. } => {
             collect_ir_free_vars_in_expr(scrutinee, bound, free);
             for arm in arms {
                 let mut arm_bound = bound.clone();
@@ -11721,19 +12388,19 @@ fn collect_ir_free_vars_in_expr(
                 collect_ir_free_vars_in_expr(&arm.body, &arm_bound, free);
             }
         }
-        IrStructuredExpr::InterpolatedString { parts, .. } => {
+        Expression::InterpolatedString { parts, .. } => {
             for part in parts {
-                if let crate::ir::IrStructuredStringPart::Interpolation(expr) = part {
+                if let StringPart::Interpolation(expr) = part {
                     collect_ir_free_vars_in_expr(expr, bound, free);
                 }
             }
         }
-        IrStructuredExpr::Perform { args, .. } => {
+        Expression::Perform { args, .. } => {
             for arg in args {
                 collect_ir_free_vars_in_expr(arg, bound, free);
             }
         }
-        IrStructuredExpr::Handle { expr, arms, .. } => {
+        Expression::Handle { expr, arms, .. } => {
             collect_ir_free_vars_in_expr(expr, bound, free);
             for arm in arms {
                 let mut arm_bound = bound.clone();
@@ -11744,41 +12411,41 @@ fn collect_ir_free_vars_in_expr(
                 collect_ir_free_vars_in_expr(&arm.body, &arm_bound, free);
             }
         }
-        IrStructuredExpr::Integer { .. }
-        | IrStructuredExpr::Float { .. }
-        | IrStructuredExpr::String { .. }
-        | IrStructuredExpr::Boolean { .. }
-        | IrStructuredExpr::EmptyList { .. }
-        | IrStructuredExpr::None { .. } => {}
+        Expression::Integer { .. }
+        | Expression::Float { .. }
+        | Expression::String { .. }
+        | Expression::Boolean { .. }
+        | Expression::EmptyList { .. }
+        | Expression::None { .. } => {}
     }
 }
 
-fn bind_ir_pattern_names_to_set(pattern: &IrStructuredPattern, out: &mut HashSet<Identifier>) {
+fn bind_ir_pattern_names_to_set(pattern: &Pattern, out: &mut HashSet<Identifier>) {
     match pattern {
-        IrStructuredPattern::Identifier { name, .. } => {
+        Pattern::Identifier { name, .. } => {
             out.insert(*name);
         }
-        IrStructuredPattern::Some { pattern, .. }
-        | IrStructuredPattern::Left { pattern, .. }
-        | IrStructuredPattern::Right { pattern, .. } => bind_ir_pattern_names_to_set(pattern, out),
-        IrStructuredPattern::Cons { head, tail, .. } => {
+        Pattern::Some { pattern, .. }
+        | Pattern::Left { pattern, .. }
+        | Pattern::Right { pattern, .. } => bind_ir_pattern_names_to_set(pattern, out),
+        Pattern::Cons { head, tail, .. } => {
             bind_ir_pattern_names_to_set(head, out);
             bind_ir_pattern_names_to_set(tail, out);
         }
-        IrStructuredPattern::Tuple { elements, .. } => {
+        Pattern::Tuple { elements, .. } => {
             for element in elements {
                 bind_ir_pattern_names_to_set(element, out);
             }
         }
-        IrStructuredPattern::Constructor { fields, .. } => {
+        Pattern::Constructor { fields, .. } => {
             for field in fields {
                 bind_ir_pattern_names_to_set(field, out);
             }
         }
-        IrStructuredPattern::Wildcard { .. }
-        | IrStructuredPattern::Literal { .. }
-        | IrStructuredPattern::None { .. }
-        | IrStructuredPattern::EmptyList { .. } => {}
+        Pattern::Wildcard { .. }
+        | Pattern::Literal { .. }
+        | Pattern::None { .. }
+        | Pattern::EmptyList { .. } => {}
     }
 }
 
@@ -11922,6 +12589,9 @@ impl FunctionCompiler {
         values: &[CraneliftValue],
     ) -> CraneliftValue {
         debug_assert!(values.len() <= self.boxed_array_capacity);
+        if values.is_empty() {
+            return builder.ins().iconst(PTR_TYPE, 0);
+        }
         let slot = self
             .boxed_array_slot
             .expect("boxed array slot must be preallocated");
@@ -11937,6 +12607,9 @@ impl FunctionCompiler {
         values: &[JitValue],
     ) -> CraneliftValue {
         debug_assert!(values.len() <= self.tagged_array_capacity);
+        if values.is_empty() {
+            return builder.ins().iconst(PTR_TYPE, 0);
+        }
         let slot = self
             .tagged_array_slot
             .expect("tagged array slot must be preallocated");
@@ -11957,8 +12630,8 @@ fn max_boxed_array_len_in_block(block: &Block) -> usize {
     max_boxed_array_len_in_statements(&block.statements)
 }
 
-fn max_boxed_array_len_in_ir_block(block: &IrStructuredBlock) -> usize {
-    max_boxed_array_len_in_ir_items(&block.statements)
+fn max_boxed_array_len_in_ir_block(block: &Block) -> usize {
+    max_boxed_array_len_in_statements(&block.statements)
 }
 
 fn note_tagged_array_usage(current_max: &mut usize, len: usize) {
@@ -11969,8 +12642,8 @@ fn max_tagged_array_len_in_block(block: &Block) -> usize {
     max_tagged_array_len_in_statements(&block.statements)
 }
 
-fn max_tagged_array_len_in_ir_block(block: &IrStructuredBlock) -> usize {
-    max_tagged_array_len_in_ir_items(&block.statements)
+fn max_tagged_array_len_in_ir_block(block: &Block) -> usize {
+    max_tagged_array_len_in_statements(&block.statements)
 }
 
 fn max_tagged_array_len_in_statements(statements: &[Statement]) -> usize {
@@ -12146,24 +12819,24 @@ fn scan_expr_tagged_array_usage(expr: &Expression, max_len: &mut usize) {
     }
 }
 
-fn scan_ir_expr_tagged_array_usage(expr: &IrStructuredExpr, max_len: &mut usize) {
+fn scan_ir_expr_tagged_array_usage(expr: &Expression, max_len: &mut usize) {
     match expr {
-        IrStructuredExpr::Function { .. }
-        | IrStructuredExpr::Identifier { .. }
-        | IrStructuredExpr::Integer { .. }
-        | IrStructuredExpr::Float { .. }
-        | IrStructuredExpr::String { .. }
-        | IrStructuredExpr::Boolean { .. }
-        | IrStructuredExpr::EmptyList { .. }
-        | IrStructuredExpr::None { .. } => {}
-        IrStructuredExpr::Prefix { right, .. }
-        | IrStructuredExpr::Some { value: right, .. }
-        | IrStructuredExpr::Left { value: right, .. }
-        | IrStructuredExpr::Right { value: right, .. } => {
+        Expression::Function { .. }
+        | Expression::Identifier { .. }
+        | Expression::Integer { .. }
+        | Expression::Float { .. }
+        | Expression::String { .. }
+        | Expression::Boolean { .. }
+        | Expression::EmptyList { .. }
+        | Expression::None { .. } => {}
+        Expression::Prefix { right, .. }
+        | Expression::Some { value: right, .. }
+        | Expression::Left { value: right, .. }
+        | Expression::Right { value: right, .. } => {
             scan_ir_expr_tagged_array_usage(right, max_len)
         }
-        IrStructuredExpr::Infix { left, right, .. }
-        | IrStructuredExpr::Cons {
+        Expression::Infix { left, right, .. }
+        | Expression::Cons {
             head: left,
             tail: right,
             ..
@@ -12171,28 +12844,28 @@ fn scan_ir_expr_tagged_array_usage(expr: &IrStructuredExpr, max_len: &mut usize)
             scan_ir_expr_tagged_array_usage(left, max_len);
             scan_ir_expr_tagged_array_usage(right, max_len);
         }
-        IrStructuredExpr::If {
+        Expression::If {
             condition,
             consequence,
             alternative,
             ..
         } => {
             scan_ir_expr_tagged_array_usage(condition, max_len);
-            for item in &consequence.statements {
-                scan_ir_item_tagged_array_usage(item, max_len);
+            for stmt in &consequence.statements {
+                scan_stmt_tagged_array_usage(stmt, max_len);
             }
             if let Some(alternative) = alternative {
-                for item in &alternative.statements {
-                    scan_ir_item_tagged_array_usage(item, max_len);
+                for stmt in &alternative.statements {
+                    scan_stmt_tagged_array_usage(stmt, max_len);
                 }
             }
         }
-        IrStructuredExpr::DoBlock { block, .. } => {
-            for item in &block.statements {
-                scan_ir_item_tagged_array_usage(item, max_len);
+        Expression::DoBlock { block, .. } => {
+            for stmt in &block.statements {
+                scan_stmt_tagged_array_usage(stmt, max_len);
             }
         }
-        IrStructuredExpr::Call {
+        Expression::Call {
             function,
             arguments,
             ..
@@ -12203,30 +12876,30 @@ fn scan_ir_expr_tagged_array_usage(expr: &IrStructuredExpr, max_len: &mut usize)
                 scan_ir_expr_tagged_array_usage(arg, max_len);
             }
         }
-        IrStructuredExpr::ListLiteral { elements, .. }
-        | IrStructuredExpr::ArrayLiteral { elements, .. }
-        | IrStructuredExpr::TupleLiteral { elements, .. } => {
+        Expression::ListLiteral { elements, .. }
+        | Expression::ArrayLiteral { elements, .. }
+        | Expression::TupleLiteral { elements, .. } => {
             note_tagged_array_usage(max_len, elements.len());
             for element in elements {
                 scan_ir_expr_tagged_array_usage(element, max_len);
             }
         }
-        IrStructuredExpr::Index { left, index, .. } => {
+        Expression::Index { left, index, .. } => {
             scan_ir_expr_tagged_array_usage(left, max_len);
             scan_ir_expr_tagged_array_usage(index, max_len);
         }
-        IrStructuredExpr::Hash { pairs, .. } => {
+        Expression::Hash { pairs, .. } => {
             note_tagged_array_usage(max_len, pairs.len() * 2);
             for (key, value) in pairs {
                 scan_ir_expr_tagged_array_usage(key, max_len);
                 scan_ir_expr_tagged_array_usage(value, max_len);
             }
         }
-        IrStructuredExpr::MemberAccess { object, .. }
-        | IrStructuredExpr::TupleFieldAccess { object, .. } => {
+        Expression::MemberAccess { object, .. }
+        | Expression::TupleFieldAccess { object, .. } => {
             scan_ir_expr_tagged_array_usage(object, max_len);
         }
-        IrStructuredExpr::Match {
+        Expression::Match {
             scrutinee, arms, ..
         } => {
             scan_ir_expr_tagged_array_usage(scrutinee, max_len);
@@ -12237,20 +12910,20 @@ fn scan_ir_expr_tagged_array_usage(expr: &IrStructuredExpr, max_len: &mut usize)
                 scan_ir_expr_tagged_array_usage(&arm.body, max_len);
             }
         }
-        IrStructuredExpr::InterpolatedString { parts, .. } => {
+        Expression::InterpolatedString { parts, .. } => {
             for part in parts {
-                if let crate::ir::IrStructuredStringPart::Interpolation(expr) = part {
+                if let StringPart::Interpolation(expr) = part {
                     scan_ir_expr_tagged_array_usage(expr, max_len);
                 }
             }
         }
-        IrStructuredExpr::Perform { args, .. } => {
+        Expression::Perform { args, .. } => {
             note_tagged_array_usage(max_len, args.len());
             for arg in args {
                 scan_ir_expr_tagged_array_usage(arg, max_len);
             }
         }
-        IrStructuredExpr::Handle { expr, arms, .. } => {
+        Expression::Handle { expr, arms, .. } => {
             scan_ir_expr_tagged_array_usage(expr, max_len);
             for arm in arms {
                 scan_ir_expr_tagged_array_usage(&arm.body, max_len);
@@ -12285,48 +12958,46 @@ fn can_compile_jit_ir_cfg_function(function: &IrFunction) -> bool {
                 let lhs_kind = *kinds.get(lhs)?;
                 let rhs_kind = *kinds.get(rhs)?;
                 match op {
-                    crate::ir::IrBinaryOp::Add
-                    | crate::ir::IrBinaryOp::Sub
-                    | crate::ir::IrBinaryOp::Mul
-                    | crate::ir::IrBinaryOp::Div
+                    crate::cfg::IrBinaryOp::Add
+                    | crate::cfg::IrBinaryOp::Sub
+                    | crate::cfg::IrBinaryOp::Mul
+                    | crate::cfg::IrBinaryOp::Div
+                    | crate::cfg::IrBinaryOp::Mod
                         if lhs_kind == JitValueKind::Int && rhs_kind == JitValueKind::Int =>
                     {
                         JitValueKind::Int
                     }
-                    crate::ir::IrBinaryOp::Add
-                    | crate::ir::IrBinaryOp::Sub
-                    | crate::ir::IrBinaryOp::Mul
-                    | crate::ir::IrBinaryOp::Div
+                    crate::cfg::IrBinaryOp::Add
+                    | crate::cfg::IrBinaryOp::Sub
+                    | crate::cfg::IrBinaryOp::Mul
+                    | crate::cfg::IrBinaryOp::Div
                         if lhs_kind == JitValueKind::Float && rhs_kind == JitValueKind::Float =>
                     {
                         JitValueKind::Float
                     }
-                    // Typed ops from the type_directed_unboxing IR pass.
-                    // The IR guarantees both operands are Int/Float, but in the
-                    // JIT kind system params start Boxed, so we must still verify
-                    // both operands have been unboxed before accepting the function.
-                    crate::ir::IrBinaryOp::IAdd
-                    | crate::ir::IrBinaryOp::ISub
-                    | crate::ir::IrBinaryOp::IMul
-                    | crate::ir::IrBinaryOp::IDiv
+                    crate::cfg::IrBinaryOp::IAdd
+                    | crate::cfg::IrBinaryOp::ISub
+                    | crate::cfg::IrBinaryOp::IMul
+                    | crate::cfg::IrBinaryOp::IDiv
+                    | crate::cfg::IrBinaryOp::IMod
                         if lhs_kind == JitValueKind::Int && rhs_kind == JitValueKind::Int =>
                     {
                         JitValueKind::Int
                     }
-                    crate::ir::IrBinaryOp::FAdd
-                    | crate::ir::IrBinaryOp::FSub
-                    | crate::ir::IrBinaryOp::FMul
-                    | crate::ir::IrBinaryOp::FDiv
+                    crate::cfg::IrBinaryOp::FAdd
+                    | crate::cfg::IrBinaryOp::FSub
+                    | crate::cfg::IrBinaryOp::FMul
+                    | crate::cfg::IrBinaryOp::FDiv
                         if lhs_kind == JitValueKind::Float && rhs_kind == JitValueKind::Float =>
                     {
                         JitValueKind::Float
                     }
-                    crate::ir::IrBinaryOp::Eq
-                    | crate::ir::IrBinaryOp::NotEq
-                    | crate::ir::IrBinaryOp::Lt
-                    | crate::ir::IrBinaryOp::Gt
-                    | crate::ir::IrBinaryOp::Ge
-                    | crate::ir::IrBinaryOp::Le
+                    crate::cfg::IrBinaryOp::Eq
+                    | crate::cfg::IrBinaryOp::NotEq
+                    | crate::cfg::IrBinaryOp::Lt
+                    | crate::cfg::IrBinaryOp::Gt
+                    | crate::cfg::IrBinaryOp::Ge
+                    | crate::cfg::IrBinaryOp::Le
                         if lhs_kind == rhs_kind
                             && matches!(
                                 lhs_kind,
@@ -12337,6 +13008,83 @@ fn can_compile_jit_ir_cfg_function(function: &IrFunction) -> bool {
                     }
                     _ => return None,
                 }
+            }
+            // Wrapper constructors
+            IrExpr::EmptyList => JitValueKind::Boxed,
+            IrExpr::Some(var) | IrExpr::Left(var) | IrExpr::Right(var) => {
+                if !kinds.contains_key(var) {
+                    return None;
+                }
+                JitValueKind::Boxed
+            }
+            IrExpr::Cons { head, tail } => {
+                if !kinds.contains_key(head) || !kinds.contains_key(tail) {
+                    return None;
+                }
+                JitValueKind::Boxed
+            }
+            // Data construction
+            IrExpr::MakeTuple(vars) | IrExpr::MakeArray(vars) | IrExpr::MakeList(vars) => {
+                if vars.iter().any(|v| !kinds.contains_key(v)) {
+                    return None;
+                }
+                JitValueKind::Boxed
+            }
+            IrExpr::MakeHash(pairs) => {
+                if pairs
+                    .iter()
+                    .any(|(k, v)| !kinds.contains_key(k) || !kinds.contains_key(v))
+                {
+                    return None;
+                }
+                JitValueKind::Boxed
+            }
+            IrExpr::MakeAdt(_, vars) => {
+                if vars.iter().any(|v| !kinds.contains_key(v)) {
+                    return None;
+                }
+                JitValueKind::Boxed
+            }
+            IrExpr::MakeClosure(_, captures) => {
+                if captures.iter().any(|v| !kinds.contains_key(v)) {
+                    return None;
+                }
+                JitValueKind::Boxed
+            }
+            // Operations
+            IrExpr::LoadName(_) => JitValueKind::Boxed,
+            IrExpr::Prefix { right, .. } => {
+                if !kinds.contains_key(right) {
+                    return None;
+                }
+                JitValueKind::Boxed
+            }
+            IrExpr::Index { left, index } => {
+                if !kinds.contains_key(left) || !kinds.contains_key(index) {
+                    return None;
+                }
+                JitValueKind::Boxed
+            }
+            IrExpr::InterpolatedString(parts) => {
+                for part in parts {
+                    if let crate::cfg::IrStringPart::Interpolation(var) = part {
+                        if !kinds.contains_key(var) {
+                            return None;
+                        }
+                    }
+                }
+                JitValueKind::Boxed
+            }
+            IrExpr::Perform { args, .. } => {
+                if args.iter().any(|v| !kinds.contains_key(v)) {
+                    return None;
+                }
+                JitValueKind::Boxed
+            }
+            IrExpr::Handle { .. } => {
+                // Handle as expression should not appear in CFG — it is
+                // compiled as IrInstr::HandleScope at the instruction level.
+                return None;
             }
             _ => return None,
         };
@@ -12370,14 +13118,14 @@ fn can_compile_jit_ir_cfg_function(function: &IrFunction) -> bool {
         // This enables typed arithmetic (IAdd/ISub etc.) on function parameters
         // without an explicit unboxing step in the eligibility analysis.
         let kind = match param.ty {
-            crate::ir::IrType::Int => JitValueKind::Int,
-            crate::ir::IrType::Bool => JitValueKind::Bool,
+            crate::cfg::IrType::Int => JitValueKind::Int,
+            crate::cfg::IrType::Bool => JitValueKind::Bool,
             _ => JitValueKind::Boxed,
         };
         kinds.insert(param.var, kind);
     }
 
-    for (index, block) in function.blocks.iter().enumerate() {
+    for block in &function.blocks {
         for param in &block.params {
             kinds.insert(param.var, JitValueKind::Boxed);
         }
@@ -12389,18 +13137,16 @@ fn can_compile_jit_ir_cfg_function(function: &IrFunction) -> bool {
                     };
                     kinds.insert(*dest, kind);
                 }
+                IrInstr::HandleScope { dest, .. } => {
+                    // HandleScope's dest receives the body result — always Boxed.
+                    kinds.insert(*dest, JitValueKind::Boxed);
+                }
                 IrInstr::Call {
                     dest,
                     target,
                     args,
                     ..
                 } => {
-                    // Named and Direct calls require a scope.functions lookup at
-                    // runtime which may not find base functions or functions not yet
-                    // registered.  Only dynamic var-calls can be verified here.
-                    if !matches!(target, IrCallTarget::Var(_)) {
-                        return false;
-                    }
                     if let IrCallTarget::Var(var) = target
                         && !kinds.contains_key(var)
                     {
@@ -12424,15 +13170,14 @@ fn can_compile_jit_ir_cfg_function(function: &IrFunction) -> bool {
                     let Some(target_index) = block_indices.get(target).copied() else {
                         return false;
                     };
-                    if target_index <= index {
-                        return false;
-                    }
                     if function.blocks[target_index].params.len() != args.len() {
                         return false;
                     }
-                if args.iter().any(|var| !kinds.contains_key(var)) {
-                    return false;
-                }
+                    if args.iter().any(|var| !kinds.contains_key(var)) {
+                        return false;
+                    }
+                    // For backward jumps, block params were already registered.
+                    let _ = target_index;
             }
             IrTerminator::Branch {
                 cond,
@@ -12443,17 +13188,8 @@ fn can_compile_jit_ir_cfg_function(function: &IrFunction) -> bool {
                 if !kinds.contains_key(cond) {
                     return false;
                 }
-                let Some(then_index) = block_indices.get(then_block).copied() else {
-                    return false;
-                };
-                let Some(else_index) = block_indices.get(else_block).copied() else {
-                    return false;
-                };
-                if then_index != index + 1 || else_index <= index {
-                    return false;
-                }
-                if !function.blocks[then_index].params.is_empty()
-                    || !function.blocks[else_index].params.is_empty()
+                if !block_indices.contains_key(then_block)
+                    || !block_indices.contains_key(else_block)
                 {
                     return false;
                 }
@@ -12480,13 +13216,14 @@ fn can_compile_jit_ir_cfg_function(function: &IrFunction) -> bool {
                     }
                 }
             }
-            IrTerminator::Unreachable(_) => return false,
+            IrTerminator::Unreachable(_) => {}
         }
     }
 
+    // Last block must end with Return, TailCall, or Unreachable (dead arm).
     matches!(
         function.blocks.last().map(|block| &block.terminator),
-        Some(IrTerminator::Return(..) | IrTerminator::TailCall { .. })
+        Some(IrTerminator::Return(..) | IrTerminator::TailCall { .. } | IrTerminator::Unreachable(_))
     )
 }
 
@@ -12655,24 +13392,24 @@ fn scan_expr_boxed_array_usage(expr: &Expression, max_len: &mut usize) {
     }
 }
 
-fn scan_ir_expr_boxed_array_usage(expr: &IrStructuredExpr, max_len: &mut usize) {
+fn scan_ir_expr_boxed_array_usage(expr: &Expression, max_len: &mut usize) {
     match expr {
-        IrStructuredExpr::Function { .. }
-        | IrStructuredExpr::Identifier { .. }
-        | IrStructuredExpr::Integer { .. }
-        | IrStructuredExpr::Float { .. }
-        | IrStructuredExpr::String { .. }
-        | IrStructuredExpr::Boolean { .. }
-        | IrStructuredExpr::EmptyList { .. }
-        | IrStructuredExpr::None { .. } => {}
-        IrStructuredExpr::Prefix { right, .. }
-        | IrStructuredExpr::Some { value: right, .. }
-        | IrStructuredExpr::Left { value: right, .. }
-        | IrStructuredExpr::Right { value: right, .. } => {
+        Expression::Function { .. }
+        | Expression::Identifier { .. }
+        | Expression::Integer { .. }
+        | Expression::Float { .. }
+        | Expression::String { .. }
+        | Expression::Boolean { .. }
+        | Expression::EmptyList { .. }
+        | Expression::None { .. } => {}
+        Expression::Prefix { right, .. }
+        | Expression::Some { value: right, .. }
+        | Expression::Left { value: right, .. }
+        | Expression::Right { value: right, .. } => {
             scan_ir_expr_boxed_array_usage(right, max_len)
         }
-        IrStructuredExpr::Infix { left, right, .. }
-        | IrStructuredExpr::Cons {
+        Expression::Infix { left, right, .. }
+        | Expression::Cons {
             head: left,
             tail: right,
             ..
@@ -12680,28 +13417,28 @@ fn scan_ir_expr_boxed_array_usage(expr: &IrStructuredExpr, max_len: &mut usize) 
             scan_ir_expr_boxed_array_usage(left, max_len);
             scan_ir_expr_boxed_array_usage(right, max_len);
         }
-        IrStructuredExpr::If {
+        Expression::If {
             condition,
             consequence,
             alternative,
             ..
         } => {
             scan_ir_expr_boxed_array_usage(condition, max_len);
-            for item in &consequence.statements {
-                scan_ir_item_boxed_array_usage(item, max_len);
+            for stmt in &consequence.statements {
+                scan_stmt_boxed_array_usage(stmt, max_len);
             }
             if let Some(alternative) = alternative {
-                for item in &alternative.statements {
-                    scan_ir_item_boxed_array_usage(item, max_len);
+                for stmt in &alternative.statements {
+                    scan_stmt_boxed_array_usage(stmt, max_len);
                 }
             }
         }
-        IrStructuredExpr::DoBlock { block, .. } => {
-            for item in &block.statements {
-                scan_ir_item_boxed_array_usage(item, max_len);
+        Expression::DoBlock { block, .. } => {
+            for stmt in &block.statements {
+                scan_stmt_boxed_array_usage(stmt, max_len);
             }
         }
-        IrStructuredExpr::Call {
+        Expression::Call {
             function,
             arguments,
             ..
@@ -12712,28 +13449,28 @@ fn scan_ir_expr_boxed_array_usage(expr: &IrStructuredExpr, max_len: &mut usize) 
                 scan_ir_expr_boxed_array_usage(arg, max_len);
             }
         }
-        IrStructuredExpr::ListLiteral { elements, .. }
-        | IrStructuredExpr::ArrayLiteral { elements, .. }
-        | IrStructuredExpr::TupleLiteral { elements, .. } => {
+        Expression::ListLiteral { elements, .. }
+        | Expression::ArrayLiteral { elements, .. }
+        | Expression::TupleLiteral { elements, .. } => {
             for element in elements {
                 scan_ir_expr_boxed_array_usage(element, max_len);
             }
         }
-        IrStructuredExpr::Index { left, index, .. } => {
+        Expression::Index { left, index, .. } => {
             scan_ir_expr_boxed_array_usage(left, max_len);
             scan_ir_expr_boxed_array_usage(index, max_len);
         }
-        IrStructuredExpr::Hash { pairs, .. } => {
+        Expression::Hash { pairs, .. } => {
             for (key, value) in pairs {
                 scan_ir_expr_boxed_array_usage(key, max_len);
                 scan_ir_expr_boxed_array_usage(value, max_len);
             }
         }
-        IrStructuredExpr::MemberAccess { object, .. }
-        | IrStructuredExpr::TupleFieldAccess { object, .. } => {
+        Expression::MemberAccess { object, .. }
+        | Expression::TupleFieldAccess { object, .. } => {
             scan_ir_expr_boxed_array_usage(object, max_len);
         }
-        IrStructuredExpr::Match {
+        Expression::Match {
             scrutinee, arms, ..
         } => {
             scan_ir_expr_boxed_array_usage(scrutinee, max_len);
@@ -12744,20 +13481,20 @@ fn scan_ir_expr_boxed_array_usage(expr: &IrStructuredExpr, max_len: &mut usize) 
                 scan_ir_expr_boxed_array_usage(&arm.body, max_len);
             }
         }
-        IrStructuredExpr::InterpolatedString { parts, .. } => {
+        Expression::InterpolatedString { parts, .. } => {
             for part in parts {
-                if let crate::ir::IrStructuredStringPart::Interpolation(expr) = part {
+                if let StringPart::Interpolation(expr) = part {
                     scan_ir_expr_boxed_array_usage(expr, max_len);
                 }
             }
         }
-        IrStructuredExpr::Perform { args, .. } => {
+        Expression::Perform { args, .. } => {
             note_boxed_array_usage(max_len, args.len());
             for arg in args {
                 scan_ir_expr_boxed_array_usage(arg, max_len);
             }
         }
-        IrStructuredExpr::Handle { expr, arms, .. } => {
+        Expression::Handle { expr, arms, .. } => {
             note_boxed_array_usage(max_len, arms.len());
             scan_ir_expr_boxed_array_usage(expr, max_len);
         }

@@ -7,7 +7,7 @@ use crate::{
     syntax::{
         Identifier,
         block::Block,
-        expression::{ExprId, Expression, HandleArm, MatchArm, Pattern, StringPart},
+        expression::{ExprId, Expression, MatchArm, Pattern, StringPart},
         program::Program,
         statement::Statement,
     },
@@ -17,8 +17,7 @@ use crate::{
 use super::{
     BlockId, FunctionId, IrBinaryOp, IrBlock, IrBlockParam, IrCallTarget, IrConst, IrExpr,
     IrFunction, IrFunctionOrigin, IrHandleArm, IrInstr, IrListTest, IrMetadata,
-    IrParam, IrProgram, IrStringPart, IrStructuredBlock, IrStructuredExpr,
-    IrStructuredHandleArm, IrStructuredMatchArm, IrStructuredPattern, IrStructuredStringPart,
+    IrParam, IrProgram, IrStringPart,
     IrTagTest, IrTerminator, IrTopLevelItem, IrType, IrVar,
 };
 
@@ -67,6 +66,7 @@ impl Lowerer {
             entry: FunctionId(0),
             globals: self.globals,
             hm_expr_types: self.hm_expr_types,
+            core: None, // populated by callers via lower_program_ast + lower_core_to_ir
         }
     }
 
@@ -85,70 +85,98 @@ impl Lowerer {
         context.finish(IrType::Any, ret);
 
         let top_level_statements = self.top_level_statements.clone();
-        for stmt in &top_level_statements {
-            if let Statement::Function {
-                name,
-                parameter_types,
-                return_type,
-                effects,
-                parameters,
-                body,
-                span,
-                ..
-            } = stmt
-            {
-                let function_id = self.next_function();
-                let mut function_context = FunctionLoweringContext::new(
-                    self,
-                    function_id,
-                    Some(*name),
-                    IrFunctionOrigin::NamedFunction,
-                );
-                for param in parameters {
-                    let var = function_context.next_var();
-                    function_context.env.insert(*param, var);
-                    function_context.params.push(IrParam {
-                        name: *param,
-                        var,
-                        ty: IrType::Any,
-                    });
+        self.lower_functions_in_statements(&top_level_statements)?;
+        Ok(())
+    }
+
+    fn lower_functions_in_statements(
+        &mut self,
+        statements: &[Statement],
+    ) -> Result<(), Diagnostic> {
+        for stmt in statements {
+            match stmt {
+                Statement::Function {
+                    name,
+                    parameter_types,
+                    return_type,
+                    effects,
+                    parameters,
+                    body,
+                    span,
+                    ..
+                } => {
+                    let function_id = self.next_function();
+                    let mut function_context = FunctionLoweringContext::new(
+                        self,
+                        function_id,
+                        Some(*name),
+                        IrFunctionOrigin::NamedFunction,
+                    );
+                    for param in parameters {
+                        let var = function_context.next_var();
+                        function_context.env.insert(*param, var);
+                        function_context.params.push(IrParam {
+                            name: *param,
+                            var,
+                            ty: IrType::Any,
+                        });
+                    }
+                    function_context.lower_block(body)?;
+                    let ret = function_context.ensure_return_var();
+                    function_context.finish_with_metadata(
+                        IrType::Any,
+                        ret,
+                        IrMetadata {
+                            span: Some(*span),
+                            inferred_type: None,
+                            expr_id: None,
+                        },
+                        parameter_types.clone(),
+                        return_type.clone(),
+                        effects.clone(),
+                        Vec::new(),
+                        body.span,
+                    );
+                    self.bind_function_id(*name, function_id);
                 }
-                function_context.lower_block(body)?;
-                let ret = function_context.ensure_return_var();
-                function_context.finish_with_metadata(
-                    IrType::Any,
-                    ret,
-                    IrMetadata {
-                        span: Some(*span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
-                    parameter_types.clone(),
-                    return_type.clone(),
-                    effects.clone(),
-                    Vec::new(),
-                    body.span,
-                );
-                self.bind_function_id(*name, function_id);
+                Statement::Module { body, .. } => {
+                    // Recurse into module bodies to lower nested functions.
+                    self.lower_functions_in_statements(&body.statements)?;
+                }
+                _ => {}
             }
         }
         Ok(())
     }
 
     fn bind_function_id(&mut self, name: Identifier, function_id: FunctionId) {
-        for item in &mut self.top_level_items {
-            if let IrTopLevelItem::Function {
-                name: item_name,
-                function_id: item_function_id,
-                ..
-            } = item
-                && *item_name == name
-                && item_function_id.is_none()
-            {
-                *item_function_id = Some(function_id);
-                break;
+        Self::bind_function_id_in_items(&mut self.top_level_items, name, function_id);
+    }
+
+    fn bind_function_id_in_items(
+        items: &mut [IrTopLevelItem],
+        name: Identifier,
+        function_id: FunctionId,
+    ) -> bool {
+        for item in items {
+            match item {
+                IrTopLevelItem::Function {
+                    name: item_name,
+                    function_id: item_function_id,
+                    ..
+                } if *item_name == name && item_function_id.is_none() => {
+                    *item_function_id = Some(function_id);
+                    return true;
+                }
+                IrTopLevelItem::Module { body, .. } => {
+                    if Self::bind_function_id_in_items(body, name, function_id) {
+                        return true;
+                    }
+                }
+                _ => {}
             }
         }
+        false
     }
 
     fn next_function(&mut self) -> FunctionId {
@@ -526,6 +554,10 @@ impl<'a> FunctionLoweringContext<'a> {
                 Ok(dest)
             }
             Expression::MemberAccess { object, member, .. } => {
+                let module_name = match object.as_ref() {
+                    Expression::Identifier { name, .. } => Some(*name),
+                    _ => None,
+                };
                 let object = self.lower_expression(object)?;
                 let dest = self.next_var();
                 let metadata = metadata_for(expr, &self.lowerer.hm_expr_types);
@@ -534,6 +566,7 @@ impl<'a> FunctionLoweringContext<'a> {
                     expr: IrExpr::MemberAccess {
                         object,
                         member: *member,
+                        module_name,
                     },
                     metadata,
                 });
@@ -690,7 +723,7 @@ impl<'a> FunctionLoweringContext<'a> {
                         operation_name: arm.operation_name,
                         resume_param: arm.resume_param,
                         params: arm.params.clone(),
-                        body: Box::new(lower_structured_expr(&arm.body)?),
+                        body: Box::new(arm.body.clone()),
                         metadata: IrMetadata {
                             span: Some(arm.span),
                             inferred_type: None,
@@ -2257,16 +2290,16 @@ fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelItem, Diagnos
         } => Ok(IrTopLevelItem::Let {
             name: *name,
             type_annotation: type_annotation.clone(),
-            value: lower_structured_expr(value)?,
+            value: value.clone(),
             span: *span,
         }),
         Statement::LetDestructure { pattern, value, span } => Ok(IrTopLevelItem::LetDestructure {
-            pattern: lower_structured_pattern(pattern)?,
-            value: lower_structured_expr(value)?,
+            pattern: pattern.clone(),
+            value: value.clone(),
             span: *span,
         }),
         Statement::Return { value, span } => Ok(IrTopLevelItem::Return {
-            value: value.as_ref().map(lower_structured_expr).transpose()?,
+            value: value.clone(),
             span: *span,
         }),
         Statement::Expression {
@@ -2274,7 +2307,7 @@ fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelItem, Diagnos
             has_semicolon,
             span,
         } => Ok(IrTopLevelItem::Expression {
-            expression: lower_structured_expr(expression)?,
+            expression: expression.clone(),
             has_semicolon: *has_semicolon,
             span: *span,
         }),
@@ -2298,17 +2331,21 @@ fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelItem, Diagnos
             parameter_types: parameter_types.clone(),
             return_type: return_type.clone(),
             effects: effects.clone(),
-            body: lower_structured_block(body)?,
+            body: body.clone(),
             span: *span,
         }),
         Statement::Assign { name, value, span } => Ok(IrTopLevelItem::Assign {
             name: *name,
-            value: lower_structured_expr(value)?,
+            value: value.clone(),
             span: *span,
         }),
         Statement::Module { name, body, span } => Ok(IrTopLevelItem::Module {
             name: *name,
-            body: lower_structured_block(body)?,
+            body: body
+                .statements
+                .iter()
+                .map(lower_top_level_item)
+                .collect::<Result<Vec<_>, _>>()?,
             span: *span,
         }),
         Statement::Import {
@@ -2341,345 +2378,6 @@ fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelItem, Diagnos
     }
 }
 
-fn lower_structured_block(block: &Block) -> Result<IrStructuredBlock, Diagnostic> {
-    Ok(IrStructuredBlock {
-        statements: block
-            .statements
-            .iter()
-            .map(lower_top_level_item)
-            .collect::<Result<Vec<_>, _>>()?,
-        span: block.span,
-    })
-}
-
-fn lower_structured_expr(expr: &Expression) -> Result<IrStructuredExpr, Diagnostic> {
-    Ok(match expr {
-        Expression::Identifier { name, span, id } => IrStructuredExpr::Identifier {
-            name: *name,
-            span: *span,
-            id: *id,
-        },
-        Expression::Integer { value, span, id } => IrStructuredExpr::Integer {
-            value: *value,
-            span: *span,
-            id: *id,
-        },
-        Expression::Float { value, span, id } => IrStructuredExpr::Float {
-            value: *value,
-            span: *span,
-            id: *id,
-        },
-        Expression::String { value, span, id } => IrStructuredExpr::String {
-            value: value.clone(),
-            span: *span,
-            id: *id,
-        },
-        Expression::InterpolatedString { parts, span, id } => IrStructuredExpr::InterpolatedString {
-            parts: parts
-                .iter()
-                .map(|part| match part {
-                    StringPart::Literal(text) => Ok(IrStructuredStringPart::Literal(text.clone())),
-                    StringPart::Interpolation(expr) => Ok(IrStructuredStringPart::Interpolation(
-                        Box::new(lower_structured_expr(expr)?),
-                    )),
-                })
-                .collect::<Result<Vec<_>, Diagnostic>>()?,
-            span: *span,
-            id: *id,
-        },
-        Expression::Boolean { value, span, id } => IrStructuredExpr::Boolean {
-            value: *value,
-            span: *span,
-            id: *id,
-        },
-        Expression::Prefix {
-            operator,
-            right,
-            span,
-            id,
-        } => IrStructuredExpr::Prefix {
-            operator: operator.clone(),
-            right: Box::new(lower_structured_expr(right)?),
-            span: *span,
-            id: *id,
-        },
-        Expression::Infix {
-            left,
-            operator,
-            right,
-            span,
-            id,
-        } => IrStructuredExpr::Infix {
-            left: Box::new(lower_structured_expr(left)?),
-            operator: operator.clone(),
-            right: Box::new(lower_structured_expr(right)?),
-            span: *span,
-            id: *id,
-        },
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            span,
-            id,
-        } => IrStructuredExpr::If {
-            condition: Box::new(lower_structured_expr(condition)?),
-            consequence: lower_structured_block(consequence)?,
-            alternative: alternative.as_ref().map(lower_structured_block).transpose()?,
-            span: *span,
-            id: *id,
-        },
-        Expression::DoBlock { block, span, id } => IrStructuredExpr::DoBlock {
-            block: lower_structured_block(block)?,
-            span: *span,
-            id: *id,
-        },
-        Expression::Function {
-            parameters,
-            parameter_types,
-            return_type,
-            effects,
-            body,
-            span,
-            id,
-        } => IrStructuredExpr::Function {
-            parameters: parameters.clone(),
-            parameter_types: parameter_types.clone(),
-            return_type: return_type.clone(),
-            effects: effects.clone(),
-            body: lower_structured_block(body)?,
-            span: *span,
-            id: *id,
-        },
-        Expression::Call {
-            function,
-            arguments,
-            span,
-            id,
-        } => IrStructuredExpr::Call {
-            function: Box::new(lower_structured_expr(function)?),
-            arguments: arguments
-                .iter()
-                .map(lower_structured_expr)
-                .collect::<Result<Vec<_>, _>>()?,
-            span: *span,
-            id: *id,
-        },
-        Expression::ListLiteral { elements, span, id } => IrStructuredExpr::ListLiteral {
-            elements: elements
-                .iter()
-                .map(lower_structured_expr)
-                .collect::<Result<Vec<_>, _>>()?,
-            span: *span,
-            id: *id,
-        },
-        Expression::ArrayLiteral { elements, span, id } => IrStructuredExpr::ArrayLiteral {
-            elements: elements
-                .iter()
-                .map(lower_structured_expr)
-                .collect::<Result<Vec<_>, _>>()?,
-            span: *span,
-            id: *id,
-        },
-        Expression::TupleLiteral { elements, span, id } => IrStructuredExpr::TupleLiteral {
-            elements: elements
-                .iter()
-                .map(lower_structured_expr)
-                .collect::<Result<Vec<_>, _>>()?,
-            span: *span,
-            id: *id,
-        },
-        Expression::EmptyList { span, id } => IrStructuredExpr::EmptyList {
-            span: *span,
-            id: *id,
-        },
-        Expression::Index {
-            left,
-            index,
-            span,
-            id,
-        } => IrStructuredExpr::Index {
-            left: Box::new(lower_structured_expr(left)?),
-            index: Box::new(lower_structured_expr(index)?),
-            span: *span,
-            id: *id,
-        },
-        Expression::Hash { pairs, span, id } => IrStructuredExpr::Hash {
-            pairs: pairs
-                .iter()
-                .map(|(left, right)| Ok((lower_structured_expr(left)?, lower_structured_expr(right)?)))
-                .collect::<Result<Vec<_>, Diagnostic>>()?,
-            span: *span,
-            id: *id,
-        },
-        Expression::MemberAccess {
-            object,
-            member,
-            span,
-            id,
-        } => IrStructuredExpr::MemberAccess {
-            object: Box::new(lower_structured_expr(object)?),
-            member: *member,
-            span: *span,
-            id: *id,
-        },
-        Expression::TupleFieldAccess {
-            object,
-            index,
-            span,
-            id,
-        } => IrStructuredExpr::TupleFieldAccess {
-            object: Box::new(lower_structured_expr(object)?),
-            index: *index,
-            span: *span,
-            id: *id,
-        },
-        Expression::Match {
-            scrutinee,
-            arms,
-            span,
-            id,
-        } => IrStructuredExpr::Match {
-            scrutinee: Box::new(lower_structured_expr(scrutinee)?),
-            arms: arms
-                .iter()
-                .map(lower_structured_match_arm)
-                .collect::<Result<Vec<_>, _>>()?,
-            span: *span,
-            id: *id,
-        },
-        Expression::None { span, id } => IrStructuredExpr::None {
-            span: *span,
-            id: *id,
-        },
-        Expression::Some { value, span, id } => IrStructuredExpr::Some {
-            value: Box::new(lower_structured_expr(value)?),
-            span: *span,
-            id: *id,
-        },
-        Expression::Left { value, span, id } => IrStructuredExpr::Left {
-            value: Box::new(lower_structured_expr(value)?),
-            span: *span,
-            id: *id,
-        },
-        Expression::Right { value, span, id } => IrStructuredExpr::Right {
-            value: Box::new(lower_structured_expr(value)?),
-            span: *span,
-            id: *id,
-        },
-        Expression::Cons {
-            head,
-            tail,
-            span,
-            id,
-        } => IrStructuredExpr::Cons {
-            head: Box::new(lower_structured_expr(head)?),
-            tail: Box::new(lower_structured_expr(tail)?),
-            span: *span,
-            id: *id,
-        },
-        Expression::Perform {
-            effect,
-            operation,
-            args,
-            span,
-            id,
-        } => IrStructuredExpr::Perform {
-            effect: *effect,
-            operation: *operation,
-            args: args
-                .iter()
-                .map(lower_structured_expr)
-                .collect::<Result<Vec<_>, _>>()?,
-            span: *span,
-            id: *id,
-        },
-        Expression::Handle {
-            expr,
-            effect,
-            arms,
-            span,
-            id,
-        } => IrStructuredExpr::Handle {
-            expr: Box::new(lower_structured_expr(expr)?),
-            effect: *effect,
-            arms: arms
-                .iter()
-                .map(lower_structured_handle_arm)
-                .collect::<Result<Vec<_>, _>>()?,
-            span: *span,
-            id: *id,
-        },
-    })
-}
-
-fn lower_structured_match_arm(arm: &MatchArm) -> Result<IrStructuredMatchArm, Diagnostic> {
-    Ok(IrStructuredMatchArm {
-        pattern: lower_structured_pattern(&arm.pattern)?,
-        guard: arm.guard.as_ref().map(lower_structured_expr).transpose()?,
-        body: lower_structured_expr(&arm.body)?,
-        span: arm.span,
-    })
-}
-
-fn lower_structured_handle_arm(arm: &HandleArm) -> Result<IrStructuredHandleArm, Diagnostic> {
-    Ok(IrStructuredHandleArm {
-        operation_name: arm.operation_name,
-        resume_param: arm.resume_param,
-        params: arm.params.clone(),
-        body: lower_structured_expr(&arm.body)?,
-        span: arm.span,
-    })
-}
-
-fn lower_structured_pattern(pattern: &Pattern) -> Result<IrStructuredPattern, Diagnostic> {
-    Ok(match pattern {
-        Pattern::Wildcard { span } => IrStructuredPattern::Wildcard { span: *span },
-        Pattern::Literal { expression, span } => IrStructuredPattern::Literal {
-            expression: Box::new(lower_structured_expr(expression)?),
-            span: *span,
-        },
-        Pattern::Identifier { name, span } => IrStructuredPattern::Identifier {
-            name: *name,
-            span: *span,
-        },
-        Pattern::None { span } => IrStructuredPattern::None { span: *span },
-        Pattern::Some { pattern, span } => IrStructuredPattern::Some {
-            pattern: Box::new(lower_structured_pattern(pattern)?),
-            span: *span,
-        },
-        Pattern::Left { pattern, span } => IrStructuredPattern::Left {
-            pattern: Box::new(lower_structured_pattern(pattern)?),
-            span: *span,
-        },
-        Pattern::Right { pattern, span } => IrStructuredPattern::Right {
-            pattern: Box::new(lower_structured_pattern(pattern)?),
-            span: *span,
-        },
-        Pattern::Cons { head, tail, span } => IrStructuredPattern::Cons {
-            head: Box::new(lower_structured_pattern(head)?),
-            tail: Box::new(lower_structured_pattern(tail)?),
-            span: *span,
-        },
-        Pattern::EmptyList { span } => IrStructuredPattern::EmptyList { span: *span },
-        Pattern::Tuple { elements, span } => IrStructuredPattern::Tuple {
-            elements: elements
-                .iter()
-                .map(lower_structured_pattern)
-                .collect::<Result<Vec<_>, _>>()?,
-            span: *span,
-        },
-        Pattern::Constructor { name, fields, span } => IrStructuredPattern::Constructor {
-            name: *name,
-            fields: fields
-                .iter()
-                .map(lower_structured_pattern)
-                .collect::<Result<Vec<_>, _>>()?,
-            span: *span,
-        },
-    })
-}
-
 pub(crate) fn ir_top_level_item_to_statement(
     item: &IrTopLevelItem,
     functions: &[super::IrFunction],
@@ -2693,7 +2391,7 @@ pub(crate) fn ir_top_level_item_to_statement(
         } => Statement::Let {
             name: *name,
             type_annotation: type_annotation.clone(),
-            value: ir_structured_expr_to_expression(value),
+            value: value.clone(),
             span: *span,
         },
         IrTopLevelItem::LetDestructure {
@@ -2701,12 +2399,12 @@ pub(crate) fn ir_top_level_item_to_statement(
             value,
             span,
         } => Statement::LetDestructure {
-            pattern: ir_structured_pattern_to_pattern(pattern),
-            value: ir_structured_expr_to_expression(value),
+            pattern: pattern.clone(),
+            value: value.clone(),
             span: *span,
         },
         IrTopLevelItem::Return { value, span } => Statement::Return {
-            value: value.as_ref().map(ir_structured_expr_to_expression),
+            value: value.clone(),
             span: *span,
         },
         IrTopLevelItem::Expression {
@@ -2714,7 +2412,7 @@ pub(crate) fn ir_top_level_item_to_statement(
             has_semicolon,
             span,
         } => Statement::Expression {
-            expression: ir_structured_expr_to_expression(expression),
+            expression: expression.clone(),
             has_semicolon: *has_semicolon,
             span: *span,
         },
@@ -2737,17 +2435,23 @@ pub(crate) fn ir_top_level_item_to_statement(
             parameter_types: parameter_types.clone(),
             return_type: return_type.clone(),
             effects: effects.clone(),
-            body: ir_structured_block_to_block(body, functions),
+            body: body.clone(),
             span: *span,
         },
         IrTopLevelItem::Assign { name, value, span } => Statement::Assign {
             name: *name,
-            value: ir_structured_expr_to_expression(value),
+            value: value.clone(),
             span: *span,
         },
         IrTopLevelItem::Module { name, body, span } => Statement::Module {
             name: *name,
-            body: ir_structured_block_to_block(body, functions),
+            body: Block {
+                statements: body
+                    .iter()
+                    .map(|item| ir_top_level_item_to_statement(item, functions))
+                    .collect(),
+                span: *span,
+            },
             span: *span,
         },
         IrTopLevelItem::Import {
@@ -2780,340 +2484,6 @@ pub(crate) fn ir_top_level_item_to_statement(
     }
 }
 
-pub(crate) fn ir_structured_block_to_block(
-    block: &IrStructuredBlock,
-    functions: &[super::IrFunction],
-) -> Block {
-    Block {
-        statements: block
-            .statements
-            .iter()
-            .map(|item| ir_top_level_item_to_statement(item, functions))
-            .collect(),
-        span: block.span,
-    }
-}
-
-pub(crate) fn ir_structured_expr_to_expression(expr: &IrStructuredExpr) -> Expression {
-    match expr {
-        IrStructuredExpr::Identifier { name, span, id } => Expression::Identifier {
-            name: *name,
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Integer { value, span, id } => Expression::Integer {
-            value: *value,
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Float { value, span, id } => Expression::Float {
-            value: *value,
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::String { value, span, id } => Expression::String {
-            value: value.clone(),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::InterpolatedString { parts, span, id } => Expression::InterpolatedString {
-            parts: parts
-                .iter()
-                .map(|part| match part {
-                    IrStructuredStringPart::Literal(text) => StringPart::Literal(text.clone()),
-                    IrStructuredStringPart::Interpolation(expr) => {
-                        StringPart::Interpolation(Box::new(ir_structured_expr_to_expression(expr)))
-                    }
-                })
-                .collect(),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Boolean { value, span, id } => Expression::Boolean {
-            value: *value,
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Prefix {
-            operator,
-            right,
-            span,
-            id,
-        } => Expression::Prefix {
-            operator: operator.clone(),
-            right: Box::new(ir_structured_expr_to_expression(right)),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Infix {
-            left,
-            operator,
-            right,
-            span,
-            id,
-        } => Expression::Infix {
-            left: Box::new(ir_structured_expr_to_expression(left)),
-            operator: operator.clone(),
-            right: Box::new(ir_structured_expr_to_expression(right)),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::If {
-            condition,
-            consequence,
-            alternative,
-            span,
-            id,
-        } => Expression::If {
-            condition: Box::new(ir_structured_expr_to_expression(condition)),
-            consequence: ir_structured_block_to_block(consequence, &[]),
-            alternative: alternative
-                .as_ref()
-                .map(|block| ir_structured_block_to_block(block, &[])),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::DoBlock { block, span, id } => Expression::DoBlock {
-            block: ir_structured_block_to_block(block, &[]),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Function {
-            parameters,
-            parameter_types,
-            return_type,
-            effects,
-            body,
-            span,
-            id,
-        } => Expression::Function {
-            parameters: parameters.clone(),
-            parameter_types: parameter_types.clone(),
-            return_type: return_type.clone(),
-            effects: effects.clone(),
-            body: ir_structured_block_to_block(body, &[]),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Call {
-            function,
-            arguments,
-            span,
-            id,
-        } => Expression::Call {
-            function: Box::new(ir_structured_expr_to_expression(function)),
-            arguments: arguments
-                .iter()
-                .map(ir_structured_expr_to_expression)
-                .collect(),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::ListLiteral { elements, span, id } => Expression::ListLiteral {
-            elements: elements
-                .iter()
-                .map(ir_structured_expr_to_expression)
-                .collect(),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::ArrayLiteral { elements, span, id } => Expression::ArrayLiteral {
-            elements: elements
-                .iter()
-                .map(ir_structured_expr_to_expression)
-                .collect(),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::TupleLiteral { elements, span, id } => Expression::TupleLiteral {
-            elements: elements
-                .iter()
-                .map(ir_structured_expr_to_expression)
-                .collect(),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::EmptyList { span, id } => Expression::EmptyList {
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Index {
-            left,
-            index,
-            span,
-            id,
-        } => Expression::Index {
-            left: Box::new(ir_structured_expr_to_expression(left)),
-            index: Box::new(ir_structured_expr_to_expression(index)),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Hash { pairs, span, id } => Expression::Hash {
-            pairs: pairs
-                .iter()
-                .map(|(left, right)| {
-                    (
-                        ir_structured_expr_to_expression(left),
-                        ir_structured_expr_to_expression(right),
-                    )
-                })
-                .collect(),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::MemberAccess {
-            object,
-            member,
-            span,
-            id,
-        } => Expression::MemberAccess {
-            object: Box::new(ir_structured_expr_to_expression(object)),
-            member: *member,
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::TupleFieldAccess {
-            object,
-            index,
-            span,
-            id,
-        } => Expression::TupleFieldAccess {
-            object: Box::new(ir_structured_expr_to_expression(object)),
-            index: *index,
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Match {
-            scrutinee,
-            arms,
-            span,
-            id,
-        } => Expression::Match {
-            scrutinee: Box::new(ir_structured_expr_to_expression(scrutinee)),
-            arms: arms.iter().map(ir_structured_match_arm_to_match_arm).collect(),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::None { span, id } => Expression::None {
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Some { value, span, id } => Expression::Some {
-            value: Box::new(ir_structured_expr_to_expression(value)),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Left { value, span, id } => Expression::Left {
-            value: Box::new(ir_structured_expr_to_expression(value)),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Right { value, span, id } => Expression::Right {
-            value: Box::new(ir_structured_expr_to_expression(value)),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Cons {
-            head,
-            tail,
-            span,
-            id,
-        } => Expression::Cons {
-            head: Box::new(ir_structured_expr_to_expression(head)),
-            tail: Box::new(ir_structured_expr_to_expression(tail)),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Perform {
-            effect,
-            operation,
-            args,
-            span,
-            id,
-        } => Expression::Perform {
-            effect: *effect,
-            operation: *operation,
-            args: args.iter().map(ir_structured_expr_to_expression).collect(),
-            span: *span,
-            id: *id,
-        },
-        IrStructuredExpr::Handle {
-            expr,
-            effect,
-            arms,
-            span,
-            id,
-        } => Expression::Handle {
-            expr: Box::new(ir_structured_expr_to_expression(expr)),
-            effect: *effect,
-            arms: arms.iter().map(ir_structured_handle_arm_to_handle_arm).collect(),
-            span: *span,
-            id: *id,
-        },
-    }
-}
-
-fn ir_structured_match_arm_to_match_arm(arm: &IrStructuredMatchArm) -> MatchArm {
-    MatchArm {
-        pattern: ir_structured_pattern_to_pattern(&arm.pattern),
-        guard: arm.guard.as_ref().map(ir_structured_expr_to_expression),
-        body: ir_structured_expr_to_expression(&arm.body),
-        span: arm.span,
-    }
-}
-
-fn ir_structured_handle_arm_to_handle_arm(arm: &IrStructuredHandleArm) -> HandleArm {
-    HandleArm {
-        operation_name: arm.operation_name,
-        resume_param: arm.resume_param,
-        params: arm.params.clone(),
-        body: ir_structured_expr_to_expression(&arm.body),
-        span: arm.span,
-    }
-}
-
-pub(crate) fn ir_structured_pattern_to_pattern(pattern: &IrStructuredPattern) -> Pattern {
-    match pattern {
-        IrStructuredPattern::Wildcard { span } => Pattern::Wildcard { span: *span },
-        IrStructuredPattern::Literal { expression, span } => Pattern::Literal {
-            expression: ir_structured_expr_to_expression(expression),
-            span: *span,
-        },
-        IrStructuredPattern::Identifier { name, span } => Pattern::Identifier {
-            name: *name,
-            span: *span,
-        },
-        IrStructuredPattern::None { span } => Pattern::None { span: *span },
-        IrStructuredPattern::Some { pattern, span } => Pattern::Some {
-            pattern: Box::new(ir_structured_pattern_to_pattern(pattern)),
-            span: *span,
-        },
-        IrStructuredPattern::Left { pattern, span } => Pattern::Left {
-            pattern: Box::new(ir_structured_pattern_to_pattern(pattern)),
-            span: *span,
-        },
-        IrStructuredPattern::Right { pattern, span } => Pattern::Right {
-            pattern: Box::new(ir_structured_pattern_to_pattern(pattern)),
-            span: *span,
-        },
-        IrStructuredPattern::Cons { head, tail, span } => Pattern::Cons {
-            head: Box::new(ir_structured_pattern_to_pattern(head)),
-            tail: Box::new(ir_structured_pattern_to_pattern(tail)),
-            span: *span,
-        },
-        IrStructuredPattern::EmptyList { span } => Pattern::EmptyList { span: *span },
-        IrStructuredPattern::Tuple { elements, span } => Pattern::Tuple {
-            elements: elements.iter().map(ir_structured_pattern_to_pattern).collect(),
-            span: *span,
-        },
-        IrStructuredPattern::Constructor { name, fields, span } => Pattern::Constructor {
-            name: *name,
-            fields: fields.iter().map(ir_structured_pattern_to_pattern).collect(),
-            span: *span,
-        },
-    }
-}
-
 fn metadata_for(expr: &Expression, hm_expr_types: &HashMap<ExprId, InferType>) -> IrMetadata {
     let expr_id = expr.expr_id();
     IrMetadata {
@@ -3129,6 +2499,7 @@ fn map_binary_op(op: &str) -> Option<IrBinaryOp> {
         "-" => Some(IrBinaryOp::Sub),
         "*" => Some(IrBinaryOp::Mul),
         "/" => Some(IrBinaryOp::Div),
+        "%" => Some(IrBinaryOp::Mod),
         "==" => Some(IrBinaryOp::Eq),
         "!=" => Some(IrBinaryOp::NotEq),
         "<" => Some(IrBinaryOp::Lt),
@@ -3415,7 +2786,7 @@ fn unsupported_lowering(span: crate::diagnostics::position::Span, message: &str)
 mod tests {
     use crate::{
         bytecode::compiler::Compiler,
-        ir::validate_ir,
+        cfg::validate_ir,
         syntax::{lexer::Lexer, parser::Parser},
     };
 

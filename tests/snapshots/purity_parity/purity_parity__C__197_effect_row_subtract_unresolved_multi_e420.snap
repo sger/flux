@@ -15,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/197_effect_row_subtract_unresolve
 exit_code: 1
 
 == vm tuples ==
-- E1001 | Not A Function | 
+- E420 | Unresolved Effect Row | this call leaves multiple effect variables ambiguous
 
 == jit tuples ==
-- E1001 | Not A Function | 
+- E420 | Unresolved Effect Row | this call leaves multiple effect variables ambiguous
 
 == parity ==
 match

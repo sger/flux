@@ -87,6 +87,15 @@ impl SymbolTable {
         symbol
     }
 
+    /// Define a name as a free-variable binding at a specific index.
+    /// Used by the CFG bytecode compiler to map closure capture parameters
+    /// to `OpGetFree` slots.
+    pub fn define_free_at(&mut self, name: Symbol, index: usize) -> Binding {
+        let symbol = Binding::new(name, SymbolScope::Free, index, Span::default());
+        self.store.insert(name, symbol.clone());
+        symbol
+    }
+
     pub fn define_temp(&mut self) -> Binding {
         let scope = if self.outer.is_none() {
             SymbolScope::Global

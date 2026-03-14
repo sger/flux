@@ -3,15 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/primop/higher_order_fastcall.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-Warning: Flux IR lowering fallback
-
-unsupported infix operator
-
-  examples/primop/higher_order_fastcall.flx:20:29
-   |
-20 |     print(count(xs, fn(x) { x % 2 == 0 }));
-   |                             ^^^^^
+<none>
 == stdout ==
 <not executed>

@@ -8,15 +8,28 @@ impl<'a> InferCtx<'a> {
         index: &Expression,
     ) -> InferType {
         let left_ty = self.infer_expression(left);
-        let _index_ty = self.infer_expression(index);
+        let index_ty = self.infer_expression(index);
+        let index_span = index.span();
         match left_ty.apply_type_subst(&self.subst) {
             InferType::App(TypeConstructor::Array, args)
             | InferType::App(TypeConstructor::List, args)
                 if args.len() == 1 =>
             {
+                self.unify_with_context(
+                    &index_ty,
+                    &InferType::Con(TypeConstructor::Int),
+                    index_span,
+                    ReportContext::Plain,
+                );
                 InferType::App(TypeConstructor::Option, vec![args[0].clone()])
             }
             InferType::App(TypeConstructor::Map, args) if args.len() == 2 => {
+                self.unify_with_context(
+                    &index_ty,
+                    &args[0].clone(),
+                    index_span,
+                    ReportContext::Plain,
+                );
                 InferType::App(TypeConstructor::Option, vec![args[1].clone()])
             }
             InferType::Tuple(elements) => self.infer_tuple_index_expression(&elements, index),

@@ -1,9 +1,10 @@
 pub mod ast;
 pub mod bytecode;
+pub mod cfg;
 pub mod diagnostics;
-pub mod ir;
 #[cfg(feature = "jit")]
 pub mod jit;
+pub mod nary;
 pub mod primop;
 pub mod runtime;
 pub mod syntax;

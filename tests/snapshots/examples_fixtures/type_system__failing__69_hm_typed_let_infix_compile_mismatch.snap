@@ -5,30 +5,23 @@ Fixture: examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Type Mismatch
+error[E300]: Annotation Type Mismatch
 
-I found a type mismatch.
+The value of `y` does not match its type annotation.
 
   examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx:9:18
   |
 9 |     let y: Int = x + 1
   |                  ^^^^^
-  |                  ----- this expression has type `Int`
+  |                  ----- this value has type `String`
 
-  |                  ----- this type mismatch is reported here
+  |            --- but `y` was annotated as `Int`
 
 Note:
-  expected type: String
-  found type: Int
-  the conflicting types meet at this expression
+  annotated type: Int
+  value type: String
 
 Help:
-  Try `to_string(...)` to convert a `Int` into a `String`.
-
-
-Warning: missing CFG bytecode binding for IR call dest
-
-
-Found 1 error and 1 warning.
+  Change `y` to a `Int` value or update the annotation.
 == stdout ==
 <not executed>

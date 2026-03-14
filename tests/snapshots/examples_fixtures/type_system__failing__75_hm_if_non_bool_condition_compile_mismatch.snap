@@ -9,31 +9,20 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/75_hm_if_non_bool_condition_compile_mismatch.flx:2:5
+  examples/type_system/failing/75_hm_if_non_bool_condition_compile_mismatch.flx:2:8
   |
 2 |     if 1 {
-  |     ^^^^^^
-3 |         10
-  | ^^^^^^^^^^
-4 |     } else {
-  | ^^^^^^^^^^^^
-5 |         20
-  | ^^^^^^^^^^
-6 |     }
-  | ^^^^^
+  |        ^
+  |        - this expression has type `Int`
+
+  |        - if condition is known at compile time
 
 Note:
-  expected type: Int
-  found type: Bool
-  the conflicting types meet at this expression
+  expected type: Bool
+  found type: Int
 
 Help:
-  These two types are not compatible.
-
-
-Warning: missing CFG bytecode binding for IR call dest
-
-
-Found 1 error and 1 warning.
+  Booleans are not numeric in Flux. Use `true` or `false` here.
+  use a Bool expression, or make the condition/guard explicitly boolean
 == stdout ==
 <not executed>

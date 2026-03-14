@@ -3,8 +3,25 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/107_let_annotation_bool_int.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Annotation Type Mismatch
+
+The value of `flag` does not match its type annotation.
+
+  examples/type_system/failing/107_let_annotation_bool_int.flx:2:22
+  |
+2 |     let flag: Bool = 42
+  |                      ^^
+  |                      -- this value has type `Int`
+
+  |               ---- but `flag` was annotated as `Bool`
+
+Note:
+  annotated type: Bool
+  value type: Int
+
+Help:
+  Booleans are not numeric in Flux. Use `true` or `false` here.
 == stdout ==
 <not executed>

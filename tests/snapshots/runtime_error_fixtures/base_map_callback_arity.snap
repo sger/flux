@@ -14,16 +14,20 @@ function: concat/2
   expected: 2
   got: 1
 
-  examples/runtime_errors/base_map_callback_arity.flx:2:19
+  examples/runtime_errors/base_map_callback_arity.flx:1:1
   |
+1 | fn main() {
+  | ^^^^^^^^^^^
 2 |     let ignored = map(#[1], concat)
-  |                   ^^^^^^^^^^^^^^^^^
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+3 | }
+  | ^
 
 Hint:
   concat(a, b)
 
 Stack trace:
-  at main (examples/runtime_errors/base_map_callback_arity.flx:2:19)
+  at main (examples/runtime_errors/base_map_callback_arity.flx:1:1)
   at <main>
 == jit ==
 status: 1

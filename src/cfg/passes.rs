@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
 
 use super::{
-    BlockId, IrBinaryOp, IrConst, IrExpr, IrFunction, IrInstr, IrMetadata, IrProgram, IrTerminator,
-    IrVar, validate::validate_ir,
+    BlockId, IrBinaryOp, IrConst, IrExpr, IrFunction, IrInstr, IrMetadata,
+    IrProgram, IrTerminator, IrVar, validate::validate_ir,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -30,6 +30,8 @@ pub fn run_ir_pass_pipeline(
     validate_ir(program)?;
     local_cse(program);
     validate_ir(program)?;
+    tail_call_introduction(program);
+    validate_ir(program)?;
     intern_unit_adts(program);
     validate_ir(program)?;
     type_directed_unboxing(program);
@@ -46,6 +48,67 @@ fn canonicalize_cfg(program: &mut IrProgram) {
                 {
                     block.terminator = IrTerminator::Return(*dest, metadata.clone());
                 }
+            }
+        }
+    }
+}
+
+/// Convert tail-position calls into `TailCall` terminators.
+///
+/// Recognises two patterns:
+///   1. `Call { dest: v }; Return(v)` — direct tail call.
+///   2. `Call { dest: v }; Jump(target, [v])` where the target block is a
+///      single-param return block (`params: [p], instrs: [], Return(p)`).
+///      This pattern arises from `if`/`match` merge blocks.
+///
+/// This pass enables the bytecode compiler to emit `OpTailCall` for
+/// self-recursive tail calls, avoiding stack overflow.
+fn tail_call_introduction(program: &mut IrProgram) {
+    for function in &mut program.functions {
+        // First, identify "return-only" blocks: blocks with exactly one param,
+        // no instructions, and a `Return(param)` terminator.
+        let return_blocks: HashSet<BlockId> = function
+            .blocks
+            .iter()
+            .filter(|b| {
+                b.params.len() == 1
+                    && b.instrs.is_empty()
+                    && matches!(&b.terminator, IrTerminator::Return(v, _) if *v == b.params[0].var)
+            })
+            .map(|b| b.id)
+            .collect();
+
+        for block in &mut function.blocks {
+            // Pattern 1: Call; Return(v)
+            if let IrTerminator::Return(return_var, _) = &block.terminator {
+                let return_var = *return_var;
+                if let Some(IrInstr::Call { dest, target, args, metadata }) = block.instrs.last() {
+                    if *dest == return_var {
+                        let tc = IrTerminator::TailCall {
+                            callee: target.clone(),
+                            args: args.clone(),
+                            metadata: metadata.clone(),
+                        };
+                        block.instrs.pop();
+                        block.terminator = tc;
+                        continue;
+                    }
+                }
+            }
+            // Pattern 2: Call; Jump(return_block, [v])
+            if let IrTerminator::Jump(target, jump_args, _) = &block.terminator
+                && jump_args.len() == 1
+                && return_blocks.contains(target)
+                && let Some(IrInstr::Call { dest, target, args, metadata }) = block.instrs.last()
+                && *dest == jump_args[0]
+            {
+                let tc = IrTerminator::TailCall {
+                    callee: target.clone(),
+                    args: args.clone(),
+                    metadata: metadata.clone(),
+                };
+                block.instrs.pop();
+                block.terminator = tc;
             }
         }
     }
@@ -93,6 +156,7 @@ fn fold_expr(expr: &IrExpr, consts: &HashMap<IrVar, IrConst>) -> Option<IrConst>
                 IrBinaryOp::Sub | IrBinaryOp::ISub => Some(IrConst::Int(lhs.wrapping_sub(*rhs))),
                 IrBinaryOp::Mul | IrBinaryOp::IMul => Some(IrConst::Int(lhs.wrapping_mul(*rhs))),
                 IrBinaryOp::Div | IrBinaryOp::IDiv if *rhs != 0 => Some(IrConst::Int(lhs / rhs)),
+                IrBinaryOp::Mod | IrBinaryOp::IMod if *rhs != 0 => Some(IrConst::Int(lhs % rhs)),
                 IrBinaryOp::Eq => Some(IrConst::Bool(lhs == rhs)),
                 IrBinaryOp::NotEq => Some(IrConst::Bool(lhs != rhs)),
                 IrBinaryOp::Lt => Some(IrConst::Bool(lhs < rhs)),
@@ -228,6 +292,7 @@ fn rewrite_binary_op(op: IrBinaryOp, inferred: &InferType) -> IrBinaryOp {
             IrBinaryOp::Sub => IrBinaryOp::ISub,
             IrBinaryOp::Mul => IrBinaryOp::IMul,
             IrBinaryOp::Div => IrBinaryOp::IDiv,
+            IrBinaryOp::Mod => IrBinaryOp::IMod,
             _ => op,
         },
         InferType::Con(TypeConstructor::Float) => match op {
@@ -244,7 +309,7 @@ fn rewrite_binary_op(op: IrBinaryOp, inferred: &InferType) -> IrBinaryOp {
 #[cfg(test)]
 mod tests {
     use crate::syntax::interner::Interner;
-    use crate::ir::{
+    use crate::cfg::{
         FunctionId, IrBlock, IrBlockParam, IrFunction, IrFunctionOrigin, IrMetadata, IrParam,
         IrProgram, IrTerminator, IrType,
     };
@@ -285,6 +350,7 @@ mod tests {
             entry: FunctionId(0),
             globals: Vec::new(),
             hm_expr_types: HashMap::new(),
+            core: None,
         }
     }
 
