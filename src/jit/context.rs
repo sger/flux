@@ -609,13 +609,13 @@ impl RuntimeContext for JitContext {
                         JitCallAbi::Reg1 => {
                             let func: unsafe extern "C" fn(
                                 *mut JitContext,
-                                i64, i64,
+                                JitTaggedValue,
                                 *const JitTaggedValue,
                                 i64,
                             ) -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
-                                arg_values[0].tag, arg_values[0].payload,
+                                arg_values[0],
                                 capture_values.as_ptr(),
                                 capture_values.len() as i64,
                             )
@@ -623,15 +623,15 @@ impl RuntimeContext for JitContext {
                         JitCallAbi::Reg2 => {
                             let func: unsafe extern "C" fn(
                                 *mut JitContext,
-                                i64, i64,
-                                i64, i64,
+                                JitTaggedValue,
+                                JitTaggedValue,
                                 *const JitTaggedValue,
                                 i64,
                             ) -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
-                                arg_values[0].tag, arg_values[0].payload,
-                                arg_values[1].tag, arg_values[1].payload,
+                                arg_values[0],
+                                arg_values[1],
                                 capture_values.as_ptr(),
                                 capture_values.len() as i64,
                             )
@@ -639,42 +639,37 @@ impl RuntimeContext for JitContext {
                         JitCallAbi::Reg3 => {
                             let func: unsafe extern "C" fn(
                                 *mut JitContext,
-                                i64, i64,
-                                i64, i64,
-                                i64, i64,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                JitTaggedValue,
                                 *const JitTaggedValue,
                                 i64,
                             ) -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
-                                arg_values[0].tag, arg_values[0].payload,
-                                arg_values[1].tag, arg_values[1].payload,
-                                arg_values[2].tag, arg_values[2].payload,
+                                arg_values[0],
+                                arg_values[1],
+                                arg_values[2],
                                 capture_values.as_ptr(),
                                 capture_values.len() as i64,
                             )
                         }
                         JitCallAbi::Reg4 => {
-                            // Pass individual i64 tag/payload pairs instead of
-                            // JitTaggedValue structs.  On ARM64 the 4th struct
-                            // would not fit in remaining registers and would be
-                            // placed entirely on the stack, mismatching the
-                            // Cranelift signature which expects flat i64 params.
                             let func: unsafe extern "C" fn(
                                 *mut JitContext,
-                                i64, i64,
-                                i64, i64,
-                                i64, i64,
-                                i64, i64,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                JitTaggedValue,
                                 *const JitTaggedValue,
                                 i64,
                             ) -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
-                                arg_values[0].tag, arg_values[0].payload,
-                                arg_values[1].tag, arg_values[1].payload,
-                                arg_values[2].tag, arg_values[2].payload,
-                                arg_values[3].tag, arg_values[3].payload,
+                                arg_values[0],
+                                arg_values[1],
+                                arg_values[2],
+                                arg_values[3],
                                 capture_values.as_ptr(),
                                 capture_values.len() as i64,
                             )

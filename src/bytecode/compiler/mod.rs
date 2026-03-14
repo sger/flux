@@ -4,7 +4,7 @@ use crate::ast::type_infer::InferProgramConfig;
 use crate::ast::type_informed_fold::type_informed_fold;
 use crate::bytecode::compiler::effect_rows::EffectRow;
 use crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult;
-use crate::cfg::{
+use crate::ir::{
     FunctionId, IrInstr, IrPassContext, IrProgram, IrTerminator, lower_program_to_ir,
     run_ir_pass_pipeline,
 };
@@ -146,13 +146,6 @@ pub struct Compiler {
     /// When true, run two-phase inference with type-informed optimization
     /// between Phase 1 and Phase 2 (proposal 0077).
     type_optimize: bool,
-    /// Core IR produced by the most recent successful compilation unit.
-    /// Populated by `compile_internal` when Core IR lowering runs.
-    /// Replaced on each module compilation (the entry module is compiled last).
-    pub last_core: Option<crate::nary::CoreProgram>,
-    /// CFG IR (`IrProgram`) after all passes, from the most recent compilation unit.
-    /// Populated by `compile_internal` after `run_ir_pass_pipeline` succeeds.
-    pub last_ir: Option<IrProgram>,
 }
 
 #[cfg(test)]
@@ -217,8 +210,6 @@ impl Compiler {
             strict_mode: false,
             strict_require_main: true,
             type_optimize: false,
-            last_core: None,
-            last_ir: None,
         }
     }
 
@@ -1956,6 +1947,19 @@ impl Compiler {
             .find_map(|scope| scope.get(&name).copied())
     }
 
+    pub(super) fn track_effect_alias_for_ir_binding(
+        &mut self,
+        binding: Symbol,
+        value: &crate::ir::IrStructuredExpr,
+    ) {
+        if let crate::ir::IrStructuredExpr::Identifier { name, span, id } = value {
+            self.track_effect_alias_for_binding(
+                binding,
+                &Expression::Identifier { name: *name, span: *span, id: *id },
+            );
+        }
+    }
+
     pub(super) fn track_effect_alias_for_binding(&mut self, binding: Symbol, value: &Expression) {
         let Expression::Identifier { name, .. } = value else {
             return;
@@ -2172,22 +2176,6 @@ impl Compiler {
 
         // PASS 2 must use the same Program allocation as the final inference pass.
         let program = type_optimized_program.as_ref().unwrap_or(program);
-
-        // ── Core IR pipeline (primary) ───────────────────────────────────────
-        // Lower AST → Core IR → CFG.  Core IR is now the source of truth for
-        // function bodies; the old structured-IR path still produces the
-        // `top_level_items` metadata (imports, ADTs, effects, structured bodies)
-        // needed by the bytecode compiler and JIT infrastructure.
-        let mut core =
-            crate::nary::lower_ast::lower_program_ast(program, &self.hm_expr_types);
-        crate::nary::passes::run_core_passes(&mut core);
-        self.last_core = Some(core.clone());
-        let core_ir = crate::nary::to_ir::lower_core_to_ir(&core);
-
-        // ── Structured-IR pipeline (metadata + validation) ──────────────────
-        // Still needed for: Import/Data/EffectDecl items (JIT),
-        // type annotation validation on let bindings, contracts, etc.
-        // Function bodies are compiled via Core IR CFG path above.
         let mut ir_program = match lower_program_to_ir(program, &self.hm_expr_types) {
             Ok(program) => program,
             Err(diag) => {
@@ -2195,32 +2183,10 @@ impl Compiler {
                 return Err(std::mem::take(&mut self.errors));
             }
         };
-
-        // Route function CFG through Core IR: patch function_id references in
-        // top_level_items to point at Core IR functions, then merge function
-        // lists so module-nested functions (not yet in Core IR) keep working.
-        let old_functions = std::mem::take(&mut ir_program.functions);
-        let _kept_old_ids = crate::cfg::patch_function_ids_from_core(
-            &mut ir_program.top_level_items,
-            &core_ir.top_level_items,
-        );
-        ir_program.functions = core_ir.functions;
-        // Merge back all old functions not covered by the Core IR pipeline.
-        // This includes module-nested named functions AND their inner closure
-        // functions (lambdas), which the N-ary pipeline doesn't process.
-        let core_ids: std::collections::HashSet<_> =
-            ir_program.functions.iter().map(|f| f.id).collect();
-        for old_fn in &old_functions {
-            if !core_ids.contains(&old_fn.id) {
-                ir_program.functions.push(old_fn.clone());
-            }
-        }
-        ir_program.core = Some(core);
         if let Err(diag) = run_ir_pass_pipeline(&mut ir_program, &IrPassContext) {
             self.errors.push(diag);
             return Err(std::mem::take(&mut self.errors));
         }
-        self.last_ir = Some(ir_program.clone());
         if self.analyze_enabled {
             self.tail_calls = collect_tail_calls_from_ir(&ir_program);
         }
@@ -2272,12 +2238,12 @@ impl Compiler {
 
     fn register_ir_function_symbols(
         &mut self,
-        items: &[crate::cfg::IrTopLevelItem],
+        items: &[crate::ir::IrTopLevelItem],
         module_prefix: Option<Symbol>,
     ) {
         for item in items {
             match item {
-                crate::cfg::IrTopLevelItem::Function {
+                crate::ir::IrTopLevelItem::Function {
                     name,
                     function_id: Some(function_id),
                     ..
@@ -2287,8 +2253,8 @@ impl Compiler {
                         .unwrap_or(*name);
                     self.ir_function_symbols.insert(*function_id, symbol);
                 }
-                crate::cfg::IrTopLevelItem::Module { name, body, .. } => {
-                    self.register_ir_function_symbols(body, Some(*name));
+                crate::ir::IrTopLevelItem::Module { name, body, .. } => {
+                    self.register_ir_function_symbols(&body.statements, Some(*name));
                 }
                 _ => {}
             }
@@ -2551,6 +2517,16 @@ impl Compiler {
                 true
             }
             Some(OpCode::OpGetLocal0 | OpCode::OpConsumeLocal0) => {
+                // Expanding a 1-byte opcode to 2 bytes shifts all subsequent
+                // positions.  If any jump targets the byte right after this
+                // instruction it would land on the new operand byte instead of
+                // a valid opcode.  Bail out and let the caller emit
+                // OpReturnValue instead.
+                if self.scopes[self.scope_index].instructions.len() == pos + 1
+                    && self.has_jump_target_at(pos + 1)
+                {
+                    return false;
+                }
                 self.scopes[self.scope_index].instructions[pos] = OpCode::OpReturnLocal as u8;
                 if self.scopes[self.scope_index].instructions.len() == pos + 1 {
                     self.scopes[self.scope_index].instructions.push(0u8);
@@ -2561,6 +2537,12 @@ impl Compiler {
                 true
             }
             Some(OpCode::OpGetLocal1 | OpCode::OpConsumeLocal1) => {
+                // Same guard as OpGetLocal0 — avoid corrupting jump targets.
+                if self.scopes[self.scope_index].instructions.len() == pos + 1
+                    && self.has_jump_target_at(pos + 1)
+                {
+                    return false;
+                }
                 self.scopes[self.scope_index].instructions[pos] = OpCode::OpReturnLocal as u8;
                 if self.scopes[self.scope_index].instructions.len() == pos + 1 {
                     self.scopes[self.scope_index].instructions.push(1u8);
@@ -2889,24 +2871,9 @@ fn collect_tail_calls_from_ir(program: &IrProgram) -> Vec<TailCall> {
                         &target_block.terminator,
                         IrTerminator::Return(ret_var, _) if *ret_var == merge_param
                     ) {
-                        let span = metadata.span.unwrap_or_default();
-                        tail_calls.push(TailCall { span });
-                    }
-                }
-                // Pattern produced by Core IR lowering: the last instruction is a
-                // Call and its result is returned directly (Call dest == Return var).
-                IrTerminator::Return(ret_var, _) => {
-                    let Some(last_instr) = block.instrs.last() else {
-                        continue;
-                    };
-                    let IrInstr::Call { dest: call_dest, metadata, .. } = last_instr else {
-                        continue;
-                    };
-                    if ret_var == call_dest {
-                        // Use the span from metadata if available; Core IR lowering
-                        // emits empty metadata so fall back to Span::default().
-                        let span = metadata.span.unwrap_or_default();
-                        tail_calls.push(TailCall { span });
+                        if let Some(span) = metadata.span {
+                            tail_calls.push(TailCall { span });
+                        }
                     }
                 }
                 _ => {}

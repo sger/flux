@@ -154,6 +154,7 @@ struct FnCtx<'a> {
     ctx: &'a mut ToIrCtx,
     id: FunctionId,
     origin: IrFunctionOrigin,
+    name: Option<Identifier>,
     params: Vec<IrParam>,
     blocks: Vec<IrBlock>,
     current_block: usize,
@@ -166,6 +167,7 @@ impl<'a> FnCtx<'a> {
         Self {
             ctx,
             id,
+            name: None,
             origin,
             params: Vec::new(),
             blocks: vec![IrBlock {
@@ -207,7 +209,7 @@ impl<'a> FnCtx<'a> {
         let entry = s.blocks[0].id;
         s.ctx.functions.push(IrFunction {
             id: s.id,
-            name: None,
+            name: s.name,
             params: s.params,
             parameter_types: Vec::new(),
             return_type_annotation: None,
@@ -432,6 +434,7 @@ impl<'a> FnCtx<'a> {
                 ctx: self.ctx,
                 id: fn_id,
                 origin: IrFunctionOrigin::FunctionLiteral,
+                name: None,
                 params: Vec::new(),
                 blocks: vec![IrBlock {
                     id: fn_block,
@@ -445,10 +448,10 @@ impl<'a> FnCtx<'a> {
             };
 
             // Captures first (matching VM convention for closures).
-            for (name, _) in &capture_env {
+            for (handler_name, _) in &capture_env {
                 let v = sub.ctx.alloc_var();
-                sub.env.insert(*name, v);
-                sub.params.push(IrParam { name: *name, var: v, ty: IrType::Any });
+                sub.env.insert(*handler_name, v);
+                sub.params.push(IrParam { name: *handler_name, var: v, ty: IrType::Any });
             }
             // Resume param first, then operation params.
             let resume_var = sub.ctx.alloc_var();
@@ -499,6 +502,7 @@ impl<'a> FnCtx<'a> {
                 ctx: self.ctx,
                 id: fn_id,
                 origin: IrFunctionOrigin::FunctionLiteral,
+                name: None,
                 params: Vec::new(),
                 blocks: vec![IrBlock {
                     id: fn_block,
