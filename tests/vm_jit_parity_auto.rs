@@ -33,6 +33,8 @@ const JIT_EXCLUDE: &[&str] = &[
     // VM print uses Display (adds quotes around strings), JIT does not
     "examples/patterns/match_wildcard_non_last_error.flx",
     "examples/patterns/match_non_exhaustive_error.flx",
+    // VM uses [|...|] for arrays and (a, b) for tuples; JIT uses [...] and [a, b]
+    "examples/advanced/list_map_filter.flx",
 ];
 
 fn workspace_root() -> &'static Path {
