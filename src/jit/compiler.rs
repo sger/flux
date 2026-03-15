@@ -3934,6 +3934,7 @@ fn compile_ir_expression(
             left,
             operator,
             right,
+            span,
             ..
         } => {
             if operator == "&&" || operator == "||" {
@@ -4110,6 +4111,8 @@ fn compile_ir_expression(
                 func_ref,
                 &[ctx_val, lhs_tag, lhs_payload, rhs_tag, rhs_payload],
             );
+            // Render any error set by the helper with span info for VM parity.
+            emit_render_error_with_span(module, helpers, builder, ctx_val, *span);
             let result = boxed_value_from_tagged_parts(
                 module,
                 helpers,
@@ -4370,23 +4373,23 @@ fn compile_ir_expression(
                 // Local variables shadow base functions: if a local exists
                 // with this name, skip the base-function fast path and let
                 // the generic call path handle it (indirect closure call).
-                if !scope.locals.contains_key(name) {
-                    if let Some(&base_idx) = scope.base_functions.get(name) {
-                        return compile_ir_base_function_call(
-                            module,
-                            helpers,
-                            builder,
-                            function_compiler,
-                            scope,
-                            ctx_val,
-                            return_block,
-                            tail_call,
-                            *span,
-                            base_idx,
-                            arguments,
-                            interner,
-                        );
-                    }
+                if !scope.locals.contains_key(name)
+                    && let Some(&base_idx) = scope.base_functions.get(name)
+                {
+                    return compile_ir_base_function_call(
+                        module,
+                        helpers,
+                        builder,
+                        function_compiler,
+                        scope,
+                        ctx_val,
+                        return_block,
+                        tail_call,
+                        *span,
+                        base_idx,
+                        arguments,
+                        interner,
+                    );
                 }
             }
             if let IrStructuredExpr::MemberAccess { object, member, .. } = function.as_ref()
@@ -4960,6 +4963,28 @@ fn compile_ir_top_level_item(
     }
 }
 
+/// After a runtime helper that may set `ctx.error`, emit a call to
+/// `rt_render_error_with_span` so the raw error is rendered as a structured
+/// diagnostic with source location.  This produces VM-parity error output.
+fn emit_render_error_with_span(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+    span: Span,
+) {
+    let render = get_helper_func_ref(module, helpers, builder, "rt_render_error_with_span");
+    let start_line = builder.ins().iconst(PTR_TYPE, span.start.line as i64);
+    let start_col = builder
+        .ins()
+        .iconst(PTR_TYPE, (span.start.column + 1) as i64);
+    let end_line = builder.ins().iconst(PTR_TYPE, span.end.line as i64);
+    let end_col = builder.ins().iconst(PTR_TYPE, (span.end.column + 1) as i64);
+    builder
+        .ins()
+        .call(render, &[ctx_val, start_line, start_col, end_line, end_col]);
+}
+
 fn emit_return_on_null_value(builder: &mut FunctionBuilder, value_ptr: CraneliftValue) {
     let is_null = builder.ins().icmp_imm(IntCC::Equal, value_ptr, 0);
     let null_block = builder.create_block();
@@ -5347,6 +5372,7 @@ fn compile_expression(
             left,
             operator,
             right,
+            span,
             ..
         } => {
             if operator == "&&" || operator == "||" {
@@ -5527,6 +5553,7 @@ fn compile_expression(
                 func_ref,
                 &[ctx_val, lhs_tag, lhs_payload, rhs_tag, rhs_payload],
             );
+            emit_render_error_with_span(module, helpers, builder, ctx_val, *span);
             let result = boxed_value_from_tagged_parts(
                 module,
                 helpers,
@@ -12913,6 +12940,14 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_division_by_zero",
             HelperSig {
                 num_params: 1,
+                num_returns: 0,
+            },
+        ),
+        // rt_render_error_with_span(ctx, start_line, start_col, end_line, end_col)
+        (
+            "rt_render_error_with_span",
+            HelperSig {
+                num_params: 5,
                 num_returns: 0,
             },
         ),
