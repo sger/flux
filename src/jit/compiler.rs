@@ -2508,22 +2508,34 @@ impl JitCompiler {
                 params: param_bindings,
             };
 
-            let cfg_handled = if let Some(cfg_function) = spec.cfg_function {
-                try_compile_jit_ir_cfg_function_body(
-                    module,
-                    helpers,
-                    &mut builder,
-                    &mut fn_scope,
-                    ctx_val,
-                    return_block,
-                    body_block,
-                    cfg_function,
-                    spec.parameters,
-                    &tail_ctx,
-                    interner,
-                )
-                .transpose()?
-                .is_some()
+            // Skip CFG compilation when the body contains nested function
+            // statements — the CFG IR does not represent them, so tail-calls
+            // to the inner function would fail to resolve.
+            let has_nested_fns = spec
+                .body
+                .statements
+                .iter()
+                .any(|item| matches!(item, crate::ir::IrTopLevelItem::Function { .. }));
+            let cfg_handled = if !has_nested_fns {
+                if let Some(cfg_function) = spec.cfg_function {
+                    try_compile_jit_ir_cfg_function_body(
+                        module,
+                        helpers,
+                        &mut builder,
+                        &mut fn_scope,
+                        ctx_val,
+                        return_block,
+                        body_block,
+                        cfg_function,
+                        spec.parameters,
+                        &tail_ctx,
+                        interner,
+                    )
+                    .transpose()?
+                    .is_some()
+                } else {
+                    false
+                }
             } else {
                 false
             };
@@ -3376,29 +3388,49 @@ fn try_compile_jit_ir_cfg_function_body(
                     // returned — skip the jump_with_jit_value call below.
                     let value: Option<JitValue> = match callee {
                         IrCallTarget::Named(name) => {
-                            let meta = scope.functions.get(name).copied().ok_or_else(|| {
-                                "missing JIT CFG named tail-call target".to_string()
-                            })?;
-                            if !meta.has_contract && meta.num_params == arg_vals.len() {
-                                emit_mutual_tail_thunk(
+                            if let Some(meta) = scope.functions.get(name).copied() {
+                                if !meta.has_contract && meta.num_params == arg_vals.len() {
+                                    emit_mutual_tail_thunk(
+                                        module,
+                                        helpers,
+                                        builder,
+                                        ctx_val,
+                                        meta.function_index,
+                                        &arg_vals,
+                                    );
+                                    None
+                                } else {
+                                    Some(compile_jit_cfg_user_function_call(
+                                        module,
+                                        helpers,
+                                        builder,
+                                        ctx_val,
+                                        meta,
+                                        &arg_vals,
+                                        Span::default(),
+                                    )?)
+                                }
+                            } else if let Some(&base_idx) = scope.base_functions.get(name) {
+                                // Base function in tail position — emit
+                                // a regular base-function call (no thunk).
+                                let boxed_args: Vec<_> = arg_vals
+                                    .iter()
+                                    .map(|v| box_jit_value(module, helpers, builder, ctx_val, *v))
+                                    .collect();
+                                Some(compile_jit_cfg_base_function_call(
                                     module,
                                     helpers,
                                     builder,
                                     ctx_val,
-                                    meta.function_index,
-                                    &arg_vals,
-                                );
-                                None
-                            } else {
-                                Some(compile_jit_cfg_user_function_call(
-                                    module,
-                                    helpers,
-                                    builder,
-                                    ctx_val,
-                                    meta,
-                                    &arg_vals,
+                                    base_idx,
+                                    &boxed_args,
                                     Span::default(),
                                 )?)
+                            } else {
+                                return Err(format!(
+                                    "missing JIT CFG named tail-call target: {}",
+                                    interner.resolve(*name),
+                                ));
                             }
                         }
                         IrCallTarget::Direct(id) => {
@@ -4178,7 +4210,8 @@ fn compile_ir_expression(
         IrStructuredExpr::InterpolatedString { parts, .. } => {
             use crate::ir::IrStructuredStringPart;
             let rt_to_string = get_helper_func_ref(module, helpers, builder, "rt_to_string");
-            let rt_add = get_helper_func_ref(module, helpers, builder, "rt_add");
+            let rt_string_concat =
+                get_helper_func_ref(module, helpers, builder, "rt_string_concat");
 
             let mut acc: Option<CraneliftValue> = None;
             for part in parts {
@@ -4220,7 +4253,9 @@ fn compile_ir_expression(
                 acc = Some(match acc {
                     None => part_val,
                     Some(prev) => {
-                        let call = builder.ins().call(rt_add, &[ctx_val, prev, part_val]);
+                        let call = builder
+                            .ins()
+                            .call(rt_string_concat, &[ctx_val, prev, part_val]);
                         builder.inst_results(call)[0]
                     }
                 });
@@ -4315,22 +4350,8 @@ fn compile_ir_expression(
                         interner,
                     );
                 }
-                if let Some(&base_idx) = scope.base_functions.get(name) {
-                    return compile_ir_base_function_call(
-                        module,
-                        helpers,
-                        builder,
-                        function_compiler,
-                        scope,
-                        ctx_val,
-                        return_block,
-                        tail_call,
-                        *span,
-                        base_idx,
-                        arguments,
-                        interner,
-                    );
-                }
+                // User-defined functions shadow base functions, so check
+                // scope.functions before scope.base_functions.
                 if let Some(meta) = scope.functions.get(name).copied() {
                     return compile_ir_user_function_call(
                         module,
@@ -4343,6 +4364,22 @@ fn compile_ir_expression(
                         tail_call,
                         meta,
                         *span,
+                        arguments,
+                        interner,
+                    );
+                }
+                if let Some(&base_idx) = scope.base_functions.get(name) {
+                    return compile_ir_base_function_call(
+                        module,
+                        helpers,
+                        builder,
+                        function_compiler,
+                        scope,
+                        ctx_val,
+                        return_block,
+                        tail_call,
+                        *span,
+                        base_idx,
                         arguments,
                         interner,
                     );
@@ -5985,7 +6022,8 @@ fn compile_expression(
         Expression::InterpolatedString { parts, .. } => {
             use crate::syntax::expression::StringPart;
             let rt_to_string = get_helper_func_ref(module, helpers, builder, "rt_to_string");
-            let rt_add = get_helper_func_ref(module, helpers, builder, "rt_add");
+            let rt_string_concat =
+                get_helper_func_ref(module, helpers, builder, "rt_string_concat");
 
             let mut acc: Option<CraneliftValue> = None;
             for part in parts {
@@ -6027,7 +6065,9 @@ fn compile_expression(
                 acc = Some(match acc {
                     None => part_val,
                     Some(prev) => {
-                        let call = builder.ins().call(rt_add, &[ctx_val, prev, part_val]);
+                        let call = builder
+                            .ins()
+                            .call(rt_string_concat, &[ctx_val, prev, part_val]);
                         builder.inst_results(call)[0]
                     }
                 });
@@ -8093,8 +8133,44 @@ fn compile_ir_block_expression(
     interner: &Interner,
 ) -> Result<BlockEval, String> {
     let mut block_scope = scope.clone();
+    let last_index = block.statements.len().saturating_sub(1);
     for (idx, item) in block.statements.iter().enumerate() {
-        let is_last = idx + 1 == block.statements.len();
+        let is_last = idx == last_index && !block.statements.is_empty();
+        // For the last statement in a block, check if it is a self-tail-call
+        // so that tail recursion inside if-else branches is optimized.
+        if is_last
+            && let Some(tc) = tail_call
+            && let Some(outcome) = try_compile_ir_tail_expression_statement(
+                module,
+                helpers,
+                builder,
+                function_compiler,
+                &mut block_scope,
+                ctx_val,
+                return_block,
+                tc,
+                item,
+                interner,
+            )?
+        {
+            if matches!(outcome, StmtOutcome::Returned) {
+                // The tail-call emitted a `jump` terminator. Switch to a new
+                // cold block so callers can still emit merge jumps safely
+                // (they will be unreachable but keep the IR valid).
+                let cold = builder.create_block();
+                builder.switch_to_block(cold);
+                builder.seal_block(cold);
+            }
+            return Ok(match outcome {
+                StmtOutcome::Returned => BlockEval::Returned,
+                StmtOutcome::Value(v) => BlockEval::Value(v),
+                StmtOutcome::None => BlockEval::Value({
+                    let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
+                    let call = builder.ins().call(make_none, &[ctx_val]);
+                    JitValue::boxed(builder.inst_results(call)[1])
+                }),
+            });
+        }
         let outcome = compile_ir_top_level_item(
             module,
             helpers,
@@ -9843,6 +9919,42 @@ fn compile_ir_user_function_call(
     builder.switch_to_block(done_block);
     let result = builder.block_params(done_block)[0];
     builder.seal_block(done_block);
+    Ok(JitValue::boxed(result))
+}
+
+/// Compile a base-function call from within a CFG-compiled function body.
+/// `boxed_args` are already `*mut Value` pointers (not tagged values).
+fn compile_jit_cfg_base_function_call(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+    base_idx: usize,
+    boxed_args: &[CraneliftValue],
+    call_span: Span,
+) -> Result<JitValue, String> {
+    let jit_vals: Vec<JitValue> = boxed_args.iter().map(|v| JitValue::boxed(*v)).collect();
+    let (_slot, args_ptr) = emit_tagged_stack_array(builder, &jit_vals);
+    let idx_val = builder.ins().iconst(PTR_TYPE, base_idx as i64);
+    let nargs_val = builder.ins().iconst(PTR_TYPE, boxed_args.len() as i64);
+    let start_line = builder.ins().iconst(PTR_TYPE, call_span.start.line as i64);
+    let start_col = builder
+        .ins()
+        .iconst(PTR_TYPE, (call_span.start.column + 1) as i64);
+    let end_line = builder.ins().iconst(PTR_TYPE, call_span.end.line as i64);
+    let end_col = builder
+        .ins()
+        .iconst(PTR_TYPE, (call_span.end.column + 1) as i64);
+
+    let call_base = get_helper_func_ref(module, helpers, builder, "rt_call_base_function_tagged");
+    let call = builder.ins().call(
+        call_base,
+        &[
+            ctx_val, idx_val, args_ptr, nargs_val, start_line, start_col, end_line, end_col,
+        ],
+    );
+    let result = builder.inst_results(call)[0];
+    emit_return_on_null_value(builder, result);
     Ok(JitValue::boxed(result))
 }
 
@@ -13223,6 +13335,14 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_to_string",
             HelperSig {
                 num_params: 2,
+                num_returns: 1,
+            },
+        ),
+        // rt_string_concat(ctx, a_ptr, b_ptr) -> *mut Value
+        (
+            "rt_string_concat",
+            HelperSig {
+                num_params: 3,
                 num_returns: 1,
             },
         ),
