@@ -12,4 +12,7 @@ pub struct HandlerFrame {
     pub entry_sp: usize,
     /// `VM.handler_stack.len()` when `OpHandle` executed.
     pub entry_handler_stack_len: usize,
+    /// When `true`, the handler is tail-resumptive: `OpPerformDirect` skips
+    /// continuation capture and calls the arm closure directly.
+    pub is_direct: bool,
 }

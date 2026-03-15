@@ -1,0 +1,109 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/aoc/2025/aoc_day8_part2.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `dsu_state`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:136:28
+    |
+ 54 | fn dsu_state(parents, sizes, comps, last_a, last_b) {
+ 55 |     let s1 = put({}, "p", parents)
+ 56 |     let s2 = put(s1, "sz", sizes)
+ 57 |     let s3 = put(s2, "c", comps)
+ 58 |     let s4 = put(s3, "a", last_a)
+ 59 |     put(s4, "b", last_b)
+ 60 | }
+ 61 | 
+ 62 | fn dsu_parents(state) {
+ 63 |     match get(state, "p") {
+ 64 |         Some(v) -> v,
+ 65 |         _ -> [||]
+ 66 |     }
+ 67 | }
+ 68 | 
+ 69 | fn dsu_sizes(state) {
+ 70 |     match get(state, "sz") {
+ 71 |         Some(v) -> v,
+ 72 |         _ -> [||]
+ 73 |     }
+ 74 | }
+ 75 | 
+ 76 | fn dsu_comps(state) {
+ 77 |     match get(state, "c") {
+ 78 |         Some(v) -> v,
+ 79 |         _ -> 0
+ 80 |     }
+ 81 | }
+ 82 | 
+ 83 | fn dsu_last_a(state) {
+ 84 |     match get(state, "a") {
+ 85 |         Some(v) -> v,
+ 86 |         _ -> -1
+ 87 |     }
+ 88 | }
+ 89 | 
+ 90 | fn dsu_last_b(state) {
+ 91 |     match get(state, "b") {
+ 92 |         Some(v) -> v,
+ 93 |         _ -> -1
+ 94 |     }
+ 95 | }
+ 96 | 
+ 97 | fn union_key(state, key) {
+ 98 |     let parents = dsu_parents(state)
+ 99 |     let sizes = dsu_sizes(state)
+100 |     let comps = dsu_comps(state)
+101 |     let code = key % 1000000
+102 |     let i = code / 1000
+103 |     let j = code % 1000
+104 | 
+105 |     let ri = root(parents, i)
+106 |     let rj = root(parents, j)
+107 |     if ri == rj {
+108 |         state
+109 |     } else {
+110 |     let si = int_at(sizes, ri)
+111 |     let sj = int_at(sizes, rj)
+112 |     if si >= sj {
+113 |         let p_left = set_at(parents, rj, ri)
+114 |         let s_left = set_at(sizes, ri, si + sj)
+115 |         dsu_state(p_left, s_left, comps - 1, i, j)
+116 |     } else {
+117 |     let p_right = set_at(parents, ri, rj)
+118 |     let s_right = set_at(sizes, rj, si + sj)
+119 |     dsu_state(p_right, s_right, comps - 1, i, j)
+120 | }
+121 | }
+122 | }
+123 | 
+124 | fn run_limit(points, limit) {
+125 |     let n = len(points)
+126 |     let idxs = range(0, n)
+127 |     let keys =
+128 |     fold(idxs, [||], /(acc, i) -> {
+129 |         let js = range(i + 1, n)
+130 |         fold(js, acc, /(acc2, j) -> maybe_push_edge(points, i, j, limit, acc2))
+131 |     })
+132 | 
+133 |     let sorted_keys = sort(keys)
+134 |     let parents0 = range(0, n)
+135 |     let sizes0 = map(range(0, n), /_ -> 1)
+136 |     let state0 = dsu_state(parents0, sizes0, n, -1, -1)
+    |                            ^^^^^^^^
+    |                            -------- this argument has type `Array<Int>`
+
+Note:
+  expected argument type: Int
+  found argument type: Array<Int>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `Int` value as the 1st argument.
+== stdout ==
+<not executed>

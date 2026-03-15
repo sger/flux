@@ -73,14 +73,11 @@ pub enum JitCallAbi {
 }
 
 impl JitCallAbi {
-    pub fn from_arity(arity: usize) -> Self {
-        match arity {
-            1 => Self::Reg1,
-            2 => Self::Reg2,
-            3 => Self::Reg3,
-            4 => Self::Reg4,
-            _ => Self::Array,
-        }
+    pub fn from_arity(_arity: usize) -> Self {
+        // Always use Array ABI for a uniform calling convention.
+        // This avoids ABI mismatches when struct-typed arguments
+        // spill to the stack on aarch64.
+        Self::Array
     }
 
     pub fn uses_array_args(self) -> bool {
@@ -662,22 +659,35 @@ impl RuntimeContext for JitContext {
                             )
                         }
                         JitCallAbi::Reg4 => {
+                            // Pass individual (tag, payload) pairs instead of
+                            // JitTaggedValue structs to match the Cranelift
+                            // function signature exactly.  On aarch64 the C ABI
+                            // may lay out spilled structs differently from
+                            // individual i64 params.
                             let func: unsafe extern "C" fn(
                                 *mut JitContext,
-                                JitTaggedValue,
-                                JitTaggedValue,
-                                JitTaggedValue,
-                                JitTaggedValue,
+                                i64,
+                                i64,
+                                i64,
+                                i64,
+                                i64,
+                                i64,
+                                i64,
+                                i64,
                                 *const JitTaggedValue,
                                 i64,
                             )
                                 -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
-                                arg_values[0],
-                                arg_values[1],
-                                arg_values[2],
-                                arg_values[3],
+                                arg_values[0].tag,
+                                arg_values[0].payload,
+                                arg_values[1].tag,
+                                arg_values[1].payload,
+                                arg_values[2].tag,
+                                arg_values[2].payload,
+                                arg_values[3].tag,
+                                arg_values[3].payload,
                                 capture_values.as_ptr(),
                                 capture_values.len() as i64,
                             )

@@ -3705,14 +3705,21 @@ impl Compiler {
             self.compile_function_literal(&params, &parameter_types, &None, &[], &arm_block)?;
         }
 
-        // Build HandlerDescriptor and emit OpHandle
+        // Detect tail-resumptive handlers and emit the optimized opcode.
+        let is_direct =
+            crate::bytecode::compiler::tail_resumptive::is_handler_tail_resumptive(arms);
         let desc = Value::HandlerDescriptor(Rc::new(HandlerDescriptor {
             effect,
             ops: operations,
         }));
 
         let desc_idx = self.add_constant(desc);
-        self.emit(OpCode::OpHandle, &[desc_idx]);
+        let handle_op = if is_direct {
+            OpCode::OpHandleDirect
+        } else {
+            OpCode::OpHandle
+        };
+        self.emit(handle_op, &[desc_idx]);
 
         // Compile the handled expression with the effect available in scope.
         self.with_handled_effect(effect, |compiler| {

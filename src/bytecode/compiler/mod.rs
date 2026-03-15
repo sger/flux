@@ -61,6 +61,7 @@ mod expression;
 mod hm_expr_typer;
 mod statement;
 mod suggestions;
+pub(crate) mod tail_resumptive;
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
 
