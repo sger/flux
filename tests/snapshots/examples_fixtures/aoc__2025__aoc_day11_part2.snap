@@ -1,0 +1,43 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/aoc/2025/aoc_day11_part2.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/aoc/2025/aoc_day11_part2.flx:66:13
+   |
+66 |     [|name, outs|]
+   |             ^^^^
+   |             ---- this expression has type `Array<String>`
+
+   |             ---- this type mismatch is reported here
+
+Note:
+  expected type: String
+  found type: Array<String>
+  the conflicting types meet at this expression
+
+Help:
+  These two types are not compatible.
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `dfs_count2`.
+
+  examples/aoc/2025/aoc_day11_part2.flx:91:13
+   |
+91 |     let r = dfs_count2(nxt, seen_dac, seen_fft, graph, memo)
+   |             ^^^^^^^^^^
+
+Hint:
+  Define it first: let dfs_count2 = ...;
+
+Found 2 errors.
+== stdout ==
+<not executed>

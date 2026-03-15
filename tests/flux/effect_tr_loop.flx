@@ -1,0 +1,25 @@
+// Tail-resumptive effect in a recursive loop.
+// Verifies that repeated perform calls with direct dispatch are correct.
+
+effect Acc {
+    add : (Int) -> ()
+}
+
+fn sum_range(lo: Int, hi: Int) with Acc {
+    if lo > hi {
+        ()
+    } else {
+        perform Acc.add(lo)
+        sum_range(lo + 1, hi)
+    }
+}
+
+fn main() with IO {
+    let total = 0
+    let _ = sum_range(1, 10) handle Acc {
+        add(resume, _n) -> resume(())
+    }
+    // The handler discards the values (no state mutation in Flux closures).
+    // This test verifies the handler doesn't crash or produce wrong control flow.
+    print("done")
+}

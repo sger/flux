@@ -1,0 +1,27 @@
+// Nested tail-resumptive handlers: inner and outer effects.
+// Verifies that nested direct-dispatch handlers work correctly.
+
+effect Outer {
+    get_x : () -> Int
+}
+
+effect Inner {
+    get_y : () -> Int
+}
+
+fn compute() -> Int with Outer, Inner {
+    let x = perform Outer.get_x()
+    let y = perform Inner.get_y()
+    x + y
+}
+
+fn main() with IO {
+    let result = do {
+        compute() handle Inner {
+            get_y(resume) -> resume(30)
+        }
+    } handle Outer {
+        get_x(resume) -> resume(12)
+    }
+    print(to_string(result))
+}

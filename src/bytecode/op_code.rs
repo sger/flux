@@ -134,6 +134,16 @@ pub enum OpCode {
     /// `OpAdtFields2` / `OpAdtField`.
     /// Operands: `[local_idx: u8, const_idx: u16, jump_offset: u16]`.
     OpIsAdtJumpLocal = 80,
+    /// Install a tail-resumptive handler for an effect.
+    /// Operand: `[const_idx: u8]` — index of a `Value::HandlerDescriptor`.
+    /// Identical to `OpHandle` but marks the handler frame as `is_direct = true`
+    /// so that `OpPerformDirect` skips continuation capture.
+    OpHandleDirect = 81,
+    /// Perform an effect operation on a tail-resumptive handler (no continuation).
+    /// Operands: `[const_idx: u8, arity: u8]`.
+    /// Like `OpPerform` but the matching handler arm is called directly — no
+    /// continuation is captured and `resume(v)` simply returns `v`.
+    OpPerformDirect = 82,
 }
 
 impl From<u8> for OpCode {
@@ -220,6 +230,8 @@ impl From<u8> for OpCode {
             78 => OpCode::OpIsAdtJump,
             79 => OpCode::OpAdtFields2,
             80 => OpCode::OpIsAdtJumpLocal,
+            81 => OpCode::OpHandleDirect,
+            82 => OpCode::OpPerformDirect,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -271,9 +283,9 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpIsAdtJumpLocal => vec![1, 2, 2], // local_idx: u8, const_idx: u16, jump_offset: u16
         // OpAdtFields2: no operands, covered by _ => vec![]
         // Effect handler opcodes
-        OpCode::OpHandle => vec![1],     // const_idx: u8
-        OpCode::OpEndHandle => vec![],   // no operands
-        OpCode::OpPerform => vec![1, 1], // const_idx: u8, arity: u8
+        OpCode::OpHandle | OpCode::OpHandleDirect => vec![1], // const_idx: u8
+        OpCode::OpEndHandle => vec![],                        // no operands
+        OpCode::OpPerform | OpCode::OpPerformDirect => vec![1, 1], // const_idx: u8, arity: u8
         OpCode::OpConsumeLocal0 | OpCode::OpConsumeLocal1 => vec![],
         _ => vec![],
     }

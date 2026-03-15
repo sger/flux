@@ -3991,8 +3991,7 @@ fn compile_ir_expression(
                         let dbz =
                             get_helper_func_ref(module, helpers, builder, "rt_division_by_zero");
                         builder.ins().call(dbz, &[ctx_val]);
-                        let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
-                        builder.ins().return_(&[null_ptr]);
+                        emit_return_null_tagged(builder);
                         builder.seal_block(err_block);
 
                         builder.switch_to_block(ok_block);
@@ -5402,8 +5401,7 @@ fn compile_expression(
                         let dbz =
                             get_helper_func_ref(module, helpers, builder, "rt_division_by_zero");
                         builder.ins().call(dbz, &[ctx_val]);
-                        let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
-                        builder.ins().return_(&[null_ptr]);
+                        emit_return_null_tagged(builder);
                         builder.seal_block(err_block);
 
                         // Normal path: emit sdiv/srem.
@@ -10585,7 +10583,7 @@ fn compile_function_literal(
     scope: &mut Scope,
     ctx_val: CraneliftValue,
     expr: &Expression,
-    _interner: &Interner,
+    interner: &Interner,
 ) -> Result<CraneliftValue, String> {
     let key = LiteralKey::from_expr(expr);
     let Some(meta) = scope.literal_functions.get(&key).copied() else {
@@ -10632,7 +10630,10 @@ fn compile_function_literal(
             capture_vals.push(JitValue::boxed(builder.inst_results(call)[0]));
             continue;
         }
-        return Err("unsupported capture in JIT function literal".to_string());
+        return Err(format!(
+            "unsupported capture `{}` in JIT function literal",
+            interner.resolve(sym)
+        ));
     }
 
     let (_slot, captures_ptr) = emit_tagged_stack_array(builder, &capture_vals);
@@ -10658,7 +10659,7 @@ fn compile_ir_function_literal(
     effects: &[crate::syntax::effect_expr::EffectExpr],
     body: &IrStructuredBlock,
     span: Span,
-    _interner: &Interner,
+    interner: &Interner,
 ) -> Result<CraneliftValue, String> {
     let key = LiteralKey::from_ir_function(parameters, body.span, span);
     let Some(meta) = scope.literal_functions.get(&key).copied() else {
@@ -10671,13 +10672,13 @@ fn compile_ir_function_literal(
         .unwrap_or_default();
 
     let mut capture_vals: Vec<JitValue> = Vec::new();
-    for sym in captures {
-        if let Some(binding) = scope.locals.get(&sym).cloned() {
+    for sym in &captures {
+        if let Some(binding) = scope.locals.get(sym).cloned() {
             let value = use_local(builder, binding);
             capture_vals.push(value);
             continue;
         }
-        if let Some(fn_meta) = scope.functions.get(&sym).copied() {
+        if let Some(fn_meta) = scope.functions.get(sym).copied() {
             let make_jit_closure =
                 get_helper_func_ref(module, helpers, builder, "rt_make_jit_closure");
             let fn_idx = builder
@@ -10691,21 +10692,24 @@ fn compile_ir_function_literal(
             capture_vals.push(JitValue::boxed(builder.inst_results(call)[0]));
             continue;
         }
-        if let Some(&idx) = scope.globals.get(&sym) {
+        if let Some(&idx) = scope.globals.get(sym) {
             let get_global = get_helper_func_ref(module, helpers, builder, "rt_get_global");
             let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
             let call = builder.ins().call(get_global, &[ctx_val, idx_val]);
             capture_vals.push(JitValue::boxed(builder.inst_results(call)[0]));
             continue;
         }
-        if let Some(&base_idx) = scope.base_functions.get(&sym) {
+        if let Some(&base_idx) = scope.base_functions.get(sym) {
             let make_base = get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
             let idx_val = builder.ins().iconst(PTR_TYPE, base_idx as i64);
             let call = builder.ins().call(make_base, &[ctx_val, idx_val]);
             capture_vals.push(JitValue::boxed(builder.inst_results(call)[0]));
             continue;
         }
-        return Err("unsupported capture in JIT function literal".to_string());
+        return Err(format!(
+            "unsupported capture `{}` in JIT function literal",
+            interner.resolve(*sym)
+        ));
     }
 
     let _ = (parameter_types, return_type, effects);
@@ -11725,11 +11729,11 @@ fn collect_ir_free_vars_in_expr(
             for param in parameters {
                 nested_bound.insert(*param);
             }
-            free.extend(
-                collect_ir_free_vars_in_block(body, &nested_bound)
-                    .into_iter()
-                    .filter(|ident| bound.contains(ident)),
-            );
+            // Collect free vars of the nested function body. Variables bound
+            // by the nested function's own parameters are excluded via
+            // nested_bound. The remaining free vars are also free in the
+            // enclosing scope (they must be captured).
+            free.extend(collect_ir_free_vars_in_block(body, &nested_bound));
         }
         IrStructuredExpr::Prefix { right, .. }
         | IrStructuredExpr::Some { value: right, .. }
