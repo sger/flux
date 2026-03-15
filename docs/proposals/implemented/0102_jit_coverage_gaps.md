@@ -1,6 +1,6 @@
 - Feature Name: JIT Coverage Gaps
 - Start Date: 2026-03-14
-- Status: Draft
+- Status: Implemented
 - Proposal PR: pending
 - Flux Issue: pending
 - Depends on: 0097 (JIT default path and coverage)
