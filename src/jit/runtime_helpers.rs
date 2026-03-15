@@ -11,7 +11,9 @@ use std::rc::Rc;
 use std::slice::from_raw_parts;
 use std::str::from_utf8_unchecked;
 
-use crate::jit::context::{JitHandlerArm, JitHandlerFrame, JitTaggedValue};
+use crate::jit::context::{
+    JitHandlerArm, JitHandlerFrame, JitTaggedValue, is_rendered_runtime_diagnostic,
+};
 use crate::primop::{PrimOp, execute_primop};
 use crate::runtime::RuntimeContext;
 use crate::runtime::{
@@ -86,6 +88,35 @@ fn maybe_collect_gc(ctx: &mut JitContext) {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_division_by_zero(ctx: *mut JitContext) {
     unsafe { ctx_ref(ctx) }.error = Some("division by zero".to_string());
+}
+
+/// Re-render the current `ctx.error` as a structured diagnostic with span
+/// information.  Called from Cranelift-compiled code after a runtime helper
+/// sets `ctx.error` to a raw message.  This produces the same formatted
+/// output as the VM's diagnostic pipeline (error code, source snippet, span
+/// highlight) — minus the stack trace which the JIT does not track.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_render_error_with_span(
+    ctx: *mut JitContext,
+    start_line: i64,
+    start_col: i64,
+    end_line: i64,
+    end_col: i64,
+) {
+    let ctx = unsafe { ctx_ref(ctx) };
+    if let Some(raw) = ctx.error.as_ref() {
+        if is_rendered_runtime_diagnostic(raw) {
+            return; // already rendered
+        }
+        let rendered = ctx.render_runtime_error_from_string(
+            raw,
+            start_line as usize,
+            start_col as usize,
+            end_line as usize,
+            end_col as usize,
+        );
+        ctx.error = Some(rendered);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -292,7 +323,7 @@ pub extern "C" fn rt_add(
         }
         _ => {
             ctx.error = Some(format!(
-                "cannot add {} and {}",
+                "Invalid Operation\nCannot add {} and {} values.",
                 a.type_name(),
                 b.type_name()
             ));
@@ -325,7 +356,7 @@ pub extern "C" fn rt_sub(
         }
         _ => {
             ctx.error = Some(format!(
-                "cannot subtract {} and {}",
+                "Invalid Operation\nCannot subtract {} and {} values.",
                 a.type_name(),
                 b.type_name()
             ));
@@ -358,7 +389,7 @@ pub extern "C" fn rt_mul(
         }
         _ => {
             ctx.error = Some(format!(
-                "cannot multiply {} and {}",
+                "Invalid Operation\nCannot multiply {} and {} values.",
                 a.type_name(),
                 b.type_name()
             ));
@@ -395,7 +426,7 @@ pub extern "C" fn rt_div(
         }
         _ => {
             ctx.error = Some(format!(
-                "cannot divide {} and {}",
+                "Invalid Operation\nCannot divide {} and {} values.",
                 a.type_name(),
                 b.type_name()
             ));
@@ -432,7 +463,7 @@ pub extern "C" fn rt_mod(
         }
         _ => {
             ctx.error = Some(format!(
-                "cannot modulo {} and {}",
+                "Invalid Operation\nCannot modulo {} and {} values.",
                 a.type_name(),
                 b.type_name()
             ));
@@ -455,7 +486,10 @@ pub extern "C" fn rt_negate(ctx: *mut JitContext, a: JitTaggedValue) -> JitTagge
         Value::Integer(v) => JitTaggedValue::int(-v),
         Value::Float(v) => JitTaggedValue::float_bits((-v).to_bits() as i64),
         _ => {
-            ctx.error = Some(format!("cannot negate {}", a.type_name()));
+            ctx.error = Some(format!(
+                "Invalid Operation\nCannot negate {} value.",
+                a.type_name()
+            ));
             JitTaggedValue::none()
         }
     }
@@ -1960,6 +1994,10 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_make_bool", rt_make_bool as *const u8),
         ("rt_make_none", rt_make_none as *const u8),
         ("rt_division_by_zero", rt_division_by_zero as *const u8),
+        (
+            "rt_render_error_with_span",
+            rt_render_error_with_span as *const u8,
+        ),
         ("rt_force_boxed", rt_force_boxed as *const u8),
         ("rt_push_gc_roots", rt_push_gc_roots as *const u8),
         ("rt_pop_gc_roots", rt_pop_gc_roots as *const u8),
