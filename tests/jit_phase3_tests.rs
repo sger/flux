@@ -34,7 +34,7 @@ fn run_jit_err(input: &str) -> String {
     let opts = JitOptions::default();
     match jit_compile_and_run(&program, &interner, &opts) {
         Ok((value, _)) => panic!("expected JIT error, got value: {}", value),
-        Err(err) => err,
+        Err(err) => err.to_string(),
     }
 }
 

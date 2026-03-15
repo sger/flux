@@ -144,17 +144,15 @@ impl RuntimeType {
                     return false;
                 }
                 for (expected, actual) in params.iter().zip(contract.params.iter()) {
-                    let Some(actual) = actual else {
-                        return false;
-                    };
-                    if !runtime_type_compatible(expected, actual) {
+                    if let Some(actual) = actual
+                        && !runtime_type_compatible(expected, actual)
+                    {
                         return false;
                     }
                 }
-                let Some(actual_ret) = contract.ret.as_ref() else {
-                    return false;
-                };
-                if !runtime_type_compatible(ret, actual_ret) {
+                if let Some(actual_ret) = contract.ret.as_ref()
+                    && !runtime_type_compatible(ret, actual_ret)
+                {
                     return false;
                 }
                 effects_subset(&contract.effects, effects)

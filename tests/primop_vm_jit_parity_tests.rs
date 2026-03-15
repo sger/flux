@@ -43,7 +43,9 @@ fn run_jit(input: &str) -> Result<Value, String> {
     if let Err(diags) = compiler.compile(&program) {
         return Err(render_diagnostics(&diags, Some(input), None));
     }
-    jit_compile_and_run(&program, &interner, &JitOptions::default()).map(|(value, _)| value)
+    jit_compile_and_run(&program, &interner, &JitOptions::default())
+        .map(|(value, _)| value)
+        .map_err(|err| err.to_string())
 }
 
 fn assert_vm_jit_value(input: &str) {
