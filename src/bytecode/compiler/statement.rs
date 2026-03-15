@@ -1181,8 +1181,10 @@ impl Compiler {
             }
         }
 
-        let symbol = if let Some(existing) = self.symbol_table.resolve(name) {
-            existing
+        let symbol = if self.symbol_table.exists_in_current_scope(name) {
+            self.symbol_table
+                .resolve(name)
+                .expect("current-scope function binding must resolve")
         } else {
             self.symbol_table.define(name, function_span)
         };
@@ -2072,12 +2074,14 @@ impl Compiler {
             }
         }
 
-        // Resolve the symbol - it may have been predeclared in pass 1
-        let symbol = if let Some(existing) = self.symbol_table.resolve(name) {
-            // Use the existing symbol from pass 1
-            existing
+        // Only reuse a current-scope predeclaration (for top-level/module pass 1).
+        // If an outer or Base binding already exists, this nested function must
+        // create a new local binding so it correctly shadows that name.
+        let symbol = if self.symbol_table.exists_in_current_scope(name) {
+            self.symbol_table
+                .resolve(name)
+                .expect("current-scope function binding must resolve")
         } else {
-            // Define new symbol (for nested functions or non-predeclared cases)
             self.symbol_table.define(name, function_span)
         };
 

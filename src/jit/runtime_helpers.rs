@@ -11,6 +11,8 @@ use std::rc::Rc;
 use std::slice::from_raw_parts;
 use std::str::from_utf8_unchecked;
 
+use crate::diagnostics::position::{Position, Span};
+use crate::diagnostics::{Diagnostic, DiagnosticPhase, ErrorType};
 use crate::jit::context::{
     JitHandlerArm, JitHandlerFrame, JitTaggedValue, is_rendered_runtime_diagnostic,
 };
@@ -40,6 +42,143 @@ unsafe fn ctx_ref<'a>(ctx: *mut JitContext) -> &'a mut JitContext {
     unsafe { &mut *ctx }
 }
 
+fn split_first_line(message: &str) -> (&str, &str) {
+    if let Some((title, rest)) = message.split_once('\n') {
+        (title, rest)
+    } else {
+        (message, "")
+    }
+}
+
+fn split_hint(message: &str) -> (&str, Option<&str>) {
+    if let Some((body, hint)) = message.split_once("\n\nHint:\n") {
+        (body, Some(hint))
+    } else {
+        (message, None)
+    }
+}
+
+fn classify_runtime_error_code(message: &str) -> &'static str {
+    if message.contains("wrong number of arguments") {
+        "E1000"
+    } else if message.contains("division by zero") {
+        "E1008"
+    } else if message.contains("not a function") || message.contains("not callable") {
+        "E1001"
+    } else if message.contains("expected") || message.contains("expects") {
+        "E1004"
+    } else {
+        "E1009"
+    }
+}
+
+fn parse_rendered_runtime_diagnostic(err: &str) -> Option<Diagnostic> {
+    let mut lines = err.lines();
+    let header = lines.next()?.trim();
+    if !header.starts_with("• ") {
+        return None;
+    }
+
+    let error_line = lines.find(|line| {
+        let trimmed = line.trim_start();
+        trimmed.starts_with("Error[") || trimmed.starts_with("error[")
+    })?;
+    let error_line = error_line.trim();
+    let code_end = error_line.find(']')?;
+    let prefix_len = if error_line.starts_with("Error[") {
+        "Error[".len()
+    } else {
+        "error[".len()
+    };
+    let code = error_line.get(prefix_len..code_end)?;
+    let title = error_line.get(code_end + 1..)?.trim().strip_prefix(": ")?;
+
+    let mut message_lines = Vec::new();
+    let mut location_line = None;
+    for line in lines {
+        if location_line.is_none()
+            && line.starts_with("  ")
+            && line.trim().contains(':')
+            && !line.contains('|')
+        {
+            location_line = Some(line.trim().to_string());
+            break;
+        }
+        if !line.trim().is_empty() {
+            message_lines.push(line.trim_end().to_string());
+        }
+    }
+    let location_line = location_line?;
+    let (file_and_line, column) = location_line.rsplit_once(':')?;
+    let (file, line) = file_and_line.rsplit_once(':')?;
+    let line = line.parse::<usize>().ok()?;
+    let column = column.parse::<usize>().ok()?;
+
+    Some(
+        Diagnostic::make_error_dynamic(
+            code,
+            title,
+            ErrorType::Runtime,
+            message_lines.join("\n").trim(),
+            None,
+            file.to_string(),
+            Span::new(
+                Position::new(line, column.saturating_sub(1)),
+                Position::new(line, column.saturating_sub(1)),
+            ),
+        )
+        .with_phase(DiagnosticPhase::Runtime),
+    )
+}
+
+fn runtime_diagnostic_from_message(
+    ctx: &JitContext,
+    message: &str,
+    start_line: usize,
+    start_column: usize,
+    end_line: usize,
+    end_column: usize,
+) -> Diagnostic {
+    if is_rendered_runtime_diagnostic(message)
+        && let Some(diag) = parse_rendered_runtime_diagnostic(message)
+    {
+        return diag;
+    }
+
+    let (message, hint) = split_hint(message);
+    let (title, details) = split_first_line(message);
+    if let Some(actual) = title.strip_prefix("not callable: ") {
+        return ctx.runtime_error_diagnostic(
+            "E1001",
+            "Not A Function",
+            &format!("Cannot call non-function value (got {}).", actual.trim()),
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+        );
+    }
+
+    let file = ctx
+        .source_file
+        .clone()
+        .unwrap_or_else(|| "<jit>".to_string());
+    let span = Span::new(
+        Position::new(start_line, start_column.saturating_sub(1)),
+        Position::new(end_line, end_column.saturating_sub(1)),
+    );
+    Diagnostic::make_error_dynamic(
+        classify_runtime_error_code(title),
+        title.trim(),
+        ErrorType::Runtime,
+        details.trim(),
+        hint.map(|h| h.trim().to_string()),
+        file,
+        span,
+    )
+    .with_phase(DiagnosticPhase::Runtime)
+}
+
 fn clone_tagged_arg(
     ctx: &mut JitContext,
     value: JitTaggedValue,
@@ -50,7 +189,7 @@ fn clone_tagged_arg(
         Some(value) => Some(value),
         None => {
             if ctx.error.is_none() {
-                ctx.error = Some(format!(
+                ctx.set_internal_error(format!(
                     "{label} received invalid tagged value at index {index}"
                 ));
             }
@@ -87,7 +226,7 @@ fn maybe_collect_gc(ctx: &mut JitContext) {
 /// the JIT context. The JIT emits a null return immediately after this call.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_division_by_zero(ctx: *mut JitContext) {
-    unsafe { ctx_ref(ctx) }.error = Some("division by zero".to_string());
+    unsafe { ctx_ref(ctx) }.set_internal_error("division by zero");
 }
 
 /// Re-render the current `ctx.error` as a structured diagnostic with span
@@ -104,18 +243,16 @@ pub extern "C" fn rt_render_error_with_span(
     end_col: i64,
 ) {
     let ctx = unsafe { ctx_ref(ctx) };
-    if let Some(raw) = ctx.error.as_ref() {
-        if is_rendered_runtime_diagnostic(raw) {
-            return; // already rendered
-        }
-        let rendered = ctx.render_runtime_error_from_string(
-            raw,
+    if let Some(raw) = ctx.take_internal_error() {
+        let diag = runtime_diagnostic_from_message(
+            ctx,
+            &raw,
             start_line as usize,
             start_col as usize,
             end_line as usize,
             end_col as usize,
         );
-        ctx.error = Some(rendered);
+        ctx.set_runtime_error_diag(diag);
     }
 }
 
@@ -753,7 +890,7 @@ pub extern "C" fn rt_call_base_function_tagged(
     match get_base_function_by_index(base_fn_index as usize) {
         Some(_) => {}
         None => {
-            ctx.error = Some(format!("unknown Base function index: {}", base_fn_index));
+            ctx.set_internal_error(format!("unknown Base function index: {}", base_fn_index));
             return ptr::null_mut();
         }
     }
@@ -783,7 +920,7 @@ pub extern "C" fn rt_call_base_function_tagged(
             }
             JIT_TAG_PTR => {
                 if tagged.payload == 0 {
-                    ctx.error = Some(format!(
+                    ctx.set_internal_error(format!(
                         "base function arg {} evaluated to null",
                         refs.len()
                     ));
@@ -792,7 +929,7 @@ pub extern "C" fn rt_call_base_function_tagged(
                 refs.push(tagged.payload as *const Value);
             }
             _ => {
-                ctx.error = Some(format!("unknown tag {} in base function arg", tagged.tag));
+                ctx.set_internal_error(format!("unknown tag {} in base function arg", tagged.tag));
                 return ptr::null_mut();
             }
         }
@@ -805,7 +942,8 @@ pub extern "C" fn rt_call_base_function_tagged(
     match ctx.invoke_base_function_borrowed(base_fn_index as usize, &borrowed) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
-            ctx.error = Some(ctx.render_runtime_error_from_string(
+            ctx.set_runtime_error_diag(runtime_diagnostic_from_message(
+                ctx,
                 &msg,
                 start_line as usize,
                 start_column as usize,
@@ -845,7 +983,7 @@ pub extern "C" fn rt_call_base_function(
     for i in 0..nargs as usize {
         let arg_ptr = unsafe { *args_ptr.add(i) };
         if arg_ptr.is_null() {
-            ctx.error = Some(format!("base function arg {} evaluated to null", i));
+            ctx.set_internal_error(format!("base function arg {} evaluated to null", i));
             return ptr::null_mut();
         }
         args.push(unsafe { &*arg_ptr });
@@ -854,7 +992,8 @@ pub extern "C" fn rt_call_base_function(
     match ctx.invoke_base_function_borrowed(base_fn_index as usize, &args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
-            ctx.error = Some(ctx.render_runtime_error_from_string(
+            ctx.set_runtime_error_diag(runtime_diagnostic_from_message(
+                ctx,
                 &msg,
                 start_line as usize,
                 start_column as usize,
@@ -882,7 +1021,7 @@ pub extern "C" fn rt_call_primop(
     let op = match PrimOp::from_id(primop_id as u8) {
         Some(op) => op,
         None => {
-            ctx.error = Some(format!("unknown primop id: {}", primop_id));
+            ctx.set_internal_error(format!("unknown primop id: {}", primop_id));
             return ptr::null_mut();
         }
     };
@@ -891,7 +1030,7 @@ pub extern "C" fn rt_call_primop(
     for i in 0..nargs as usize {
         let arg_ptr = unsafe { *args_ptr.add(i) };
         if arg_ptr.is_null() {
-            ctx.error = Some(format!("primop arg {} evaluated to null", i));
+            ctx.set_internal_error(format!("primop arg {} evaluated to null", i));
             return ptr::null_mut();
         }
         args.push(unsafe { (*arg_ptr).clone() });
@@ -900,8 +1039,8 @@ pub extern "C" fn rt_call_primop(
     match execute_primop(ctx, op, args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
-            ctx.error = Some(ctx.render_runtime_error_message(
-                "E1004",
+            ctx.set_runtime_error_diag(runtime_diagnostic_from_message(
+                ctx,
                 &msg,
                 start_line as usize,
                 start_column as usize,
@@ -930,7 +1069,7 @@ pub extern "C" fn rt_call_value(
     for i in 0..nargs as usize {
         let arg_ptr = unsafe { *args_ptr.add(i) };
         if arg_ptr.is_null() {
-            ctx.error = Some(format!("call arg {} evaluated to null", i));
+            ctx.set_internal_error(format!("call arg {} evaluated to null", i));
             return ptr::null_mut();
         }
         args.push(unsafe { (*arg_ptr).clone() });
@@ -939,7 +1078,8 @@ pub extern "C" fn rt_call_value(
     match crate::runtime::RuntimeContext::invoke_value(ctx, callee_value, args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
-            ctx.error = Some(ctx.render_runtime_error_from_string(
+            ctx.set_runtime_error_diag(runtime_diagnostic_from_message(
+                ctx,
                 &msg,
                 start_line as usize,
                 start_column as usize,
@@ -993,13 +1133,13 @@ pub extern "C" fn rt_check_jit_contract_call(
     for i in 0..nargs as usize {
         let arg_ptr = unsafe { *args_ptr.add(i) };
         if arg_ptr.is_null() {
-            ctx.error = Some(format!("call arg {} evaluated to null", i));
+            ctx.set_internal_error(format!("call arg {} evaluated to null", i));
             return 0;
         }
         let arg = unsafe { &*arg_ptr };
         if let Err((expected, actual)) = ctx.check_contract_arg(function_index as usize, i, arg) {
             let preview = arg.to_string();
-            ctx.error = Some(ctx.render_runtime_type_error_at(
+            ctx.set_runtime_error_diag(ctx.runtime_type_error_diagnostic_at(
                 &expected,
                 &actual,
                 Some(&preview),
@@ -1025,13 +1165,13 @@ fn check_jit_contract_call_args(
 ) -> i64 {
     for (i, arg_ptr) in args.iter().copied().enumerate() {
         if arg_ptr.is_null() {
-            ctx.error = Some(format!("call arg {} evaluated to null", i));
+            ctx.set_internal_error(format!("call arg {} evaluated to null", i));
             return 0;
         }
         let arg = unsafe { &*arg_ptr };
         if let Err((expected, actual)) = ctx.check_contract_arg(function_index, i, arg) {
             let preview = arg.to_string();
-            ctx.error = Some(ctx.render_runtime_type_error_at(
+            ctx.set_runtime_error_diag(ctx.runtime_type_error_diagnostic_at(
                 &expected,
                 &actual,
                 Some(&preview),
@@ -1145,10 +1285,10 @@ pub extern "C" fn rt_check_jit_contract_return(
     ctx: *mut JitContext,
     function_index: i64,
     value: *mut Value,
-    start_line: i64,
-    start_column: i64,
-    end_line: i64,
-    end_column: i64,
+    _start_line: i64,
+    _start_column: i64,
+    _end_line: i64,
+    _end_column: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     if value.is_null() {
@@ -1157,14 +1297,11 @@ pub extern "C" fn rt_check_jit_contract_return(
     let value_ref = unsafe { &*value };
     if let Err((expected, actual)) = ctx.check_contract_return(function_index as usize, value_ref) {
         let preview = value_ref.to_string();
-        ctx.error = Some(ctx.render_runtime_type_error_at(
+        ctx.set_runtime_error_diag(ctx.contract_return_error_diagnostic(
+            function_index as usize,
             &expected,
             &actual,
             Some(&preview),
-            start_line as usize,
-            start_column as usize,
-            end_line as usize,
-            end_column as usize,
         ));
         return ptr::null_mut();
     }
@@ -1912,7 +2049,7 @@ pub extern "C" fn rt_perform(
                     break;
                 }
                 // Found effect but no matching op — error
-                ctx_mut.error = Some(ctx_mut.render_runtime_error(
+                ctx_mut.set_runtime_error_code(
                     "E1009",
                     "UNHANDLED OPERATION",
                     &format!("unhandled operation: {}.{}", effect_name, op_name),
@@ -1920,14 +2057,14 @@ pub extern "C" fn rt_perform(
                     column,
                     line,
                     column,
-                ));
+                );
                 return ptr::null_mut();
             }
         }
         match found {
             Some(c) => c,
             None => {
-                ctx_mut.error = Some(ctx_mut.render_runtime_error(
+                ctx_mut.set_runtime_error_code(
                     "E1009",
                     "UNHANDLED EFFECT",
                     &format!(
@@ -1938,7 +2075,7 @@ pub extern "C" fn rt_perform(
                     column,
                     line,
                     column,
-                ));
+                );
                 return ptr::null_mut();
             }
         }

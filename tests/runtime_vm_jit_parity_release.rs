@@ -40,7 +40,9 @@ fn run_jit_program(input: &str) -> Result<Value, String> {
         render_diagnostics(&parser.errors, Some(input), None)
     );
     let interner = parser.take_interner();
-    jit_compile_and_run(&program, &interner, &JitOptions::default()).map(|(value, _)| value)
+    jit_compile_and_run(&program, &interner, &JitOptions::default())
+        .map(|(value, _)| value)
+        .map_err(|err| err.to_string())
 }
 
 fn assert_vm_jit_value(input: &str) {

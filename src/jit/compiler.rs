@@ -7,6 +7,7 @@ use std::{
     rc::Rc,
 };
 
+use crate::diagnostics::Diagnostic;
 use cranelift_codegen::ir::{
     AbiParam, BlockArg, Function, InstBuilder, MemFlags, UserFuncName, Value as CraneliftValue,
     condcodes::{FloatCC, IntCC},
@@ -140,6 +141,7 @@ struct LiteralFunctionSpec {
     return_type: Option<TypeExpr>,
     body: Block,
     captures: Vec<Identifier>,
+    visible_named_locals: Vec<(Identifier, LiteralKey)>,
     self_name: Option<Identifier>,
 }
 
@@ -151,6 +153,7 @@ struct IrLiteralFunctionSpec {
     return_type: Option<TypeExpr>,
     body: IrStructuredBlock,
     captures: Vec<Identifier>,
+    visible_named_locals: Vec<(Identifier, LiteralKey)>,
     self_name: Option<Identifier>,
 }
 
@@ -304,6 +307,53 @@ fn bind_local(
     };
     scope.locals.insert(name, binding.clone());
     binding
+}
+
+fn bind_named_local_function_metas_from_block(scope: &mut Scope, body: &Block) {
+    for stmt in &body.statements {
+        let Statement::Function {
+            name,
+            parameters,
+            body,
+            span,
+            ..
+        } = stmt
+        else {
+            continue;
+        };
+        let expr = Expression::Function {
+            parameters: parameters.clone(),
+            parameter_types: Vec::new(),
+            return_type: None,
+            effects: Vec::new(),
+            body: body.clone(),
+            span: *span,
+            id: ExprId::UNSET,
+        };
+        let key = LiteralKey::from_expr(&expr);
+        if let Some(meta) = scope.literal_functions.get(&key).copied() {
+            scope.functions.insert(*name, meta);
+        }
+    }
+}
+
+fn bind_named_ir_local_function_metas_from_block(scope: &mut Scope, body: &IrStructuredBlock) {
+    for item in &body.statements {
+        let IrTopLevelItem::Function {
+            name,
+            parameters,
+            body,
+            span,
+            ..
+        } = item
+        else {
+            continue;
+        };
+        let key = LiteralKey::from_ir_function(parameters, body.span, *span);
+        if let Some(meta) = scope.literal_functions.get(&key).copied() {
+            scope.functions.insert(*name, meta);
+        }
+    }
 }
 
 fn use_local(builder: &mut FunctionBuilder, binding: LocalBinding) -> JitValue {
@@ -612,6 +662,10 @@ pub struct JitCompiler {
     /// Index in `jit_functions` of the compiled identity function used as
     /// the `resume` value for shallow JIT handlers.
     pub identity_fn_index: usize,
+    /// Source file path for diagnostic rendering.
+    source_file: Option<String>,
+    /// Source text for diagnostic rendering.
+    source_text: Option<String>,
 }
 
 struct JitFunctionCompileEntry {
@@ -619,6 +673,7 @@ struct JitFunctionCompileEntry {
     num_params: usize,
     call_abi: JitCallAbi,
     contract: Option<FunctionContract>,
+    return_span: Option<Span>,
 }
 
 impl JitCompiler {
@@ -657,11 +712,75 @@ impl JitCompiler {
             named_functions: HashMap::new(),
             hm_expr_types: Rc::new(hm_expr_types),
             identity_fn_index: usize::MAX,
+            source_file: None,
+            source_text: None,
         };
 
         compiler.declare_helpers()?;
 
         Ok(compiler)
+    }
+
+    /// Set source context for diagnostic rendering.
+    pub fn set_source_context(&mut self, file: Option<String>, text: Option<String>) {
+        self.source_file = file;
+        self.source_text = text;
+    }
+
+    /// Parse a compile-time error string (e.g. `"error[E1000]: ...\n  at line:col:end"`)
+    /// and convert it to a structured diagnostic.
+    pub fn render_compile_error_string(&self, err: &str) -> Diagnostic {
+        use crate::diagnostics::{
+            Diagnostic, DiagnosticPhase, ErrorType,
+            position::{Position, Span},
+        };
+
+        // Parse "error[CODE]: title\n  at line:col:end_col"
+        let (first_line, rest) = err.split_once('\n').unwrap_or((err, ""));
+        let (code, title) = if let Some(after_bracket) = first_line.strip_prefix("error[") {
+            if let Some((code, title)) = after_bracket.split_once("]: ") {
+                (code, title)
+            } else {
+                ("E1009", first_line)
+            }
+        } else {
+            ("E1009", first_line)
+        };
+
+        // Parse span from "  at line:col:end_col"
+        let span = rest
+            .trim()
+            .strip_prefix("at ")
+            .and_then(|s| {
+                let parts: Vec<&str> = s.split(':').collect();
+                if parts.len() >= 3 {
+                    let line = parts[0].parse::<usize>().ok()?;
+                    let col = parts[1].parse::<usize>().ok()?;
+                    let end_col = parts[2].parse::<usize>().ok()?;
+                    Some(Span::new(
+                        Position::new(line, col.saturating_sub(1)),
+                        Position::new(line, end_col.saturating_sub(1)),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+
+        let file = self
+            .source_file
+            .clone()
+            .unwrap_or_else(|| "<jit>".to_string());
+        Diagnostic::make_error_dynamic(
+            code,
+            title,
+            ErrorType::Runtime,
+            "",
+            None,
+            file.clone(),
+            span,
+        )
+        .with_phase(DiagnosticPhase::Runtime)
     }
 
     /// Declare all runtime helper functions in the JIT module.
@@ -1003,6 +1122,7 @@ impl JitCompiler {
             num_params: 1,
             call_abi: JitCallAbi::Reg1,
             contract: None,
+            return_span: None,
         });
         Ok(function_index)
     }
@@ -1080,6 +1200,7 @@ impl JitCompiler {
                     parameter_types,
                     return_type,
                     effects,
+                    span,
                     ..
                 } => {
                     if scope.functions.contains_key(name) {
@@ -1106,6 +1227,7 @@ impl JitCompiler {
                         num_params: parameters.len(),
                         call_abi,
                         contract,
+                        return_span: return_type.as_ref().map(|_| *span),
                     });
                     scope.functions.insert(
                         *name,
@@ -1131,6 +1253,7 @@ impl JitCompiler {
                             parameter_types,
                             return_type,
                             effects,
+                            span,
                             ..
                         } = inner
                         else {
@@ -1166,6 +1289,7 @@ impl JitCompiler {
                             num_params: parameters.len(),
                             call_abi,
                             contract,
+                            return_span: return_type.as_ref().map(|_| *span),
                         });
                         scope.module_functions.insert(
                             key,
@@ -1450,6 +1574,7 @@ impl JitCompiler {
                     parameter_types,
                     return_type,
                     effects,
+                    span,
                     ..
                 } => {
                     if !scope.functions.contains_key(name) {
@@ -1473,6 +1598,7 @@ impl JitCompiler {
                             num_params: parameters.len(),
                             call_abi,
                             contract,
+                            return_span: return_type.as_ref().map(|_| *span),
                         });
                         let meta = JitFunctionMeta {
                             id,
@@ -1501,6 +1627,7 @@ impl JitCompiler {
                             parameter_types,
                             return_type,
                             effects,
+                            span,
                             ..
                         } = inner
                         else {
@@ -1536,6 +1663,7 @@ impl JitCompiler {
                             num_params: parameters.len(),
                             call_abi,
                             contract,
+                            return_span: return_type.as_ref().map(|_| *span),
                         });
                         let meta = JitFunctionMeta {
                             id,
@@ -1692,6 +1820,7 @@ impl JitCompiler {
                 num_params: spec.parameters.len(),
                 call_abi,
                 contract,
+                return_span: spec.return_type.as_ref().map(|_| spec.body.span),
             });
             scope.literal_functions.insert(
                 spec.key,
@@ -1752,6 +1881,7 @@ impl JitCompiler {
                 num_params: spec.parameters.len(),
                 call_abi,
                 contract,
+                return_span: spec.return_type.as_ref().map(|_| spec.body.span),
             });
             scope.literal_functions.insert(
                 spec.key,
@@ -1788,6 +1918,12 @@ impl JitCompiler {
                 let mut builder = FunctionBuilder::new(&mut func, &mut self.builder_ctx);
                 let mut fn_scope = scope.clone();
                 fn_scope.locals.clear();
+                for (name, key) in &spec.visible_named_locals {
+                    if let Some(meta) = scope.literal_functions.get(key).copied() {
+                        fn_scope.functions.insert(*name, meta);
+                    }
+                }
+                bind_named_local_function_metas_from_block(&mut fn_scope, &spec.body);
 
                 let entry = builder.create_block();
                 let init_block = builder.create_block();
@@ -2055,6 +2191,17 @@ impl JitCompiler {
             let Some(meta) = scope.literal_functions.get(&spec.key).copied() else {
                 continue;
             };
+            let visible_named_locals = spec
+                .visible_named_locals
+                .iter()
+                .filter_map(|(name, key)| {
+                    scope
+                        .literal_functions
+                        .get(key)
+                        .copied()
+                        .map(|meta| (*name, meta))
+                })
+                .collect::<Vec<_>>();
             self.compile_ir_function_body(
                 scope,
                 IrCompiledFunctionSpec {
@@ -2065,7 +2212,7 @@ impl JitCompiler {
                     captures: &spec.captures,
                     self_name: spec.self_name,
                     function_name: spec.self_name,
-                    local_functions: &[],
+                    local_functions: &visible_named_locals,
                 },
                 interner,
                 "define literal function",
@@ -2092,6 +2239,7 @@ impl JitCompiler {
             for (name, meta) in spec.local_functions {
                 fn_scope.functions.insert(*name, *meta);
             }
+            bind_named_local_function_metas_from_block(&mut fn_scope, spec.body);
 
             let entry = builder.create_block();
             let init_block = builder.create_block();
@@ -2644,6 +2792,7 @@ impl JitCompiler {
                 num_params: entry.num_params,
                 call_abi: entry.call_abi,
                 contract: entry.contract.clone(),
+                return_span: entry.return_span,
             })
             .collect()
     }
@@ -3224,9 +3373,39 @@ fn try_compile_jit_ir_cfg_function_body(
                     } => {
                         let meta = match target {
                             IrCallTarget::Named(name) => {
-                                scope.functions.get(name).copied().ok_or_else(|| {
-                                    "missing JIT CFG named call target".to_string()
-                                })?
+                                if let Some(meta) = scope.functions.get(name).copied() {
+                                    meta
+                                } else if let Some(binding) = scope.locals.get(name).cloned() {
+                                    let callee = use_local(builder, binding);
+                                    let mut arg_vals = Vec::with_capacity(args.len());
+                                    for arg in args {
+                                        let value = use_local(
+                                            builder,
+                                            bindings.get(arg).cloned().ok_or_else(|| {
+                                                "missing JIT CFG call arg binding".to_string()
+                                            })?,
+                                        );
+                                        arg_vals.push(value);
+                                    }
+                                    let value = compile_jit_cfg_generic_call(
+                                        module,
+                                        helpers,
+                                        builder,
+                                        ctx_val,
+                                        callee,
+                                        &arg_vals,
+                                        metadata.span.unwrap_or_default(),
+                                    )?;
+                                    let binding =
+                                        bindings.entry(*dest).or_insert_with(|| LocalBinding {
+                                            var: declare_local(builder, value.kind),
+                                            kind: value.kind,
+                                        });
+                                    builder.def_var(binding.var, value.value);
+                                    continue;
+                                } else {
+                                    return Err("missing JIT CFG named call target".to_string());
+                                }
                             }
                             IrCallTarget::Direct(id) => {
                                 scope.ir_functions.get(id).copied().ok_or_else(|| {
@@ -3410,6 +3589,17 @@ fn try_compile_jit_ir_cfg_function_body(
                                         Span::default(),
                                     )?)
                                 }
+                            } else if let Some(binding) = scope.locals.get(name).cloned() {
+                                let callee = use_local(builder, binding);
+                                Some(compile_jit_cfg_generic_call(
+                                    module,
+                                    helpers,
+                                    builder,
+                                    ctx_val,
+                                    callee,
+                                    &arg_vals,
+                                    Span::default(),
+                                )?)
                             } else if let Some(&base_idx) = scope.base_functions.get(name) {
                                 // Base function in tail position — emit
                                 // a regular base-function call (no thunk).
@@ -3799,16 +3989,16 @@ fn compile_ir_expression(
                     .ins()
                     .call(make_jit_closure, &[ctx_val, fn_idx, null_ptr, zero]);
                 Ok(JitValue::boxed(builder.inst_results(call)[0]))
+            } else if let Some(&idx) = scope.globals.get(name) {
+                let get_global = get_helper_func_ref(module, helpers, builder, "rt_get_global");
+                let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
+                let call = builder.ins().call(get_global, &[ctx_val, idx_val]);
+                Ok(JitValue::boxed(builder.inst_results(call)[0]))
             } else if let Some(&base_idx) = scope.base_functions.get(name) {
                 let make_base =
                     get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
                 let idx = builder.ins().iconst(PTR_TYPE, base_idx as i64);
                 let call = builder.ins().call(make_base, &[ctx_val, idx]);
-                Ok(JitValue::boxed(builder.inst_results(call)[0]))
-            } else if let Some(&idx) = scope.globals.get(name) {
-                let get_global = get_helper_func_ref(module, helpers, builder, "rt_get_global");
-                let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
-                let call = builder.ins().call(get_global, &[ctx_val, idx_val]);
                 Ok(JitValue::boxed(builder.inst_results(call)[0]))
             } else if scope.adt_constructors.get(name).copied() == Some(0) {
                 let name_str = interner.resolve(*name);
@@ -3885,8 +4075,44 @@ fn compile_ir_expression(
                     ));
                 }
             }
-
-            Err("unsupported member access in JIT (only Module.member is supported)".to_string())
+            let object_val = compile_ir_expression(
+                module,
+                helpers,
+                builder,
+                function_compiler,
+                scope,
+                ctx_val,
+                return_block,
+                tail_call,
+                object,
+                interner,
+            )?;
+            let member_name = interner.resolve(*member);
+            let bytes = member_name.as_bytes();
+            let data = module
+                .declare_anonymous_data(false, false)
+                .map_err(|e| e.to_string())?;
+            let mut desc = cranelift_module::DataDescription::new();
+            desc.define(bytes.to_vec().into_boxed_slice());
+            module.define_data(data, &desc).map_err(|e| e.to_string())?;
+            let gv = module.declare_data_in_func(data, builder.func);
+            let ptr = builder.ins().global_value(PTR_TYPE, gv);
+            let len = builder.ins().iconst(PTR_TYPE, bytes.len() as i64);
+            let make_string = get_helper_func_ref(module, helpers, builder, "rt_make_string");
+            let member_call = builder.ins().call(make_string, &[ctx_val, ptr, len]);
+            let member_val = builder.inst_results(member_call)[0];
+            let rt_index = get_helper_func_ref(module, helpers, builder, "rt_index");
+            let object_val = box_jit_value(module, helpers, builder, ctx_val, object_val);
+            let index_call = builder
+                .ins()
+                .call(rt_index, &[ctx_val, object_val, member_val]);
+            let indexed = builder.inst_results(index_call)[0];
+            emit_return_on_null_value(builder, indexed);
+            let unwrap_some = get_helper_func_ref(module, helpers, builder, "rt_unwrap_some");
+            let unwrap_call = builder.ins().call(unwrap_some, &[ctx_val, indexed]);
+            let result = builder.inst_results(unwrap_call)[0];
+            emit_return_on_null_value(builder, result);
+            Ok(JitValue::boxed(result))
         }
         IrStructuredExpr::Prefix {
             operator, right, ..
@@ -4352,9 +4578,9 @@ fn compile_ir_expression(
                         interner,
                     );
                 }
-                // User-defined functions shadow base functions, so check
-                // scope.functions before scope.base_functions.
-                if let Some(meta) = scope.functions.get(name).copied() {
+                if !scope.locals.contains_key(name)
+                    && let Some(meta) = scope.functions.get(name).copied()
+                {
                     return compile_ir_user_function_call(
                         module,
                         helpers,
@@ -5001,6 +5227,33 @@ fn emit_return_on_null_value(builder: &mut FunctionBuilder, value_ptr: Cranelift
     builder.seal_block(continue_block);
 }
 
+/// Like `emit_return_on_null_value` but also renders the raw error in
+/// `ctx.error` as a structured diagnostic with source span before returning.
+/// This is the primary mechanism for VM/JIT error parity.
+fn emit_return_on_null_with_render(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+    value_ptr: CraneliftValue,
+    span: Span,
+) {
+    let is_null = builder.ins().icmp_imm(IntCC::Equal, value_ptr, 0);
+    let null_block = builder.create_block();
+    let continue_block = builder.create_block();
+    builder
+        .ins()
+        .brif(is_null, null_block, &[], continue_block, &[]);
+
+    builder.switch_to_block(null_block);
+    emit_render_error_with_span(module, helpers, builder, ctx_val, span);
+    emit_return_null_tagged(builder);
+    builder.seal_block(null_block);
+
+    builder.switch_to_block(continue_block);
+    builder.seal_block(continue_block);
+}
+
 fn try_compile_tail_expression_statement(
     module: &mut JITModule,
     helpers: &HelperFuncs,
@@ -5231,16 +5484,16 @@ fn compile_expression(
                     .ins()
                     .call(make_jit_closure, &[ctx_val, fn_idx, null_ptr, zero]);
                 Ok(JitValue::boxed(builder.inst_results(call)[0]))
+            } else if let Some(&idx) = scope.globals.get(name) {
+                let get_global = get_helper_func_ref(module, helpers, builder, "rt_get_global");
+                let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
+                let call = builder.ins().call(get_global, &[ctx_val, idx_val]);
+                Ok(JitValue::boxed(builder.inst_results(call)[0]))
             } else if let Some(&base_idx) = scope.base_functions.get(name) {
                 let make_base =
                     get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
                 let idx = builder.ins().iconst(PTR_TYPE, base_idx as i64);
                 let call = builder.ins().call(make_base, &[ctx_val, idx]);
-                Ok(JitValue::boxed(builder.inst_results(call)[0]))
-            } else if let Some(&idx) = scope.globals.get(name) {
-                let get_global = get_helper_func_ref(module, helpers, builder, "rt_get_global");
-                let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
-                let call = builder.ins().call(get_global, &[ctx_val, idx_val]);
                 Ok(JitValue::boxed(builder.inst_results(call)[0]))
             } else if scope.adt_constructors.get(name).copied() == Some(0) {
                 // Zero-arg ADT constructor used as a value (e.g. `Point`, `None_`).
@@ -5319,8 +5572,44 @@ fn compile_expression(
                     ));
                 }
             }
-
-            Err("unsupported member access in JIT (only Module.member is supported)".to_string())
+            let object_val = compile_expression(
+                module,
+                helpers,
+                builder,
+                function_compiler,
+                scope,
+                ctx_val,
+                return_block,
+                tail_call,
+                object,
+                interner,
+            )?;
+            let member_name = interner.resolve(*member);
+            let bytes = member_name.as_bytes();
+            let data = module
+                .declare_anonymous_data(false, false)
+                .map_err(|e| e.to_string())?;
+            let mut desc = cranelift_module::DataDescription::new();
+            desc.define(bytes.to_vec().into_boxed_slice());
+            module.define_data(data, &desc).map_err(|e| e.to_string())?;
+            let gv = module.declare_data_in_func(data, builder.func);
+            let ptr = builder.ins().global_value(PTR_TYPE, gv);
+            let len = builder.ins().iconst(PTR_TYPE, bytes.len() as i64);
+            let make_string = get_helper_func_ref(module, helpers, builder, "rt_make_string");
+            let member_call = builder.ins().call(make_string, &[ctx_val, ptr, len]);
+            let member_val = builder.inst_results(member_call)[0];
+            let rt_index = get_helper_func_ref(module, helpers, builder, "rt_index");
+            let object_val = box_jit_value(module, helpers, builder, ctx_val, object_val);
+            let index_call = builder
+                .ins()
+                .call(rt_index, &[ctx_val, object_val, member_val]);
+            let indexed = builder.inst_results(index_call)[0];
+            emit_return_on_null_value(builder, indexed);
+            let unwrap_some = get_helper_func_ref(module, helpers, builder, "rt_unwrap_some");
+            let unwrap_call = builder.ins().call(unwrap_some, &[ctx_val, indexed]);
+            let result = builder.inst_results(unwrap_call)[0];
+            emit_return_on_null_value(builder, result);
+            Ok(JitValue::boxed(result))
         }
 
         // --- Prefix operators ---
@@ -5766,7 +6055,9 @@ fn compile_expression(
             }
             // Check if calling a base directly
             if let Expression::Identifier { name, .. } = function.as_ref() {
-                if let Some(meta) = scope.functions.get(name).copied() {
+                if !scope.locals.contains_key(name)
+                    && let Some(meta) = scope.functions.get(name).copied()
+                {
                     return compile_user_function_call(
                         module,
                         helpers,
@@ -6648,12 +6939,21 @@ fn compile_match_expression(
                 }
             }
             Pattern::Cons { .. } => {
-                let is_cons = get_helper_func_ref(module, helpers, builder, "rt_is_cons");
-                let call = builder.ins().call(is_cons, &[ctx_val, scrutinee_val]);
-                let is_cons_i64 = builder.inst_results(call)[0];
-                let cond = builder.ins().icmp_imm(IntCC::NotEqual, is_cons_i64, 0);
                 let next = builder.create_block();
-                builder.ins().brif(cond, matched_block, &[], next, &[]);
+                let mut test_scope = scope.clone();
+                emit_pattern_check(
+                    module,
+                    helpers,
+                    builder,
+                    function_compiler,
+                    &mut test_scope,
+                    ctx_val,
+                    &arm.pattern,
+                    scrutinee_val,
+                    matched_block,
+                    next,
+                    interner,
+                )?;
                 next_test = Some(next);
                 pending_test = Some(next);
             }
@@ -6677,33 +6977,22 @@ fn compile_match_expression(
                 next_test = Some(next);
                 pending_test = Some(next);
             }
-            Pattern::Some { .. } => {
-                let is_some = get_helper_func_ref(module, helpers, builder, "rt_is_some");
-                let call = builder.ins().call(is_some, &[ctx_val, scrutinee_val]);
-                let result = builder.inst_results(call)[0];
-                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            Pattern::Some { .. } | Pattern::Left { .. } | Pattern::Right { .. } => {
                 let next = builder.create_block();
-                builder.ins().brif(cond, matched_block, &[], next, &[]);
-                next_test = Some(next);
-                pending_test = Some(next);
-            }
-            Pattern::Left { .. } => {
-                let is_left = get_helper_func_ref(module, helpers, builder, "rt_is_left");
-                let call = builder.ins().call(is_left, &[ctx_val, scrutinee_val]);
-                let result = builder.inst_results(call)[0];
-                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
-                let next = builder.create_block();
-                builder.ins().brif(cond, matched_block, &[], next, &[]);
-                next_test = Some(next);
-                pending_test = Some(next);
-            }
-            Pattern::Right { .. } => {
-                let is_right = get_helper_func_ref(module, helpers, builder, "rt_is_right");
-                let call = builder.ins().call(is_right, &[ctx_val, scrutinee_val]);
-                let result = builder.inst_results(call)[0];
-                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
-                let next = builder.create_block();
-                builder.ins().brif(cond, matched_block, &[], next, &[]);
+                let mut test_scope = scope.clone();
+                emit_pattern_check(
+                    module,
+                    helpers,
+                    builder,
+                    function_compiler,
+                    &mut test_scope,
+                    ctx_val,
+                    &arm.pattern,
+                    scrutinee_val,
+                    matched_block,
+                    next,
+                    interner,
+                )?;
                 next_test = Some(next);
                 pending_test = Some(next);
             }
@@ -6927,12 +7216,21 @@ fn compile_ir_match_expression(
                 }
             }
             IrStructuredPattern::Cons { .. } => {
-                let is_cons = get_helper_func_ref(module, helpers, builder, "rt_is_cons");
-                let call = builder.ins().call(is_cons, &[ctx_val, scrutinee_val]);
-                let is_cons_i64 = builder.inst_results(call)[0];
-                let cond = builder.ins().icmp_imm(IntCC::NotEqual, is_cons_i64, 0);
                 let next = builder.create_block();
-                builder.ins().brif(cond, matched_block, &[], next, &[]);
+                let mut test_scope = scope.clone();
+                emit_ir_pattern_check(
+                    module,
+                    helpers,
+                    builder,
+                    function_compiler,
+                    &mut test_scope,
+                    ctx_val,
+                    &arm.pattern,
+                    scrutinee_val,
+                    matched_block,
+                    next,
+                    interner,
+                )?;
                 next_test = Some(next);
                 pending_test = Some(next);
             }
@@ -6956,33 +7254,24 @@ fn compile_ir_match_expression(
                 next_test = Some(next);
                 pending_test = Some(next);
             }
-            IrStructuredPattern::Some { .. } => {
-                let is_some = get_helper_func_ref(module, helpers, builder, "rt_is_some");
-                let call = builder.ins().call(is_some, &[ctx_val, scrutinee_val]);
-                let result = builder.inst_results(call)[0];
-                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            IrStructuredPattern::Some { .. }
+            | IrStructuredPattern::Left { .. }
+            | IrStructuredPattern::Right { .. } => {
                 let next = builder.create_block();
-                builder.ins().brif(cond, matched_block, &[], next, &[]);
-                next_test = Some(next);
-                pending_test = Some(next);
-            }
-            IrStructuredPattern::Left { .. } => {
-                let is_left = get_helper_func_ref(module, helpers, builder, "rt_is_left");
-                let call = builder.ins().call(is_left, &[ctx_val, scrutinee_val]);
-                let result = builder.inst_results(call)[0];
-                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
-                let next = builder.create_block();
-                builder.ins().brif(cond, matched_block, &[], next, &[]);
-                next_test = Some(next);
-                pending_test = Some(next);
-            }
-            IrStructuredPattern::Right { .. } => {
-                let is_right = get_helper_func_ref(module, helpers, builder, "rt_is_right");
-                let call = builder.ins().call(is_right, &[ctx_val, scrutinee_val]);
-                let result = builder.inst_results(call)[0];
-                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
-                let next = builder.create_block();
-                builder.ins().brif(cond, matched_block, &[], next, &[]);
+                let mut test_scope = scope.clone();
+                emit_ir_pattern_check(
+                    module,
+                    helpers,
+                    builder,
+                    function_compiler,
+                    &mut test_scope,
+                    ctx_val,
+                    &arm.pattern,
+                    scrutinee_val,
+                    matched_block,
+                    next,
+                    interner,
+                )?;
                 next_test = Some(next);
                 pending_test = Some(next);
             }
@@ -7612,7 +7901,52 @@ fn emit_pattern_check(
             let call = builder.ins().call(is_cons, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
-            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+            let Pattern::Cons { head, tail, .. } = pattern else {
+                unreachable!();
+            };
+            let head_block = builder.create_block();
+            builder.ins().brif(cond, head_block, &[], fail_block, &[]);
+
+            builder.seal_block(head_block);
+            builder.switch_to_block(head_block);
+            let cons_head = get_helper_func_ref(module, helpers, builder, "rt_cons_head");
+            let head_call = builder.ins().call(cons_head, &[ctx_val, value]);
+            let head_val = builder.inst_results(head_call)[0];
+            emit_return_on_null_value(builder, head_val);
+            let tail_block = builder.create_block();
+            emit_pattern_check(
+                module,
+                helpers,
+                builder,
+                function_compiler,
+                scope,
+                ctx_val,
+                head,
+                head_val,
+                tail_block,
+                fail_block,
+                interner,
+            )?;
+
+            builder.seal_block(tail_block);
+            builder.switch_to_block(tail_block);
+            let cons_tail = get_helper_func_ref(module, helpers, builder, "rt_cons_tail");
+            let tail_call = builder.ins().call(cons_tail, &[ctx_val, value]);
+            let tail_val = builder.inst_results(tail_call)[0];
+            emit_return_on_null_value(builder, tail_val);
+            emit_pattern_check(
+                module,
+                helpers,
+                builder,
+                function_compiler,
+                scope,
+                ctx_val,
+                tail,
+                tail_val,
+                pass_block,
+                fail_block,
+                interner,
+            )?;
         }
         Pattern::EmptyList { .. } => {
             let is_el = get_helper_func_ref(module, helpers, builder, "rt_is_empty_list");
@@ -7633,21 +7967,93 @@ fn emit_pattern_check(
             let call = builder.ins().call(is_some, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
-            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+            let Pattern::Some { pattern: inner, .. } = pattern else {
+                unreachable!();
+            };
+            let inner_block = builder.create_block();
+            builder.ins().brif(cond, inner_block, &[], fail_block, &[]);
+
+            builder.seal_block(inner_block);
+            builder.switch_to_block(inner_block);
+            let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_some");
+            let inner_call = builder.ins().call(unwrap, &[ctx_val, value]);
+            let inner_val = builder.inst_results(inner_call)[0];
+            emit_return_on_null_value(builder, inner_val);
+            emit_pattern_check(
+                module,
+                helpers,
+                builder,
+                function_compiler,
+                scope,
+                ctx_val,
+                inner,
+                inner_val,
+                pass_block,
+                fail_block,
+                interner,
+            )?;
         }
         Pattern::Left { .. } => {
             let is_left = get_helper_func_ref(module, helpers, builder, "rt_is_left");
             let call = builder.ins().call(is_left, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
-            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+            let Pattern::Left { pattern: inner, .. } = pattern else {
+                unreachable!();
+            };
+            let inner_block = builder.create_block();
+            builder.ins().brif(cond, inner_block, &[], fail_block, &[]);
+
+            builder.seal_block(inner_block);
+            builder.switch_to_block(inner_block);
+            let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_left");
+            let inner_call = builder.ins().call(unwrap, &[ctx_val, value]);
+            let inner_val = builder.inst_results(inner_call)[0];
+            emit_return_on_null_value(builder, inner_val);
+            emit_pattern_check(
+                module,
+                helpers,
+                builder,
+                function_compiler,
+                scope,
+                ctx_val,
+                inner,
+                inner_val,
+                pass_block,
+                fail_block,
+                interner,
+            )?;
         }
         Pattern::Right { .. } => {
             let is_right = get_helper_func_ref(module, helpers, builder, "rt_is_right");
             let call = builder.ins().call(is_right, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
-            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+            let Pattern::Right { pattern: inner, .. } = pattern else {
+                unreachable!();
+            };
+            let inner_block = builder.create_block();
+            builder.ins().brif(cond, inner_block, &[], fail_block, &[]);
+
+            builder.seal_block(inner_block);
+            builder.switch_to_block(inner_block);
+            let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_right");
+            let inner_call = builder.ins().call(unwrap, &[ctx_val, value]);
+            let inner_val = builder.inst_results(inner_call)[0];
+            emit_return_on_null_value(builder, inner_val);
+            emit_pattern_check(
+                module,
+                helpers,
+                builder,
+                function_compiler,
+                scope,
+                ctx_val,
+                inner,
+                inner_val,
+                pass_block,
+                fail_block,
+                interner,
+            )?;
         }
         Pattern::Literal { expression, .. } => {
             let lit_val = compile_expression(
@@ -7779,7 +8185,52 @@ fn emit_ir_pattern_check(
             let call = builder.ins().call(is_cons, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
-            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+            let IrStructuredPattern::Cons { head, tail, .. } = pattern else {
+                unreachable!();
+            };
+            let head_block = builder.create_block();
+            builder.ins().brif(cond, head_block, &[], fail_block, &[]);
+
+            builder.seal_block(head_block);
+            builder.switch_to_block(head_block);
+            let cons_head = get_helper_func_ref(module, helpers, builder, "rt_cons_head");
+            let head_call = builder.ins().call(cons_head, &[ctx_val, value]);
+            let head_val = builder.inst_results(head_call)[0];
+            emit_return_on_null_value(builder, head_val);
+            let tail_block = builder.create_block();
+            emit_ir_pattern_check(
+                module,
+                helpers,
+                builder,
+                function_compiler,
+                scope,
+                ctx_val,
+                head,
+                head_val,
+                tail_block,
+                fail_block,
+                interner,
+            )?;
+
+            builder.seal_block(tail_block);
+            builder.switch_to_block(tail_block);
+            let cons_tail = get_helper_func_ref(module, helpers, builder, "rt_cons_tail");
+            let tail_call = builder.ins().call(cons_tail, &[ctx_val, value]);
+            let tail_val = builder.inst_results(tail_call)[0];
+            emit_return_on_null_value(builder, tail_val);
+            emit_ir_pattern_check(
+                module,
+                helpers,
+                builder,
+                function_compiler,
+                scope,
+                ctx_val,
+                tail,
+                tail_val,
+                pass_block,
+                fail_block,
+                interner,
+            )?;
         }
         IrStructuredPattern::EmptyList { .. } => {
             let is_el = get_helper_func_ref(module, helpers, builder, "rt_is_empty_list");
@@ -7800,21 +8251,93 @@ fn emit_ir_pattern_check(
             let call = builder.ins().call(is_some, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
-            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+            let IrStructuredPattern::Some { pattern: inner, .. } = pattern else {
+                unreachable!();
+            };
+            let inner_block = builder.create_block();
+            builder.ins().brif(cond, inner_block, &[], fail_block, &[]);
+
+            builder.seal_block(inner_block);
+            builder.switch_to_block(inner_block);
+            let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_some");
+            let inner_call = builder.ins().call(unwrap, &[ctx_val, value]);
+            let inner_val = builder.inst_results(inner_call)[0];
+            emit_return_on_null_value(builder, inner_val);
+            emit_ir_pattern_check(
+                module,
+                helpers,
+                builder,
+                function_compiler,
+                scope,
+                ctx_val,
+                inner,
+                inner_val,
+                pass_block,
+                fail_block,
+                interner,
+            )?;
         }
         IrStructuredPattern::Left { .. } => {
             let is_left = get_helper_func_ref(module, helpers, builder, "rt_is_left");
             let call = builder.ins().call(is_left, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
-            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+            let IrStructuredPattern::Left { pattern: inner, .. } = pattern else {
+                unreachable!();
+            };
+            let inner_block = builder.create_block();
+            builder.ins().brif(cond, inner_block, &[], fail_block, &[]);
+
+            builder.seal_block(inner_block);
+            builder.switch_to_block(inner_block);
+            let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_left");
+            let inner_call = builder.ins().call(unwrap, &[ctx_val, value]);
+            let inner_val = builder.inst_results(inner_call)[0];
+            emit_return_on_null_value(builder, inner_val);
+            emit_ir_pattern_check(
+                module,
+                helpers,
+                builder,
+                function_compiler,
+                scope,
+                ctx_val,
+                inner,
+                inner_val,
+                pass_block,
+                fail_block,
+                interner,
+            )?;
         }
         IrStructuredPattern::Right { .. } => {
             let is_right = get_helper_func_ref(module, helpers, builder, "rt_is_right");
             let call = builder.ins().call(is_right, &[ctx_val, value]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
-            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+            let IrStructuredPattern::Right { pattern: inner, .. } = pattern else {
+                unreachable!();
+            };
+            let inner_block = builder.create_block();
+            builder.ins().brif(cond, inner_block, &[], fail_block, &[]);
+
+            builder.seal_block(inner_block);
+            builder.switch_to_block(inner_block);
+            let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_right");
+            let inner_call = builder.ins().call(unwrap, &[ctx_val, value]);
+            let inner_val = builder.inst_results(inner_call)[0];
+            emit_return_on_null_value(builder, inner_val);
+            emit_ir_pattern_check(
+                module,
+                helpers,
+                builder,
+                function_compiler,
+                scope,
+                ctx_val,
+                inner,
+                inner_val,
+                pass_block,
+                fail_block,
+                interner,
+            )?;
         }
         IrStructuredPattern::Literal { expression, .. } => {
             let lit_val = compile_ir_expression(
@@ -8123,6 +8646,7 @@ fn compile_block_expression(
     interner: &Interner,
 ) -> Result<BlockEval, String> {
     let mut block_scope = scope.clone();
+    bind_named_local_function_metas_from_block(&mut block_scope, block);
     for (idx, stmt) in block.statements.iter().enumerate() {
         let is_last = idx + 1 == block.statements.len();
         let outcome = compile_statement(
@@ -8164,6 +8688,7 @@ fn compile_ir_block_expression(
     interner: &Interner,
 ) -> Result<BlockEval, String> {
     let mut block_scope = scope.clone();
+    bind_named_ir_local_function_metas_from_block(&mut block_scope, block);
     let last_index = block.statements.len().saturating_sub(1);
     for (idx, item) in block.statements.iter().enumerate() {
         let is_last = idx == last_index && !block.statements.is_empty();
@@ -8909,6 +9434,8 @@ fn compile_base_function_call(
         ],
     );
     let result = builder.inst_results(call)[0];
+    // Base function errors are already rendered inside rt_call_base_function_tagged
+    // with span info — do NOT re-render here.
     emit_return_on_null_value(builder, result);
     Ok(JitValue::boxed(result))
 }
@@ -9322,23 +9849,35 @@ fn resolve_call_primop(
     arguments: &[Expression],
     interner: &Interner,
 ) -> Option<PrimOp> {
-    let Expression::Identifier { name, .. } = function else {
-        return None;
-    };
-    if scope.excluded_base_symbols.contains(name) {
-        return None;
-    }
+    match function {
+        Expression::Identifier { name, .. } => {
+            if scope.excluded_base_symbols.contains(name) {
+                return None;
+            }
 
-    // Shadowed names must resolve through the regular call path.
-    if scope.locals.contains_key(name)
-        || scope.functions.contains_key(name)
-        || scope.globals.contains_key(name)
-    {
-        return None;
-    }
+            // Shadowed names must resolve through the regular call path.
+            if scope.locals.contains_key(name)
+                || scope.functions.contains_key(name)
+                || scope.globals.contains_key(name)
+            {
+                return None;
+            }
 
-    let name = interner.try_resolve(*name)?;
-    resolve_primop_call(name, arguments.len())
+            let name = interner.try_resolve(*name)?;
+            resolve_primop_call(name, arguments.len())
+        }
+        Expression::MemberAccess { object, member, .. } => {
+            let Expression::Identifier { name, .. } = object.as_ref() else {
+                return None;
+            };
+            if !is_base_symbol(*name, interner) {
+                return None;
+            }
+            let member = interner.try_resolve(*member)?;
+            resolve_primop_call(member, arguments.len())
+        }
+        _ => None,
+    }
 }
 
 fn resolve_ir_call_primop(
@@ -9347,20 +9886,32 @@ fn resolve_ir_call_primop(
     arguments: &[IrStructuredExpr],
     interner: &Interner,
 ) -> Option<PrimOp> {
-    let IrStructuredExpr::Identifier { name, .. } = function else {
-        return None;
-    };
-    if scope.excluded_base_symbols.contains(name) {
-        return None;
+    match function {
+        IrStructuredExpr::Identifier { name, .. } => {
+            if scope.excluded_base_symbols.contains(name) {
+                return None;
+            }
+            if scope.locals.contains_key(name)
+                || scope.functions.contains_key(name)
+                || scope.globals.contains_key(name)
+            {
+                return None;
+            }
+            let name = interner.try_resolve(*name)?;
+            resolve_primop_call(name, arguments.len())
+        }
+        IrStructuredExpr::MemberAccess { object, member, .. } => {
+            let IrStructuredExpr::Identifier { name, .. } = object.as_ref() else {
+                return None;
+            };
+            if !is_base_symbol(*name, interner) {
+                return None;
+            }
+            let member = interner.try_resolve(*member)?;
+            resolve_primop_call(member, arguments.len())
+        }
+        _ => None,
     }
-    if scope.locals.contains_key(name)
-        || scope.functions.contains_key(name)
-        || scope.globals.contains_key(name)
-    {
-        return None;
-    }
-    let name = interner.try_resolve(*name)?;
-    resolve_primop_call(name, arguments.len())
 }
 
 fn should_use_base_fastcall(scope: &Scope, name: Identifier, interner: &Interner) -> bool {
@@ -9417,8 +9968,12 @@ fn compile_user_function_call(
     let nargs = arg_vals.len();
     if nargs != meta.num_params {
         return Err(format!(
-            "wrong number of arguments in JIT call: want={}, got={}",
-            meta.num_params, nargs
+            "error[E1000]: wrong number of arguments: want={}, got={}\n  at {}:{}:{}",
+            meta.num_params,
+            nargs,
+            call_span.start.line,
+            call_span.start.column + 1,
+            call_span.end.column + 1,
         ));
     }
 
@@ -9474,7 +10029,7 @@ fn compile_user_function_call(
         let raw_payload = builder.inst_results(call)[1];
         let raw_result =
             boxed_value_from_tagged_parts(module, helpers, builder, ctx_val, raw_tag, raw_payload);
-        emit_return_on_null_value(builder, raw_result);
+        emit_return_on_null_with_render(module, helpers, builder, ctx_val, raw_result, call_span);
         return Ok(JitValue::boxed(raw_result));
     }
 
@@ -9656,7 +10211,7 @@ fn compile_user_function_call(
         ],
     );
     let checked_ret = builder.inst_results(checked_ret_call)[0];
-    emit_return_on_null_value(builder, checked_ret);
+    emit_return_on_null_with_render(module, helpers, builder, ctx_val, checked_ret, call_span);
     let ok_args = [BlockArg::Value(checked_ret)];
     builder.ins().jump(done_block, &ok_args);
     builder.seal_block(call_block);
@@ -9705,8 +10260,12 @@ fn compile_ir_user_function_call(
     let nargs = arg_vals.len();
     if nargs != meta.num_params {
         return Err(format!(
-            "wrong number of arguments in JIT call: want={}, got={}",
-            meta.num_params, nargs
+            "error[E1000]: wrong number of arguments: want={}, got={}\n  at {}:{}:{}",
+            meta.num_params,
+            nargs,
+            call_span.start.line,
+            call_span.start.column + 1,
+            call_span.end.column + 1,
         ));
     }
 
@@ -9760,7 +10319,7 @@ fn compile_ir_user_function_call(
         let raw_payload = builder.inst_results(call)[1];
         let raw_result =
             boxed_value_from_tagged_parts(module, helpers, builder, ctx_val, raw_tag, raw_payload);
-        emit_return_on_null_value(builder, raw_result);
+        emit_return_on_null_with_render(module, helpers, builder, ctx_val, raw_result, call_span);
         return Ok(JitValue::boxed(raw_result));
     }
 
@@ -9942,7 +10501,7 @@ fn compile_ir_user_function_call(
         ],
     );
     let checked_ret = builder.inst_results(checked_ret_call)[0];
-    emit_return_on_null_value(builder, checked_ret);
+    emit_return_on_null_with_render(module, helpers, builder, ctx_val, checked_ret, call_span);
     let ok_args = [BlockArg::Value(checked_ret)];
     builder.ins().jump(done_block, &ok_args);
     builder.seal_block(call_block);
@@ -10001,8 +10560,12 @@ fn compile_jit_cfg_user_function_call(
     let nargs = arg_vals.len();
     if nargs != meta.num_params {
         return Err(format!(
-            "wrong number of arguments in JIT CFG call: want={}, got={}",
-            meta.num_params, nargs
+            "error[E1000]: wrong number of arguments: want={}, got={}\n  at {}:{}:{}",
+            meta.num_params,
+            nargs,
+            call_span.start.line,
+            call_span.start.column + 1,
+            call_span.end.column + 1,
         ));
     }
 
@@ -10318,6 +10881,8 @@ fn compile_jit_cfg_generic_call(
         ],
     );
     let result = builder.inst_results(call)[0];
+    // Errors from rt_call_value / rt_call_base_function are already rendered
+    // with span info inside the helper — do not re-render.
     emit_return_on_null_value(builder, result);
     Ok(JitValue::boxed(result))
 }
@@ -10395,6 +10960,8 @@ fn compile_generic_call(
         ],
     );
     let result = builder.inst_results(call)[0];
+    // Errors from rt_call_value / rt_call_base_function are already rendered
+    // with span info inside the helper — do not re-render.
     emit_return_on_null_value(builder, result);
     Ok(JitValue::boxed(result))
 }
@@ -10472,6 +11039,8 @@ fn compile_ir_generic_call(
         ],
     );
     let result = builder.inst_results(call)[0];
+    // Errors from rt_call_value / rt_call_base_function are already rendered
+    // with span info inside the helper — do not re-render.
     emit_return_on_null_value(builder, result);
     Ok(JitValue::boxed(result))
 }
@@ -10941,12 +11510,14 @@ fn collect_ir_literal_function_specs(
 
 struct LiteralCollector {
     scopes: Vec<HashSet<Identifier>>,
+    named_function_scopes: Vec<HashMap<Identifier, LiteralKey>>,
     specs: Vec<LiteralFunctionSpec>,
     seen: HashSet<LiteralKey>,
 }
 
 struct IrLiteralCollector {
     scopes: Vec<HashSet<Identifier>>,
+    named_function_scopes: Vec<HashMap<Identifier, LiteralKey>>,
     specs: Vec<IrLiteralFunctionSpec>,
     seen: HashSet<LiteralKey>,
 }
@@ -10955,6 +11526,7 @@ impl LiteralCollector {
     fn new() -> Self {
         Self {
             scopes: vec![HashSet::new()],
+            named_function_scopes: vec![HashMap::new()],
             specs: Vec::new(),
             seen: HashSet::new(),
         }
@@ -10984,10 +11556,12 @@ impl LiteralCollector {
 
     fn push_scope(&mut self) {
         self.scopes.push(HashSet::new());
+        self.named_function_scopes.push(HashMap::new());
     }
 
     fn pop_scope(&mut self) {
         self.scopes.pop();
+        self.named_function_scopes.pop();
     }
 
     fn bind_pattern_identifiers(&mut self, pattern: &Pattern) {
@@ -11014,6 +11588,48 @@ impl LiteralCollector {
             | Pattern::Literal { .. }
             | Pattern::None { .. }
             | Pattern::EmptyList { .. } => {}
+        }
+    }
+
+    fn define_named_function(&mut self, ident: Identifier, key: LiteralKey) {
+        self.define(ident);
+        if let Some(scope) = self.named_function_scopes.last_mut() {
+            scope.insert(ident, key);
+        }
+    }
+
+    fn visible_named_local_functions(&self) -> Vec<(Identifier, LiteralKey)> {
+        let mut merged = HashMap::new();
+        for scope in &self.named_function_scopes {
+            for (name, key) in scope {
+                merged.insert(*name, *key);
+            }
+        }
+        let mut visible = merged.into_iter().collect::<Vec<_>>();
+        visible.sort_by_key(|(name, _)| name.as_u32());
+        visible
+    }
+
+    fn prebind_local_function_names(&mut self, statements: &[Statement]) {
+        for stmt in statements {
+            if let Statement::Function {
+                name,
+                parameters,
+                body,
+                ..
+            } = stmt
+            {
+                let expr = Expression::Function {
+                    parameters: parameters.clone(),
+                    parameter_types: Vec::new(),
+                    return_type: None,
+                    effects: Vec::new(),
+                    body: body.clone(),
+                    span: stmt.span(),
+                    id: ExprId::UNSET,
+                };
+                self.define_named_function(*name, LiteralKey::from_expr(&expr));
+            }
         }
     }
 
@@ -11068,13 +11684,14 @@ impl LiteralCollector {
                         return_type: return_type.clone(),
                         body: body.clone(),
                         captures,
+                        visible_named_locals: self.visible_named_local_functions(),
                         self_name: Some(*name),
                     });
                     self.seen.insert(key);
                 }
 
                 // Function name is bound in outer scope after declaration.
-                self.define(*name);
+                self.define_named_function(*name, key);
 
                 self.push_scope();
                 // Recursive references resolve in function body.
@@ -11082,6 +11699,7 @@ impl LiteralCollector {
                 for p in parameters {
                     self.define(*p);
                 }
+                self.prebind_local_function_names(&body.statements);
                 for s in &body.statements {
                     self.collect_stmt(s);
                 }
@@ -11116,6 +11734,7 @@ impl LiteralCollector {
                             for p in parameters {
                                 self.define(*p);
                             }
+                            self.prebind_local_function_names(&body.statements);
                             for inner in &body.statements {
                                 self.collect_stmt(inner);
                             }
@@ -11155,6 +11774,7 @@ impl LiteralCollector {
                         return_type: return_type.clone(),
                         body: body.clone(),
                         captures,
+                        visible_named_locals: self.visible_named_local_functions(),
                         self_name: None,
                     });
                     self.seen.insert(key);
@@ -11164,6 +11784,7 @@ impl LiteralCollector {
                 for p in parameters {
                     self.define(*p);
                 }
+                self.prebind_local_function_names(&body.statements);
                 for s in &body.statements {
                     self.collect_stmt(s);
                 }
@@ -11304,6 +11925,7 @@ impl IrLiteralCollector {
     fn new() -> Self {
         Self {
             scopes: vec![HashSet::new()],
+            named_function_scopes: vec![HashMap::new()],
             specs: Vec::new(),
             seen: HashSet::new(),
         }
@@ -11328,10 +11950,49 @@ impl IrLiteralCollector {
 
     fn push_scope(&mut self) {
         self.scopes.push(HashSet::new());
+        self.named_function_scopes.push(HashMap::new());
     }
 
     fn pop_scope(&mut self) {
         self.scopes.pop();
+        self.named_function_scopes.pop();
+    }
+
+    fn define_named_function(&mut self, ident: Identifier, key: LiteralKey) {
+        self.define(ident);
+        if let Some(scope) = self.named_function_scopes.last_mut() {
+            scope.insert(ident, key);
+        }
+    }
+
+    fn visible_named_local_functions(&self) -> Vec<(Identifier, LiteralKey)> {
+        let mut merged = HashMap::new();
+        for scope in &self.named_function_scopes {
+            for (name, key) in scope {
+                merged.insert(*name, *key);
+            }
+        }
+        let mut visible = merged.into_iter().collect::<Vec<_>>();
+        visible.sort_by_key(|(name, _)| name.as_u32());
+        visible
+    }
+
+    fn prebind_local_function_names(&mut self, items: &[IrTopLevelItem]) {
+        for item in items {
+            if let IrTopLevelItem::Function {
+                name,
+                parameters,
+                body,
+                span,
+                ..
+            } = item
+            {
+                self.define_named_function(
+                    *name,
+                    LiteralKey::from_ir_function(parameters, body.span, *span),
+                );
+            }
+        }
     }
 
     fn bind_pattern_identifiers(&mut self, pattern: &IrStructuredPattern) {
@@ -11401,6 +12062,7 @@ impl IrLiteralCollector {
             return_type: return_type.clone(),
             body: body.clone(),
             captures,
+            visible_named_locals: self.visible_named_local_functions(),
             self_name,
         });
         self.seen.insert(key);
@@ -11442,12 +12104,13 @@ impl IrLiteralCollector {
                     Some(*name),
                 );
 
-                self.define(*name);
+                self.define_named_function(*name, key);
                 self.push_scope();
-                self.define(*name);
+                self.define_named_function(*name, key);
                 for p in parameters {
                     self.define(*p);
                 }
+                self.prebind_local_function_names(&body.statements);
                 for item in &body.statements {
                     self.collect_item(item);
                 }
@@ -11465,14 +12128,19 @@ impl IrLiteralCollector {
                         IrTopLevelItem::Function {
                             name,
                             parameters,
+                            span,
                             body,
                             ..
                         } => {
                             self.push_scope();
-                            self.define(*name);
+                            self.define_named_function(
+                                *name,
+                                LiteralKey::from_ir_function(parameters, body.span, *span),
+                            );
                             for p in parameters {
                                 self.define(*p);
                             }
+                            self.prebind_local_function_names(&body.statements);
                             for inner in &body.statements {
                                 self.collect_item(inner);
                             }
@@ -11515,6 +12183,7 @@ impl IrLiteralCollector {
                 for p in parameters {
                     self.define(*p);
                 }
+                self.prebind_local_function_names(&body.statements);
                 for item in &body.statements {
                     self.collect_item(item);
                 }
@@ -11790,25 +12459,13 @@ fn collect_ir_free_vars_in_expr(
             ..
         } => {
             collect_ir_free_vars_in_expr(condition, bound, free);
-            free.extend(
-                collect_ir_free_vars_in_block(consequence, bound)
-                    .into_iter()
-                    .filter(|ident| bound.contains(ident)),
-            );
+            free.extend(collect_ir_free_vars_in_block(consequence, bound));
             if let Some(alternative) = alternative {
-                free.extend(
-                    collect_ir_free_vars_in_block(alternative, bound)
-                        .into_iter()
-                        .filter(|ident| bound.contains(ident)),
-                );
+                free.extend(collect_ir_free_vars_in_block(alternative, bound));
             }
         }
         IrStructuredExpr::DoBlock { block, .. } => {
-            free.extend(
-                collect_ir_free_vars_in_block(block, bound)
-                    .into_iter()
-                    .filter(|ident| bound.contains(ident)),
-            );
+            free.extend(collect_ir_free_vars_in_block(block, bound));
         }
         IrStructuredExpr::Call {
             function,
@@ -13496,4 +14153,139 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
 
 fn default_libcall_names() -> Box<dyn Fn(cranelift_codegen::ir::LibCall) -> String + Send + Sync> {
     cranelift_module::default_libcall_names()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{collect_ir_literal_function_specs, collect_literal_function_specs};
+    use crate::{
+        ir::lower::lower_program_to_ir,
+        syntax::{interner::Interner, lexer::Lexer, parser::Parser, statement::Statement},
+    };
+
+    fn parse_statements(source: &str) -> (Vec<Statement>, Interner) {
+        let lexer = Lexer::new(source);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
+        (program.statements, parser.take_interner())
+    }
+
+    #[test]
+    fn literal_specs_capture_earlier_local_helper_functions() {
+        let (statements, interner) = parse_statements(
+            r#"
+fn main() {
+    fn char_at(s, i) { substring(s, i, i + 1) }
+    fn find_char_from(s, ch, idx) {
+        if char_at(s, idx) == ch { idx } else { -1 }
+    }
+    find_char_from("abc", "b", 1)
+}
+"#,
+        );
+
+        let specs = collect_literal_function_specs(&statements);
+        let find_spec = specs
+            .iter()
+            .find(|spec| {
+                spec.self_name
+                    .is_some_and(|name| interner.resolve(name) == "find_char_from")
+            })
+            .expect("expected nested function spec for find_char_from");
+
+        assert!(
+            find_spec
+                .captures
+                .iter()
+                .any(|sym| interner.resolve(*sym) == "char_at"),
+            "expected char_at to be captured, got {:?}",
+            find_spec
+                .captures
+                .iter()
+                .map(|sym| interner.resolve(*sym))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn literal_specs_capture_module_helper_functions_inside_lambda() {
+        let (statements, interner) = parse_statements(
+            r#"
+module M {
+    fn id_in_range(id, range) { true }
+    fn id_in_any_range(id, ranges) {
+        ranges |> fold(false, \(found, r) -> if found { true } else { id_in_range(id, r) })
+    }
+}
+"#,
+        );
+
+        let specs = collect_literal_function_specs(&statements);
+        let lambda_spec = specs
+            .iter()
+            .find(|spec| spec.self_name.is_none() && spec.parameters.len() == 2)
+            .expect("expected lambda literal spec");
+
+        assert!(
+            lambda_spec
+                .captures
+                .iter()
+                .any(|sym| interner.resolve(*sym) == "id_in_range"),
+            "expected id_in_range to be captured, got {:?}",
+            lambda_spec
+                .captures
+                .iter()
+                .map(|sym| interner.resolve(*sym))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ir_literal_specs_capture_outer_lambda_param() {
+        let (program, interner) = {
+            let lexer = Lexer::new(
+                r#"
+fn main() {
+    let f = \id ->
+        [1, 2]
+        |> fold(false, \(found, r) -> if found { true } else { id == r })
+    f(1)
+}
+"#,
+            );
+            let mut parser = Parser::new(lexer);
+            let program = parser.parse_program();
+            assert!(
+                parser.errors.is_empty(),
+                "parser errors: {:?}",
+                parser.errors
+            );
+            (program, parser.take_interner())
+        };
+        let ir = lower_program_to_ir(&program, &std::collections::HashMap::new())
+            .expect("IR lowering should succeed");
+        let specs = collect_ir_literal_function_specs(&ir.top_level_items);
+        let lambda_spec = specs
+            .iter()
+            .find(|spec| spec.parameters.len() == 2)
+            .expect("expected inner lambda literal spec");
+
+        assert!(
+            lambda_spec
+                .captures
+                .iter()
+                .any(|sym| interner.resolve(*sym) == "id"),
+            "expected outer lambda param id to be captured, got {:?}",
+            lambda_spec
+                .captures
+                .iter()
+                .map(|sym| interner.resolve(*sym))
+                .collect::<Vec<_>>()
+        );
+    }
 }

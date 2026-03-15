@@ -145,8 +145,10 @@ pub struct JitContext {
     pub named_functions: HashMap<String, usize>,
     pub source_file: Option<String>,
     pub source_text: Option<String>,
-    /// When a runtime helper encounters an error, it stores the message here
-    /// and returns NULL to the JIT code.
+    /// When a runtime helper encounters a user-facing runtime error, it stores
+    /// the structured diagnostic here and returns NULL to the JIT code.
+    pub runtime_error: Option<Diagnostic>,
+    /// Raw internal helper failures that are not yet mapped to a runtime diagnostic.
     pub error: Option<String>,
     /// Active effect handlers pushed by `rt_push_handler` / popped by `rt_pop_handler`.
     pub handler_stack: Vec<JitHandlerFrame>,
@@ -170,6 +172,7 @@ pub struct JitFunctionEntry {
     pub num_params: usize,
     pub call_abi: JitCallAbi,
     pub contract: Option<FunctionContract>,
+    pub return_span: Option<Span>,
 }
 
 impl JitContext {
@@ -188,24 +191,26 @@ impl JitContext {
         )
     }
 
-    pub(crate) fn render_runtime_type_error(
+    fn default_source_file(&self) -> String {
+        self.source_file
+            .clone()
+            .unwrap_or_else(|| "<jit>".to_string())
+    }
+
+    pub(crate) fn runtime_type_error_diagnostic(
         &self,
         expected: &str,
         actual: &str,
         value_preview: Option<&str>,
         span: Option<Span>,
-    ) -> String {
-        let file = self
-            .source_file
-            .clone()
-            .unwrap_or_else(|| "<jit>".to_string());
+    ) -> Diagnostic {
+        let file = self.default_source_file();
         let span = span.unwrap_or_else(|| Span::new(Position::new(1, 0), Position::new(1, 0)));
-        let diag = runtime_type_error(expected, actual, value_preview, file.clone(), span);
-        render_runtime_diagnostic(&diag, &file, self.source_text.as_deref(), &[])
+        runtime_type_error(expected, actual, value_preview, file, span)
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn render_runtime_type_error_at(
+    pub(crate) fn runtime_type_error_diagnostic_at(
         &self,
         expected: &str,
         actual: &str,
@@ -214,21 +219,19 @@ impl JitContext {
         start_column_1_based: usize,
         end_line: usize,
         end_column_1_based: usize,
-    ) -> String {
+    ) -> Diagnostic {
         let span = self.span_from_1_based(
             start_line,
             start_column_1_based,
             end_line,
             end_column_1_based,
         );
-        self.render_runtime_type_error(expected, actual, value_preview, Some(span))
+        self.runtime_type_error_diagnostic(expected, actual, value_preview, Some(span))
     }
 
-    /// Render a generic runtime error through the diagnostics system.
-    /// `line` is 1-based; `column` is 1-based.
-    /// Produces the same formatted output (colour, source snippet) as VM runtime errors.
+    /// Build a generic runtime error diagnostic with the provided span.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn render_runtime_error(
+    pub(crate) fn runtime_error_diagnostic(
         &self,
         code: &str,
         title: &str,
@@ -237,89 +240,57 @@ impl JitContext {
         start_column: usize,
         end_line: usize,
         end_column: usize,
-    ) -> String {
-        let file = self
-            .source_file
-            .clone()
-            .unwrap_or_else(|| "<jit>".to_string());
+    ) -> Diagnostic {
+        let file = self.default_source_file();
         let span = self.span_from_1_based(start_line, start_column, end_line, end_column);
-        let diag = Diagnostic::make_error_dynamic(
-            code,
-            title,
-            ErrorType::Runtime,
-            message,
-            None,
-            file.clone(),
-            span,
-        )
-        .with_phase(DiagnosticPhase::Runtime);
-        render_runtime_diagnostic(&diag, &file, self.source_text.as_deref(), &[])
+        Diagnostic::make_error_dynamic(code, title, ErrorType::Runtime, message, None, file, span)
+            .with_phase(DiagnosticPhase::Runtime)
     }
 
-    pub(crate) fn render_runtime_error_message(
-        &self,
+    pub(crate) fn render_runtime_diagnostic(&self, diag: &Diagnostic) -> String {
+        let file = diag.file().unwrap_or("<jit>");
+        render_runtime_diagnostic(diag, file, self.source_text.as_deref(), &[])
+    }
+
+    pub(crate) fn set_runtime_error_diag(&mut self, diag: Diagnostic) {
+        self.runtime_error = Some(diag);
+        self.error = None;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn set_runtime_error_code(
+        &mut self,
         code: &str,
+        title: &str,
         message: &str,
         start_line: usize,
         start_column: usize,
         end_line: usize,
         end_column: usize,
-    ) -> String {
-        let (title, details) = split_first_line(message);
-        self.render_runtime_error(
+    ) {
+        let diag = self.runtime_error_diagnostic(
             code,
-            title.trim(),
-            details.trim(),
+            title,
+            message,
             start_line,
             start_column,
             end_line,
             end_column,
-        )
+        );
+        self.set_runtime_error_diag(diag);
     }
 
-    pub(crate) fn render_runtime_error_from_string(
-        &self,
-        message: &str,
-        start_line: usize,
-        start_column: usize,
-        end_line: usize,
-        end_column: usize,
-    ) -> String {
-        if is_rendered_runtime_diagnostic(message) {
-            return message.to_string();
-        }
+    pub(crate) fn set_internal_error(&mut self, message: impl Into<String>) {
+        self.runtime_error = None;
+        self.error = Some(message.into());
+    }
 
-        let (message, hint) = split_hint(message);
-        let (title, details) = split_first_line(message);
-        if let Some(actual) = title.strip_prefix("not callable: ") {
-            return self.render_runtime_error(
-                "E1001",
-                "Not A Function",
-                &format!("Cannot call non-function value (got {}).", actual.trim()),
-                start_line,
-                start_column,
-                end_line,
-                end_column,
-            );
-        }
-        let code = classify_runtime_error_code(title);
+    pub fn take_runtime_error(&mut self) -> Option<Diagnostic> {
+        self.runtime_error.take()
+    }
 
-        let file = self
-            .source_file
-            .clone()
-            .unwrap_or_else(|| "<jit>".to_string());
-        let span = self.span_from_1_based(start_line, start_column, end_line, end_column);
-        let diag = Diagnostic::make_error_dynamic(
-            code,
-            title.trim(),
-            ErrorType::Runtime,
-            details.trim(),
-            hint.map(|h| h.trim().to_string()),
-            file.clone(),
-            span,
-        )
-        .with_phase(DiagnosticPhase::Runtime);
-        render_runtime_diagnostic(&diag, &file, self.source_text.as_deref(), &[])
+    pub fn take_internal_error(&mut self) -> Option<String> {
+        self.error.take()
     }
 
     pub(crate) fn check_contract_arg(
@@ -367,6 +338,27 @@ impl JitContext {
         }
     }
 
+    pub(crate) fn contract_return_span(&self, function_index: usize) -> Option<Span> {
+        self.jit_functions
+            .get(function_index)
+            .and_then(|entry| entry.return_span)
+    }
+
+    pub(crate) fn contract_return_error_diagnostic(
+        &self,
+        function_index: usize,
+        expected: &str,
+        actual: &str,
+        value_preview: Option<&str>,
+    ) -> Diagnostic {
+        self.runtime_type_error_diagnostic(
+            expected,
+            actual,
+            value_preview,
+            self.contract_return_span(function_index),
+        )
+    }
+
     pub fn new() -> Self {
         Self {
             arena: ValueArena::new(),
@@ -377,6 +369,7 @@ impl JitContext {
             named_functions: HashMap::new(),
             source_file: None,
             source_text: None,
+            runtime_error: None,
             error: None,
             handler_stack: Vec::new(),
             shadow_roots: Vec::new(),
@@ -426,7 +419,7 @@ impl JitContext {
             JIT_TAG_BOOL => self.alloc(Value::Boolean(value.payload != 0)),
             JIT_TAG_PTR => value.as_ptr(),
             _ => {
-                self.error = Some(format!("unknown JIT tagged value tag: {}", value.tag));
+                self.set_internal_error(format!("unknown JIT tagged value tag: {}", value.tag));
                 std::ptr::null_mut()
             }
         }
@@ -439,15 +432,10 @@ impl JitContext {
             JIT_TAG_BOOL => Some(Value::Boolean(value.payload != 0)),
             JIT_TAG_PTR => unsafe { value.as_ptr().as_ref().cloned() },
             _ => {
-                self.error = Some(format!("unknown JIT tagged value tag: {}", value.tag));
+                self.set_internal_error(format!("unknown JIT tagged value tag: {}", value.tag));
                 None
             }
         }
-    }
-
-    /// Take the stored error message, if any.
-    pub fn take_error(&mut self) -> Option<String> {
-        self.error.take()
     }
 
     pub fn set_jit_functions(&mut self, functions: Vec<JitFunctionEntry>) {
@@ -499,38 +487,22 @@ impl JitContext {
     }
 }
 
-fn split_first_line(message: &str) -> (&str, &str) {
-    if let Some((title, rest)) = message.split_once('\n') {
-        (title, rest)
-    } else {
-        (message, "")
-    }
-}
-
-fn split_hint(message: &str) -> (&str, Option<&str>) {
-    if let Some((body, hint)) = message.split_once("\n\nHint:\n") {
-        (body, Some(hint))
-    } else {
-        (message, None)
+fn strip_leading_ansi_and_whitespace(mut message: &str) -> &str {
+    loop {
+        let trimmed = message.trim_start_matches(char::is_whitespace);
+        if let Some(rest) = trimmed.strip_prefix("\u{1b}[")
+            && let Some(end) = rest.find('m')
+        {
+            message = &rest[end + 1..];
+            continue;
+        }
+        return trimmed;
     }
 }
 
 pub(crate) fn is_rendered_runtime_diagnostic(message: &str) -> bool {
+    let message = strip_leading_ansi_and_whitespace(message);
     message.starts_with("• ") || message.starts_with("Error[") || message.starts_with("error[")
-}
-
-fn classify_runtime_error_code(title: &str) -> &'static str {
-    if title.contains("wrong number of arguments") {
-        "E1000"
-    } else if title.contains("division by zero") {
-        "E1008"
-    } else if title.contains("not a function") || title.contains("not callable") {
-        "E1001"
-    } else if title.contains("expected") || title.contains("expects") {
-        "E1004"
-    } else {
-        "E1009"
-    }
 }
 
 impl Default for JitContext {
@@ -569,11 +541,13 @@ impl RuntimeContext for JitContext {
                         self.check_contract_arg(closure.function_index, index, arg)
                     {
                         let preview = format_value(self, arg);
-                        return Err(self.render_runtime_type_error(
-                            &expected,
-                            &actual,
-                            Some(&preview),
-                            None,
+                        return Err(self.render_runtime_diagnostic(
+                            &self.runtime_type_error_diagnostic(
+                                &expected,
+                                &actual,
+                                Some(&preview),
+                                None,
+                            ),
                         ));
                     }
                 }
@@ -695,11 +669,17 @@ impl RuntimeContext for JitContext {
                     }
                 };
                 if result.tag == JIT_TAG_PTR && result.as_ptr().is_null() {
+                    if let Some(diag) = self.take_runtime_error() {
+                        return Err(self.render_runtime_diagnostic(&diag));
+                    }
                     return Err(self
-                        .take_error()
+                        .take_internal_error()
                         .unwrap_or_else(|| "unknown JIT call error".to_string()));
                 }
-                if let Some(err) = self.take_error() {
+                if let Some(diag) = self.take_runtime_error() {
+                    return Err(self.render_runtime_diagnostic(&diag));
+                }
+                if let Some(err) = self.take_internal_error() {
                     return Err(err);
                 }
                 let result = self
@@ -709,11 +689,13 @@ impl RuntimeContext for JitContext {
                     self.check_contract_return(closure.function_index, &result)
                 {
                     let preview = format_value(self, &result);
-                    return Err(self.render_runtime_type_error(
-                        &expected,
-                        &actual,
-                        Some(&preview),
-                        None,
+                    return Err(self.render_runtime_diagnostic(
+                        &self.contract_return_error_diagnostic(
+                            closure.function_index,
+                            &expected,
+                            &actual,
+                            Some(&preview),
+                        ),
                     ));
                 }
                 Ok(result)
@@ -758,7 +740,7 @@ impl RuntimeContext for JitContext {
 mod tests {
     use std::rc::Rc;
 
-    use super::JitContext;
+    use super::{JitContext, is_rendered_runtime_diagnostic};
     use crate::runtime::{
         gc::heap_object::HeapObject,
         value::{AdtFields, Value},
@@ -820,5 +802,18 @@ mod tests {
             unsafe { &*root }.adt_constructor(&ctx.gc_heap),
             Some("Node")
         );
+    }
+
+    #[test]
+    fn rendered_runtime_diagnostic_detection_accepts_plain_text_header() {
+        let rendered = "• 1 error • examples/io/read_file_demo.flx\nerror[E1009]: read_file failed";
+        assert!(is_rendered_runtime_diagnostic(rendered));
+    }
+
+    #[test]
+    fn rendered_runtime_diagnostic_detection_ignores_leading_ansi_and_whitespace() {
+        let rendered =
+            "\n\u{1b}[1m• 1 error • examples/io/read_file_demo.flx\nerror[E1009]: read_file failed";
+        assert!(is_rendered_runtime_diagnostic(rendered));
     }
 }

@@ -27,15 +27,7 @@ const EXAMPLE_DIRS: &[&str] = &[
 /// Files with known JIT gaps — excluded from automatic parity checks.
 /// Each entry should reference the tracking issue or proposal.
 /// Remove entries as gaps are fixed.
-const JIT_EXCLUDE: &[&str] = &[
-    // Pattern validation with complex match arms
-    "examples/patterns/pattern_validation_happy_path.flx",
-    // VM print uses Display (adds quotes around strings), JIT does not
-    "examples/patterns/match_wildcard_non_last_error.flx",
-    "examples/patterns/match_non_exhaustive_error.flx",
-    // VM uses [|...|] for arrays and (a, b) for tuples; JIT uses [...] and [a, b]
-    "examples/advanced/list_map_filter.flx",
-];
+const JIT_EXCLUDE: &[&str] = &[];
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
