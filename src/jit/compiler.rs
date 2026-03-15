@@ -4367,21 +4367,26 @@ fn compile_ir_expression(
                         interner,
                     );
                 }
-                if let Some(&base_idx) = scope.base_functions.get(name) {
-                    return compile_ir_base_function_call(
-                        module,
-                        helpers,
-                        builder,
-                        function_compiler,
-                        scope,
-                        ctx_val,
-                        return_block,
-                        tail_call,
-                        *span,
-                        base_idx,
-                        arguments,
-                        interner,
-                    );
+                // Local variables shadow base functions: if a local exists
+                // with this name, skip the base-function fast path and let
+                // the generic call path handle it (indirect closure call).
+                if !scope.locals.contains_key(name) {
+                    if let Some(&base_idx) = scope.base_functions.get(name) {
+                        return compile_ir_base_function_call(
+                            module,
+                            helpers,
+                            builder,
+                            function_compiler,
+                            scope,
+                            ctx_val,
+                            return_block,
+                            tail_call,
+                            *span,
+                            base_idx,
+                            arguments,
+                            interner,
+                        );
+                    }
                 }
             }
             if let IrStructuredExpr::MemberAccess { object, member, .. } = function.as_ref()
@@ -5750,7 +5755,8 @@ fn compile_expression(
                         interner,
                     );
                 }
-                if should_use_base_fastcall(scope, *name, interner)
+                if !scope.locals.contains_key(name)
+                    && should_use_base_fastcall(scope, *name, interner)
                     && let Some(&base_idx) = scope.base_functions.get(name)
                 {
                     return compile_base_function_call(
