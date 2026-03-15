@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::visit::{self, Visitor};
 use crate::syntax::{
+    block::Block,
     expression::{Expression, Pattern},
     program::Program,
     statement::Statement,
@@ -216,6 +217,13 @@ pub fn collect_free_vars(expr: &Expression) -> HashSet<Symbol> {
     collector.free
 }
 
+/// Collect free variables in a function body with `parameters` treated as bound.
+pub fn collect_free_vars_in_function_body(parameters: &[Symbol], body: &Block) -> HashSet<Symbol> {
+    let mut collector = FreeVarCollector::new();
+    collector.with_scope(parameters, |this| this.visit_block(body));
+    collector.free
+}
+
 /// Collect free variables across an entire program.
 pub fn collect_free_vars_in_program(program: &Program) -> HashSet<Symbol> {
     let mut collector = FreeVarCollector::new();
@@ -227,8 +235,8 @@ pub fn collect_free_vars_in_program(program: &Program) -> HashSet<Symbol> {
 mod tests {
     use std::collections::HashSet;
 
-    use crate::ast::free_vars::collect_free_vars_in_program;
-    use crate::syntax::{lexer::Lexer, parser::Parser};
+    use crate::ast::free_vars::{collect_free_vars_in_function_body, collect_free_vars_in_program};
+    use crate::syntax::{block::Block, lexer::Lexer, parser::Parser, statement::Statement};
 
     fn free_var_names(source: &str) -> HashSet<String> {
         let lexer = Lexer::new(source);
@@ -245,6 +253,31 @@ mod tests {
             .into_iter()
             .map(|sym| interner.resolve(sym).to_string())
             .collect()
+    }
+
+    fn parse_function_body(
+        source: &str,
+    ) -> (
+        Vec<crate::syntax::symbol::Symbol>,
+        Block,
+        crate::syntax::interner::Interner,
+    ) {
+        let lexer = Lexer::new(source);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
+        let interner = parser.take_interner();
+        let Statement::Function {
+            parameters, body, ..
+        } = &program.statements[0]
+        else {
+            panic!("expected function statement");
+        };
+        (parameters.clone(), body.clone(), interner)
     }
 
     #[test]
@@ -285,5 +318,27 @@ match value {
         assert!(free.contains("missing"));
         assert!(!free.contains("value"));
         assert!(!free.contains("v"));
+    }
+
+    #[test]
+    fn function_body_free_vars_exclude_params_and_inner_bindings() {
+        let (parameters, body, interner) = parse_function_body(
+            r#"
+fn outer(parsed) {
+    let keep = 1;
+    filter(\u -> parsed.0 + keep + u)
+}
+"#,
+        );
+
+        let free = collect_free_vars_in_function_body(&parameters, &body)
+            .into_iter()
+            .map(|sym| interner.resolve(sym).to_string())
+            .collect::<HashSet<_>>();
+
+        assert!(free.contains("filter"));
+        assert!(!free.contains("parsed"));
+        assert!(!free.contains("keep"));
+        assert!(!free.contains("u"));
     }
 }

@@ -9,12 +9,41 @@ pub mod runtime_helpers;
 pub mod value_arena;
 
 use crate::bytecode::compiler::Compiler;
+use crate::diagnostics::Diagnostic;
 use crate::ir::{IrPassContext, lower_program_to_ir, run_ir_pass_pipeline};
 use crate::runtime::value::Value;
 use crate::syntax::{interner::Interner, program::Program};
 
 use compiler::JitCompiler;
 use context::{JIT_TAG_PTR, JIT_TAG_THUNK, JitCallAbi, JitContext, JitTaggedValue, JitThunk};
+use std::fmt;
+
+#[derive(Debug, Clone)]
+pub enum JitError {
+    Compile(Box<Diagnostic>),
+    Runtime(Box<Diagnostic>),
+    Internal(String),
+}
+
+impl fmt::Display for JitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Compile(diag) | Self::Runtime(diag) => {
+                let rendered = crate::diagnostics::render_diagnostics(
+                    std::slice::from_ref(diag.as_ref()),
+                    None,
+                    None,
+                );
+                write!(f, "{}", rendered)
+            }
+            Self::Internal(message) => write!(f, "{}", message),
+        }
+    }
+}
+
+impl std::error::Error for JitError {}
+
+pub type JitResult<T> = Result<T, JitError>;
 
 /// Runtime options for JIT execution.
 #[derive(Default)]
@@ -43,18 +72,28 @@ pub fn jit_compile(
     program: &Program,
     interner: &Interner,
     options: &JitOptions,
-) -> Result<JitCompiledProgram, String> {
+) -> JitResult<JitCompiledProgram> {
     let mut hm_compiler = Compiler::new_with_interner(
         options.source_file.clone().unwrap_or_default(),
         interner.clone(),
     );
     let hm_expr_types = hm_compiler.infer_expr_types_for_program(program);
-    let mut ir_program =
-        lower_program_to_ir(program, &hm_expr_types).map_err(diagnostic_to_string)?;
-    run_ir_pass_pipeline(&mut ir_program, &IrPassContext).map_err(diagnostic_to_string)?;
+    let mut ir_program = lower_program_to_ir(program, &hm_expr_types)
+        .map_err(|diag| JitError::Compile(Box::new(diag)))?;
+    run_ir_pass_pipeline(&mut ir_program, &IrPassContext)
+        .map_err(|diag| JitError::Compile(Box::new(diag)))?;
 
-    let mut compiler = JitCompiler::new(hm_expr_types)?;
-    let main_id = compiler.compile_ir_program(&ir_program, interner)?;
+    let mut compiler = JitCompiler::new(hm_expr_types).map_err(JitError::Internal)?;
+    compiler.set_source_context(options.source_file.clone(), options.source_text.clone());
+    let main_id = compiler
+        .compile_ir_program(&ir_program, interner)
+        .map_err(|err| {
+            if err.contains("error[") {
+                JitError::Compile(Box::new(compiler.render_compile_error_string(&err)))
+            } else {
+                JitError::Internal(err)
+            }
+        })?;
     compiler.finalize();
 
     let main_ptr = compiler.get_func_ptr(main_id);
@@ -79,17 +118,8 @@ pub fn jit_compile(
     })
 }
 
-fn diagnostic_to_string(diag: crate::diagnostics::Diagnostic) -> String {
-    match (diag.title().is_empty(), diag.message()) {
-        (false, Some(message)) => format!("{}: {}", diag.title(), message),
-        (false, None) => diag.title().to_string(),
-        (true, Some(message)) => message.to_string(),
-        (true, None) => "Flux IR pipeline failed".to_string(),
-    }
-}
-
 /// Execute a previously compiled JIT program.
-pub fn jit_execute(mut compiled: JitCompiledProgram) -> Result<(Value, JitContext), String> {
+pub fn jit_execute(mut compiled: JitCompiledProgram) -> JitResult<(Value, JitContext)> {
     let mut result: JitTaggedValue = unsafe {
         let func: unsafe extern "C" fn(*mut JitContext) -> JitTaggedValue =
             std::mem::transmute(compiled.main_ptr);
@@ -100,25 +130,28 @@ pub fn jit_execute(mut compiled: JitCompiledProgram) -> Result<(Value, JitContex
     // Each iteration unwinds the JIT call frame before re-entering the target,
     // so mutual recursion does not grow the native stack.
     while result.tag == JIT_TAG_THUNK {
-        let thunk = compiled
-            .ctx
-            .pending_thunk
-            .take()
-            .ok_or_else(|| "JIT_TAG_THUNK returned without pending_thunk".to_string())?;
+        let thunk = compiled.ctx.pending_thunk.take().ok_or_else(|| {
+            JitError::Internal("JIT_TAG_THUNK returned without pending_thunk".to_string())
+        })?;
         result = unsafe { invoke_jit_thunk(&mut compiled.ctx, &thunk) };
     }
 
     if result.tag == JIT_TAG_PTR && result.as_ptr().is_null() {
-        return Err(compiled
-            .ctx
-            .take_error()
-            .unwrap_or_else(|| "unknown JIT error".to_string()));
+        if let Some(diag) = compiled.ctx.take_runtime_error() {
+            return Err(JitError::Runtime(Box::new(diag)));
+        }
+        return Err(JitError::Internal(
+            compiled
+                .ctx
+                .take_internal_error()
+                .unwrap_or_else(|| "unknown JIT error".to_string()),
+        ));
     }
 
     let result = compiled
         .ctx
         .clone_from_tagged(result)
-        .ok_or_else(|| "unknown JIT error".to_string())?;
+        .ok_or_else(|| JitError::Internal("unknown JIT error".to_string()))?;
     Ok((result, compiled.ctx))
 }
 
@@ -237,7 +270,7 @@ pub fn jit_compile_and_run(
     program: &Program,
     interner: &Interner,
     options: &JitOptions,
-) -> Result<(Value, JitContext), String> {
+) -> JitResult<(Value, JitContext)> {
     let compiled = jit_compile(program, interner, options)?;
     jit_execute(compiled)
 }

@@ -8,11 +8,6 @@ use std::{
 };
 
 #[cfg(feature = "jit")]
-use flux::diagnostics::{
-    ErrorType,
-    position::{Position, Span},
-};
-#[cfg(feature = "jit")]
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
@@ -41,6 +36,7 @@ use flux::{
 #[cfg(feature = "jit")]
 use flux::{
     ast::{constant_fold_with_interner, desugar, rename},
+    jit::JitError,
     runtime::jit_closure::JitClosure,
     runtime::vm::test_runner::run_test_fns,
 };
@@ -682,7 +678,7 @@ fn run_file(
                 let compiled = match jit_result {
                     Ok(Ok(c)) => c,
                     Ok(Err(err)) => {
-                        eprintln!("{}", err);
+                        emit_jit_error(&err, path, source.as_str(), max_errors, diagnostics_format);
                         std::process::exit(1);
                     }
                     Err(panic) => {
@@ -728,13 +724,7 @@ fn run_file(
                         }
                     }
                     Err(err) => {
-                        emit_jit_runtime_error(
-                            &err,
-                            path,
-                            source.as_str(),
-                            max_errors,
-                            diagnostics_format,
-                        );
+                        emit_jit_error(&err, path, source.as_str(), max_errors, diagnostics_format);
                         std::process::exit(1);
                     }
                 }
@@ -1342,90 +1332,62 @@ fn emit_diagnostics(
 }
 
 #[cfg(feature = "jit")]
-fn parse_rendered_runtime_diagnostic(err: &str) -> Option<Diagnostic> {
-    let mut lines = err.lines();
-    let header = lines.next()?.trim();
-    if !header.starts_with("• ") {
-        return None;
-    }
-
-    let error_line = lines.find(|line| {
-        let trimmed = line.trim_start();
-        trimmed.starts_with("Error[") || trimmed.starts_with("error[")
-    })?;
-    let error_line = error_line.trim();
-    let code_end = error_line.find(']')?;
-    let prefix_len = if error_line.starts_with("Error[") {
-        "Error[".len()
-    } else {
-        "error[".len()
-    };
-    let code = error_line.get(prefix_len..code_end)?;
-    let title = error_line.get(code_end + 1..)?.trim().strip_prefix(": ")?;
-
-    let mut message_lines = Vec::new();
-    let mut location_line = None;
-    for line in lines {
-        if location_line.is_none()
-            && line.starts_with("  ")
-            && line.trim().contains(':')
-            && !line.contains('|')
-        {
-            location_line = Some(line.trim().to_string());
-            break;
-        }
-        if !line.trim().is_empty() {
-            message_lines.push(line.trim_end().to_string());
-        }
-    }
-    let location_line = location_line?;
-    let (file_and_line, column) = location_line.rsplit_once(':')?;
-    let (file, line) = file_and_line.rsplit_once(':')?;
-    let line = line.parse::<usize>().ok()?;
-    let column = column.parse::<usize>().ok()?;
-
-    Some(
-        Diagnostic::make_error_dynamic(
-            code,
-            title,
-            ErrorType::Runtime,
-            message_lines.join("\n").trim(),
-            None,
-            file.to_string(),
-            Span::new(
-                Position::new(line, column.saturating_sub(1)),
-                Position::new(line, column.saturating_sub(1)),
-            ),
-        )
-        .with_phase(DiagnosticPhase::Runtime),
-    )
+fn normalize_jit_cli_diagnostic(diag: &Diagnostic, source_path: &str) -> Diagnostic {
+    let mut diag = diag.clone();
+    diag.set_file(flux::diagnostics::render_display_path(source_path));
+    diag
 }
 
 #[cfg(feature = "jit")]
-fn emit_jit_runtime_error(
-    err: &str,
+fn emit_jit_error(
+    err: &JitError,
     source_path: &str,
     source_text: &str,
     max_errors: usize,
     diagnostics_format: DiagnosticOutputFormat,
 ) {
-    match diagnostics_format {
-        DiagnosticOutputFormat::Text => eprintln!("{}", err),
-        DiagnosticOutputFormat::Json | DiagnosticOutputFormat::JsonCompact => {
-            if let Some(diag) = parse_rendered_runtime_diagnostic(err) {
-                emit_diagnostics(
-                    &[diag],
-                    Some(source_path),
-                    Some(source_text),
-                    false,
-                    max_errors,
-                    diagnostics_format,
-                    false,
-                    true,
-                );
-            } else {
-                eprintln!("{}", err);
+    match err {
+        JitError::Compile(diag) => {
+            let diag = normalize_jit_cli_diagnostic(diag.as_ref(), source_path);
+            emit_diagnostics(
+                std::slice::from_ref(&diag),
+                Some(source_path),
+                Some(source_text),
+                false,
+                max_errors,
+                diagnostics_format,
+                false,
+                true,
+            )
+        }
+        JitError::Runtime(diag) => {
+            let diag = normalize_jit_cli_diagnostic(diag.as_ref(), source_path);
+            match diagnostics_format {
+                DiagnosticOutputFormat::Text => eprintln!(
+                    "{}",
+                    flux::diagnostics::render_runtime_diagnostic(
+                        &diag,
+                        source_path,
+                        Some(source_text),
+                        &[],
+                    )
+                ),
+                DiagnosticOutputFormat::Json | DiagnosticOutputFormat::JsonCompact => {
+                    emit_diagnostics(
+                        std::slice::from_ref(&diag),
+                        Some(source_path),
+                        Some(source_text),
+                        false,
+                        max_errors,
+                        diagnostics_format,
+                        false,
+                        true,
+                    )
+                }
             }
+        }
+        JitError::Internal(message) => {
+            eprintln!("{}", message);
         }
     }
 }

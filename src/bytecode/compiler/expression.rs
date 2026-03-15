@@ -5,7 +5,7 @@ use std::{
 
 use super::suggestions::suggest_effect_name;
 use crate::{
-    ast::type_infer::display_infer_type,
+    ast::{free_vars::collect_free_vars_in_function_body, type_infer::display_infer_type},
     bytecode::{
         binding::Binding,
         compiler::{
@@ -85,6 +85,20 @@ struct ConditionalJump {
 }
 
 impl Compiler {
+    fn collect_consumable_captured_uses(
+        &mut self,
+        free_vars: impl IntoIterator<Item = Symbol>,
+        counts: &mut HashMap<Symbol, usize>,
+    ) {
+        for name in free_vars {
+            if let Some(symbol) = self.symbol_table.resolve(name)
+                && self.is_consumable_local(&symbol)
+            {
+                *counts.entry(name).or_insert(0) += 1;
+            }
+        }
+    }
+
     pub(super) fn compile_ir_expr(&mut self, expression: &IrStructuredExpr) -> CompileResult<()> {
         match expression {
             IrStructuredExpr::Integer { value, .. } => {
@@ -3815,7 +3829,13 @@ impl Compiler {
                     self.collect_consumable_param_uses(value, counts);
                 }
             }
-            Statement::Function { body, .. } | Statement::Module { body, .. } => {
+            Statement::Function {
+                parameters, body, ..
+            } => {
+                let free_vars = collect_free_vars_in_function_body(parameters, body);
+                self.collect_consumable_captured_uses(free_vars, counts);
+            }
+            Statement::Module { body, .. } => {
                 for statement in &body.statements {
                     self.collect_consumable_param_uses_statement(statement, counts);
                 }
@@ -3937,8 +3957,13 @@ impl Compiler {
                     self.collect_consumable_param_uses(&arm.body, counts);
                 }
             }
-            Expression::Function { .. }
-            | Expression::Integer { .. }
+            Expression::Function {
+                parameters, body, ..
+            } => {
+                let free_vars = collect_free_vars_in_function_body(parameters, body);
+                self.collect_consumable_captured_uses(free_vars, counts);
+            }
+            Expression::Integer { .. }
             | Expression::Float { .. }
             | Expression::String { .. }
             | Expression::Boolean { .. }

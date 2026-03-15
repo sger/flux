@@ -342,14 +342,14 @@ impl<'a> FunctionLoweringContext<'a> {
                 let var = self.lower_expression(value)?;
                 self.env.insert(*name, var);
                 self.lowerer.globals.push(*name);
-                self.last_value = Some(var);
-                Ok(Some(var))
+                self.last_value = None;
+                Ok(None)
             }
             Statement::Assign { name, value, .. } => {
                 let var = self.lower_expression(value)?;
                 self.env.insert(*name, var);
-                self.last_value = Some(var);
-                Ok(Some(var))
+                self.last_value = None;
+                Ok(None)
             }
             Statement::Expression { expression, .. } => {
                 if in_tail_position && self.try_lower_tail_call(expression)? {
