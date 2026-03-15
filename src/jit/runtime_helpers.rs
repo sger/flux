@@ -1484,8 +1484,29 @@ pub extern "C" fn rt_tuple_get(ctx: *mut JitContext, value: *mut Value, index: i
 pub extern "C" fn rt_to_string(ctx: *mut JitContext, value: *mut Value) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     let v = unsafe { &*value };
-    let s = format_value(ctx, v);
+    let s = v.to_string_value();
     ctx.alloc(Value::String(s.into()))
+}
+
+/// Concatenate two `*mut Value` strings, returning `*mut Value`.
+/// Used by interpolated-string codegen where both operands are already boxed
+/// `Value::String` pointers (from `rt_make_string` / `rt_to_string`).
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_string_concat(
+    ctx: *mut JitContext,
+    a: *mut Value,
+    b: *mut Value,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let a_str = match unsafe { &*a } {
+        Value::String(s) => s.clone(),
+        other => Rc::from(format_value(ctx, other)),
+    };
+    let b_str = match unsafe { &*b } {
+        Value::String(s) => s.clone(),
+        other => Rc::from(format_value(ctx, other)),
+    };
+    ctx.alloc(Value::String(format!("{}{}", a_str, b_str).into()))
 }
 
 // ---------------------------------------------------------------------------
@@ -2031,6 +2052,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_tuple_get", rt_tuple_get as *const u8),
         // Phase 4: string ops
         ("rt_to_string", rt_to_string as *const u8),
+        ("rt_string_concat", rt_string_concat as *const u8),
         // Phase 5: ADT helpers
         ("rt_intern_unit_adt", rt_intern_unit_adt as *const u8),
         ("rt_make_adt", rt_make_adt as *const u8),
