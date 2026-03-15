@@ -28,13 +28,6 @@ const EXAMPLE_DIRS: &[&str] = &[
 /// Each entry should reference the tracking issue or proposal.
 /// Remove entries as gaps are fixed.
 const JIT_EXCLUDE: &[&str] = &[
-    // CFG tail-call target resolution for higher-order / mixed-type expressions
-    "examples/basics/arithmetic.flx",
-    "examples/basics/factorial.flx",
-    "examples/basics/list_comprehension.flx",
-    "examples/basics/modulo.flx",
-    // Parser recovery fixture (intentionally malformed)
-    "examples/basics/missing_comma_recovery.flx",
     // Pattern validation with complex match arms
     "examples/patterns/pattern_validation_happy_path.flx",
     // VM print uses Display (adds quotes around strings), JIT does not

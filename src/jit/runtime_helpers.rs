@@ -467,13 +467,8 @@ pub extern "C" fn rt_not(ctx: *mut JitContext, a: JitTaggedValue) -> JitTaggedVa
     let Some(a) = ctx.clone_from_tagged(a) else {
         return JitTaggedValue::none();
     };
-    match a {
-        Value::Boolean(v) => JitTaggedValue::bool(!v),
-        _ => {
-            ctx.error = Some(format!("cannot apply ! to {}", a.type_name()));
-            JitTaggedValue::none()
-        }
-    }
+    // Match VM's OpBang: negate truthiness of any value.
+    JitTaggedValue::bool(!a.is_truthy())
 }
 
 #[unsafe(no_mangle)]

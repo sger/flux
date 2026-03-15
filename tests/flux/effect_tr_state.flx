@@ -1,0 +1,20 @@
+// Tail-resumptive effect: simple logging pattern.
+// The handler discards the message and resumes with unit.
+// This is the most common TR pattern (IO, logging, tracing).
+
+effect Logger {
+    log : (String) -> ()
+}
+
+fn greet(name: String) -> Int with Logger {
+    perform Logger.log("hello")
+    perform Logger.log(name)
+    42
+}
+
+fn main() with IO {
+    let result = greet("world") handle Logger {
+        log(resume, _msg) -> resume(())
+    }
+    print(to_string(result))
+}
