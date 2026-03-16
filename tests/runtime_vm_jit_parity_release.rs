@@ -287,11 +287,13 @@ countdown(100000)
 }
 
 #[test]
+#[ignore = "benchmark parity is opt-in; exclude long-running benchmark files from default CI cargo test"]
 fn release_runtime_parity_cfold_benchmark_file() {
     assert_file_cli_outcome_parity("benchmarks/flux/cfold.flx", &[]);
 }
 
 #[test]
+#[ignore = "benchmark parity is opt-in; exclude long-running benchmark files from default CI cargo test"]
 fn release_runtime_parity_rbtree_del_benchmark_file() {
     assert_file_cli_outcome_parity("benchmarks/flux/rbtree_del.flx", &[]);
 }
