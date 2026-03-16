@@ -527,21 +527,23 @@ impl Compiler {
         ir_function: Option<&IrFunction>,
         function_span: Span,
     ) -> CompileResult<()> {
+        let definition_span = Span::new(function_span.start, function_span.start);
+
         if let Some(param) = Self::find_duplicate_name(parameters) {
             let param_str = self.sym(param);
             return Err(Self::boxed(Diagnostic::make_error(
                 &DUPLICATE_PARAMETER,
                 &[param_str],
                 self.file_path.clone(),
-                function_span,
+                definition_span,
             )));
         }
 
         for effect_expr in effects {
             for effect_name in effect_expr.normalized_names() {
                 if !self.is_known_function_effect_annotation(effect_name) {
-                    let span =
-                        Self::effect_named_span(effect_expr, effect_name).unwrap_or(function_span);
+                    let span = Self::effect_named_span(effect_expr, effect_name)
+                        .unwrap_or(definition_span);
                     return Err(Self::boxed(
                         self.unknown_function_effect_diagnostic(effect_name, span),
                     ));
@@ -557,11 +559,12 @@ impl Compiler {
                 .resolve(name)
                 .expect("current-scope function binding must resolve")
         } else {
-            self.symbol_table.define(name, function_span)
+            self.symbol_table.define(name, definition_span)
         };
 
         self.enter_scope();
-        self.symbol_table.define_function_name(name, function_span);
+        self.symbol_table
+            .define_function_name(name, definition_span);
 
         for (index, param) in parameters.iter().enumerate() {
             self.symbol_table.define(*param, Span::default());
@@ -615,10 +618,10 @@ impl Compiler {
             let param_effect_rows = self.build_param_effect_rows(parameters, parameter_types);
             if let Some(ir_function) = ir_function
                 && !Self::block_contains_cfg_incompatible_statements_ast(body)
+                && let Some(cfg_result) =
+                    self.try_compile_ir_cfg_function_body(ir_function, name)
             {
-                if let Some(cfg_result) = self.try_compile_ir_cfg_function_body(ir_function, name) {
-                    return cfg_result;
-                }
+                return cfg_result;
             }
             let body_errors = self.with_function_context_with_param_effect_rows(
                 parameters.len(),

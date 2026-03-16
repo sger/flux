@@ -190,7 +190,7 @@ impl ToIrCtx {
                     });
                 entry_fn.env.insert(def.binder.id, g_var);
                 entry_fn.binder_names.insert(def.binder.id, def.binder.name);
-                if def.binder.name == crate::syntax::symbol::Symbol::new(0) {
+                if def.is_anonymous() {
                     // Anonymous top-level expression statements still
                     // contribute the program result when they are the last
                     // evaluated definition, matching the VM's top-level
@@ -236,7 +236,6 @@ fn lower_core_top_level_item(item: &CoreTopLevelItem) -> IrTopLevelItem {
             parameter_types,
             return_type,
             effects,
-            body,
             span,
         } => IrTopLevelItem::Function {
             is_public: *is_public,
@@ -247,7 +246,10 @@ fn lower_core_top_level_item(item: &CoreTopLevelItem) -> IrTopLevelItem {
             parameter_types: parameter_types.clone(),
             return_type: return_type.clone(),
             effects: effects.clone(),
-            body: body.clone(),
+            body: crate::syntax::block::Block {
+                statements: Vec::new(),
+                span: *span,
+            },
             span: *span,
         },
         CoreTopLevelItem::Module { name, body, span } => IrTopLevelItem::Module {
@@ -311,10 +313,12 @@ fn bind_function_id_in_items(
     false
 }
 
+type FunctionDeclarationMetadata = (Vec<Option<TypeExpr>>, Option<TypeExpr>, Vec<EffectExpr>);
+
 fn find_function_decl_metadata(
     items: &[IrTopLevelItem],
     name: Identifier,
-) -> Option<(Vec<Option<TypeExpr>>, Option<TypeExpr>, Vec<EffectExpr>)> {
+) -> Option<FunctionDeclarationMetadata> {
     for item in items {
         match item {
             IrTopLevelItem::Function {
@@ -414,6 +418,35 @@ impl<'a> FnCtx<'a> {
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
         });
         self.blocks.len() - 1
+    }
+
+    fn with_bound_var<T>(
+        &mut self,
+        binder_id: CoreBinderId,
+        name: Identifier,
+        ir_var: IrVar,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let old_var = self.env.insert(binder_id, ir_var);
+        let old_name = self.binder_names.insert(binder_id, name);
+        let result = f(self);
+        match old_var {
+            Some(var) => {
+                self.env.insert(binder_id, var);
+            }
+            None => {
+                self.env.remove(&binder_id);
+            }
+        }
+        match old_name {
+            Some(existing_name) => {
+                self.binder_names.insert(binder_id, existing_name);
+            }
+            None => {
+                self.binder_names.remove(&binder_id);
+            }
+        }
+        result
     }
 
     fn set_terminator(&mut self, t: IrTerminator) {
@@ -521,26 +554,7 @@ impl<'a> FnCtx<'a> {
 
             CoreExpr::Let { var, rhs, body, .. } => {
                 let rhs_var = self.lower_expr(rhs);
-                let old = self.env.insert(var.id, rhs_var);
-                let old_name = self.binder_names.insert(var.id, var.name);
-                let result = self.lower_expr(body);
-                match old {
-                    Some(v) => {
-                        self.env.insert(var.id, v);
-                    }
-                    None => {
-                        self.env.remove(&var.id);
-                    }
-                }
-                match old_name {
-                    Some(name) => {
-                        self.binder_names.insert(var.id, name);
-                    }
-                    None => {
-                        self.binder_names.remove(&var.id);
-                    }
-                }
-                result
+                self.with_bound_var(var.id, var.name, rhs_var, |this| this.lower_expr(body))
             }
 
             CoreExpr::LetRec { var, rhs, body, .. } => {
@@ -552,50 +566,13 @@ impl<'a> FnCtx<'a> {
                             expr: IrExpr::LoadName(var.name),
                             metadata: IrMetadata::empty(),
                         });
-                        let old = self.env.insert(var.id, placeholder);
-                        let old_name = self.binder_names.insert(var.id, var.name);
-                        let lowered =
-                            self.lower_lam_as_closure(Some(var.name), Some(var.id), rhs.as_ref());
-                        match old {
-                            Some(v) => {
-                                self.env.insert(var.id, v);
-                            }
-                            None => {
-                                self.env.remove(&var.id);
-                            }
-                        }
-                        match old_name {
-                            Some(name) => {
-                                self.binder_names.insert(var.id, name);
-                            }
-                            None => {
-                                self.binder_names.remove(&var.id);
-                            }
-                        }
-                        lowered
+                        self.with_bound_var(var.id, var.name, placeholder, |this| {
+                            this.lower_lam_as_closure(Some(var.name), Some(var.id), rhs.as_ref())
+                        })
                     }
                     _ => self.lower_expr(rhs),
                 };
-                let old = self.env.insert(var.id, rhs_var);
-                let old_name = self.binder_names.insert(var.id, var.name);
-                let result = self.lower_expr(body);
-                match old {
-                    Some(v) => {
-                        self.env.insert(var.id, v);
-                    }
-                    None => {
-                        self.env.remove(&var.id);
-                    }
-                }
-                match old_name {
-                    Some(name) => {
-                        self.binder_names.insert(var.id, name);
-                    }
-                    None => {
-                        self.binder_names.remove(&var.id);
-                    }
-                }
-                result
+                self.with_bound_var(var.id, var.name, rhs_var, |this| this.lower_expr(body))
             }
 
             CoreExpr::Case {
@@ -1441,10 +1418,10 @@ fn free_vars_rec(
 ) {
     match expr {
         CoreExpr::Var { var, .. } => {
-            if let Some(binder) = var.binder {
-                if !bound.contains(&binder) {
-                    free.insert(binder);
-                }
+            if let Some(binder) = var.binder
+                && !bound.contains(&binder)
+            {
+                free.insert(binder);
             }
         }
         CoreExpr::Lit(_, _) => {}
@@ -1712,10 +1689,6 @@ mod tests {
                         parameter_types: Vec::new(),
                         return_type: None,
                         effects: Vec::new(),
-                        body: crate::syntax::block::Block {
-                            statements: Vec::new(),
-                            span: Span::default(),
-                        },
                         span: Span::default(),
                     }],
                     span: Span::default(),
