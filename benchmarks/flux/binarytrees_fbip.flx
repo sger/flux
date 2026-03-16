@@ -31,11 +31,11 @@ fn make_down(depth: Int, builder: Builder) -> Tree {
 
 fn make_up(tree: Tree, builder: Builder) -> Tree {
     match builder {
-        BuildRight(depth, up) -> {
+        BuildRight(depth, up) -> do {
             let next = BuildNode(tree, up)
             make_down(depth, next)
         },
-        BuildNode(left, up) -> {
+        BuildNode(left, up) -> do {
             let next = Node(left, tree)
             make_up(next, up)
         },
@@ -45,22 +45,23 @@ fn make_up(tree: Tree, builder: Builder) -> Tree {
 
 fn make_fbip(direction: Direction, builder: Builder) -> Tree {
     match direction {
-        Down(depth) ->
+        Down(depth) -> do {
             if depth > 0 {
                 let next_dir = Down(depth - 1)
                 let next_builder = BuildRight(depth - 1, builder)
                 make_fbip(next_dir, next_builder)
             } else {
-                let next_dir = Up(Node(Tip, Tip))
-                make_fbip(next_dir, builder)
-            },
+                let done_dir = Up(Node(Tip, Tip))
+                make_fbip(done_dir, builder)
+            }
+        },
         Up(tree) -> match builder {
-            BuildRight(depth, up) -> {
+            BuildRight(depth, up) -> do {
                 let next_dir = Down(depth)
                 let next_builder = BuildNode(tree, up)
                 make_fbip(next_dir, next_builder)
             },
-            BuildNode(left, up) -> {
+            BuildNode(left, up) -> do {
                 let next_dir = Up(Node(left, tree))
                 make_fbip(next_dir, up)
             },
@@ -79,11 +80,11 @@ fn make_rec(depth: Int) -> Tree {
 
 fn make_trmc_up(tree: Tree, build: Build) -> Tree {
     match build {
-        GoRight(depth, Root) -> {
+        GoRight(depth, Root) -> do {
             let right = make_trmc(depth, Root)
             Node(tree, right)
         },
-        GoRight(depth, up) -> {
+        GoRight(depth, up) -> do {
             let right = make_trmc(depth, Root)
             let next = Node(tree, right)
             make_trmc_up(next, up)
@@ -103,21 +104,22 @@ fn make_trmc(depth: Int, build: Build) -> Tree {
 
 fn make_trmc_fbip(direction: Direction, build: Build) -> Tree {
     match direction {
-        Down(depth) ->
+        Down(depth) -> do {
             if depth > 0 {
                 let next_dir = Down(depth - 1)
                 let next_build = GoRight(depth - 1, build)
                 make_trmc_fbip(next_dir, next_build)
             } else {
-                let next_dir = Up(Node(Tip, Tip))
-                make_trmc_fbip(next_dir, build)
-            },
+                let done_dir = Up(Node(Tip, Tip))
+                make_trmc_fbip(done_dir, build)
+            }
+        },
         Up(tree) -> match build {
-            GoRight(depth, Root) -> {
+            GoRight(depth, Root) -> do {
                 let right = make_trmc_fbip(Down(depth), Root)
                 Node(tree, right)
             },
-            GoRight(depth, up) -> {
+            GoRight(depth, up) -> do {
                 let right = make_trmc_fbip(Down(depth), Root)
                 let next_dir = Up(Node(tree, right))
                 make_trmc_fbip(next_dir, up)
@@ -137,7 +139,7 @@ fn make(depth: Int) -> Tree {
 
 fn checkv(tree: Tree, visit: Visit, acc: Int) -> Int {
     match tree {
-        Node(left, right) -> {
+        Node(left, right) -> do {
             let next = NodeR(right, visit)
             checkv(left, next, acc + 1)
         },

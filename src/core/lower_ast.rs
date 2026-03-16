@@ -28,7 +28,8 @@ use crate::{
 };
 
 use super::{
-    CoreAlt, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreProgram, CoreTag,
+    CoreAlt, CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat,
+    CorePrimOp, CoreProgram, CoreTag, CoreTopLevelItem,
 };
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -43,10 +44,20 @@ pub fn lower_program_ast(
 ) -> CoreProgram {
     let mut lowerer = AstLowerer::new(hm_expr_types);
     let mut defs = Vec::new();
+    let mut top_level_items = Vec::new();
     for stmt in &program.statements {
-        lowerer.lower_top_level(stmt, &mut defs);
+        lowerer.lower_top_level(stmt, &mut defs, &mut top_level_items);
     }
-    CoreProgram { defs }
+    let mut core = CoreProgram {
+        defs,
+        top_level_items,
+    };
+    resolve_program_binders(&mut core);
+    assert!(
+        validate_program_binders(&core),
+        "Core binder resolution invariant failed after AST→Core lowering"
+    );
+    core
 }
 
 // ── Lowerer ───────────────────────────────────────────────────────────────────
@@ -56,6 +67,7 @@ struct AstLowerer<'a> {
     hm_expr_types: &'a HashMap<ExprId, InferType>,
     /// Counter for synthesizing fresh binding names.
     fresh: u32,
+    next_binder_id: u32,
 }
 
 impl<'a> AstLowerer<'a> {
@@ -63,7 +75,18 @@ impl<'a> AstLowerer<'a> {
         Self {
             hm_expr_types,
             fresh: 0,
+            next_binder_id: 0,
         }
+    }
+
+    fn bind_name(&mut self, name: crate::syntax::Identifier) -> CoreBinder {
+        let id = CoreBinderId(self.next_binder_id);
+        self.next_binder_id += 1;
+        CoreBinder::new(id, name)
+    }
+
+    fn fresh_binder(&mut self, name: crate::syntax::Identifier) -> CoreBinder {
+        self.bind_name(name)
     }
 
     /// Allocate a fresh synthetic `Identifier` for compiler-generated bindings.
@@ -87,7 +110,15 @@ impl<'a> AstLowerer<'a> {
 
     // ── Top-level statements ─────────────────────────────────────────────────
 
-    fn lower_top_level(&mut self, stmt: &Statement, out: &mut Vec<CoreDef>) {
+    fn lower_top_level(
+        &mut self,
+        stmt: &Statement,
+        out: &mut Vec<CoreDef>,
+        top_level_items: &mut Vec<CoreTopLevelItem>,
+    ) {
+        if let Some(item) = self.lower_decl_item(stmt) {
+            top_level_items.push(item);
+        }
         match stmt {
             // Named function definition → CoreDef wrapping a curried Lam.
             Statement::Function {
@@ -97,56 +128,53 @@ impl<'a> AstLowerer<'a> {
                 span,
                 ..
             } => {
+                let binder = self.bind_name(*name);
+                let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
                 let body_expr = self.lower_block(body);
                 // Always wrap in Lam, even for parameterless functions — the
                 // Core→IR lowerer uses the Lam marker to distinguish function
                 // definitions from value bindings.  We construct Lam directly
                 // instead of using CoreExpr::lambda() which elides empty params.
                 let expr = CoreExpr::Lam {
-                    params: parameters.clone(),
+                    params,
                     body: Box::new(body_expr),
                     span: *span,
                 };
-                out.push(CoreDef {
-                    name: *name,
-                    expr,
-                    is_recursive: true, // functions may reference themselves
-                    span: *span,
-                });
+                out.push(CoreDef::new(binder, expr, true, *span));
             }
 
             // Value binding → CoreDef for the RHS expression.
             Statement::Let {
                 name, value, span, ..
             } => {
-                out.push(CoreDef {
-                    name: *name,
-                    expr: self.lower_expr(value),
-                    is_recursive: false,
-                    span: *span,
-                });
+                out.push(CoreDef::new(
+                    self.bind_name(*name),
+                    self.lower_expr(value),
+                    false,
+                    *span,
+                ));
             }
 
             // Assignment (mutable rebind) → treat as a new CoreDef.
             Statement::Assign { name, value, span } => {
-                out.push(CoreDef {
-                    name: *name,
-                    expr: self.lower_expr(value),
-                    is_recursive: false,
-                    span: *span,
-                });
+                out.push(CoreDef::new(
+                    self.bind_name(*name),
+                    self.lower_expr(value),
+                    false,
+                    *span,
+                ));
             }
 
             // Expression statement → anonymous CoreDef (evaluated for effects).
             Statement::Expression {
                 expression, span, ..
             } => {
-                out.push(CoreDef {
-                    name: crate::syntax::symbol::Symbol::new(0), // anonymous sentinel
-                    expr: self.lower_expr(expression),
-                    is_recursive: false,
-                    span: *span,
-                });
+                out.push(CoreDef::new(
+                    self.bind_name(crate::syntax::symbol::Symbol::new(0)),
+                    self.lower_expr(expression),
+                    false,
+                    *span,
+                ));
             }
 
             // Destructuring let → synthetic tmp var + Case alt for the pattern.
@@ -156,7 +184,7 @@ impl<'a> AstLowerer<'a> {
                 span,
             } => {
                 let rhs = self.lower_expr(value);
-                let core_pat = lower_pattern(pattern);
+                let core_pat = self.lower_pattern(pattern);
                 // Wrap: let $destructure = value in case $destructure of { pat -> () }
                 // At the top level we emit this as one def per bound variable by
                 // expanding the pattern into field accesses where possible.
@@ -166,20 +194,116 @@ impl<'a> AstLowerer<'a> {
             // Return at top level is unusual but syntactically valid in some contexts.
             Statement::Return { value, span } => {
                 if let Some(val) = value {
-                    out.push(CoreDef {
-                        name: crate::syntax::symbol::Symbol::new(0),
-                        expr: self.lower_expr(val),
-                        is_recursive: false,
-                        span: *span,
-                    });
+                    out.push(CoreDef::new(
+                        self.bind_name(crate::syntax::symbol::Symbol::new(0)),
+                        self.lower_expr(val),
+                        false,
+                        *span,
+                    ));
                 }
             }
 
             // Declarations that don't produce runtime values — skip.
-            Statement::Import { .. }
-            | Statement::Data { .. }
-            | Statement::EffectDecl { .. }
-            | Statement::Module { .. } => {}
+            Statement::Module { body, .. } => {
+                self.lower_functions_in_module(&body.statements, out);
+            }
+
+            Statement::Import { .. } | Statement::Data { .. } | Statement::EffectDecl { .. } => {}
+        }
+    }
+
+    fn lower_functions_in_module(&mut self, stmts: &[Statement], out: &mut Vec<CoreDef>) {
+        for stmt in stmts {
+            match stmt {
+                Statement::Function {
+                    name,
+                    parameters,
+                    body,
+                    span,
+                    ..
+                } => {
+                    let binder = self.bind_name(*name);
+                    let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                    let body_expr = self.lower_block(body);
+                    let expr = CoreExpr::Lam {
+                        params,
+                        body: Box::new(body_expr),
+                        span: *span,
+                    };
+                    out.push(CoreDef::new(binder, expr, true, *span));
+                }
+                Statement::Module { body, .. } => {
+                    self.lower_functions_in_module(&body.statements, out);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn lower_decl_item(&mut self, stmt: &Statement) -> Option<CoreTopLevelItem> {
+        match stmt {
+            Statement::Function {
+                is_public,
+                name,
+                type_params,
+                parameters,
+                parameter_types,
+                return_type,
+                effects,
+                body,
+                span,
+            } => Some(CoreTopLevelItem::Function {
+                is_public: *is_public,
+                name: *name,
+                type_params: type_params.clone(),
+                parameters: parameters.clone(),
+                parameter_types: parameter_types.clone(),
+                return_type: return_type.clone(),
+                effects: effects.clone(),
+                body: body.clone(),
+                span: *span,
+            }),
+            Statement::Module { name, body, span } => Some(CoreTopLevelItem::Module {
+                name: *name,
+                body: body
+                    .statements
+                    .iter()
+                    .filter_map(|item| self.lower_decl_item(item))
+                    .collect(),
+                span: *span,
+            }),
+            Statement::Import {
+                name,
+                alias,
+                except,
+                span,
+            } => Some(CoreTopLevelItem::Import {
+                name: *name,
+                alias: *alias,
+                except: except.clone(),
+                span: *span,
+            }),
+            Statement::Data {
+                name,
+                type_params,
+                variants,
+                span,
+            } => Some(CoreTopLevelItem::Data {
+                name: *name,
+                type_params: type_params.clone(),
+                variants: variants.clone(),
+                span: *span,
+            }),
+            Statement::EffectDecl { name, ops, span } => Some(CoreTopLevelItem::EffectDecl {
+                name: *name,
+                ops: ops.clone(),
+                span: *span,
+            }),
+            Statement::Let { .. }
+            | Statement::LetDestructure { .. }
+            | Statement::Return { .. }
+            | Statement::Expression { .. }
+            | Statement::Assign { .. } => None,
         }
     }
 
@@ -239,20 +363,36 @@ impl<'a> AstLowerer<'a> {
                 span: s,
                 ..
             } => CoreExpr::Let {
-                var: *name,
+                var: self.bind_name(*name),
                 rhs: Box::new(self.lower_expr(value)),
                 body: Box::new(tail),
                 span: *s,
             },
 
             Statement::Function { .. } => {
-                // Nested function statements are not lowered into Core IR.
-                // They are compiled via the bytecode compiler's AST path which
-                // handles recursion (OpCurrentClosure), closures, and scoping
-                // correctly.  We just pass through to the tail expression —
-                // the bytecode compiler will see the original Statement::Function
-                // and compile it before reaching the Core IR instructions.
-                tail
+                let Statement::Function {
+                    name,
+                    parameters,
+                    body,
+                    span: s,
+                    ..
+                } = stmt
+                else {
+                    unreachable!();
+                };
+                let binder = self.bind_name(*name);
+                let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                let body_expr = self.lower_block(body);
+                CoreExpr::LetRec {
+                    var: binder,
+                    rhs: Box::new(CoreExpr::Lam {
+                        params,
+                        body: Box::new(body_expr),
+                        span: *s,
+                    }),
+                    body: Box::new(tail),
+                    span: *s,
+                }
             }
 
             Statement::Assign {
@@ -260,7 +400,7 @@ impl<'a> AstLowerer<'a> {
                 value,
                 span: s,
             } => CoreExpr::Let {
-                var: *name,
+                var: self.bind_name(*name),
                 rhs: Box::new(self.lower_expr(value)),
                 body: Box::new(tail),
                 span: *s,
@@ -273,12 +413,13 @@ impl<'a> AstLowerer<'a> {
             } => {
                 // Bind the scrutinee to a tmp var and use Case to extract fields.
                 let rhs = self.lower_expr(value);
-                let core_pat = lower_pattern(pattern);
+                let core_pat = self.lower_pattern(pattern);
                 // Build: Let($tmp, rhs, Case($tmp, [core_pat → tail]))
                 // We use a special sentinel name for the tmp var.
                 let tmp_name = crate::syntax::symbol::Symbol::new(self.fresh + 1_000_000);
                 self.fresh += 1;
-                let tmp_var = CoreExpr::Var(tmp_name, *s);
+                let tmp_binder = self.fresh_binder(tmp_name);
+                let tmp_var = CoreExpr::bound_var(tmp_binder, *s);
                 let alt = CoreAlt {
                     pat: core_pat,
                     guard: None,
@@ -286,7 +427,7 @@ impl<'a> AstLowerer<'a> {
                     span: *s,
                 };
                 CoreExpr::Let {
-                    var: tmp_name,
+                    var: tmp_binder,
                     rhs: Box::new(rhs),
                     body: Box::new(CoreExpr::Case {
                         scrutinee: Box::new(tmp_var),
@@ -306,7 +447,7 @@ impl<'a> AstLowerer<'a> {
                 let tmp_name = crate::syntax::symbol::Symbol::new(self.fresh + 2_000_000);
                 self.fresh += 1;
                 CoreExpr::Let {
-                    var: tmp_name,
+                    var: self.fresh_binder(tmp_name),
                     rhs: Box::new(self.lower_expr(expression)),
                     body: Box::new(tail),
                     span: *s,
@@ -323,7 +464,7 @@ impl<'a> AstLowerer<'a> {
                 let tmp_name = crate::syntax::symbol::Symbol::new(self.fresh + 2_000_000);
                 self.fresh += 1;
                 CoreExpr::Let {
-                    var: tmp_name,
+                    var: self.fresh_binder(tmp_name),
                     rhs: Box::new(self.lower_expr(expression)),
                     body: Box::new(tail),
                     span: *s,
@@ -331,11 +472,13 @@ impl<'a> AstLowerer<'a> {
             }
 
             Statement::Return { value, span: s } => {
-                // Early return — the tail is dead code, but we still need a well-typed
-                // expression. Emit the return value and discard the tail.
-                match value {
+                let ret_value = match value {
                     Some(v) => self.lower_expr(v),
                     None => CoreExpr::Lit(CoreLit::Unit, *s),
+                };
+                CoreExpr::Return {
+                    value: Box::new(ret_value),
+                    span: *s,
                 }
             }
 
@@ -365,15 +508,21 @@ impl<'a> AstLowerer<'a> {
                 let tmp = crate::syntax::symbol::Symbol::new(self.fresh + 2_000_000);
                 self.fresh += 1;
                 CoreExpr::Let {
-                    var: tmp,
+                    var: self.fresh_binder(tmp),
                     rhs: Box::new(self.lower_expr(expression)),
                     body: Box::new(CoreExpr::Lit(CoreLit::Unit, *s)),
                     span: *s,
                 }
             }
             Statement::Return { value, span: s } => match value {
-                Some(v) => self.lower_expr(v),
-                None => CoreExpr::Lit(CoreLit::Unit, *s),
+                Some(v) => CoreExpr::Return {
+                    value: Box::new(self.lower_expr(v)),
+                    span: *s,
+                },
+                None => CoreExpr::Return {
+                    value: Box::new(CoreExpr::Lit(CoreLit::Unit, *s)),
+                    span: *s,
+                },
             },
             // A `let` or `fn` as the last statement returns unit.
             other => {
@@ -387,7 +536,7 @@ impl<'a> AstLowerer<'a> {
 
     pub fn lower_expr(&mut self, expr: &Expression) -> CoreExpr {
         match expr {
-            Expression::Identifier { name, span, .. } => CoreExpr::Var(*name, *span),
+            Expression::Identifier { name, span, .. } => CoreExpr::external_var(*name, *span),
 
             Expression::Integer { value, span, .. } => CoreExpr::Lit(CoreLit::Int(*value), *span),
 
@@ -482,7 +631,9 @@ impl<'a> AstLowerer<'a> {
                 match inner {
                     CoreExpr::Let { .. } | CoreExpr::LetRec { .. } | CoreExpr::Case { .. } => inner,
                     other => CoreExpr::Let {
-                        var: crate::syntax::symbol::Symbol::new(3_000_000 + self.fresh),
+                        var: self.fresh_binder(crate::syntax::symbol::Symbol::new(
+                            3_000_000 + self.fresh,
+                        )),
                         rhs: Box::new(CoreExpr::Lit(CoreLit::Unit, *span)),
                         body: Box::new(other),
                         span: *span,
@@ -496,18 +647,19 @@ impl<'a> AstLowerer<'a> {
                 span,
                 ..
             } => {
+                let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
                 let body_expr = self.lower_block(body);
                 if parameters.is_empty() {
                     // Nullary lambda — keep the Lam wrapper so the Core→IR
                     // lowerer recognises it as a closure, but with empty params
                     // so the resulting IR function has arity 0.
                     CoreExpr::Lam {
-                        params: vec![],
+                        params,
                         body: Box::new(body_expr),
                         span: *span,
                     }
                 } else {
-                    CoreExpr::lambda(parameters.clone(), body_expr, *span)
+                    CoreExpr::lambda(params, body_expr, *span)
                 }
             }
 
@@ -548,16 +700,11 @@ impl<'a> AstLowerer<'a> {
             }
 
             Expression::TupleLiteral { elements, span, .. } => {
-                if elements.is_empty() {
-                    // `()` is Unit, not a zero-element tuple.
-                    CoreExpr::Lit(CoreLit::Unit, *span)
-                } else {
-                    let args: Vec<CoreExpr> = elements.iter().map(|e| self.lower_expr(e)).collect();
-                    CoreExpr::PrimOp {
-                        op: CorePrimOp::MakeTuple,
-                        args,
-                        span: *span,
-                    }
+                let args: Vec<CoreExpr> = elements.iter().map(|e| self.lower_expr(e)).collect();
+                CoreExpr::PrimOp {
+                    op: CorePrimOp::MakeTuple,
+                    args,
+                    span: *span,
                 }
             }
 
@@ -795,7 +942,7 @@ impl<'a> AstLowerer<'a> {
 
     fn lower_match_arm(&mut self, arm: &MatchArm) -> CoreAlt {
         CoreAlt {
-            pat: lower_pattern(&arm.pattern),
+            pat: self.lower_pattern(&arm.pattern),
             guard: arm.guard.as_ref().map(|g| self.lower_expr(g)),
             rhs: self.lower_expr(&arm.body),
             span: arm.span,
@@ -805,8 +952,8 @@ impl<'a> AstLowerer<'a> {
     fn lower_handle_arm(&mut self, arm: &HandleArm) -> CoreHandler {
         CoreHandler {
             operation: arm.operation_name,
-            params: arm.params.clone(),
-            resume: arm.resume_param,
+            params: arm.params.iter().map(|&p| self.bind_name(p)).collect(),
+            resume: self.bind_name(arm.resume_param),
             body: self.lower_expr(&arm.body),
             span: arm.span,
         }
@@ -833,46 +980,32 @@ impl<'a> AstLowerer<'a> {
                 // Bind to a tmp first so rhs is evaluated once.
                 let tmp = crate::syntax::symbol::Symbol::new(5_000_000 + self.fresh);
                 self.fresh += 1;
-                out.push(CoreDef {
-                    name: tmp,
-                    expr: rhs,
-                    is_recursive: false,
-                    span,
-                });
+                let tmp_binder = self.fresh_binder(tmp);
+                out.push(CoreDef::new(tmp_binder, rhs, false, span));
                 for (i, field_pat) in fields.into_iter().enumerate() {
-                    if let CorePat::Var(name) = field_pat {
-                        out.push(CoreDef {
-                            name,
-                            expr: CoreExpr::PrimOp {
+                    if let CorePat::Var(binder) = field_pat {
+                        out.push(CoreDef::new(
+                            binder,
+                            CoreExpr::PrimOp {
                                 op: CorePrimOp::TupleField(i),
-                                args: vec![CoreExpr::Var(tmp, span)],
+                                args: vec![CoreExpr::bound_var(tmp_binder, span)],
                                 span,
                             },
-                            is_recursive: false,
+                            false,
                             span,
-                        });
+                        ));
                     }
                     // Nested non-variable patterns are skipped for now.
                 }
             }
-            CorePat::Var(name) => {
-                out.push(CoreDef {
-                    name,
-                    expr: rhs,
-                    is_recursive: false,
-                    span,
-                });
+            CorePat::Var(binder) => {
+                out.push(CoreDef::new(binder, rhs, false, span));
             }
             _ => {
                 // General case: bind to a tmp.
                 let tmp = crate::syntax::symbol::Symbol::new(5_000_000 + self.fresh);
                 self.fresh += 1;
-                out.push(CoreDef {
-                    name: tmp,
-                    expr: rhs,
-                    is_recursive: false,
-                    span,
-                });
+                out.push(CoreDef::new(self.fresh_binder(tmp), rhs, false, span));
             }
         }
     }
@@ -880,49 +1013,253 @@ impl<'a> AstLowerer<'a> {
 
 // ── Pure pattern lowering (no side effects) ───────────────────────────────────
 
-fn lower_pattern(pat: &Pattern) -> CorePat {
-    match pat {
-        Pattern::Wildcard { .. } => CorePat::Wildcard,
-        Pattern::Identifier { name, .. } => CorePat::Var(*name),
-        Pattern::Literal { expression, .. } => {
-            // Only simple literal patterns are supported.
-            match expression {
-                Expression::Integer { value, .. } => CorePat::Lit(CoreLit::Int(*value)),
-                Expression::Float { value, .. } => CorePat::Lit(CoreLit::Float(*value)),
-                Expression::String { value, .. } => CorePat::Lit(CoreLit::String(value.clone())),
-                Expression::Boolean { value, .. } => CorePat::Lit(CoreLit::Bool(*value)),
-                _ => CorePat::Wildcard, // complex expression patterns → wildcard
+impl<'a> AstLowerer<'a> {
+    fn lower_pattern(&mut self, pat: &Pattern) -> CorePat {
+        match pat {
+            Pattern::Wildcard { .. } => CorePat::Wildcard,
+            Pattern::Identifier { name, .. } => CorePat::Var(self.bind_name(*name)),
+            Pattern::Literal { expression, .. } => {
+                // Only simple literal patterns are supported.
+                match expression {
+                    Expression::Integer { value, .. } => CorePat::Lit(CoreLit::Int(*value)),
+                    Expression::Float { value, .. } => CorePat::Lit(CoreLit::Float(*value)),
+                    Expression::String { value, .. } => {
+                        CorePat::Lit(CoreLit::String(value.clone()))
+                    }
+                    Expression::Boolean { value, .. } => CorePat::Lit(CoreLit::Bool(*value)),
+                    _ => CorePat::Wildcard, // complex expression patterns → wildcard
+                }
+            }
+            Pattern::None { .. } => CorePat::Con {
+                tag: CoreTag::None,
+                fields: Vec::new(),
+            },
+            Pattern::Some { pattern, .. } => CorePat::Con {
+                tag: CoreTag::Some,
+                fields: vec![self.lower_pattern(pattern)],
+            },
+            Pattern::Left { pattern, .. } => CorePat::Con {
+                tag: CoreTag::Left,
+                fields: vec![self.lower_pattern(pattern)],
+            },
+            Pattern::Right { pattern, .. } => CorePat::Con {
+                tag: CoreTag::Right,
+                fields: vec![self.lower_pattern(pattern)],
+            },
+            Pattern::Cons { head, tail, .. } => CorePat::Con {
+                tag: CoreTag::Cons,
+                fields: vec![self.lower_pattern(head), self.lower_pattern(tail)],
+            },
+            Pattern::EmptyList { .. } => CorePat::EmptyList,
+            Pattern::Tuple { elements, .. } => {
+                CorePat::Tuple(elements.iter().map(|p| self.lower_pattern(p)).collect())
+            }
+            Pattern::Constructor { name, fields, .. } => CorePat::Con {
+                tag: CoreTag::Named(*name),
+                fields: fields.iter().map(|p| self.lower_pattern(p)).collect(),
+            },
+        }
+    }
+}
+
+type BinderScope = HashMap<crate::syntax::Identifier, CoreBinderId>;
+
+fn resolve_program_binders(program: &mut CoreProgram) {
+    let mut globals = BinderScope::new();
+    for def in &program.defs {
+        if def.name.as_u32() != 0 {
+            globals.insert(def.name, def.binder.id);
+        }
+    }
+    for def in &mut program.defs {
+        let mut scopes = vec![globals.clone()];
+        resolve_expr_binders(&mut def.expr, &mut scopes);
+    }
+}
+
+fn validate_program_binders(program: &CoreProgram) -> bool {
+    let mut globals = BinderScope::new();
+    for def in &program.defs {
+        if def.name.as_u32() != 0 {
+            globals.insert(def.name, def.binder.id);
+        }
+    }
+    program
+        .defs
+        .iter()
+        .all(|def| validate_expr_binders(&def.expr, &mut vec![globals.clone()]))
+}
+
+fn resolve_expr_binders(expr: &mut CoreExpr, scopes: &mut Vec<BinderScope>) {
+    match expr {
+        CoreExpr::Var { var, .. } => {
+            var.binder = lookup_binder(scopes, var.name);
+        }
+        CoreExpr::Lit(_, _) => {}
+        CoreExpr::Lam { params, body, .. } => {
+            scopes.push(scope_for_binders(params));
+            resolve_expr_binders(body, scopes);
+            scopes.pop();
+        }
+        CoreExpr::App { func, args, .. } => {
+            resolve_expr_binders(func, scopes);
+            for arg in args {
+                resolve_expr_binders(arg, scopes);
             }
         }
-        Pattern::None { .. } => CorePat::Con {
-            tag: CoreTag::None,
-            fields: Vec::new(),
-        },
-        Pattern::Some { pattern, .. } => CorePat::Con {
-            tag: CoreTag::Some,
-            fields: vec![lower_pattern(pattern)],
-        },
-        Pattern::Left { pattern, .. } => CorePat::Con {
-            tag: CoreTag::Left,
-            fields: vec![lower_pattern(pattern)],
-        },
-        Pattern::Right { pattern, .. } => CorePat::Con {
-            tag: CoreTag::Right,
-            fields: vec![lower_pattern(pattern)],
-        },
-        Pattern::Cons { head, tail, .. } => CorePat::Con {
-            tag: CoreTag::Cons,
-            fields: vec![lower_pattern(head), lower_pattern(tail)],
-        },
-        Pattern::EmptyList { .. } => CorePat::EmptyList,
-        Pattern::Tuple { elements, .. } => {
-            CorePat::Tuple(elements.iter().map(lower_pattern).collect())
+        CoreExpr::Let { var, rhs, body, .. } => {
+            resolve_expr_binders(rhs, scopes);
+            scopes.push(scope_for_binders(std::slice::from_ref(var)));
+            resolve_expr_binders(body, scopes);
+            scopes.pop();
         }
-        Pattern::Constructor { name, fields, .. } => CorePat::Con {
-            tag: CoreTag::Named(*name),
-            fields: fields.iter().map(lower_pattern).collect(),
-        },
+        CoreExpr::LetRec { var, rhs, body, .. } => {
+            scopes.push(scope_for_binders(std::slice::from_ref(var)));
+            resolve_expr_binders(rhs, scopes);
+            resolve_expr_binders(body, scopes);
+            scopes.pop();
+        }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            resolve_expr_binders(scrutinee, scopes);
+            for alt in alts {
+                let mut pattern_scope = BinderScope::new();
+                collect_pattern_binders(&alt.pat, &mut pattern_scope);
+                scopes.push(pattern_scope);
+                if let Some(guard) = &mut alt.guard {
+                    resolve_expr_binders(guard, scopes);
+                }
+                resolve_expr_binders(&mut alt.rhs, scopes);
+                scopes.pop();
+            }
+        }
+        CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
+            for field in fields {
+                resolve_expr_binders(field, scopes);
+            }
+        }
+        CoreExpr::Return { value, .. } => resolve_expr_binders(value, scopes),
+        CoreExpr::Perform { args, .. } => {
+            for arg in args {
+                resolve_expr_binders(arg, scopes);
+            }
+        }
+        CoreExpr::Handle { body, handlers, .. } => {
+            resolve_expr_binders(body, scopes);
+            for handler in handlers {
+                let mut handler_scope = scope_for_binders(&handler.params);
+                handler_scope.insert(handler.resume.name, handler.resume.id);
+                scopes.push(handler_scope);
+                resolve_expr_binders(&mut handler.body, scopes);
+                scopes.pop();
+            }
+        }
     }
+}
+
+fn validate_expr_binders(expr: &CoreExpr, scopes: &mut Vec<BinderScope>) -> bool {
+    match expr {
+        CoreExpr::Var { var, .. } => match (var.binder, lookup_binder(scopes, var.name)) {
+            (Some(actual), Some(expected)) => actual == expected,
+            (None, None) => true,
+            _ => false,
+        },
+        CoreExpr::Lit(_, _) => true,
+        CoreExpr::Lam { params, body, .. } => {
+            scopes.push(scope_for_binders(params));
+            let ok = validate_expr_binders(body, scopes);
+            scopes.pop();
+            ok
+        }
+        CoreExpr::App { func, args, .. } => {
+            validate_expr_binders(func, scopes)
+                && args.iter().all(|arg| validate_expr_binders(arg, scopes))
+        }
+        CoreExpr::Let { var, rhs, body, .. } => {
+            if !validate_expr_binders(rhs, scopes) {
+                return false;
+            }
+            scopes.push(scope_for_binders(std::slice::from_ref(var)));
+            let ok = validate_expr_binders(body, scopes);
+            scopes.pop();
+            ok
+        }
+        CoreExpr::LetRec { var, rhs, body, .. } => {
+            scopes.push(scope_for_binders(std::slice::from_ref(var)));
+            let ok = validate_expr_binders(rhs, scopes) && validate_expr_binders(body, scopes);
+            scopes.pop();
+            ok
+        }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            if !validate_expr_binders(scrutinee, scopes) {
+                return false;
+            }
+            alts.iter().all(|alt| {
+                let mut pattern_scope = BinderScope::new();
+                collect_pattern_binders(&alt.pat, &mut pattern_scope);
+                scopes.push(pattern_scope);
+                let guard_ok = alt
+                    .guard
+                    .as_ref()
+                    .is_none_or(|guard| validate_expr_binders(guard, scopes));
+                let rhs_ok = validate_expr_binders(&alt.rhs, scopes);
+                scopes.pop();
+                guard_ok && rhs_ok
+            })
+        }
+        CoreExpr::Con { fields, .. } => fields
+            .iter()
+            .all(|field| validate_expr_binders(field, scopes)),
+        CoreExpr::Return { value, .. } => validate_expr_binders(value, scopes),
+        CoreExpr::PrimOp { args, .. } | CoreExpr::Perform { args, .. } => {
+            args.iter().all(|arg| validate_expr_binders(arg, scopes))
+        }
+        CoreExpr::Handle { body, handlers, .. } => {
+            if !validate_expr_binders(body, scopes) {
+                return false;
+            }
+            handlers.iter().all(|handler| {
+                let mut handler_scope = scope_for_binders(&handler.params);
+                handler_scope.insert(handler.resume.name, handler.resume.id);
+                scopes.push(handler_scope);
+                let ok = validate_expr_binders(&handler.body, scopes);
+                scopes.pop();
+                ok
+            })
+        }
+    }
+}
+
+fn scope_for_binders(binders: &[CoreBinder]) -> BinderScope {
+    let mut scope = BinderScope::new();
+    for binder in binders {
+        scope.insert(binder.name, binder.id);
+    }
+    scope
+}
+
+fn collect_pattern_binders(pat: &CorePat, scope: &mut BinderScope) {
+    match pat {
+        CorePat::Var(binder) => {
+            scope.insert(binder.name, binder.id);
+        }
+        CorePat::Con { fields, .. } | CorePat::Tuple(fields) => {
+            for field in fields {
+                collect_pattern_binders(field, scope);
+            }
+        }
+        CorePat::Wildcard | CorePat::Lit(_) | CorePat::EmptyList => {}
+    }
+}
+
+fn lookup_binder(scopes: &[BinderScope], name: crate::syntax::Identifier) -> Option<CoreBinderId> {
+    scopes
+        .iter()
+        .rev()
+        .find_map(|scope| scope.get(&name).copied())
 }
 
 #[cfg(test)]
@@ -930,7 +1267,7 @@ mod tests {
     use super::*;
     use crate::{
         ast::type_infer::{InferProgramConfig, infer_program},
-        nary::CorePrimOp,
+        core::{CoreExpr, CorePrimOp},
         syntax::{interner::Interner, lexer::Lexer, parser::Parser},
     };
 
@@ -973,8 +1310,7 @@ mod tests {
         ops
     }
 
-    fn collect_ops_in_expr(expr: &crate::nary::CoreExpr, out: &mut Vec<CorePrimOp>) {
-        use crate::nary::CoreExpr;
+    fn collect_ops_in_expr(expr: &CoreExpr, out: &mut Vec<CorePrimOp>) {
         match expr {
             CoreExpr::PrimOp { op, args, .. } => {
                 out.push(op.clone());
@@ -989,6 +1325,7 @@ mod tests {
                     collect_ops_in_expr(a, out);
                 }
             }
+            CoreExpr::Return { value, .. } => collect_ops_in_expr(value, out),
             CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
                 collect_ops_in_expr(rhs, out);
                 collect_ops_in_expr(body, out);
@@ -1002,6 +1339,52 @@ mod tests {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn collect_var_refs<'a>(expr: &'a CoreExpr, out: &mut Vec<&'a crate::core::CoreVarRef>) {
+        match expr {
+            CoreExpr::Var { var, .. } => out.push(var),
+            CoreExpr::Lam { body, .. } => collect_var_refs(body, out),
+            CoreExpr::App { func, args, .. } => {
+                collect_var_refs(func, out);
+                for arg in args {
+                    collect_var_refs(arg, out);
+                }
+            }
+            CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+                collect_var_refs(rhs, out);
+                collect_var_refs(body, out);
+            }
+            CoreExpr::Case {
+                scrutinee, alts, ..
+            } => {
+                collect_var_refs(scrutinee, out);
+                for alt in alts {
+                    if let Some(guard) = &alt.guard {
+                        collect_var_refs(guard, out);
+                    }
+                    collect_var_refs(&alt.rhs, out);
+                }
+            }
+            CoreExpr::Con { fields, .. } => {
+                for field in fields {
+                    collect_var_refs(field, out);
+                }
+            }
+            CoreExpr::Return { value, .. } => collect_var_refs(value, out),
+            CoreExpr::PrimOp { args, .. } | CoreExpr::Perform { args, .. } => {
+                for arg in args {
+                    collect_var_refs(arg, out);
+                }
+            }
+            CoreExpr::Handle { body, handlers, .. } => {
+                collect_var_refs(body, out);
+                for handler in handlers {
+                    collect_var_refs(&handler.body, out);
+                }
+            }
+            CoreExpr::Lit(_, _) => {}
         }
     }
 
@@ -1068,5 +1451,96 @@ mod tests {
             !ops.contains(&CorePrimOp::FAdd),
             "should not emit FAdd for String addition"
         );
+    }
+
+    #[test]
+    fn lower_ast_resolves_shadowed_let_to_inner_binder() {
+        let src = r#"
+fn main() {
+    let x = 1;
+    let x = 2;
+    x
+}
+"#;
+        let (prog, types, mut interner) = parse_and_infer(src);
+        let main_name = interner.intern("main");
+        let core = lower_program_ast(&prog, &types);
+        let main = core.defs.iter().find(|def| def.name == main_name).unwrap();
+        let mut refs = Vec::new();
+        collect_var_refs(&main.expr, &mut refs);
+        let x_refs: Vec<_> = refs
+            .into_iter()
+            .filter(|var| interner.try_resolve(var.name) == Some("x"))
+            .collect();
+        let last = x_refs.last().unwrap();
+        assert!(
+            last.binder.is_some(),
+            "expected lexical x reference to be resolved"
+        );
+    }
+
+    #[test]
+    fn lower_ast_leaves_external_name_unbound() {
+        let src = r#"
+fn main() {
+    print("ok")
+}
+"#;
+        let (prog, types, mut interner) = parse_and_infer(src);
+        let main_name = interner.intern("main");
+        let core = lower_program_ast(&prog, &types);
+        let main = core.defs.iter().find(|def| def.name == main_name).unwrap();
+        let mut refs = Vec::new();
+        collect_var_refs(&main.expr, &mut refs);
+        let print_ref = refs
+            .into_iter()
+            .find(|var| interner.try_resolve(var.name) == Some("print"))
+            .expect("expected print reference");
+        assert_eq!(
+            print_ref.binder, None,
+            "external name should stay unresolved in Core"
+        );
+    }
+
+    #[test]
+    fn lower_ast_preserves_module_data_and_effect_declarations() {
+        let src = r#"
+module Demo {
+    fn value() { 1 }
+}
+
+data MaybeInt {
+    SomeInt(Int)
+    NoneInt
+}
+
+effect Console {
+    print: String -> Unit
+}
+"#;
+        let (prog, types, _) = parse_and_infer(src);
+        let core = lower_program_ast(&prog, &types);
+
+        assert!(matches!(
+            core.top_level_items.first(),
+            Some(CoreTopLevelItem::Module { .. })
+        ));
+        assert!(matches!(
+            core.top_level_items.get(1),
+            Some(CoreTopLevelItem::Data { .. })
+        ));
+        assert!(matches!(
+            core.top_level_items.get(2),
+            Some(CoreTopLevelItem::EffectDecl { .. })
+        ));
+
+        let module_body = match &core.top_level_items[0] {
+            CoreTopLevelItem::Module { body, .. } => body,
+            other => panic!("expected module item, got {other:?}"),
+        };
+        assert!(matches!(
+            module_body.first(),
+            Some(CoreTopLevelItem::Function { .. })
+        ));
     }
 }
