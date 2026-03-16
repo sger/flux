@@ -10,8 +10,8 @@
 use crate::{
     diagnostics::position::Span,
     syntax::{
-        Identifier, block::Block, data_variant::DataVariant, effect_expr::EffectExpr,
-        effect_ops::EffectOp, type_expr::TypeExpr,
+        Identifier, data_variant::DataVariant, effect_expr::EffectExpr, effect_ops::EffectOp,
+        type_expr::TypeExpr,
     },
 };
 
@@ -252,6 +252,7 @@ pub struct CoreDef {
     pub name: Identifier,
     pub binder: CoreBinder,
     pub expr: CoreExpr,
+    pub is_anonymous: bool,
     pub is_recursive: bool,
     pub span: Span,
 }
@@ -266,7 +267,6 @@ pub enum CoreTopLevelItem {
         parameter_types: Vec<Option<TypeExpr>>,
         return_type: Option<TypeExpr>,
         effects: Vec<EffectExpr>,
-        body: Block,
         span: Span,
     },
     Module {
@@ -371,13 +371,37 @@ impl CoreExpr {
 
 impl CoreDef {
     pub fn new(binder: CoreBinder, expr: CoreExpr, is_recursive: bool, span: Span) -> Self {
+        Self::new_with_flags(binder, expr, false, is_recursive, span)
+    }
+
+    pub fn new_anonymous(
+        binder: CoreBinder,
+        expr: CoreExpr,
+        is_recursive: bool,
+        span: Span,
+    ) -> Self {
+        Self::new_with_flags(binder, expr, true, is_recursive, span)
+    }
+
+    pub fn new_with_flags(
+        binder: CoreBinder,
+        expr: CoreExpr,
+        is_anonymous: bool,
+        is_recursive: bool,
+        span: Span,
+    ) -> Self {
         Self {
             name: binder.name,
             binder,
             expr,
+            is_anonymous,
             is_recursive,
             span,
         }
+    }
+
+    pub fn is_anonymous(&self) -> bool {
+        self.is_anonymous
     }
 }
 

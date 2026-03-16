@@ -4,9 +4,7 @@ use crate::runtime::{
 };
 use crate::{
     diagnostics::position::{Position, Span},
-    diagnostics::{
-        Diagnostic, DiagnosticPhase, ErrorType, render_runtime_diagnostic, runtime_type_error,
-    },
+    diagnostics::{Diagnostic, DiagnosticPhase, ErrorType, render_runtime_diagnostic, runtime_type_error},
 };
 use std::collections::HashMap;
 
@@ -176,6 +174,23 @@ pub struct JitFunctionEntry {
 }
 
 impl JitContext {
+    /// Drop bulk runtime state eagerly when the caller no longer needs the
+    /// execution context, avoiding expensive process-exit teardown for large
+    /// JIT runs.
+    pub fn clear_runtime_state(&mut self) {
+        self.globals.clear();
+        self.constants.clear();
+        self.handler_stack.clear();
+        self.shadow_roots.clear();
+        self.shadow_frames.clear();
+        self.pending_thunk = None;
+        self.runtime_error = None;
+        self.error = None;
+        self.unit_adts.clear();
+        self.gc_heap = GcHeap::new();
+        self.arena.reset();
+    }
+
     fn span_from_1_based(
         &self,
         start_line: usize,
