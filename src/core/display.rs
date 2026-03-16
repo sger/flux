@@ -1,32 +1,16 @@
 /// Pretty-printer for Core IR.
 ///
 /// Produces a human-readable, indented representation of a `CoreProgram` or
-/// individual `CoreExpr`.  The output is intended for debugging and for the
+/// individual `CoreExpr`. The output is intended for debugging and for the
 /// `--dump-core` CLI flag — it is not a round-trippable surface syntax.
-///
-/// Example output:
-/// ```text
-/// def add =
-///   λx. λy.
-///     IAdd(x, y)
-///
-/// letrec fib =
-///   λn.
-///     case n of
-///       0 → 0
-///       1 → 1
-///       _ →
-///         let t = ISub(n, 1)
-///         let u = ISub(n, 2)
-///         IAdd(fib(t), fib(u))
-/// ```
 use std::fmt::Write as FmtWrite;
 
 use crate::syntax::interner::Interner;
 
-use super::{CoreAlt, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreProgram, CoreTag};
-
-// ── Public entry points ───────────────────────────────────────────────────────
+use super::{
+    CoreAlt, CoreBinder, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreProgram, CoreTag,
+    CoreVarRef,
+};
 
 /// Pretty-print a complete `CoreProgram` to a `String`.
 pub fn display_program(program: &CoreProgram, interner: &Interner) -> String {
@@ -51,8 +35,6 @@ pub fn display_expr(expr: &CoreExpr, interner: &Interner) -> String {
     out
 }
 
-// ── Recursive writer ──────────────────────────────────────────────────────────
-
 /// Resolve a symbol to its string form, falling back to `#<n>` for synthetic
 /// symbols that were never registered in the interner (e.g. fresh temporaries).
 fn resolve(interner: &Interner, id: crate::syntax::Identifier) -> String {
@@ -64,30 +46,25 @@ fn resolve(interner: &Interner, id: crate::syntax::Identifier) -> String {
 
 fn write_expr(out: &mut String, expr: &CoreExpr, interner: &Interner, indent: usize) {
     match expr {
-        CoreExpr::Var(id, _) => {
-            out.push_str(&resolve(interner, *id));
+        CoreExpr::Var { var, .. } => {
+            out.push_str(&resolve_var(interner, var));
         }
-
         CoreExpr::Lit(lit, _) => {
             write_lit(out, lit);
         }
-
-        // N-ary lambda: `λ(x, y, z).`
         CoreExpr::Lam { params, body, .. } => {
             out.push('λ');
             for (i, p) in params.iter().enumerate() {
                 if i > 0 {
                     out.push_str(", ");
                 }
-                out.push_str(&resolve(interner, *p));
+                out.push_str(&resolve_binder(interner, p));
             }
             out.push('.');
             out.push('\n');
             push_indent(out, indent + 2);
             write_expr(out, body, interner, indent + 2);
         }
-
-        // N-ary application: `f(a, b, c)`
         CoreExpr::App { func, args, .. } => {
             write_expr(out, func, interner, indent);
             out.push('(');
@@ -99,23 +76,20 @@ fn write_expr(out: &mut String, expr: &CoreExpr, interner: &Interner, indent: us
             }
             out.push(')');
         }
-
         CoreExpr::Let { var, rhs, body, .. } => {
-            write!(out, "let {} = ", &resolve(interner, *var)).unwrap();
+            write!(out, "let {} = ", &resolve_binder(interner, var)).unwrap();
             write_expr_inline(out, rhs, interner, indent);
             out.push('\n');
             push_indent(out, indent);
             write_expr(out, body, interner, indent);
         }
-
         CoreExpr::LetRec { var, rhs, body, .. } => {
-            write!(out, "letrec {} = ", &resolve(interner, *var)).unwrap();
+            write!(out, "letrec {} = ", &resolve_binder(interner, var)).unwrap();
             write_expr_inline(out, rhs, interner, indent);
             out.push('\n');
             push_indent(out, indent);
             write_expr(out, body, interner, indent);
         }
-
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
@@ -127,7 +101,6 @@ fn write_expr(out: &mut String, expr: &CoreExpr, interner: &Interner, indent: us
                 write_alt(out, alt, interner, indent + 2);
             }
         }
-
         CoreExpr::Con { tag, fields, .. } => {
             write_tag(out, tag, interner);
             if !fields.is_empty() {
@@ -141,7 +114,6 @@ fn write_expr(out: &mut String, expr: &CoreExpr, interner: &Interner, indent: us
                 out.push(')');
             }
         }
-
         CoreExpr::PrimOp { op, args, .. } => {
             write_primop_name(out, op);
             out.push('(');
@@ -153,7 +125,10 @@ fn write_expr(out: &mut String, expr: &CoreExpr, interner: &Interner, indent: us
             }
             out.push(')');
         }
-
+        CoreExpr::Return { value, .. } => {
+            out.push_str("return ");
+            write_expr_inline(out, value, interner, indent);
+        }
         CoreExpr::Perform {
             effect,
             operation,
@@ -175,7 +150,6 @@ fn write_expr(out: &mut String, expr: &CoreExpr, interner: &Interner, indent: us
             }
             out.push(')');
         }
-
         CoreExpr::Handle {
             body,
             effect,
@@ -196,7 +170,6 @@ fn write_expr(out: &mut String, expr: &CoreExpr, interner: &Interner, indent: us
     }
 }
 
-/// Write an expression inline (no leading newline, uses parens when needed).
 fn write_expr_inline(out: &mut String, expr: &CoreExpr, interner: &Interner, indent: usize) {
     let needs_parens = matches!(
         expr,
@@ -204,6 +177,7 @@ fn write_expr_inline(out: &mut String, expr: &CoreExpr, interner: &Interner, ind
             | CoreExpr::Let { .. }
             | CoreExpr::LetRec { .. }
             | CoreExpr::Case { .. }
+            | CoreExpr::Return { .. }
             | CoreExpr::Handle { .. }
     );
     if needs_parens {
@@ -234,9 +208,9 @@ fn write_handler(out: &mut String, h: &CoreHandler, interner: &Interner, indent:
         if i > 0 {
             out.push_str(", ");
         }
-        out.push_str(&resolve(interner, *p));
+        out.push_str(&resolve_binder(interner, p));
     }
-    writeln!(out, "; {}) →", &resolve(interner, h.resume)).unwrap();
+    writeln!(out, "; {}) →", &resolve_binder(interner, &h.resume)).unwrap();
     push_indent(out, indent + 2);
     write_expr(out, &h.body, interner, indent + 2);
 }
@@ -244,7 +218,7 @@ fn write_handler(out: &mut String, h: &CoreHandler, interner: &Interner, indent:
 fn write_pat(out: &mut String, pat: &CorePat, interner: &Interner) {
     match pat {
         CorePat::Wildcard => out.push('_'),
-        CorePat::Var(id) => out.push_str(&resolve(interner, *id)),
+        CorePat::Var(binder) => out.push_str(&resolve_binder(interner, binder)),
         CorePat::Lit(lit) => write_lit(out, lit),
         CorePat::EmptyList => out.push_str("[]"),
         CorePat::Con { tag, fields } => {
@@ -273,7 +247,16 @@ fn write_pat(out: &mut String, pat: &CorePat, interner: &Interner) {
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+fn resolve_binder(interner: &Interner, binder: &CoreBinder) -> String {
+    format!("{}#{}", resolve(interner, binder.name), binder.id.0)
+}
+
+fn resolve_var(interner: &Interner, var: &CoreVarRef) -> String {
+    match var.binder {
+        Some(id) => format!("{}#{}", resolve(interner, var.name), id.0),
+        None => format!("{}#?", resolve(interner, var.name)),
+    }
+}
 
 fn write_lit(out: &mut String, lit: &CoreLit) {
     match lit {
@@ -331,7 +314,6 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp) {
         CorePrimOp::MakeHash => "MakeHash",
         CorePrimOp::Index => "Index",
         CorePrimOp::MemberAccess(id) => {
-            // handled below
             let _ = id;
             "MemberAccess"
         }
@@ -340,12 +322,7 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp) {
             return;
         }
     };
-    // Special case for MemberAccess — write the field name too.
-    if let CorePrimOp::MemberAccess(_) = op {
-        out.push_str(name);
-    } else {
-        out.push_str(name);
-    }
+    out.push_str(name);
 }
 
 fn push_indent(out: &mut String, n: usize) {

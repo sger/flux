@@ -30,7 +30,8 @@ use crate::runtime::{
 };
 
 use super::context::{
-    JIT_TAG_BOOL, JIT_TAG_FLOAT, JIT_TAG_INT, JIT_TAG_PTR, JIT_TAG_THUNK, JitContext, JitThunk,
+    JIT_TAG_BOOL, JIT_TAG_FLOAT, JIT_TAG_INT, JIT_TAG_PTR, JIT_TAG_THUNK, JitCallAbi, JitContext,
+    JitThunk,
 };
 
 // ---------------------------------------------------------------------------
@@ -177,6 +178,33 @@ fn runtime_diagnostic_from_message(
         span,
     )
     .with_phase(DiagnosticPhase::Runtime)
+}
+
+fn set_runtime_error_from_message(
+    ctx: &mut JitContext,
+    message: &str,
+    start_line: usize,
+    start_column: usize,
+    end_line: usize,
+    end_column: usize,
+) {
+    if is_rendered_runtime_diagnostic(message)
+        && parse_rendered_runtime_diagnostic(message).is_none()
+    {
+        // Preserve already-rendered diagnostics verbatim when they cannot be
+        // losslessly converted back into our structured form.
+        ctx.set_internal_error(message.to_string());
+        return;
+    }
+
+    ctx.set_runtime_error_diag(runtime_diagnostic_from_message(
+        ctx,
+        message,
+        start_line,
+        start_column,
+        end_line,
+        end_column,
+    ));
 }
 
 fn clone_tagged_arg(
@@ -942,14 +970,14 @@ pub extern "C" fn rt_call_base_function_tagged(
     match ctx.invoke_base_function_borrowed(base_fn_index as usize, &borrowed) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
-            ctx.set_runtime_error_diag(runtime_diagnostic_from_message(
+            set_runtime_error_from_message(
                 ctx,
                 &msg,
                 start_line as usize,
                 start_column as usize,
                 end_line as usize,
                 end_column as usize,
-            ));
+            );
             ptr::null_mut()
         }
     }
@@ -992,14 +1020,14 @@ pub extern "C" fn rt_call_base_function(
     match ctx.invoke_base_function_borrowed(base_fn_index as usize, &args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
-            ctx.set_runtime_error_diag(runtime_diagnostic_from_message(
+            set_runtime_error_from_message(
                 ctx,
                 &msg,
                 start_line as usize,
                 start_column as usize,
                 end_line as usize,
                 end_column as usize,
-            ));
+            );
             ptr::null_mut()
         }
     }
@@ -1039,14 +1067,14 @@ pub extern "C" fn rt_call_primop(
     match execute_primop(ctx, op, args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
-            ctx.set_runtime_error_diag(runtime_diagnostic_from_message(
+            set_runtime_error_from_message(
                 ctx,
                 &msg,
                 start_line as usize,
                 start_column as usize,
                 end_line as usize,
                 end_column as usize,
-            ));
+            );
             ptr::null_mut()
         }
     }
@@ -1075,17 +1103,214 @@ pub extern "C" fn rt_call_value(
         args.push(unsafe { (*arg_ptr).clone() });
     }
 
+    if let Value::JitClosure(closure) = &callee_value {
+        let Some(entry) = ctx.jit_functions.get(closure.function_index).cloned() else {
+            ctx.set_internal_error(format!(
+                "unknown JIT function index: {}",
+                closure.function_index
+            ));
+            return ptr::null_mut();
+        };
+
+        if args.len() != entry.num_params {
+            ctx.set_runtime_error_code(
+                "E1000",
+                "Wrong Number Of Arguments",
+                &format!(
+                    "wrong number of arguments: want={}, got={}",
+                    entry.num_params,
+                    args.len()
+                ),
+                start_line as usize,
+                start_column as usize,
+                end_line as usize,
+                end_column as usize,
+            );
+            return ptr::null_mut();
+        }
+
+        for (index, arg) in args.iter().enumerate() {
+            if let Err((expected, actual)) =
+                ctx.check_contract_arg(closure.function_index, index, arg)
+            {
+                let preview = format_value(ctx, arg);
+                ctx.set_runtime_error_diag(ctx.runtime_type_error_diagnostic_at(
+                    &expected,
+                    &actual,
+                    Some(&preview),
+                    start_line as usize,
+                    start_column as usize,
+                    end_line as usize,
+                    end_column as usize,
+                ));
+                return ptr::null_mut();
+            }
+        }
+
+        let mut arg_values: Vec<JitTaggedValue> = Vec::with_capacity(args.len());
+        for v in args {
+            arg_values.push(ctx.boxed_to_tagged(v));
+        }
+        let mut capture_values: Vec<JitTaggedValue> = Vec::with_capacity(closure.captures.len());
+        for v in &closure.captures {
+            capture_values.push(ctx.boxed_to_tagged(v.clone()));
+        }
+
+        let result = unsafe {
+            match entry.call_abi {
+                JitCallAbi::Array => {
+                    type F = unsafe extern "C" fn(
+                        *mut JitContext,
+                        *const JitTaggedValue,
+                        i64,
+                        *const JitTaggedValue,
+                        i64,
+                    ) -> JitTaggedValue;
+                    let f: F = std::mem::transmute(entry.ptr);
+                    f(
+                        ctx as *mut JitContext,
+                        arg_values.as_ptr(),
+                        arg_values.len() as i64,
+                        capture_values.as_ptr(),
+                        capture_values.len() as i64,
+                    )
+                }
+                JitCallAbi::Reg1 => {
+                    type F = unsafe extern "C" fn(
+                        *mut JitContext,
+                        i64,
+                        i64,
+                        *const JitTaggedValue,
+                        i64,
+                    ) -> JitTaggedValue;
+                    let f: F = std::mem::transmute(entry.ptr);
+                    f(
+                        ctx as *mut JitContext,
+                        arg_values[0].tag,
+                        arg_values[0].payload,
+                        capture_values.as_ptr(),
+                        capture_values.len() as i64,
+                    )
+                }
+                JitCallAbi::Reg2 => {
+                    type F = unsafe extern "C" fn(
+                        *mut JitContext,
+                        i64,
+                        i64,
+                        i64,
+                        i64,
+                        *const JitTaggedValue,
+                        i64,
+                    ) -> JitTaggedValue;
+                    let f: F = std::mem::transmute(entry.ptr);
+                    f(
+                        ctx as *mut JitContext,
+                        arg_values[0].tag,
+                        arg_values[0].payload,
+                        arg_values[1].tag,
+                        arg_values[1].payload,
+                        capture_values.as_ptr(),
+                        capture_values.len() as i64,
+                    )
+                }
+                JitCallAbi::Reg3 => {
+                    type F = unsafe extern "C" fn(
+                        *mut JitContext,
+                        i64,
+                        i64,
+                        i64,
+                        i64,
+                        i64,
+                        i64,
+                        *const JitTaggedValue,
+                        i64,
+                    ) -> JitTaggedValue;
+                    let f: F = std::mem::transmute(entry.ptr);
+                    f(
+                        ctx as *mut JitContext,
+                        arg_values[0].tag,
+                        arg_values[0].payload,
+                        arg_values[1].tag,
+                        arg_values[1].payload,
+                        arg_values[2].tag,
+                        arg_values[2].payload,
+                        capture_values.as_ptr(),
+                        capture_values.len() as i64,
+                    )
+                }
+                JitCallAbi::Reg4 => {
+                    type F = unsafe extern "C" fn(
+                        *mut JitContext,
+                        i64,
+                        i64,
+                        i64,
+                        i64,
+                        i64,
+                        i64,
+                        i64,
+                        i64,
+                        *const JitTaggedValue,
+                        i64,
+                    ) -> JitTaggedValue;
+                    let f: F = std::mem::transmute(entry.ptr);
+                    f(
+                        ctx as *mut JitContext,
+                        arg_values[0].tag,
+                        arg_values[0].payload,
+                        arg_values[1].tag,
+                        arg_values[1].payload,
+                        arg_values[2].tag,
+                        arg_values[2].payload,
+                        arg_values[3].tag,
+                        arg_values[3].payload,
+                        capture_values.as_ptr(),
+                        capture_values.len() as i64,
+                    )
+                }
+            }
+        };
+
+        if result.tag == JIT_TAG_PTR && result.as_ptr().is_null() {
+            return ptr::null_mut();
+        }
+        if let Some(diag) = ctx.take_runtime_error() {
+            ctx.set_runtime_error_diag(diag);
+            return ptr::null_mut();
+        }
+        if let Some(err) = ctx.take_internal_error() {
+            ctx.set_internal_error(err);
+            return ptr::null_mut();
+        }
+        let Some(result_value) = ctx.clone_from_tagged(result) else {
+            ctx.set_internal_error("unknown JIT call error");
+            return ptr::null_mut();
+        };
+        if let Err((expected, actual)) =
+            ctx.check_contract_return(closure.function_index, &result_value)
+        {
+            let preview = format_value(ctx, &result_value);
+            ctx.set_runtime_error_diag(ctx.contract_return_error_diagnostic(
+                closure.function_index,
+                &expected,
+                &actual,
+                Some(&preview),
+            ));
+            return ptr::null_mut();
+        }
+        return ctx.alloc(result_value);
+    }
+
     match crate::runtime::RuntimeContext::invoke_value(ctx, callee_value, args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
-            ctx.set_runtime_error_diag(runtime_diagnostic_from_message(
+            set_runtime_error_from_message(
                 ctx,
                 &msg,
                 start_line as usize,
                 start_column as usize,
                 end_line as usize,
                 end_column as usize,
-            ));
+            );
             ptr::null_mut()
         }
     }
@@ -1953,6 +2178,31 @@ pub extern "C" fn rt_adt_field(
     }
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_adt_field_or_none(
+    ctx: *mut JitContext,
+    value: *mut Value,
+    field_idx: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    if value.is_null() {
+        return ctx.alloc(Value::None);
+    }
+
+    match unsafe { &*value } {
+        value @ (Value::Adt(_) | Value::GcAdt(_)) => {
+            let idx = field_idx as usize;
+            if let Some(field) = value.adt_clone_field(&ctx.gc_heap, idx) {
+                ctx.alloc(field)
+            } else {
+                ctx.alloc(Value::None)
+            }
+        }
+        Value::AdtUnit(_) => ctx.alloc(Value::None),
+        _ => ctx.alloc(Value::None),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Algebraic effects: handler push / pop / perform
 // ---------------------------------------------------------------------------
@@ -2233,6 +2483,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_make_adt5", rt_make_adt5 as *const u8),
         ("rt_is_adt_constructor", rt_is_adt_constructor as *const u8),
         ("rt_adt_field", rt_adt_field as *const u8),
+        ("rt_adt_field_or_none", rt_adt_field_or_none as *const u8),
         // Algebraic effects
         ("rt_push_handler", rt_push_handler as *const u8),
         ("rt_pop_handler", rt_pop_handler as *const u8),
