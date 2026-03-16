@@ -31,7 +31,7 @@ use crate::runtime::{
 
 use super::context::{
     JIT_TAG_BOOL, JIT_TAG_FLOAT, JIT_TAG_INT, JIT_TAG_PTR, JIT_TAG_THUNK, JitCallAbi, JitContext,
-    JitThunk,
+    JitFunctionEntry, JitThunk,
 };
 
 // ---------------------------------------------------------------------------
@@ -41,6 +41,160 @@ use super::context::{
 /// Safely dereference a JitContext pointer. Returns None if null.
 unsafe fn ctx_ref<'a>(ctx: *mut JitContext) -> &'a mut JitContext {
     unsafe { &mut *ctx }
+}
+
+unsafe fn invoke_jit_entry(
+    ctx: *mut JitContext,
+    entry: &JitFunctionEntry,
+    args: &[JitTaggedValue],
+    captures: &[JitTaggedValue],
+) -> JitTaggedValue {
+    match entry.call_abi {
+        JitCallAbi::Array => {
+            type F = unsafe extern "C" fn(
+                *mut JitContext,
+                *const JitTaggedValue,
+                i64,
+                *const JitTaggedValue,
+                i64,
+            ) -> JitTaggedValue;
+            let f: F = unsafe { std::mem::transmute(entry.ptr) };
+            unsafe {
+                f(
+                    ctx,
+                    args.as_ptr(),
+                    args.len() as i64,
+                    captures.as_ptr(),
+                    captures.len() as i64,
+                )
+            }
+        }
+        JitCallAbi::Reg1 => {
+            type F = unsafe extern "C" fn(
+                *mut JitContext,
+                i64,
+                i64,
+                *const JitTaggedValue,
+                i64,
+            ) -> JitTaggedValue;
+            let f: F = unsafe { std::mem::transmute(entry.ptr) };
+            let a0 = args[0];
+            unsafe {
+                f(
+                    ctx,
+                    a0.tag,
+                    a0.payload,
+                    captures.as_ptr(),
+                    captures.len() as i64,
+                )
+            }
+        }
+        JitCallAbi::Reg2 => {
+            type F = unsafe extern "C" fn(
+                *mut JitContext,
+                i64,
+                i64,
+                i64,
+                i64,
+                *const JitTaggedValue,
+                i64,
+            ) -> JitTaggedValue;
+            let f: F = unsafe { std::mem::transmute(entry.ptr) };
+            let a0 = args[0];
+            let a1 = args[1];
+            unsafe {
+                f(
+                    ctx,
+                    a0.tag,
+                    a0.payload,
+                    a1.tag,
+                    a1.payload,
+                    captures.as_ptr(),
+                    captures.len() as i64,
+                )
+            }
+        }
+        JitCallAbi::Reg3 => {
+            type F = unsafe extern "C" fn(
+                *mut JitContext,
+                i64,
+                i64,
+                i64,
+                i64,
+                i64,
+                i64,
+                *const JitTaggedValue,
+                i64,
+            ) -> JitTaggedValue;
+            let f: F = unsafe { std::mem::transmute(entry.ptr) };
+            let a0 = args[0];
+            let a1 = args[1];
+            let a2 = args[2];
+            unsafe {
+                f(
+                    ctx,
+                    a0.tag,
+                    a0.payload,
+                    a1.tag,
+                    a1.payload,
+                    a2.tag,
+                    a2.payload,
+                    captures.as_ptr(),
+                    captures.len() as i64,
+                )
+            }
+        }
+        JitCallAbi::Reg4 => {
+            type F = unsafe extern "C" fn(
+                *mut JitContext,
+                i64,
+                i64,
+                i64,
+                i64,
+                i64,
+                i64,
+                i64,
+                i64,
+                *const JitTaggedValue,
+                i64,
+            ) -> JitTaggedValue;
+            let f: F = unsafe { std::mem::transmute(entry.ptr) };
+            let a0 = args[0];
+            let a1 = args[1];
+            let a2 = args[2];
+            let a3 = args[3];
+            unsafe {
+                f(
+                    ctx,
+                    a0.tag,
+                    a0.payload,
+                    a1.tag,
+                    a1.payload,
+                    a2.tag,
+                    a2.payload,
+                    a3.tag,
+                    a3.payload,
+                    captures.as_ptr(),
+                    captures.len() as i64,
+                )
+            }
+        }
+    }
+}
+
+fn drain_jit_thunks(ctx: &mut JitContext, mut result: JitTaggedValue) -> JitTaggedValue {
+    while result.tag == JIT_TAG_THUNK {
+        let Some(thunk) = ctx.pending_thunk.take() else {
+            ctx.set_internal_error("JIT_TAG_THUNK returned without pending_thunk".to_string());
+            return JitTaggedValue::none();
+        };
+        let Some(entry) = ctx.jit_functions.get(thunk.fn_index).cloned() else {
+            ctx.set_internal_error(format!("unknown JIT function index: {}", thunk.fn_index));
+            return JitTaggedValue::none();
+        };
+        result = unsafe { invoke_jit_entry(ctx as *mut JitContext, &entry, &thunk.args, &[]) };
+    }
+    result
 }
 
 fn split_first_line(message: &str) -> (&str, &str) {
@@ -1113,9 +1267,8 @@ pub extern "C" fn rt_call_value(
         };
 
         if args.len() != entry.num_params {
-            ctx.set_runtime_error_code(
-                "E1000",
-                "Wrong Number Of Arguments",
+            set_runtime_error_from_message(
+                ctx,
                 &format!(
                     "wrong number of arguments: want={}, got={}",
                     entry.num_params,
@@ -1156,119 +1309,9 @@ pub extern "C" fn rt_call_value(
             capture_values.push(ctx.boxed_to_tagged(v.clone()));
         }
 
-        let result = unsafe {
-            match entry.call_abi {
-                JitCallAbi::Array => {
-                    type F = unsafe extern "C" fn(
-                        *mut JitContext,
-                        *const JitTaggedValue,
-                        i64,
-                        *const JitTaggedValue,
-                        i64,
-                    ) -> JitTaggedValue;
-                    let f: F = std::mem::transmute(entry.ptr);
-                    f(
-                        ctx as *mut JitContext,
-                        arg_values.as_ptr(),
-                        arg_values.len() as i64,
-                        capture_values.as_ptr(),
-                        capture_values.len() as i64,
-                    )
-                }
-                JitCallAbi::Reg1 => {
-                    type F = unsafe extern "C" fn(
-                        *mut JitContext,
-                        i64,
-                        i64,
-                        *const JitTaggedValue,
-                        i64,
-                    ) -> JitTaggedValue;
-                    let f: F = std::mem::transmute(entry.ptr);
-                    f(
-                        ctx as *mut JitContext,
-                        arg_values[0].tag,
-                        arg_values[0].payload,
-                        capture_values.as_ptr(),
-                        capture_values.len() as i64,
-                    )
-                }
-                JitCallAbi::Reg2 => {
-                    type F = unsafe extern "C" fn(
-                        *mut JitContext,
-                        i64,
-                        i64,
-                        i64,
-                        i64,
-                        *const JitTaggedValue,
-                        i64,
-                    ) -> JitTaggedValue;
-                    let f: F = std::mem::transmute(entry.ptr);
-                    f(
-                        ctx as *mut JitContext,
-                        arg_values[0].tag,
-                        arg_values[0].payload,
-                        arg_values[1].tag,
-                        arg_values[1].payload,
-                        capture_values.as_ptr(),
-                        capture_values.len() as i64,
-                    )
-                }
-                JitCallAbi::Reg3 => {
-                    type F = unsafe extern "C" fn(
-                        *mut JitContext,
-                        i64,
-                        i64,
-                        i64,
-                        i64,
-                        i64,
-                        i64,
-                        *const JitTaggedValue,
-                        i64,
-                    ) -> JitTaggedValue;
-                    let f: F = std::mem::transmute(entry.ptr);
-                    f(
-                        ctx as *mut JitContext,
-                        arg_values[0].tag,
-                        arg_values[0].payload,
-                        arg_values[1].tag,
-                        arg_values[1].payload,
-                        arg_values[2].tag,
-                        arg_values[2].payload,
-                        capture_values.as_ptr(),
-                        capture_values.len() as i64,
-                    )
-                }
-                JitCallAbi::Reg4 => {
-                    type F = unsafe extern "C" fn(
-                        *mut JitContext,
-                        i64,
-                        i64,
-                        i64,
-                        i64,
-                        i64,
-                        i64,
-                        i64,
-                        i64,
-                        *const JitTaggedValue,
-                        i64,
-                    ) -> JitTaggedValue;
-                    let f: F = std::mem::transmute(entry.ptr);
-                    f(
-                        ctx as *mut JitContext,
-                        arg_values[0].tag,
-                        arg_values[0].payload,
-                        arg_values[1].tag,
-                        arg_values[1].payload,
-                        arg_values[2].tag,
-                        arg_values[2].payload,
-                        arg_values[3].tag,
-                        arg_values[3].payload,
-                        capture_values.as_ptr(),
-                        capture_values.len() as i64,
-                    )
-                }
-            }
-        };
+        let ctx_ptr = ctx as *mut JitContext;
+        let raw_result = unsafe { invoke_jit_entry(ctx_ptr, &entry, &arg_values, &capture_values) };
+        let result = drain_jit_thunks(ctx, raw_result);
 
         if result.tag == JIT_TAG_PTR && result.as_ptr().is_null() {
             return ptr::null_mut();
@@ -1314,6 +1357,106 @@ pub extern "C" fn rt_call_value(
             ptr::null_mut()
         }
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_call_jit_function(
+    ctx: *mut JitContext,
+    function_index: i64,
+    args_ptr: *const *mut Value,
+    nargs: i64,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let Some(entry) = ctx.jit_functions.get(function_index as usize).cloned() else {
+        ctx.set_internal_error(format!("unknown JIT function index: {}", function_index));
+        return ptr::null_mut();
+    };
+
+    let mut args: Vec<Value> = Vec::with_capacity(nargs as usize);
+    for i in 0..nargs as usize {
+        let arg_ptr = unsafe { *args_ptr.add(i) };
+        if arg_ptr.is_null() {
+            ctx.set_internal_error(format!("call arg {} evaluated to null", i));
+            return ptr::null_mut();
+        }
+        args.push(unsafe { (*arg_ptr).clone() });
+    }
+
+    if args.len() != entry.num_params {
+        set_runtime_error_from_message(
+            ctx,
+            &format!(
+                "wrong number of arguments: want={}, got={}",
+                entry.num_params,
+                args.len()
+            ),
+            start_line as usize,
+            start_column as usize,
+            end_line as usize,
+            end_column as usize,
+        );
+        return ptr::null_mut();
+    }
+
+    for (index, arg) in args.iter().enumerate() {
+        if let Err((expected, actual)) = ctx.check_contract_arg(function_index as usize, index, arg)
+        {
+            let preview = format_value(ctx, arg);
+            ctx.set_runtime_error_diag(ctx.runtime_type_error_diagnostic_at(
+                &expected,
+                &actual,
+                Some(&preview),
+                start_line as usize,
+                start_column as usize,
+                end_line as usize,
+                end_column as usize,
+            ));
+            return ptr::null_mut();
+        }
+    }
+
+    let arg_values: Vec<JitTaggedValue> =
+        args.into_iter().map(|v| ctx.boxed_to_tagged(v)).collect();
+    let ctx_ptr = ctx as *mut JitContext;
+    let raw_result = unsafe { invoke_jit_entry(ctx_ptr, &entry, &arg_values, &[]) };
+    let result = drain_jit_thunks(ctx, raw_result);
+
+    if result.tag == JIT_TAG_PTR && result.as_ptr().is_null() {
+        return ptr::null_mut();
+    }
+    if let Some(diag) = ctx.take_runtime_error() {
+        ctx.set_runtime_error_diag(diag);
+        return ptr::null_mut();
+    }
+    if let Some(err) = ctx.take_internal_error() {
+        ctx.set_internal_error(err);
+        return ptr::null_mut();
+    }
+
+    let Some(result_value) = ctx.clone_from_tagged(result) else {
+        ctx.set_internal_error("unknown JIT call error");
+        return ptr::null_mut();
+    };
+    if let Err((expected, actual)) =
+        ctx.check_contract_return(function_index as usize, &result_value)
+    {
+        let preview = format_value(ctx, &result_value);
+        ctx.set_runtime_error_diag(ctx.runtime_type_error_diagnostic_at(
+            &expected,
+            &actual,
+            Some(&preview),
+            start_line as usize,
+            start_column as usize,
+            end_line as usize,
+            end_column as usize,
+        ));
+        return ptr::null_mut();
+    }
+    ctx.alloc(result_value)
 }
 
 // ---------------------------------------------------------------------------
@@ -2421,6 +2564,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_call_base_function", rt_call_base_function as *const u8),
         ("rt_call_primop", rt_call_primop as *const u8),
         ("rt_call_value", rt_call_value as *const u8),
+        ("rt_call_jit_function", rt_call_jit_function as *const u8),
         ("rt_get_global", rt_get_global as *const u8),
         ("rt_set_global", rt_set_global as *const u8),
         ("rt_set_arity_error", rt_set_arity_error as *const u8),

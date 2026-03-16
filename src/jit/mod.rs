@@ -89,18 +89,7 @@ pub fn jit_compile(
 
     let main_id = compiler
         .try_compile_backend_ir_program(&ir_program, interner)
-        .map_err(JitError::Internal)?
-        .ok_or_else(|| {
-            let reason = compiler.backend_ir_support_error(&ir_program, interner);
-            JitError::Internal(match reason {
-                Some(reason) => format!(
-                    "unsupported backend_ir JIT program shape: {}; AST fallback has been retired",
-                    reason
-                ),
-                None => "unsupported backend_ir JIT program shape; AST fallback has been retired"
-                    .to_string(),
-            })
-        })?;
+        .map_err(JitError::Internal)?;
     compiler.finalize();
 
     let main_ptr = compiler.get_func_ptr(main_id);
