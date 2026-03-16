@@ -203,6 +203,48 @@ fn assert_file_cli_runtime_e1004_parity(file: &str, roots: &[&str], expected_fra
     );
 }
 
+fn assert_file_cli_runtime_error_uses_real_source_location(
+    file: &str,
+    roots: &[&str],
+    expected_fragment: &str,
+) {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let flux_bin = Path::new(env!("CARGO_BIN_EXE_flux"));
+
+    let (vm_status, _vm_stdout, vm_stderr) =
+        run_flux_file(workspace_root, flux_bin, file, roots, false);
+    let (jit_status, _jit_stdout, jit_stderr) =
+        run_flux_file(workspace_root, flux_bin, file, roots, true);
+
+    assert_ne!(vm_status, 0, "expected runtime failure for `{file}` in VM");
+    assert_ne!(
+        jit_status, 0,
+        "expected runtime failure for `{file}` in JIT"
+    );
+    assert!(
+        !vm_stderr.contains("<unknown>:0:1"),
+        "expected VM runtime error for `{file}` to use a real source location; got:\n{}",
+        vm_stderr
+    );
+    assert!(
+        !jit_stderr.contains("<unknown>:0:1"),
+        "expected JIT runtime error for `{file}` to use a real source location; got:\n{}",
+        jit_stderr
+    );
+    assert!(
+        vm_stderr.contains(expected_fragment),
+        "expected VM stderr for `{file}` to contain {:?}; got:\n{}",
+        expected_fragment,
+        vm_stderr
+    );
+    assert!(
+        jit_stderr.contains(expected_fragment),
+        "expected JIT stderr for `{file}` to contain {:?}; got:\n{}",
+        expected_fragment,
+        jit_stderr
+    );
+}
+
 fn assert_file_cli_runtime_highlight_contains(file: &str, roots: &[&str], caret_fragment: &str) {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let flux_bin = Path::new(env!("CARGO_BIN_EXE_flux"));
@@ -373,6 +415,15 @@ fn release_runtime_parity_e1004_return_boundary() {
         "examples/type_system/failing/186_runtime_boundary_return_e1004.flx",
         &["examples/type_system"],
         "expected type: Int",
+    );
+}
+
+#[test]
+fn release_runtime_parity_e1004_return_boundary_uses_real_source_location() {
+    assert_file_cli_runtime_error_uses_real_source_location(
+        "examples/runtime_errors/boundary_return_string_as_int.flx",
+        &[],
+        "examples/runtime_errors/boundary_return_string_as_int.flx",
     );
 }
 

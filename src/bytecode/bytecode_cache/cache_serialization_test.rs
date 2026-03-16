@@ -70,6 +70,10 @@ fn object_roundtrip_includes_function_debug_info() {
             }),
         }],
     )
+    .with_boundary_location(Some(Location {
+        file_id: 0,
+        span: Span::new(Position::new(1, 0), Position::new(3, 1)),
+    }))
     .with_effect_summary(EffectSummary::HasEffects);
 
     let function = CompiledFunction::new(vec![1, 2, 3], 2, 1, Some(debug_info.clone()));
@@ -113,6 +117,10 @@ fn function_debug_info_roundtrip() {
             }),
         }],
     )
+    .with_boundary_location(Some(Location {
+        file_id: 1,
+        span: Span::new(Position::new(2, 0), Position::new(4, 1)),
+    }))
     .with_effect_summary(EffectSummary::Unknown);
 
     write_function_debug_info(&mut file, Some(&debug_info)).unwrap();

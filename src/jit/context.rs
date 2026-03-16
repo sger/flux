@@ -340,18 +340,18 @@ impl JitContext {
 
     pub(crate) fn contract_return_error_diagnostic(
         &self,
-        _function_index: usize,
+        function_index: usize,
         expected: &str,
         actual: &str,
         value_preview: Option<&str>,
     ) -> Diagnostic {
-        runtime_type_error(
-            expected,
-            actual,
-            value_preview,
-            "<unknown>".to_string(),
-            Span::new(Position::new(0, 0), Position::new(0, 0)),
-        )
+        let file = self.default_source_file();
+        let span = self
+            .jit_functions
+            .get(function_index)
+            .and_then(|entry| entry.return_span)
+            .unwrap_or_else(|| Span::new(Position::new(1, 0), Position::new(1, 0)));
+        runtime_type_error(expected, actual, value_preview, file, span)
     }
 
     pub fn new() -> Self {

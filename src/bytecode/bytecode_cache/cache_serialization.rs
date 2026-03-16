@@ -147,6 +147,14 @@ pub(super) fn write_function_debug_info(
                     }
                 }
             }
+            match &info.boundary_location {
+                None => writer.write_all(&[0])?,
+                Some(location) => {
+                    writer.write_all(&[1])?;
+                    write_u32(writer, location.file_id)?;
+                    write_span(writer, &location.span)?;
+                }
+            }
             let effect_tag = match info.effect_summary {
                 EffectSummary::Pure => 0u8,
                 EffectSummary::Unknown => 1u8,
@@ -195,6 +203,16 @@ pub(super) fn read_function_debug_info(reader: &mut File) -> Option<FunctionDebu
         locations.push(InstructionLocation { offset, location });
     }
 
+    let mut boundary_flag = [0u8; 1];
+    reader.read_exact(&mut boundary_flag).ok()?;
+    let boundary_location = if boundary_flag[0] == 0 {
+        None
+    } else {
+        let file_id = read_u32(reader)? as u32;
+        let span = read_span(reader)?;
+        Some(Location { file_id, span })
+    };
+
     let mut effect_tag = [0u8; 1];
     reader.read_exact(&mut effect_tag).ok()?;
     let effect_summary = match effect_tag[0] {
@@ -204,7 +222,11 @@ pub(super) fn read_function_debug_info(reader: &mut File) -> Option<FunctionDebu
         _ => EffectSummary::Unknown,
     };
 
-    Some(FunctionDebugInfo::new(name, files, locations).with_effect_summary(effect_summary))
+    Some(
+        FunctionDebugInfo::new(name, files, locations)
+            .with_boundary_location(boundary_location)
+            .with_effect_summary(effect_summary),
+    )
 }
 
 fn write_position(writer: &mut File, position: &Position) -> std::io::Result<()> {
