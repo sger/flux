@@ -4,7 +4,9 @@ use crate::runtime::{
 };
 use crate::{
     diagnostics::position::{Position, Span},
-    diagnostics::{Diagnostic, DiagnosticPhase, ErrorType, render_runtime_diagnostic, runtime_type_error},
+    diagnostics::{
+        Diagnostic, DiagnosticPhase, ErrorType, render_runtime_diagnostic, runtime_type_error,
+    },
 };
 use std::collections::HashMap;
 
