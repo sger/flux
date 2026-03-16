@@ -618,8 +618,7 @@ impl Compiler {
             let param_effect_rows = self.build_param_effect_rows(parameters, parameter_types);
             if let Some(ir_function) = ir_function
                 && !Self::block_contains_cfg_incompatible_statements_ast(body)
-                && let Some(cfg_result) =
-                    self.try_compile_ir_cfg_function_body(ir_function, name)
+                && let Some(cfg_result) = self.try_compile_ir_cfg_function_body(ir_function, name)
             {
                 return cfg_result;
             }
