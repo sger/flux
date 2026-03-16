@@ -1,0 +1,34 @@
+# fixture	mode
+examples/guide_type_system/04_with_io_and_with_time.flx	time
+examples/guide_type_system/12_real_pipeline_demo.flx	time
+examples/type_system/02_effect_signatures.flx	time
+examples/type_system/failing/30_strict_public_unannotated_effectful.flx	strict
+examples/primop/effect_boundary.flx	runtime_no_stack
+examples/primop/effects.flx	runtime_no_stack
+examples/primop/string_and_effects.flx	runtime_no_stack
+examples/runtime_errors/base_flat_map_return_shape.flx	runtime_no_stack
+examples/runtime_errors/base_fold_callback_arity.flx	runtime_no_stack
+examples/runtime_errors/base_map_callback_arity.flx	runtime_no_stack
+examples/runtime_errors/boundary_arg_string_into_int.flx	runtime_no_stack
+examples/runtime_errors/boundary_return_string_as_int.flx	runtime_no_stack
+examples/runtime_errors/either_boundary_string_into_either.flx	runtime_no_stack
+examples/runtime_errors/indirect_call_not_callable.flx	runtime_no_stack
+examples/runtime_errors/indirect_call_wrong_arity.flx	runtime_no_stack
+examples/runtime_errors/list_boundary_string_into_list.flx	runtime_no_stack
+examples/runtime_errors/primop_array_len_type.flx	runtime_no_stack
+examples/runtime_errors/primop_string_len_type.flx	runtime_no_stack
+examples/aoc/2024/day05.flx	
+examples/aoc/2025/aoc_day10_haskell_style.flx	runtime_no_stack
+examples/aoc/2025/aoc_day10_part1.flx	runtime_no_stack
+examples/aoc/2025/aoc_day12_part1.flx	runtime_no_stack
+examples/aoc/2025/aoc_day12_refactored.flx	runtime_no_stack
+examples/aoc/2025/aoc_day2_part1.flx	runtime_no_stack
+examples/aoc/2025/aoc_day4_haskell_style.flx	runtime_no_stack
+examples/aoc/2025/aoc_day4_part1.flx	runtime_no_stack
+examples/aoc/2025/aoc_day5_part1.flx	runtime_no_stack
+examples/aoc/2025/aoc_day5_part2.flx	runtime_no_stack
+examples/aoc/2025/aoc_day6_haskell_style.flx	runtime_no_stack
+examples/aoc/2025/aoc_day6_part1.flx	runtime_no_stack
+examples/aoc/2025/aoc_day8_part1.flx	runtime_no_stack
+examples/aoc/2025/aoc_day9_haskell_style.flx	runtime_no_stack
+examples/aoc/2025/aoc_day9_part1.flx	runtime_no_stack

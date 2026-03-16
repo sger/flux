@@ -65,17 +65,20 @@ fn canonicalize_cfg(program: &mut IrProgram) {
 /// self-recursive tail calls, avoiding stack overflow.
 fn tail_call_introduction(program: &mut IrProgram) {
     for function in &mut program.functions {
-        // First, identify "return-only" blocks: blocks with exactly one param,
-        // no instructions, and a `Return(param)` terminator.
-        let return_blocks: HashSet<BlockId> = function
+        let block_map: HashMap<BlockId, TailReturnSummary> = function
             .blocks
             .iter()
-            .filter(|b| {
-                b.params.len() == 1
-                    && b.instrs.is_empty()
-                    && matches!(&b.terminator, IrTerminator::Return(v, _) if *v == b.params[0].var)
+            .map(|block| {
+                (
+                    block.id,
+                    TailReturnSummary {
+                        first_param: block.params.first().map(|param| param.var),
+                        params_len: block.params.len(),
+                        is_empty: block.instrs.is_empty(),
+                        terminator: block.terminator.clone(),
+                    },
+                )
             })
-            .map(|b| b.id)
             .collect();
 
         for block in &mut function.blocks {
@@ -102,7 +105,7 @@ fn tail_call_introduction(program: &mut IrProgram) {
             // Pattern 2: Call; Jump(return_block, [v])
             if let IrTerminator::Jump(target, jump_args, _) = &block.terminator
                 && jump_args.len() == 1
-                && return_blocks.contains(target)
+                && resolves_to_single_param_return_block(&block_map, *target)
                 && let Some(IrInstr::Call {
                     dest,
                     target,
@@ -121,6 +124,43 @@ fn tail_call_introduction(program: &mut IrProgram) {
             }
         }
     }
+}
+
+fn resolves_to_single_param_return_block(
+    block_map: &HashMap<BlockId, TailReturnSummary>,
+    mut block_id: BlockId,
+) -> bool {
+    let mut seen = HashSet::new();
+    while seen.insert(block_id) {
+        let Some(block) = block_map.get(&block_id) else {
+            return false;
+        };
+        if block.params_len == 1
+            && block.is_empty
+            && matches!((&block.terminator, block.first_param), (IrTerminator::Return(v, _), Some(param)) if *v == param)
+        {
+            return true;
+        }
+        if block.params_len == 1
+            && block.is_empty
+            && let IrTerminator::Jump(next, jump_args, _) = &block.terminator
+            && jump_args.len() == 1
+            && Some(jump_args[0]) == block.first_param
+        {
+            block_id = *next;
+            continue;
+        }
+        return false;
+    }
+    false
+}
+
+#[derive(Clone)]
+struct TailReturnSummary {
+    first_param: Option<IrVar>,
+    params_len: usize,
+    is_empty: bool,
+    terminator: IrTerminator,
 }
 
 fn constant_fold(program: &mut IrProgram) {
@@ -327,8 +367,8 @@ fn rewrite_binary_op(op: IrBinaryOp, inferred: &InferType) -> IrBinaryOp {
 #[cfg(test)]
 mod tests {
     use crate::cfg::{
-        FunctionId, IrBlock, IrBlockParam, IrFunction, IrFunctionOrigin, IrMetadata, IrParam,
-        IrProgram, IrTerminator, IrType,
+        FunctionId, IrBlock, IrBlockParam, IrCallTarget, IrFunction, IrFunctionOrigin, IrMetadata,
+        IrParam, IrProgram, IrTerminator, IrType,
     };
     use crate::syntax::interner::Interner;
 
@@ -367,6 +407,7 @@ mod tests {
             }],
             entry: FunctionId(0),
             globals: Vec::new(),
+            global_bindings: Vec::new(),
             hm_expr_types: HashMap::new(),
             core: None,
         }
@@ -420,5 +461,77 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn introduces_tailcall_through_trivial_return_forwarder_chain() {
+        let mut interner = Interner::new();
+        let call_metadata = IrMetadata::empty();
+        let function = IrFunction {
+            id: FunctionId(0),
+            name: Some(interner.intern("loop_")),
+            params: vec![IrParam {
+                name: interner.intern("n"),
+                var: IrVar(0),
+                ty: IrType::Int,
+            }],
+            parameter_types: vec![None],
+            return_type_annotation: None,
+            effects: Vec::new(),
+            captures: Vec::new(),
+            body_span: crate::diagnostics::position::Span::default(),
+            ret_type: IrType::Any,
+            blocks: vec![
+                IrBlock {
+                    id: BlockId(0),
+                    params: vec![],
+                    instrs: vec![IrInstr::Call {
+                        dest: IrVar(1),
+                        target: IrCallTarget::Direct(FunctionId(0)),
+                        args: vec![IrVar(0)],
+                        metadata: call_metadata.clone(),
+                    }],
+                    terminator: IrTerminator::Jump(BlockId(1), vec![IrVar(1)], IrMetadata::empty()),
+                },
+                IrBlock {
+                    id: BlockId(1),
+                    params: vec![IrBlockParam {
+                        var: IrVar(2),
+                        ty: IrType::Any,
+                    }],
+                    instrs: vec![],
+                    terminator: IrTerminator::Jump(BlockId(2), vec![IrVar(2)], IrMetadata::empty()),
+                },
+                IrBlock {
+                    id: BlockId(2),
+                    params: vec![IrBlockParam {
+                        var: IrVar(3),
+                        ty: IrType::Any,
+                    }],
+                    instrs: vec![],
+                    terminator: IrTerminator::Return(IrVar(3), IrMetadata::empty()),
+                },
+            ],
+            entry: BlockId(0),
+            origin: IrFunctionOrigin::ModuleTopLevel,
+            metadata: IrMetadata::empty(),
+        };
+        let mut program = IrProgram {
+            top_level_items: Vec::new(),
+            functions: vec![function],
+            entry: FunctionId(0),
+            globals: Vec::new(),
+            global_bindings: Vec::new(),
+            hm_expr_types: HashMap::new(),
+            core: None,
+        };
+
+        run_ir_pass_pipeline(&mut program, &IrPassContext).unwrap();
+
+        assert!(matches!(
+            program.functions[0].blocks[0].terminator,
+            IrTerminator::TailCall { .. }
+        ));
+        assert!(program.functions[0].blocks[0].instrs.is_empty());
     }
 }

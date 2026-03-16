@@ -67,7 +67,7 @@ module Day04Solver {
         }
     }
 
-    fn day04a_from_lines(lines: Array<String>) -> Int {
+    public fn day04a_from_lines(lines: Array<String>) -> Int {
         if len(lines) == 0 {
             0
         } else {
@@ -81,7 +81,7 @@ module Day04Solver {
         }
     }
 
-    fn day04a_from_memory(memory: String) -> Int {
+    public fn day04a_from_memory(memory: String) -> Int {
         let lines =
             split(memory, "\n")
             |> map(\s -> trim(s))
@@ -122,7 +122,7 @@ module Day04Solver {
         }
     }
 
-    fn day04b_from_lines(lines: Array<String>) -> Int {
+    public fn day04b_from_lines(lines: Array<String>) -> Int {
         if len(lines) < 3 {
             0
         } else {
@@ -136,7 +136,7 @@ module Day04Solver {
         }
     }
 
-    fn day04b_from_memory(memory: String) -> Int {
+    public fn day04b_from_memory(memory: String) -> Int {
         let lines =
             split(memory, "\n")
             |> map(\s -> trim(s))

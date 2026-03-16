@@ -105,6 +105,16 @@ impl VM {
         );
     }
 
+    /// Create a closure that acts as the identity function: `fn(x) -> x`.
+    /// Used as the `resume` parameter for tail-resumptive `OpPerformDirect`,
+    /// so that `resume(v)` simply returns `v`.
+    pub(crate) fn make_identity_closure(&self) -> Value {
+        // Bytecode: OpReturnLocal(0) — return the first argument.
+        let instructions = vec![OpCode::OpReturnLocal as u8, 0];
+        let func = Rc::new(CompiledFunction::new(instructions, 1, 1, None));
+        Value::Closure(Rc::new(Closure::new(func, vec![])))
+    }
+
     pub fn run(&mut self) -> Result<(), String> {
         match self.run_inner() {
             Ok(()) => Ok(()),

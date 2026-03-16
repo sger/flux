@@ -2,12 +2,12 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::type_infer::InferProgramConfig;
 use crate::ast::type_informed_fold::type_informed_fold;
-use crate::bytecode::compiler::effect_rows::EffectRow;
-use crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult;
-use crate::ir::{
-    FunctionId, IrInstr, IrPassContext, IrProgram, IrTerminator, lower_program_to_ir,
+use crate::backend_ir::{
+    FunctionId, IrFunction, IrInstr, IrPassContext, IrProgram, IrTerminator, lower_program_to_ir,
     run_ir_pass_pipeline,
 };
+use crate::bytecode::compiler::effect_rows::EffectRow;
+use crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult;
 use crate::syntax::expression::ExprId;
 use crate::types::infer_effect_row::InferEffectRow;
 use crate::types::{TypeVarId, infer_type::InferType, scheme::Scheme};
@@ -53,6 +53,7 @@ use crate::{
 mod adt_definition;
 mod adt_registry;
 mod builder;
+mod cfg_bytecode;
 mod constructor_info;
 mod contracts;
 mod effect_rows;
@@ -61,6 +62,7 @@ mod expression;
 mod hm_expr_typer;
 mod statement;
 mod suggestions;
+pub(crate) mod tail_resumptive;
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
 
@@ -1950,23 +1952,6 @@ impl Compiler {
             .find_map(|scope| scope.get(&name).copied())
     }
 
-    pub(super) fn track_effect_alias_for_ir_binding(
-        &mut self,
-        binding: Symbol,
-        value: &crate::ir::IrStructuredExpr,
-    ) {
-        if let crate::ir::IrStructuredExpr::Identifier { name, span, id } = value {
-            self.track_effect_alias_for_binding(
-                binding,
-                &Expression::Identifier {
-                    name: *name,
-                    span: *span,
-                    id: *id,
-                },
-            );
-        }
-    }
-
     pub(super) fn track_effect_alias_for_binding(&mut self, binding: Symbol, value: &Expression) {
         let Expression::Identifier { name, .. } = value else {
             return;
@@ -2198,15 +2183,55 @@ impl Compiler {
             self.tail_calls = collect_tail_calls_from_ir(&ir_program);
         }
         self.ir_function_symbols.clear();
-        self.register_ir_function_symbols(&ir_program.top_level_items, self.current_module_prefix);
+        self.register_ir_function_symbols_from_backend(ir_program.functions());
         // PASS 2: Compile all statements
         // Function bodies can now reference any function defined at module level
         let mut pattern_diags = validate_program_patterns(program, &self.file_path, &self.interner);
         tag_diagnostics(&mut pattern_diags, DiagnosticPhase::Validation);
         self.errors.extend(pattern_diags);
-        for item in &ir_program.top_level_items {
+        for statement in &program.statements {
             // Continue compilation even if there are errors
-            if let Err(err) = self.compile_ir_top_level_item(item, &ir_program) {
+            let compile_result = match statement {
+                Statement::Function {
+                    name,
+                    parameters,
+                    parameter_types,
+                    return_type,
+                    effects,
+                    body,
+                    span,
+                    ..
+                } => {
+                    let effective_effects: Vec<crate::syntax::effect_expr::EffectExpr> =
+                        if effects.is_empty() {
+                            self.lookup_unqualified_contract(*name, parameters.len())
+                                .map(|contract| contract.effects.clone())
+                                .unwrap_or_default()
+                        } else {
+                            effects.clone()
+                        };
+                    let ir_function = self.find_ir_function_by_symbol(&ir_program, *name);
+                    let result = self.compile_function_statement(
+                        *name,
+                        parameters,
+                        parameter_types,
+                        return_type,
+                        &effective_effects,
+                        body,
+                        ir_function,
+                        *span,
+                    );
+                    if self.scope_index == 0 {
+                        self.file_scope_symbols.insert(*name);
+                    }
+                    result
+                }
+                Statement::Module { name, body, span } => {
+                    self.compile_module_statement(*name, body, span.start, Some(&ir_program))
+                }
+                _ => self.compile_statement(statement),
+            };
+            if let Err(err) = compile_result {
                 let mut diag = *err;
                 if diag.phase().is_none() {
                     diag.phase = Some(DiagnosticPhase::TypeCheck);
@@ -2242,29 +2267,18 @@ impl Compiler {
         Ok(())
     }
 
-    fn register_ir_function_symbols(
-        &mut self,
-        items: &[crate::ir::IrTopLevelItem],
-        module_prefix: Option<Symbol>,
-    ) {
-        for item in items {
-            match item {
-                crate::ir::IrTopLevelItem::Function {
-                    name,
-                    function_id: Some(function_id),
-                    ..
-                } => {
-                    let symbol = module_prefix
-                        .map(|module_name| self.interner.intern_join(module_name, *name))
-                        .unwrap_or(*name);
-                    self.ir_function_symbols.insert(*function_id, symbol);
-                }
-                crate::ir::IrTopLevelItem::Module { name, body, .. } => {
-                    self.register_ir_function_symbols(&body.statements, Some(*name));
-                }
-                _ => {}
+    fn register_ir_function_symbols_from_backend(&mut self, functions: &[IrFunction]) {
+        for function in functions {
+            if let Some(name) = function.name {
+                self.ir_function_symbols.insert(function.id, name);
             }
         }
+    }
+
+    pub(super) fn lookup_ir_function_symbol_by_raw_id(&self, raw_id: u32) -> Option<Symbol> {
+        self.ir_function_symbols
+            .iter()
+            .find_map(|(function_id, symbol)| (function_id.0 == raw_id).then_some(*symbol))
     }
 
     /// Drop HM diagnostics that are redundant with a compiler boundary error.
@@ -2838,7 +2852,7 @@ impl Compiler {
 
 fn collect_tail_calls_from_ir(program: &IrProgram) -> Vec<TailCall> {
     let mut tail_calls = Vec::new();
-    for function in &program.functions {
+    for function in program.functions() {
         // Build a map from BlockId to block for fast lookup.
         let block_map: std::collections::HashMap<_, _> =
             function.blocks.iter().map(|b| (b.id, b)).collect();

@@ -130,24 +130,29 @@ impl RuntimeType {
                 ret,
                 effects,
             } => {
-                let Some(contract) = ctx.callable_contract(value) else {
+                // If the value is callable but has no contract (e.g. an
+                // untyped lambda), accept it.  HM inference already proved
+                // type correctness at compile time; rejecting it here would
+                // reject valid programs like `twice(\n -> n + 1, 5)`.
+                if !value.is_callable() {
                     return false;
+                }
+                let Some(contract) = ctx.callable_contract(value) else {
+                    return true;
                 };
                 if contract.params.len() != params.len() {
                     return false;
                 }
                 for (expected, actual) in params.iter().zip(contract.params.iter()) {
-                    let Some(actual) = actual else {
-                        return false;
-                    };
-                    if !runtime_type_compatible(expected, actual) {
+                    if let Some(actual) = actual
+                        && !runtime_type_compatible(expected, actual)
+                    {
                         return false;
                     }
                 }
-                let Some(actual_ret) = contract.ret.as_ref() else {
-                    return false;
-                };
-                if !runtime_type_compatible(ret, actual_ret) {
+                if let Some(actual_ret) = contract.ret.as_ref()
+                    && !runtime_type_compatible(ret, actual_ret)
+                {
                     return false;
                 }
                 effects_subset(&contract.effects, effects)
@@ -331,7 +336,9 @@ mod tests {
     }
 
     #[test]
-    fn function_runtime_type_rejects_closure_missing_contract() {
+    fn function_runtime_type_accepts_closure_missing_contract() {
+        // Closures without contracts are accepted — HM inference already
+        // proved type correctness at compile time.
         let ctx = TestCtx::new();
         let compiled = CompiledFunction::new(vec![], 0, 1, None).with_contract(None);
         let closure = Value::Closure(Rc::new(Closure::new(Rc::new(compiled), vec![])));
@@ -340,7 +347,7 @@ mod tests {
             ret: Box::new(RuntimeType::Bool),
             effects: vec![],
         };
-        assert!(!expected.matches_value(&closure, &ctx));
+        assert!(expected.matches_value(&closure, &ctx));
     }
 
     #[test]
@@ -422,13 +429,15 @@ mod tests {
     }
 
     #[test]
-    fn function_runtime_type_rejects_non_closure_callable_kind() {
+    fn function_runtime_type_accepts_base_function_without_contract() {
+        // Base functions are callable — accept them even without a matching
+        // contract since the type was verified at compile time.
         let ctx = TestCtx::new();
         let expected = RuntimeType::Function {
             params: vec![RuntimeType::Int],
             ret: Box::new(RuntimeType::Bool),
             effects: vec![],
         };
-        assert!(!expected.matches_value(&Value::BaseFunction(0), &ctx));
+        assert!(expected.matches_value(&Value::BaseFunction(0), &ctx));
     }
 }

@@ -183,7 +183,6 @@ fn test_mode_test_filter_no_match_reports_empty() {
 
 #[cfg(feature = "jit")]
 #[test]
-#[ignore = "JIT: test runner VM/JIT summary parity (proposal 0102)"]
 fn test_mode_jit_matches_vm_summary() {
     let file = fixture_path("all_pass.flx");
     let vm = run_flux(&["--test", file.to_str().unwrap()]);
@@ -286,7 +285,6 @@ fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
 
 #[cfg(feature = "jit")]
 #[test]
-#[ignore = "JIT: runtime error JSON/text metadata parity (proposal 0102)"]
 fn jit_runtime_error_json_matches_text_metadata() {
     let file = example_path("runtime_errors/indirect_call_wrong_arity.flx");
 
