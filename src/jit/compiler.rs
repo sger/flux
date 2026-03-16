@@ -1000,15 +1000,9 @@ impl JitCompiler {
                 let cl_block = block_map[&block.id];
                 builder.switch_to_block(cl_block);
 
-                let mut env = block_envs
-                    .remove(&block.id)
-                    .unwrap_or_default();
-                let mut module_env = block_module_envs
-                    .remove(&block.id)
-                    .unwrap_or_default();
-                let mut function_env = block_function_envs
-                    .remove(&block.id)
-                    .unwrap_or_default();
+                let mut env = block_envs.remove(&block.id).unwrap_or_default();
+                let mut module_env = block_module_envs.remove(&block.id).unwrap_or_default();
+                let mut function_env = block_function_envs.remove(&block.id).unwrap_or_default();
 
                 if block.id != function.entry {
                     let block_params = builder.block_params(cl_block).to_vec();
@@ -1344,17 +1338,14 @@ impl JitCompiler {
                         if let Some(target_def) = block_defs.get(target).copied() {
                             let target_env = block_envs.entry(*target).or_default();
                             target_env.extend(env.iter().map(|(var, value)| (*var, *value)));
-                            let target_module_env = block_module_envs
-                                .entry(*target)
-                                .or_default();
+                            let target_module_env = block_module_envs.entry(*target).or_default();
                             target_module_env.extend(
                                 module_env
                                     .iter()
                                     .map(|(var, module_name)| (*var, *module_name)),
                             );
-                            let target_function_env = block_function_envs
-                                .entry(*target)
-                                .or_default();
+                            let target_function_env =
+                                block_function_envs.entry(*target).or_default();
                             target_function_env
                                 .extend(function_env.iter().map(|(var, meta)| (*var, *meta)));
                             for (param, arg) in target_def.params.iter().zip(args.iter()) {
@@ -1402,14 +1393,11 @@ impl JitCompiler {
                             .entry(*then_block)
                             .or_default()
                             .extend(env.iter().map(|(var, value)| (*var, *value)));
-                        block_module_envs
-                            .entry(*then_block)
-                            .or_default()
-                            .extend(
-                                module_env
-                                    .iter()
-                                    .map(|(var, module_name)| (*var, *module_name)),
-                            );
+                        block_module_envs.entry(*then_block).or_default().extend(
+                            module_env
+                                .iter()
+                                .map(|(var, module_name)| (*var, *module_name)),
+                        );
                         block_function_envs
                             .entry(*then_block)
                             .or_default()
@@ -1418,14 +1406,11 @@ impl JitCompiler {
                             .entry(*else_block)
                             .or_default()
                             .extend(env.iter().map(|(var, value)| (*var, *value)));
-                        block_module_envs
-                            .entry(*else_block)
-                            .or_default()
-                            .extend(
-                                module_env
-                                    .iter()
-                                    .map(|(var, module_name)| (*var, *module_name)),
-                            );
+                        block_module_envs.entry(*else_block).or_default().extend(
+                            module_env
+                                .iter()
+                                .map(|(var, module_name)| (*var, *module_name)),
+                        );
                         block_function_envs
                             .entry(*else_block)
                             .or_default()
