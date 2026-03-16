@@ -208,6 +208,15 @@ impl VM {
                     let expected_name = expected.type_name();
                     let actual_type = return_value.type_name();
                     let value_preview = format_value(self, &return_value);
+                    if let Some((file, span)) = self.function_boundary_location() {
+                        return Err(self.runtime_type_error_at_location(
+                            &expected_name,
+                            actual_type,
+                            Some(&value_preview),
+                            file,
+                            span,
+                        ));
+                    }
                     return Err(self.runtime_type_error_enhanced(
                         &expected_name,
                         actual_type,
@@ -226,6 +235,15 @@ impl VM {
                 {
                     let expected_name = expected.type_name();
                     let value_preview = format_value(self, &Value::None);
+                    if let Some((file, span)) = self.function_boundary_location() {
+                        return Err(self.runtime_type_error_at_location(
+                            &expected_name,
+                            Value::None.type_name(),
+                            Some(&value_preview),
+                            file,
+                            span,
+                        ));
+                    }
                     return Err(self.runtime_type_error_enhanced(
                         &expected_name,
                         Value::None.type_name(),
@@ -1004,6 +1022,49 @@ impl VM {
                     entry_frame_index: self.frame_index,
                     entry_sp: self.sp,
                     entry_handler_stack_len: self.handler_stack.len(),
+                    is_direct: false,
+                });
+                Ok(2)
+            }
+            OpCode::OpHandleDirect => {
+                // Identical to OpHandle but marks the handler as tail-resumptive.
+                let const_idx = Self::read_u8_fast(instructions, ip + 1);
+                let (effect, ops) = match &self.constants[const_idx] {
+                    Value::HandlerDescriptor(desc) => (desc.effect, desc.ops.clone()),
+                    other => {
+                        return Err(format!(
+                            "OpHandleDirect: expected HandlerDescriptor constant, got {}",
+                            other.type_name()
+                        ));
+                    }
+                };
+                let n = ops.len();
+                let mut arm_closures: Vec<Rc<Closure>> = Vec::with_capacity(n);
+                for _ in 0..n {
+                    let v = self.pop_untracked()?;
+                    match v {
+                        Value::Closure(c) => arm_closures.push(c),
+                        other => {
+                            return Err(format!(
+                                "OpHandleDirect: expected Closure for arm, got {}",
+                                other.type_name()
+                            ));
+                        }
+                    }
+                }
+                arm_closures.reverse();
+                let arms: Vec<HandlerArm> = ops
+                    .into_iter()
+                    .zip(arm_closures)
+                    .map(|(op, closure)| HandlerArm { op, closure })
+                    .collect();
+                self.handler_stack.push(HandlerFrame {
+                    effect,
+                    arms,
+                    entry_frame_index: self.frame_index,
+                    entry_sp: self.sp,
+                    entry_handler_stack_len: self.handler_stack.len(),
+                    is_direct: true,
                 });
                 Ok(2)
             }
@@ -1055,6 +1116,8 @@ impl VM {
                         )
                     })?;
 
+                let is_direct = self.handler_stack[handler_pos].is_direct;
+
                 let arm_closure = {
                     let handler = &self.handler_stack[handler_pos];
                     let arm = handler.arms.iter().find(|a| a.op == op).ok_or_else(|| {
@@ -1063,48 +1126,124 @@ impl VM {
                     arm.closure.clone()
                 };
 
-                let entry_frame_index = self.handler_stack[handler_pos].entry_frame_index;
-                let entry_sp = self.handler_stack[handler_pos].entry_sp;
+                if is_direct {
+                    // Tail-resumptive fast path: call the arm directly
+                    // without capturing a continuation. resume(v) returns v
+                    // via the identity closure passed as the resume parameter.
+                    //
+                    // Advance the caller's IP past OpPerform (3 bytes) BEFORE
+                    // pushing the arm frame, so that when the arm returns,
+                    // execution continues at the instruction after perform.
+                    self.frames[self.frame_index].ip += 3;
 
-                // Capture frames above the handler boundary.
-                // Advance the perform frame's IP past OpPerform (3 bytes) so that
-                // when the continuation is resumed, execution continues correctly.
-                let mut captured_frames: Vec<super::super::frame::Frame> =
-                    self.frames[entry_frame_index + 1..=self.frame_index].to_vec();
-                if let Some(last) = captured_frames.last_mut() {
-                    last.ip += 3; // skip past OpPerform (opcode:1 + const_idx:1 + arity:1)
+                    self.push(Value::Closure(arm_closure))?;
+                    let identity_fn = self.make_identity_closure();
+                    self.push(identity_fn)?;
+                    for arg in perform_args {
+                        self.push(arg)?;
+                    }
+                    self.execute_call(1 + arity)?;
+                    Ok(0)
+                } else {
+                    let entry_frame_index = self.handler_stack[handler_pos].entry_frame_index;
+                    let entry_sp = self.handler_stack[handler_pos].entry_sp;
+
+                    // Capture frames above the handler boundary.
+                    let mut captured_frames: Vec<super::super::frame::Frame> =
+                        self.frames[entry_frame_index + 1..=self.frame_index].to_vec();
+                    if let Some(last) = captured_frames.last_mut() {
+                        last.ip += 3;
+                    }
+
+                    let captured_sp = self.sp;
+                    let captured_stack = self.stack[entry_sp..captured_sp].to_vec();
+
+                    let inner_handlers: Vec<HandlerFrame> =
+                        self.handler_stack[handler_pos + 1..].to_vec();
+
+                    let cont = Continuation {
+                        frames: captured_frames,
+                        stack: captured_stack,
+                        sp: captured_sp,
+                        entry_sp,
+                        entry_frame_index,
+                        inner_handlers,
+                        used: false,
+                    };
+                    let cont_val = Value::Continuation(Rc::new(RefCell::new(cont)));
+
+                    self.frame_index = entry_frame_index;
+                    self.handler_stack.truncate(handler_pos + 1);
+                    self.reset_sp(entry_sp)?;
+
+                    self.push(Value::Closure(arm_closure))?;
+                    self.push(cont_val)?;
+                    for arg in perform_args {
+                        self.push(arg)?;
+                    }
+                    self.execute_call(1 + arity)?;
+                    Ok(0)
                 }
+            }
+            OpCode::OpPerformDirect => {
+                // Tail-resumptive perform: no continuation capture.
+                // The arm closure is called directly; `resume(v)` inside the
+                // arm simply returns `v` which becomes the perform result.
+                let const_idx = Self::read_u8_fast(instructions, ip + 1);
+                let arity = Self::read_u8_fast(instructions, ip + 2);
 
-                // Capture value stack slice (between entry_sp and sp before perform args).
-                let captured_sp = self.sp; // sp after args were already popped above
-                let captured_stack = self.stack[entry_sp..captured_sp].to_vec();
-
-                // Capture inner handlers (those nested inside our handler boundary)
-                let inner_handlers: Vec<HandlerFrame> =
-                    self.handler_stack[handler_pos + 1..].to_vec();
-
-                // Build continuation
-                let cont = Continuation {
-                    frames: captured_frames,
-                    stack: captured_stack,
-                    sp: captured_sp,
-                    entry_sp,
-                    entry_frame_index,
-                    inner_handlers,
-                    used: false,
+                let (effect, op, effect_name, op_name) = match &self.constants[const_idx] {
+                    Value::PerformDescriptor(desc) => (
+                        desc.effect,
+                        desc.op,
+                        desc.effect_name.clone(),
+                        desc.op_name.clone(),
+                    ),
+                    other => {
+                        return Err(format!(
+                            "OpPerformDirect: expected PerformDescriptor constant, got {}",
+                            other.type_name()
+                        ));
+                    }
                 };
-                let cont_val = Value::Continuation(Rc::new(RefCell::new(cont)));
 
-                // Unwind back to handler entry frame
-                self.frame_index = entry_frame_index;
-                // Keep our handler frame on handler_stack (OpEndHandle will pop it after arm returns).
-                // Truncate inner handlers that were captured.
-                self.handler_stack.truncate(handler_pos + 1);
-                self.reset_sp(entry_sp)?;
+                let mut perform_args: Vec<Value> = Vec::with_capacity(arity);
+                for _ in 0..arity {
+                    perform_args.push(self.pop_untracked()?);
+                }
+                perform_args.reverse();
 
-                // Call the arm: push closure, then resume (cont_val), then perform args
+                // Find matching handler (same search as OpPerform)
+                let handler_pos = self
+                    .handler_stack
+                    .iter()
+                    .rposition(|h| h.effect == effect)
+                    .ok_or_else(|| {
+                        format!(
+                            "unhandled effect: {} (no matching handle block)",
+                            effect_name
+                        )
+                    })?;
+
+                let arm_closure = {
+                    let handler = &self.handler_stack[handler_pos];
+                    let arm = handler.arms.iter().find(|a| a.op == op).ok_or_else(|| {
+                        format!("unhandled operation: {}.{}", effect_name, op_name)
+                    })?;
+                    arm.closure.clone()
+                };
+
+                // For a tail-resumptive arm: resume(v) just returns v.
+                // We create a dummy "identity" closure as the resume parameter
+                // so that `resume(v)` inside the arm body evaluates to `v`.
+                // The arm closure signature is: fn(resume, arg0, ..., argN)
+                // We push the arm closure, a resume-identity value, then args.
                 self.push(Value::Closure(arm_closure))?;
-                self.push(cont_val)?;
+                // Use Value::None as a sentinel — in a tail-resumptive arm,
+                // resume(v) is compiled as a regular call. We intercept it by
+                // providing the identity function from base functions.
+                let identity_fn = self.make_identity_closure();
+                self.push(identity_fn)?;
                 for arg in perform_args {
                     self.push(arg)?;
                 }

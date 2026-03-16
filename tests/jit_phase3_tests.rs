@@ -34,7 +34,7 @@ fn run_jit_err(input: &str) -> String {
     let opts = JitOptions::default();
     match jit_compile_and_run(&program, &interner, &opts) {
         Ok((value, _)) => panic!("expected JIT error, got value: {}", value),
-        Err(err) => err,
+        Err(err) => err.to_string(),
     }
 }
 
@@ -169,7 +169,7 @@ f(40)
 }
 
 #[test]
-#[ignore = "JIT: nested fn statements not in scope (proposal 0102)"]
+
 fn jit_local_function_statement_captures_outer_local() {
     let result = run_jit(
         r#"
@@ -256,7 +256,7 @@ f(5)
 }
 
 #[test]
-#[ignore = "JIT: nested fn statements not in scope (proposal 0102)"]
+
 fn jit_local_recursive_function_statement_works() {
     let result = run_jit(
         r#"

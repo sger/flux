@@ -9,10 +9,162 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `scripts/check_changelog_fragment.sh` to enforce changelog fragments in PR CI.
+- `scripts/changelog_from_fragments.sh` to rebuild `CHANGELOG.md` `[Unreleased]` from `changes/*.md`.
+- `scripts/release_cut.sh` to cut a new version section from `[Unreleased]` and update compare links.
+- `scripts/release_check.sh` local preflight command documented in `README.md`.
+- add proposals for grammar improvements, deterministic effect replay, typed module contracts, and macro system
+- Effect-row constraint solver (`src/bytecode/compiler/effect_rows.rs`): `EffectRow`, `RowConstraint`, `RowSolution`, and `solve_row_constraints` implementing set-based row arithmetic with var binding, link propagation, and worklist-based resolution.
+- New error codes `E419` (unresolved single effect variable), `E420` (ambiguous multiple effect variables), `E421` (invalid effect subtraction), `E422` (unsatisfied effect subset) with deterministic sorted diagnostics.
+- Pass fixtures: `100_effect_row_order_equivalence_ok.flx`, `101_effect_row_subtract_concrete_ok.flx`, `102_effect_row_subtract_var_satisfied_ok.flx`, `103_effect_row_multivar_disambiguated_ok.flx`, `104_effect_row_absent_ordering_linked_ok.flx`.
+- Fail fixtures: `194_effect_row_multi_missing_deterministic_e400.flx`, `195_effect_row_invalid_subtract_e421.flx`, `196_effect_row_subtract_unresolved_single_e419.flx`, `197_effect_row_subtract_unresolved_multi_e420.flx`, `198_effect_row_subset_unsatisfied_e422.flx`, `199_effect_row_subset_ordered_missing_e422.flx`, `200_effect_row_absent_ordering_linked_violation_e421.flx`.
+- Tiered Flux example execution in CI via manifest-driven runs (`ci/examples_manifest.tsv`) and runner automation (`scripts/ci/run_flux_manifest.sh`).
+- New contextual boundary/effect fixtures for type-system hardening (`161`, `189`, `190`, `191`).
+- New parser contextual recovery fixtures and snapshots for perform/handle/module structural diagnostics.
+- add N-ary Core IR pipeline, fix CFG bytecode compilation, and update docs
+- switch JIT calls to tagged values
+- move non-nullary ADTs onto GC heap
+- add cross-language benchmark suite and runtime updates
+- add type-informed optimizations and stable HM expr ids
+- add type-informed folding and ExprId-based HM lookups
+- add type-informed AST optimization pass and stable ExprId typing
+- add type-informed AST folding and expr-id based HM typing
+- add stable IDs to parsed expression nodes
+- switch compose to lazy normalization
+- add inference for perform/handle and lambda expressions
+- 0051 Stage 2 — HM fallback for generic/ADT contract params
+- tighten HM signatures for collection, map, list, and misc builtins
+- add effect-row-aware HM unification and substitutions
+- enforce explicit effect row tails and document parser behavior
+- parse explicit effect row tails and document parse_effect_expr
+- support row variables in effect expressions and document effect-row completeness
+- add row-constraint solver coverage and deterministic diagnostics
 
 ### Changed
+- CI now runs changelog fragment validation on pull requests.
+- Release docs now use a fragment-first changelog workflow.
+- Refactor base function handling and introduce fastcall allowlist
+- fix clippy issues
+- update README.md
+- add changelog fragment
+- update snapshot tests
+- Refactor built-in functions to base functions and update related tests
+- Refactor terminology from "builtins" to "base functions" across documentation and examples
+- Rename builtins to base functions and update related references for consistency
+- Supports module imports with member exclusions
+- Refactor built-in functions to use a consistent naming convention
+- update documentation
+- Migrates runtime terminology to Base-first and documents API
+- Implement string manipulation builtins and type checking functions
+- rename builtins to base functions and update related imports and calls
+- add new error codes for Base directive handling and update existing error message
+- update bytecode compiler for Base module integration and error handling
+- enhance import statement handling in AST folding and visiting
+- add fragment about changelog
+- fix changelog script
+- fix unit test
+- update snapshots
+- Add documentation comparing PrimOps and Builtins with routing rules
+- Add comprehensive PrimOps tests and examples
+- Add extended primitive operations and their execution logic
+- Add tests for PrimOp functionality in compiler and JIT
+- Add error handling for juxtaposed identifiers in parser
+- Add null value handling in compile_statement to return early
+- Refactor leave_scope to return EffectSummary and update debug info handling in compiler
+- Enhance effect summary handling in compiler and add tests for primitive operations
+- Add proposals for deterministic effect replay, typed module contracts, and hygienic macro system
+- Add examples for primitive operations and effect boundaries in the Flux runtime
+- Add rt_call_primop to runtime symbols for primitive operation support
+- Add support for primitive operations in the compiler and JIT
+- Add rt_call_primop function for executing primitive operations with error handling
+- Enhance documentation for execute_primop_opcode function with detailed error handling descriptions
+- Add comprehensive primitive operation support with additional arithmetic, comparison, and utility functions
+- Implement primitive operation support with OpPrimOp and OpCallBuiltin opcodes
+- Add PrimOp and PrimEffect enums to support primitive operations
+- `collect_effect_row_constraints` and `collect_effect_expr_absence_constraints` in `expression.rs` integrate the new solver for all call-site effect-row validation (subset checks, absence constraints, unresolved-var detection).
+- CI manifest (`ci/examples_manifest.tsv`) extended with all new pass/fail fixtures (tier 2, both VM and JIT).
+- Extended example fixture manifest and snapshot coverage to keep these diagnostics/warnings stable in CI.
+- Locked contextual diagnostics output for 0058 call-site/let/return mismatches with explicit snapshot coverage.
+- Strengthened parser contextual message/recovery regression guards for targeted `E034` paths (perform/handle/handle-arm/module).
+- fix clippy errors
+- Introduce Flux IR lowering and route JIT through it
+- drive truthiness branching from HM expression types
+- reorganize binarytrees benchmarks and add smoke/full profiling workflow
+- convert Error to error lowecase
+- Harden JIT runtime diagnostics and add row-effect error fixtures
+- Improve JIT runtime diagnostic parity for base and primop errors
+- Improve parser diagnostics and add architecture proposals
+- Normalize type system example numbering
+- Harden parser diagnostics emission and refresh snapshots
+- Polish grouped diagnostics headers and note rendering
+- Complete diagnostics quality proposal 0080
+- update tests
+- harden parser metadata and runtime stack traces
+- add rustdocs for diagnostics module
+- update and add new proposals
+- update unit and snapshot tests
+- Improve effect diagnostics and source rendering
+- Unify compiler, VM, and JIT diagnostic behavior
+- Tighten runtime base helper behavior and tests
+- Improve parser recovery and contextual diagnostics
+- Refactor diagnostics around shared quality and taxonomy helpers
+- Add diagnostic category type to diagnostics model
+- Refine diagnostic builder support for structured rendering
+- Refine diagnostics JSON and source snippet rendering
+- update diagnostics renderer
+- Fix effect row propagation in inference and bytecode compilation
+- add new proposal
+- review and update proposals
+- rename and clean up src/types/ module
+- split unify_error.rs into error types and algorithm modules
+- introduce constraint solver and improve diagnostics
+- Add stable expression IDs to parsed AST nodes
+- unify fold helpers and simplify free-var scope tracking
+- add quality/perf guards and docs proposals
+- remove ignore unit tests
+- remove legacy expression module and add infer config struct
+- implement modular expression inference pipeline
+- add collection and control-flow expression inference modules
+- split calls inference helpers into new file
+- split calls inference helpers and unify naming
+- modularize statement/pattern inference and self-call search
+- split pattern/statement inference helpers and unify naming
+- type-infer: split expression inference module and wire new API
+- type-infer: document ADT/effect helpers and split call-effect constraint paths
+- update docs
+- close proposals
+- Split monolithic 2,250-line type_infer.rs into a module directory with one file per concern
+- update function name
+- update unit tests for type inference
+- update changelog fragment
+- update examples and docs
+- fix unit tests
+- improve effect-row inference for function arguments and HM integration
+
+### Fixed
+- Hardened strict type/effect diagnostics for unresolved `perform` argument paths (locked with new failing fixture `192_perform_arg_unresolved_strict_e425.flx`).
+- Added regression coverage for unreachable pattern-arm warnings via new fixture `193_unreachable_pattern_arm_w202.flx`.
+- JIT release parity regression for AOC day05 part1 test caused by invalid do-block control-flow emission in JIT lowering.
+- resolve 6 compiler bugs and restore lost diagnostics
+- align closure ABI and tagged collection helpers
+- preserve arena-backed values across GC
+- clarify type variable allocator naming
+- rename type var alloc helpers for clarity
+- prevent HM substitution cycles from hanging call-base tests
+- wire Base HM signatures into registry entries
+- clarify row variable allocator naming
+- rename row-var fresh counter for clarity
 
 ### Docs
+- Added `changes/README.md` and `changes/_template.md` for contributor guidance.
+- Updated type-system/effects documentation across guides and internals for v0.0.4 alignment.
+- Refreshed proposal set for post-0.0.4 planning lanes, including effect-row variables, actor/effect tracks, and uniqueness/performance follow-ups.
+- Improved cross-references between roadmap/proposals and implementation evidence sections.
+- Proposals `0042` and `0049` marked `Implemented | have` in `docs/proposals/0000_index.md` with full closure evidence.
+- `examples/type_system/README.md` and `examples/type_system/failing/README.md` updated with new fixture entries and 0049 run-command section.
+- Updated v0.0.4 roadmap evidence and task status tracking (`R4-T01` through `R4-T09`).
+- Expanded proposal tracking/docs for deferred and post-0.0.4 lanes.
+- move implemented proposals into dedicated folder
 
 ---
 

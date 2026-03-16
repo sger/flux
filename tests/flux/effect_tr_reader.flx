@@ -1,0 +1,21 @@
+// Tail-resumptive effect: reader/config pattern.
+// The handler provides a constant value on each ask().
+
+effect Config {
+    get_name : () -> String
+    get_port : () -> Int
+}
+
+fn describe() -> String with Config {
+    let name = perform Config.get_name()
+    let port = perform Config.get_port()
+    name
+}
+
+fn main() with IO {
+    let result = describe() handle Config {
+        get_name(resume) -> resume("flux-server"),
+        get_port(resume) -> resume(8080)
+    }
+    print(result)
+}

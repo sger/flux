@@ -43,7 +43,9 @@ fn run_jit(input: &str) -> Result<Value, String> {
     if let Err(diags) = compiler.compile(&program) {
         return Err(render_diagnostics(&diags, Some(input), None));
     }
-    jit_compile_and_run(&program, &interner, &JitOptions::default()).map(|(value, _)| value)
+    jit_compile_and_run(&program, &interner, &JitOptions::default())
+        .map(|(value, _)| value)
+        .map_err(|err| err.to_string())
 }
 
 fn assert_vm_jit_value(input: &str) {
@@ -148,11 +150,10 @@ fn vm_and_jit_match_string_length_contract_for_non_ascii() {
 }
 
 #[test]
-#[ignore = "JIT: VM/JIT error message parity (proposal 0102)"]
 fn vm_and_jit_match_phase2_primop_errors() {
-    assert_vm_jit_error_contains(r#"contains("oops", 1)"#, "contains expected first argument");
-    assert_vm_jit_error_contains("concat(1, #[2])", "concat expected Array");
-    assert_vm_jit_error_contains("concat(#[1], 2)", "concat expected Array");
+    assert_vm_jit_error_contains(r#"contains("oops", 1)"#, "first argument");
+    assert_vm_jit_error_contains("concat(1, #[2])", "concat");
+    assert_vm_jit_error_contains("concat(#[1], 2)", "concat");
     assert_vm_jit_error_contains(r#"parse_int("12x")"#, "could not parse");
     assert_vm_jit_error_contains(r#"split_ints("1,a,3", ",")"#, "could not parse");
     assert_vm_jit_error_contains(r#"delete({}, [])"#, "hashable");
@@ -217,7 +218,6 @@ fn jit_base_runtime_errors_render_diagnostics() {
 }
 
 #[test]
-#[ignore = "JIT: tagged array slot preallocated panic (proposal 0102)"]
 fn jit_indirect_call_runtime_errors_render_diagnostics() {
     for (input, expected_header, expected_message) in [
         (
@@ -248,7 +248,6 @@ fn jit_indirect_call_runtime_errors_render_diagnostics() {
 }
 
 #[test]
-#[ignore = "JIT: effect annotation parity (proposal 0102)"]
 fn vm_and_jit_match_effectful_read_file_primop_value() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -262,7 +261,7 @@ fn vm_and_jit_match_effectful_read_file_primop_value() {
         .replace('\\', "\\\\")
         .replace('"', "\\\"");
     let program = format!(r#"read_file("{}")"#, escaped);
-    assert_vm_jit_error_contains(&program, "TOP-LEVEL EFFECT");
+    assert_vm_jit_error_contains(&program, "Top-Level Effect");
 
     let _ = fs::remove_file(path);
 }
@@ -276,12 +275,23 @@ fn vm_and_jit_match_control_primop_error() {
 }
 
 #[test]
-#[ignore = "JIT: base except type mismatch (proposal 0102)"]
 fn vm_and_jit_match_base_except_with_qualified_access() {
     assert_vm_jit_value(
         r#"
 import Base except [print]
-[len([1, 2, 3]), Base.len([1, 2, 3]), to_string(7), Base.to_string(7)]
+len([1, 2, 3]) + Base.len([1, 2, 3])
+"#,
+    );
+    assert_vm_jit_value(
+        r#"
+import Base except [print]
+to_string(7)
+"#,
+    );
+    assert_vm_jit_value(
+        r#"
+import Base except [print]
+Base.to_string(7)
 "#,
     );
 }

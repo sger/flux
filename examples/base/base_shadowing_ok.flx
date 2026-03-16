@@ -1,7 +1,7 @@
 // Phase 3 Base qualification under shadowing
 // Bare `len` resolves to local binding; `Base.len` resolves to Base.
 
-fn demo() {
+fn demo() with IO {
   let len = fn(x) { 999 }
   let xs = [1, 2, 3]
 

@@ -1,0 +1,22 @@
+// Non-tail-resumptive handler: exception pattern.
+// The handler does NOT resume — it discards the continuation.
+// This must use the full continuation path (not direct dispatch).
+
+effect Fail {
+    raise : (String) -> Int
+}
+
+fn safe_div(a: Int, b: Int) -> Int with Fail {
+    if b == 0 {
+        perform Fail.raise("division by zero")
+    } else {
+        a / b
+    }
+}
+
+fn main() with IO {
+    let result = safe_div(10, 0) handle Fail {
+        raise(resume, msg) -> 0 - 1
+    }
+    print(to_string(result))
+}
