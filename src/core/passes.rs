@@ -2,7 +2,7 @@
 ///
 /// These passes operate on `CoreExpr` / `CoreProgram` before backend lowering.
 /// Passes run after `lower::lower_program` produces a `CoreProgram`.
-use super::{CoreExpr, CoreLit, CorePat, CoreProgram};
+use super::{CoreBinderId, CoreExpr, CoreLit, CorePat, CoreProgram};
 
 // ── Pass pipeline ─────────────────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                     // Full application: substitute all params
                     let mut body = *body;
                     for (p, a) in params.into_iter().zip(args.into_iter()) {
-                        body = subst(body, p, &a);
+                        body = subst(body, p.id, &a);
                     }
                     beta_reduce(body)
                 } else if args.len() < params.len() {
@@ -50,7 +50,7 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                     let mut body = *body;
                     let remaining = params[args.len()..].to_vec();
                     for (p, a) in params.into_iter().zip(args.into_iter()) {
-                        body = subst(body, p, &a);
+                        body = subst(body, p.id, &a);
                     }
                     beta_reduce(CoreExpr::Lam {
                         params: remaining,
@@ -62,7 +62,7 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                     let extra_args = args[params.len()..].to_vec();
                     let mut body = *body;
                     for (p, a) in params.into_iter().zip(args.into_iter()) {
-                        body = subst(body, p, &a);
+                        body = subst(body, p.id, &a);
                     }
                     let body = beta_reduce(body);
                     beta_reduce(CoreExpr::App {
@@ -136,6 +136,10 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
             args: args.into_iter().map(beta_reduce).collect(),
             span,
         },
+        CoreExpr::Return { value, span } => CoreExpr::Return {
+            value: Box::new(beta_reduce(*value)),
+            span,
+        },
         CoreExpr::Perform {
             effect,
             operation,
@@ -183,7 +187,7 @@ pub fn elim_dead_let(expr: CoreExpr) -> CoreExpr {
         } => {
             let rhs = elim_dead_let(*rhs);
             let body = elim_dead_let(*body);
-            if is_pure(&rhs) && !appears_free(var, &body) {
+            if is_pure(&rhs) && !appears_free(var.id, &body) {
                 body
             } else {
                 CoreExpr::Let {
@@ -244,6 +248,10 @@ pub fn elim_dead_let(expr: CoreExpr) -> CoreExpr {
             args: args.into_iter().map(elim_dead_let).collect(),
             span,
         },
+        CoreExpr::Return { value, span } => CoreExpr::Return {
+            value: Box::new(elim_dead_let(*value)),
+            span,
+        },
         other => other,
     }
 }
@@ -253,17 +261,17 @@ pub fn elim_dead_let(expr: CoreExpr) -> CoreExpr {
 /// Substitute `replacement` for free occurrences of `var` in `expr`.
 ///
 /// This is capture-avoiding for `Lam` and `Let` binders.
-fn subst(expr: CoreExpr, var: crate::syntax::Identifier, replacement: &CoreExpr) -> CoreExpr {
+fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -> CoreExpr {
     match expr {
-        CoreExpr::Var(name, span) => {
-            if name == var {
+        CoreExpr::Var { var: ref_var, span } => {
+            if ref_var.binder == Some(var) {
                 replacement.clone()
             } else {
-                CoreExpr::Var(name, span)
+                CoreExpr::Var { var: ref_var, span }
             }
         }
         CoreExpr::Lam { params, body, span } => {
-            if params.contains(&var) {
+            if params.iter().any(|p| p.id == var) {
                 // Shadowed — don't substitute inside.
                 CoreExpr::Lam { params, body, span }
             } else {
@@ -281,7 +289,7 @@ fn subst(expr: CoreExpr, var: crate::syntax::Identifier, replacement: &CoreExpr)
             span,
         } => {
             let rhs = subst(*rhs, var, replacement);
-            if binding == var {
+            if binding.id == var {
                 CoreExpr::Let {
                     var: binding,
                     rhs: Box::new(rhs),
@@ -343,6 +351,10 @@ fn subst(expr: CoreExpr, var: crate::syntax::Identifier, replacement: &CoreExpr)
                 .collect(),
             span,
         },
+        CoreExpr::Return { value, span } => CoreExpr::Return {
+            value: Box::new(subst(*value, var, replacement)),
+            span,
+        },
         CoreExpr::Perform {
             effect,
             operation,
@@ -363,7 +375,7 @@ fn subst(expr: CoreExpr, var: crate::syntax::Identifier, replacement: &CoreExpr)
             body,
             span,
         } => {
-            if binding == var {
+            if binding.id == var {
                 CoreExpr::LetRec {
                     var: binding,
                     rhs,
@@ -426,10 +438,18 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
             match &scrutinee {
                 CoreExpr::Con { tag, fields, .. } => {
                     for alt in &alts {
-                        if alt.guard.is_some() {
-                            continue;
-                        }
                         if let Some(bindings) = match_con_pat(&alt.pat, tag, fields) {
+                            match &alt.guard {
+                                Some(CoreExpr::Lit(CoreLit::Bool(false), _)) => continue,
+                                Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None => {}
+                                Some(_) => {
+                                    return CoreExpr::Case {
+                                        scrutinee: Box::new(scrutinee),
+                                        alts,
+                                        span,
+                                    };
+                                }
+                            }
                             let mut body = alt.rhs.clone();
                             for (var, val) in bindings {
                                 body = subst(body, var, &val);
@@ -447,10 +467,18 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
                     let lit = lit.clone();
                     let lit_span = *lit_span;
                     for alt in &alts {
-                        if alt.guard.is_some() {
-                            continue;
-                        }
                         if let Some(bindings) = match_lit_pat(&alt.pat, &lit, lit_span) {
+                            match &alt.guard {
+                                Some(CoreExpr::Lit(CoreLit::Bool(false), _)) => continue,
+                                Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None => {}
+                                Some(_) => {
+                                    return CoreExpr::Case {
+                                        scrutinee: Box::new(scrutinee),
+                                        alts,
+                                        span,
+                                    };
+                                }
+                            }
                             let mut body = alt.rhs.clone();
                             for (var, val) in bindings {
                                 body = subst(body, var, &val);
@@ -513,6 +541,10 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
             args: args.into_iter().map(case_of_known_constructor).collect(),
             span,
         },
+        CoreExpr::Return { value, span } => CoreExpr::Return {
+            value: Box::new(case_of_known_constructor(*value)),
+            span,
+        },
         CoreExpr::Perform {
             effect,
             operation,
@@ -553,17 +585,17 @@ fn match_con_pat(
     pat: &CorePat,
     tag: &super::CoreTag,
     fields: &[CoreExpr],
-) -> Option<Vec<(crate::syntax::Identifier, CoreExpr)>> {
+) -> Option<Vec<(CoreBinderId, CoreExpr)>> {
     use crate::diagnostics::position::Span;
     match pat {
         CorePat::Wildcard => Some(vec![]),
-        CorePat::Var(name) => {
+        CorePat::Var(binder) => {
             let val = CoreExpr::Con {
                 tag: tag.clone(),
                 fields: fields.to_vec(),
                 span: Span::default(),
             };
-            Some(vec![(*name, val)])
+            Some(vec![(binder.id, val)])
         }
         CorePat::Con {
             tag: pat_tag,
@@ -576,7 +608,7 @@ fn match_con_pat(
             for (pat_field, val) in pat_fields.iter().zip(fields.iter()) {
                 match pat_field {
                     CorePat::Wildcard => {}
-                    CorePat::Var(name) => bindings.push((*name, val.clone())),
+                    CorePat::Var(binder) => bindings.push((binder.id, val.clone())),
                     // Nested non-trivial pattern — too complex for this pass.
                     _ => return None,
                 }
@@ -599,10 +631,10 @@ fn match_lit_pat(
     pat: &CorePat,
     lit: &super::CoreLit,
     lit_span: crate::diagnostics::position::Span,
-) -> Option<Vec<(crate::syntax::Identifier, CoreExpr)>> {
+) -> Option<Vec<(CoreBinderId, CoreExpr)>> {
     match pat {
         CorePat::Wildcard => Some(vec![]),
-        CorePat::Var(name) => Some(vec![(*name, CoreExpr::Lit(lit.clone(), lit_span))]),
+        CorePat::Var(binder) => Some(vec![(binder.id, CoreExpr::Lit(lit.clone(), lit_span))]),
         CorePat::Lit(pat_lit) => {
             if pat_lit == lit {
                 Some(vec![])
@@ -635,7 +667,7 @@ pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
             let body = inline_trivial_lets(*body);
             if is_pure(&rhs) {
                 // Substitute and continue — may unlock further inlining.
-                inline_trivial_lets(subst(body, var, &rhs))
+                inline_trivial_lets(subst(body, var.id, &rhs))
             } else {
                 // Keep the binding; rhs has side-effects or is non-trivial.
                 let span = rhs.span();
@@ -698,6 +730,10 @@ pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
             args: args.into_iter().map(inline_trivial_lets).collect(),
             span,
         },
+        CoreExpr::Return { value, span } => CoreExpr::Return {
+            value: Box::new(inline_trivial_lets(*value)),
+            span,
+        },
         CoreExpr::Perform {
             effect,
             operation,
@@ -734,15 +770,17 @@ pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
 
 /// Returns true when `expr` is guaranteed pure (no effects, no calls).
 fn is_pure(expr: &CoreExpr) -> bool {
-    matches!(expr, CoreExpr::Lit(_, _) | CoreExpr::Var(_, _))
+    matches!(expr, CoreExpr::Lit(_, _) | CoreExpr::Var { .. })
 }
 
 /// Returns true when `var` appears free in `expr`.
-fn appears_free(var: crate::syntax::Identifier, expr: &CoreExpr) -> bool {
+fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
     match expr {
-        CoreExpr::Var(name, _) => *name == var,
+        CoreExpr::Var { var: ref_var, .. } => ref_var.binder == Some(var),
         CoreExpr::Lit(_, _) => false,
-        CoreExpr::Lam { params, body, .. } => !params.contains(&var) && appears_free(var, body),
+        CoreExpr::Lam { params, body, .. } => {
+            !params.iter().any(|p| p.id == var) && appears_free(var, body)
+        }
         CoreExpr::App { func, args, .. } => {
             appears_free(var, func) || args.iter().any(|a| appears_free(var, a))
         }
@@ -751,13 +789,13 @@ fn appears_free(var: crate::syntax::Identifier, expr: &CoreExpr) -> bool {
             rhs,
             body,
             ..
-        } => appears_free(var, rhs) || (*binding != var && appears_free(var, body)),
+        } => appears_free(var, rhs) || (binding.id != var && appears_free(var, body)),
         CoreExpr::LetRec {
             var: binding,
             rhs,
             body,
             ..
-        } => *binding != var && (appears_free(var, rhs) || appears_free(var, body)),
+        } => binding.id != var && (appears_free(var, rhs) || appears_free(var, body)),
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
@@ -770,20 +808,23 @@ fn appears_free(var: crate::syntax::Identifier, expr: &CoreExpr) -> bool {
         }
         CoreExpr::Con { fields, .. } => fields.iter().any(|f| appears_free(var, f)),
         CoreExpr::PrimOp { args, .. } => args.iter().any(|a| appears_free(var, a)),
+        CoreExpr::Return { value, .. } => appears_free(var, value),
         CoreExpr::Perform { args, .. } => args.iter().any(|a| appears_free(var, a)),
         CoreExpr::Handle { body, handlers, .. } => {
             appears_free(var, body)
                 || handlers.iter().any(|h| {
-                    h.resume != var && !h.params.contains(&var) && appears_free(var, &h.body)
+                    h.resume.id != var
+                        && !h.params.iter().any(|p| p.id == var)
+                        && appears_free(var, &h.body)
                 })
         }
     }
 }
 
 /// Returns true when pattern `pat` introduces a binding for `var`.
-fn pat_binds(pat: &CorePat, var: crate::syntax::Identifier) -> bool {
+fn pat_binds(pat: &CorePat, var: CoreBinderId) -> bool {
     match pat {
-        CorePat::Var(name) => *name == var,
+        CorePat::Var(binder) => binder.id == var,
         CorePat::Con { fields, .. } => fields.iter().any(|f| pat_binds(f, var)),
         CorePat::Tuple(fields) => fields.iter().any(|f| pat_binds(f, var)),
         CorePat::Wildcard | CorePat::Lit(_) | CorePat::EmptyList => false,
@@ -794,13 +835,21 @@ fn pat_binds(pat: &CorePat, var: crate::syntax::Identifier) -> bool {
 mod tests {
     use super::*;
     use crate::{
+        core::{CoreAlt, CoreBinder, CorePrimOp, CoreTag},
         diagnostics::position::Span,
-        nary::{CoreAlt, CoreLit, CoreTag},
         syntax::interner::Interner,
     };
 
     fn s() -> Span {
         Span::default()
+    }
+
+    fn binder(raw: u32, name: crate::syntax::Identifier) -> CoreBinder {
+        CoreBinder::new(CoreBinderId(raw), name)
+    }
+
+    fn var_ref(binder: CoreBinder) -> CoreExpr {
+        CoreExpr::bound_var(binder, s())
     }
 
     // ── case_of_known_constructor ─────────────────────────────────────────────
@@ -811,6 +860,7 @@ mod tests {
         //   → Lit(42)
         let mut interner = Interner::new();
         let x = interner.intern("x");
+        let x_binder = binder(0, x);
 
         let expr = CoreExpr::Case {
             scrutinee: Box::new(CoreExpr::Con {
@@ -822,10 +872,10 @@ mod tests {
                 CoreAlt {
                     pat: CorePat::Con {
                         tag: CoreTag::Some,
-                        fields: vec![CorePat::Var(x)],
+                        fields: vec![CorePat::Var(x_binder)],
                     },
                     guard: None,
-                    rhs: CoreExpr::Var(x, s()),
+                    rhs: var_ref(x_binder),
                     span: s(),
                 },
                 CoreAlt {
@@ -880,6 +930,7 @@ mod tests {
         // The wildcard fallthrough should be chosen instead.
         let mut interner = Interner::new();
         let x = interner.intern("x");
+        let x_binder = binder(0, x);
 
         let guard = CoreExpr::Lit(CoreLit::Bool(false), s()); // always-false guard
         let expr = CoreExpr::Case {
@@ -892,7 +943,7 @@ mod tests {
                 CoreAlt {
                     pat: CorePat::Con {
                         tag: CoreTag::Some,
-                        fields: vec![CorePat::Var(x)],
+                        fields: vec![CorePat::Var(x_binder)],
                     },
                     guard: Some(guard),
                     rhs: CoreExpr::Lit(CoreLit::Int(99), s()),
@@ -921,9 +972,10 @@ mod tests {
         // Case(Var(x), [...]) — scrutinee not statically known; must not be reduced.
         let mut interner = Interner::new();
         let x = interner.intern("x");
+        let x_binder = binder(0, x);
 
         let expr = CoreExpr::Case {
-            scrutinee: Box::new(CoreExpr::Var(x, s())),
+            scrutinee: Box::new(var_ref(x_binder)),
             alts: vec![CoreAlt {
                 pat: CorePat::Wildcard,
                 guard: None,
@@ -947,11 +999,12 @@ mod tests {
         // let x = 5; x  →  5
         let mut interner = Interner::new();
         let x = interner.intern("x");
+        let x_binder = binder(0, x);
 
         let expr = CoreExpr::Let {
-            var: x,
+            var: x_binder,
             rhs: Box::new(CoreExpr::Lit(CoreLit::Int(5), s())),
-            body: Box::new(CoreExpr::Var(x, s())),
+            body: Box::new(var_ref(x_binder)),
             span: s(),
         };
 
@@ -968,17 +1021,19 @@ mod tests {
         let mut interner = Interner::new();
         let x = interner.intern("x");
         let y = interner.intern("y");
+        let x_binder = binder(0, x);
+        let y_binder = binder(1, y);
 
         let expr = CoreExpr::Let {
-            var: x,
-            rhs: Box::new(CoreExpr::Var(y, s())),
-            body: Box::new(CoreExpr::Var(x, s())),
+            var: x_binder,
+            rhs: Box::new(var_ref(y_binder)),
+            body: Box::new(var_ref(x_binder)),
             span: s(),
         };
 
         let result = inline_trivial_lets(expr);
         assert!(
-            matches!(result, CoreExpr::Var(name, _) if name == y),
+            matches!(result, CoreExpr::Var { var, .. } if var.binder == Some(y_binder.id)),
             "expected Var(y), got {result:?}"
         );
     }
@@ -988,13 +1043,14 @@ mod tests {
         // let x = 3; PrimOp(Add, [x, x])  →  PrimOp(Add, [3, 3])
         let mut interner = Interner::new();
         let x = interner.intern("x");
+        let x_binder = binder(0, x);
 
         let expr = CoreExpr::Let {
-            var: x,
+            var: x_binder,
             rhs: Box::new(CoreExpr::Lit(CoreLit::Int(3), s())),
             body: Box::new(CoreExpr::PrimOp {
-                op: crate::nary::CorePrimOp::IAdd,
-                args: vec![CoreExpr::Var(x, s()), CoreExpr::Var(x, s())],
+                op: CorePrimOp::IAdd,
+                args: vec![var_ref(x_binder), var_ref(x_binder)],
                 span: s(),
             }),
             span: s(),
@@ -1017,15 +1073,18 @@ mod tests {
         let x = interner.intern("x");
         let a = interner.intern("a");
         let b = interner.intern("b");
+        let x_binder = binder(0, x);
+        let a_binder = binder(1, a);
+        let b_binder = binder(2, b);
 
         let expr = CoreExpr::Let {
-            var: x,
+            var: x_binder,
             rhs: Box::new(CoreExpr::PrimOp {
-                op: crate::nary::CorePrimOp::IAdd,
-                args: vec![CoreExpr::Var(a, s()), CoreExpr::Var(b, s())],
+                op: CorePrimOp::IAdd,
+                args: vec![var_ref(a_binder), var_ref(b_binder)],
                 span: s(),
             }),
-            body: Box::new(CoreExpr::Var(x, s())),
+            body: Box::new(var_ref(x_binder)),
             span: s(),
         };
 
@@ -1048,6 +1107,7 @@ mod tests {
         //   --inline→  Lit(7)
         let mut interner = Interner::new();
         let x = interner.intern("x");
+        let x_binder = binder(0, x);
 
         let expr = CoreExpr::Case {
             scrutinee: Box::new(CoreExpr::Con {
@@ -1058,10 +1118,10 @@ mod tests {
             alts: vec![CoreAlt {
                 pat: CorePat::Con {
                     tag: CoreTag::Some,
-                    fields: vec![CorePat::Var(x)],
+                    fields: vec![CorePat::Var(x_binder)],
                 },
                 guard: None,
-                rhs: CoreExpr::Var(x, s()),
+                rhs: var_ref(x_binder),
                 span: s(),
             }],
             span: s(),

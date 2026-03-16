@@ -1,27 +1,64 @@
-/// Flux Core IR — a small functional intermediate representation.
-///
-/// All Flux surface constructs lower into these primitives:
-///
-/// ```text
-/// Surface Flux                →  Core IR
-/// ─────────────────────────────────────────────────────────────
-/// fn f(x, y) { ... }         →  let f = Lam([x, y], ...)
-/// f(a, b)                    →  App(f, [a, b])
-/// if cond then a else b       →  Case(cond, [True→a, False→b])
-/// match p { A(x) → e }       →  Case(p, [Con(A,[x])→e])
-/// let x = e; body             →  Let(x, e, body)
-/// x + y                      →  PrimOp(Add, [x, y])
-/// perform Eff.op(a)           →  Perform(Eff, op, [a])
-/// ```
-///
-/// This is the layer where analysis passes (inlining, beta reduction,
-/// case-of-known-constructor, closure conversion) will run.
+//! Flux Core IR — the canonical semantic intermediate representation.
+//!
+//! `crate::core` is the stable architectural name for Flux's semantic IR layer.
+//!
+//! Long-term architecture:
+//! - `crate::core` is the only semantic IR boundary used by production code.
+//! - backends lower from Core, not directly from AST.
+//! - backend IR remains a distinct lower layer below Core.
+
+use crate::{
+    diagnostics::position::Span,
+    syntax::{
+        Identifier, block::Block, data_variant::DataVariant, effect_expr::EffectExpr,
+        effect_ops::EffectOp, type_expr::TypeExpr,
+    },
+};
+
 pub mod display;
 pub mod lower_ast;
 pub mod passes;
 pub mod to_ir;
 
-use crate::{diagnostics::position::Span, syntax::Identifier};
+// ── Binder identity ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CoreBinderId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CoreBinder {
+    /// Stable semantic identity used by Core passes and lowering.
+    pub id: CoreBinderId,
+    /// Source/debug name retained as metadata.
+    pub name: Identifier,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CoreVarRef {
+    /// Source/debug name retained for dumps and external-name lowering.
+    pub name: Identifier,
+    /// `None` means the reference is intentionally external/non-lexical.
+    pub binder: Option<CoreBinderId>,
+}
+
+impl CoreBinder {
+    pub fn new(id: CoreBinderId, name: Identifier) -> Self {
+        Self { id, name }
+    }
+}
+
+impl CoreVarRef {
+    pub fn resolved(binder: CoreBinder) -> Self {
+        Self {
+            name: binder.name,
+            binder: Some(binder.id),
+        }
+    }
+
+    pub fn unresolved(name: Identifier) -> Self {
+        Self { name, binder: None }
+    }
+}
 
 // ── Literals ─────────────────────────────────────────────────────────────────
 
@@ -65,46 +102,36 @@ pub enum CoreTag {
 /// to skip the runtime type-dispatch path entirely.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CorePrimOp {
-    // Generic arithmetic (type unknown / polymorphic)
     Add,
     Sub,
     Mul,
     Div,
     Mod,
-    // Typed integer arithmetic — emitted when result type is Int
     IAdd,
     ISub,
     IMul,
     IDiv,
     IMod,
-    // Typed float arithmetic — emitted when result type is Float
     FAdd,
     FSub,
     FMul,
     FDiv,
-    // Unary
     Neg,
     Not,
-    // Comparisons
     Eq,
     NEq,
     Lt,
     Le,
     Gt,
     Ge,
-    // Logical (short-circuit at expression level in Core)
     And,
     Or,
-    // String
     Concat,
-    // Interpolated string: args are the parts in order
     Interpolate,
-    // Collection construction
     MakeList,
     MakeArray,
     MakeTuple,
     MakeHash,
-    // Access
     Index,
     MemberAccess(Identifier),
     TupleField(usize),
@@ -130,17 +157,11 @@ pub struct CoreAlt {
 /// pattern-compilation pass into a decision tree.
 #[derive(Debug, Clone)]
 pub enum CorePat {
-    /// `_` — always succeeds, binds nothing
     Wildcard,
-    /// Literal match: `0`, `true`, `"hello"`
     Lit(CoreLit),
-    /// Variable binding: always succeeds, binds identifier
-    Var(Identifier),
-    /// Constructor match with nested field patterns: `Some(x)`, `Node(l, r)`
+    Var(CoreBinder),
     Con { tag: CoreTag, fields: Vec<CorePat> },
-    /// Tuple destructure: `(x, y, z)`
     Tuple(Vec<CorePat>),
-    /// Empty list `[]`
     EmptyList,
 }
 
@@ -150,9 +171,8 @@ pub enum CorePat {
 #[derive(Debug, Clone)]
 pub struct CoreHandler {
     pub operation: Identifier,
-    pub params: Vec<Identifier>,
-    /// The continuation (resume) parameter
-    pub resume: Identifier,
+    pub params: Vec<CoreBinder>,
+    pub resume: CoreBinder,
     pub body: CoreExpr,
     pub span: Span,
 }
@@ -165,82 +185,58 @@ pub struct CoreHandler {
 /// all syntactic sugar into these primitives.
 #[derive(Debug, Clone)]
 pub enum CoreExpr {
-    /// Variable reference
-    Var(Identifier, Span),
-
-    /// Literal constant
+    Var {
+        var: CoreVarRef,
+        span: Span,
+    },
     Lit(CoreLit, Span),
-
-    /// N-ary lambda abstraction.
-    /// `fn f(x, y) { body }` → `Lam([x, y], body)`
     Lam {
-        params: Vec<Identifier>,
+        params: Vec<CoreBinder>,
         body: Box<CoreExpr>,
         span: Span,
     },
-
-    /// N-ary function application.
-    /// `f(a, b)` → `App(f, [a, b])`
     App {
         func: Box<CoreExpr>,
         args: Vec<CoreExpr>,
         span: Span,
     },
-
-    /// Non-recursive let binding.
-    /// `let x = rhs; body`
     Let {
-        var: Identifier,
+        var: CoreBinder,
         rhs: Box<CoreExpr>,
         body: Box<CoreExpr>,
         span: Span,
     },
-
-    /// Recursive let binding — for self-referential functions.
-    /// `let rec f = Lam(...f...); body`
     LetRec {
-        var: Identifier,
+        var: CoreBinder,
         rhs: Box<CoreExpr>,
         body: Box<CoreExpr>,
         span: Span,
     },
-
-    /// Case expression — the *only* branching construct in Core IR.
-    ///
-    /// `if cond then a else b`  →  `Case(cond, [Lit(true)→a, Wildcard→b])`
-    /// `match p { arms }`       →  `Case(p, lower_arms(arms))`
     Case {
         scrutinee: Box<CoreExpr>,
         alts: Vec<CoreAlt>,
         span: Span,
     },
-
-    /// Constructor application (ADT / built-in).
-    /// `Some(x)` → `Con(Some, [Var(x)])`
-    /// `Node(l, r)` → `Con(Named("Node"), [Var(l), Var(r)])`
     Con {
         tag: CoreTag,
         fields: Vec<CoreExpr>,
         span: Span,
     },
-
-    /// Primitive operation — replaces all infix/prefix operators.
-    /// `x + y` → `PrimOp(Add, [Var(x), Var(y)])`
     PrimOp {
         op: CorePrimOp,
         args: Vec<CoreExpr>,
         span: Span,
     },
-
-    /// Algebraic effect — perform an operation.
+    Return {
+        value: Box<CoreExpr>,
+        span: Span,
+    },
     Perform {
         effect: Identifier,
         operation: Identifier,
         args: Vec<CoreExpr>,
         span: Span,
     },
-
-    /// Algebraic effect — install a handler.
     Handle {
         body: Box<CoreExpr>,
         effect: Identifier,
@@ -251,28 +247,78 @@ pub enum CoreExpr {
 
 // ── Top-level definitions ─────────────────────────────────────────────────────
 
-/// A top-level definition in Core IR.
 #[derive(Debug, Clone)]
 pub struct CoreDef {
     pub name: Identifier,
+    pub binder: CoreBinder,
     pub expr: CoreExpr,
-    /// True when the binding is self-referential (functions, recursive lets).
     pub is_recursive: bool,
     pub span: Span,
 }
 
-/// A complete program in Core IR — a sequence of top-level definitions.
+#[derive(Debug, Clone)]
+pub enum CoreTopLevelItem {
+    Function {
+        is_public: bool,
+        name: Identifier,
+        type_params: Vec<Identifier>,
+        parameters: Vec<Identifier>,
+        parameter_types: Vec<Option<TypeExpr>>,
+        return_type: Option<TypeExpr>,
+        effects: Vec<EffectExpr>,
+        body: Block,
+        span: Span,
+    },
+    Module {
+        name: Identifier,
+        body: Vec<CoreTopLevelItem>,
+        span: Span,
+    },
+    Import {
+        name: Identifier,
+        alias: Option<Identifier>,
+        except: Vec<Identifier>,
+        span: Span,
+    },
+    Data {
+        name: Identifier,
+        type_params: Vec<Identifier>,
+        variants: Vec<DataVariant>,
+        span: Span,
+    },
+    EffectDecl {
+        name: Identifier,
+        ops: Vec<EffectOp>,
+        span: Span,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct CoreProgram {
     pub defs: Vec<CoreDef>,
+    pub top_level_items: Vec<CoreTopLevelItem>,
 }
 
 // ── CoreExpr helpers ──────────────────────────────────────────────────────────
 
 impl CoreExpr {
+    pub fn bound_var(binder: CoreBinder, span: Span) -> CoreExpr {
+        CoreExpr::Var {
+            var: CoreVarRef::resolved(binder),
+            span,
+        }
+    }
+
+    pub fn external_var(name: Identifier, span: Span) -> CoreExpr {
+        CoreExpr::Var {
+            var: CoreVarRef::unresolved(name),
+            span,
+        }
+    }
+
     pub fn span(&self) -> Span {
         match self {
-            CoreExpr::Var(_, s) | CoreExpr::Lit(_, s) => *s,
+            CoreExpr::Var { span, .. } | CoreExpr::Lit(_, span) => *span,
             CoreExpr::Lam { span, .. }
             | CoreExpr::App { span, .. }
             | CoreExpr::Let { span, .. }
@@ -280,12 +326,12 @@ impl CoreExpr {
             | CoreExpr::Case { span, .. }
             | CoreExpr::Con { span, .. }
             | CoreExpr::PrimOp { span, .. }
+            | CoreExpr::Return { span, .. }
             | CoreExpr::Perform { span, .. }
             | CoreExpr::Handle { span, .. } => *span,
         }
     }
 
-    /// Build an n-ary application.
     pub fn apply(func: CoreExpr, args: Vec<CoreExpr>, span: Span) -> CoreExpr {
         if args.is_empty() {
             func
@@ -298,8 +344,7 @@ impl CoreExpr {
         }
     }
 
-    /// Build an n-ary lambda.
-    pub fn lambda(params: Vec<Identifier>, body: CoreExpr, span: Span) -> CoreExpr {
+    pub fn lambda(params: Vec<CoreBinder>, body: CoreExpr, span: Span) -> CoreExpr {
         if params.is_empty() {
             body
         } else {
@@ -311,9 +356,7 @@ impl CoreExpr {
         }
     }
 
-    /// Sequence a list of `(var, rhs)` bindings into nested `Let` nodes
-    /// terminating in `body`.
-    pub fn let_seq(bindings: Vec<(Identifier, CoreExpr)>, body: CoreExpr, span: Span) -> CoreExpr {
+    pub fn let_seq(bindings: Vec<(CoreBinder, CoreExpr)>, body: CoreExpr, span: Span) -> CoreExpr {
         bindings
             .into_iter()
             .rev()
@@ -323,5 +366,63 @@ impl CoreExpr {
                 body: Box::new(b),
                 span,
             })
+    }
+}
+
+impl CoreDef {
+    pub fn new(binder: CoreBinder, expr: CoreExpr, is_recursive: bool, span: Span) -> Self {
+        Self {
+            name: binder.name,
+            binder,
+            expr,
+            is_recursive,
+            span,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use crate::syntax::{lexer::Lexer, parser::Parser};
+
+    #[test]
+    fn core_facade_lowers_typed_program() {
+        let lexer = Lexer::new(
+            r#"
+fn inc(x) { x + 1 }
+fn main() { inc(41) }
+"#,
+        );
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
+
+        let core = super::lower_ast::lower_program_ast(&program, &HashMap::new());
+        assert_eq!(core.defs.len(), 2);
+        assert_eq!(parser.take_interner().resolve(core.defs[0].name), "inc");
+    }
+
+    #[test]
+    fn core_facade_runs_core_passes_and_backend_lowering() {
+        let lexer = Lexer::new("fn main() { 40 + 2 }");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
+
+        let mut core = super::lower_ast::lower_program_ast(&program, &HashMap::new());
+        super::passes::run_core_passes(&mut core);
+        let ir = super::to_ir::lower_core_to_ir(&core);
+
+        assert!(!ir.functions.is_empty(), "expected backend IR functions");
     }
 }

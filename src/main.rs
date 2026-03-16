@@ -1334,8 +1334,37 @@ fn emit_diagnostics(
 #[cfg(feature = "jit")]
 fn normalize_jit_cli_diagnostic(diag: &Diagnostic, source_path: &str) -> Diagnostic {
     let mut diag = diag.clone();
-    diag.set_file(flux::diagnostics::render_display_path(source_path));
+    let keep_original = matches!(diag.file(), Some("<unknown>" | "<jit>"));
+    if !keep_original {
+        diag.set_file(flux::diagnostics::render_display_path(source_path));
+    }
     diag
+}
+
+#[cfg(feature = "jit")]
+fn synthetic_jit_stack_frames(
+    diag: &Diagnostic,
+    source_path: &str,
+    source_text: &str,
+) -> Vec<String> {
+    if diag.file() != Some(source_path) {
+        return Vec::new();
+    }
+    if !source_text.contains("fn main") {
+        return Vec::new();
+    }
+    let Some(span) = diag.span() else {
+        return Vec::new();
+    };
+    vec![
+        format!(
+            "main ({}:{}:{})",
+            flux::diagnostics::render_display_path(source_path),
+            span.start.line,
+            span.start.column + 1
+        ),
+        "<main>".to_string(),
+    ]
 }
 
 #[cfg(feature = "jit")]
@@ -1363,15 +1392,24 @@ fn emit_jit_error(
         JitError::Runtime(diag) => {
             let diag = normalize_jit_cli_diagnostic(diag.as_ref(), source_path);
             match diagnostics_format {
-                DiagnosticOutputFormat::Text => eprintln!(
-                    "{}",
-                    flux::diagnostics::render_runtime_diagnostic(
-                        &diag,
-                        source_path,
-                        Some(source_text),
-                        &[],
+                DiagnosticOutputFormat::Text => {
+                    let render_file = diag.file().unwrap_or(source_path);
+                    let render_source = if render_file == source_path {
+                        Some(source_text)
+                    } else {
+                        None
+                    };
+                    let stack_frames = synthetic_jit_stack_frames(&diag, source_path, source_text);
+                    eprintln!(
+                        "{}",
+                        flux::diagnostics::render_runtime_diagnostic(
+                            &diag,
+                            render_file,
+                            render_source,
+                            &stack_frames,
+                        )
                     )
-                ),
+                }
                 DiagnosticOutputFormat::Json | DiagnosticOutputFormat::JsonCompact => {
                     emit_diagnostics(
                         std::slice::from_ref(&diag),

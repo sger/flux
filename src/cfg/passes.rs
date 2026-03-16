@@ -367,6 +367,7 @@ mod tests {
             }],
             entry: FunctionId(0),
             globals: Vec::new(),
+            global_bindings: Vec::new(),
             hm_expr_types: HashMap::new(),
             core: None,
         }

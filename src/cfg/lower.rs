@@ -69,6 +69,7 @@ impl Lowerer {
             functions: self.functions,
             entry: FunctionId(0),
             globals: self.globals,
+            global_bindings: Vec::new(),
             hm_expr_types: self.hm_expr_types,
             core: None, // populated by callers via lower_program_ast + lower_core_to_ir
         }
@@ -2451,7 +2452,7 @@ impl<'a> FunctionLoweringContext<'a> {
 }
 
 #[allow(clippy::result_large_err)]
-fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelItem, Diagnostic> {
+pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelItem, Diagnostic> {
     match statement {
         Statement::Let {
             name,

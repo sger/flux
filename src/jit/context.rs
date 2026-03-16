@@ -338,24 +338,19 @@ impl JitContext {
         }
     }
 
-    pub(crate) fn contract_return_span(&self, function_index: usize) -> Option<Span> {
-        self.jit_functions
-            .get(function_index)
-            .and_then(|entry| entry.return_span)
-    }
-
     pub(crate) fn contract_return_error_diagnostic(
         &self,
-        function_index: usize,
+        _function_index: usize,
         expected: &str,
         actual: &str,
         value_preview: Option<&str>,
     ) -> Diagnostic {
-        self.runtime_type_error_diagnostic(
+        runtime_type_error(
             expected,
             actual,
             value_preview,
-            self.contract_return_span(function_index),
+            "<unknown>".to_string(),
+            Span::new(Position::new(0, 0), Position::new(0, 0)),
         )
     }
 
@@ -584,14 +579,16 @@ impl RuntimeContext for JitContext {
                         JitCallAbi::Reg1 => {
                             let func: unsafe extern "C" fn(
                                 *mut JitContext,
-                                JitTaggedValue,
+                                i64,
+                                i64,
                                 *const JitTaggedValue,
                                 i64,
                             )
                                 -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
-                                arg_values[0],
+                                arg_values[0].tag,
+                                arg_values[0].payload,
                                 capture_values.as_ptr(),
                                 capture_values.len() as i64,
                             )
@@ -599,16 +596,20 @@ impl RuntimeContext for JitContext {
                         JitCallAbi::Reg2 => {
                             let func: unsafe extern "C" fn(
                                 *mut JitContext,
-                                JitTaggedValue,
-                                JitTaggedValue,
+                                i64,
+                                i64,
+                                i64,
+                                i64,
                                 *const JitTaggedValue,
                                 i64,
                             )
                                 -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
-                                arg_values[0],
-                                arg_values[1],
+                                arg_values[0].tag,
+                                arg_values[0].payload,
+                                arg_values[1].tag,
+                                arg_values[1].payload,
                                 capture_values.as_ptr(),
                                 capture_values.len() as i64,
                             )
@@ -616,18 +617,24 @@ impl RuntimeContext for JitContext {
                         JitCallAbi::Reg3 => {
                             let func: unsafe extern "C" fn(
                                 *mut JitContext,
-                                JitTaggedValue,
-                                JitTaggedValue,
-                                JitTaggedValue,
+                                i64,
+                                i64,
+                                i64,
+                                i64,
+                                i64,
+                                i64,
                                 *const JitTaggedValue,
                                 i64,
                             )
                                 -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
-                                arg_values[0],
-                                arg_values[1],
-                                arg_values[2],
+                                arg_values[0].tag,
+                                arg_values[0].payload,
+                                arg_values[1].tag,
+                                arg_values[1].payload,
+                                arg_values[2].tag,
+                                arg_values[2].payload,
                                 capture_values.as_ptr(),
                                 capture_values.len() as i64,
                             )

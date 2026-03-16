@@ -1,16 +1,17 @@
 //! Cranelift JIT backend for Flux.
 //!
-//! Compiles Flux AST directly to native machine code via Cranelift IR.
-//! Sits alongside the bytecode VM and is activated with `--jit`.
+//! Compiles Flux programs through Flux Core and backend IR to native machine
+//! code via Cranelift. Sits alongside the bytecode VM and is activated with
+//! `--jit`.
 
 pub mod compiler;
 pub mod context;
 pub mod runtime_helpers;
 pub mod value_arena;
 
+use crate::backend_ir::{IrPassContext, lower_program_to_ir, run_ir_pass_pipeline};
 use crate::bytecode::compiler::Compiler;
 use crate::diagnostics::Diagnostic;
-use crate::ir::{IrPassContext, lower_program_to_ir, run_ir_pass_pipeline};
 use crate::runtime::value::Value;
 use crate::syntax::{interner::Interner, program::Program};
 
@@ -85,14 +86,20 @@ pub fn jit_compile(
 
     let mut compiler = JitCompiler::new(hm_expr_types).map_err(JitError::Internal)?;
     compiler.set_source_context(options.source_file.clone(), options.source_text.clone());
+
     let main_id = compiler
-        .compile_ir_program(&ir_program, interner)
-        .map_err(|err| {
-            if err.contains("error[") {
-                JitError::Compile(Box::new(compiler.render_compile_error_string(&err)))
-            } else {
-                JitError::Internal(err)
-            }
+        .try_compile_backend_ir_program(&ir_program, interner)
+        .map_err(JitError::Internal)?
+        .ok_or_else(|| {
+            let reason = compiler.backend_ir_support_error(&ir_program, interner);
+            JitError::Internal(match reason {
+                Some(reason) => format!(
+                    "unsupported backend_ir JIT program shape: {}; AST fallback has been retired",
+                    reason
+                ),
+                None => "unsupported backend_ir JIT program shape; AST fallback has been retired"
+                    .to_string(),
+            })
         })?;
     compiler.finalize();
 
