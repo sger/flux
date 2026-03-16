@@ -1,5 +1,6 @@
 ---
 source: tests/runtime_error_fixtures_snapshots.rs
+assertion_line: 143
 ---
 Fixture: examples/runtime_errors/boundary_return_string_as_int.flx
 == vm ==
@@ -7,12 +8,19 @@ status: 1
 stdout:
 <empty>
 stderr:
+• 1 error • examples/runtime_errors/boundary_return_string_as_int.flx
 error[E1004]: Type Error
 
 I found a value with the wrong runtime type.
 
-  <unknown>:0:1
+  examples/runtime_errors/boundary_return_string_as_int.flx:3:1
   |
+3 | fn bad() -> Int {
+  | ^^^^^^^^^^^^^^^^^
+4 |     RuntimeErrors.BoundaryUnknown.dynamic_string()
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+5 | }
+  | ^
 
 Note:
   expected type: Int
@@ -30,12 +38,19 @@ status: 1
 stdout:
 <empty>
 stderr:
+• 1 error • examples/runtime_errors/boundary_return_string_as_int.flx
 error[E1004]: Type Error
 
 I found a value with the wrong runtime type.
 
-  <unknown>:0:1
+  examples/runtime_errors/boundary_return_string_as_int.flx:3:1
   |
+3 | fn bad() -> Int {
+  | ^^^^^^^^^^^^^^^^^
+4 |     RuntimeErrors.BoundaryUnknown.dynamic_string()
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+5 | }
+  | ^
 
 Note:
   expected type: Int

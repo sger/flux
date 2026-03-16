@@ -1865,6 +1865,26 @@ impl Compiler {
 
         let (instructions, locations, files, effect_summary) = self.leave_scope();
 
+        let boundary_location = {
+            let mut files = files;
+            let file_id = files
+                .iter()
+                .position(|file| file == &self.file_path)
+                .map(|index| index as u32)
+                .unwrap_or_else(|| {
+                    files.push(self.file_path.clone());
+                    (files.len() - 1) as u32
+                });
+            (
+                files,
+                crate::bytecode::debug_info::Location {
+                    file_id,
+                    span: body.span(),
+                },
+            )
+        };
+        let (files, boundary_location) = boundary_location;
+
         for free in &free_symbols {
             self.load_symbol(free);
         }
@@ -1886,6 +1906,7 @@ impl Compiler {
                 parameters.len(),
                 Some(
                     FunctionDebugInfo::new(None, files, locations)
+                        .with_boundary_location(Some(boundary_location))
                         .with_effect_summary(effect_summary),
                 ),
             )
