@@ -48,7 +48,6 @@ struct HelperFuncs {
 #[derive(Clone, Copy)]
 struct JitFunctionMeta {
     id: FuncId,
-    num_params: usize,
     call_abi: JitCallAbi,
     function_index: usize,
     has_contract: bool,
@@ -597,21 +596,16 @@ impl JitCompiler {
         &mut self,
         ir_program: &IrProgram,
         interner: &Interner,
-    ) -> Result<Option<FuncId>, String> {
-        if backend_ir_jit_support_error(ir_program, interner).is_some() {
-            return Ok(None);
+    ) -> Result<FuncId, String> {
+        if let Some(reason) = backend_ir_jit_support_error(ir_program, interner) {
+            return Err(format!(
+                "unsupported backend_ir JIT program shape: {}",
+                reason
+            ));
         }
 
         let main_id = self.compile_simple_backend_ir_program(ir_program, interner)?;
-        Ok(Some(main_id))
-    }
-
-    pub fn backend_ir_support_error(
-        &self,
-        ir_program: &IrProgram,
-        interner: &Interner,
-    ) -> Option<String> {
-        backend_ir_jit_support_error(ir_program, interner)
+        Ok(main_id)
     }
 
     /// Compile a trivial identity closure that returns its first argument unchanged.
@@ -719,7 +713,6 @@ impl JitCompiler {
             });
             let meta = JitFunctionMeta {
                 id,
-                num_params: explicit_arity,
                 call_abi,
                 function_index,
                 has_contract,
@@ -878,11 +871,16 @@ impl JitCompiler {
 
             let mut env = HashMap::new();
             let mut module_env = HashMap::new();
+            let mut function_env = HashMap::new();
             let mut handler_pop_counts: HashMap<BackendBlockId, usize> = HashMap::new();
             let mut block_envs: HashMap<BackendBlockId, HashMap<BackendIrVar, JitValue>> =
                 HashMap::new();
             let mut block_module_envs: HashMap<BackendBlockId, HashMap<BackendIrVar, Identifier>> =
                 HashMap::new();
+            let mut block_function_envs: HashMap<
+                BackendBlockId,
+                HashMap<BackendIrVar, JitFunctionMeta>,
+            > = HashMap::new();
             let ctx_val = builder.block_params(prelude)[0];
             let params = builder.block_params(prelude).to_vec();
             let args_ptr = if meta.call_abi.uses_array_args() {
@@ -941,6 +939,7 @@ impl JitCompiler {
                     )),
                 );
                 module_env.remove(&param.var);
+                function_env.remove(&param.var);
             }
             for (idx, param) in function.params.iter().skip(capture_count).enumerate() {
                 let (tag, payload) = match args_ptr {
@@ -976,9 +975,11 @@ impl JitCompiler {
                     )),
                 );
                 module_env.remove(&param.var);
+                function_env.remove(&param.var);
             }
             block_envs.insert(function.entry, env.clone());
             block_module_envs.insert(function.entry, module_env.clone());
+            block_function_envs.insert(function.entry, function_env.clone());
             builder.ins().jump(entry, &[]);
 
             for block in &block_order {
@@ -1005,12 +1006,16 @@ impl JitCompiler {
                 let mut module_env = block_module_envs
                     .remove(&block.id)
                     .unwrap_or_else(|| HashMap::new());
+                let mut function_env = block_function_envs
+                    .remove(&block.id)
+                    .unwrap_or_else(|| HashMap::new());
 
                 if block.id != function.entry {
                     let block_params = builder.block_params(cl_block).to_vec();
                     for (idx, param) in block.params.iter().enumerate() {
                         env.insert(param.var, JitValue::boxed(block_params[idx]));
                         module_env.remove(&param.var);
+                        function_env.remove(&param.var);
                     }
                 }
 
@@ -1048,9 +1053,15 @@ impl JitCompiler {
                                     } else {
                                         module_env.remove(dest);
                                     }
+                                    if let Some(meta) = scope.functions.get(name).copied() {
+                                        function_env.insert(*dest, meta);
+                                    } else {
+                                        function_env.remove(dest);
+                                    }
                                 }
                                 _ => {
                                     module_env.remove(dest);
+                                    function_env.remove(dest);
                                 }
                             }
                             if function.id == entry_function_id
@@ -1150,6 +1161,27 @@ impl JitCompiler {
                                             &boxed_args,
                                             metadata.span.unwrap_or(function.body_span),
                                         )?
+                                    } else if let Some(&global_idx) = scope.globals.get(name) {
+                                        let get_global = get_helper_func_ref(
+                                            module,
+                                            helpers,
+                                            &mut builder,
+                                            "rt_get_global",
+                                        );
+                                        let idx_val =
+                                            builder.ins().iconst(PTR_TYPE, global_idx as i64);
+                                        let call =
+                                            builder.ins().call(get_global, &[ctx_val, idx_val]);
+                                        let callee = JitValue::boxed(builder.inst_results(call)[0]);
+                                        compile_jit_cfg_generic_call(
+                                            module,
+                                            helpers,
+                                            &mut builder,
+                                            ctx_val,
+                                            callee,
+                                            &arg_vals,
+                                            metadata.span.unwrap_or(function.body_span),
+                                        )?
                                     } else if let Some(&arity) = scope.adt_constructors.get(name) {
                                         if arity != arg_vals.len() {
                                             return Err(format!(
@@ -1190,6 +1222,7 @@ impl JitCompiler {
                             };
                             env.insert(*dest, value);
                             module_env.remove(dest);
+                            function_env.remove(dest);
                         }
                         BackendIrInstr::HandleScope { effect, arms, .. } => {
                             let mut op_sym_vals = Vec::with_capacity(arms.len());
@@ -1319,6 +1352,11 @@ impl JitCompiler {
                                     .iter()
                                     .map(|(var, module_name)| (*var, *module_name)),
                             );
+                            let target_function_env = block_function_envs
+                                .entry(*target)
+                                .or_insert_with(HashMap::new);
+                            target_function_env
+                                .extend(function_env.iter().map(|(var, meta)| (*var, *meta)));
                             for (param, arg) in target_def.params.iter().zip(args.iter()) {
                                 if let Some(value) = env.get(arg).copied() {
                                     target_env.insert(param.var, value);
@@ -1327,6 +1365,11 @@ impl JitCompiler {
                                     target_module_env.insert(param.var, module_name);
                                 } else {
                                     target_module_env.remove(&param.var);
+                                }
+                                if let Some(meta) = function_env.get(arg).copied() {
+                                    target_function_env.insert(param.var, meta);
+                                } else {
+                                    target_function_env.remove(&param.var);
                                 }
                             }
                         }
@@ -1367,6 +1410,10 @@ impl JitCompiler {
                                     .iter()
                                     .map(|(var, module_name)| (*var, *module_name)),
                             );
+                        block_function_envs
+                            .entry(*then_block)
+                            .or_insert_with(HashMap::new)
+                            .extend(function_env.iter().map(|(var, meta)| (*var, *meta)));
                         block_envs
                             .entry(*else_block)
                             .or_insert_with(HashMap::new)
@@ -1379,6 +1426,10 @@ impl JitCompiler {
                                     .iter()
                                     .map(|(var, module_name)| (*var, *module_name)),
                             );
+                        block_function_envs
+                            .entry(*else_block)
+                            .or_insert_with(HashMap::new)
+                            .extend(function_env.iter().map(|(var, meta)| (*var, *meta)));
                         let cond_value = env
                             .get(cond)
                             .copied()
@@ -1411,7 +1462,7 @@ impl JitCompiler {
                                 })
                             })
                             .collect::<Result<Vec<_>, _>>()?;
-                        let value = match callee {
+                        match callee {
                             IrCallTarget::Direct(function_id) => {
                                 let callee = backend_function_metas
                                     .get(function_id)
@@ -1419,31 +1470,29 @@ impl JitCompiler {
                                     .ok_or_else(|| {
                                         "missing direct backend tail callee metadata".to_string()
                                     })?;
-                                compile_jit_cfg_user_function_call(
+                                emit_jit_cfg_user_function_tailcall(
                                     module,
                                     helpers,
                                     &mut builder,
                                     ctx_val,
                                     callee,
                                     &arg_vals,
-                                    metadata.span.unwrap_or(function.body_span),
-                                )?
+                                );
                             }
                             IrCallTarget::Named(name) => {
                                 if let Some(callee) = scope.functions.get(name).copied() {
-                                    compile_jit_cfg_user_function_call(
+                                    emit_jit_cfg_user_function_tailcall(
                                         module,
                                         helpers,
                                         &mut builder,
                                         ctx_val,
                                         callee,
                                         &arg_vals,
-                                        metadata.span.unwrap_or(function.body_span),
-                                    )?
+                                    );
                                 } else if let Some(primop) =
                                     resolve_primop_call(interner.resolve(*name), arg_vals.len())
                                 {
-                                    compile_jit_cfg_primop_call(
+                                    let value = compile_jit_cfg_primop_call(
                                         module,
                                         helpers,
                                         &mut builder,
@@ -1451,7 +1500,10 @@ impl JitCompiler {
                                         primop,
                                         &arg_vals,
                                         metadata.span.unwrap_or(function.body_span),
-                                    )?
+                                    )?;
+                                    let (tag, payload) =
+                                        jit_value_to_tag_payload(&mut builder, value);
+                                    builder.ins().return_(&[tag, payload]);
                                 } else if let Some(&base_idx) = scope.base_functions.get(name) {
                                     let boxed_args = arg_vals
                                         .iter()
@@ -1465,7 +1517,7 @@ impl JitCompiler {
                                             )
                                         })
                                         .collect::<Vec<_>>();
-                                    compile_jit_cfg_base_function_call(
+                                    let value = compile_jit_cfg_base_function_call(
                                         module,
                                         helpers,
                                         &mut builder,
@@ -1473,7 +1525,32 @@ impl JitCompiler {
                                         base_idx,
                                         &boxed_args,
                                         metadata.span.unwrap_or(function.body_span),
-                                    )?
+                                    )?;
+                                    let (tag, payload) =
+                                        jit_value_to_tag_payload(&mut builder, value);
+                                    builder.ins().return_(&[tag, payload]);
+                                } else if let Some(&global_idx) = scope.globals.get(name) {
+                                    let get_global = get_helper_func_ref(
+                                        module,
+                                        helpers,
+                                        &mut builder,
+                                        "rt_get_global",
+                                    );
+                                    let idx_val = builder.ins().iconst(PTR_TYPE, global_idx as i64);
+                                    let call = builder.ins().call(get_global, &[ctx_val, idx_val]);
+                                    let callee = JitValue::boxed(builder.inst_results(call)[0]);
+                                    let value = compile_jit_cfg_generic_call(
+                                        module,
+                                        helpers,
+                                        &mut builder,
+                                        ctx_val,
+                                        callee,
+                                        &arg_vals,
+                                        metadata.span.unwrap_or(function.body_span),
+                                    )?;
+                                    let (tag, payload) =
+                                        jit_value_to_tag_payload(&mut builder, value);
+                                    builder.ins().return_(&[tag, payload]);
                                 } else if let Some(&arity) = scope.adt_constructors.get(name) {
                                     if arity != arg_vals.len() {
                                         return Err(format!(
@@ -1481,7 +1558,7 @@ impl JitCompiler {
                                             interner.resolve(*name)
                                         ));
                                     }
-                                    compile_backend_named_adt_constructor_call(
+                                    let value = compile_backend_named_adt_constructor_call(
                                         module,
                                         helpers,
                                         &mut builder,
@@ -1489,7 +1566,10 @@ impl JitCompiler {
                                         *name,
                                         &arg_vals,
                                         interner,
-                                    )?
+                                    )?;
+                                    let (tag, payload) =
+                                        jit_value_to_tag_payload(&mut builder, value);
+                                    builder.ins().return_(&[tag, payload]);
                                 } else {
                                     return Err(format!(
                                         "missing named backend tail callee metadata for {}",
@@ -1498,22 +1578,37 @@ impl JitCompiler {
                                 }
                             }
                             IrCallTarget::Var(var) => {
-                                let callee = env.get(var).copied().ok_or_else(|| {
-                                    format!("missing backend indirect tail callee var {:?}", var)
-                                })?;
-                                compile_jit_cfg_generic_call(
-                                    module,
-                                    helpers,
-                                    &mut builder,
-                                    ctx_val,
-                                    callee,
-                                    &arg_vals,
-                                    metadata.span.unwrap_or(function.body_span),
-                                )?
+                                if let Some(callee) = function_env.get(var).copied() {
+                                    emit_jit_cfg_user_function_tailcall(
+                                        module,
+                                        helpers,
+                                        &mut builder,
+                                        ctx_val,
+                                        callee,
+                                        &arg_vals,
+                                    );
+                                } else {
+                                    let callee = env.get(var).copied().ok_or_else(|| {
+                                        format!(
+                                            "missing backend indirect tail callee var {:?}",
+                                            var
+                                        )
+                                    })?;
+                                    let value = compile_jit_cfg_generic_call(
+                                        module,
+                                        helpers,
+                                        &mut builder,
+                                        ctx_val,
+                                        callee,
+                                        &arg_vals,
+                                        metadata.span.unwrap_or(function.body_span),
+                                    )?;
+                                    let (tag, payload) =
+                                        jit_value_to_tag_payload(&mut builder, value);
+                                    builder.ins().return_(&[tag, payload]);
+                                }
                             }
-                        };
-                        let (tag, payload) = jit_value_to_tag_payload(&mut builder, value);
-                        builder.ins().return_(&[tag, payload]);
+                        }
                     }
                     BackendIrTerminator::Unreachable(_) => {
                         builder.ins().trap(TrapCode::INTEGER_OVERFLOW);
@@ -1651,90 +1746,91 @@ fn backend_ir_jit_support_error(ir_program: &IrProgram, interner: &Interner) -> 
         for block in &function.blocks {
             for instr in &block.instrs {
                 match instr {
-                    BackendIrInstr::Assign { expr, .. } => match expr {
-                        BackendIrExpr::Const(_)
-                        | BackendIrExpr::Var(_)
-                        | BackendIrExpr::InterpolatedString(_)
-                        | BackendIrExpr::Prefix { .. }
-                        | BackendIrExpr::MakeTuple(_)
-                        | BackendIrExpr::MakeArray(_)
-                        | BackendIrExpr::MakeHash(_)
-                        | BackendIrExpr::MakeList(_)
-                        | BackendIrExpr::MakeAdt(_, _)
-                        | BackendIrExpr::MakeClosure(_, _)
-                        | BackendIrExpr::EmptyList
-                        | BackendIrExpr::Index { .. }
-                        | BackendIrExpr::MemberAccess { .. }
-                        | BackendIrExpr::TupleFieldAccess { .. }
-                        | BackendIrExpr::TupleArityTest { .. }
-                        | BackendIrExpr::TagTest { .. }
-                        | BackendIrExpr::TagPayload { .. }
-                        | BackendIrExpr::ListTest { .. }
-                        | BackendIrExpr::ListHead { .. }
-                        | BackendIrExpr::ListTail { .. }
-                        | BackendIrExpr::AdtTagTest { .. }
-                        | BackendIrExpr::AdtField { .. }
-                        | BackendIrExpr::None => {}
-                        | BackendIrExpr::Some(_)
-                        | BackendIrExpr::Left(_)
-                        | BackendIrExpr::Right(_)
-                        | BackendIrExpr::Cons { .. }
-                        | BackendIrExpr::Perform { .. } => {}
-                        BackendIrExpr::LoadName(name) => {
-                            let is_supported_load = named_functions.contains(name)
-                                || global_names.contains(name)
-                                || adt_constructors.get(name).copied() == Some(0)
-                                || resolve_backend_module_name(
-                                    &imported_modules,
-                                    &import_aliases,
-                                    interner,
-                                    *name,
-                                )
-                                .is_some()
-                                || crate::runtime::base::get_base_function_index(
-                                    interner.resolve(*name),
-                                )
-                                .is_some();
-                            if !is_supported_load {
-                                return Some(
+                    BackendIrInstr::Assign { expr, .. } => {
+                        match expr {
+                            BackendIrExpr::Const(_)
+                            | BackendIrExpr::Var(_)
+                            | BackendIrExpr::InterpolatedString(_)
+                            | BackendIrExpr::Prefix { .. }
+                            | BackendIrExpr::MakeTuple(_)
+                            | BackendIrExpr::MakeArray(_)
+                            | BackendIrExpr::MakeHash(_)
+                            | BackendIrExpr::MakeList(_)
+                            | BackendIrExpr::MakeAdt(_, _)
+                            | BackendIrExpr::MakeClosure(_, _)
+                            | BackendIrExpr::EmptyList
+                            | BackendIrExpr::Index { .. }
+                            | BackendIrExpr::MemberAccess { .. }
+                            | BackendIrExpr::TupleFieldAccess { .. }
+                            | BackendIrExpr::TupleArityTest { .. }
+                            | BackendIrExpr::TagTest { .. }
+                            | BackendIrExpr::TagPayload { .. }
+                            | BackendIrExpr::ListTest { .. }
+                            | BackendIrExpr::ListHead { .. }
+                            | BackendIrExpr::ListTail { .. }
+                            | BackendIrExpr::AdtTagTest { .. }
+                            | BackendIrExpr::AdtField { .. }
+                            | BackendIrExpr::None => {}
+                            BackendIrExpr::Some(_)
+                            | BackendIrExpr::Left(_)
+                            | BackendIrExpr::Right(_)
+                            | BackendIrExpr::Cons { .. }
+                            | BackendIrExpr::Perform { .. } => {}
+                            BackendIrExpr::LoadName(name) => {
+                                let is_supported_load = named_functions.contains(name)
+                                    || global_names.contains(name)
+                                    || adt_constructors.get(name).copied() == Some(0)
+                                    || resolve_backend_module_name(
+                                        &imported_modules,
+                                        &import_aliases,
+                                        interner,
+                                        *name,
+                                    )
+                                    .is_some()
+                                    || crate::runtime::base::get_base_function_index(
+                                        interner.resolve(*name),
+                                    )
+                                    .is_some();
+                                if !is_supported_load {
+                                    return Some(
                                     "backend_ir JIT shape has an unresolved non-function LoadName"
                                         .to_string(),
                                 );
+                                }
                             }
-                        }
-                        BackendIrExpr::Binary(op, _, _) => match op {
-                            IrBinaryOp::Add
-                            | IrBinaryOp::IAdd
-                            | IrBinaryOp::Sub
-                            | IrBinaryOp::ISub
-                            | IrBinaryOp::Mul
-                            | IrBinaryOp::IMul
-                            | IrBinaryOp::Div
-                            | IrBinaryOp::IDiv
-                            | IrBinaryOp::Mod
-                            | IrBinaryOp::IMod
-                            | IrBinaryOp::Eq
-                            | IrBinaryOp::NotEq
-                            | IrBinaryOp::Gt
-                            | IrBinaryOp::Ge
-                            | IrBinaryOp::Le
-                            | IrBinaryOp::Lt
-                            | IrBinaryOp::FAdd
-                            | IrBinaryOp::FSub
-                            | IrBinaryOp::FMul
-                            | IrBinaryOp::FDiv => {}
-                            IrBinaryOp::And | IrBinaryOp::Or => {}
-                        },
-                        _ => {
-                            return Some(
+                            BackendIrExpr::Binary(op, _, _) => match op {
+                                IrBinaryOp::Add
+                                | IrBinaryOp::IAdd
+                                | IrBinaryOp::Sub
+                                | IrBinaryOp::ISub
+                                | IrBinaryOp::Mul
+                                | IrBinaryOp::IMul
+                                | IrBinaryOp::Div
+                                | IrBinaryOp::IDiv
+                                | IrBinaryOp::Mod
+                                | IrBinaryOp::IMod
+                                | IrBinaryOp::Eq
+                                | IrBinaryOp::NotEq
+                                | IrBinaryOp::Gt
+                                | IrBinaryOp::Ge
+                                | IrBinaryOp::Le
+                                | IrBinaryOp::Lt
+                                | IrBinaryOp::FAdd
+                                | IrBinaryOp::FSub
+                                | IrBinaryOp::FMul
+                                | IrBinaryOp::FDiv => {}
+                                IrBinaryOp::And | IrBinaryOp::Or => {}
+                            },
+                            _ => return Some(
                                 "backend_ir JIT shape contains an unsupported backend expression"
                                     .to_string(),
-                            )
+                            ),
                         }
-                    },
+                    }
                     BackendIrInstr::Call { target, args, .. } => {
                         if let IrCallTarget::Named(name) = target {
                             let is_supported_target = named_functions.contains(name)
+                                || global_names.contains(name)
                                 || adt_constructors.contains_key(name)
                                 || resolve_primop_call(interner.resolve(*name), args.len())
                                     .is_some()
@@ -1750,7 +1846,12 @@ fn backend_ir_jit_support_error(ir_program: &IrProgram, interner: &Interner) -> 
                             }
                         }
                     }
-                    BackendIrInstr::HandleScope { body_entry, body_result, arms, .. } => {
+                    BackendIrInstr::HandleScope {
+                        body_entry,
+                        body_result,
+                        arms,
+                        ..
+                    } => {
                         if !function.blocks.iter().any(|b| b.id == *body_entry) {
                             return Some(
                                 "backend_ir JIT shape references a missing handle-scope body entry block"
@@ -1773,7 +1874,10 @@ fn backend_ir_jit_support_error(ir_program: &IrProgram, interner: &Interner) -> 
                                 .iter()
                                 .find(|f| f.id == arm.function_id)
                             else {
-                                return Some("backend_ir JIT shape is missing a handle arm function".to_string());
+                                return Some(
+                                    "backend_ir JIT shape is missing a handle arm function"
+                                        .to_string(),
+                                );
                             };
                             if arm_fn.captures.len() != arm.capture_vars.len() {
                                 return Some(
@@ -2907,17 +3011,45 @@ fn compile_simple_backend_ir_binary(
             let lhs_truthy_call = builder
                 .ins()
                 .call(is_truthy, &[ctx_val, lhs_tag, lhs_payload]);
-            let rhs_truthy_call = builder
-                .ins()
-                .call(is_truthy, &[ctx_val, rhs_tag, rhs_payload]);
             let lhs_truthy = builder.inst_results(lhs_truthy_call)[0];
-            let rhs_truthy = builder.inst_results(rhs_truthy_call)[0];
-            let result = match op {
-                IrBinaryOp::And => builder.ins().band(lhs_truthy, rhs_truthy),
-                IrBinaryOp::Or => builder.ins().bor(lhs_truthy, rhs_truthy),
+            let lhs_is_truthy = builder.ins().icmp_imm(IntCC::NotEqual, lhs_truthy, 0);
+            let lhs_boxed = box_and_guard_jit_value(module, helpers, builder, ctx_val, lhs);
+            let rhs_boxed = box_and_guard_jit_value(module, helpers, builder, ctx_val, rhs);
+            let lhs_block = builder.create_block();
+            let rhs_block = builder.create_block();
+            let done_block = builder.create_block();
+            builder.append_block_param(done_block, PTR_TYPE);
+
+            match op {
+                IrBinaryOp::And => {
+                    builder
+                        .ins()
+                        .brif(lhs_is_truthy, rhs_block, &[], lhs_block, &[]);
+                }
+                IrBinaryOp::Or => {
+                    builder
+                        .ins()
+                        .brif(lhs_is_truthy, lhs_block, &[], rhs_block, &[]);
+                }
                 _ => unreachable!(),
-            };
-            return Ok(JitValue::bool(result));
+            }
+
+            builder.switch_to_block(lhs_block);
+            builder
+                .ins()
+                .jump(done_block, &[BlockArg::Value(lhs_boxed)]);
+            builder.seal_block(lhs_block);
+
+            builder.switch_to_block(rhs_block);
+            builder
+                .ins()
+                .jump(done_block, &[BlockArg::Value(rhs_boxed)]);
+            builder.seal_block(rhs_block);
+
+            builder.switch_to_block(done_block);
+            let result = builder.block_params(done_block)[0];
+            builder.seal_block(done_block);
+            return Ok(JitValue::boxed(result));
         }
     };
 
@@ -3036,82 +3168,13 @@ fn compile_jit_cfg_user_function_call(
     arg_vals: &[JitValue],
     call_span: Span,
 ) -> Result<JitValue, String> {
-    let nargs = arg_vals.len();
-    if nargs != meta.num_params {
-        let got = builder.ins().iconst(PTR_TYPE, nargs as i64);
-        let want = builder.ins().iconst(PTR_TYPE, meta.num_params as i64);
-        let set_arity_error = get_helper_func_ref(module, helpers, builder, "rt_set_arity_error");
-        builder.ins().call(set_arity_error, &[ctx_val, got, want]);
-        emit_render_error_with_span(module, helpers, builder, ctx_val, call_span);
-        emit_return_null_tagged(builder);
-
-        let dead_block = builder.create_block();
-        builder.switch_to_block(dead_block);
-        let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
-        return Ok(JitValue::boxed(null_ptr));
-    }
-
-    let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
-    let zero = builder.ins().iconst(PTR_TYPE, 0);
-    let callee_ref = module.declare_func_in_func(meta.id, builder.func);
-
-    if !meta.has_contract {
-        let call = match meta.call_abi {
-            JitCallAbi::Array => {
-                let (_slot, args_ptr) = emit_tagged_stack_array(builder, arg_vals);
-                let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
-                builder
-                    .ins()
-                    .call(callee_ref, &[ctx_val, args_ptr, nargs_val, null_ptr, zero])
-            }
-            JitCallAbi::Reg1 => {
-                let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
-                builder
-                    .ins()
-                    .call(callee_ref, &[ctx_val, tag0, payload0, null_ptr, zero])
-            }
-            JitCallAbi::Reg2 => {
-                let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
-                let (tag1, payload1) = jit_value_to_tag_payload(builder, arg_vals[1]);
-                builder.ins().call(
-                    callee_ref,
-                    &[ctx_val, tag0, payload0, tag1, payload1, null_ptr, zero],
-                )
-            }
-            JitCallAbi::Reg3 => {
-                let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
-                let (tag1, payload1) = jit_value_to_tag_payload(builder, arg_vals[1]);
-                let (tag2, payload2) = jit_value_to_tag_payload(builder, arg_vals[2]);
-                builder.ins().call(
-                    callee_ref,
-                    &[
-                        ctx_val, tag0, payload0, tag1, payload1, tag2, payload2, null_ptr, zero,
-                    ],
-                )
-            }
-            JitCallAbi::Reg4 => {
-                let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
-                let (tag1, payload1) = jit_value_to_tag_payload(builder, arg_vals[1]);
-                let (tag2, payload2) = jit_value_to_tag_payload(builder, arg_vals[2]);
-                let (tag3, payload3) = jit_value_to_tag_payload(builder, arg_vals[3]);
-                builder.ins().call(
-                    callee_ref,
-                    &[
-                        ctx_val, tag0, payload0, tag1, payload1, tag2, payload2, tag3, payload3,
-                        null_ptr, zero,
-                    ],
-                )
-            }
-        };
-        let raw_tag = builder.inst_results(call)[0];
-        let raw_payload = builder.inst_results(call)[1];
-        let raw_result =
-            boxed_value_from_tagged_parts(module, helpers, builder, ctx_val, raw_tag, raw_payload);
-        emit_return_on_null_value(builder, raw_result);
-        return Ok(JitValue::boxed(raw_result));
-    }
-
+    let boxed_arg_vals: Vec<_> = arg_vals
+        .iter()
+        .map(|value| box_and_guard_jit_value(module, helpers, builder, ctx_val, *value))
+        .collect();
+    let (_slot, args_ptr) = emit_boxed_stack_array(builder, &boxed_arg_vals);
     let fn_index = builder.ins().iconst(PTR_TYPE, meta.function_index as i64);
+    let nargs = builder.ins().iconst(PTR_TYPE, boxed_arg_vals.len() as i64);
     let start_line_val = builder.ins().iconst(PTR_TYPE, call_span.start.line as i64);
     let start_col_val = builder
         .ins()
@@ -3120,200 +3183,43 @@ fn compile_jit_cfg_user_function_call(
     let end_col_val = builder
         .ins()
         .iconst(PTR_TYPE, (call_span.end.column + 1) as i64);
-    let boxed_arg_vals: Vec<_> = arg_vals
-        .iter()
-        .map(|value| box_jit_value(module, helpers, builder, ctx_val, *value))
-        .collect();
-
-    let call_ok = match meta.call_abi {
-        JitCallAbi::Array => {
-            let slot = builder.create_sized_stack_slot(StackSlotData::new(
-                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                boxed_arg_vals.len().max(1) as u32 * 8,
-                3,
-            ));
-            for (i, value) in boxed_arg_vals.iter().enumerate() {
-                builder.ins().stack_store(*value, slot, (i * 8) as i32);
-            }
-            let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
-            let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
-            let check_call =
-                get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call");
-            builder.ins().call(
-                check_call,
-                &[
-                    ctx_val,
-                    fn_index,
-                    args_ptr,
-                    nargs_val,
-                    start_line_val,
-                    start_col_val,
-                    end_line_val,
-                    end_col_val,
-                ],
-            )
-        }
-        JitCallAbi::Reg1 => {
-            let check_call =
-                get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call1");
-            builder.ins().call(
-                check_call,
-                &[
-                    ctx_val,
-                    fn_index,
-                    boxed_arg_vals[0],
-                    start_line_val,
-                    start_col_val,
-                    end_line_val,
-                    end_col_val,
-                ],
-            )
-        }
-        JitCallAbi::Reg2 => {
-            let check_call =
-                get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call2");
-            builder.ins().call(
-                check_call,
-                &[
-                    ctx_val,
-                    fn_index,
-                    boxed_arg_vals[0],
-                    boxed_arg_vals[1],
-                    start_line_val,
-                    start_col_val,
-                    end_line_val,
-                    end_col_val,
-                ],
-            )
-        }
-        JitCallAbi::Reg3 => {
-            let check_call =
-                get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call3");
-            builder.ins().call(
-                check_call,
-                &[
-                    ctx_val,
-                    fn_index,
-                    boxed_arg_vals[0],
-                    boxed_arg_vals[1],
-                    boxed_arg_vals[2],
-                    start_line_val,
-                    start_col_val,
-                    end_line_val,
-                    end_col_val,
-                ],
-            )
-        }
-        JitCallAbi::Reg4 => {
-            let check_call =
-                get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call4");
-            builder.ins().call(
-                check_call,
-                &[
-                    ctx_val,
-                    fn_index,
-                    boxed_arg_vals[0],
-                    boxed_arg_vals[1],
-                    boxed_arg_vals[2],
-                    boxed_arg_vals[3],
-                    start_line_val,
-                    start_col_val,
-                    end_line_val,
-                    end_col_val,
-                ],
-            )
-        }
-    };
-    let call_ok_val = builder.inst_results(call_ok)[0];
-    let call_ok_bool = builder.ins().icmp_imm(IntCC::NotEqual, call_ok_val, 0);
-    let call_block = builder.create_block();
-    let fail_block = builder.create_block();
-    let done_block = builder.create_block();
-    builder.append_block_param(done_block, PTR_TYPE);
-    builder
-        .ins()
-        .brif(call_ok_bool, call_block, &[], fail_block, &[]);
-
-    builder.switch_to_block(fail_block);
-    builder.ins().jump(done_block, &[BlockArg::Value(null_ptr)]);
-    builder.seal_block(fail_block);
-
-    builder.switch_to_block(call_block);
-    let call = match meta.call_abi {
-        JitCallAbi::Array => {
-            let (_slot, args_ptr) = emit_tagged_stack_array(builder, arg_vals);
-            let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
-            builder
-                .ins()
-                .call(callee_ref, &[ctx_val, args_ptr, nargs_val, null_ptr, zero])
-        }
-        JitCallAbi::Reg1 => {
-            let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
-            builder
-                .ins()
-                .call(callee_ref, &[ctx_val, tag0, payload0, null_ptr, zero])
-        }
-        JitCallAbi::Reg2 => {
-            let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
-            let (tag1, payload1) = jit_value_to_tag_payload(builder, arg_vals[1]);
-            builder.ins().call(
-                callee_ref,
-                &[ctx_val, tag0, payload0, tag1, payload1, null_ptr, zero],
-            )
-        }
-        JitCallAbi::Reg3 => {
-            let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
-            let (tag1, payload1) = jit_value_to_tag_payload(builder, arg_vals[1]);
-            let (tag2, payload2) = jit_value_to_tag_payload(builder, arg_vals[2]);
-            builder.ins().call(
-                callee_ref,
-                &[
-                    ctx_val, tag0, payload0, tag1, payload1, tag2, payload2, null_ptr, zero,
-                ],
-            )
-        }
-        JitCallAbi::Reg4 => {
-            let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
-            let (tag1, payload1) = jit_value_to_tag_payload(builder, arg_vals[1]);
-            let (tag2, payload2) = jit_value_to_tag_payload(builder, arg_vals[2]);
-            let (tag3, payload3) = jit_value_to_tag_payload(builder, arg_vals[3]);
-            builder.ins().call(
-                callee_ref,
-                &[
-                    ctx_val, tag0, payload0, tag1, payload1, tag2, payload2, tag3, payload3,
-                    null_ptr, zero,
-                ],
-            )
-        }
-    };
-    let raw_tag = builder.inst_results(call)[0];
-    let raw_payload = builder.inst_results(call)[1];
-    let raw_result =
-        boxed_value_from_tagged_parts(module, helpers, builder, ctx_val, raw_tag, raw_payload);
-    let check_ret = get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_return");
-    let checked_ret_call = builder.ins().call(
-        check_ret,
+    let call_jit = get_helper_func_ref(module, helpers, builder, "rt_call_jit_function");
+    let call = builder.ins().call(
+        call_jit,
         &[
             ctx_val,
             fn_index,
-            raw_result,
+            args_ptr,
+            nargs,
             start_line_val,
             start_col_val,
             end_line_val,
             end_col_val,
         ],
     );
-    let checked_ret = builder.inst_results(checked_ret_call)[0];
-    emit_return_on_null_value(builder, checked_ret);
-    builder
-        .ins()
-        .jump(done_block, &[BlockArg::Value(checked_ret)]);
-    builder.seal_block(call_block);
-
-    builder.switch_to_block(done_block);
-    let result = builder.block_params(done_block)[0];
-    builder.seal_block(done_block);
+    let result = builder.inst_results(call)[0];
+    emit_return_on_null_value(builder, result);
     Ok(JitValue::boxed(result))
+}
+
+fn emit_jit_cfg_user_function_tailcall(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+    meta: JitFunctionMeta,
+    arg_vals: &[JitValue],
+) {
+    let (_slot, args_ptr) = emit_tagged_stack_array(builder, arg_vals);
+    let set_thunk = get_helper_func_ref(module, helpers, builder, "rt_set_thunk");
+    let fn_index = builder.ins().iconst(PTR_TYPE, meta.function_index as i64);
+    let nargs = builder.ins().iconst(PTR_TYPE, arg_vals.len() as i64);
+    let call = builder
+        .ins()
+        .call(set_thunk, &[ctx_val, fn_index, args_ptr, nargs]);
+    let tag = builder.inst_results(call)[0];
+    let payload = builder.inst_results(call)[1];
+    builder.ins().return_(&[tag, payload]);
 }
 
 #[allow(dead_code)]
@@ -3969,6 +3875,13 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             },
         ),
         (
+            "rt_call_jit_function",
+            HelperSig {
+                num_params: 8,
+                num_returns: 1,
+            },
+        ),
+        (
             "rt_get_global",
             HelperSig {
                 num_params: 2,
@@ -4557,7 +4470,7 @@ mod tests {
         let main_id = jit
             .try_compile_backend_ir_program(&ir_program, &interner)
             .expect("compile ok");
-        assert!(main_id.is_some(), "expected direct backend JIT compilation");
+        let _ = main_id;
     }
 
     #[test]
@@ -4641,7 +4554,7 @@ mod tests {
         let main_id = jit
             .try_compile_backend_ir_program(&ir_program, &interner)
             .expect("compile ok");
-        assert!(main_id.is_some(), "expected direct backend JIT compilation");
+        let _ = main_id;
     }
 
     #[test]
@@ -4754,10 +4667,7 @@ mod tests {
         let main_id = jit
             .try_compile_backend_ir_program(&ir_program, &interner)
             .expect("compile ok");
-        assert!(
-            main_id.is_some(),
-            "expected direct backend JIT compilation for module member call"
-        );
+        let _ = main_id;
     }
 
     #[test]
@@ -4819,7 +4729,7 @@ mod tests {
         let direct = jit
             .try_compile_backend_ir_program(&ir_program, &interner)
             .expect("compile ok");
-        assert!(direct.is_some(), "expected direct backend JIT compilation");
+        let _ = direct;
     }
 
     #[test]
@@ -4879,7 +4789,7 @@ mod tests {
         let direct = jit
             .try_compile_backend_ir_program(&ir_program, &interner)
             .expect("compile ok");
-        assert!(direct.is_some(), "expected direct backend JIT compilation");
+        let _ = direct;
     }
 
     #[test]
@@ -4956,7 +4866,7 @@ mod tests {
         let direct = jit
             .try_compile_backend_ir_program(&ir_program, &interner)
             .expect("compile ok");
-        assert!(direct.is_some(), "expected direct backend JIT compilation");
+        let _ = direct;
     }
 
     #[test]
@@ -5047,7 +4957,7 @@ mod tests {
         let direct = jit
             .try_compile_backend_ir_program(&ir_program, &interner)
             .expect("compile ok");
-        assert!(direct.is_some(), "expected direct backend JIT compilation");
+        let _ = direct;
     }
 
     #[test]
@@ -5133,7 +5043,7 @@ mod tests {
         let main_id = jit
             .try_compile_backend_ir_program(&ir_program, &interner)
             .expect("compile ok");
-        assert!(main_id.is_some(), "expected direct backend JIT compilation");
+        let _ = main_id;
     }
 
     #[test]
@@ -5276,7 +5186,7 @@ mod tests {
         let main_id = jit
             .try_compile_backend_ir_program(&ir_program, &interner)
             .expect("compile ok");
-        assert!(main_id.is_some(), "expected direct backend JIT compilation");
+        let _ = main_id;
     }
 
     #[test]
@@ -5431,7 +5341,7 @@ mod tests {
         let main_id = jit
             .try_compile_backend_ir_program(&ir_program, &interner)
             .expect("compile ok");
-        assert!(main_id.is_some(), "expected direct backend JIT compilation");
+        let _ = main_id;
     }
 
     #[test]
@@ -5489,6 +5399,6 @@ mod tests {
         let direct = jit
             .try_compile_backend_ir_program(&ir_program, &interner)
             .expect("compile ok");
-        assert!(direct.is_some(), "expected direct backend JIT compilation");
+        let _ = direct;
     }
 }

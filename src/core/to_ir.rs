@@ -190,6 +190,13 @@ impl ToIrCtx {
                     });
                 entry_fn.env.insert(def.binder.id, g_var);
                 entry_fn.binder_names.insert(def.binder.id, def.binder.name);
+                if def.binder.name == crate::syntax::symbol::Symbol::new(0) {
+                    // Anonymous top-level expression statements still
+                    // contribute the program result when they are the last
+                    // evaluated definition, matching the VM's top-level
+                    // expression semantics.
+                    entry_fn.last_value = Some(val);
+                }
             }
         }
 
