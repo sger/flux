@@ -389,6 +389,13 @@ impl Value {
     /// Returns whether this value is truthy according to Flux semantics.
     ///
     /// Only `Boolean(false)` and `None` are falsy; all other values are truthy.
+    pub fn is_callable(&self) -> bool {
+        matches!(
+            self,
+            Value::Function(_) | Value::Closure(_) | Value::JitClosure(_) | Value::BaseFunction(_)
+        )
+    }
+
     pub fn is_truthy(&self) -> bool {
         !matches!(
             self,

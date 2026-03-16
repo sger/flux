@@ -368,6 +368,7 @@ pub fn run_case(
 
     let output = Command::new(flux_bin)
         .args(&args)
+        .current_dir(workspace_root)
         .env("NO_COLOR", "1")
         .output()
         .map_err(|e| format!("failed to run flux for `{}`: {e}", case.path))?;

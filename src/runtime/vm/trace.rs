@@ -89,6 +89,25 @@ impl VM {
         self.runtime_error_enhanced(&RUNTIME_TYPE_ERROR, &values)
     }
 
+    pub(super) fn function_boundary_location(&self) -> Option<(String, Span)> {
+        let debug_info = self.current_frame().closure.function.debug_info.as_ref()?;
+        let location = debug_info.boundary_location.as_ref()?;
+        let file = debug_info.file_for(location.file_id)?;
+        Some((file.to_string(), location.span))
+    }
+
+    pub(super) fn runtime_type_error_at_location(
+        &self,
+        expected: &str,
+        actual: &str,
+        value_preview: Option<&str>,
+        file: String,
+        span: Span,
+    ) -> String {
+        let diag = runtime_type_error(expected, actual, value_preview, file.clone(), span);
+        self.render_runtime_diagnostic(&diag, &file)
+    }
+
     pub(super) fn current_location(&self) -> Option<(String, Span)> {
         let debug_info = self.current_frame().closure.function.debug_info.as_ref()?;
         let location = debug_info.location_at(self.current_frame().ip)?;

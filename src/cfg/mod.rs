@@ -18,7 +18,6 @@ pub mod lower;
 pub mod passes;
 pub mod validate;
 
-pub use lower::lower_program_to_ir;
 pub use passes::{IrPassContext, run_ir_pass_pipeline};
 pub use validate::validate_ir;
 
@@ -199,6 +198,7 @@ pub struct IrHandleArm {
 pub struct HandleScopeArm {
     pub operation_name: Identifier,
     pub function_id: FunctionId,
+    pub capture_vars: Vec<IrVar>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -464,15 +464,76 @@ pub enum IrTopLevelItem {
 }
 
 #[derive(Debug, Clone)]
+pub struct IrGlobalBinding {
+    pub name: Identifier,
+    pub var: IrVar,
+}
+
+#[derive(Debug, Clone)]
 pub struct IrProgram {
     pub top_level_items: Vec<IrTopLevelItem>,
     pub functions: Vec<IrFunction>,
     pub entry: FunctionId,
     pub globals: Vec<Identifier>,
+    pub global_bindings: Vec<IrGlobalBinding>,
     pub hm_expr_types: HashMap<ExprId, InferType>,
     /// Core IR representation — populated by `lower_program_to_ir`.
     /// `None` when the Core IR lowering pass has not been run.
-    pub core: Option<crate::nary::CoreProgram>,
+    pub core: Option<crate::core::CoreProgram>,
+}
+
+impl IrProgram {
+    pub fn top_level_items(&self) -> &[IrTopLevelItem] {
+        &self.top_level_items
+    }
+
+    pub fn hm_expr_types(&self) -> &HashMap<ExprId, InferType> {
+        &self.hm_expr_types
+    }
+
+    pub fn top_level_items_mut(&mut self) -> &mut Vec<IrTopLevelItem> {
+        &mut self.top_level_items
+    }
+
+    pub fn hm_expr_types_mut(&mut self) -> &mut HashMap<ExprId, InferType> {
+        &mut self.hm_expr_types
+    }
+
+    pub fn functions(&self) -> &[IrFunction] {
+        &self.functions
+    }
+
+    pub fn functions_mut(&mut self) -> &mut Vec<IrFunction> {
+        &mut self.functions
+    }
+
+    pub fn entry(&self) -> FunctionId {
+        self.entry
+    }
+
+    pub fn set_entry(&mut self, entry: FunctionId) {
+        self.entry = entry;
+    }
+
+    pub fn globals(&self) -> &[Identifier] {
+        &self.globals
+    }
+
+    pub fn globals_mut(&mut self) -> &mut Vec<Identifier> {
+        &mut self.globals
+    }
+
+    pub fn global_bindings(&self) -> &[IrGlobalBinding] {
+        &self.global_bindings
+    }
+
+    pub fn global_bindings_mut(&mut self) -> &mut Vec<IrGlobalBinding> {
+        &mut self.global_bindings
+    }
+
+    pub fn function_mut(&mut self, id: FunctionId) -> Option<&mut IrFunction> {
+        self.functions.iter_mut().find(|function| function.id == id)
+    }
 }
 
 fn ir_fmt_var(v: IrVar) -> String {
@@ -703,9 +764,14 @@ impl IrProgram {
                                 .iter()
                                 .map(|a| {
                                     format!(
-                                        "#{} -> fn{}",
+                                        "#{} -> fn{} [{}]",
                                         a.operation_name.as_u32(),
-                                        a.function_id.0
+                                        a.function_id.0,
+                                        a.capture_vars
+                                            .iter()
+                                            .map(|v| format!("v{}", v.0))
+                                            .collect::<Vec<_>>()
+                                            .join(", ")
                                     )
                                 })
                                 .collect();

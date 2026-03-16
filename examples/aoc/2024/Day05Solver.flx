@@ -11,6 +11,14 @@ module Day05Solver {
         }
     }
 
+    fn middle_val(xs: Array<Int>) {
+        if len(xs) == 0 {
+            None
+        } else {
+            Some(int_at(xs, len(xs) / 2))
+        }
+    }
+
     fn parse_rule(line: String) -> Either<String, (Int, Int)> {
         if len(parts) != 2 {
             Left("invalid rule: " + line)
@@ -30,84 +38,70 @@ module Day05Solver {
     }
 
     fn parse_sections(
-        lines,
+        lines: List<String>,
         section: Section,
         rules: Array<(Int, Int)>,
-        updates: Array<Array<Int>>,
+        pages: Array<Array<Int>>,
     ) -> Either<String, (Array<(Int, Int)>, Array<Array<Int>>)> {
         match lines {
             [line | rest] -> do {
                 let cleaned = trim(line)
                 if cleaned == "" {
-                    parse_sections(rest, UpdatesPart, rules, updates)
+                    parse_sections(rest, UpdatesPart, rules, pages)
                 } else {
                     match section {
                         RulesPart -> match parse_rule(cleaned) {
-                            Right(rule) -> parse_sections(rest, RulesPart, push(rules, rule), updates),
+                            Right(rule) -> parse_sections(rest, RulesPart, push(rules, rule), pages),
                             Left(err) -> Left(err),
                         },
                         UpdatesPart -> match parse_update(cleaned) {
-                            Right(update) -> parse_sections(rest, UpdatesPart, rules, push(updates, update)),
+                            Right(update) -> parse_sections(rest, UpdatesPart, rules, push(pages, update)),
                             Left(err) -> Left(err),
                         },
                     }
                 }
             },
-            _ -> Right((rules, updates)),
+            _ -> Right((rules, pages)),
         }
     }
 
-    fn find_index(xs: Array<Int>, target: Int, idx: Int) -> Int {
+    public fn parse_day05_input(
+        lines: Array<String>,
+    ) -> Either<String, (Array<(Int, Int)>, Array<Array<Int>>)> {
+        parse_sections(to_list(lines), RulesPart, [||], [||])
+    }
+
+    fn contains_int(xs: Array<Int>, target: Int) -> Bool {
+        any(xs, \x -> x == target)
+    }
+
+    fn arrays_equal_at(xs: Array<Int>, ys: Array<Int>, idx: Int) -> Bool {
         if idx >= len(xs) {
-            -1
-        } else if int_at(xs, idx) == target {
-            idx
-        } else {
-            find_index(xs, target, idx + 1)
-        }
-    }
-
-    fn respects_rule(update: Array<Int>, rule: (Int, Int)) -> Bool {
-        if left_idx == -1 || right_idx == -1 {
             true
-        } else {
-            left_idx < right_idx
-        }
-        where left_idx = find_index(update, rule.0, 0)
-        where right_idx = find_index(update, rule.1, 0)
-    }
-
-    fn rules_all_valid(rules: Array<(Int, Int)>, update: Array<Int>) -> Bool {
-        all(rules, \r -> respects_rule(update, r))
-    }
-
-    fn update_is_valid(update: Array<Int>, rules: Array<(Int, Int)>) -> Bool {
-        rules_all_valid(rules, update)
-    }
-
-    fn middle_page(update: Array<Int>) -> Int {
-        int_at(update, len(update) / 2)
-    }
-
-    fn relevant_rules(rules: Array<(Int, Int)>, update: Array<Int>) -> Array<(Int, Int)> {
-        filter(rules, \r -> find_index(update, r.0, 0) != -1 && find_index(update, r.1, 0) != -1)
-    }
-
-    fn contains_array(xs: Array<Int>, target: Int, idx: Int) -> Bool {
-        if idx >= len(xs) {
+        } else if int_at(xs, idx) != int_at(ys, idx) {
             false
-        } else if int_at(xs, idx) == target {
-            true
         } else {
-            contains_array(xs, target, idx + 1)
+            arrays_equal_at(xs, ys, idx + 1)
         }
     }
 
-    fn count_incoming_array(rules: Array<(Int, Int)>, remaining: Array<Int>, node: Int) -> Int {
+    fn arrays_equal(xs: Array<Int>, ys: Array<Int>) -> Bool {
+        if len(xs) != len(ys) {
+            false
+        } else {
+            arrays_equal_at(xs, ys, 0)
+        }
+    }
+
+    fn relevant_rules(rules: Array<(Int, Int)>, xs: Array<Int>) -> Array<(Int, Int)> {
+        filter(rules, \r -> contains_int(xs, r.0) && contains_int(xs, r.1))
+    }
+
+    fn indegree(rules: Array<(Int, Int)>, remaining: Array<Int>, node: Int) -> Int {
         fold(
             rules,
             0,
-            \(acc, r) -> if r.1 == node && contains_array(remaining, r.0, 0) {
+            \(acc, r) -> if r.1 == node && contains_int(remaining, r.0) {
                 acc + 1
             } else {
                 acc
@@ -115,58 +109,49 @@ module Day05Solver {
         )
     }
 
-    fn pick_zero_indegree_array(remaining: Array<Int>, rules: Array<(Int, Int)>, idx: Int) {
+    fn pick_zero_indegree(remaining: Array<Int>, rules: Array<(Int, Int)>, idx: Int) {
         if idx >= len(remaining) {
             None
         } else {
-            if count_incoming_array(rules, remaining, candidate) == 0 {
+            let candidate = int_at(remaining, idx)
+            if indegree(rules, remaining, candidate) == 0 {
                 Some(candidate)
             } else {
-                pick_zero_indegree_array(remaining, rules, idx + 1)
+                pick_zero_indegree(remaining, rules, idx + 1)
             }
-            where candidate = int_at(remaining, idx)
         }
     }
 
-    fn remove_value_array(xs: Array<Int>, target: Int) -> Array<Int> {
+    fn remove_value(xs: Array<Int>, target: Int) -> Array<Int> {
         filter(xs, \x -> x != target)
     }
 
-    fn sort_update_by_rules(update: Array<Int>, rules: Array<(Int, Int)>) -> Array<Int> {
-        topo_sort_array(update, rel, [||])
-        where rel = relevant_rules(rules, update)
-    }
-
-    fn topo_sort_array(
-        remaining: Array<Int>,
-        rules: Array<(Int, Int)>,
-        acc: Array<Int>,
-    ) -> Array<Int> {
+    fn topo_sort(remaining: Array<Int>, rules: Array<(Int, Int)>, acc: Array<Int>) -> Array<Int> {
         if len(remaining) == 0 {
             acc
         } else {
-            match pick_zero_indegree_array(remaining, rules, 0) {
-                Some(next) -> topo_sort_array(remove_value_array(remaining, next), rules, push(acc, next)),
-                _ -> concat(acc, remaining),
+            match pick_zero_indegree(remaining, rules, 0) {
+                Some(next) -> topo_sort(remove_value(remaining, next), rules, push(acc, next)),
+                _ -> remaining,
             }
         }
     }
 
-    public fn parse_day05_input(
-        lines: Array<String>,
-    ) -> Either<String, (Array<(Int, Int)>, Array<Array<Int>>)> {
-        parse_sections(lines_list, RulesPart, [||], [||])
-        where lines_list = to_list(lines)
+    fn sort_by_rules(rules: Array<(Int, Int)>, xs: Array<Int>) -> Array<Int> {
+        topo_sort(xs, relevant_rules(rules, xs), [||])
     }
 
     public fn day05a_from_lines(lines: Array<String>) -> Int {
         match parse_day05_input(lines) {
-            Right(parsed) ->
-                parsed.1
-                |> filter(\u -> update_is_valid(u, parsed.0))
-                |> map(\u -> middle_page(u))
-                |> fold(0, \(acc, x) -> acc + x),
-            Left(_err) -> 0,
+            Right((rules, pages)) ->
+                pages
+                    |> filter(\orig -> arrays_equal(orig, sort_by_rules(rules, orig)))
+                    |> map(\orig -> match middle_val(orig) {
+                        Some(v) -> v,
+                        _ -> 0,
+                    })
+                    |> fold(0, \(acc, x) -> acc + x),
+            Left(_) -> 0,
         }
     }
 
@@ -176,13 +161,16 @@ module Day05Solver {
 
     public fn day05b_from_lines(lines: Array<String>) -> Int {
         match parse_day05_input(lines) {
-            Right(parsed) ->
-                parsed.1
-                |> filter(\u -> if update_is_valid(u, parsed.0) { false } else { true })
-                |> map(\u -> sort_update_by_rules(u, parsed.0))
-                |> map(\u -> middle_page(u))
-                |> fold(0, \(acc, x) -> acc + x),
-            Left(_err) -> 0,
+            Right((rules, pages)) ->
+                pages
+                    |> map(\orig -> (orig, sort_by_rules(rules, orig)))
+                    |> filter(\pair -> !arrays_equal(pair.0, pair.1))
+                    |> map(\pair -> match middle_val(pair.1) {
+                        Some(v) -> v,
+                        _ -> 0,
+                    })
+                    |> fold(0, \(acc, x) -> acc + x),
+            Left(_) -> 0,
         }
     }
 

@@ -25,6 +25,7 @@ pub struct FunctionDebugInfo {
     pub name: Option<String>,
     pub files: Vec<String>,
     pub locations: Vec<InstructionLocation>,
+    pub boundary_location: Option<Location>,
     pub effect_summary: EffectSummary,
 }
 
@@ -38,8 +39,14 @@ impl FunctionDebugInfo {
             name,
             files,
             locations,
+            boundary_location: None,
             effect_summary: EffectSummary::Unknown,
         }
+    }
+
+    pub fn with_boundary_location(mut self, boundary_location: Option<Location>) -> Self {
+        self.boundary_location = boundary_location;
+        self
     }
 
     pub fn with_effect_summary(mut self, effect_summary: EffectSummary) -> Self {

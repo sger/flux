@@ -42,9 +42,18 @@ pub fn validate_ir(program: &IrProgram) -> Result<(), Diagnostic> {
                         defined.insert(*dest);
                     }
                     IrInstr::HandleScope {
-                        dest, body_entry, ..
+                        dest,
+                        body_entry,
+                        arms,
+                        ..
                     } => {
                         ensure_block_exists(*body_entry, &block_ids)?;
+                        for arm in arms {
+                            ensure_function_exists(arm.function_id, &function_ids)?;
+                            for capture in &arm.capture_vars {
+                                ensure_defined(*capture, &defined)?;
+                            }
+                        }
                         defined.insert(*dest);
                     }
                 }
@@ -343,6 +352,21 @@ fn ensure_block_exists(block_id: BlockId, block_ids: &HashSet<BlockId>) -> Resul
     }
 }
 
+#[allow(clippy::result_large_err)]
+fn ensure_function_exists(
+    function_id: FunctionId,
+    function_ids: &HashSet<FunctionId>,
+) -> Result<(), Diagnostic> {
+    if function_ids.contains(&function_id) {
+        Ok(())
+    } else {
+        Err(invalid_ir(
+            None,
+            "IR references a function that does not exist",
+        ))
+    }
+}
+
 fn invalid_ir(span: Option<Span>, message: &str) -> Diagnostic {
     let diagnostic = Diagnostic::warning("Invalid Flux IR")
         .with_error_type(ErrorType::Compiler)
@@ -391,6 +415,7 @@ mod tests {
             }],
             entry: FunctionId(0),
             globals: Vec::new(),
+            global_bindings: Vec::new(),
             hm_expr_types: HashMap::new(),
             core: None,
         };

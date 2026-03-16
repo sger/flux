@@ -1,0 +1,1030 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/aoc/2025/aoc_day10_part2.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E004]: Undefined Variable
+
+I can't find a value named `iter_free_bounded`.
+
+  examples/aoc/2025/aoc_day10_part2.flx:687:1
+    |
+687 | iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, 0, max_v, best, mt)
+    | ^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let iter_free_bounded = ...;
+
+Help:
+  Did you mean `search_free_bounded`?
+
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `ge_step`.
+
+  examples/aoc/2025/aoc_day10_part2.flx:730:26
+    |
+430 | fn ge_step(mat, nrows, nbtn, cur_row, cur_col, pivot_cols) {
+431 |     if cur_col >= nbtn {
+432 |         [|mat, pivot_cols|]
+433 |     } else {
+434 |     if cur_row >= nrows {
+435 | 
+436 |         ge_step(mat, nrows, nbtn, cur_row, cur_col + 1, pivot_cols)
+437 |     } else {
+438 |     let pr = find_pivot_row(mat, cur_col, cur_row, nrows)
+439 |     if pr < 0 {
+440 | 
+441 |         ge_step(mat, nrows, nbtn, cur_row, cur_col + 1, pivot_cols)
+442 |     } else {
+443 |     let mat2 = swap_rows(mat, cur_row, pr)
+444 |     let mat3 = eliminate_col(mat2, cur_row, cur_col, 0, nrows)
+445 |     ge_step(mat3, nrows, nbtn, cur_row + 1, cur_col + 1, push(pivot_cols, cur_col))
+446 | }
+447 | }
+448 | }
+449 | }
+450 | 
+451 | 
+452 | 
+453 | 
+454 | 
+455 | fn fix_pivot_signs(mat, pivot_cols, row) {
+456 |     if row >= len(pivot_cols) { mat }
+457 |     else {
+458 |         let r = button_at(mat, row)
+459 |         let pc = int_at(pivot_cols, row)
+460 |         let pv = int_at(r, pc)
+461 |         if pv < 0 {
+462 |             fix_pivot_signs(set_at(mat, row, negate_row(r, 0, [||])), pivot_cols, row + 1)
+463 |         } else {
+464 |         fix_pivot_signs(mat, pivot_cols, row + 1)
+465 |     }
+466 | }
+467 | }
+468 | 
+469 | 
+470 | 
+471 | 
+472 | 
+473 | 
+474 | 
+475 | 
+476 | 
+477 | 
+478 | 
+479 | 
+480 | 
+481 | 
+482 | fn is_pivot_col(pivot_cols, col, i) {
+483 |     if i >= len(pivot_cols) { false }
+484 |     else {
+485 |         if int_at(pivot_cols, i) == col { true }
+486 |         else { is_pivot_col(pivot_cols, col, i + 1) }
+487 |     }
+488 | }
+489 | 
+490 | 
+491 | fn get_free_cols(nbtn, pivot_cols, col, acc) {
+492 |     if col >= nbtn { acc }
+493 |     else {
+494 |         if is_pivot_col(pivot_cols, col, 0) {
+495 |             get_free_cols(nbtn, pivot_cols, col + 1, acc)
+496 |         } else {
+497 |         get_free_cols(nbtn, pivot_cols, col + 1, push(acc, col))
+498 |     }
+499 | }
+500 | }
+501 | 
+502 | 
+503 | 
+504 | 
+505 | 
+506 | 
+507 | 
+508 | 
+509 | 
+510 | 
+511 | 
+512 | 
+513 | 
+514 | 
+515 | 
+516 | 
+517 | 
+518 | 
+519 | 
+520 | 
+521 | 
+522 | fn free_contrib(row, free_cols, free_vals, i) {
+523 |     if i >= len(free_vals) { 0 }
+524 |     else {
+525 |         let fc = int_at(free_cols, i)
+526 |         let coeff = int_at(row, fc)
+527 |         let val = int_at(free_vals, i)
+528 |         coeff * val + free_contrib(row, free_cols, free_vals, i + 1)
+529 |     }
+530 | }
+531 | 
+532 | 
+533 | fn sum_free(free_vals, i) {
+534 |     if i >= len(free_vals) { 0 }
+535 |     else { int_at(free_vals, i) + sum_free(free_vals, i + 1) }
+536 | }
+537 | 
+538 | 
+539 | 
+540 | 
+541 | fn eval_pivots(mat, pivot_cols, free_cols, free_vals, nbtn, row, total) {
+542 |     if row >= len(pivot_cols) {
+543 | 
+544 |         total + sum_free(free_vals, 0)
+545 |     } else {
+546 |     let r = button_at(mat, row)
+547 |     let pc = int_at(pivot_cols, row)
+548 |     let pivot_coeff = int_at(r, pc)
+549 |     let rhs = int_at(r, nbtn)
+550 |     let fc = free_contrib(r, free_cols, free_vals, 0)
+551 |     let numerator = rhs - fc
+552 |     if pivot_coeff == 0 {
+553 |         -1
+554 |     } else {
+555 |     if numerator % pivot_coeff != 0 {
+556 | 
+557 |         -1
+558 |     } else {
+559 |     let pivot_val = numerator / pivot_coeff
+560 |     if pivot_val < 0 {
+561 | 
+562 |         -1
+563 |     } else {
+564 |     eval_pivots(mat, pivot_cols, free_cols, free_vals, nbtn, row + 1, total + pivot_val)
+565 | }
+566 | }
+567 | }
+568 | }
+569 | }
+570 | 
+571 | 
+572 | 
+573 | 
+574 | 
+575 | 
+576 | 
+577 | 
+578 | 
+579 | 
+580 | 
+581 | 
+582 | 
+583 | 
+584 | 
+585 | 
+586 | 
+587 | 
+588 | 
+589 | 
+590 | 
+591 | 
+592 | 
+593 | 
+594 | 
+595 | 
+596 | 
+597 | 
+598 | 
+599 | 
+600 | 
+601 | 
+602 | 
+603 | 
+604 | 
+605 | 
+606 | 
+607 | 
+608 | 
+609 | 
+610 | fn free_contrib_partial(row, free_cols, free_vals, i, stop) {
+611 |     if i >= stop { 0 }
+612 |     else {
+613 |         let fc = int_at(free_cols, i)
+614 |         let coeff = int_at(row, fc)
+615 |         let val = int_at(free_vals, i)
+616 |         coeff * val + free_contrib_partial(row, free_cols, free_vals, i + 1, stop)
+617 |     }
+618 | }
+619 | 
+620 | 
+621 | 
+622 | 
+623 | 
+624 | fn any_neg_future(row, free_cols, j) {
+625 |     if j >= len(free_cols) { false }
+626 |     else {
+627 |         let fc = int_at(free_cols, j)
+628 |         let c = int_at(row, fc)
+629 |         if c < 0 { true }
+630 |         else { any_neg_future(row, free_cols, j + 1) }
+631 |     }
+632 | }
+633 | 
+634 | 
+635 | 
+636 | 
+637 | 
+638 | 
+639 | 
+640 | 
+641 | 
+642 | 
+643 | 
+644 | 
+645 | fn max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, row, cur_max) {
+646 |     if row >= len(pivot_cols) { cur_max }
+647 |     else {
+648 |         let r = button_at(mat, row)
+649 |         let fc = int_at(free_cols, fidx)
+650 |         let coeff = int_at(r, fc)
+651 |         if coeff <= 0 {
+652 |             max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, row + 1, cur_max)
+653 |         } else {
+654 |         if any_neg_future(r, free_cols, fidx + 1) {
+655 | 
+656 |             max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, row + 1, cur_max)
+657 |         } else {
+658 |         let rhs = int_at(r, nbtn)
+659 |         let partial = free_contrib_partial(r, free_cols, free_vals, 0, fidx)
+660 |         let remaining = rhs - partial
+661 |         let limit = remaining / coeff
+662 |         let new_max = if limit < cur_max { limit } else { cur_max }
+663 |         max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, row + 1, new_max)
+664 |     }
+665 | }
+666 | }
+667 | }
+668 | 
+669 | 
+670 | 
+671 | 
+672 | 
+673 | fn search_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, best, mt) {
+674 |     if fidx >= len(free_cols) {
+675 | 
+676 |         let total = eval_pivots(mat, pivot_cols, free_cols, free_vals, nbtn, 0, 0)
+677 |         if total >= 0 {
+678 |             if total < best { total } else { best }
+679 |         } else {
+680 |         best
+681 |     }
+682 | } else {
+683 | 
+684 | 
+685 | 
+686 | let max_v = max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, 0, mt)
+687 | iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, 0, max_v, best, mt)
+688 | }
+689 | }
+690 | 
+691 | 
+692 | 
+693 | fn iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, v, max_v, best, mt) {
+694 |     if v > max_v { best }
+695 |     else {
+696 |         let free_sum = sum_free(free_vals, 0) + v
+697 |         if free_sum >= best {
+698 | 
+699 |             best
+700 |         } else {
+701 |         let new_vals = push(free_vals, v)
+702 |         let sub = search_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx + 1, new_vals, best, mt)
+703 |         let new_best = if sub < best { sub } else { best }
+704 |         iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, v + 1, max_v, new_best, mt)
+705 |     }
+706 | }
+707 | }
+708 | 
+709 | 
+710 | 
+711 | 
+712 | 
+713 | 
+714 | 
+715 | 
+716 | 
+717 | 
+718 | 
+719 | 
+720 | 
+721 | 
+722 | fn solve_machine(buttons, target) {
+723 |     let npos = len(target)
+724 |     let nbtn = len(buttons)
+725 |     if nbtn == 0 {
+726 |         if all_zero(target, 0) { 0 } else { 1000000000 }
+727 |     } else {
+728 |     let mt = arr_max(target, 0, 0)
+729 |     let mat = build_matrix(buttons, target, 0, npos, nbtn, [||])
+730 |     let result = ge_step(mat, npos, nbtn, 0, 0, [||])
+    |                          ^^^
+    |                          --- this argument has type `Array<Array<Int>>`
+
+Note:
+  expected argument type: Array<Int>
+  found argument type: Array<Array<Int>>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `Array<Int>` value as the 1st argument.
+
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `button_at`.
+
+  examples/aoc/2025/aoc_day10_part2.flx:731:26
+    |
+109 |     fn button_at(arr, idx) {
+110 |         match arr[idx] {
+111 |             Some(v) -> v,
+112 |             _ -> [||]
+113 |         }
+114 |     }
+115 | 
+116 | 
+117 |     fn char_at(s, idx) {
+118 |         substring(s, idx, idx + 1)
+119 |     }
+120 | 
+121 | 
+122 | 
+123 | 
+124 |     fn set_at(arr, idx, value) {
+125 |         let left = slice(arr, 0, idx)
+126 |         let right = slice(arr, idx + 1, len(arr))
+127 |         concat(concat(left, [|value|]), right)
+128 |     }
+129 | 
+130 | 
+131 | 
+132 | 
+133 | 
+134 | 
+135 | 
+136 | 
+137 | 
+138 | 
+139 | 
+140 | 
+141 | 
+142 | 
+143 | 
+144 |     fn find_char_from(s, ch, idx) {
+145 |         if idx >= len(s) {
+146 |             -1
+147 |         } else {
+148 |         if char_at(s, idx) == ch {
+149 |             idx
+150 |         } else {
+151 |         find_char_from(s, ch, idx + 1)
+152 |     }
+153 | }
+154 | }
+155 | 
+156 | 
+157 | 
+158 | fn parse_button(inner) {
+159 |     let t = trim(inner)
+160 |     if t == "" {
+161 |         [||]
+162 |     } else {
+163 |     split_ints(t, ",")
+164 | }
+165 | }
+166 | 
+167 | 
+168 | 
+169 | 
+170 | fn parse_buttons_rec(line, idx, stop, acc) {
+171 |     if idx >= stop {
+172 |         acc
+173 |     } else {
+174 |     if char_at(line, idx) == "(" {
+175 |         let close = find_char_from(line, ")", idx + 1)
+176 |         let inner = substring(line, idx + 1, close)
+177 |         let btn = parse_button(inner)
+178 |         parse_buttons_rec(line, close + 1, stop, push(acc, btn))
+179 |     } else {
+180 |     parse_buttons_rec(line, idx + 1, stop, acc)
+181 | }
+182 | }
+183 | }
+184 | 
+185 | 
+186 | 
+187 | 
+188 | 
+189 | fn parse_buttons(line) {
+190 |     let open_curly = find_char_from(line, "{", 0)
+191 |     let stop = if open_curly < 0 { len(line) } else { open_curly }
+192 |     parse_buttons_rec(line, 0, stop, [||])
+193 | }
+194 | 
+195 | 
+196 | 
+197 | fn parse_requirements(line) {
+198 |     let lb = find_char_from(line, "{", 0)
+199 |     let rb = find_char_from(line, "}", lb + 1)
+200 |     let inner = substring(line, lb + 1, rb)
+201 |     split_ints(inner, ",")
+202 | }
+203 | 
+204 | 
+205 | 
+206 | 
+207 | 
+208 | 
+209 | 
+210 | 
+211 | 
+212 | 
+213 | 
+214 | 
+215 | 
+216 | 
+217 | fn all_zero(rem, idx) {
+218 |     if idx >= len(rem) {
+219 |         true
+220 |     } else {
+221 |     if int_at(rem, idx) == 0 {
+222 |         all_zero(rem, idx + 1)
+223 |     } else {
+224 |     false
+225 | }
+226 | }
+227 | }
+228 | 
+229 | 
+230 | 
+231 | fn btn_covers(button, pos, i) {
+232 |     if i >= len(button) {
+233 |         false
+234 |     } else {
+235 |     if int_at(button, i) == pos {
+236 |         true
+237 |     } else {
+238 |     btn_covers(button, pos, i + 1)
+239 | }
+240 | }
+241 | }
+242 | 
+243 | 
+244 | fn abs_val(x) {
+245 |     if x < 0 { 0 - x } else { x }
+246 | }
+247 | 
+248 | 
+249 | fn arr_max(arr, i, m) {
+250 |     if i >= len(arr) { m }
+251 |     else {
+252 |         let v = int_at(arr, i)
+253 |         arr_max(arr, i + 1, if v > m { v } else { m })
+254 |     }
+255 | }
+256 | 
+257 | 
+258 | 
+259 | fn gcd(a, b) {
+260 |     if b == 0 { a }
+261 |     else { gcd(b, a % b) }
+262 | }
+263 | 
+264 | 
+265 | 
+266 | 
+267 | 
+268 | 
+269 | 
+270 | 
+271 | 
+272 | 
+273 | 
+274 | 
+275 | fn row_gcd(row, i, g) {
+276 |     if i >= len(row) {
+277 |         g
+278 |     } else {
+279 |     let v = abs_val(int_at(row, i))
+280 |     if v == 0 {
+281 |         row_gcd(row, i + 1, g)
+282 |     } else {
+283 |     row_gcd(row, i + 1, gcd(g, v))
+284 | }
+285 | }
+286 | }
+287 | 
+288 | 
+289 | fn div_row(row, d, i, acc) {
+290 |     if i >= len(row) { acc }
+291 |     else { div_row(row, d, i + 1, push(acc, int_at(row, i) / d)) }
+292 | }
+293 | 
+294 | 
+295 | 
+296 | 
+297 | fn normalize_row(row) {
+298 |     let g = row_gcd(row, 0, 0)
+299 |     if g <= 1 { row }
+300 |     else { div_row(row, g, 0, [||]) }
+301 | }
+302 | 
+303 | 
+304 | 
+305 | fn negate_row(row, i, acc) {
+306 |     if i >= len(row) { acc }
+307 |     else { negate_row(row, i + 1, push(acc, 0 - int_at(row, i))) }
+308 | }
+309 | 
+310 | 
+311 | 
+312 | 
+313 | 
+314 | 
+315 | 
+316 | 
+317 | 
+318 | 
+319 | fn combine_rows(a, fa, b, fb, i, acc) {
+320 |     if i >= len(a) { acc }
+321 |     else {
+322 |         let v = int_at(a, i) * fa - int_at(b, i) * fb
+323 |         combine_rows(a, fa, b, fb, i + 1, push(acc, v))
+324 |     }
+325 | }
+326 | 
+327 | 
+328 | 
+329 | 
+330 | 
+331 | 
+332 | 
+333 | 
+334 | 
+335 | 
+336 | 
+337 | 
+338 | 
+339 | 
+340 | 
+341 | fn build_row(buttons, target, pos, col, nbtn, acc) {
+342 |     if col >= nbtn {
+343 |         push(acc, int_at(target, pos))
+344 |     } else {
+345 |     let v = if btn_covers(button_at(buttons, col), pos, 0) { 1 } else { 0 }
+346 |     build_row(buttons, target, pos, col + 1, nbtn, push(acc, v))
+347 | }
+348 | }
+349 | 
+350 | 
+351 | fn build_matrix(buttons, target, pos, npos, nbtn, acc) {
+352 |     if pos >= npos { acc }
+353 |     else {
+354 |         let row = build_row(buttons, target, pos, 0, nbtn, [||])
+355 |         build_matrix(buttons, target, pos + 1, npos, nbtn, push(acc, row))
+356 |     }
+357 | }
+358 | 
+359 | 
+360 | 
+361 | 
+362 | 
+363 | 
+364 | 
+365 | 
+366 | 
+367 | 
+368 | 
+369 | 
+370 | 
+371 | 
+372 | 
+373 | 
+374 | 
+375 | 
+376 | 
+377 | 
+378 | fn find_pivot_row(mat, col, start, nrows) {
+379 |     if start >= nrows { -1 }
+380 |     else {
+381 |         if int_at(button_at(mat, start), col) != 0 { start }
+382 |         else { find_pivot_row(mat, col, start + 1, nrows) }
+383 |     }
+384 | }
+385 | 
+386 | 
+387 | fn swap_rows(mat, r1, r2) {
+388 |     if r1 == r2 { mat }
+389 |     else {
+390 |         let row1 = button_at(mat, r1)
+391 |         let row2 = button_at(mat, r2)
+392 |         set_at(set_at(mat, r1, row2), r2, row1)
+393 |     }
+394 | }
+395 | 
+396 | 
+397 | 
+398 | 
+399 | 
+400 | fn eliminate_col(mat, pivot_idx, col, row, nrows) {
+401 |     if row >= nrows { mat }
+402 |     else {
+403 |         if row == pivot_idx {
+404 |             eliminate_col(mat, pivot_idx, col, row + 1, nrows)
+405 |         } else {
+406 |         let entry = int_at(button_at(mat, row), col)
+407 |         if entry == 0 {
+408 |             eliminate_col(mat, pivot_idx, col, row + 1, nrows)
+409 |         } else {
+410 |         let pivot_row = button_at(mat, pivot_idx)
+411 |         let pivot_val = int_at(pivot_row, col)
+412 |         let cur_row = button_at(mat, row)
+413 |         let raw = combine_rows(cur_row, pivot_val, pivot_row, entry, 0, [||])
+414 |         let norm = normalize_row(raw)
+415 |         let new_mat = set_at(mat, row, norm)
+416 |         eliminate_col(new_mat, pivot_idx, col, row + 1, nrows)
+417 |     }
+418 | }
+419 | }
+420 | }
+421 | 
+422 | 
+423 | 
+424 | 
+425 | 
+426 | 
+427 | 
+428 | 
+429 | 
+430 | fn ge_step(mat, nrows, nbtn, cur_row, cur_col, pivot_cols) {
+431 |     if cur_col >= nbtn {
+432 |         [|mat, pivot_cols|]
+433 |     } else {
+434 |     if cur_row >= nrows {
+435 | 
+436 |         ge_step(mat, nrows, nbtn, cur_row, cur_col + 1, pivot_cols)
+437 |     } else {
+438 |     let pr = find_pivot_row(mat, cur_col, cur_row, nrows)
+439 |     if pr < 0 {
+440 | 
+441 |         ge_step(mat, nrows, nbtn, cur_row, cur_col + 1, pivot_cols)
+442 |     } else {
+443 |     let mat2 = swap_rows(mat, cur_row, pr)
+444 |     let mat3 = eliminate_col(mat2, cur_row, cur_col, 0, nrows)
+445 |     ge_step(mat3, nrows, nbtn, cur_row + 1, cur_col + 1, push(pivot_cols, cur_col))
+446 | }
+447 | }
+448 | }
+449 | }
+450 | 
+451 | 
+452 | 
+453 | 
+454 | 
+455 | fn fix_pivot_signs(mat, pivot_cols, row) {
+456 |     if row >= len(pivot_cols) { mat }
+457 |     else {
+458 |         let r = button_at(mat, row)
+459 |         let pc = int_at(pivot_cols, row)
+460 |         let pv = int_at(r, pc)
+461 |         if pv < 0 {
+462 |             fix_pivot_signs(set_at(mat, row, negate_row(r, 0, [||])), pivot_cols, row + 1)
+463 |         } else {
+464 |         fix_pivot_signs(mat, pivot_cols, row + 1)
+465 |     }
+466 | }
+467 | }
+468 | 
+469 | 
+470 | 
+471 | 
+472 | 
+473 | 
+474 | 
+475 | 
+476 | 
+477 | 
+478 | 
+479 | 
+480 | 
+481 | 
+482 | fn is_pivot_col(pivot_cols, col, i) {
+483 |     if i >= len(pivot_cols) { false }
+484 |     else {
+485 |         if int_at(pivot_cols, i) == col { true }
+486 |         else { is_pivot_col(pivot_cols, col, i + 1) }
+487 |     }
+488 | }
+489 | 
+490 | 
+491 | fn get_free_cols(nbtn, pivot_cols, col, acc) {
+492 |     if col >= nbtn { acc }
+493 |     else {
+494 |         if is_pivot_col(pivot_cols, col, 0) {
+495 |             get_free_cols(nbtn, pivot_cols, col + 1, acc)
+496 |         } else {
+497 |         get_free_cols(nbtn, pivot_cols, col + 1, push(acc, col))
+498 |     }
+499 | }
+500 | }
+501 | 
+502 | 
+503 | 
+504 | 
+505 | 
+506 | 
+507 | 
+508 | 
+509 | 
+510 | 
+511 | 
+512 | 
+513 | 
+514 | 
+515 | 
+516 | 
+517 | 
+518 | 
+519 | 
+520 | 
+521 | 
+522 | fn free_contrib(row, free_cols, free_vals, i) {
+523 |     if i >= len(free_vals) { 0 }
+524 |     else {
+525 |         let fc = int_at(free_cols, i)
+526 |         let coeff = int_at(row, fc)
+527 |         let val = int_at(free_vals, i)
+528 |         coeff * val + free_contrib(row, free_cols, free_vals, i + 1)
+529 |     }
+530 | }
+531 | 
+532 | 
+533 | fn sum_free(free_vals, i) {
+534 |     if i >= len(free_vals) { 0 }
+535 |     else { int_at(free_vals, i) + sum_free(free_vals, i + 1) }
+536 | }
+537 | 
+538 | 
+539 | 
+540 | 
+541 | fn eval_pivots(mat, pivot_cols, free_cols, free_vals, nbtn, row, total) {
+542 |     if row >= len(pivot_cols) {
+543 | 
+544 |         total + sum_free(free_vals, 0)
+545 |     } else {
+546 |     let r = button_at(mat, row)
+547 |     let pc = int_at(pivot_cols, row)
+548 |     let pivot_coeff = int_at(r, pc)
+549 |     let rhs = int_at(r, nbtn)
+550 |     let fc = free_contrib(r, free_cols, free_vals, 0)
+551 |     let numerator = rhs - fc
+552 |     if pivot_coeff == 0 {
+553 |         -1
+554 |     } else {
+555 |     if numerator % pivot_coeff != 0 {
+556 | 
+557 |         -1
+558 |     } else {
+559 |     let pivot_val = numerator / pivot_coeff
+560 |     if pivot_val < 0 {
+561 | 
+562 |         -1
+563 |     } else {
+564 |     eval_pivots(mat, pivot_cols, free_cols, free_vals, nbtn, row + 1, total + pivot_val)
+565 | }
+566 | }
+567 | }
+568 | }
+569 | }
+570 | 
+571 | 
+572 | 
+573 | 
+574 | 
+575 | 
+576 | 
+577 | 
+578 | 
+579 | 
+580 | 
+581 | 
+582 | 
+583 | 
+584 | 
+585 | 
+586 | 
+587 | 
+588 | 
+589 | 
+590 | 
+591 | 
+592 | 
+593 | 
+594 | 
+595 | 
+596 | 
+597 | 
+598 | 
+599 | 
+600 | 
+601 | 
+602 | 
+603 | 
+604 | 
+605 | 
+606 | 
+607 | 
+608 | 
+609 | 
+610 | fn free_contrib_partial(row, free_cols, free_vals, i, stop) {
+611 |     if i >= stop { 0 }
+612 |     else {
+613 |         let fc = int_at(free_cols, i)
+614 |         let coeff = int_at(row, fc)
+615 |         let val = int_at(free_vals, i)
+616 |         coeff * val + free_contrib_partial(row, free_cols, free_vals, i + 1, stop)
+617 |     }
+618 | }
+619 | 
+620 | 
+621 | 
+622 | 
+623 | 
+624 | fn any_neg_future(row, free_cols, j) {
+625 |     if j >= len(free_cols) { false }
+626 |     else {
+627 |         let fc = int_at(free_cols, j)
+628 |         let c = int_at(row, fc)
+629 |         if c < 0 { true }
+630 |         else { any_neg_future(row, free_cols, j + 1) }
+631 |     }
+632 | }
+633 | 
+634 | 
+635 | 
+636 | 
+637 | 
+638 | 
+639 | 
+640 | 
+641 | 
+642 | 
+643 | 
+644 | 
+645 | fn max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, row, cur_max) {
+646 |     if row >= len(pivot_cols) { cur_max }
+647 |     else {
+648 |         let r = button_at(mat, row)
+649 |         let fc = int_at(free_cols, fidx)
+650 |         let coeff = int_at(r, fc)
+651 |         if coeff <= 0 {
+652 |             max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, row + 1, cur_max)
+653 |         } else {
+654 |         if any_neg_future(r, free_cols, fidx + 1) {
+655 | 
+656 |             max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, row + 1, cur_max)
+657 |         } else {
+658 |         let rhs = int_at(r, nbtn)
+659 |         let partial = free_contrib_partial(r, free_cols, free_vals, 0, fidx)
+660 |         let remaining = rhs - partial
+661 |         let limit = remaining / coeff
+662 |         let new_max = if limit < cur_max { limit } else { cur_max }
+663 |         max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, row + 1, new_max)
+664 |     }
+665 | }
+666 | }
+667 | }
+668 | 
+669 | 
+670 | 
+671 | 
+672 | 
+673 | fn search_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, best, mt) {
+674 |     if fidx >= len(free_cols) {
+675 | 
+676 |         let total = eval_pivots(mat, pivot_cols, free_cols, free_vals, nbtn, 0, 0)
+677 |         if total >= 0 {
+678 |             if total < best { total } else { best }
+679 |         } else {
+680 |         best
+681 |     }
+682 | } else {
+683 | 
+684 | 
+685 | 
+686 | let max_v = max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, 0, mt)
+687 | iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, 0, max_v, best, mt)
+688 | }
+689 | }
+690 | 
+691 | 
+692 | 
+693 | fn iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, v, max_v, best, mt) {
+694 |     if v > max_v { best }
+695 |     else {
+696 |         let free_sum = sum_free(free_vals, 0) + v
+697 |         if free_sum >= best {
+698 | 
+699 |             best
+700 |         } else {
+701 |         let new_vals = push(free_vals, v)
+702 |         let sub = search_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx + 1, new_vals, best, mt)
+703 |         let new_best = if sub < best { sub } else { best }
+704 |         iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, v + 1, max_v, new_best, mt)
+705 |     }
+706 | }
+707 | }
+708 | 
+709 | 
+710 | 
+711 | 
+712 | 
+713 | 
+714 | 
+715 | 
+716 | 
+717 | 
+718 | 
+719 | 
+720 | 
+721 | 
+722 | fn solve_machine(buttons, target) {
+723 |     let npos = len(target)
+724 |     let nbtn = len(buttons)
+725 |     if nbtn == 0 {
+726 |         if all_zero(target, 0) { 0 } else { 1000000000 }
+727 |     } else {
+728 |     let mt = arr_max(target, 0, 0)
+729 |     let mat = build_matrix(buttons, target, 0, npos, nbtn, [||])
+730 |     let result = ge_step(mat, npos, nbtn, 0, 0, [||])
+731 |     let rmat = button_at(result, 0)
+    |                          ^^^^^^
+    |                          ------ this argument has type `Array<Array<Int>>`
+
+Note:
+  expected argument type: Array<Int>
+  found argument type: Array<Array<Int>>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `Array<Int>` value as the 1st argument.
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `solve_machine`.
+
+  examples/aoc/2025/aoc_day10_part2.flx:744:19
+    |
+722 | fn solve_machine(buttons, target) {
+723 |     let npos = len(target)
+724 |     let nbtn = len(buttons)
+725 |     if nbtn == 0 {
+726 |         if all_zero(target, 0) { 0 } else { 1000000000 }
+727 |     } else {
+728 |     let mt = arr_max(target, 0, 0)
+729 |     let mat = build_matrix(buttons, target, 0, npos, nbtn, [||])
+730 |     let result = ge_step(mat, npos, nbtn, 0, 0, [||])
+731 |     let rmat = button_at(result, 0)
+732 |     let pivots = button_at(result, 1)
+733 |     let rmat2 = fix_pivot_signs(rmat, pivots, 0)
+734 |     let fcols = get_free_cols(nbtn, pivots, 0, [||])
+735 |     let ans = search_free_bounded(rmat2, pivots, fcols, nbtn, 0, [||], 1000000000, mt)
+736 |     ans
+737 | }
+738 | }
+739 | 
+740 | 
+741 | fn machine_min_presses(line) {
+742 |     let target = parse_requirements(line)
+743 |     let buttons = parse_buttons(line)
+744 |     solve_machine(buttons, target)
+    |                   ^^^^^^^
+    |                   ------- this argument has type `Array<Array<Int>>`
+
+Note:
+  expected argument type: Array<Int>
+  found argument type: Array<Array<Int>>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `Array<Int>` value as the 1st argument.
+
+Found 4 errors.
+== stdout ==
+<not executed>

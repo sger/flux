@@ -10,13 +10,13 @@
 use std::collections::HashMap;
 
 use flux::ast::type_infer::{InferProgramConfig, infer_program};
+use flux::backend_ir::{IrBinaryOp, IrExpr, IrInstr, IrTerminator, lower_program_to_ir};
 use flux::bytecode::compiler::Compiler;
-use flux::cfg::{IrBinaryOp, IrExpr, IrInstr, IrTerminator};
-use flux::diagnostics::render_diagnostics;
-use flux::nary::{
+use flux::core::{
     CoreExpr, CorePrimOp, lower_ast::lower_program_ast, passes::run_core_passes,
     to_ir::lower_core_to_ir,
 };
+use flux::diagnostics::render_diagnostics;
 use flux::runtime::value::Value;
 use flux::runtime::vm::VM;
 use flux::syntax::{expression::ExprId, interner::Interner, lexer::Lexer, parser::Parser};
@@ -113,10 +113,13 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
                 out.extend(collect_core_exprs(a));
             }
         }
+        CoreExpr::Return { value, .. } => {
+            out.extend(collect_core_exprs(value));
+        }
         CoreExpr::Handle { body, .. } => {
             out.extend(collect_core_exprs(body));
         }
-        CoreExpr::Var(..) | CoreExpr::Lit(..) => {}
+        CoreExpr::Var { .. } | CoreExpr::Lit(..) => {}
     }
     out
 }
@@ -179,6 +182,22 @@ fn main() {
 
     // Final output: should return 1 (x=2 > 0)
     assert_eq!(run(src), Value::Integer(1));
+}
+
+#[test]
+fn backend_ir_lowering_is_core_backed() {
+    let src = r#"
+fn add(a: Int, b: Int) -> Int { a + b }
+fn main() { add(3, 4) }
+"#;
+    let (program, types, _interner) = parse_and_infer(src);
+    let ir = lower_program_to_ir(&program, &types).expect("backend lowering should succeed");
+
+    let core = ir
+        .core
+        .as_ref()
+        .expect("canonical backend lowering should retain Flux Core");
+    assert_eq!(core.defs.len(), 2);
 }
 
 // ── Test 3: Match guard with let-inlined variable ───────────────────────────

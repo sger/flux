@@ -260,6 +260,77 @@ let x: Int = y
 }
 
 #[test]
+fn nested_function_can_shadow_base_name() {
+    let (program, interner) = parse_program(
+        r#"
+import Base except [flatten]
+
+fn main() {
+    fn flatten(x) { x }
+    flatten(1)
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .expect("nested function should shadow excluded Base name");
+}
+
+#[test]
+fn local_let_can_shadow_base_name() {
+    let (program, interner) = parse_program(
+        r#"
+import Base except [len]
+
+fn main() {
+    let len = 1
+    len
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .expect("local let should shadow excluded Base name");
+}
+
+#[test]
+fn match_pattern_can_shadow_base_name() {
+    let (program, interner) = parse_program(
+        r#"
+import Base except [len]
+
+fn main() {
+    match Some(1) {
+        Some(len) -> len,
+        None -> 0,
+    }
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .expect("pattern binding should shadow excluded Base name");
+}
+
+#[test]
+fn parameter_can_shadow_base_name() {
+    let (program, interner) = parse_program(
+        r#"
+import Base except [len]
+
+fn id(len) { len }
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .expect("parameter binding should shadow excluded Base name");
+}
+
+#[test]
 fn typed_let_mismatch_is_checked_for_typed_call_return() {
     let (program, interner) = parse_program(
         r#"

@@ -40,7 +40,9 @@ fn run_jit_program(input: &str) -> Result<Value, String> {
         render_diagnostics(&parser.errors, Some(input), None)
     );
     let interner = parser.take_interner();
-    jit_compile_and_run(&program, &interner, &JitOptions::default()).map(|(value, _)| value)
+    jit_compile_and_run(&program, &interner, &JitOptions::default())
+        .map(|(value, _)| value)
+        .map_err(|err| err.to_string())
 }
 
 fn assert_vm_jit_value(input: &str) {
@@ -201,6 +203,48 @@ fn assert_file_cli_runtime_e1004_parity(file: &str, roots: &[&str], expected_fra
     );
 }
 
+fn assert_file_cli_runtime_error_uses_real_source_location(
+    file: &str,
+    roots: &[&str],
+    expected_fragment: &str,
+) {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let flux_bin = Path::new(env!("CARGO_BIN_EXE_flux"));
+
+    let (vm_status, _vm_stdout, vm_stderr) =
+        run_flux_file(workspace_root, flux_bin, file, roots, false);
+    let (jit_status, _jit_stdout, jit_stderr) =
+        run_flux_file(workspace_root, flux_bin, file, roots, true);
+
+    assert_ne!(vm_status, 0, "expected runtime failure for `{file}` in VM");
+    assert_ne!(
+        jit_status, 0,
+        "expected runtime failure for `{file}` in JIT"
+    );
+    assert!(
+        !vm_stderr.contains("<unknown>:0:1"),
+        "expected VM runtime error for `{file}` to use a real source location; got:\n{}",
+        vm_stderr
+    );
+    assert!(
+        !jit_stderr.contains("<unknown>:0:1"),
+        "expected JIT runtime error for `{file}` to use a real source location; got:\n{}",
+        jit_stderr
+    );
+    assert!(
+        vm_stderr.contains(expected_fragment),
+        "expected VM stderr for `{file}` to contain {:?}; got:\n{}",
+        expected_fragment,
+        vm_stderr
+    );
+    assert!(
+        jit_stderr.contains(expected_fragment),
+        "expected JIT stderr for `{file}` to contain {:?}; got:\n{}",
+        expected_fragment,
+        jit_stderr
+    );
+}
+
 fn assert_file_cli_runtime_highlight_contains(file: &str, roots: &[&str], caret_fragment: &str) {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let flux_bin = Path::new(env!("CARGO_BIN_EXE_flux"));
@@ -269,7 +313,6 @@ left.1 + right.0
 }
 
 #[test]
-#[ignore = "JIT: stack overflow in tail-recursive countdown (proposal 0102)"]
 fn release_runtime_parity_tail_recursive_countdown() {
     assert_vm_jit_value(
         r#"
@@ -286,13 +329,13 @@ countdown(100000)
 }
 
 #[test]
-#[ignore = "JIT: benchmark VM/JIT parity (proposal 0102)"]
+#[ignore = "benchmark parity is opt-in; exclude long-running benchmark files from default CI cargo test"]
 fn release_runtime_parity_cfold_benchmark_file() {
     assert_file_cli_outcome_parity("benchmarks/flux/cfold.flx", &[]);
 }
 
 #[test]
-#[ignore = "JIT: benchmark VM/JIT parity (proposal 0102)"]
+#[ignore = "benchmark parity is opt-in; exclude long-running benchmark files from default CI cargo test"]
 fn release_runtime_parity_rbtree_del_benchmark_file() {
     assert_file_cli_outcome_parity("benchmarks/flux/rbtree_del.flx", &[]);
 }
@@ -314,7 +357,6 @@ fn release_runtime_parity_strict_module_private_helper_allowed() {
 }
 
 #[test]
-#[ignore = "JIT: runtime error span highlight parity (proposal 0102)"]
 fn release_jit_base_runtime_errors_use_full_span_highlights() {
     assert_file_cli_runtime_highlight_contains(
         "examples/runtime_errors/base_flat_map_return_shape.flx",
@@ -324,7 +366,6 @@ fn release_jit_base_runtime_errors_use_full_span_highlights() {
 }
 
 #[test]
-#[ignore = "JIT: runtime error span highlight parity (proposal 0102)"]
 fn release_jit_primop_runtime_errors_use_full_span_highlights() {
     assert_file_cli_runtime_highlight_contains(
         "examples/runtime_errors/primop_array_len_type.flx",
@@ -334,13 +375,11 @@ fn release_jit_primop_runtime_errors_use_full_span_highlights() {
 }
 
 #[test]
-#[ignore = "JIT: indirect call error rendering parity (proposal 0102)"]
 fn release_jit_indirect_call_wrong_arity_renders_runtime_signature() {
     assert_file_cli_outcome_parity("examples/runtime_errors/indirect_call_wrong_arity.flx", &[]);
 }
 
 #[test]
-#[ignore = "JIT: indirect call error rendering parity (proposal 0102)"]
 fn release_jit_indirect_call_not_callable_renders_runtime_signature() {
     assert_file_cli_outcome_parity(
         "examples/runtime_errors/indirect_call_not_callable.flx",
@@ -376,6 +415,15 @@ fn release_runtime_parity_e1004_return_boundary() {
         "examples/type_system/failing/186_runtime_boundary_return_e1004.flx",
         &["examples/type_system"],
         "expected type: Int",
+    );
+}
+
+#[test]
+fn release_runtime_parity_e1004_return_boundary_uses_real_source_location() {
+    assert_file_cli_runtime_error_uses_real_source_location(
+        "examples/runtime_errors/boundary_return_string_as_int.flx",
+        &[],
+        "examples/runtime_errors/boundary_return_string_as_int.flx",
     );
 }
 

@@ -69,6 +69,7 @@ impl Lowerer {
             functions: self.functions,
             entry: FunctionId(0),
             globals: self.globals,
+            global_bindings: Vec::new(),
             hm_expr_types: self.hm_expr_types,
             core: None, // populated by callers via lower_program_ast + lower_core_to_ir
         }
@@ -342,14 +343,14 @@ impl<'a> FunctionLoweringContext<'a> {
                 let var = self.lower_expression(value)?;
                 self.env.insert(*name, var);
                 self.lowerer.globals.push(*name);
-                self.last_value = Some(var);
-                Ok(Some(var))
+                self.last_value = None;
+                Ok(None)
             }
             Statement::Assign { name, value, .. } => {
                 let var = self.lower_expression(value)?;
                 self.env.insert(*name, var);
-                self.last_value = Some(var);
-                Ok(Some(var))
+                self.last_value = None;
+                Ok(None)
             }
             Statement::Expression { expression, .. } => {
                 if in_tail_position && self.try_lower_tail_call(expression)? {
@@ -2451,7 +2452,7 @@ impl<'a> FunctionLoweringContext<'a> {
 }
 
 #[allow(clippy::result_large_err)]
-fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelItem, Diagnostic> {
+pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelItem, Diagnostic> {
     match statement {
         Statement::Let {
             name,

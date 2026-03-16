@@ -1,7 +1,7 @@
-# Flux IR Pipeline: Core IR (N-ary) and CFG IR
+# Flux IR Pipeline: Flux Core and Backend IR
 
-This document explains the two intermediate representations (IRs) that sit between the
-surface AST and executable code in Flux, and how they interact.
+This document explains the two long-term IR layers that sit between the surface
+AST and executable code in Flux, and how they interact.
 
 ---
 
@@ -11,26 +11,26 @@ surface AST and executable code in Flux, and how they interact.
                         ┌─────────────────────────────────────────┐
   Surface AST           │            Intermediate Representations │
   (many variants,       │                                         │
-   syntactic sugar)     │  Core IR (nary/)    CFG IR (cfg/)       │     Executable
-                        │  ~12 variants       basic blocks        │
-        ──────────►     │  functional         imperative          │  ──────────►
-                        │  tree-shaped        graph-shaped        │
+   syntactic sugar)     │  Flux Core         Backend IR           │     Executable
+                        │  ~12 variants      basic blocks         │
+        ──────────►     │  functional        imperative           │  ──────────►
+                        │  tree-shaped       graph-shaped         │
                         │                                         │     Bytecode
-                        │  Optimization:      Code generation:    │        or
-                        │  beta reduce,       opcodes, jumps,     │     Native
-                        │  COKC, inline       register alloc      │
+                        │  Optimization:     Code generation:     │        or
+                        │  beta reduce,      opcodes, jumps,      │     Native
+                        │  COKC, inline      register alloc       │
                         └─────────────────────────────────────────┘
 ```
 
 ---
 
-## Core IR (N-ary)
+## Flux Core
 
-> Source: `src/nary/`
+> Canonical API: `src/core/`
 
-The Core IR is a small functional intermediate representation. All of Flux's surface
-constructs — function definitions, if/else, match expressions, operators, lambdas,
-list comprehensions — are desugared into **~12 expression variants**:
+Flux Core is the semantic IR of the compiler. All of Flux's surface constructs
+— function definitions, if/else, match expressions, operators, lambdas, list
+comprehensions — are desugared into **~12 expression variants**:
 
 ```
 Surface Flux                 →  Core IR
@@ -95,22 +95,25 @@ This allows backends to emit specialized instructions without runtime type dispa
 
 ### Lowering: AST → Core IR
 
-`nary/lower_ast.rs` — `lower_program_ast(program, hm_expr_types) → CoreProgram`
+`core/lower_ast.rs` — `lower_program_ast(program, hm_expr_types) → CoreProgram`
 
 This runs immediately after HM type inference. Key decisions:
 
 - **Type-directed**: The `hm_expr_types` map (from type inference) guides lowering.
   When the inferred type of an arithmetic expression is `Int`, the lowering emits `IAdd`
   instead of generic `Add`.
-- **Top-level only**: Currently only processes top-level function definitions. Module
-  bodies (`Statement::Module`) are skipped — they are handled by the structured-IR path.
+- **Core-owned declarations**: Top-level `Module`, `Data`, and `EffectDecl`
+  statements are preserved in Core-owned top-level metadata so backend IR and
+  production backends do not need AST-only declaration knowledge.
+- **Nested local functions**: Block-local `fn` statements lower into Core
+  `LetRec` rather than relying on an AST fallback path.
 - **Desugaring**: All syntactic sugar is eliminated. `if/else` becomes `Case` with
   boolean alternatives. `match` becomes `Case` with constructor patterns. Operators
   become `PrimOp`.
 
 ### Optimization passes
 
-`nary/passes.rs` — `run_core_passes(program)`
+`core/passes.rs` — `run_core_passes(program)`
 
 Four passes run in order:
 
@@ -129,7 +132,7 @@ Four passes run in order:
 
 ### Core IR → CFG IR lowering
 
-`nary/to_ir.rs` — `lower_core_to_ir(core) → IrProgram`
+`core/to_ir.rs` — `lower_core_to_ir(core) → IrProgram`
 
 Translates functional `CoreExpr` trees into imperative CFG basic blocks:
 
@@ -141,13 +144,23 @@ Translates functional `CoreExpr` trees into imperative CFG basic blocks:
 
 ---
 
-## CFG IR
+## Backend IR
 
-> Source: `src/cfg/`
+> Canonical API: `src/backend_ir/`
+>
+> Current implementation: `src/cfg/`
+>
+> Canonical IR IDs live in `src/shared_ir/`.
+>
+> `cfg/` is the private backend engine; production backend traffic flows
+> through `backend_ir/`.
 
-The CFG (Control Flow Graph) IR is the low-level representation consumed by both the
-bytecode compiler and the Cranelift JIT. Programs are represented as collections of
-**functions**, each containing **basic blocks** connected by jumps and branches.
+The current backend IR is the CFG (Control Flow Graph) representation consumed
+by both the bytecode compiler and the Cranelift JIT. Programs are represented
+as collections of **functions**, each containing **basic blocks** connected by
+jumps and branches.
+
+`src/ir/` has been retired from this pipeline.
 
 ### What is a Control Flow Graph?
 
@@ -166,7 +179,7 @@ because it makes optimizations and code generation systematic.
 
 | Type | Purpose |
 |------|---------|
-| `IrProgram` | Complete program: functions + top-level items + globals + HM types |
+| `IrProgram` | Complete production backend program: functions + top-level items + globals + HM types |
 | `IrFunction` | A function: params, captures, basic blocks, entry block, metadata |
 | `IrBlock` | A basic block: params + instructions + terminator |
 | `IrInstr` | An instruction: Assign, Call, or HandleScope |
@@ -315,49 +328,31 @@ for human-readable names.
 
 ---
 
-## Structured IR Lowering (Legacy Path)
+## Structured IR
 
-> Source: `cfg/lower.rs`
+`structured_ir` has been retired. Production lowering and execution now flow
+through:
 
-The structured IR lowering path (`lower_program_to_ir`) handles the full AST including:
-
-- **Module bodies** — recursively lowers functions inside `module Foo { ... }`
-- **Data type declarations** — records ADT constructors and variants
-- **Effect declarations** — registers effect operations
-- **Import statements** — resolves module imports and aliases
-- **All expression forms** — including patterns, match, closures with free variables
-
-This is the "original" lowering path. It produces both `IrTopLevelItem` metadata (which
-the bytecode compiler uses for module structure, imports, data types) and `IrFunction`
-entries (which contain the actual CFG basic blocks).
-
-### Module functions: AST fallback
-
-Module-internal functions are not yet handled by the Core IR pipeline. When the bytecode
-compiler encounters a function without a Core IR-derived `IrFunction`, it falls back to
-compiling the function body directly from the AST. This is controlled by passing `None`
-as the `ir_function` parameter to `compile_ir_function_statement`.
+- `core/lower_ast.rs`
+- `core/to_ir.rs`
+- `backend_ir/`
+- bytecode/JIT codegen
 
 ---
 
-## The Merge Step
+## Backend Program Assembly
 
-After both lowering passes complete, the results are merged in `bytecode/compiler/mod.rs`:
+The production backend program is assembled from Core-backed lowering:
 
-1. Core IR functions (`nary/to_ir.rs` output) become the primary function list
-2. For each `IrTopLevelItem::Function`, the `function_id` is patched to point to the
-   Core IR-derived function if one exists (`patch_function_ids_from_core`)
-3. All structured-IR functions not covered by Core IR are preserved (merged into the
-   function list) — this ensures module-internal functions, closure helpers, and effect
-   handler functions remain available
+1. `core/lower_ast.rs` produces `CoreProgram`
+2. `core/passes.rs` simplifies/normalizes Core
+3. `core/to_ir.rs` lowers Core into backend `IrProgram`
+4. `backend_ir` pass/validation/codegen layers consume that `IrProgram`
 
-```
-Structured IR:  [fn0: main, fn1: fib, fn2: Module.helper, fn3: lambda_closure]
-Core IR:        [fn100: main, fn101: fib]
-
-After merge:    [fn100: main, fn101: fib, fn2: Module.helper, fn3: lambda_closure]
-                 ▲ Core IR replaces       ▲ Preserved from structured IR
-```
+Top-level declaration metadata such as modules, data declarations, and effect
+declarations is now carried through Core and emitted into backend
+`IrTopLevelItem`s, so production backends do not need to reconstruct those
+shapes from the source AST.
 
 ---
 
@@ -366,7 +361,7 @@ After merge:    [fn100: main, fn101: fib, fn2: Module.helper, fn3: lambda_closur
 ### Inspect Core IR
 
 Currently, Core IR can be inspected via the `display` module. The `CoreProgram` and
-`CoreExpr` types implement pretty-printing in `nary/display.rs`.
+`CoreExpr` types implement pretty-printing in `core/display.rs`.
 
 ### Inspect CFG IR
 
@@ -394,11 +389,9 @@ Prints every VM instruction as it executes.
 
 ### Core IR coverage gaps
 
-The N-ary Core IR pipeline currently does not lower:
-
-- Module bodies (`Statement::Module`) — functions inside modules use the AST fallback
-- Nested function statements inside blocks (only top-level `fn` is lowered)
-- Some effect handler patterns (JIT may report "missing literal function metadata")
+The remaining gaps are no longer “module functions require AST fallback” gaps.
+Current limitations are narrower backend/JIT lowering coverage issues, for
+example some handler/capture-heavy backend forms.
 
 ### "missing CFG" warnings
 
@@ -413,10 +406,12 @@ Common causes:
 
 ### JIT-specific gaps
 
-The JIT may report:
-- `"missing JIT CFG closure function"` — closure's `IrFunction` not found
-- `"missing JIT CFG named call target"` — a named function isn't in the function list
-- `"missing literal function metadata in JIT"` — function metadata lookup failed
+Production JIT no longer reconstructs top-level source AST and no longer has an
+AST fallback path. JIT compilation now succeeds or fails from backend IR only.
 
-These typically affect module-internal functions and certain effect handler patterns
-where the Core IR pipeline does not yet produce the necessary `IrFunction` entries.
+Remaining JIT issues therefore indicate real backend-path coverage bugs, not a
+fallback handoff. The most likely areas are:
+
+- handler/capture-heavy backend forms
+- unsupported backend IR shapes in direct JIT lowering
+- missing backend metadata resolution for newly introduced declaration shapes
