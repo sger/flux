@@ -2219,7 +2219,7 @@ impl Compiler {
                         &effective_effects,
                         body,
                         ir_function,
-                        span.start,
+                        *span,
                     );
                     if self.scope_index == 0 {
                         self.file_scope_symbols.insert(*name);

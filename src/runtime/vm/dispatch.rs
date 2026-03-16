@@ -208,6 +208,15 @@ impl VM {
                     let expected_name = expected.type_name();
                     let actual_type = return_value.type_name();
                     let value_preview = format_value(self, &return_value);
+                    if let Some((file, span)) = self.function_boundary_location() {
+                        return Err(self.runtime_type_error_at_location(
+                            &expected_name,
+                            actual_type,
+                            Some(&value_preview),
+                            file,
+                            span,
+                        ));
+                    }
                     return Err(self.runtime_type_error_enhanced(
                         &expected_name,
                         actual_type,
@@ -226,6 +235,15 @@ impl VM {
                 {
                     let expected_name = expected.type_name();
                     let value_preview = format_value(self, &Value::None);
+                    if let Some((file, span)) = self.function_boundary_location() {
+                        return Err(self.runtime_type_error_at_location(
+                            &expected_name,
+                            Value::None.type_name(),
+                            Some(&value_preview),
+                            file,
+                            span,
+                        ));
+                    }
                     return Err(self.runtime_type_error_enhanced(
                         &expected_name,
                         Value::None.type_name(),

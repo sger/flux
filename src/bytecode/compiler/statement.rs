@@ -422,7 +422,7 @@ impl Compiler {
                         &effective_effects,
                         body,
                         None,
-                        span.start,
+                        *span,
                     )?;
                     // For nested functions, add to file_scope_symbols
                     if self.scope_index == 0 {
@@ -525,10 +525,8 @@ impl Compiler {
         effects: &[EffectExpr],
         body: &Block,
         ir_function: Option<&IrFunction>,
-        position: Position,
+        function_span: Span,
     ) -> CompileResult<()> {
-        let function_span = Span::new(position, position);
-
         if let Some(param) = Self::find_duplicate_name(parameters) {
             let param_str = self.sym(param);
             return Err(Self::boxed(Diagnostic::make_error(
@@ -667,6 +665,26 @@ impl Compiler {
 
         compile_result?;
 
+        let boundary_location = {
+            let mut files = files;
+            let file_id = files
+                .iter()
+                .position(|file| file == &self.file_path)
+                .map(|index| index as u32)
+                .unwrap_or_else(|| {
+                    files.push(self.file_path.clone());
+                    (files.len() - 1) as u32
+                });
+            (
+                files,
+                crate::bytecode::debug_info::Location {
+                    file_id,
+                    span: function_span,
+                },
+            )
+        };
+        let (files, boundary_location) = boundary_location;
+
         for free in &free_symbols {
             self.load_symbol(free);
         }
@@ -688,6 +706,7 @@ impl Compiler {
                 parameters.len(),
                 Some(
                     FunctionDebugInfo::new(Some(self.sym(name).to_string()), files, locations)
+                        .with_boundary_location(Some(boundary_location))
                         .with_effect_summary(effect_summary),
                 ),
             )
@@ -838,7 +857,6 @@ impl Compiler {
                 ..
             } = statement
             {
-                let position = span.start;
                 let qualified_name = self.interner.intern_join(binding_name, *fn_name);
                 let effective_effects: Vec<crate::syntax::effect_expr::EffectExpr> =
                     if effects.is_empty() {
@@ -858,7 +876,7 @@ impl Compiler {
                     ir_program.and_then(|program| {
                         self.find_ir_function_by_symbol(program, qualified_name)
                     }),
-                    position,
+                    *span,
                 ) {
                     let mut diag = *err;
                     if diag.phase().is_none() {
