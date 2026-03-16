@@ -695,7 +695,7 @@ fn run_file(
 
                 let jit_exec_start = Instant::now();
                 match flux::jit::jit_execute(compiled) {
-                    Ok((_result, ctx)) => {
+                    Ok((_result, mut ctx)) => {
                         let jit_exec_ms = jit_exec_start.elapsed().as_secs_f64() * 1000.0;
                         #[cfg(feature = "gc-telemetry")]
                         if gc_telemetry {
@@ -722,6 +722,7 @@ fn run_file(
                                 instruction_bytes: None,
                             });
                         }
+                        ctx.clear_runtime_state();
                     }
                     Err(err) => {
                         emit_jit_error(&err, path, source.as_str(), max_errors, diagnostics_format);

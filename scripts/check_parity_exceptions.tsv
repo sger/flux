@@ -17,6 +17,7 @@ examples/runtime_errors/indirect_call_wrong_arity.flx	runtime_no_stack
 examples/runtime_errors/list_boundary_string_into_list.flx	runtime_no_stack
 examples/runtime_errors/primop_array_len_type.flx	runtime_no_stack
 examples/runtime_errors/primop_string_len_type.flx	runtime_no_stack
+examples/aoc/2024/day05.flx	
 examples/aoc/2025/aoc_day10_haskell_style.flx	runtime_no_stack
 examples/aoc/2025/aoc_day10_part1.flx	runtime_no_stack
 examples/aoc/2025/aoc_day12_part1.flx	runtime_no_stack

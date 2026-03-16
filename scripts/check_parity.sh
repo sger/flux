@@ -27,6 +27,18 @@ lookup_parity_mode() {
   return 1
 }
 
+lookup_fixture_roots() {
+  local fixture="$1"
+  case "$fixture" in
+    examples/aoc/2024/*)
+      printf '%s\n' "lib" "examples/aoc/2024"
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
 normalize_output() {
   local mode="$1"
   case "$mode" in
@@ -57,25 +69,39 @@ for dir in ${dirs[@]}; do
 
     mode="$(lookup_parity_mode "$f" || true)"
     mode="${mode:-exact}"
+    if [[ "$mode" == "skip" ]]; then
+      skip=$((skip + 1))
+      echo -e "  \033[33m-\033[0m $f (skipped)"
+      continue
+    fi
     extra_args=()
+    root_args=()
     if [[ "$mode" == strict* ]]; then
       extra_args+=("--strict")
     fi
+    while IFS= read -r root; do
+      [[ -n "${root// }" ]] || continue
+      root_args+=("--root" "$root")
+    done < <(lookup_fixture_roots "$f" || true)
 
     extra_args_str=""
     if ((${#extra_args[@]} > 0)); then
       extra_args_str="${extra_args[*]} "
     fi
+    root_args_str=""
+    if ((${#root_args[@]} > 0)); then
+      root_args_str="${root_args[*]} "
+    fi
 
-    vm_cmd="target/debug/flux ${extra_args_str}--no-cache $f"
-    jit_cmd="target/debug/flux ${extra_args_str}--no-cache $f --jit"
-    vm_cargo_cmd="cargo run -- ${extra_args_str}--no-cache $f"
-    jit_cargo_cmd="cargo run --features jit -- ${extra_args_str}--no-cache $f --jit"
+    vm_cmd="target/debug/flux ${extra_args_str}${root_args_str}--no-cache $f"
+    jit_cmd="target/debug/flux ${extra_args_str}${root_args_str}--no-cache $f --jit"
+    vm_cargo_cmd="cargo run -- ${extra_args_str}${root_args_str}--no-cache $f"
+    jit_cargo_cmd="cargo run --features jit -- ${extra_args_str}${root_args_str}--no-cache $f --jit"
 
-    if ((${#extra_args[@]} > 0)); then
-      vm_out=$(NO_COLOR=1 target/debug/flux "${extra_args[@]}" --no-cache "$f" 2>&1) || true
+    if ((${#extra_args[@]} > 0)) || ((${#root_args[@]} > 0)); then
+      vm_out=$(NO_COLOR=1 target/debug/flux "${extra_args[@]:+${extra_args[@]}}" "${root_args[@]:+${root_args[@]}}" --no-cache "$f" 2>&1) || true
       vm_rc=${PIPESTATUS[0]:-$?}
-      jit_out=$(NO_COLOR=1 target/debug/flux "${extra_args[@]}" --no-cache "$f" --jit 2>&1) || true
+      jit_out=$(NO_COLOR=1 target/debug/flux "${extra_args[@]:+${extra_args[@]}}" "${root_args[@]:+${root_args[@]}}" --no-cache "$f" --jit 2>&1) || true
       jit_rc=${PIPESTATUS[0]:-$?}
     else
       vm_out=$(NO_COLOR=1 target/debug/flux --no-cache "$f" 2>&1) || true
@@ -121,7 +147,12 @@ done
 total=$((pass + fail))
 echo ""
 if [[ "$fail" -eq 0 ]]; then
-  echo -e "\033[32m✓ All $total examples match between VM and JIT\033[0m"
+  if [[ "$skip" -eq 0 ]]; then
+    echo -e "\033[32m✓ All $total examples match between VM and JIT\033[0m"
+  else
+    echo -e "\033[32m✓ All $total checked examples match between VM and JIT\033[0m"
+    echo -e "\033[33m- Skipped $skip examples\033[0m"
+  fi
 else
   echo -e "\033[31m✗ $fail/$total parity failures:\033[0m"
   echo -e "$failures"

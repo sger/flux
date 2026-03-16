@@ -169,7 +169,7 @@ impl<'a> AstLowerer<'a> {
             Statement::Expression {
                 expression, span, ..
             } => {
-                out.push(CoreDef::new(
+                out.push(CoreDef::new_anonymous(
                     self.bind_name(crate::syntax::symbol::Symbol::new(0)),
                     self.lower_expr(expression),
                     false,
@@ -194,7 +194,7 @@ impl<'a> AstLowerer<'a> {
             // Return at top level is unusual but syntactically valid in some contexts.
             Statement::Return { value, span } => {
                 if let Some(val) = value {
-                    out.push(CoreDef::new(
+                    out.push(CoreDef::new_anonymous(
                         self.bind_name(crate::syntax::symbol::Symbol::new(0)),
                         self.lower_expr(val),
                         false,
@@ -250,7 +250,7 @@ impl<'a> AstLowerer<'a> {
                 parameter_types,
                 return_type,
                 effects,
-                body,
+                body: _,
                 span,
             } => Some(CoreTopLevelItem::Function {
                 is_public: *is_public,
@@ -260,7 +260,6 @@ impl<'a> AstLowerer<'a> {
                 parameter_types: parameter_types.clone(),
                 return_type: return_type.clone(),
                 effects: effects.clone(),
-                body: body.clone(),
                 span: *span,
             }),
             Statement::Module { name, body, span } => Some(CoreTopLevelItem::Module {
@@ -1065,29 +1064,40 @@ impl<'a> AstLowerer<'a> {
 type BinderScope = HashMap<crate::syntax::Identifier, CoreBinderId>;
 
 fn resolve_program_binders(program: &mut CoreProgram) {
-    let mut globals = BinderScope::new();
+    let mut recursive_globals = BinderScope::new();
     for def in &program.defs {
-        if def.name.as_u32() != 0 {
-            globals.insert(def.name, def.binder.id);
+        if !def.is_anonymous() && def.is_recursive {
+            recursive_globals.insert(def.name, def.binder.id);
         }
     }
+    let mut sequential_globals = BinderScope::new();
     for def in &mut program.defs {
-        let mut scopes = vec![globals.clone()];
+        let mut scopes = vec![recursive_globals.clone(), sequential_globals.clone()];
         resolve_expr_binders(&mut def.expr, &mut scopes);
+        if !def.is_anonymous() && !def.is_recursive {
+            sequential_globals.insert(def.name, def.binder.id);
+        }
     }
 }
 
 fn validate_program_binders(program: &CoreProgram) -> bool {
-    let mut globals = BinderScope::new();
+    let mut recursive_globals = BinderScope::new();
     for def in &program.defs {
-        if def.name.as_u32() != 0 {
-            globals.insert(def.name, def.binder.id);
+        if !def.is_anonymous() && def.is_recursive {
+            recursive_globals.insert(def.name, def.binder.id);
         }
     }
-    program
-        .defs
-        .iter()
-        .all(|def| validate_expr_binders(&def.expr, &mut vec![globals.clone()]))
+    let mut sequential_globals = BinderScope::new();
+    for def in &program.defs {
+        let mut scopes = vec![recursive_globals.clone(), sequential_globals.clone()];
+        if !validate_expr_binders(&def.expr, &mut scopes) {
+            return false;
+        }
+        if !def.is_anonymous() && !def.is_recursive {
+            sequential_globals.insert(def.name, def.binder.id);
+        }
+    }
+    true
 }
 
 fn resolve_expr_binders(expr: &mut CoreExpr, scopes: &mut Vec<BinderScope>) {
@@ -1542,5 +1552,44 @@ effect Console {
             module_body.first(),
             Some(CoreTopLevelItem::Function { .. })
         ));
+    }
+
+    #[test]
+    fn lower_ast_does_not_drop_symbol_zero_named_global_bindings() {
+        let src = r#"
+let f = len
+f("flux")
+"#;
+        let (prog, types, mut interner) = parse_and_infer(src);
+        let f_name = interner.intern("f");
+        assert_eq!(
+            f_name.as_u32(),
+            0,
+            "test requires first identifier to be Symbol(0)"
+        );
+
+        let core = lower_program_ast(&prog, &types);
+        let f_def = core
+            .defs
+            .iter()
+            .find(|def| def.name == f_name && !def.is_anonymous())
+            .expect("expected named top-level def for f");
+        let anon_def = core
+            .defs
+            .iter()
+            .find(|def| def.is_anonymous())
+            .expect("expected anonymous top-level expression def");
+
+        let mut refs = Vec::new();
+        collect_var_refs(&anon_def.expr, &mut refs);
+        let f_ref = refs
+            .into_iter()
+            .find(|var| var.name == f_name)
+            .expect("expected call through top-level f binding");
+        assert_eq!(
+            f_ref.binder,
+            Some(f_def.binder.id),
+            "top-level Symbol(0) binding should still resolve lexically"
+        );
     }
 }

@@ -2,7 +2,7 @@
 ///
 /// These passes operate on `CoreExpr` / `CoreProgram` before backend lowering.
 /// Passes run after `lower::lower_program` produces a `CoreProgram`.
-use super::{CoreBinderId, CoreExpr, CoreLit, CorePat, CoreProgram};
+use super::{CoreBinderId, CoreExpr, CoreHandler, CoreLit, CorePat, CoreProgram};
 
 // ── Pass pipeline ─────────────────────────────────────────────────────────────
 
@@ -79,95 +79,15 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                 }
             }
         }
-        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
-            params,
-            body: Box::new(beta_reduce(*body)),
-            span,
-        },
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::Let {
-            var,
-            rhs: Box::new(beta_reduce(*rhs)),
-            body: Box::new(beta_reduce(*body)),
-            span,
-        },
-        CoreExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::LetRec {
-            var,
-            rhs: Box::new(beta_reduce(*rhs)),
-            body: Box::new(beta_reduce(*body)),
-            span,
-        },
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            span,
-        } => {
-            let scrutinee = beta_reduce(*scrutinee);
-            let alts = alts
-                .into_iter()
-                .map(|mut alt| {
-                    alt.rhs = beta_reduce(alt.rhs);
-                    alt.guard = alt.guard.map(beta_reduce);
-                    alt
-                })
-                .collect();
-            CoreExpr::Case {
-                scrutinee: Box::new(scrutinee),
-                alts,
-                span,
-            }
-        }
-        CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
-            tag,
-            fields: fields.into_iter().map(beta_reduce).collect(),
-            span,
-        },
-        CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
-            op,
-            args: args.into_iter().map(beta_reduce).collect(),
-            span,
-        },
-        CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(beta_reduce(*value)),
-            span,
-        },
-        CoreExpr::Perform {
-            effect,
-            operation,
-            args,
-            span,
-        } => CoreExpr::Perform {
-            effect,
-            operation,
-            args: args.into_iter().map(beta_reduce).collect(),
-            span,
-        },
-        CoreExpr::Handle {
-            body,
-            effect,
-            handlers,
-            span,
-        } => CoreExpr::Handle {
-            body: Box::new(beta_reduce(*body)),
-            effect,
-            handlers: handlers
-                .into_iter()
-                .map(|mut h| {
-                    h.body = beta_reduce(h.body);
-                    h
-                })
-                .collect(),
-            span,
-        },
+        CoreExpr::Lam { .. }
+        | CoreExpr::Let { .. }
+        | CoreExpr::LetRec { .. }
+        | CoreExpr::Case { .. }
+        | CoreExpr::Con { .. }
+        | CoreExpr::PrimOp { .. }
+        | CoreExpr::Return { .. }
+        | CoreExpr::Perform { .. }
+        | CoreExpr::Handle { .. } => map_children(expr, beta_reduce),
         // Atoms are already in normal form.
         other => other,
     }
@@ -198,60 +118,13 @@ pub fn elim_dead_let(expr: CoreExpr) -> CoreExpr {
                 }
             }
         }
-        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
-            params,
-            body: Box::new(elim_dead_let(*body)),
-            span,
-        },
-        CoreExpr::App { func, args, span } => CoreExpr::App {
-            func: Box::new(elim_dead_let(*func)),
-            args: args.into_iter().map(elim_dead_let).collect(),
-            span,
-        },
-        CoreExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::LetRec {
-            var,
-            rhs: Box::new(elim_dead_let(*rhs)),
-            body: Box::new(elim_dead_let(*body)),
-            span,
-        },
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            span,
-        } => {
-            let scrutinee = elim_dead_let(*scrutinee);
-            let alts = alts
-                .into_iter()
-                .map(|mut alt| {
-                    alt.rhs = elim_dead_let(alt.rhs);
-                    alt
-                })
-                .collect();
-            CoreExpr::Case {
-                scrutinee: Box::new(scrutinee),
-                alts,
-                span,
-            }
-        }
-        CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
-            tag,
-            fields: fields.into_iter().map(elim_dead_let).collect(),
-            span,
-        },
-        CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
-            op,
-            args: args.into_iter().map(elim_dead_let).collect(),
-            span,
-        },
-        CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(elim_dead_let(*value)),
-            span,
-        },
+        CoreExpr::Lam { .. }
+        | CoreExpr::App { .. }
+        | CoreExpr::LetRec { .. }
+        | CoreExpr::Case { .. }
+        | CoreExpr::Con { .. }
+        | CoreExpr::PrimOp { .. }
+        | CoreExpr::Return { .. } => map_children(expr, elim_dead_let),
         other => other,
     }
 }
@@ -399,10 +272,24 @@ fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -> CoreExpr 
         } => CoreExpr::Handle {
             body: Box::new(subst(*body, var, replacement)),
             effect,
-            handlers,
+            handlers: handlers
+                .into_iter()
+                .map(|handler| subst_handler(handler, var, replacement))
+                .collect(),
             span,
         },
         other => other,
+    }
+}
+
+fn subst_handler(handler: CoreHandler, var: CoreBinderId, replacement: &CoreExpr) -> CoreHandler {
+    if handler.resume.id == var || handler.params.iter().any(|param| param.id == var) {
+        handler
+    } else {
+        CoreHandler {
+            body: subst(handler.body, var, replacement),
+            ..handler
+        }
     }
 }
 
@@ -499,80 +386,15 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
                 },
             }
         }
-        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
-            params,
-            body: Box::new(case_of_known_constructor(*body)),
-            span,
-        },
-        CoreExpr::App { func, args, span } => CoreExpr::App {
-            func: Box::new(case_of_known_constructor(*func)),
-            args: args.into_iter().map(case_of_known_constructor).collect(),
-            span,
-        },
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::Let {
-            var,
-            rhs: Box::new(case_of_known_constructor(*rhs)),
-            body: Box::new(case_of_known_constructor(*body)),
-            span,
-        },
-        CoreExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::LetRec {
-            var,
-            rhs: Box::new(case_of_known_constructor(*rhs)),
-            body: Box::new(case_of_known_constructor(*body)),
-            span,
-        },
-        CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
-            tag,
-            fields: fields.into_iter().map(case_of_known_constructor).collect(),
-            span,
-        },
-        CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
-            op,
-            args: args.into_iter().map(case_of_known_constructor).collect(),
-            span,
-        },
-        CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(case_of_known_constructor(*value)),
-            span,
-        },
-        CoreExpr::Perform {
-            effect,
-            operation,
-            args,
-            span,
-        } => CoreExpr::Perform {
-            effect,
-            operation,
-            args: args.into_iter().map(case_of_known_constructor).collect(),
-            span,
-        },
-        CoreExpr::Handle {
-            body,
-            effect,
-            handlers,
-            span,
-        } => CoreExpr::Handle {
-            body: Box::new(case_of_known_constructor(*body)),
-            effect,
-            handlers: handlers
-                .into_iter()
-                .map(|mut h| {
-                    h.body = case_of_known_constructor(h.body);
-                    h
-                })
-                .collect(),
-            span,
-        },
+        CoreExpr::Lam { .. }
+        | CoreExpr::App { .. }
+        | CoreExpr::Let { .. }
+        | CoreExpr::LetRec { .. }
+        | CoreExpr::Con { .. }
+        | CoreExpr::PrimOp { .. }
+        | CoreExpr::Return { .. }
+        | CoreExpr::Perform { .. }
+        | CoreExpr::Handle { .. } => map_children(expr, case_of_known_constructor),
         other => other,
     }
 }
@@ -679,14 +501,42 @@ pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
                 }
             }
         }
+        CoreExpr::Lam { .. }
+        | CoreExpr::App { .. }
+        | CoreExpr::LetRec { .. }
+        | CoreExpr::Case { .. }
+        | CoreExpr::Con { .. }
+        | CoreExpr::PrimOp { .. }
+        | CoreExpr::Return { .. }
+        | CoreExpr::Perform { .. }
+        | CoreExpr::Handle { .. } => map_children(expr, inline_trivial_lets),
+        other => other,
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreExpr {
+    match expr {
         CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
             params,
-            body: Box::new(inline_trivial_lets(*body)),
+            body: Box::new(f(*body)),
             span,
         },
         CoreExpr::App { func, args, span } => CoreExpr::App {
-            func: Box::new(inline_trivial_lets(*func)),
-            args: args.into_iter().map(inline_trivial_lets).collect(),
+            func: Box::new(f(*func)),
+            args: args.into_iter().map(f).collect(),
+            span,
+        },
+        CoreExpr::Let {
+            var,
+            rhs,
+            body,
+            span,
+        } => CoreExpr::Let {
+            var,
+            rhs: Box::new(f(*rhs)),
+            body: Box::new(f(*body)),
             span,
         },
         CoreExpr::LetRec {
@@ -696,42 +546,38 @@ pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
             span,
         } => CoreExpr::LetRec {
             var,
-            rhs: Box::new(inline_trivial_lets(*rhs)),
-            body: Box::new(inline_trivial_lets(*body)),
+            rhs: Box::new(f(*rhs)),
+            body: Box::new(f(*body)),
             span,
         },
         CoreExpr::Case {
             scrutinee,
             alts,
             span,
-        } => {
-            let scrutinee = inline_trivial_lets(*scrutinee);
-            let alts = alts
+        } => CoreExpr::Case {
+            scrutinee: Box::new(f(*scrutinee)),
+            alts: alts
                 .into_iter()
                 .map(|mut alt| {
-                    alt.rhs = inline_trivial_lets(alt.rhs);
-                    alt.guard = alt.guard.map(inline_trivial_lets);
+                    alt.rhs = f(alt.rhs);
+                    alt.guard = alt.guard.map(f);
                     alt
                 })
-                .collect();
-            CoreExpr::Case {
-                scrutinee: Box::new(scrutinee),
-                alts,
-                span,
-            }
-        }
+                .collect(),
+            span,
+        },
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
             tag,
-            fields: fields.into_iter().map(inline_trivial_lets).collect(),
+            fields: fields.into_iter().map(f).collect(),
             span,
         },
         CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
             op,
-            args: args.into_iter().map(inline_trivial_lets).collect(),
+            args: args.into_iter().map(f).collect(),
             span,
         },
         CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(inline_trivial_lets(*value)),
+            value: Box::new(f(*value)),
             span,
         },
         CoreExpr::Perform {
@@ -742,7 +588,7 @@ pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
         } => CoreExpr::Perform {
             effect,
             operation,
-            args: args.into_iter().map(inline_trivial_lets).collect(),
+            args: args.into_iter().map(f).collect(),
             span,
         },
         CoreExpr::Handle {
@@ -751,13 +597,13 @@ pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
             handlers,
             span,
         } => CoreExpr::Handle {
-            body: Box::new(inline_trivial_lets(*body)),
+            body: Box::new(f(*body)),
             effect,
             handlers: handlers
                 .into_iter()
-                .map(|mut h| {
-                    h.body = inline_trivial_lets(h.body);
-                    h
+                .map(|mut handler| {
+                    handler.body = f(handler.body);
+                    handler
                 })
                 .collect(),
             span,
@@ -765,8 +611,6 @@ pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
         other => other,
     }
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Returns true when `expr` is guaranteed pure (no effects, no calls).
 fn is_pure(expr: &CoreExpr) -> bool {
@@ -1093,6 +937,87 @@ mod tests {
             matches!(result, CoreExpr::Let { .. }),
             "non-trivial rhs must keep the Let"
         );
+    }
+
+    #[test]
+    fn inline_trivial_substitutes_inside_handler_body() {
+        let mut interner = Interner::new();
+        let x = interner.intern("x");
+        let resume = interner.intern("resume");
+        let op = interner.intern("print");
+        let effect = interner.intern("Console");
+        let x_binder = binder(0, x);
+        let resume_binder = binder(1, resume);
+
+        let expr = CoreExpr::Let {
+            var: x_binder,
+            rhs: Box::new(CoreExpr::Lit(CoreLit::Int(5), s())),
+            body: Box::new(CoreExpr::Handle {
+                body: Box::new(CoreExpr::Lit(CoreLit::Unit, s())),
+                effect,
+                handlers: vec![CoreHandler {
+                    operation: op,
+                    params: vec![],
+                    resume: resume_binder,
+                    body: var_ref(x_binder),
+                    span: s(),
+                }],
+                span: s(),
+            }),
+            span: s(),
+        };
+
+        let result = inline_trivial_lets(expr);
+        match result {
+            CoreExpr::Handle { handlers, .. } => {
+                assert!(matches!(
+                    handlers[0].body,
+                    CoreExpr::Lit(CoreLit::Int(5), _)
+                ));
+            }
+            other => panic!("expected Handle, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn inline_trivial_respects_handler_shadowing() {
+        let mut interner = Interner::new();
+        let x = interner.intern("x");
+        let resume = interner.intern("resume");
+        let op = interner.intern("print");
+        let effect = interner.intern("Console");
+        let outer_x = binder(0, x);
+        let handler_x = binder(1, x);
+        let resume_binder = binder(2, resume);
+
+        let expr = CoreExpr::Let {
+            var: outer_x,
+            rhs: Box::new(CoreExpr::Lit(CoreLit::Int(5), s())),
+            body: Box::new(CoreExpr::Handle {
+                body: Box::new(CoreExpr::Lit(CoreLit::Unit, s())),
+                effect,
+                handlers: vec![CoreHandler {
+                    operation: op,
+                    params: vec![handler_x],
+                    resume: resume_binder,
+                    body: var_ref(handler_x),
+                    span: s(),
+                }],
+                span: s(),
+            }),
+            span: s(),
+        };
+
+        let result = inline_trivial_lets(expr);
+        match result {
+            CoreExpr::Handle { handlers, .. } => {
+                assert!(matches!(
+                    handlers[0].body,
+                    CoreExpr::Var { ref var, .. } if var.binder == Some(handler_x.id)
+                ));
+            }
+            other => panic!("expected Handle, got {other:?}"),
+        }
     }
 
     // ── combined: COKC + inline_trivial ──────────────────────────────────────
