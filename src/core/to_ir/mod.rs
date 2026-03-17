@@ -27,6 +27,23 @@ mod primop;
 
 pub use free_vars::collect_free_vars_core;
 
+/// Convert a `CoreType` to the backend IR `IrType`.
+fn core_type_to_ir_type(ct: &crate::core::CoreType) -> IrType {
+    use crate::core::CoreType;
+    match ct {
+        CoreType::Int => IrType::Int,
+        CoreType::Float => IrType::Float,
+        CoreType::Bool => IrType::Bool,
+        CoreType::String => IrType::String,
+        CoreType::Unit => IrType::Unit,
+        CoreType::List(_) => IrType::List,
+        CoreType::Array(_) => IrType::Array,
+        CoreType::Tuple(elems) => IrType::Tuple(elems.len()),
+        CoreType::Function(params, _) => IrType::Function(params.len()),
+        _ => IrType::Any,
+    }
+}
+
 use fn_ctx::FnCtx;
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -157,14 +174,20 @@ impl ToIrCtx {
                         fn_ctx.env.insert(binder_id, v);
                         fn_ctx.binder_names.insert(binder_id, binder_name);
                     }
-                    for &p in params {
+                    for (i, &p) in params.iter().enumerate() {
                         let v = fn_ctx.ctx.alloc_var();
                         fn_ctx.env.insert(p.id, v);
                         fn_ctx.binder_names.insert(p.id, p.name);
+                        let ir_ty = fn_ctx
+                            .inferred_param_types
+                            .get(i)
+                            .and_then(|t| t.as_ref())
+                            .map(core_type_to_ir_type)
+                            .unwrap_or(IrType::Any);
                         fn_ctx.params.push(IrParam {
                             name: p.name,
                             var: v,
-                            ty: IrType::Any,
+                            ty: ir_ty,
                         });
                     }
                     let ret = fn_ctx.lower_expr(body);

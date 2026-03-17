@@ -151,7 +151,11 @@ impl<'a> FnCtx<'a> {
             effects: s.effects,
             captures: Vec::new(),
             body_span: span,
-            ret_type: IrType::Any,
+            ret_type: s
+                .inferred_return_type
+                .as_ref()
+                .map(super::core_type_to_ir_type)
+                .unwrap_or(IrType::Any),
             blocks: s.blocks,
             entry,
             origin: s.origin,

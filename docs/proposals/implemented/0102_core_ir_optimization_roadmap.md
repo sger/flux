@@ -1,6 +1,6 @@
 - Feature Name: Core IR Optimization Roadmap
 - Start Date: 2026-03-17
-- Status: Phases 0–4 implemented; Phases 5–6 deferred
+- Status: All phases (0–6) implemented
 - Proposal PR: pending
 - Flux Issue: pending
 - Depends on: 0086 (backend-neutral Core IR), 0077 (type-informed optimization), 0101 (effect handler optimizations)
@@ -787,8 +787,8 @@ Post-optimization:
 | 2. Case-of-case | ~150 lines new | None (benefits from Phase 1) | Low — well-understood transform | **Implemented** |
 | 3. Inlining | ~400 lines new | Phase 2 (for full benefit) | Medium — needs size heuristics | **Implemented** |
 | 4. ANF | ~200 lines new | None | Low — mechanical transform | **Implemented** |
-| 5. Evidence passing | ~500 lines new | Phase 1, proposal 0101 P1-P2 | Medium — semantic complexity | Deferred |
-| 6. Worker/wrapper | ~300 lines new | Phase 1 | Medium — needs JIT coordination | Deferred |
+| 5. Evidence passing | ~500 lines new | Phase 1, proposal 0101 P1-P2 | Medium — semantic complexity | **Implemented** |
+| 6. Worker/wrapper | ~300 lines new | Phase 1 | Medium — needs JIT coordination | **Implemented** |
 
 ### Testing Strategy
 
