@@ -129,7 +129,7 @@ jobs:
         run: scripts/ci/run_flux_manifest.sh --tier 2 --category smoke
 
   examples-full-sweep:
-    name: Examples Tier 1-3 (nightly/full)
+    name: Examples Tier 1-3 full
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     strategy:
