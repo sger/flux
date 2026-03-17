@@ -65,9 +65,10 @@ use numeric_ops::{
 use string_ops::{
     base_chars, base_chars_borrowed, base_ends_with, base_ends_with_borrowed, base_join,
     base_join_borrowed, base_lower, base_lower_borrowed, base_replace, base_replace_borrowed,
-    base_split, base_split_borrowed, base_starts_with, base_starts_with_borrowed, base_str_contains,
-    base_str_contains_borrowed, base_substring, base_substring_borrowed, base_to_string,
-    base_to_string_borrowed, base_trim, base_trim_borrowed, base_upper, base_upper_borrowed,
+    base_split, base_split_borrowed, base_starts_with, base_starts_with_borrowed,
+    base_str_contains, base_str_contains_borrowed, base_substring, base_substring_borrowed,
+    base_to_string, base_to_string_borrowed, base_trim, base_trim_borrowed, base_upper,
+    base_upper_borrowed,
 };
 use type_check::{
     base_is_array, base_is_array_borrowed, base_is_bool, base_is_bool_borrowed, base_is_float,
@@ -439,12 +440,7 @@ pub static BASE_FUNCTIONS: &[BaseFunction] = &[
         base_assert_msg_borrowed,
         base_assert_msg,
     ),
-    BaseFunction::preferred(
-        "try",
-        BaseHmSignatureId::Try,
-        base_try_borrowed,
-        base_try,
-    ),
+    BaseFunction::preferred("try", BaseHmSignatureId::Try, base_try_borrowed, base_try),
     BaseFunction::preferred(
         "str_contains",
         BaseHmSignatureId::StrContains,
