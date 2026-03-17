@@ -1,8 +1,8 @@
 use crate::primop::{PrimOp, execute_primop};
 use crate::runtime::value::Value;
 
-use super::slot;
 use super::VM;
+use super::slot;
 
 impl VM {
     /// Executes the `OpPrimOp` VM instruction.

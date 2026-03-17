@@ -15,8 +15,8 @@ use crate::{
     },
 };
 
-use super::slot;
 use super::VM;
+use super::slot;
 
 impl VM {
     #[inline(always)]

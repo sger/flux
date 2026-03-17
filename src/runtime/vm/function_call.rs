@@ -7,8 +7,8 @@ use crate::runtime::base::list_ops::format_value;
 use crate::runtime::gc::GcHeap;
 use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 
-use super::slot;
 use super::VM;
+use super::slot;
 
 // OpPerform instruction size: opcode (1) + const_idx (1) + arity (1) = 3 bytes.
 // This constant is used during continuation resume to advance the captured frame's IP past OpPerform.

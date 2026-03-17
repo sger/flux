@@ -347,7 +347,13 @@ fn zip_pairs_and_stops_at_shorter() {
     );
 
     // stops at shorter — xs has 3 elements, ys has 2
-    let ys_short = Value::Array(vec![Value::String("a".to_string().into()), Value::String("b".to_string().into())].into());
+    let ys_short = Value::Array(
+        vec![
+            Value::String("a".to_string().into()),
+            Value::String("b".to_string().into()),
+        ]
+        .into(),
+    );
     let result = base_zip(&mut test_vm(), vec![xs.clone(), ys_short]).unwrap();
     match result {
         Value::Array(arr) => assert_eq!(arr.len(), 2),
