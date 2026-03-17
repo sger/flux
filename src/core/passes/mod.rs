@@ -8,12 +8,14 @@ mod cokc;
 mod dead_let;
 mod helpers;
 mod inline;
+mod inliner;
 
 pub use beta::beta_reduce;
 pub use case_of_case::case_of_case;
 pub use cokc::case_of_known_constructor;
 pub use dead_let::elim_dead_let;
 pub use inline::inline_trivial_lets;
+pub use inliner::inline_lets;
 
 use crate::core::{CoreExpr, CoreLit, CoreProgram};
 
@@ -25,8 +27,8 @@ use crate::core::{CoreExpr, CoreLit, CoreProgram};
 /// 1. `beta_reduce`              — eliminate `App(Lam(x, body), arg)` redexes
 /// 2. `case_of_case`             — push outer case into inner case arms
 /// 3. `case_of_known_constructor` — reduce `Case(Con/Lit, alts)` statically
-/// 4. `inline_trivial_lets`      — substitute literal/variable let-bindings
-///    (COKC creates field-binding lets like `let x = Lit(n)` that this collapses)
+/// 4. `inline_lets`              — inline dead, single-use, and small let-bindings
+///    (subsumes `inline_trivial_lets`; uses occurrence analysis)
 /// 5. `elim_dead_let`            — drop unused pure bindings left over
 pub fn run_core_passes(program: &mut CoreProgram) {
     let sentinel = CoreExpr::Lit(CoreLit::Unit, Default::default());
@@ -35,7 +37,7 @@ pub fn run_core_passes(program: &mut CoreProgram) {
         let e = beta_reduce(e);
         let e = case_of_case(e);
         let e = case_of_known_constructor(e);
-        let e = inline_trivial_lets(e);
+        let e = inline_lets(e);
         let e = elim_dead_let(e);
         def.expr = e;
     }

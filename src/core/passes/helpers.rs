@@ -325,6 +325,36 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
     }
 }
 
+/// Count the number of nodes in a `CoreExpr` (for size-based guards).
+pub(super) fn expr_size(expr: &CoreExpr) -> usize {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => 1,
+        CoreExpr::Lam { body, .. } => 1 + expr_size(body),
+        CoreExpr::App { func, args, .. } => {
+            1 + expr_size(func) + args.iter().map(expr_size).sum::<usize>()
+        }
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            1 + expr_size(rhs) + expr_size(body)
+        }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            1 + expr_size(scrutinee)
+                + alts
+                    .iter()
+                    .map(|a| expr_size(&a.rhs) + a.guard.as_ref().map_or(0, expr_size))
+                    .sum::<usize>()
+        }
+        CoreExpr::Con { fields, .. } => 1 + fields.iter().map(expr_size).sum::<usize>(),
+        CoreExpr::PrimOp { args, .. } => 1 + args.iter().map(expr_size).sum::<usize>(),
+        CoreExpr::Return { value, .. } => 1 + expr_size(value),
+        CoreExpr::Perform { args, .. } => 1 + args.iter().map(expr_size).sum::<usize>(),
+        CoreExpr::Handle { body, handlers, .. } => {
+            1 + expr_size(body) + handlers.iter().map(|h| expr_size(&h.body)).sum::<usize>()
+        }
+    }
+}
+
 /// Returns true when pattern `pat` introduces a binding for `var`.
 pub(super) fn pat_binds(pat: &CorePat, var: CoreBinderId) -> bool {
     match pat {

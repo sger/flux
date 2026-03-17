@@ -16,7 +16,7 @@
 /// the outer alternatives are large.
 use crate::core::{CoreAlt, CoreExpr};
 
-use super::helpers::map_children;
+use super::helpers::{expr_size, map_children};
 
 /// Maximum total node count of outer alternatives before we skip the
 /// transformation to avoid code size explosion.
@@ -100,35 +100,5 @@ pub fn case_of_case(expr: CoreExpr) -> CoreExpr {
         | CoreExpr::Perform { .. }
         | CoreExpr::Handle { .. } => map_children(expr, case_of_case),
         other => other,
-    }
-}
-
-/// Count the number of nodes in a `CoreExpr` (for size-based guards).
-fn expr_size(expr: &CoreExpr) -> usize {
-    match expr {
-        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => 1,
-        CoreExpr::Lam { body, .. } => 1 + expr_size(body),
-        CoreExpr::App { func, args, .. } => {
-            1 + expr_size(func) + args.iter().map(expr_size).sum::<usize>()
-        }
-        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
-            1 + expr_size(rhs) + expr_size(body)
-        }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
-            1 + expr_size(scrutinee)
-                + alts
-                    .iter()
-                    .map(|a| expr_size(&a.rhs) + a.guard.as_ref().map_or(0, expr_size))
-                    .sum::<usize>()
-        }
-        CoreExpr::Con { fields, .. } => 1 + fields.iter().map(expr_size).sum::<usize>(),
-        CoreExpr::PrimOp { args, .. } => 1 + args.iter().map(expr_size).sum::<usize>(),
-        CoreExpr::Return { value, .. } => 1 + expr_size(value),
-        CoreExpr::Perform { args, .. } => 1 + args.iter().map(expr_size).sum::<usize>(),
-        CoreExpr::Handle { body, handlers, .. } => {
-            1 + expr_size(body) + handlers.iter().map(|h| expr_size(&h.body)).sum::<usize>()
-        }
     }
 }
