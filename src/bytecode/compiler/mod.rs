@@ -101,6 +101,10 @@ pub(super) struct HandlerScope {
     pub effect: Symbol,
     pub is_direct: bool,
     pub ops: Vec<Symbol>,
+    /// Local variable indices holding arm closures for evidence-passing.
+    /// `evidence_locals[i]` is the local index for `ops[i]`.
+    /// `None` when evidence-passing is not applicable (non-TR handler).
+    pub evidence_locals: Option<Vec<usize>>,
 }
 
 pub struct Compiler {
@@ -2824,6 +2828,47 @@ impl Compiler {
             }
         }
         None
+    }
+
+    /// Try to resolve a perform target to an evidence local variable.
+    ///
+    /// Returns `Some(local_index)` if the target handler has evidence locals
+    /// for this operation, enabling direct `OpGetLocal` + `OpCall` dispatch.
+    pub(super) fn resolve_evidence_local(&self, effect: Symbol, op: Symbol) -> Option<usize> {
+        for scope in self.handler_scopes.iter().rev() {
+            if scope.effect == effect {
+                if let (Some(ev_locals), Some(arm_idx)) = (
+                    &scope.evidence_locals,
+                    scope.ops.iter().position(|&o| o == op),
+                ) {
+                    return Some(ev_locals[arm_idx]);
+                }
+                return None;
+            }
+        }
+        None
+    }
+
+    /// Emit bytecode that pushes an identity closure `fn(x) -> x` onto the stack.
+    ///
+    /// Used as the `resume` parameter for evidence-passing performs. The closure
+    /// is compiled as a constant `OpReturnLocal(0)` function, shared across all
+    /// evidence performs in the same compilation unit.
+    pub(super) fn emit_identity_closure(&mut self) {
+        use crate::bytecode::op_code::OpCode;
+        use crate::runtime::value::Value;
+        use std::rc::Rc;
+
+        let instructions = vec![OpCode::OpReturnLocal as u8, 0];
+        let func = Rc::new(crate::runtime::compiled_function::CompiledFunction::new(
+            instructions,
+            1,    // arity = 1
+            1,    // num_locals = 1 (the parameter)
+            None, // no name
+        ));
+        let fn_idx = self.add_constant(Value::Function(func));
+        // Emit OpClosure with 0 free variables.
+        self.emit(OpCode::OpClosure, &[fn_idx, 0]);
     }
 
     pub(super) fn is_effect_available(&self, required: Symbol) -> bool {
