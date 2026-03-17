@@ -385,3 +385,203 @@ fn cokc_then_inline_collapses_field_binding() {
         "expected Lit(7), got {result:?}"
     );
 }
+
+// ── case_of_case ─────────────────────────────────────────────────────────
+
+#[test]
+fn case_of_case_pushes_outer_into_inner_arms() {
+    // case (case x of { True -> Some(1); False -> None }) of
+    //   { Some(y) -> y; None -> 0 }
+    // →
+    // case x of { True -> case Some(1) of { Some(y) -> y; None -> 0 };
+    //             False -> case None of { Some(y) -> y; None -> 0 } }
+    //
+    // After COKC the inner cases reduce:
+    //   True arm → 1,  False arm → 0
+    let mut interner = Interner::new();
+    let x = interner.intern("x");
+    let y = interner.intern("y");
+    let x_binder = binder(0, x);
+    let y_binder = binder(1, y);
+
+    let inner_case = CoreExpr::Case {
+        scrutinee: Box::new(var_ref(x_binder)),
+        alts: vec![
+            CoreAlt {
+                pat: CorePat::Lit(CoreLit::Bool(true)),
+                guard: None,
+                rhs: CoreExpr::Con {
+                    tag: CoreTag::Some,
+                    fields: vec![CoreExpr::Lit(CoreLit::Int(1), s())],
+                    span: s(),
+                },
+                span: s(),
+            },
+            CoreAlt {
+                pat: CorePat::Lit(CoreLit::Bool(false)),
+                guard: None,
+                rhs: CoreExpr::Con {
+                    tag: CoreTag::None,
+                    fields: vec![],
+                    span: s(),
+                },
+                span: s(),
+            },
+        ],
+        span: s(),
+    };
+
+    let outer_case = CoreExpr::Case {
+        scrutinee: Box::new(inner_case),
+        alts: vec![
+            CoreAlt {
+                pat: CorePat::Con {
+                    tag: CoreTag::Some,
+                    fields: vec![CorePat::Var(y_binder)],
+                },
+                guard: None,
+                rhs: var_ref(y_binder),
+                span: s(),
+            },
+            CoreAlt {
+                pat: CorePat::Con {
+                    tag: CoreTag::None,
+                    fields: vec![],
+                },
+                guard: None,
+                rhs: CoreExpr::Lit(CoreLit::Int(0), s()),
+                span: s(),
+            },
+        ],
+        span: s(),
+    };
+
+    let result = case_of_case(outer_case);
+
+    // The result should be: case x of { True -> ...; False -> ... }
+    // where the inner cases have been pushed down.
+    match &result {
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            // Scrutinee should be Var(x), not another Case.
+            assert!(
+                matches!(**scrutinee, CoreExpr::Var { .. }),
+                "scrutinee should be Var(x) after case-of-case, got {scrutinee:?}"
+            );
+            assert_eq!(alts.len(), 2, "expected 2 alternatives");
+            // Each arm's RHS should now be a nested Case (outer pushed in).
+            for alt in alts {
+                assert!(
+                    matches!(alt.rhs, CoreExpr::Case { .. }),
+                    "inner arm RHS should be a Case, got {:?}",
+                    alt.rhs
+                );
+            }
+        }
+        other => panic!("expected Case, got {other:?}"),
+    }
+
+    // After COKC, the pushed-down cases should reduce fully.
+    let result = case_of_known_constructor(result);
+    match &result {
+        CoreExpr::Case { alts, .. } => {
+            // True arm: case Some(1) of { Some(y) -> y; ... } → 1
+            assert!(
+                matches!(alts[0].rhs, CoreExpr::Lit(CoreLit::Int(1), _)),
+                "True arm should reduce to Lit(1), got {:?}",
+                alts[0].rhs
+            );
+            // False arm: case None of { ...; None -> 0 } → 0
+            assert!(
+                matches!(alts[1].rhs, CoreExpr::Lit(CoreLit::Int(0), _)),
+                "False arm should reduce to Lit(0), got {:?}",
+                alts[1].rhs
+            );
+        }
+        other => panic!("expected Case after COKC, got {other:?}"),
+    }
+}
+
+#[test]
+fn case_of_case_leaves_non_case_scrutinee_alone() {
+    // case Var(x) of { ... } — scrutinee is not a Case, no transformation.
+    let mut interner = Interner::new();
+    let x = interner.intern("x");
+    let x_binder = binder(0, x);
+
+    let expr = CoreExpr::Case {
+        scrutinee: Box::new(var_ref(x_binder)),
+        alts: vec![CoreAlt {
+            pat: CorePat::Wildcard,
+            guard: None,
+            rhs: CoreExpr::Lit(CoreLit::Int(0), s()),
+            span: s(),
+        }],
+        span: s(),
+    };
+
+    let result = case_of_case(expr);
+    match &result {
+        CoreExpr::Case { scrutinee, .. } => {
+            assert!(
+                matches!(**scrutinee, CoreExpr::Var { .. }),
+                "scrutinee should remain Var"
+            );
+        }
+        other => panic!("expected Case, got {other:?}"),
+    }
+}
+
+#[test]
+fn case_of_case_preserves_inner_guards() {
+    // case (case x of { True if g -> A; _ -> B }) of { ... }
+    // Guards on inner arms must be preserved after transformation.
+    let mut interner = Interner::new();
+    let x = interner.intern("x");
+    let g = interner.intern("g");
+    let x_binder = binder(0, x);
+    let g_binder = binder(1, g);
+
+    let inner = CoreExpr::Case {
+        scrutinee: Box::new(var_ref(x_binder)),
+        alts: vec![
+            CoreAlt {
+                pat: CorePat::Lit(CoreLit::Bool(true)),
+                guard: Some(var_ref(g_binder)),
+                rhs: CoreExpr::Lit(CoreLit::Int(1), s()),
+                span: s(),
+            },
+            CoreAlt {
+                pat: CorePat::Wildcard,
+                guard: None,
+                rhs: CoreExpr::Lit(CoreLit::Int(2), s()),
+                span: s(),
+            },
+        ],
+        span: s(),
+    };
+
+    let outer = CoreExpr::Case {
+        scrutinee: Box::new(inner),
+        alts: vec![CoreAlt {
+            pat: CorePat::Wildcard,
+            guard: None,
+            rhs: CoreExpr::Lit(CoreLit::Int(99), s()),
+            span: s(),
+        }],
+        span: s(),
+    };
+
+    let result = case_of_case(outer);
+    match &result {
+        CoreExpr::Case { alts, .. } => {
+            // First inner alt should still have its guard.
+            assert!(
+                alts[0].guard.is_some(),
+                "guard on first inner alt must be preserved"
+            );
+        }
+        other => panic!("expected Case, got {other:?}"),
+    }
+}
