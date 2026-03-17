@@ -584,7 +584,10 @@ mod tests {
 
     #[test]
     fn test_to_string_value() {
-        assert_eq!(Value::String("hello".to_string().into()).to_string_value(), "hello");
+        assert_eq!(
+            Value::String("hello".to_string().into()).to_string_value(),
+            "hello"
+        );
         assert_eq!(
             Value::Some(std::rc::Rc::new(Value::String("x".to_string().into()))).to_string_value(),
             "Some(x)"
@@ -594,8 +597,11 @@ mod tests {
             "7"
         );
         assert_eq!(
-            Value::Array(Rc::new(vec![Value::String("a".to_string().into()), Value::Integer(2)]))
-                .to_string_value(),
+            Value::Array(Rc::new(vec![
+                Value::String("a".to_string().into()),
+                Value::Integer(2)
+            ]))
+            .to_string_value(),
             "[|\"a\", 2|]"
         );
     }

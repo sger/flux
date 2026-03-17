@@ -2548,8 +2548,7 @@ impl Compiler {
                 // 2. Load scrutinee, emit OpIsAdt with constructor name constant
                 self.load_symbol(scrutinee);
                 let constructor_name = self.interner.resolve(*name).to_string();
-                let const_idx =
-                    self.add_constant(Value::String(Rc::new(constructor_name.clone())));
+                let const_idx = self.add_constant(Value::String(Rc::new(constructor_name.clone())));
                 self.emit(OpCode::OpIsAdt, &[const_idx]);
 
                 let mut jumps = vec![ConditionalJump {

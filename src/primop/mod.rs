@@ -875,7 +875,10 @@ mod tests {
         let result = execute_primop(
             &mut ctx,
             PrimOp::StringConcat,
-            vec![Value::String("Flux ".to_string().into()), Value::String("Lang".to_string().into())],
+            vec![
+                Value::String("Flux ".to_string().into()),
+                Value::String("Lang".to_string().into()),
+            ],
         )
         .expect("string_concat should succeed");
 
@@ -937,7 +940,10 @@ mod tests {
         )
         .expect("map_get should succeed");
 
-        assert_eq!(result, Value::Some(Rc::new(Value::String("flux".to_string().into()))));
+        assert_eq!(
+            result,
+            Value::Some(Rc::new(Value::String("flux".to_string().into())))
+        );
     }
 
     #[test]
@@ -1012,7 +1018,11 @@ mod tests {
         let updated = execute_primop(
             &mut ctx,
             PrimOp::MapSet,
-            vec![map, Value::String("answer".to_string().into()), Value::Integer(42)],
+            vec![
+                map,
+                Value::String("answer".to_string().into()),
+                Value::Integer(42),
+            ],
         )
         .expect("map_set should succeed");
 

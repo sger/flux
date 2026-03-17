@@ -420,7 +420,10 @@ pub(super) fn base_try_borrowed(
     }
 
     match ctx.invoke_value(args[0].clone(), vec![]) {
-        Ok(val) => Ok(Value::Tuple(Rc::new(vec![Value::String("ok".to_string().into()), val]))),
+        Ok(val) => Ok(Value::Tuple(Rc::new(vec![
+            Value::String("ok".to_string().into()),
+            val,
+        ]))),
         Err(msg) => Ok(Value::Tuple(Rc::new(vec![
             Value::String("error".to_string().into()),
             Value::String(Rc::new(msg)),

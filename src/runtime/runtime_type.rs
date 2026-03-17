@@ -312,7 +312,10 @@ mod tests {
         let ctx = TestCtx::new();
         let ty = RuntimeType::Either(Box::new(RuntimeType::String), Box::new(RuntimeType::Int));
 
-        assert!(ty.matches_value(&Value::Left(Value::String("ok".to_string().into()).into()), &ctx));
+        assert!(ty.matches_value(
+            &Value::Left(Value::String("ok".to_string().into()).into()),
+            &ctx
+        ));
         assert!(ty.matches_value(&Value::Right(Value::Integer(7).into()), &ctx));
         assert!(!ty.matches_value(&Value::Left(Value::Integer(7).into()), &ctx));
     }
