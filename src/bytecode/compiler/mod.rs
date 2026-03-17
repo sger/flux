@@ -2045,6 +2045,36 @@ impl Compiler {
         }
     }
 
+    /// Render the Core IR for the same AST shape consumed by the current
+    /// compile configuration. Call this after a successful `compile_with_opts`.
+    pub fn dump_core_with_opts(
+        &self,
+        program: &Program,
+        optimize: bool,
+        mode: crate::core::display::CoreDisplayMode,
+    ) -> String {
+        let program_to_lower = if optimize {
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
+            rename(optimized, HashMap::new())
+        } else {
+            program.clone()
+        };
+
+        let mut core =
+            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        crate::core::passes::run_core_passes(&mut core);
+        match mode {
+            crate::core::display::CoreDisplayMode::Readable => {
+                crate::core::display::display_program_readable(&core, &self.interner)
+            }
+            crate::core::display::CoreDisplayMode::Debug => {
+                crate::core::display::display_program_debug(&core, &self.interner)
+            }
+        }
+    }
+
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
         // Ensure per-file tracking is clean for each compile pass.
         self.warnings.clear();
