@@ -1,0 +1,166 @@
+// Tests for if/else expressions, match expressions, match guards, and do blocks.
+
+// --- if/else ---
+
+fn test_if_else_basic() {
+    let result = if true { 1 } else { 2 }
+    assert_eq(result, 1)
+}
+
+fn test_if_else_false_branch() {
+    let result = if false { 1 } else { 2 }
+    assert_eq(result, 2)
+}
+
+fn test_if_else_with_comparison() {
+    let x = 10
+    let result = if x > 5 { "big" } else { "small" }
+    assert_eq(result, "big")
+}
+
+fn test_if_else_nested() {
+    let x = 15
+    let result = if x > 20 {
+        "large"
+    } else {
+        if x > 10 {
+            "medium"
+        } else {
+            "small"
+        }
+    }
+    assert_eq(result, "medium")
+}
+
+fn test_if_else_as_expression_in_let() {
+    let sign = \n -> if n > 0 { 1 } else { if n < 0 { -1 } else { 0 } }
+    assert_eq(sign(42), 1)
+    assert_eq(sign(-5), -1)
+    assert_eq(sign(0), 0)
+}
+
+// --- match expressions ---
+
+fn test_match_integer_literal() {
+    let describe = \n -> match n {
+        0 -> "zero",
+        1 -> "one",
+        2 -> "two",
+        _ -> "other"
+    }
+    assert_eq(describe(0), "zero")
+    assert_eq(describe(1), "one")
+    assert_eq(describe(99), "other")
+}
+
+fn test_match_string_literal() {
+    let greet = \lang -> match lang {
+        "en" -> "hello",
+        "es" -> "hola",
+        "fr" -> "bonjour",
+        _ -> "???"
+    }
+    assert_eq(greet("en"), "hello")
+    assert_eq(greet("fr"), "bonjour")
+    assert_eq(greet("de"), "???")
+}
+
+fn test_match_boolean() {
+    let describe = \b -> match b {
+        true -> "yes",
+        false -> "no"
+    }
+    assert_eq(describe(true), "yes")
+    assert_eq(describe(false), "no")
+}
+
+fn test_match_wildcard() {
+    let f = \x -> match x {
+        _ -> "anything"
+    }
+    assert_eq(f(42), "anything")
+    assert_eq(f("hello"), "anything")
+}
+
+fn test_match_variable_binding() {
+    let result = match 42 {
+        n -> n + 1
+    }
+    assert_eq(result, 43)
+}
+
+// --- match with Option ---
+
+fn test_match_option_some() {
+    let result = match Some(10) {
+        Some(x) -> x * 2,
+        None -> 0
+    }
+    assert_eq(result, 20)
+}
+
+fn test_match_option_none() {
+    let result = match None {
+        Some(x) -> x * 2,
+        None -> 0
+    }
+    assert_eq(result, 0)
+}
+
+// --- match with Either ---
+
+fn test_match_either() {
+    let process = \val -> match val {
+        Left(err) -> "error: " + err,
+        Right(v) -> "ok: " + to_string(v)
+    }
+    assert_eq(process(Left("fail")), "error: fail")
+    assert_eq(process(Right(42)), "ok: 42")
+}
+
+// --- match guards ---
+
+fn test_match_guard_basic() {
+    let classify = \n -> match n {
+        x if x > 0 -> "positive",
+        x if x < 0 -> "negative",
+        _ -> "zero"
+    }
+    assert_eq(classify(5), "positive")
+    assert_eq(classify(-3), "negative")
+    assert_eq(classify(0), "zero")
+}
+
+fn test_match_guard_with_constructor() {
+    let describe = \opt -> match opt {
+        Some(x) if x > 10 -> "big",
+        Some(x) -> "small",
+        None -> "nothing"
+    }
+    assert_eq(describe(Some(20)), "big")
+    assert_eq(describe(Some(3)), "small")
+    assert_eq(describe(None), "nothing")
+}
+
+// --- do blocks ---
+
+fn test_do_block_basic() {
+    let result = do {
+        let x = 1
+        let y = 2
+        x + y
+    }
+    assert_eq(result, 3)
+}
+
+fn test_do_block_nested_let() {
+    let result = do {
+        let a = 10
+        let b = do {
+            let c = 5
+            c * 2
+        }
+        a + b
+    }
+    assert_eq(result, 20)
+}

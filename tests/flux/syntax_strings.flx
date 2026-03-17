@@ -1,0 +1,118 @@
+// Tests for string interpolation, escape sequences, and string operations.
+
+// --- string literals ---
+
+fn test_string_basic() {
+    assert_eq("hello", "hello")
+    assert_eq("", "")
+}
+
+fn test_string_concatenation() {
+    assert_eq("hello" + " " + "world", "hello world")
+}
+
+fn test_string_length() {
+    assert_eq(len("hello"), 5)
+    assert_eq(len(""), 0)
+}
+
+// --- string interpolation ---
+
+fn test_interpolation_variable() {
+    let name = "world"
+    assert_eq("hello #{name}", "hello world")
+}
+
+fn test_interpolation_expression() {
+    assert_eq("sum: #{1 + 2}", "sum: 3")
+}
+
+fn test_interpolation_nested_expression() {
+    let x = 5
+    assert_eq("result: #{x * 2 + 1}", "result: 11")
+}
+
+fn test_interpolation_multiple() {
+    let a = "foo"
+    let b = "bar"
+    assert_eq("#{a} and #{b}", "foo and bar")
+}
+
+fn test_interpolation_with_function() {
+    let double = \x -> x * 2
+    assert_eq("doubled: #{double(5)}", "doubled: 10")
+}
+
+// --- escape sequences ---
+
+fn test_escape_newline() {
+    let s = "a\nb"
+    assert_eq(len(s), 3)
+}
+
+fn test_escape_tab() {
+    let s = "a\tb"
+    assert_eq(len(s), 3)
+}
+
+fn test_escape_quote() {
+    let s = "say \"hello\""
+    assert_true(str_contains(s, "hello"))
+}
+
+fn test_escape_backslash() {
+    let s = "back\\slash"
+    assert_true(str_contains(s, "\\"))
+}
+
+// --- string operations ---
+
+fn test_string_starts_with() {
+    assert_true(starts_with("hello world", "hello"))
+    assert_false(starts_with("hello world", "world"))
+}
+
+fn test_string_ends_with() {
+    assert_true(ends_with("hello world", "world"))
+    assert_false(ends_with("hello world", "hello"))
+}
+
+fn test_string_trim() {
+    assert_eq(trim("  hello  "), "hello")
+}
+
+fn test_string_upper_lower() {
+    assert_eq(upper("hello"), "HELLO")
+    assert_eq(lower("HELLO"), "hello")
+}
+
+fn test_string_replace() {
+    assert_eq(replace("hello world", "world", "flux"), "hello flux")
+}
+
+fn test_string_split() {
+    assert_eq(split("a,b,c", ","), [|"a", "b", "c"|])
+}
+
+fn test_string_join() {
+    assert_eq(join([|"a", "b", "c"|], "-"), "a-b-c")
+}
+
+fn test_string_chars() {
+    assert_eq(chars("abc"), [|"a", "b", "c"|])
+}
+
+fn test_string_substring() {
+    assert_eq(substring("hello", 1, 4), "ell")
+}
+
+fn test_string_str_contains() {
+    assert_true(str_contains("hello world", "lo wo"))
+    assert_false(str_contains("hello", "xyz"))
+}
+
+fn test_string_to_string() {
+    assert_eq(to_string(42), "42")
+    assert_eq(to_string(true), "true")
+    assert_eq(to_string(3.14), "3.14")
+}

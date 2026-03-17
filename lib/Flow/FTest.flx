@@ -22,9 +22,34 @@ module Flow.FTest {
         assert_throws(test_fn, expected_message)
     }
 
+    // Comparison assertions
+    public fn gt(a, b) {
+        assert_gt(a, b)
+    }
+
+    public fn lt(a, b) {
+        assert_lt(a, b)
+    }
+
+    public fn gte(a, b) {
+        assert_gte(a, b)
+    }
+
+    public fn lte(a, b) {
+        assert_lte(a, b)
+    }
+
+    // Length assertion
+    public fn has_len(collection, expected) {
+        assert_len(collection, expected)
+    }
+
     // Float/int approximate equality
     public fn approx_eq(actual, expected, epsilon) {
-        assert_true(abs(actual - expected) <= epsilon)
+        assert_msg(
+            abs(actual - expected) <= epsilon,
+            "approx_eq failed: " + to_string(actual) + " not within " + to_string(epsilon) + " of " + to_string(expected)
+        )
     }
 
     // Build a named test tuple for describe()
@@ -34,7 +59,10 @@ module Flow.FTest {
 
     // Run a list of cases with a test function
     public fn for_each(cases, test_fn) {
-        map(cases, \c -> test_fn(c))
+        let results = map(cases, \c -> try(\() -> test_fn(c)))
+        let failures = filter(results, \r -> r.0 == "error")
+        let n = len(failures)
+        assert_msg(n == 0, to_string(n) + " case(s) failed in for_each")
     }
 
     // Build fixture once and pass it to the provided test function
@@ -53,8 +81,11 @@ module Flow.FTest {
             [t | rest] -> do {
                 let test_name = t.0
                 let test_fn = t.1
-                print("    " + test_name)
-                test_fn()
+                let result = try(test_fn)
+                match result.0 {
+                    "ok" -> print("    PASS  " + test_name),
+                    _ -> print("    FAIL  " + test_name + "\n            " + result.1)
+                }
                 run_named_tests(rest)
             },
             _ -> ()
