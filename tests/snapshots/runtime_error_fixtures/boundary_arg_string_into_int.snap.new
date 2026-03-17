@@ -1,0 +1,57 @@
+---
+source: tests/runtime_error_fixtures_snapshots.rs
+assertion_line: 143
+---
+Fixture: examples/runtime_errors/boundary_arg_string_into_int.flx
+== vm ==
+status: 1
+stdout:
+<empty>
+stderr:
+• 1 error • examples/runtime_errors/boundary_arg_string_into_int.flx
+error[E1004]: Type Error
+
+I found a value with the wrong runtime type.
+
+  examples/runtime_errors/boundary_arg_string_into_int.flx:8:1
+  |
+8 | typed_add(dynamic, 1)
+  | ^^^^^^^^^^^^^^^^^^^^^
+  | --------------------- this value has runtime type `String`
+
+Note:
+  expected type: Int
+  found type:    String
+  runtime value:  "oops"
+
+Help:
+  Check the value flowing into this operation or add a conversion before this point.
+
+Stack trace:
+  at <main> (examples/runtime_errors/boundary_arg_string_into_int.flx:8:1)
+== jit ==
+status: 1
+stdout:
+<empty>
+stderr:
+• 1 error • examples/runtime_errors/boundary_arg_string_into_int.flx
+error[E1004]: Type Error
+
+I found a value with the wrong runtime type.
+
+  examples/runtime_errors/boundary_arg_string_into_int.flx:8:1
+  |
+8 | typed_add(dynamic, 1)
+  | ^^^^^^^^^^^^^^^^^^^^^
+  | --------------------- this value has runtime type `String`
+
+Note:
+  expected type: Int
+  found type:    String
+  runtime value:  "oops"
+
+Help:
+  Check the value flowing into this operation or add a conversion before this point.
+
+Stack trace:
+  at <main> (examples/runtime_errors/boundary_arg_string_into_int.flx:8:1)
