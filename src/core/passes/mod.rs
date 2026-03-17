@@ -7,15 +7,18 @@ mod beta;
 mod case_of_case;
 mod cokc;
 mod dead_let;
+mod evidence;
 mod helpers;
 mod inline;
 mod inliner;
+mod tail_resumptive;
 
 pub use anf::anf_normalize;
 pub use beta::beta_reduce;
 pub use case_of_case::case_of_case;
 pub use cokc::case_of_known_constructor;
 pub use dead_let::elim_dead_let;
+pub use evidence::evidence_pass;
 pub use inline::inline_trivial_lets;
 pub use inliner::inline_lets;
 
@@ -32,15 +35,16 @@ use crate::core::{CoreExpr, CoreLit, CoreProgram};
 /// 4. `inline_lets`              — inline dead, single-use, and small let-bindings
 ///    (subsumes `inline_trivial_lets`; uses occurrence analysis)
 /// 5. `elim_dead_let`            — drop unused pure bindings left over
-/// 6. `anf_normalize`            — flatten nested subexpressions into let-chains
+/// 6. `evidence_pass`            — rewrite TR Handle/Perform into evidence passing
+/// 7. `anf_normalize`            — flatten nested subexpressions into let-chains
 pub fn run_core_passes(program: &mut CoreProgram) {
-    // Find the maximum binder ID so ANF can allocate fresh IDs above it.
+    // Find the maximum binder ID so passes can allocate fresh IDs above it.
     let mut max_binder_id: u32 = 0;
     for def in &program.defs {
         max_binder_id = max_binder_id.max(def.binder.id.0);
         collect_max_binder_id(&def.expr, &mut max_binder_id);
     }
-    let mut next_anf_id = max_binder_id + 1;
+    let mut next_id = max_binder_id + 1;
 
     let sentinel = CoreExpr::Lit(CoreLit::Unit, Default::default());
     for def in &mut program.defs {
@@ -50,7 +54,8 @@ pub fn run_core_passes(program: &mut CoreProgram) {
         let e = case_of_known_constructor(e);
         let e = inline_lets(e);
         let e = elim_dead_let(e);
-        let e = anf_normalize(e, &mut next_anf_id);
+        let e = evidence_pass(e, &mut next_id);
+        let e = anf_normalize(e, &mut next_id);
         def.expr = e;
     }
 }
