@@ -49,6 +49,9 @@ jobs:
       - name: Build (debug)
         run: cargo build --all --all-features
 
+      - name: VM/JIT parity check (all examples)
+        run: scripts/check_parity.sh examples/basics examples/advanced examples/functions examples/patterns examples/tail_call examples/perf examples/primop tests/flux
+
   examples-smoke:
     name: Examples Tier 1 (PR smoke)
     runs-on: ubuntu-latest
