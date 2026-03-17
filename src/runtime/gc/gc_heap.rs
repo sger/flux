@@ -857,7 +857,7 @@ mod tests {
             tail: Value::None,
         });
         let adt = heap.alloc(HeapObject::Adt {
-            constructor: Rc::from("Node"),
+            constructor: Rc::new("Node".to_string()),
             fields: crate::runtime::value::AdtFields::from_vec(vec![
                 Value::Integer(1),
                 Value::Gc(list),
