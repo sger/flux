@@ -456,6 +456,15 @@ mod inner {
         }
     }
 
+    // ── Display ───────────────────────────────────────────────────────────────
+
+    impl std::fmt::Display for NanBox {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            // Convert to Value for display.
+            write!(f, "{}", self.clone().to_value())
+        }
+    }
+
     // ── Tests ─────────────────────────────────────────────────────────────────
 
     #[cfg(test)]
@@ -617,7 +626,7 @@ mod inner {
     }
 }
 
-// Re-export the public surface unconditionally so dependents can import
-// without repeating the cfg attribute.
+// Re-export the public surface. The inner module is feature-gated so the re-export
+// must also be feature-gated to avoid referencing a non-existent module.
 #[cfg(feature = "nan-boxing")]
 pub use inner::{NanBox, NanTag, MAX_INLINE_INT, MIN_INLINE_INT};

@@ -2122,7 +2122,7 @@ fn repl(trace: bool) {
         // --- Execute ---
         let mut vm = VM::new(bytecode);
         vm.set_trace(trace);
-        std::mem::swap(&mut vm.globals, &mut globals);
+        vm.swap_globals_values(&mut globals);
         std::mem::swap(&mut vm.gc_heap, &mut gc_heap);
 
         match vm.run() {
@@ -2138,7 +2138,7 @@ fn repl(trace: bool) {
         }
 
         // Persist VM state for next iteration
-        std::mem::swap(&mut vm.globals, &mut globals);
+        vm.swap_globals_values(&mut globals);
         std::mem::swap(&mut vm.gc_heap, &mut gc_heap);
     }
 

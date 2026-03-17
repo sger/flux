@@ -34,7 +34,6 @@ pub mod runtime_type;
 pub mod value;
 pub mod vm;
 
-#[cfg(feature = "nan-boxing")]
 pub mod nanbox;
 
 pub trait RuntimeContext {

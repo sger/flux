@@ -15,6 +15,7 @@ use crate::{
     },
 };
 
+use super::slot;
 use super::VM;
 
 impl VM {
@@ -150,7 +151,9 @@ impl VM {
 
         let l_idx = self.sp - 2;
         let r_idx = self.sp - 1;
-        let result = match (&self.stack[l_idx], &self.stack[r_idx]) {
+        let l_val = self.stack_get(l_idx);
+        let r_val = self.stack_get(r_idx);
+        let result = match (&l_val, &r_val) {
             (Value::Integer(l), Value::Integer(r)) => match op {
                 OpCode::OpCmpEqJumpNotTruthy => l == r,
                 OpCode::OpCmpNeJumpNotTruthy => l != r,
@@ -160,6 +163,8 @@ impl VM {
                 _ => unreachable!(),
             },
             _ => {
+                drop(l_val);
+                drop(r_val);
                 let (left, right) = self.pop_pair_untracked()?;
                 let result = self.compare_values(&left, &right, Self::fused_cmp_base_opcode(op))?;
                 if !result {
@@ -170,10 +175,10 @@ impl VM {
             }
         };
 
-        self.stack[l_idx] = Value::Uninit;
-        self.stack[r_idx] = Value::Uninit;
+        self.stack[l_idx] = slot::uninit();
+        self.stack[r_idx] = slot::uninit();
         self.sp -= 2;
-        self.last_popped = Value::None;
+        self.last_popped = slot::to_slot(Value::None);
 
         if !result {
             self.current_frame_mut().ip = jump_pos;
@@ -259,44 +264,45 @@ impl VM {
                 let idx = Self::read_u8_fast(instructions, ip + 1);
                 let frame_index = self.frame_index;
                 let bp = self.frames[frame_index].base_pointer;
-                let value = self.stack[bp + idx].clone();
+                let value = self.stack_get(bp + idx);
                 self.push(value)?;
                 Ok(2)
             }
             OpCode::OpGetLocal0 => {
                 let bp = self.frames[self.frame_index].base_pointer;
-                let value = self.stack[bp].clone();
+                let value = self.stack_get(bp);
                 self.push(value)?;
                 Ok(1)
             }
             OpCode::OpGetLocal1 => {
                 let bp = self.frames[self.frame_index].base_pointer;
-                let value = self.stack[bp + 1].clone();
+                let value = self.stack_get(bp + 1);
                 self.push(value)?;
                 Ok(1)
             }
             OpCode::OpSetLocal => {
                 let idx = Self::read_u8_fast(instructions, ip + 1);
                 let bp = self.current_frame().base_pointer;
-                self.stack[bp + idx] = self.pop()?;
+                let val = self.pop()?;
+                self.stack_set(bp + idx, val);
                 Ok(2)
             }
             OpCode::OpConsumeLocal => {
                 let idx = Self::read_u8_fast(instructions, ip + 1);
                 let bp = self.current_frame().base_pointer;
-                let value = std::mem::replace(&mut self.stack[bp + idx], Value::Uninit);
+                let value = self.stack_take(bp + idx);
                 self.push(value)?;
                 Ok(2)
             }
             OpCode::OpConsumeLocal0 => {
                 let bp = self.current_frame().base_pointer;
-                let value = std::mem::replace(&mut self.stack[bp], Value::Uninit);
+                let value = self.stack_take(bp);
                 self.push(value)?;
                 Ok(1)
             }
             OpCode::OpConsumeLocal1 => {
                 let bp = self.current_frame().base_pointer;
-                let value = std::mem::replace(&mut self.stack[bp + 1], Value::Uninit);
+                let value = self.stack_take(bp + 1);
                 self.push(value)?;
                 Ok(1)
             }
@@ -356,24 +362,25 @@ impl VM {
             }
             OpCode::OpGetGlobal => {
                 let idx = Self::read_u16_fast(instructions, ip + 1);
-                let value = self.globals[idx].clone();
+                let value = self.global_get(idx);
                 self.push(value)?;
                 Ok(3)
             }
             OpCode::OpSetGlobal => {
                 let idx = Self::read_u16_fast(instructions, ip + 1);
-                self.globals[idx] = self.pop()?;
+                let val = self.pop()?;
+                self.global_set(idx, val);
                 Ok(3)
             }
             OpCode::OpConstant => {
                 let idx = Self::read_u16_fast(instructions, ip + 1);
-                let value = self.constants[idx].clone();
+                let value = self.const_get(idx);
                 self.push(value)?;
                 Ok(3)
             }
             OpCode::OpConstantLong => {
                 let idx = Self::read_u32_fast(instructions, ip + 1);
-                let value = self.constants[idx].clone();
+                let value = self.const_get(idx);
                 self.push(value)?;
                 Ok(5)
             }
@@ -382,7 +389,9 @@ impl VM {
                 if self.sp >= 2 {
                     let l_idx = self.sp - 2;
                     let r_idx = self.sp - 1;
-                    let fast = match (&self.stack[l_idx], &self.stack[r_idx]) {
+                    let l_val = self.stack_get(l_idx);
+                    let r_val = self.stack_get(r_idx);
+                    let fast = match (&l_val, &r_val) {
                         (Value::Integer(l), Value::Integer(r)) => match op {
                             OpCode::OpAdd => Some(Value::Integer(l.wrapping_add(*r))),
                             OpCode::OpSub => Some(Value::Integer(l.wrapping_sub(*r))),
@@ -407,11 +416,10 @@ impl VM {
                     };
                     if let Some(result) = fast {
                         // Overwrite left slot with result, clear right slot.
-                        // Old values are Integer (trivially droppable).
-                        self.stack[l_idx] = result;
-                        self.stack[r_idx] = Value::Uninit;
+                        self.stack_set(l_idx, result);
+                        self.stack[r_idx] = slot::uninit();
                         self.sp -= 1;
-                        self.last_popped = Value::None;
+                        self.last_popped = slot::to_slot(Value::None);
                         return Ok(1);
                     }
                 }
@@ -427,7 +435,9 @@ impl VM {
                 if self.sp >= 2 {
                     let l_idx = self.sp - 2;
                     let r_idx = self.sp - 1;
-                    let fast = match (&self.stack[l_idx], &self.stack[r_idx]) {
+                    let l_val = self.stack_get(l_idx);
+                    let r_val = self.stack_get(r_idx);
+                    let fast = match (&l_val, &r_val) {
                         (Value::Integer(l), Value::Integer(r)) => {
                             let result = match op {
                                 OpCode::OpEqual => l == r,
@@ -442,10 +452,10 @@ impl VM {
                         _ => None,
                     };
                     if let Some(result) = fast {
-                        self.stack[l_idx] = Value::Boolean(result);
-                        self.stack[r_idx] = Value::Uninit;
+                        self.stack_set(l_idx, Value::Boolean(result));
+                        self.stack[r_idx] = slot::uninit();
                         self.sp -= 1;
-                        self.last_popped = Value::None;
+                        self.last_popped = slot::to_slot(Value::None);
                         return Ok(1);
                     }
                 }
@@ -457,8 +467,8 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let result = !self.stack[idx].is_truthy();
-                self.stack[idx] = Value::Boolean(result);
+                let result = !self.stack_get(idx).is_truthy();
+                self.stack_set(idx, Value::Boolean(result));
                 Ok(1)
             }
             OpCode::OpMinus => {
@@ -466,10 +476,10 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let operand = std::mem::replace(&mut self.stack[idx], Value::Uninit);
+                let operand = self.stack_take(idx);
                 match operand {
-                    Value::Integer(val) => self.stack[idx] = Value::Integer(-val),
-                    Value::Float(val) => self.stack[idx] = Value::Float(-val),
+                    Value::Integer(val) => self.stack_set(idx, Value::Integer(-val)),
+                    Value::Float(val) => self.stack_set(idx, Value::Float(-val)),
                     _ => {
                         return Err(Self::negation_type_err(&operand));
                     }
@@ -490,8 +500,8 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let is_some = matches!(self.stack[idx], Value::Some(_));
-                self.stack[idx] = Value::Boolean(is_some);
+                let is_some = matches!(self.stack_get(idx), Value::Some(_));
+                self.stack_set(idx, Value::Boolean(is_some));
                 Ok(1)
             }
             OpCode::OpUnwrapSome => {
@@ -499,12 +509,12 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let value = std::mem::replace(&mut self.stack[idx], Value::Uninit);
+                let value = self.stack_take(idx);
                 match value {
                     Value::Some(inner) => {
-                        let value =
+                        let v =
                             std::rc::Rc::try_unwrap(inner).unwrap_or_else(|v| v.as_ref().clone());
-                        self.stack[idx] = value;
+                        self.stack_set(idx, v);
                     }
                     _ => {
                         return Err(Self::expected_some_err(&value));
@@ -522,7 +532,7 @@ impl VM {
             OpCode::OpCall => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
                 let callee_idx = self.sp - 1 - num_args;
-                if matches!(self.stack[callee_idx], Value::Continuation(_)) {
+                if matches!(self.stack_get(callee_idx), Value::Continuation(_)) {
                     // `resume(val)` call: restore the captured continuation.
                     // Returns ip_delta = 0 so apply_ip_delta leaves the
                     // newly-restored frame's IP untouched.
@@ -557,7 +567,7 @@ impl VM {
             OpCode::OpTailCall => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
                 let callee_idx = self.sp - 1 - num_args;
-                let is_base_function = matches!(self.stack[callee_idx], Value::BaseFunction(_));
+                let is_base_function = matches!(self.stack_get(callee_idx), Value::BaseFunction(_));
                 self.execute_tail_call(num_args)?;
                 if is_base_function { Ok(2) } else { Ok(0) }
             }
@@ -613,8 +623,8 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let is_tuple = matches!(self.stack[idx], Value::Tuple(_));
-                self.stack[idx] = Value::Boolean(is_tuple);
+                let is_tuple = matches!(self.stack_get(idx), Value::Tuple(_));
+                self.stack_set(idx, Value::Boolean(is_tuple));
                 Ok(1)
             }
             OpCode::OpHash => {
@@ -646,9 +656,9 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let value = std::mem::replace(&mut self.stack[idx], Value::Uninit);
+                let value = self.stack_take(idx);
                 leak_detector::record_some();
-                self.stack[idx] = Value::Some(std::rc::Rc::new(value));
+                self.stack_set(idx, Value::Some(std::rc::Rc::new(value)));
                 Ok(1)
             }
             // Either type operations
@@ -657,8 +667,8 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let value = std::mem::replace(&mut self.stack[idx], Value::Uninit);
-                self.stack[idx] = Value::Left(std::rc::Rc::new(value));
+                let value = self.stack_take(idx);
+                self.stack_set(idx, Value::Left(std::rc::Rc::new(value)));
                 Ok(1)
             }
             OpCode::OpRight => {
@@ -666,8 +676,8 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let value = std::mem::replace(&mut self.stack[idx], Value::Uninit);
-                self.stack[idx] = Value::Right(std::rc::Rc::new(value));
+                let value = self.stack_take(idx);
+                self.stack_set(idx, Value::Right(std::rc::Rc::new(value)));
                 Ok(1)
             }
             OpCode::OpIsLeft => {
@@ -675,8 +685,8 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let is_left = matches!(self.stack[idx], Value::Left(_));
-                self.stack[idx] = Value::Boolean(is_left);
+                let is_left = matches!(self.stack_get(idx), Value::Left(_));
+                self.stack_set(idx, Value::Boolean(is_left));
                 Ok(1)
             }
             OpCode::OpIsRight => {
@@ -684,8 +694,8 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let is_right = matches!(self.stack[idx], Value::Right(_));
-                self.stack[idx] = Value::Boolean(is_right);
+                let is_right = matches!(self.stack_get(idx), Value::Right(_));
+                self.stack_set(idx, Value::Boolean(is_right));
                 Ok(1)
             }
             OpCode::OpUnwrapLeft => {
@@ -693,12 +703,12 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let value = std::mem::replace(&mut self.stack[idx], Value::Uninit);
+                let value = self.stack_take(idx);
                 match value {
                     Value::Left(inner) => {
-                        let value =
+                        let v =
                             std::rc::Rc::try_unwrap(inner).unwrap_or_else(|v| v.as_ref().clone());
-                        self.stack[idx] = value;
+                        self.stack_set(idx, v);
                     }
                     _ => return Err(Self::unwrap_left_err()),
                 }
@@ -709,12 +719,12 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let value = std::mem::replace(&mut self.stack[idx], Value::Uninit);
+                let value = self.stack_take(idx);
                 match value {
                     Value::Right(inner) => {
-                        let value =
+                        let v =
                             std::rc::Rc::try_unwrap(inner).unwrap_or_else(|v| v.as_ref().clone());
-                        self.stack[idx] = value;
+                        self.stack_set(idx, v);
                     }
                     _ => return Err(Self::unwrap_right_err()),
                 }
@@ -725,8 +735,8 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let value = std::mem::replace(&mut self.stack[idx], Value::Uninit);
-                self.stack[idx] = Value::String(value.to_string_value().into());
+                let value = self.stack_take(idx);
+                self.stack_set(idx, Value::String(value.to_string_value().into()));
                 Ok(1)
             }
             OpCode::OpCons => {
@@ -740,8 +750,9 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let is_cons = matches!(&self.stack[idx], Value::Gc(h) if matches!(self.gc_heap.get(*h), HeapObject::Cons { .. }));
-                self.stack[idx] = Value::Boolean(is_cons);
+                let slot_val = self.stack_get(idx);
+                let is_cons = matches!(&slot_val, Value::Gc(h) if matches!(self.gc_heap.get(*h), HeapObject::Cons { .. }));
+                self.stack_set(idx, Value::Boolean(is_cons));
                 Ok(1)
             }
             OpCode::OpIsEmptyList => {
@@ -749,8 +760,8 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let is_empty = matches!(self.stack[idx], Value::None | Value::EmptyList);
-                self.stack[idx] = Value::Boolean(is_empty);
+                let is_empty = matches!(self.stack_get(idx), Value::None | Value::EmptyList);
+                self.stack_set(idx, Value::Boolean(is_empty));
                 Ok(1)
             }
             OpCode::OpConsHead => {
@@ -758,10 +769,10 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let value = std::mem::replace(&mut self.stack[idx], Value::Uninit);
+                let value = self.stack_take(idx);
                 match &value {
                     Value::Gc(h) => match self.gc_heap.get(*h) {
-                        HeapObject::Cons { head, .. } => self.stack[idx] = head.clone(),
+                        HeapObject::Cons { head, .. } => self.stack_set(idx, head.clone()),
                         other => return Err(Self::cons_head_heap_err(other)),
                     },
                     _ => return Err(Self::cons_head_type_err(&value)),
@@ -773,10 +784,10 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let value = std::mem::replace(&mut self.stack[idx], Value::Uninit);
+                let value = self.stack_take(idx);
                 match &value {
                     Value::Gc(h) => match self.gc_heap.get(*h) {
-                        HeapObject::Cons { tail, .. } => self.stack[idx] = tail.clone(),
+                        HeapObject::Cons { tail, .. } => self.stack_set(idx, tail.clone()),
                         other => return Err(Self::cons_tail_heap_err(other)),
                     },
                     _ => return Err(Self::cons_tail_type_err(&value)),
@@ -788,7 +799,7 @@ impl VM {
                 // Avoids clone + push + pop cycle, and can move because the frame is discarded.
                 let idx = Self::read_u8_fast(instructions, ip + 1);
                 let bp = self.frames[self.frame_index].base_pointer;
-                let mut return_value = std::mem::replace(&mut self.stack[bp + idx], Value::Uninit);
+                let mut return_value = self.stack_take(bp + idx);
                 if matches!(return_value, Value::Uninit) {
                     return_value = Value::None;
                 }
@@ -803,8 +814,9 @@ impl VM {
                 // Stack after:  [..., Adt { constructor, fields }]
                 let const_idx = Self::read_u16_fast(instructions, ip + 1);
                 let arity = Self::read_u8_fast(instructions, ip + 3);
-                let constructor_name = match &self.constants[const_idx] {
-                    Value::String(s) => std::rc::Rc::clone(s),
+                let const_val = self.const_get(const_idx);
+                let constructor_name = match const_val {
+                    Value::String(s) => s,
                     other => {
                         return Err(format!(
                             "OpMakeAdt: expected string constant for constructor name, got {}",
@@ -816,8 +828,7 @@ impl VM {
                 let mut fields = Vec::with_capacity(arity);
 
                 for i in 0..arity {
-                    let val =
-                        std::mem::replace(&mut self.stack[self.sp - arity + i], Value::Uninit);
+                    let val = self.stack_take(self.sp - arity + i);
                     fields.push(val);
                 }
 
@@ -838,8 +849,13 @@ impl VM {
                 // Stack before: [..., value]
                 // Stack after:  [..., bool]  (peek-and-replace, value stays for next ops)
                 let const_idx = Self::read_u16_fast(instructions, ip + 1);
-                let construct_name = match &self.constants[const_idx] {
-                    Value::String(s) => s.as_ref(),
+                let const_val = self.const_get(const_idx);
+                let construct_name_owned;
+                let construct_name = match &const_val {
+                    Value::String(s) => {
+                        construct_name_owned = s.as_ref().to_string();
+                        construct_name_owned.as_str()
+                    }
                     other => {
                         return Err(format!(
                             "OpIsAdt: expected string constant for constructor name, got {}",
@@ -853,13 +869,14 @@ impl VM {
                 }
 
                 let idx = self.sp - 1;
-                let is_adt = match &self.stack[idx] {
+                let slot_val = self.stack_get(idx);
+                let is_adt = match &slot_val {
                     value if value.adt_constructor(&self.gc_heap) == Some(construct_name) => true,
                     Value::AdtUnit(name) => name.as_ref() == construct_name,
                     _ => false,
                 };
 
-                self.stack[idx] = Value::Boolean(is_adt);
+                self.stack_set(idx, Value::Boolean(is_adt));
                 Ok(3) // 1 opcode + 2 const_idx
             }
             OpCode::OpAdtField => {
@@ -900,8 +917,13 @@ impl VM {
                 // On mismatch: jump to jump_offset, ADT stays on stack (caller must OpPop)
                 let const_idx = Self::read_u16_fast(instructions, ip + 1);
                 let jump_pos = Self::read_u16_fast(instructions, ip + 3);
-                let constructor_name = match &self.constants[const_idx] {
-                    Value::String(s) => s.as_ref(),
+                let const_val = self.const_get(const_idx);
+                let constructor_name_owned;
+                let constructor_name = match &const_val {
+                    Value::String(s) => {
+                        constructor_name_owned = s.as_ref().to_string();
+                        constructor_name_owned.as_str()
+                    }
                     other => {
                         return Err(format!(
                             "OpIsAdtJump: expected string constant for constructor name, got {}",
@@ -909,7 +931,8 @@ impl VM {
                         ));
                     }
                 };
-                let is_match = match self.peek(0)? {
+                let peek_val = self.peek(0)?;
+                let is_match = match &peek_val {
                     value if value.adt_constructor(&self.gc_heap) == Some(constructor_name) => true,
                     Value::AdtUnit(name) => name.as_ref() == constructor_name,
                     _ => false,
@@ -931,8 +954,13 @@ impl VM {
                 let local_idx = Self::read_u8_fast(instructions, ip + 1);
                 let const_idx = Self::read_u16_fast(instructions, ip + 2);
                 let jump_pos = Self::read_u16_fast(instructions, ip + 4);
-                let constructor_name = match &self.constants[const_idx] {
-                    Value::String(s) => s.as_ref(),
+                let const_val = self.const_get(const_idx);
+                let constructor_name_owned;
+                let constructor_name = match &const_val {
+                    Value::String(s) => {
+                        constructor_name_owned = s.as_ref().to_string();
+                        constructor_name_owned.as_str()
+                    }
                     other => {
                         return Err(format!(
                             "OpIsAdtJumpLocal: expected string constant for constructor name, got {}",
@@ -941,7 +969,8 @@ impl VM {
                     }
                 };
                 let bp = self.frames[self.frame_index].base_pointer;
-                let is_match = match &self.stack[bp + local_idx] {
+                let local_val = self.stack_get(bp + local_idx);
+                let is_match = match &local_val {
                     value if value.adt_constructor(&self.gc_heap) == Some(constructor_name) => true,
                     Value::AdtUnit(name) => name.as_ref() == constructor_name,
                     _ => false,
@@ -985,7 +1014,8 @@ impl VM {
                 // Stack after:  [...]  (closures consumed)
                 // Side effect: HandlerFrame pushed onto handler_stack
                 let const_idx = Self::read_u8_fast(instructions, ip + 1);
-                let (effect, ops) = match &self.constants[const_idx] {
+                let const_val = self.const_get(const_idx);
+                let (effect, ops) = match &const_val {
                     Value::HandlerDescriptor(desc) => (desc.effect, desc.ops.clone()),
                     other => {
                         return Err(format!(
@@ -1029,7 +1059,8 @@ impl VM {
             OpCode::OpHandleDirect => {
                 // Identical to OpHandle but marks the handler as tail-resumptive.
                 let const_idx = Self::read_u8_fast(instructions, ip + 1);
-                let (effect, ops) = match &self.constants[const_idx] {
+                let const_val = self.const_get(const_idx);
+                let (effect, ops) = match &const_val {
                     Value::HandlerDescriptor(desc) => (desc.effect, desc.ops.clone()),
                     other => {
                         return Err(format!(
@@ -1082,7 +1113,8 @@ impl VM {
                 let const_idx = Self::read_u8_fast(instructions, ip + 1);
                 let arity = Self::read_u8_fast(instructions, ip + 2);
 
-                let (effect, op, effect_name, op_name) = match &self.constants[const_idx] {
+                let const_val = self.const_get(const_idx);
+                let (effect, op, effect_name, op_name) = match &const_val {
                     Value::PerformDescriptor(desc) => (
                         desc.effect,
                         desc.op,
@@ -1156,7 +1188,10 @@ impl VM {
                     }
 
                     let captured_sp = self.sp;
-                    let captured_stack = self.stack[entry_sp..captured_sp].to_vec();
+                    let captured_stack: Vec<Value> = self.stack[entry_sp..captured_sp]
+                        .iter()
+                        .map(slot::from_slot_ref)
+                        .collect();
 
                     let inner_handlers: Vec<HandlerFrame> =
                         self.handler_stack[handler_pos + 1..].to_vec();
@@ -1192,7 +1227,8 @@ impl VM {
                 let const_idx = Self::read_u8_fast(instructions, ip + 1);
                 let arity = Self::read_u8_fast(instructions, ip + 2);
 
-                let (effect, op, effect_name, op_name) = match &self.constants[const_idx] {
+                let const_val2 = self.const_get(const_idx);
+                let (effect, op, effect_name, op_name) = match &const_val2 {
                     Value::PerformDescriptor(desc) => (
                         desc.effect,
                         desc.op,
