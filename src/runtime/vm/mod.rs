@@ -31,17 +31,86 @@ const GLOBALS_SIZE: usize = 65536;
 const STACK_PREGROW_HEADROOM: usize = 256;
 const STACK_GROW_MIN_CHUNK: usize = 4096;
 
+// ── Slot-type abstraction ─────────────────────────────────────────────────────
+//
+// `Slot` is the element type used in the VM's stack, globals, and constants.
+//
+// When `nan-boxing` is enabled every slot is a `NanBox` (8 bytes).
+// When `nan-boxing` is disabled every slot is a `Value` (no overhead).
+//
+// All conversions between `Value` and `Slot` go through `slot::to_slot` /
+// `slot::from_slot` / `slot::from_slot_ref`.  Callers that only need to
+// read-then-own a slot should use `from_slot`; callers that need a clone
+// without consuming the slot should use `from_slot_ref`.
+
+#[cfg(feature = "nan-boxing")]
+mod slot {
+    use crate::runtime::nanbox::NanBox;
+    use crate::runtime::value::Value;
+
+    pub type Slot = NanBox;
+
+    #[inline(always)]
+    pub fn uninit() -> Slot {
+        NanBox::from_uninit()
+    }
+
+    #[inline(always)]
+    pub fn to_slot(v: Value) -> Slot {
+        NanBox::from_value(v)
+    }
+
+    #[inline(always)]
+    pub fn from_slot(s: Slot) -> Value {
+        s.to_value()
+    }
+
+    #[inline(always)]
+    pub fn from_slot_ref(s: &Slot) -> Value {
+        s.clone().to_value()
+    }
+}
+
+#[cfg(not(feature = "nan-boxing"))]
+mod slot {
+    use crate::runtime::value::Value;
+
+    pub type Slot = Value;
+
+    #[inline(always)]
+    pub fn uninit() -> Slot {
+        Value::Uninit
+    }
+
+    #[inline(always)]
+    pub fn to_slot(v: Value) -> Slot {
+        v
+    }
+
+    #[inline(always)]
+    pub fn from_slot(s: Slot) -> Value {
+        s
+    }
+
+    #[inline(always)]
+    pub fn from_slot_ref(s: &Slot) -> Value {
+        s.clone()
+    }
+}
+
+use slot::Slot;
+
 pub struct VM {
-    constants: Vec<Value>,
-    stack: Vec<Value>,
+    constants: Vec<Slot>,
+    stack: Vec<Slot>,
     sp: usize,
-    last_popped: Value,
-    pub globals: Vec<Value>,
+    last_popped: Slot,
+    pub globals: Vec<Slot>,
     frames: Vec<Frame>,
     frame_index: usize,
     trace: bool,
     pub gc_heap: GcHeap,
-    tail_arg_scratch: Vec<Value>,
+    tail_arg_scratch: Vec<Slot>,
     /// Active effect handlers pushed by OpHandle / popped by OpEndHandle.
     pub(crate) handler_stack: Vec<HandlerFrame>,
 }
@@ -53,11 +122,11 @@ impl VM {
         let main_frame = Frame::new(Rc::new(main_closure), 0);
 
         Self {
-            constants: bytecode.constants,
-            stack: vec![Value::Uninit; INITIAL_STACK_SIZE],
+            constants: bytecode.constants.into_iter().map(slot::to_slot).collect(),
+            stack: vec![slot::uninit(); INITIAL_STACK_SIZE],
             sp: 0,
-            last_popped: Value::None,
-            globals: vec![Value::None; GLOBALS_SIZE],
+            last_popped: slot::to_slot(Value::None),
+            globals: vec![slot::to_slot(Value::None); GLOBALS_SIZE],
             frames: vec![main_frame],
             frame_index: 0,
             trace: false,
@@ -94,6 +163,29 @@ impl VM {
     }
 
     fn collect_gc(&mut self) {
+        #[cfg(feature = "nan-boxing")]
+        {
+            // Convert NanBox slices to Value slices for the GC (Phase 2 shim;
+            // Phase 3 will teach the GC to trace NanBox directly).
+            let stack_vals: Vec<Value> = self.stack[..self.sp]
+                .iter()
+                .map(slot::from_slot_ref)
+                .collect();
+            let globals_vals: Vec<Value> = self.globals.iter().map(slot::from_slot_ref).collect();
+            let constants_vals: Vec<Value> =
+                self.constants.iter().map(slot::from_slot_ref).collect();
+            let last_popped_val = slot::from_slot_ref(&self.last_popped);
+            self.gc_heap.collect(
+                &stack_vals,
+                self.sp,
+                &globals_vals,
+                &constants_vals,
+                &last_popped_val,
+                &self.frames,
+                self.frame_index,
+            );
+        }
+        #[cfg(not(feature = "nan-boxing"))]
         self.gc_heap.collect(
             &self.stack,
             self.sp,
@@ -238,7 +330,8 @@ impl VM {
         // Move values out of stack to avoid Rc refcount overhead
         let mut elements = Vec::with_capacity(end - start);
         for i in start..end {
-            elements.push(std::mem::replace(&mut self.stack[i], Value::Uninit));
+            let s = std::mem::replace(&mut self.stack[i], slot::uninit());
+            elements.push(slot::from_slot(s));
         }
         leak_detector::record_array();
         Value::Array(Rc::new(elements))
@@ -247,7 +340,8 @@ impl VM {
     fn build_tuple(&mut self, start: usize, end: usize) -> Value {
         let mut elements = Vec::with_capacity(end - start);
         for i in start..end {
-            elements.push(std::mem::replace(&mut self.stack[i], Value::Uninit));
+            let s = std::mem::replace(&mut self.stack[i], slot::uninit());
+            elements.push(slot::from_slot(s));
         }
         leak_detector::record_tuple();
         Value::Tuple(Rc::new(elements))
@@ -257,8 +351,9 @@ impl VM {
         let mut root = hamt_empty(&mut self.gc_heap);
         let mut i = start;
         while i < end {
-            let key = std::mem::replace(&mut self.stack[i], Value::Uninit);
-            let value = std::mem::replace(&mut self.stack[i + 1], Value::Uninit);
+            let key = slot::from_slot(std::mem::replace(&mut self.stack[i], slot::uninit()));
+            let value =
+                slot::from_slot(std::mem::replace(&mut self.stack[i + 1], slot::uninit()));
 
             let hash_key = key
                 .to_hash_key()
@@ -308,7 +403,7 @@ impl VM {
             return Err("stack overflow".to_string());
         }
 
-        self.stack.resize(new_len, Value::Uninit);
+        self.stack.resize_with(new_len, slot::uninit);
         Ok(())
     }
 
@@ -317,7 +412,7 @@ impl VM {
         debug_assert!(new_sp <= old_sp);
         debug_assert!(old_sp <= self.stack.len());
         for i in new_sp..old_sp {
-            let _ = std::mem::replace(&mut self.stack[i], Value::Uninit);
+            let _ = std::mem::replace(&mut self.stack[i], slot::uninit());
         }
         #[cfg(debug_assertions)]
         self.debug_assert_stack_invariant();
@@ -356,7 +451,7 @@ impl VM {
             debug_assert!(self.sp <= self.stack.len());
         }
         if self.sp < self.stack.len() {
-            self.stack[self.sp] = obj;
+            self.stack[self.sp] = slot::to_slot(obj);
             self.sp += 1;
             #[cfg(debug_assertions)]
             self.debug_assert_stack_invariant();
@@ -369,7 +464,7 @@ impl VM {
     #[inline(never)]
     fn push_slow(&mut self, obj: Value) -> Result<(), String> {
         self.ensure_stack_capacity(self.sp + 1)?;
-        self.stack[self.sp] = obj;
+        self.stack[self.sp] = slot::to_slot(obj);
         self.sp += 1;
         #[cfg(debug_assertions)]
         self.debug_assert_stack_invariant();
@@ -398,12 +493,12 @@ impl VM {
         }
         let new_sp = self.sp - 1;
         self.sp = new_sp;
-        // Move out + overwrite without mem::replace drop glue on the hot pop path.
+        // Move out + overwrite without drop glue on the hot pop path.
         let value = unsafe {
-            let slot = self.stack.as_mut_ptr().add(new_sp);
-            let out = std::ptr::read(slot);
-            std::ptr::write(slot, Value::Uninit);
-            out
+            let slot_ptr = self.stack.as_mut_ptr().add(new_sp);
+            let out = std::ptr::read(slot_ptr);
+            std::ptr::write(slot_ptr, slot::uninit());
+            slot::from_slot(out)
         };
         #[cfg(debug_assertions)]
         self.debug_assert_stack_invariant();
@@ -413,17 +508,17 @@ impl VM {
     #[inline(always)]
     fn pop_and_track(&mut self) -> Result<Value, String> {
         let value = self.pop()?;
-        self.last_popped = value.clone();
+        self.last_popped = slot::to_slot(value.clone());
         Ok(value)
     }
 
     #[inline(always)]
-    fn peek(&self, back: usize) -> Result<&Value, String> {
+    fn peek(&self, back: usize) -> Result<Value, String> {
         if back >= self.sp {
             return Err("stack underflow".to_string());
         }
         let idx = self.sp - 1 - back;
-        let value = &self.stack[idx];
+        let value = slot::from_slot_ref(&self.stack[idx]);
         if matches!(value, Value::Uninit) {
             return Err("read from uninitialized stack slot".to_string());
         }
@@ -432,7 +527,7 @@ impl VM {
 
     fn pop_untracked(&mut self) -> Result<Value, String> {
         let value = self.pop()?;
-        self.last_popped = Value::None;
+        self.last_popped = slot::to_slot(Value::None);
         Ok(value)
     }
 
@@ -443,13 +538,13 @@ impl VM {
         }
         self.sp -= 1;
         // Drop the value in-place without the clear_stack_range loop overhead.
-        // SAFETY: sp was > 0, so self.sp is now a valid index holding a live Value.
+        // SAFETY: sp was > 0, so self.sp is now a valid index holding a live Slot.
         unsafe {
-            let slot = self.stack.as_mut_ptr().add(self.sp);
-            let _old = std::ptr::read(slot);
-            std::ptr::write(slot, Value::Uninit);
+            let slot_ptr = self.stack.as_mut_ptr().add(self.sp);
+            let _old = std::ptr::read(slot_ptr);
+            std::ptr::write(slot_ptr, slot::uninit());
         }
-        self.last_popped = Value::None;
+        self.last_popped = slot::to_slot(Value::None);
         #[cfg(debug_assertions)]
         self.debug_assert_stack_invariant();
         Ok(())
@@ -461,27 +556,88 @@ impl VM {
         }
         let new_sp = self.sp - 2;
         self.sp = new_sp;
-        // Move both values out in one pass and overwrite dead slots with Uninit.
+        // Move both values out in one pass and overwrite dead slots with uninit.
         // SAFETY: old sp >= 2 guarantees both slots are initialized and in-bounds.
         let (left, right) = unsafe {
             let base = self.stack.as_mut_ptr().add(new_sp);
             let left = std::ptr::read(base);
             let right = std::ptr::read(base.add(1));
-            std::ptr::write(base, Value::Uninit);
-            std::ptr::write(base.add(1), Value::Uninit);
-            (left, right)
+            std::ptr::write(base, slot::uninit());
+            std::ptr::write(base.add(1), slot::uninit());
+            (slot::from_slot(left), slot::from_slot(right))
         };
-        self.last_popped = Value::None;
+        self.last_popped = slot::to_slot(Value::None);
         #[cfg(debug_assertions)]
         self.debug_assert_stack_invariant();
         Ok((left, right))
     }
 
+    // ── Stack/globals/constants accessor helpers ──────────────────────────────
+    //
+    // Use these in dispatch.rs and function_call.rs instead of direct indexing
+    // to keep NanBox conversions in one place.
+
+    /// Clone the Value at stack index `idx`.
+    #[inline(always)]
+    fn stack_get(&self, idx: usize) -> Value {
+        slot::from_slot_ref(&self.stack[idx])
+    }
+
+    /// Store `v` at stack index `idx`.
+    #[inline(always)]
+    fn stack_set(&mut self, idx: usize, v: Value) {
+        self.stack[idx] = slot::to_slot(v);
+    }
+
+    /// Take the Value at stack index `idx`, leaving `Uninit` in its place.
+    #[inline(always)]
+    fn stack_take(&mut self, idx: usize) -> Value {
+        slot::from_slot(std::mem::replace(&mut self.stack[idx], slot::uninit()))
+    }
+
+    /// Clone the Value at constants index `idx`.
+    #[inline(always)]
+    fn const_get(&self, idx: usize) -> Value {
+        slot::from_slot_ref(&self.constants[idx])
+    }
+
+    /// Clone the Value at globals index `idx`.
+    #[inline(always)]
+    fn global_get(&self, idx: usize) -> Value {
+        slot::from_slot_ref(&self.globals[idx])
+    }
+
+    /// Store `v` at globals index `idx`.
+    #[inline(always)]
+    fn global_set(&mut self, idx: usize, v: Value) {
+        self.globals[idx] = slot::to_slot(v);
+    }
+
     /// Returns the last popped value from the stack.
     ///
     /// After a program completes execution, this returns the final result.
-    pub fn last_popped_stack_elem(&self) -> &Value {
-        &self.last_popped
+    pub fn last_popped_stack_elem(&self) -> Value {
+        slot::from_slot_ref(&self.last_popped)
+    }
+
+    /// Swap the VM's globals with an external `Vec<Value>` buffer.
+    ///
+    /// Used by the REPL to persist globals across iterations without exposing
+    /// the internal `Slot` type.
+    pub fn swap_globals_values(&mut self, external: &mut Vec<Value>) {
+        // Convert VM slots -> Values into external, and external Values -> slots into VM.
+        let vm_len = self.globals.len();
+        let ext_len = external.len();
+        // Ensure both have the same length (they should; both are GLOBALS_SIZE).
+        debug_assert_eq!(vm_len, ext_len);
+
+        // Swap element-by-element.
+        for i in 0..vm_len.min(ext_len) {
+            let vm_val = slot::from_slot(std::mem::replace(&mut self.globals[i], slot::uninit()));
+            let ext_val = std::mem::replace(&mut external[i], Value::None);
+            self.globals[i] = slot::to_slot(ext_val);
+            external[i] = vm_val;
+        }
     }
 }
 

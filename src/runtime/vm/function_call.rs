@@ -7,6 +7,7 @@ use crate::runtime::base::list_ops::format_value;
 use crate::runtime::gc::GcHeap;
 use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 
+use super::slot;
 use super::VM;
 
 // OpPerform instruction size: opcode (1) + const_idx (1) + arity (1) = 3 bytes.
@@ -32,11 +33,11 @@ impl VM {
             if index >= num_args {
                 break;
             }
-            let actual = &self.stack[args_start + index];
-            if !expected.matches_value(actual, self) {
+            let actual = self.stack_get(args_start + index);
+            if !expected.matches_value(&actual, self) {
                 let expected_name = expected.type_name();
                 let actual_type = actual.type_name();
-                let actual_value = format_value(self, actual);
+                let actual_value = format_value(self, &actual);
                 return Err(self.runtime_type_error_enhanced(
                     &expected_name,
                     actual_type,
@@ -109,7 +110,7 @@ impl VM {
     pub(super) fn execute_call(&mut self, num_args: usize) -> Result<(), String> {
         let callee_idx = self.sp - 1 - num_args;
 
-        match self.stack[callee_idx].clone() {
+        match self.stack_get(callee_idx) {
             Value::Closure(closure) => self.call_closure(closure, num_args),
             Value::BaseFunction(base_fn_idx) => self.execute_base_function_call_common(
                 base_fn_idx as usize,
@@ -146,7 +147,7 @@ impl VM {
 
         if let Some(callee_idx) = callee_idx {
             // Normal OpCall layout is [callee, arg0..argN]; clear callee before shrinking SP.
-            self.stack[callee_idx] = Value::Uninit;
+            self.stack[callee_idx] = slot::uninit();
         }
 
         let fixed_arity = Self::base_function_fixed_arity(base_fn.name);
@@ -157,25 +158,25 @@ impl VM {
                 0 => Vec::new(),
                 1 => {
                     // Fast path avoids loop overhead for common fixed arities.
-                    let a0 = std::mem::replace(&mut self.stack[args_start], Value::Uninit);
+                    let a0 = self.stack_take(args_start);
                     vec![a0]
                 }
                 2 => {
-                    let a0 = std::mem::replace(&mut self.stack[args_start], Value::Uninit);
-                    let a1 = std::mem::replace(&mut self.stack[args_start + 1], Value::Uninit);
+                    let a0 = self.stack_take(args_start);
+                    let a1 = self.stack_take(args_start + 1);
                     vec![a0, a1]
                 }
                 3 => {
-                    let a0 = std::mem::replace(&mut self.stack[args_start], Value::Uninit);
-                    let a1 = std::mem::replace(&mut self.stack[args_start + 1], Value::Uninit);
-                    let a2 = std::mem::replace(&mut self.stack[args_start + 2], Value::Uninit);
+                    let a0 = self.stack_take(args_start);
+                    let a1 = self.stack_take(args_start + 1);
+                    let a2 = self.stack_take(args_start + 2);
                     vec![a0, a1, a2]
                 }
                 _ => {
                     let mut args = Vec::with_capacity(num_args);
 
                     for i in args_start..self.sp {
-                        args.push(std::mem::replace(&mut self.stack[i], Value::Uninit));
+                        args.push(self.stack_take(i));
                     }
 
                     args
@@ -186,7 +187,7 @@ impl VM {
             let mut args = Vec::with_capacity(num_args);
 
             for i in args_start..self.sp {
-                args.push(std::mem::replace(&mut self.stack[i], Value::Uninit));
+                args.push(self.stack_take(i));
             }
 
             args
@@ -241,7 +242,8 @@ impl VM {
 
     pub(super) fn execute_tail_call(&mut self, num_args: usize) -> Result<(), String> {
         let callee_idx = self.sp - 1 - num_args;
-        match &self.stack[callee_idx] {
+        let callee_val = self.stack_get(callee_idx);
+        match &callee_val {
             Value::Closure(closure) => self.tail_call_closure(closure.clone(), num_args),
             Value::BaseFunction(_) => {
                 // BaseFunctions don't push frames, so treat as normal call
@@ -294,12 +296,13 @@ impl VM {
         const_index: usize,
         num_free: usize,
     ) -> Result<(), String> {
-        match &self.constants[const_index] {
+        let const_val = self.const_get(const_index);
+        match &const_val {
             Value::Function(func) => {
                 let func = func.clone();
                 let mut free = Vec::with_capacity(num_free);
                 for i in 0..num_free {
-                    free.push(self.stack[self.sp - num_free + i].clone());
+                    free.push(self.stack_get(self.sp - num_free + i));
                 }
                 self.reset_sp(self.sp - num_free)?;
                 let closure = Closure::new(func, free);
@@ -358,12 +361,12 @@ impl VM {
         let stack_len = stack.len();
         self.ensure_stack_capacity(entry_sp + stack_len + 1)?;
         for (i, v) in stack.into_iter().enumerate() {
-            self.stack[entry_sp + i] = v;
+            self.stack_set(entry_sp + i, v);
         }
 
         // Place the resume value at the position corresponding to the result
         // of the perform expression (= captured_sp, right after the saved stack).
-        self.stack[captured_sp] = resume_val;
+        self.stack_set(captured_sp, resume_val);
         self.sp = captured_sp + 1;
 
         // Restore captured frames above the handler boundary.
