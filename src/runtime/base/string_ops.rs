@@ -230,12 +230,7 @@ pub(super) fn base_str_contains_borrowed(
     _ctx: &mut dyn RuntimeContext,
     args: &[&Value],
 ) -> Result<Value, String> {
-    check_arity_ref(
-        args,
-        2,
-        "str_contains",
-        "str_contains(haystack, needle)",
-    )?;
+    check_arity_ref(args, 2, "str_contains", "str_contains(haystack, needle)")?;
     let haystack = arg_string_ref(
         args,
         0,

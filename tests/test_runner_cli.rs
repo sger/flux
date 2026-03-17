@@ -350,7 +350,10 @@ fn run_syntax_fixture(name: &str, expected_count: u32) {
         text
     );
 
-    let summary = format!("{} tests: {} passed, 0 failed", expected_count, expected_count);
+    let summary = format!(
+        "{} tests: {} passed, 0 failed",
+        expected_count, expected_count
+    );
     assert!(
         text.contains(&summary),
         "expected '{}' in {}, output:\n{}",

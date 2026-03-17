@@ -153,7 +153,13 @@ pub fn print_test_report(file_name: &str, results: &[TestResult]) -> bool {
                 } else {
                     format!("({:.0}ms)", result.elapsed_ms)
                 };
-                println!("  {}  {:<width$} {}", pass, shown_name, timing, width = col_width);
+                println!(
+                    "  {}  {:<width$} {}",
+                    pass,
+                    shown_name,
+                    timing,
+                    width = col_width
+                );
                 passed += 1;
             }
             TestOutcome::Fail(msg) => {
