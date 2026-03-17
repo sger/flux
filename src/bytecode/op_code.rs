@@ -144,6 +144,12 @@ pub enum OpCode {
     /// Like `OpPerform` but the matching handler arm is called directly — no
     /// continuation is captured and `resume(v)` simply returns `v`.
     OpPerformDirect = 82,
+    /// Perform an effect operation with compile-time resolved handler.
+    /// Operands: `[handler_depth: u8, arm_index: u8, arity: u8]`.
+    /// Like `OpPerformDirect` but skips the handler stack search entirely.
+    /// `handler_depth` is the distance from the top of the handler stack
+    /// (0 = innermost handler). `arm_index` is the index into the handler's arms.
+    OpPerformDirectIndexed = 83,
 }
 
 impl From<u8> for OpCode {
@@ -232,6 +238,7 @@ impl From<u8> for OpCode {
             80 => OpCode::OpIsAdtJumpLocal,
             81 => OpCode::OpHandleDirect,
             82 => OpCode::OpPerformDirect,
+            83 => OpCode::OpPerformDirectIndexed,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -286,6 +293,7 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpHandle | OpCode::OpHandleDirect => vec![1], // const_idx: u8
         OpCode::OpEndHandle => vec![],                        // no operands
         OpCode::OpPerform | OpCode::OpPerformDirect => vec![1, 1], // const_idx: u8, arity: u8
+        OpCode::OpPerformDirectIndexed => vec![1, 1, 1], // handler_depth: u8, arm_index: u8, arity: u8
         OpCode::OpConsumeLocal0 | OpCode::OpConsumeLocal1 => vec![],
         _ => vec![],
     }

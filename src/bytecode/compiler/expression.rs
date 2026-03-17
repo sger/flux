@@ -3084,20 +3084,43 @@ impl Compiler {
             ));
         }
 
-        for arg in args {
-            self.compile_non_tail_expression(arg)?;
+        // Evidence-passing path: if the handler has evidence locals, emit a
+        // direct function call (OpGetLocal + identity resume + args + OpCall)
+        // instead of handler stack access.
+        if let Some(ev_local) = self.resolve_evidence_local(effect, op) {
+            // Push arm closure from evidence local.
+            self.emit(OpCode::OpGetLocal, &[ev_local]);
+            // Push identity closure as resume parameter.
+            self.emit_identity_closure();
+            // Compile arguments.
+            for arg in args {
+                self.compile_non_tail_expression(arg)?;
+            }
+            // Call: arm_closure(resume, arg0, ..., argN)
+            self.emit(OpCode::OpCall, &[1 + args.len()]);
+        } else {
+            // Non-evidence path: compile args first, then dispatch opcode.
+            for arg in args {
+                self.compile_non_tail_expression(arg)?;
+            }
+            if let Some((depth, arm_idx)) = self.resolve_handler_statically(effect, op) {
+                self.emit(
+                    OpCode::OpPerformDirectIndexed,
+                    &[depth, arm_idx, args.len()],
+                );
+            } else {
+                let effect_name = self.interner.resolve(effect).to_string().into_boxed_str();
+                let op_name = self.interner.resolve(op).to_string().into_boxed_str();
+                let desc = Value::PerformDescriptor(Rc::new(PerformDescriptor {
+                    effect,
+                    op,
+                    effect_name,
+                    op_name,
+                }));
+                let const_idx = self.add_constant(desc);
+                self.emit(OpCode::OpPerform, &[const_idx, args.len()]);
+            }
         }
-
-        let effect_name = self.interner.resolve(effect).to_string().into_boxed_str();
-        let op_name = self.interner.resolve(op).to_string().into_boxed_str();
-        let desc = Value::PerformDescriptor(Rc::new(PerformDescriptor {
-            effect,
-            op,
-            effect_name,
-            op_name,
-        }));
-        let const_idx = self.add_constant(desc);
-        self.emit(OpCode::OpPerform, &[const_idx, args.len()]);
 
         Ok(())
     }
@@ -3278,6 +3301,30 @@ impl Compiler {
         // Detect tail-resumptive handlers and emit the optimized opcode.
         let is_direct =
             crate::bytecode::compiler::tail_resumptive::is_handler_tail_resumptive(arms);
+        // Save operations for handler scope before moving into descriptor.
+        let scope_ops = operations.clone();
+
+        // Evidence-passing: for TR handlers, store arm closures in local variables
+        // so that performs can load them directly instead of indexing handler_stack.
+        let evidence_locals = if is_direct {
+            let n = arms.len();
+            let mut ev_locals = vec![0usize; n];
+            // Stack has [c0, c1, ..., cN-1]. Pop in reverse order into locals.
+            for i in (0..n).rev() {
+                let temp = self.symbol_table.define_temp();
+                self.emit(OpCode::OpSetLocal, &[temp.index]);
+                ev_locals[i] = temp.index;
+            }
+            // Reload closures onto stack for OpHandleDirect fallback
+            // (needed for cross-function performs that use handler_stack).
+            for ev_local in &ev_locals {
+                self.emit(OpCode::OpGetLocal, &[*ev_local]);
+            }
+            Some(ev_locals)
+        } else {
+            None
+        };
+
         let desc = Value::HandlerDescriptor(Rc::new(HandlerDescriptor {
             effect,
             ops: operations,
@@ -3291,12 +3338,21 @@ impl Compiler {
         };
         self.emit(handle_op, &[desc_idx]);
 
+        // Push handler scope for static handler resolution.
+        self.handler_scopes.push(super::HandlerScope {
+            effect,
+            is_direct,
+            ops: scope_ops,
+            evidence_locals,
+        });
+
         // Compile the handled expression with the effect available in scope.
         self.with_handled_effect(effect, |compiler| {
             compiler.compile_non_tail_expression(expr)
         })?;
 
-        // Remove the handler frame
+        // Pop handler scope and remove the handler frame.
+        self.handler_scopes.pop();
         self.emit(OpCode::OpEndHandle, &[]);
         Ok(())
     }

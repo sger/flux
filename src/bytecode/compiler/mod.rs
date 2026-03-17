@@ -93,6 +93,20 @@ struct MainValidationState {
     is_valid_signature: bool,
 }
 
+/// Compile-time handler scope entry for static handler resolution.
+///
+/// Tracks an active `handle` block's effect, operations, and whether it's
+/// tail-resumptive, enabling `OpPerformDirectIndexed` emission.
+pub(super) struct HandlerScope {
+    pub effect: Symbol,
+    pub is_direct: bool,
+    pub ops: Vec<Symbol>,
+    /// Local variable indices holding arm closures for evidence-passing.
+    /// `evidence_locals[i]` is the local index for `ops[i]`.
+    /// `None` when evidence-passing is not applicable (non-TR handler).
+    pub evidence_locals: Option<Vec<usize>>,
+}
+
 pub struct Compiler {
     constants: Vec<Value>,
     pub symbol_table: SymbolTable,
@@ -121,6 +135,9 @@ pub struct Compiler {
     pub(super) function_param_effect_rows: Vec<HashMap<Symbol, effect_rows::EffectRow>>,
     // Effects currently handled by enclosing `handle ...` scopes.
     pub(super) handled_effects: Vec<Symbol>,
+    // Compile-time handler scope stack for static handler resolution.
+    // Tracks active handle blocks and their operations for OpPerformDirectIndexed.
+    pub(super) handler_scopes: Vec<HandlerScope>,
     // For each active function scope track local indexes captured by nested closures.
     pub(super) captured_local_indices: Vec<HashSet<usize>>,
     // Program-level free-variable analysis result for the latest compile pass.
@@ -192,6 +209,7 @@ impl Compiler {
             function_effects: Vec::new(),
             function_param_effect_rows: Vec::new(),
             handled_effects: Vec::new(),
+            handler_scopes: Vec::new(),
             captured_local_indices: Vec::new(),
             free_vars: HashSet::new(),
             tail_calls: Vec::new(),
@@ -2045,6 +2063,36 @@ impl Compiler {
         }
     }
 
+    /// Render the Core IR for the same AST shape consumed by the current
+    /// compile configuration. Call this after a successful `compile_with_opts`.
+    pub fn dump_core_with_opts(
+        &self,
+        program: &Program,
+        optimize: bool,
+        mode: crate::core::display::CoreDisplayMode,
+    ) -> String {
+        let program_to_lower = if optimize {
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
+            rename(optimized, HashMap::new())
+        } else {
+            program.clone()
+        };
+
+        let mut core =
+            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        crate::core::passes::run_core_passes(&mut core);
+        match mode {
+            crate::core::display::CoreDisplayMode::Readable => {
+                crate::core::display::display_program_readable(&core, &self.interner)
+            }
+            crate::core::display::CoreDisplayMode::Debug => {
+                crate::core::display::display_program_debug(&core, &self.interner)
+            }
+        }
+    }
+
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
         // Ensure per-file tracking is clean for each compile pass.
         self.warnings.clear();
@@ -2750,6 +2798,77 @@ impl Compiler {
         let result = f(self);
         self.handled_effects.pop();
         result
+    }
+
+    /// Try to resolve a perform target at compile time.
+    ///
+    /// Searches the handler scope stack (innermost first) for a tail-resumptive
+    /// handler matching the given effect and operation. Returns
+    /// `Some((depth, arm_index))` if found, where depth is the distance from
+    /// the top of the runtime handler stack (0 = innermost).
+    pub(super) fn resolve_handler_statically(
+        &self,
+        effect: Symbol,
+        op: Symbol,
+    ) -> Option<(usize, usize)> {
+        // Search from innermost handler outward.
+        for (i, scope) in self.handler_scopes.iter().rev().enumerate() {
+            if scope.effect == effect {
+                if !scope.is_direct {
+                    // Found the handler but it's not tail-resumptive —
+                    // can't use indexed direct dispatch.
+                    return None;
+                }
+                if let Some(arm_idx) = scope.ops.iter().position(|&o| o == op) {
+                    return Some((i, arm_idx));
+                }
+                // Effect matches but operation not found — shouldn't happen
+                // (validated earlier), fall through to runtime dispatch.
+                return None;
+            }
+        }
+        None
+    }
+
+    /// Try to resolve a perform target to an evidence local variable.
+    ///
+    /// Returns `Some(local_index)` if the target handler has evidence locals
+    /// for this operation, enabling direct `OpGetLocal` + `OpCall` dispatch.
+    pub(super) fn resolve_evidence_local(&self, effect: Symbol, op: Symbol) -> Option<usize> {
+        for scope in self.handler_scopes.iter().rev() {
+            if scope.effect == effect {
+                if let (Some(ev_locals), Some(arm_idx)) = (
+                    &scope.evidence_locals,
+                    scope.ops.iter().position(|&o| o == op),
+                ) {
+                    return Some(ev_locals[arm_idx]);
+                }
+                return None;
+            }
+        }
+        None
+    }
+
+    /// Emit bytecode that pushes an identity closure `fn(x) -> x` onto the stack.
+    ///
+    /// Used as the `resume` parameter for evidence-passing performs. The closure
+    /// is compiled as a constant `OpReturnLocal(0)` function, shared across all
+    /// evidence performs in the same compilation unit.
+    pub(super) fn emit_identity_closure(&mut self) {
+        use crate::bytecode::op_code::OpCode;
+        use crate::runtime::value::Value;
+        use std::rc::Rc;
+
+        let instructions = vec![OpCode::OpReturnLocal as u8, 0];
+        let func = Rc::new(crate::runtime::compiled_function::CompiledFunction::new(
+            instructions,
+            1,    // arity = 1
+            1,    // num_locals = 1 (the parameter)
+            None, // no name
+        ));
+        let fn_idx = self.add_constant(Value::Function(func));
+        // Emit OpClosure with 0 free variables.
+        self.emit(OpCode::OpClosure, &[fn_idx, 0]);
     }
 
     pub(super) fn is_effect_available(&self, required: Symbol) -> bool {
