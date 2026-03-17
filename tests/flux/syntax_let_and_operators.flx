@@ -1,0 +1,150 @@
+// Tests for let bindings, rebinding, arithmetic, comparison, logical,
+// and prefix operators.
+
+// --- let bindings ---
+
+fn test_let_basic() {
+    let x = 42
+    assert_eq(x, 42)
+}
+
+fn test_let_multiple_bindings() {
+    let a = 1
+    let b = 2
+    let c = a + b
+    assert_eq(c, 3)
+}
+
+fn test_let_rebinding() {
+    let x = 10
+    let y = x + 5
+    assert_eq(y, 15)
+}
+
+fn test_let_tuple_destructuring() {
+    let (a, b) = (10, 20)
+    assert_eq(a, 10)
+    assert_eq(b, 20)
+}
+
+fn test_let_nested_tuple_destructuring() {
+    let (a, (b, c)) = (1, (2, 3))
+    assert_eq(a, 1)
+    assert_eq(b, 2)
+    assert_eq(c, 3)
+}
+
+// --- arithmetic operators ---
+
+fn test_arithmetic_add() {
+    assert_eq(1 + 2, 3)
+    assert_eq(1.5 + 2.5, 4.0)
+}
+
+fn test_arithmetic_sub() {
+    assert_eq(10 - 3, 7)
+    assert_eq(5.0 - 1.5, 3.5)
+}
+
+fn test_arithmetic_mul() {
+    assert_eq(4 * 5, 20)
+    assert_eq(2.0 * 3.5, 7.0)
+}
+
+fn test_arithmetic_div() {
+    assert_eq(10 / 2, 5)
+    assert_eq(7.0 / 2.0, 3.5)
+}
+
+fn test_arithmetic_mod() {
+    assert_eq(10 % 3, 1)
+    assert_eq(15 % 5, 0)
+}
+
+fn test_arithmetic_precedence() {
+    assert_eq(2 + 3 * 4, 14)
+    assert_eq((2 + 3) * 4, 20)
+    assert_eq(10 - 4 / 2, 8)
+}
+
+fn test_arithmetic_mixed_expressions() {
+    let result = (10 + 5) * 2 - 3
+    assert_eq(result, 27)
+}
+
+// --- comparison operators ---
+
+fn test_compare_eq() {
+    assert_true(1 == 1)
+    assert_false(1 == 2)
+    assert_true("a" == "a")
+}
+
+fn test_compare_neq() {
+    assert_true(1 != 2)
+    assert_false(1 != 1)
+}
+
+fn test_compare_lt() {
+    assert_true(1 < 2)
+    assert_false(2 < 1)
+    assert_false(1 < 1)
+}
+
+fn test_compare_gt() {
+    assert_true(2 > 1)
+    assert_false(1 > 2)
+    assert_false(1 > 1)
+}
+
+fn test_compare_lte() {
+    assert_true(1 <= 2)
+    assert_true(1 <= 1)
+    assert_false(2 <= 1)
+}
+
+fn test_compare_gte() {
+    assert_true(2 >= 1)
+    assert_true(1 >= 1)
+    assert_false(1 >= 2)
+}
+
+// --- logical operators ---
+
+fn test_logical_and() {
+    assert_true(true && true)
+    assert_false(true && false)
+    assert_false(false && true)
+    assert_false(false && false)
+}
+
+fn test_logical_or() {
+    assert_true(true || true)
+    assert_true(true || false)
+    assert_true(false || true)
+    assert_false(false || false)
+}
+
+fn test_logical_not() {
+    assert_true(!false)
+    assert_false(!true)
+}
+
+fn test_logical_combined() {
+    assert_true((1 < 2) && (3 > 1))
+    assert_true((1 > 2) || (3 > 1))
+    assert_false((1 > 2) && (3 > 1))
+}
+
+// --- prefix operators ---
+
+fn test_prefix_negate() {
+    assert_eq(-5, 0 - 5)
+    assert_eq(-(-3), 3)
+}
+
+fn test_prefix_not_boolean() {
+    assert_eq(!true, false)
+    assert_eq(!false, true)
+    assert_eq(!!true, true)
+}

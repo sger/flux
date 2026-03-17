@@ -108,6 +108,19 @@ pub fn print_test_report(file_name: &str, results: &[TestResult]) -> bool {
     let grouped_output = results.iter().any(|r| r.name.starts_with("Tests."));
     let mut current_group: Option<&str> = None;
 
+    let col_width = results
+        .iter()
+        .map(|r| {
+            if let Some(rest) = r.name.strip_prefix("Tests.") {
+                rest.len()
+            } else {
+                r.name.len()
+            }
+        })
+        .max()
+        .unwrap_or(20)
+        .max(20);
+
     for result in results {
         let (group, display_name) = if let Some(rest) = result.name.strip_prefix("Tests.") {
             ("Tests", rest)
@@ -140,7 +153,7 @@ pub fn print_test_report(file_name: &str, results: &[TestResult]) -> bool {
                 } else {
                     format!("({:.0}ms)", result.elapsed_ms)
                 };
-                println!("  {}  {:<34} {}", pass, shown_name, timing);
+                println!("  {}  {:<width$} {}", pass, shown_name, timing, width = col_width);
                 passed += 1;
             }
             TestOutcome::Fail(msg) => {

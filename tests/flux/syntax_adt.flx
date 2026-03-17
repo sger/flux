@@ -1,0 +1,125 @@
+// Tests for algebraic data types: definition, construction, pattern matching,
+// and exhaustiveness.
+
+data Color { Red, Green, Blue }
+
+fn test_adt_unit_constructors() {
+    let c = Red
+    let result = match c {
+        Red -> "red",
+        Green -> "green",
+        Blue -> "blue"
+    }
+    assert_eq(result, "red")
+}
+
+fn test_adt_all_variants() {
+    let describe = \c -> match c {
+        Red -> 1,
+        Green -> 2,
+        Blue -> 3
+    }
+    assert_eq(describe(Red), 1)
+    assert_eq(describe(Green), 2)
+    assert_eq(describe(Blue), 3)
+}
+
+data Shape {
+    Circle(Float),
+    Rectangle(Float, Float),
+    Point
+}
+
+fn area(s) {
+    match s {
+        Circle(r) -> 3.14159 * r * r,
+        Rectangle(w, h) -> w * h,
+        Point -> 0.0
+    }
+}
+
+fn test_adt_with_fields() {
+    assert_true(area(Circle(1.0)) > 3.14)
+    assert_true(area(Circle(1.0)) < 3.15)
+    assert_eq(area(Rectangle(3.0, 4.0)), 12.0)
+    assert_eq(area(Point), 0.0)
+}
+
+fn test_adt_equality() {
+    assert_eq(Red, Red)
+    assert_neq(Red, Blue)
+    assert_eq(Circle(5.0), Circle(5.0))
+    assert_neq(Circle(5.0), Circle(3.0))
+}
+
+// --- nested ADTs ---
+
+data Expr {
+    Num(Int),
+    Add(Expr, Expr),
+    Mul(Expr, Expr)
+}
+
+fn eval(e) {
+    match e {
+        Num(n) -> n,
+        Add(a, b) -> eval(a) + eval(b),
+        Mul(a, b) -> eval(a) * eval(b)
+    }
+}
+
+fn test_adt_nested_recursive() {
+    // (1 + 2) * 3 = 9
+    let expr = Mul(Add(Num(1), Num(2)), Num(3))
+    assert_eq(eval(expr), 9)
+}
+
+fn test_adt_nested_simple() {
+    assert_eq(eval(Num(42)), 42)
+    assert_eq(eval(Add(Num(10), Num(20))), 30)
+}
+
+// --- option and either (built-in ADTs) ---
+
+fn test_option_some_none() {
+    assert_eq(Some(42), Some(42))
+    assert_neq(Some(42), None)
+    assert_eq(None, None)
+}
+
+fn test_option_pattern_match() {
+    let unwrap_or = \(opt, default) -> match opt {
+        Some(x) -> x,
+        None -> default
+    }
+    assert_eq(unwrap_or(Some(10), 0), 10)
+    assert_eq(unwrap_or(None, 0), 0)
+}
+
+fn test_either_construction() {
+    let ok = Right(42)
+    let err = Left("oops")
+    let extract = \e -> match e {
+        Right(v) -> v,
+        Left(_) -> -1
+    }
+    assert_eq(extract(ok), 42)
+    assert_eq(extract(err), -1)
+}
+
+// --- ADT with guards ---
+
+fn test_adt_match_with_guard() {
+    let describe = \s -> match s {
+        Circle(r) if r > 10.0 -> "big circle",
+        Circle(r) -> "small circle",
+        Rectangle(w, h) if w == h -> "square",
+        Rectangle(w, h) -> "rectangle",
+        Point -> "point"
+    }
+    assert_eq(describe(Circle(20.0)), "big circle")
+    assert_eq(describe(Circle(3.0)), "small circle")
+    assert_eq(describe(Rectangle(5.0, 5.0)), "square")
+    assert_eq(describe(Rectangle(3.0, 4.0)), "rectangle")
+    assert_eq(describe(Point), "point")
+}

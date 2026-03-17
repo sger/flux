@@ -75,4 +75,12 @@ pub enum BaseHmSignatureId {
     AssertTrue,
     AssertFalse,
     AssertThrows,
+    AssertMsg,
+    Try,
+    StrContains,
+    AssertGt,
+    AssertLt,
+    AssertGte,
+    AssertLte,
+    AssertLen,
 }
