@@ -49,16 +49,6 @@ pub fn collect_test_functions(
     tests
 }
 
-/// Resolves `(name, global_index)` pairs into `(name, Value)` by looking
-/// up each index in the provided globals slice. Values are cloned (cheap
-/// for `Rc`-based closures).
-fn extract_test_fns(globals: &[Value], tests: Vec<(String, usize)>) -> Vec<(String, Value)> {
-    tests
-        .into_iter()
-        .map(|(name, idx)| (name, globals[idx].clone()))
-        .collect()
-}
-
 /// Runs a resolved list of `(name, Value)` test functions via `invoke_value`
 /// on any `RuntimeContext` (VM or JIT). Returns the per-test results.
 pub fn run_test_fns(ctx: &mut dyn RuntimeContext, fns: Vec<(String, Value)>) -> Vec<TestResult> {
@@ -83,7 +73,11 @@ pub fn run_test_fns(ctx: &mut dyn RuntimeContext, fns: Vec<(String, Value)>) -> 
 
 /// VM convenience: extract test values from `vm.globals` then run them.
 pub fn run_tests(vm: &mut VM, tests: Vec<(String, usize)>) -> Vec<TestResult> {
-    let fns = extract_test_fns(&vm.globals, tests);
+    // Use global_get to decode Slot -> Value, supporting both nan-boxing and non-nan-boxing builds.
+    let fns: Vec<(String, Value)> = tests
+        .into_iter()
+        .map(|(name, idx)| (name, vm.global_get(idx)))
+        .collect();
     run_test_fns(vm, fns)
 }
 
@@ -94,7 +88,12 @@ pub fn run_tests_jit(
     ctx: &mut crate::jit::context::JitContext,
     tests: Vec<(String, usize)>,
 ) -> Vec<TestResult> {
-    let fns = extract_test_fns(&ctx.globals, tests);
+    // Use global_get to decode JitGlobalSlot → Value, supporting both
+    // nan-boxing and non-nan-boxing builds.
+    let fns: Vec<(String, Value)> = tests
+        .into_iter()
+        .map(|(name, idx)| (name, ctx.global_get(idx)))
+        .collect();
     run_test_fns(ctx, fns)
 }
 

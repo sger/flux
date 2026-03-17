@@ -55,7 +55,10 @@ let x = Right("hello")
 x
 "#,
     );
-    assert_eq!(result, Value::Right(Rc::new(Value::String("hello".into()))));
+    assert_eq!(
+        result,
+        Value::Right(Rc::new(Value::String("hello".to_string().into())))
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -183,13 +186,13 @@ let name = "world"
 "hello #{name}"
 "##,
     );
-    assert_eq!(result, Value::String("hello world".into()));
+    assert_eq!(result, Value::String("hello world".to_string().into()));
 }
 
 #[test]
 fn jit_string_interpolation_expression() {
     let result = run_jit(r##""result: #{1 + 2}""##);
-    assert_eq!(result, Value::String("result: 3".into()));
+    assert_eq!(result, Value::String("result: 3".to_string().into()));
 }
 
 #[test]
@@ -201,7 +204,7 @@ let b = 2
 "#{a} + #{b} = #{a + b}"
 "##,
     );
-    assert_eq!(result, Value::String("1 + 2 = 3".into()));
+    assert_eq!(result, Value::String("1 + 2 = 3".to_string().into()));
 }
 
 // ---------------------------------------------------------------------------
@@ -221,7 +224,7 @@ fn check(x) {
 check(None)
 "#,
     );
-    assert_eq!(result, Value::String("nothing".into()));
+    assert_eq!(result, Value::String("nothing".to_string().into()));
 }
 
 #[test]
@@ -328,7 +331,7 @@ fn describe(n) {
 describe(1)
 "#,
     );
-    assert_eq!(result, Value::String("one".into()));
+    assert_eq!(result, Value::String("one".to_string().into()));
 }
 
 #[test]
@@ -345,7 +348,7 @@ fn greet(name) {
 greet("Alice")
 "#,
     );
-    assert_eq!(result, Value::String("Hi Alice!".into()));
+    assert_eq!(result, Value::String("Hi Alice!".to_string().into()));
 }
 
 #[test]
@@ -362,7 +365,7 @@ fn describe(n) {
 describe(42)
 "#,
     );
-    assert_eq!(result, Value::String("other".into()));
+    assert_eq!(result, Value::String("other".to_string().into()));
 }
 
 // ---------------------------------------------------------------------------
@@ -489,7 +492,7 @@ type Color = Red | Green | Blue
 Red
 "#,
     );
-    assert_eq!(result, Value::AdtUnit(Rc::from("Red")));
+    assert_eq!(result, Value::AdtUnit(Rc::new("Red".to_string())));
 }
 
 #[test]
@@ -648,5 +651,5 @@ fn jit_base_call_to_string_int() {
     // `to_string` on an Int — exercises the tagged arg path for a
     // function that returns String.
     let result = run_jit(r#"to_string(42)"#);
-    assert_eq!(result, Value::String("42".into()));
+    assert_eq!(result, Value::String("42".to_string().into()));
 }

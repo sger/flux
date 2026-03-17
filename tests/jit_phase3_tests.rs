@@ -392,7 +392,7 @@ let suffix = string_concat("J", "IT")
 string_slice(string_concat("flux", suffix), 0, n)
 "#,
     );
-    assert_eq!(result, Value::String("flux".into()));
+    assert_eq!(result, Value::String("flux".to_string().into()));
 }
 
 #[test]
