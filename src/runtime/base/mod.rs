@@ -27,8 +27,11 @@ mod type_check;
 use array_ops::base_sort;
 use assert_ops::{
     base_assert_eq, base_assert_eq_borrowed, base_assert_false, base_assert_false_borrowed,
+    base_assert_gt, base_assert_gt_borrowed, base_assert_gte, base_assert_gte_borrowed,
+    base_assert_len, base_assert_len_borrowed, base_assert_lt, base_assert_lt_borrowed,
+    base_assert_lte, base_assert_lte_borrowed, base_assert_msg, base_assert_msg_borrowed,
     base_assert_neq, base_assert_neq_borrowed, base_assert_throws, base_assert_throws_borrowed,
-    base_assert_true, base_assert_true_borrowed,
+    base_assert_true, base_assert_true_borrowed, base_try, base_try_borrowed,
 };
 use collection_ops::{
     base_concat, base_contains, base_contains_borrowed, base_first, base_first_borrowed, base_last,
@@ -62,9 +65,9 @@ use numeric_ops::{
 use string_ops::{
     base_chars, base_chars_borrowed, base_ends_with, base_ends_with_borrowed, base_join,
     base_join_borrowed, base_lower, base_lower_borrowed, base_replace, base_replace_borrowed,
-    base_split, base_split_borrowed, base_starts_with, base_starts_with_borrowed, base_substring,
-    base_substring_borrowed, base_to_string, base_to_string_borrowed, base_trim,
-    base_trim_borrowed, base_upper, base_upper_borrowed,
+    base_split, base_split_borrowed, base_starts_with, base_starts_with_borrowed, base_str_contains,
+    base_str_contains_borrowed, base_substring, base_substring_borrowed, base_to_string,
+    base_to_string_borrowed, base_trim, base_trim_borrowed, base_upper, base_upper_borrowed,
 };
 use type_check::{
     base_is_array, base_is_array_borrowed, base_is_bool, base_is_bool_borrowed, base_is_float,
@@ -429,6 +432,54 @@ pub static BASE_FUNCTIONS: &[BaseFunction] = &[
         BaseHmSignatureId::AssertThrows,
         base_assert_throws_borrowed,
         base_assert_throws,
+    ),
+    BaseFunction::preferred(
+        "assert_msg",
+        BaseHmSignatureId::AssertMsg,
+        base_assert_msg_borrowed,
+        base_assert_msg,
+    ),
+    BaseFunction::preferred(
+        "try",
+        BaseHmSignatureId::Try,
+        base_try_borrowed,
+        base_try,
+    ),
+    BaseFunction::preferred(
+        "str_contains",
+        BaseHmSignatureId::StrContains,
+        base_str_contains_borrowed,
+        base_str_contains,
+    ),
+    BaseFunction::preferred(
+        "assert_gt",
+        BaseHmSignatureId::AssertGt,
+        base_assert_gt_borrowed,
+        base_assert_gt,
+    ),
+    BaseFunction::preferred(
+        "assert_lt",
+        BaseHmSignatureId::AssertLt,
+        base_assert_lt_borrowed,
+        base_assert_lt,
+    ),
+    BaseFunction::preferred(
+        "assert_gte",
+        BaseHmSignatureId::AssertGte,
+        base_assert_gte_borrowed,
+        base_assert_gte,
+    ),
+    BaseFunction::preferred(
+        "assert_lte",
+        BaseHmSignatureId::AssertLte,
+        base_assert_lte_borrowed,
+        base_assert_lte,
+    ),
+    BaseFunction::preferred(
+        "assert_len",
+        BaseHmSignatureId::AssertLen,
+        base_assert_len_borrowed,
+        base_assert_len,
     ),
 ];
 
