@@ -13,12 +13,16 @@ cargo run -- --test examples/tests/array_test.flx
 Output:
 
 ```
-running 10 tests
-test test_len_empty          ... ok
-test test_len_nonempty       ... ok
-test test_reverse_single     ... ok
-...
-test result: ok. 10 passed; 0 failed
+Running tests in array_test.flx
+
+  PASS  test_len_empty                (0ms)
+  PASS  test_len_nonempty             (0ms)
+  PASS  test_reverse_single           (0ms)
+  ...
+
+10 tests: 10 passed, 0 failed
+
+OK
 ```
 
 Exit code is `0` when all tests pass, `1` when any fail.
@@ -47,14 +51,16 @@ fn test_divide_by_zero() {
 | `assert_neq(a, b)` | `a != b` |
 | `assert_true(expr)` | `expr` is `true` |
 | `assert_false(expr)` | `expr` is `false` |
-| `assert_throws(fn)` | calling `fn()` raises a runtime error |
+| `assert_throws(fn)` | calling `fn()` raises any runtime error |
+| `assert_throws(fn, msg)` | calling `fn()` raises an error containing `msg` |
+| `assert_msg(cond, msg)` | `cond` is `true`, otherwise fails with `msg` |
 
 ```flux
 fn test_string_ops() {
     assert_eq(upper("hello"), "HELLO")
     assert_eq(len([|1, 2, 3|]), 3)
     assert_true(contains([|1, 2, 3|], 2))
-    assert_false(contains([|1, 2, 3|]), 99)
+    assert_false(contains([|1, 2, 3|], 99))
 }
 ```
 

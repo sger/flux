@@ -1,0 +1,125 @@
+// Tests for function definitions, lambda expressions, closures, and recursion.
+
+// --- basic functions ---
+
+fn double(x) { x * 2 }
+fn add(a, b) { a + b }
+
+fn test_function_call() {
+    assert_eq(double(5), 10)
+    assert_eq(add(3, 4), 7)
+}
+
+fn test_function_as_expression() {
+    let result = add(double(3), 1)
+    assert_eq(result, 7)
+}
+
+// --- lambda syntax forms ---
+
+fn test_lambda_single_param_no_parens() {
+    let f = \x -> x + 1
+    assert_eq(f(10), 11)
+}
+
+fn test_lambda_single_param_with_parens() {
+    let f = \(x) -> x * 2
+    assert_eq(f(5), 10)
+}
+
+fn test_lambda_multi_param() {
+    let f = \(a, b) -> a + b
+    assert_eq(f(3, 4), 7)
+}
+
+fn test_lambda_zero_param() {
+    let f = \() -> 42
+    assert_eq(f(), 42)
+}
+
+fn test_lambda_block_body() {
+    let f = \x -> {
+        let doubled = x * 2
+        doubled + 1
+    }
+    assert_eq(f(5), 11)
+}
+
+fn test_lambda_nested() {
+    let f = \x -> \y -> x + y
+    assert_eq(f(3)(4), 7)
+}
+
+// --- closures ---
+
+fn test_closure_captures_variable() {
+    let offset = 10
+    let f = \x -> x + offset
+    assert_eq(f(5), 15)
+}
+
+fn test_closure_captures_multiple() {
+    let a = 2
+    let b = 3
+    let f = \x -> x * a + b
+    assert_eq(f(5), 13)
+}
+
+fn make_adder(n) {
+    \x -> x + n
+}
+
+fn test_closure_returned_from_function() {
+    let add5 = make_adder(5)
+    assert_eq(add5(10), 15)
+    assert_eq(add5(0), 5)
+}
+
+// --- recursion ---
+
+fn factorial(n) {
+    if n <= 1 { 1 } else { n * factorial(n - 1) }
+}
+
+fn test_recursion_basic() {
+    assert_eq(factorial(0), 1)
+    assert_eq(factorial(1), 1)
+    assert_eq(factorial(5), 120)
+}
+
+fn fib(n) {
+    if n <= 1 { n } else { fib(n - 1) + fib(n - 2) }
+}
+
+fn test_recursion_fibonacci() {
+    assert_eq(fib(0), 0)
+    assert_eq(fib(1), 1)
+    assert_eq(fib(10), 55)
+}
+
+// --- tail recursion ---
+
+fn sum_to(n, acc) {
+    if n == 0 { acc } else { sum_to(n - 1, acc + n) }
+}
+
+fn test_tail_recursion() {
+    assert_eq(sum_to(100, 0), 5050)
+}
+
+// --- higher-order function parameters ---
+
+fn apply(f, x) { f(x) }
+fn apply_twice(f, x) { f(f(x)) }
+
+fn test_higher_order_apply() {
+    assert_eq(apply(\x -> x + 1, 10), 11)
+    assert_eq(apply_twice(\x -> x * 2, 3), 12)
+}
+
+// --- function composition ---
+
+fn test_function_composition_manual() {
+    let double_then_add1 = \x -> add(1, double(x))
+    assert_eq(double_then_add1(5), 11)
+}

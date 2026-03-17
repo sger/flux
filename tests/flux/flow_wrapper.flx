@@ -7,6 +7,11 @@ fn test_flow_wrappers() {
     Test.is_false(false)
     Test.approx_eq(3.14159, 3.1416, 0.001)
     Test.throws(\x -> x, "wrong number of arguments")
+    Test.gt(5, 3)
+    Test.lt(1, 2)
+    Test.gte(5, 5)
+    Test.lte(3, 3)
+    Test.has_len([1, 2, 3], 3)
 }
 
 fn test_flow_helpers() with IO {

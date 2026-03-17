@@ -1,5 +1,6 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
+assertion_line: 27
 ---
 Fixture: examples/aoc/2025/aoc_day3_haskell_style.flx
 == compile ==
@@ -29,6 +30,9 @@ I can't find a value named `try_occurrences`.
 
 Hint:
   Define it first: let try_occurrences = ...;
+
+Help:
+  Did you mean `try`?
 
 
 error[E300]: Branch Type Mismatch
