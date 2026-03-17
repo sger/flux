@@ -2,6 +2,7 @@ use crate::primop::{PrimOp, execute_primop};
 use crate::runtime::value::Value;
 
 use super::VM;
+use super::slot;
 
 impl VM {
     /// Executes the `OpPrimOp` VM instruction.
@@ -48,7 +49,7 @@ impl VM {
 
         let result = execute_primop(self, op, args)?;
         self.push(result)?;
-        self.last_popped = Value::None;
+        self.last_popped = slot::to_slot(Value::None);
         Ok(())
     }
 }

@@ -219,7 +219,7 @@ fn main() {
     let mut core = lower_program_ast(&program, &types);
     run_core_passes(&mut core);
 
-    assert_eq!(run(src), Value::String("small".into()));
+    assert_eq!(run(src), Value::String("small".to_string().into()));
 }
 
 // ── Test 4: Typed arithmetic emits typed primops ────────────────────────────

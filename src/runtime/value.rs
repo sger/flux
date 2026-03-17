@@ -13,10 +13,10 @@ use crate::runtime::{
 
 /// Inner data for an ADT constructor value, boxed behind a single `Rc` so that
 /// `Value::Adt` stays at one thin pointer (8 bytes) rather than a fat-pointer +
-/// thin-pointer pair (24 bytes), keeping `size_of::<Value>() <= 24`.
+/// thin-pointer pair (24 bytes), keeping `size_of::<Value>() <= 16`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdtValue {
-    pub constructor: Rc<str>,
+    pub constructor: Rc<String>,
     pub fields: AdtFields,
 }
 
@@ -195,7 +195,7 @@ impl std::ops::Index<usize> for AdtFields {
 pub enum AdtRef<'a> {
     Rc(&'a AdtValue),
     Gc {
-        constructor: &'a Rc<str>,
+        constructor: &'a Rc<String>,
         fields: &'a AdtFields,
     },
 }
@@ -244,7 +244,8 @@ impl<'a> AdtRef<'a> {
 ///
 /// ### Design Rationale
 ///
-/// Using `Rc<str>` instead of `Rc<String>` avoids double indirection.
+/// Using `Rc<String>` (thin pointer) instead of `Rc<str>` (fat pointer) keeps
+/// `size_of::<Value>()` at 16 bytes rather than 24, improving cache efficiency.
 /// Using `Rc<Vec<Value>>` and `Rc<HashMap<...>>` makes cloning O(1) instead of O(n).
 ///
 /// See [Proposal 0019](../../docs/proposals/implemented/0019_zero_copy_value_passing.md) for details.
@@ -261,7 +262,7 @@ pub enum Value {
     /// Boolean value.
     Boolean(bool),
     /// UTF-8 string value.
-    String(Rc<str>),
+    String(Rc<String>),
     /// Absence of value.
     None,
     /// Empty persistent list literal `[]`.
@@ -294,7 +295,7 @@ pub enum Value {
     Adt(Rc<AdtValue>),
     /// Zero-field ADT constructor: `Tip`, `Red`, `None` (user-defined).
     /// Avoids heap-allocating an `Rc<AdtValue>` + empty `Vec` for nullary constructors.
-    AdtUnit(Rc<str>),
+    AdtUnit(Rc<String>),
     /// A captured one-shot delimited continuation (result of `OpPerform`).
     /// Calling this value with one argument resumes the suspended computation.
     Continuation(Rc<RefCell<Continuation>>),
@@ -548,7 +549,7 @@ mod tests {
             Some(HashKey::Boolean(false))
         );
         assert_eq!(
-            Value::String("a".into()).to_hash_key(),
+            Value::String("a".to_string().into()).to_hash_key(),
             Some(HashKey::String("a".to_string()))
         );
         assert_eq!(Value::Array(Rc::new(vec![])).to_hash_key(), None);
@@ -559,7 +560,7 @@ mod tests {
         assert_eq!(Value::Integer(1).type_name(), "Int");
         assert_eq!(Value::Float(1.0).type_name(), "Float");
         assert_eq!(Value::Boolean(true).type_name(), "Bool");
-        assert_eq!(Value::String("x".into()).type_name(), "String");
+        assert_eq!(Value::String("x".to_string().into()).type_name(), "String");
         assert_eq!(Value::None.type_name(), "None");
         assert_eq!(Value::EmptyList.type_name(), "List");
         assert_eq!(
@@ -583,9 +584,12 @@ mod tests {
 
     #[test]
     fn test_to_string_value() {
-        assert_eq!(Value::String("hello".into()).to_string_value(), "hello");
         assert_eq!(
-            Value::Some(std::rc::Rc::new(Value::String("x".into()))).to_string_value(),
+            Value::String("hello".to_string().into()).to_string_value(),
+            "hello"
+        );
+        assert_eq!(
+            Value::Some(std::rc::Rc::new(Value::String("x".to_string().into()))).to_string_value(),
             "Some(x)"
         );
         assert_eq!(
@@ -593,15 +597,18 @@ mod tests {
             "7"
         );
         assert_eq!(
-            Value::Array(Rc::new(vec![Value::String("a".into()), Value::Integer(2)]))
-                .to_string_value(),
+            Value::Array(Rc::new(vec![
+                Value::String("a".to_string().into()),
+                Value::Integer(2)
+            ]))
+            .to_string_value(),
             "[|\"a\", 2|]"
         );
     }
 
     #[test]
     fn test_clone_shares_rc_for_string() {
-        let value = Value::String("hello".into());
+        let value = Value::String("hello".to_string().into());
         let cloned = value.clone();
 
         match (value, cloned) {
@@ -645,7 +652,7 @@ mod tests {
             _ => panic!("expected some values"),
         }
 
-        let ret = Value::ReturnValue(std::rc::Rc::new(Value::String("ok".into())));
+        let ret = Value::ReturnValue(std::rc::Rc::new(Value::String("ok".to_string().into())));
         let ret_clone = ret.clone();
         match (ret, ret_clone) {
             (Value::ReturnValue(left), Value::ReturnValue(right)) => {
@@ -658,9 +665,8 @@ mod tests {
 
     #[test]
     fn value_size_is_compact() {
-        // Value::Adt(Rc<AdtValue>) is a single thin pointer (8 bytes).
-        // The largest payload is Value::String(Rc<str>) at 16 bytes (fat pointer).
-        // With discriminant + padding the enum fits in 24 bytes on 64-bit platforms.
-        assert!(std::mem::size_of::<Value>() <= 24);
+        // All payload types are now thin pointers (Rc<String>, Rc<Vec<_>>, etc.) or primitives.
+        // With discriminant + padding the enum fits in 16 bytes on 64-bit platforms.
+        assert_eq!(std::mem::size_of::<Value>(), 16);
     }
 }

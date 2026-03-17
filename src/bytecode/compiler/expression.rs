@@ -168,7 +168,7 @@ impl Compiler {
         // constructors whose arity equals `fields.len()` (checked via
         // `is_known_simple_adt_arm` before this call).
 
-        let const_idx = self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+        let const_idx = self.add_constant(Value::String(Rc::new(constructor_name.clone())));
 
         self.load_symbol(scrutinee);
         let jump_pos = self.emit(OpCode::OpIsAdtJump, &[const_idx, 9999]);
@@ -271,7 +271,7 @@ impl Compiler {
             ));
         }
 
-        let const_idx = self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+        let const_idx = self.add_constant(Value::String(Rc::new(constructor_name.clone())));
 
         // Peek at the local slot without cloning (no stack push).
         // On match: fall through; on mismatch: jump (local unchanged, nothing on stack).
@@ -573,7 +573,7 @@ impl Compiler {
 
                         let constructor_name = self.interner.resolve(name).to_string();
                         let const_idx =
-                            self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+                            self.add_constant(Value::String(Rc::new(constructor_name.clone())));
                         self.emit(OpCode::OpMakeAdt, &[const_idx, 0]);
                     } else {
                         if let Some((member_name, qualifier)) =
@@ -618,7 +618,7 @@ impl Compiler {
                     }
                     let constructor_name = self.interner.resolve(name).to_string();
                     let const_idx =
-                        self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+                        self.add_constant(Value::String(Rc::new(constructor_name.clone())));
                     self.emit(OpCode::OpMakeAdt, &[const_idx, 0]);
                 } else {
                     if let Some((member_name, qualifier)) =
@@ -2548,8 +2548,7 @@ impl Compiler {
                 // 2. Load scrutinee, emit OpIsAdt with constructor name constant
                 self.load_symbol(scrutinee);
                 let constructor_name = self.interner.resolve(*name).to_string();
-                let const_idx =
-                    self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+                let const_idx = self.add_constant(Value::String(Rc::new(constructor_name.clone())));
                 self.emit(OpCode::OpIsAdt, &[const_idx]);
 
                 let mut jumps = vec![ConditionalJump {
@@ -3659,7 +3658,7 @@ impl Compiler {
                 for arg in arguments {
                     self.compile_non_tail_expression(arg)?;
                 }
-                let const_idx = self.add_constant(Value::String(Rc::from(member_name.as_str())));
+                let const_idx = self.add_constant(Value::String(Rc::new(member_name.clone())));
                 self.emit(OpCode::OpMakeAdt, &[const_idx, arguments.len()]);
                 return Ok(true);
             }
@@ -3713,7 +3712,7 @@ impl Compiler {
 
         // Add constructor name as a string constant
         let constructor_name = self.interner.resolve(name).to_string();
-        let const_idx = self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+        let const_idx = self.add_constant(Value::String(Rc::new(constructor_name.clone())));
         self.emit(OpCode::OpMakeAdt, &[const_idx, actual_arity]);
 
         Ok(true)

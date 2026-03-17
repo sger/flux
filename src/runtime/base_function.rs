@@ -81,6 +81,27 @@ impl BaseFunction {
         }
     }
 
+    /// Call this base function with NaN-boxed arguments, returning a NaN-boxed result.
+    ///
+    /// This is the Phase 4 entry point used by the VM when the `nan-boxing` feature
+    /// is enabled. The default bridge decodes args to [`Value`] and re-encodes the
+    /// result; individual hot functions can be migrated to operate on [`NanBox`]
+    /// directly by overriding this via a dedicated `NanBoxedBaseFn` pointer in future.
+    ///
+    /// Keeping the bridge here means the call site in `function_call.rs` is always
+    /// allocation-free for the arg-collection step (raw slots, no decode), while the
+    /// per-function decode is deferred until the function actually needs the value.
+    pub fn call_owned_nanboxed(
+        &self,
+        ctx: &mut dyn RuntimeContext,
+        args: Vec<crate::runtime::nanbox::NanBox>,
+    ) -> Result<crate::runtime::nanbox::NanBox, String> {
+        use crate::runtime::nanbox::NanBox;
+        let value_args: Vec<Value> = args.into_iter().map(NanBox::to_value).collect();
+        let result = self.call_owned(ctx, value_args)?;
+        Ok(NanBox::from_value(result))
+    }
+
     pub fn call_borrowed(
         &self,
         ctx: &mut dyn RuntimeContext,

@@ -1244,8 +1244,8 @@ fn test_base_put() {
         "put",
         vec![
             map.clone(),
-            Value::String("email".into()),
-            Value::String("a@b.com".into()),
+            Value::String("email".to_string().into()),
+            Value::String("a@b.com".to_string().into()),
         ],
     )
     .unwrap();
@@ -1264,14 +1264,19 @@ fn test_base_get() {
     let found = call_vm(
         &mut vm,
         "get",
-        vec![map.clone(), Value::String("name".into())],
+        vec![map.clone(), Value::String("name".to_string().into())],
     )
     .unwrap();
     assert_eq!(
         found,
-        Value::Some(std::rc::Rc::new(Value::String("Alice".into())))
+        Value::Some(std::rc::Rc::new(Value::String("Alice".to_string().into())))
     );
-    let not_found = call_vm(&mut vm, "get", vec![map, Value::String("missing".into())]).unwrap();
+    let not_found = call_vm(
+        &mut vm,
+        "get",
+        vec![map, Value::String("missing".to_string().into())],
+    )
+    .unwrap();
     assert_eq!(not_found, Value::None);
 }
 
@@ -1346,7 +1351,7 @@ fn test_base_read_file() {
         vec![Value::String(path.to_string_lossy().to_string().into())],
     )
     .unwrap();
-    assert_eq!(result, Value::String("line1\nline2\n".into()));
+    assert_eq!(result, Value::String("line1\nline2\n".to_string().into()));
 
     fs::remove_file(path).ok();
 }
@@ -1365,9 +1370,9 @@ fn test_base_read_lines() {
         result,
         Value::Array(
             vec![
-                Value::String("10".into()),
-                Value::String("20".into()),
-                Value::String("30".into())
+                Value::String("10".to_string().into()),
+                Value::String("20".to_string().into()),
+                Value::String("30".to_string().into())
             ]
             .into()
         )
@@ -1378,13 +1383,17 @@ fn test_base_read_lines() {
 
 #[test]
 fn test_base_parse_int() {
-    let result = call("parse_int", vec![Value::String("  12345  ".into())]).unwrap();
+    let result = call(
+        "parse_int",
+        vec![Value::String("  12345  ".to_string().into())],
+    )
+    .unwrap();
     assert_eq!(result, Value::Integer(12345));
 }
 
 #[test]
 fn test_base_parse_int_invalid() {
-    let err = call("parse_int", vec![Value::String("12x".into())]).unwrap_err();
+    let err = call("parse_int", vec![Value::String("12x".to_string().into())]).unwrap_err();
     assert!(err.contains("parse_int"));
     assert!(err.contains("could not parse"));
 }
@@ -1458,9 +1467,9 @@ fn test_base_parse_ints_and_split_ints() {
         "parse_ints",
         vec![Value::Array(
             vec![
-                Value::String("10".into()),
-                Value::String(" 20 ".into()),
-                Value::String("-3".into()),
+                Value::String("10".to_string().into()),
+                Value::String(" 20 ".to_string().into()),
+                Value::String("-3".to_string().into()),
             ]
             .into(),
         )],
@@ -1473,7 +1482,10 @@ fn test_base_parse_ints_and_split_ints() {
 
     let split = call(
         "split_ints",
-        vec![Value::String("1,2,-5".into()), Value::String(",".into())],
+        vec![
+            Value::String("1,2,-5".to_string().into()),
+            Value::String(",".to_string().into()),
+        ],
     )
     .unwrap();
     assert_eq!(
