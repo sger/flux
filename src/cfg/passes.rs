@@ -404,6 +404,8 @@ mod tests {
                 entry: BlockId(0),
                 origin: IrFunctionOrigin::ModuleTopLevel,
                 metadata: IrMetadata::empty(),
+                inferred_param_types: Vec::new(),
+                inferred_return_type: None,
             }],
             entry: FunctionId(0),
             globals: Vec::new(),
@@ -515,6 +517,8 @@ mod tests {
             entry: BlockId(0),
             origin: IrFunctionOrigin::ModuleTopLevel,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let mut program = IrProgram {
             top_level_items: Vec::new(),

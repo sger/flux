@@ -289,6 +289,8 @@ impl<'a> FunctionLoweringContext<'a> {
             entry,
             origin: self.origin,
             metadata,
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         });
     }
 
