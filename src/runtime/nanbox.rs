@@ -46,7 +46,6 @@
 //! (to avoid the double-indirection for common heap types) are deferred to a
 //! later phase once the encoding is proven stable.
 
-#[cfg(feature = "nan-boxing")]
 mod inner {
     use std::mem::ManuallyDrop;
     use std::rc::Rc;
@@ -626,7 +625,4 @@ mod inner {
     }
 }
 
-// Re-export the public surface. The inner module is feature-gated so the re-export
-// must also be feature-gated to avoid referencing a non-existent module.
-#[cfg(feature = "nan-boxing")]
 pub use inner::{NanBox, NanTag, MAX_INLINE_INT, MIN_INLINE_INT};
