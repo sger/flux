@@ -1,6 +1,6 @@
 - Feature Name: Parser Error Experience — Keyword Aliases, Structural Messages, and Symbol Suggestions
 - Start Date: 2026-02-28
-- Status: Partially Implemented
+- Status: Implemented
 - Proposal PR: pending (feature/type-system merge PR)
 - Flux Issue: pending (type-system merge-readiness tracker, March 1, 2026)
 
