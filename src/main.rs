@@ -48,6 +48,13 @@ enum DiagnosticOutputFormat {
     JsonCompact,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoreDumpMode {
+    None,
+    Readable,
+    Debug,
+}
+
 fn main() {
     let mut args: Vec<String> = env::args().collect();
     let verbose = args.iter().any(|arg| arg == "--verbose");
@@ -110,6 +117,10 @@ fn main() {
     if all_errors {
         args.retain(|arg| arg != "--all-errors");
     }
+    let dump_core = match extract_dump_core_mode(&mut args) {
+        Some(value) => value,
+        None => return,
+    };
     let gc_threshold = match extract_gc_threshold(&mut args) {
         Some(value) => value,
         None => return,
@@ -172,6 +183,7 @@ fn main() {
                 strict_mode,
                 diagnostics_format,
                 all_errors,
+                dump_core,
             );
         }
         return;
@@ -230,6 +242,7 @@ fn main() {
                     strict_mode,
                     diagnostics_format,
                     all_errors,
+                    dump_core,
                 );
             }
         }
@@ -400,6 +413,8 @@ Flags:
   --stats            Print execution analytics (parse/compile/execute times, module info)
   --strict           Enable strict type/effect boundary checks
   --all-errors       Show diagnostics from all phases (disable stage-aware filtering)
+  --dump-core        Lower to Flux Core IR, print a readable dump, and exit
+  --dump-core=debug  Lower to Flux Core IR, print a raw debug dump, and exit
   -h, --help         Show this help message
 
 Optimization & Analysis:
@@ -430,6 +445,7 @@ fn run_file(
     strict_mode: bool,
     diagnostics_format: DiagnosticOutputFormat,
     all_errors: bool,
+    dump_core: CoreDumpMode,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -445,7 +461,7 @@ fn run_file(
             });
             let cache_key = hash_cache_key(&base_cache_key, &strict_hash);
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
-            if !no_cache && !use_jit {
+            if !no_cache && !use_jit && matches!(dump_core, CoreDumpMode::None) {
                 if let Some(bytecode) =
                     cache.load(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
                 {
@@ -639,6 +655,20 @@ fn run_file(
                     all_errors,
                     true,
                 );
+            }
+
+            if !matches!(dump_core, CoreDumpMode::None) {
+                let dumped = compiler.dump_core_with_opts(
+                    &program,
+                    enable_optimize,
+                    match dump_core {
+                        CoreDumpMode::Readable => flux::core::display::CoreDisplayMode::Readable,
+                        CoreDumpMode::Debug => flux::core::display::CoreDisplayMode::Debug,
+                        CoreDumpMode::None => unreachable!("checked above"),
+                    },
+                );
+                println!("{dumped}");
+                return;
             }
 
             // --- JIT execution path ---
@@ -1152,6 +1182,36 @@ fn print_leak_stats() {
         "\nLeak stats (approx):\n  compiled_functions: {}\n  closures: {}\n  arrays: {}\n  hashes: {}\n  somes: {}",
         stats.compiled_functions, stats.closures, stats.arrays, stats.hashes, stats.somes
     );
+}
+
+fn extract_dump_core_mode(args: &mut Vec<String>) -> Option<CoreDumpMode> {
+    let mut mode = CoreDumpMode::None;
+    let mut i = 0;
+    while i < args.len() {
+        let next_mode = if args[i] == "--dump-core" {
+            args.remove(i);
+            CoreDumpMode::Readable
+        } else if let Some(value) = args[i].strip_prefix("--dump-core=") {
+            let parsed = match value {
+                "debug" => CoreDumpMode::Debug,
+                "" => {
+                    eprintln!("Error: --dump-core expects no value or `debug`.");
+                    return None;
+                }
+                _ => {
+                    eprintln!("Error: --dump-core expects no value or `debug`.");
+                    return None;
+                }
+            };
+            args.remove(i);
+            parsed
+        } else {
+            i += 1;
+            continue;
+        };
+        mode = next_mode;
+    }
+    Some(mode)
 }
 
 fn extract_gc_threshold(args: &mut Vec<String>) -> Option<Option<usize>> {

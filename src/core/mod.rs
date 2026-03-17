@@ -60,6 +60,96 @@ impl CoreVarRef {
     }
 }
 
+// ── Core types ───────────────────────────────────────────────────────────────
+
+/// Core-level type representation.
+///
+/// Simplified from `InferType` — no unification variables, no quantifiers.
+/// Populated during AST→Core lowering from HM inference results.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CoreType {
+    Int,
+    Float,
+    Bool,
+    String,
+    Unit,
+    Never,
+    List(Box<CoreType>),
+    Array(Box<CoreType>),
+    Tuple(Vec<CoreType>),
+    Function(Vec<CoreType>, Box<CoreType>),
+    Option(Box<CoreType>),
+    Either(Box<CoreType>, Box<CoreType>),
+    Map(Box<CoreType>, Box<CoreType>),
+    Adt(Identifier),
+    /// Type variable or unresolved type.
+    Any,
+}
+
+impl CoreType {
+    /// Convert an HM-inferred `InferType` into a `CoreType`.
+    ///
+    /// Unification variables and `Any` both map to `CoreType::Any`.
+    /// Effect rows on function types are erased (not relevant at Core level).
+    pub fn from_infer(ty: &crate::types::infer_type::InferType) -> Self {
+        use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
+        match ty {
+            InferType::Var(_) => CoreType::Any,
+            InferType::Con(tc) => match tc {
+                TypeConstructor::Int => CoreType::Int,
+                TypeConstructor::Float => CoreType::Float,
+                TypeConstructor::Bool => CoreType::Bool,
+                TypeConstructor::String => CoreType::String,
+                TypeConstructor::Unit => CoreType::Unit,
+                TypeConstructor::Never => CoreType::Never,
+                TypeConstructor::Any => CoreType::Any,
+                TypeConstructor::List => CoreType::List(Box::new(CoreType::Any)),
+                TypeConstructor::Array => CoreType::Array(Box::new(CoreType::Any)),
+                TypeConstructor::Option => CoreType::Option(Box::new(CoreType::Any)),
+                TypeConstructor::Either => {
+                    CoreType::Either(Box::new(CoreType::Any), Box::new(CoreType::Any))
+                }
+                TypeConstructor::Map => {
+                    CoreType::Map(Box::new(CoreType::Any), Box::new(CoreType::Any))
+                }
+                TypeConstructor::Adt(sym) => CoreType::Adt(*sym),
+            },
+            InferType::App(tc, args) => {
+                let core_args: Vec<CoreType> = args.iter().map(CoreType::from_infer).collect();
+                match tc {
+                    TypeConstructor::List if core_args.len() == 1 => {
+                        CoreType::List(Box::new(core_args.into_iter().next().unwrap()))
+                    }
+                    TypeConstructor::Array if core_args.len() == 1 => {
+                        CoreType::Array(Box::new(core_args.into_iter().next().unwrap()))
+                    }
+                    TypeConstructor::Option if core_args.len() == 1 => {
+                        CoreType::Option(Box::new(core_args.into_iter().next().unwrap()))
+                    }
+                    TypeConstructor::Either if core_args.len() == 2 => {
+                        let mut it = core_args.into_iter();
+                        CoreType::Either(Box::new(it.next().unwrap()), Box::new(it.next().unwrap()))
+                    }
+                    TypeConstructor::Map if core_args.len() == 2 => {
+                        let mut it = core_args.into_iter();
+                        CoreType::Map(Box::new(it.next().unwrap()), Box::new(it.next().unwrap()))
+                    }
+                    TypeConstructor::Adt(sym) => CoreType::Adt(*sym),
+                    _ => CoreType::Any,
+                }
+            }
+            InferType::Fun(params, ret, _effects) => {
+                let param_tys = params.iter().map(CoreType::from_infer).collect();
+                let ret_ty = CoreType::from_infer(ret);
+                CoreType::Function(param_tys, Box::new(ret_ty))
+            }
+            InferType::Tuple(elems) => {
+                CoreType::Tuple(elems.iter().map(CoreType::from_infer).collect())
+            }
+        }
+    }
+}
+
 // ── Literals ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
@@ -252,6 +342,8 @@ pub struct CoreDef {
     pub name: Identifier,
     pub binder: CoreBinder,
     pub expr: CoreExpr,
+    /// HM-inferred result type for this definition, if available.
+    pub result_ty: Option<CoreType>,
     pub is_anonymous: bool,
     pub is_recursive: bool,
     pub span: Span,
@@ -394,6 +486,7 @@ impl CoreDef {
             name: binder.name,
             binder,
             expr,
+            result_ty: None,
             is_anonymous,
             is_recursive,
             span,

@@ -1,6 +1,6 @@
 - Feature Name: Type System with Algebraic Effects for Flux
 - Start Date: 2026-02-17
-- Status: Partially Implemented
+- Status: Implemented
 - Proposal PR: pending (feature/type-system merge PR)
 - Flux Issue: pending (type-system merge-readiness tracker, March 1, 2026)
 

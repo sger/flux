@@ -1,6 +1,6 @@
 - Feature Name: Runtime and Language Evolution Roadmap
 - Start Date: 2026-02-08
-- Status: Partially Implemented
+- Status: Implemented (roadmap items completed across proposals 0016, 0017, 0032, etc.)
 - Proposal PR:
 - Flux Issue:
 
