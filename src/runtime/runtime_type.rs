@@ -294,7 +294,7 @@ mod tests {
     fn list_runtime_type_rejects_mixed_element_types() {
         let mut ctx = TestCtx::new();
         let h2 = ctx.gc_heap_mut().alloc(HeapObject::Cons {
-            head: Value::String("x".into()),
+            head: Value::String("x".to_string().into()),
             tail: Value::EmptyList,
         });
         let h1 = ctx.gc_heap_mut().alloc(HeapObject::Cons {
@@ -312,7 +312,7 @@ mod tests {
         let ctx = TestCtx::new();
         let ty = RuntimeType::Either(Box::new(RuntimeType::String), Box::new(RuntimeType::Int));
 
-        assert!(ty.matches_value(&Value::Left(Value::String("ok".into()).into()), &ctx));
+        assert!(ty.matches_value(&Value::Left(Value::String("ok".to_string().into()).into()), &ctx));
         assert!(ty.matches_value(&Value::Right(Value::Integer(7).into()), &ctx));
         assert!(!ty.matches_value(&Value::Left(Value::Integer(7).into()), &ctx));
     }

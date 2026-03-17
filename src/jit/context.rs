@@ -397,7 +397,7 @@ impl JitContext {
         if let Some(&ptr) = self.unit_adts.get(name) {
             return ptr;
         }
-        let ptr = self.alloc(Value::AdtUnit(std::rc::Rc::from(name)));
+        let ptr = self.alloc(Value::AdtUnit(std::rc::Rc::new(name.to_string())));
         self.unit_adts.insert(name.to_string(), ptr);
         ptr
     }
@@ -778,7 +778,7 @@ mod tests {
             tail: Value::None,
         });
         let adt = ctx.gc_heap.alloc(HeapObject::Adt {
-            constructor: Rc::from("Node"),
+            constructor: Rc::new("Node".to_string()),
             fields: AdtFields::from_vec(vec![Value::Gc(list)]),
         });
         let root = ctx.alloc(Value::GcAdt(adt));
@@ -810,7 +810,7 @@ mod tests {
             tail: Value::None,
         });
         let adt = ctx.gc_heap.alloc(HeapObject::Adt {
-            constructor: Rc::from("Node"),
+            constructor: Rc::new("Node".to_string()),
             fields: AdtFields::from_vec(vec![Value::Gc(list)]),
         });
         let root = ctx.alloc(Value::GcAdt(adt));

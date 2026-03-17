@@ -138,7 +138,7 @@ fn test_tail_call_in_if_branches() {
     "#;
 
     let result = run(input);
-    assert_eq!(result, Value::String("even".into()));
+    assert_eq!(result, Value::String("even".to_string().into()));
 }
 
 #[test]
@@ -446,5 +446,5 @@ fn test_return_nested_no_semicolon() {
     "#;
 
     let result = run(input);
-    assert_eq!(result, Value::String("one".into()));
+    assert_eq!(result, Value::String("one".to_string().into()));
 }

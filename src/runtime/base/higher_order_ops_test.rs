@@ -24,9 +24,9 @@ fn base_fn(name: &str) -> Value {
 fn map_with_base_callback_and_empty_input() {
     let arr = Value::Array(
         vec![
-            Value::String("a".into()),
-            Value::String("hello".into()),
-            Value::String("xyz".into()),
+            Value::String("a".to_string().into()),
+            Value::String("hello".to_string().into()),
+            Value::String("xyz".to_string().into()),
         ]
         .into(),
     );
@@ -106,7 +106,7 @@ fn fold_with_base_callback_and_empty_input() {
         )
     );
 
-    let init = Value::String("seed".into());
+    let init = Value::String("seed".to_string().into());
     let empty_fold = base_fold(
         &mut test_vm(),
         vec![Value::Array(vec![].into()), init.clone(), base_fn("concat")],
@@ -144,7 +144,7 @@ fn map_filter_fold_reject_non_callable_callback() {
         vec![
             Value::Array(vec![Value::Integer(1)].into()),
             Value::Integer(0),
-            Value::String("nope".into()),
+            Value::String("nope".to_string().into()),
         ],
     )
     .unwrap_err();
@@ -184,7 +184,7 @@ fn all_short_circuits_and_empty() {
     let mixed = Value::Array(
         vec![
             Value::Integer(1),
-            Value::String("x".into()),
+            Value::String("x".to_string().into()),
             Value::Integer(3),
         ]
         .into(),
@@ -215,9 +215,9 @@ fn all_short_circuits_and_empty() {
 fn find_returns_some_or_none() {
     let arr = Value::Array(
         vec![
-            Value::String("hello".into()),
+            Value::String("hello".to_string().into()),
             Value::Integer(42),
-            Value::String("world".into()),
+            Value::String("world".to_string().into()),
         ]
         .into(),
     );
@@ -230,7 +230,7 @@ fn find_returns_some_or_none() {
     let result = base_find(&mut test_vm(), vec![arr.clone(), base_fn("is_string")]).unwrap();
     assert_eq!(
         result,
-        Value::Some(std::rc::Rc::new(Value::String("hello".into())))
+        Value::Some(std::rc::Rc::new(Value::String("hello".to_string().into())))
     );
 
     // find boolean — nothing matches, returns None
@@ -263,9 +263,9 @@ fn sort_by_integers_strings_and_empty() {
     // Sort strings lexicographically using len as key
     let strs = Value::Array(
         vec![
-            Value::String("banana".into()),
-            Value::String("fig".into()),
-            Value::String("apple".into()),
+            Value::String("banana".to_string().into()),
+            Value::String("fig".to_string().into()),
+            Value::String("apple".to_string().into()),
         ]
         .into(),
     );
@@ -274,9 +274,9 @@ fn sort_by_integers_strings_and_empty() {
         sorted,
         Value::Array(
             vec![
-                Value::String("fig".into()),
-                Value::String("apple".into()),
-                Value::String("banana".into()),
+                Value::String("fig".to_string().into()),
+                Value::String("apple".to_string().into()),
+                Value::String("banana".to_string().into()),
             ]
             .into()
         )
@@ -317,9 +317,9 @@ fn zip_pairs_and_stops_at_shorter() {
     let xs = Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into());
     let ys = Value::Array(
         vec![
-            Value::String("a".into()),
-            Value::String("b".into()),
-            Value::String("c".into()),
+            Value::String("a".to_string().into()),
+            Value::String("b".to_string().into()),
+            Value::String("c".to_string().into()),
         ]
         .into(),
     );
@@ -331,15 +331,15 @@ fn zip_pairs_and_stops_at_shorter() {
             vec![
                 Value::Tuple(std::rc::Rc::new(vec![
                     Value::Integer(1),
-                    Value::String("a".into())
+                    Value::String("a".to_string().into())
                 ])),
                 Value::Tuple(std::rc::Rc::new(vec![
                     Value::Integer(2),
-                    Value::String("b".into())
+                    Value::String("b".to_string().into())
                 ])),
                 Value::Tuple(std::rc::Rc::new(vec![
                     Value::Integer(3),
-                    Value::String("c".into())
+                    Value::String("c".to_string().into())
                 ])),
             ]
             .into()
@@ -347,7 +347,7 @@ fn zip_pairs_and_stops_at_shorter() {
     );
 
     // stops at shorter — xs has 3 elements, ys has 2
-    let ys_short = Value::Array(vec![Value::String("a".into()), Value::String("b".into())].into());
+    let ys_short = Value::Array(vec![Value::String("a".to_string().into()), Value::String("b".to_string().into())].into());
     let result = base_zip(&mut test_vm(), vec![xs.clone(), ys_short]).unwrap();
     match result {
         Value::Array(arr) => assert_eq!(arr.len(), 2),

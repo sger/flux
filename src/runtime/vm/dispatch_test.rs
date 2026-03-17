@@ -71,8 +71,8 @@ fn dispatch_fused_cmp_jump_true_falls_through_and_consumes_operands() {
 #[test]
 fn dispatch_fused_cmp_jump_falls_back_for_strings() {
     let mut vm = new_vm();
-    vm.push(Value::String(Rc::from("a"))).unwrap();
-    vm.push(Value::String(Rc::from("a"))).unwrap();
+    vm.push(Value::String(Rc::new("a".to_string()))).unwrap();
+    vm.push(Value::String(Rc::new("a".to_string()))).unwrap();
 
     let advance = vm
         .dispatch_instruction(
@@ -128,7 +128,7 @@ fn dispatch_op_return_local_moves_value_out_of_frame_slot() {
     vm.frame_index = 1;
     vm.sp = 2;
     vm.stack[0] = Value::Closure(vm.frames[0].closure.clone());
-    vm.stack[1] = Value::String(Rc::from("moved"));
+    vm.stack[1] = Value::String(Rc::new("moved".to_string()));
 
     let advance = vm
         .dispatch_instruction(&[OpCode::OpReturnLocal as u8, 0], 0, OpCode::OpReturnLocal)
@@ -137,13 +137,13 @@ fn dispatch_op_return_local_moves_value_out_of_frame_slot() {
     assert_eq!(advance, 0);
     assert_eq!(vm.frame_index, 0);
     assert_eq!(vm.sp, 1);
-    assert_eq!(vm.stack[0], Value::String(Rc::from("moved")));
+    assert_eq!(vm.stack[0], Value::String(Rc::new("moved".to_string())));
 }
 
 #[test]
 fn dispatch_op_make_adt_moves_fields_from_stack() {
     let mut vm = new_vm();
-    vm.constants.push(Value::String(Rc::from("Node")));
+    vm.constants.push(Value::String(Rc::new("Node".to_string())));
     vm.stack[0] = Value::Integer(1);
     vm.stack[1] = Value::Integer(2);
     vm.sp = 2;
@@ -167,7 +167,7 @@ fn dispatch_op_make_adt_moves_fields_from_stack() {
 fn dispatch_op_adt_field_reuses_unshared_adt_payload() {
     let mut vm = new_vm();
     vm.push(Value::Adt(Rc::new(AdtValue {
-        constructor: Rc::from("Node"),
+        constructor: Rc::new("Node".to_string()),
         fields: AdtFields::from_vec(vec![Value::Integer(10), Value::Integer(20)]),
     })))
     .unwrap();
