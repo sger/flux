@@ -635,10 +635,7 @@ pub fn signature_for_id(id: BaseHmSignatureId) -> BaseHmSignature {
         Id::AssertThrows => sig_with_row_params(
             vec![],
             vec!["e"],
-            vec![
-                t_fun(vec![], t_any(), row(vec![], Some("e"))),
-                t_any(),
-            ],
+            vec![t_fun(vec![], t_any(), row(vec![], Some("e"))), t_any()],
             t_unit(),
             row(vec![], Some("e")),
         ),

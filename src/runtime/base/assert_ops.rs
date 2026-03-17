@@ -369,7 +369,12 @@ pub(super) fn base_assert_len_borrowed(
     ctx: &mut dyn RuntimeContext,
     args: &[&Value],
 ) -> Result<Value, String> {
-    check_arity_ref(args, 2, "assert_len", "assert_len(collection, expected_length)")?;
+    check_arity_ref(
+        args,
+        2,
+        "assert_len",
+        "assert_len(collection, expected_length)",
+    )?;
     let expected = match args[1] {
         Value::Integer(n) => *n,
         other => {
@@ -394,10 +399,7 @@ pub(super) fn base_assert_len_borrowed(
     }
 }
 
-pub(super) fn base_try(
-    ctx: &mut dyn RuntimeContext,
-    args: Vec<Value>,
-) -> Result<Value, String> {
+pub(super) fn base_try(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     let borrowed: Vec<&Value> = args.iter().collect();
     base_try_borrowed(ctx, &borrowed)
 }
@@ -418,10 +420,7 @@ pub(super) fn base_try_borrowed(
     }
 
     match ctx.invoke_value(args[0].clone(), vec![]) {
-        Ok(val) => Ok(Value::Tuple(Rc::new(vec![
-            Value::String("ok".into()),
-            val,
-        ]))),
+        Ok(val) => Ok(Value::Tuple(Rc::new(vec![Value::String("ok".into()), val]))),
         Err(msg) => Ok(Value::Tuple(Rc::new(vec![
             Value::String("error".into()),
             Value::String(msg.into()),
