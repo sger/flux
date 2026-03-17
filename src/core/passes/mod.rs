@@ -2,6 +2,7 @@
 ///
 /// These passes operate on `CoreExpr` / `CoreProgram` before backend lowering.
 /// Passes run after `lower_ast::lower_program_ast` produces a `CoreProgram`.
+mod anf;
 mod beta;
 mod case_of_case;
 mod cokc;
@@ -10,6 +11,7 @@ mod helpers;
 mod inline;
 mod inliner;
 
+pub use anf::anf_normalize;
 pub use beta::beta_reduce;
 pub use case_of_case::case_of_case;
 pub use cokc::case_of_known_constructor;
@@ -30,7 +32,16 @@ use crate::core::{CoreExpr, CoreLit, CoreProgram};
 /// 4. `inline_lets`              — inline dead, single-use, and small let-bindings
 ///    (subsumes `inline_trivial_lets`; uses occurrence analysis)
 /// 5. `elim_dead_let`            — drop unused pure bindings left over
+/// 6. `anf_normalize`            — flatten nested subexpressions into let-chains
 pub fn run_core_passes(program: &mut CoreProgram) {
+    // Find the maximum binder ID so ANF can allocate fresh IDs above it.
+    let mut max_binder_id: u32 = 0;
+    for def in &program.defs {
+        max_binder_id = max_binder_id.max(def.binder.id.0);
+        collect_max_binder_id(&def.expr, &mut max_binder_id);
+    }
+    let mut next_anf_id = max_binder_id + 1;
+
     let sentinel = CoreExpr::Lit(CoreLit::Unit, Default::default());
     for def in &mut program.defs {
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
@@ -39,7 +50,70 @@ pub fn run_core_passes(program: &mut CoreProgram) {
         let e = case_of_known_constructor(e);
         let e = inline_lets(e);
         let e = elim_dead_let(e);
+        let e = anf_normalize(e, &mut next_anf_id);
         def.expr = e;
+    }
+}
+
+/// Walk an expression tree to find the maximum `CoreBinderId` in use.
+fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
+    use crate::core::CoreExpr::*;
+    match expr {
+        Var { .. } | Lit(_, _) => {}
+        Lam { params, body, .. } => {
+            for p in params {
+                *max = (*max).max(p.id.0);
+            }
+            collect_max_binder_id(body, max);
+        }
+        App { func, args, .. } => {
+            collect_max_binder_id(func, max);
+            for a in args {
+                collect_max_binder_id(a, max);
+            }
+        }
+        Let { var, rhs, body, .. } | LetRec { var, rhs, body, .. } => {
+            *max = (*max).max(var.id.0);
+            collect_max_binder_id(rhs, max);
+            collect_max_binder_id(body, max);
+        }
+        Case {
+            scrutinee, alts, ..
+        } => {
+            collect_max_binder_id(scrutinee, max);
+            for alt in alts {
+                collect_max_binder_id(&alt.rhs, max);
+                if let Some(g) = &alt.guard {
+                    collect_max_binder_id(g, max);
+                }
+            }
+        }
+        Con { fields, .. } => {
+            for f in fields {
+                collect_max_binder_id(f, max);
+            }
+        }
+        PrimOp { args, .. } => {
+            for a in args {
+                collect_max_binder_id(a, max);
+            }
+        }
+        Return { value, .. } => collect_max_binder_id(value, max),
+        Perform { args, .. } => {
+            for a in args {
+                collect_max_binder_id(a, max);
+            }
+        }
+        Handle { body, handlers, .. } => {
+            collect_max_binder_id(body, max);
+            for h in handlers {
+                *max = (*max).max(h.resume.id.0);
+                for p in &h.params {
+                    *max = (*max).max(p.id.0);
+                }
+                collect_max_binder_id(&h.body, max);
+            }
+        }
     }
 }
 

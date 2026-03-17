@@ -707,3 +707,134 @@ fn inliner_preserves_letrec() {
         "letrec must be preserved, got {result:?}"
     );
 }
+
+// ── anf_normalize ─────────────────────────────────────────────────────────
+
+#[test]
+fn anf_flattens_nested_primop_args() {
+    // PrimOp(IAdd, [PrimOp(IMul, [2, 3]), Lit(1)])
+    //   → Let(t0, PrimOp(IMul, [2, 3]),
+    //       PrimOp(IAdd, [Var(t0), 1]))
+    let nested = CoreExpr::PrimOp {
+        op: CorePrimOp::IAdd,
+        args: vec![
+            CoreExpr::PrimOp {
+                op: CorePrimOp::IMul,
+                args: vec![
+                    CoreExpr::Lit(CoreLit::Int(2), s()),
+                    CoreExpr::Lit(CoreLit::Int(3), s()),
+                ],
+                span: s(),
+            },
+            CoreExpr::Lit(CoreLit::Int(1), s()),
+        ],
+        span: s(),
+    };
+
+    let mut next_id = 100;
+    let result = anf_normalize(nested, &mut next_id);
+
+    // Should be Let(_, PrimOp(IMul, ...), PrimOp(IAdd, [Var, Lit]))
+    match &result {
+        CoreExpr::Let { rhs, body, .. } => {
+            assert!(
+                matches!(
+                    **rhs,
+                    CoreExpr::PrimOp {
+                        op: CorePrimOp::IMul,
+                        ..
+                    }
+                ),
+                "rhs should be IMul, got {rhs:?}"
+            );
+            assert!(
+                matches!(
+                    **body,
+                    CoreExpr::PrimOp {
+                        op: CorePrimOp::IAdd,
+                        ..
+                    }
+                ),
+                "body should be IAdd, got {body:?}"
+            );
+            // The IAdd args should be trivial (Var, Lit).
+            if let CoreExpr::PrimOp { args, .. } = &**body {
+                assert!(
+                    matches!(args[0], CoreExpr::Var { .. }),
+                    "first arg should be Var, got {:?}",
+                    args[0]
+                );
+                assert!(
+                    matches!(args[1], CoreExpr::Lit(CoreLit::Int(1), _)),
+                    "second arg should be Lit(1), got {:?}",
+                    args[1]
+                );
+            }
+        }
+        other => panic!("expected Let, got {other:?}"),
+    }
+}
+
+#[test]
+fn anf_leaves_trivial_expressions_alone() {
+    // Var and Lit are already trivial — no let-binding needed.
+    let mut interner = Interner::new();
+    let x = interner.intern("x");
+    let x_binder = binder(0, x);
+
+    let var_expr = var_ref(x_binder);
+    let lit_expr = CoreExpr::Lit(CoreLit::Int(42), s());
+
+    let mut next_id = 100;
+    let r1 = anf_normalize(var_expr.clone(), &mut next_id);
+    let r2 = anf_normalize(lit_expr.clone(), &mut next_id);
+
+    assert!(matches!(r1, CoreExpr::Var { .. }));
+    assert!(matches!(r2, CoreExpr::Lit(CoreLit::Int(42), _)));
+    // No fresh binders should have been allocated.
+    assert_eq!(next_id, 100);
+}
+
+#[test]
+fn anf_normalizes_app_func_and_args() {
+    // App(PrimOp(IAdd, [1, 2]), [PrimOp(IMul, [3, 4])])
+    // Both func and arg should be let-bound.
+    let expr = CoreExpr::App {
+        func: Box::new(CoreExpr::PrimOp {
+            op: CorePrimOp::IAdd,
+            args: vec![
+                CoreExpr::Lit(CoreLit::Int(1), s()),
+                CoreExpr::Lit(CoreLit::Int(2), s()),
+            ],
+            span: s(),
+        }),
+        args: vec![CoreExpr::PrimOp {
+            op: CorePrimOp::IMul,
+            args: vec![
+                CoreExpr::Lit(CoreLit::Int(3), s()),
+                CoreExpr::Lit(CoreLit::Int(4), s()),
+            ],
+            span: s(),
+        }],
+        span: s(),
+    };
+
+    let mut next_id = 100;
+    let result = anf_normalize(expr, &mut next_id);
+
+    // Should produce two Let bindings wrapping an App of trivial operands.
+    // Let(t0, PrimOp(IAdd,...), Let(t1, PrimOp(IMul,...), App(Var(t0), [Var(t1)])))
+    match &result {
+        CoreExpr::Let { body, .. } => match &**body {
+            CoreExpr::Let { body: inner, .. } => {
+                assert!(
+                    matches!(**inner, CoreExpr::App { .. }),
+                    "innermost should be App, got {inner:?}"
+                );
+            }
+            other => panic!("expected inner Let, got {other:?}"),
+        },
+        other => panic!("expected outer Let, got {other:?}"),
+    }
+    assert_eq!(next_id, 102, "should have allocated 2 fresh binders");
+}
