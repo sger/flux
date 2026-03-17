@@ -136,6 +136,17 @@ impl ToIrCtx {
                         effects.clone(),
                     );
                     fn_ctx.name = Some(def.name);
+                    // Populate HM-inferred types from CoreDef.result_ty.
+                    if let Some(crate::core::CoreType::Function(ref param_tys, ref ret_ty)) =
+                        def.result_ty
+                    {
+                        fn_ctx.inferred_param_types =
+                            param_tys.iter().map(|t| Some(t.clone())).collect();
+                        fn_ctx.inferred_return_type = Some((**ret_ty).clone());
+                    } else if let Some(ref ty) = def.result_ty {
+                        // Non-function def (e.g. thunk) — set return type only.
+                        fn_ctx.inferred_return_type = Some(ty.clone());
+                    }
                     for (&binder_id, &binder_name) in &entry_fn.binder_names {
                         let v = fn_ctx.ctx.alloc_var();
                         fn_ctx.emit(IrInstr::Assign {

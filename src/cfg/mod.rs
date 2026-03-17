@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt};
 
 use crate::{
+    core::CoreType,
     diagnostics::position::Span,
     syntax::{
         Identifier,
@@ -398,6 +399,10 @@ pub struct IrFunction {
     pub entry: BlockId,
     pub origin: IrFunctionOrigin,
     pub metadata: IrMetadata,
+    /// HM-inferred parameter types (from Core IR, not source annotations).
+    pub inferred_param_types: Vec<Option<CoreType>>,
+    /// HM-inferred return type (from Core IR, not source annotations).
+    pub inferred_return_type: Option<CoreType>,
 }
 
 #[derive(Debug, Clone)]
