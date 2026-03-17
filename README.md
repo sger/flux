@@ -576,7 +576,7 @@ scripts/run_examples.sh --all --no-cache   # bypass bytecode cache
 
 2. Run local release preflight:
    ```bash
-   scripts/release_check.sh
+   scripts/release/release_check.sh
    ```
    This runs the same core gates used in CI release checks:
    - `cargo fmt --all -- --check`
@@ -586,12 +586,12 @@ scripts/run_examples.sh --all --no-cache   # bypass bytecode cache
 
 3. Rebuild `[Unreleased]` from fragments:
    ```bash
-   scripts/changelog_from_fragments.sh
+   scripts/changelog/changelog_from_fragments.sh
    ```
 
 4. Cut the release section + links automatically:
    ```bash
-   scripts/release_cut.sh v0.0.3
+   scripts/release/release_cut.sh v0.0.3
    ```
 
 5. Commit release docs/changelog, then create and push the tag:

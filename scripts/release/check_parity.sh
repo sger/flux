@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Quick VM/JIT parity check — run after any compiler change.
-# Usage: scripts/check_parity.sh [directory...]
+# Usage: scripts/release/check_parity.sh [directory...]
 # Default: examples/basics examples/advanced examples/functions examples/patterns
 #          examples/tail_call examples/perf examples/primop tests/flux
 set -euo pipefail

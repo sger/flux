@@ -6,8 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 show_help() {
   cat <<'USAGE'
 Usage:
-  scripts/bench_benchmark_flamewatch.sh <benchmark> [options]
-  scripts/bench_benchmark_flamewatch.sh <group> [options]
+  scripts/bench/bench_benchmark_flamewatch.sh <benchmark> [options]
+  scripts/bench/bench_benchmark_flamewatch.sh <group> [options]
 
 Benchmarks:
   binarytrees
@@ -38,18 +38,18 @@ Options:
   -h, --help               Show this help
 
 Examples:
-  scripts/bench_benchmark_flamewatch.sh binarytrees
-  scripts/bench_benchmark_flamewatch.sh core
-  scripts/bench_benchmark_flamewatch.sh binarytrees --full --runs 3 --warmup 1
-  scripts/bench_benchmark_flamewatch.sh cfold
-  scripts/bench_benchmark_flamewatch.sh cfold --jit
-  scripts/bench_benchmark_flamewatch.sh deriv
-  scripts/bench_benchmark_flamewatch.sh nqueens
-  scripts/bench_benchmark_flamewatch.sh qsort
-  scripts/bench_benchmark_flamewatch.sh rbtree_ck
-  scripts/bench_benchmark_flamewatch.sh rbtree
-  scripts/bench_benchmark_flamewatch.sh rbtree2
-  scripts/bench_benchmark_flamewatch.sh rbtree_del
+  scripts/bench/bench_benchmark_flamewatch.sh binarytrees
+  scripts/bench/bench_benchmark_flamewatch.sh core
+  scripts/bench/bench_benchmark_flamewatch.sh binarytrees --full --runs 3 --warmup 1
+  scripts/bench/bench_benchmark_flamewatch.sh cfold
+  scripts/bench/bench_benchmark_flamewatch.sh cfold --jit
+  scripts/bench/bench_benchmark_flamewatch.sh deriv
+  scripts/bench/bench_benchmark_flamewatch.sh nqueens
+  scripts/bench/bench_benchmark_flamewatch.sh qsort
+  scripts/bench/bench_benchmark_flamewatch.sh rbtree_ck
+  scripts/bench/bench_benchmark_flamewatch.sh rbtree
+  scripts/bench/bench_benchmark_flamewatch.sh rbtree2
+  scripts/bench/bench_benchmark_flamewatch.sh rbtree_del
 USAGE
 }
 
