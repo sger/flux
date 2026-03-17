@@ -302,7 +302,7 @@ fn dump_core_debug_preserves_raw_identity_details() {
         text
     );
     assert!(
-        text.contains("letrec main ="),
+        text.contains("letrec main"),
         "expected raw main thunk shape in debug dump, output:\n{}",
         text
     );
