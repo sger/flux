@@ -106,6 +106,11 @@ impl<'a> AstLowerer<'a> {
         self.hm_expr_types.get(&id)
     }
 
+    /// Convert an HM-inferred expression type to a `CoreType`, if available.
+    fn infer_core_type(&self, id: ExprId) -> Option<super::CoreType> {
+        self.hm_expr_types.get(&id).map(super::CoreType::from_infer)
+    }
+
     // ── Top-level statements ─────────────────────────────────────────────────
 
     fn lower_top_level(
@@ -138,41 +143,56 @@ impl<'a> AstLowerer<'a> {
                     body: Box::new(body_expr),
                     span: *span,
                 };
-                out.push(CoreDef::new(binder, expr, true, *span));
+                // For functions, build a Function CoreType from body's last expression type.
+                // The function itself doesn't have a single ExprId, but the body block does.
+                let mut def = CoreDef::new(binder, expr, true, *span);
+                // Try to get the type from the last expression in the block.
+                if let Some(
+                    Statement::Expression { expression, .. }
+                    | Statement::Return {
+                        value: Some(expression),
+                        ..
+                    },
+                ) = body.statements.last()
+                {
+                    def.result_ty = self.infer_core_type(expression.expr_id());
+                }
+                out.push(def);
             }
 
             // Value binding → CoreDef for the RHS expression.
             Statement::Let {
                 name, value, span, ..
             } => {
-                out.push(CoreDef::new(
-                    self.bind_name(*name),
-                    self.lower_expr(value),
-                    false,
-                    *span,
-                ));
+                let result_ty = self.infer_core_type(value.expr_id());
+                let mut def =
+                    CoreDef::new(self.bind_name(*name), self.lower_expr(value), false, *span);
+                def.result_ty = result_ty;
+                out.push(def);
             }
 
             // Assignment (mutable rebind) → treat as a new CoreDef.
             Statement::Assign { name, value, span } => {
-                out.push(CoreDef::new(
-                    self.bind_name(*name),
-                    self.lower_expr(value),
-                    false,
-                    *span,
-                ));
+                let result_ty = self.infer_core_type(value.expr_id());
+                let mut def =
+                    CoreDef::new(self.bind_name(*name), self.lower_expr(value), false, *span);
+                def.result_ty = result_ty;
+                out.push(def);
             }
 
             // Expression statement → anonymous CoreDef (evaluated for effects).
             Statement::Expression {
                 expression, span, ..
             } => {
-                out.push(CoreDef::new_anonymous(
+                let result_ty = self.infer_core_type(expression.expr_id());
+                let mut def = CoreDef::new_anonymous(
                     self.bind_name(crate::syntax::symbol::Symbol::new(0)),
                     self.lower_expr(expression),
                     false,
                     *span,
-                ));
+                );
+                def.result_ty = result_ty;
+                out.push(def);
             }
 
             // Destructuring let → synthetic tmp var + Case alt for the pattern.
