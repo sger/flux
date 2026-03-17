@@ -81,7 +81,16 @@ impl<'a> Formatter<'a> {
 
             let name = self.resolve_name(def.name);
             let keyword = if def.is_recursive { "letrec" } else { "def" };
-            writeln!(out, "{keyword} {name} =").unwrap();
+            if matches!(self.mode, CoreDisplayMode::Debug) {
+                if let Some(ty) = &def.result_ty {
+                    let ty_str = format_core_type(ty, self.interner);
+                    writeln!(out, "{keyword} {name} : {ty_str} =").unwrap();
+                } else {
+                    writeln!(out, "{keyword} {name} =").unwrap();
+                }
+            } else {
+                writeln!(out, "{keyword} {name} =").unwrap();
+            }
             self.write_expr(&mut out, &def.expr, 2);
             out.push('\n');
         }
@@ -431,5 +440,53 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp) {
 fn push_indent(out: &mut String, n: usize) {
     for _ in 0..n {
         out.push(' ');
+    }
+}
+
+fn format_core_type(ty: &super::CoreType, interner: &Interner) -> String {
+    use super::CoreType;
+    match ty {
+        CoreType::Int => "Int".to_string(),
+        CoreType::Float => "Float".to_string(),
+        CoreType::Bool => "Bool".to_string(),
+        CoreType::String => "String".to_string(),
+        CoreType::Unit => "Unit".to_string(),
+        CoreType::Never => "Never".to_string(),
+        CoreType::Any => "Any".to_string(),
+        CoreType::List(elem) => format!("List<{}>", format_core_type(elem, interner)),
+        CoreType::Array(elem) => format!("Array<{}>", format_core_type(elem, interner)),
+        CoreType::Option(elem) => format!("Option<{}>", format_core_type(elem, interner)),
+        CoreType::Either(l, r) => format!(
+            "Either<{}, {}>",
+            format_core_type(l, interner),
+            format_core_type(r, interner)
+        ),
+        CoreType::Map(k, v) => format!(
+            "Map<{}, {}>",
+            format_core_type(k, interner),
+            format_core_type(v, interner)
+        ),
+        CoreType::Tuple(elems) => {
+            let parts: Vec<_> = elems
+                .iter()
+                .map(|e| format_core_type(e, interner))
+                .collect();
+            format!("({})", parts.join(", "))
+        }
+        CoreType::Function(params, ret) => {
+            let parts: Vec<_> = params
+                .iter()
+                .map(|p| format_core_type(p, interner))
+                .collect();
+            format!(
+                "({}) -> {}",
+                parts.join(", "),
+                format_core_type(ret, interner)
+            )
+        }
+        CoreType::Adt(name) => interner
+            .try_resolve(*name)
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("Adt#{}", name.as_u32())),
     }
 }
