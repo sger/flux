@@ -2,13 +2,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 show_help() {
   cat <<'USAGE'
 Usage:
-  scripts/bench.sh <benchmark> [options]
-  scripts/bench.sh <group> [options]
+  scripts/bench/bench.sh <benchmark> [options]
+  scripts/bench/bench.sh <group> [options]
 
 Benchmarks:
   binarytrees              Tree-building benchmark with smoke/full modes
@@ -43,18 +43,18 @@ Options:
   -h, --help               Show this help
 
 Examples:
-  scripts/bench.sh binarytrees
-  scripts/bench.sh core
-  scripts/bench.sh extended --runs 10 --warmup 1
-  scripts/bench.sh binarytrees --full --runs 3 --warmup 1
-  scripts/bench.sh cfold --runs 30 --warmup 5
-  scripts/bench.sh deriv --runs 30 --warmup 5
-  scripts/bench.sh nqueens --runs 30 --warmup 5
-  scripts/bench.sh qsort --runs 30 --warmup 5
-  scripts/bench.sh rbtree_ck --runs 30 --warmup 5
-  scripts/bench.sh rbtree --runs 30 --warmup 5
-  scripts/bench.sh rbtree2 --runs 30 --warmup 5
-  scripts/bench.sh rbtree_del --runs 30 --warmup 5
+  scripts/bench/bench.sh binarytrees
+  scripts/bench/bench.sh core
+  scripts/bench/bench.sh extended --runs 10 --warmup 1
+  scripts/bench/bench.sh binarytrees --full --runs 3 --warmup 1
+  scripts/bench/bench.sh cfold --runs 30 --warmup 5
+  scripts/bench/bench.sh deriv --runs 30 --warmup 5
+  scripts/bench/bench.sh nqueens --runs 30 --warmup 5
+  scripts/bench/bench.sh qsort --runs 30 --warmup 5
+  scripts/bench/bench.sh rbtree_ck --runs 30 --warmup 5
+  scripts/bench/bench.sh rbtree --runs 30 --warmup 5
+  scripts/bench/bench.sh rbtree2 --runs 30 --warmup 5
+  scripts/bench/bench.sh rbtree_del --runs 30 --warmup 5
 USAGE
 }
 

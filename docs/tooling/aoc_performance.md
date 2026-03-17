@@ -25,7 +25,7 @@ Track these metrics per day:
 1. Compare Flux vs the maintained benchmark suite first:
 
 ```bash
-scripts/bench.sh cfold --runs 30 --warmup 5
+scripts/bench/bench.sh cfold --runs 30 --warmup 5
 ```
 
 2. Then profile VM hotspots:

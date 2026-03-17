@@ -30,16 +30,16 @@ Extended benchmarks:
 Run the curated groups:
 
 ```bash
-scripts/bench.sh core
-scripts/bench.sh extended
-scripts/bench.sh all
+scripts/bench/bench.sh core
+scripts/bench/bench.sh extended
+scripts/bench/bench.sh all
 ```
 
 Run grouped flamewatch workflows:
 
 ```bash
-scripts/bench_benchmark_flamewatch.sh core
-scripts/bench_benchmark_flamewatch.sh extended --jit
+scripts/bench/bench_benchmark_flamewatch.sh core
+scripts/bench/bench_benchmark_flamewatch.sh extended --jit
 ```
 
 Grouped flamewatch runs keep per-benchmark artifacts such as `flamegraph-cfold-vm.svg` and `flamegraph-rbtree_del-jit.svg` in the repo root.
@@ -78,7 +78,7 @@ ocamlopt -I +unix unix.cmxa -o target/release/binarytrees_ocaml benchmarks/ocaml
 Run the cross-language benchmark with `hyperfine`:
 
 ```bash
-scripts/bench.sh binarytrees
+scripts/bench/bench.sh binarytrees
 ```
 
 By default this uses the smaller smoke workload with `n = 8` for every language.
@@ -86,13 +86,13 @@ Flux uses `benchmarks/flux/binarytrees_smoke.flx`, and Rust/Python/Haskell are i
 To benchmark the aligned full baseline instead:
 
 ```bash
-scripts/bench.sh binarytrees --full
+scripts/bench/bench.sh binarytrees --full
 ```
 
 Equivalent explicit commands:
 
 ```bash
-scripts/bench.sh binarytrees \
+scripts/bench/bench.sh binarytrees \
   --flux-cmd './target/release/flux benchmarks/flux/binarytrees.flx' \
   --flux-jit-cmd './target/release/flux benchmarks/flux/binarytrees.flx --jit' \
   --rust-cmd './target/release/binarytrees_rust 21' \
@@ -104,19 +104,19 @@ scripts/bench.sh binarytrees \
 Useful options:
 
 ```bash
-scripts/bench.sh binarytrees --full --runs 3 --warmup 1
-scripts/bench.sh binarytrees --runs 30 --warmup 5
-scripts/bench.sh binarytrees --no-flux-jit
-scripts/bench.sh binarytrees --report-file reports/binarytrees_$(date +%F).md
-scripts/bench.sh binarytrees --haskell-cmd 'runghc benchmarks/haskell/binarytrees.hs'
+scripts/bench/bench.sh binarytrees --full --runs 3 --warmup 1
+scripts/bench/bench.sh binarytrees --runs 30 --warmup 5
+scripts/bench/bench.sh binarytrees --no-flux-jit
+scripts/bench/bench.sh binarytrees --report-file reports/binarytrees_$(date +%F).md
+scripts/bench/bench.sh binarytrees --haskell-cmd 'runghc benchmarks/haskell/binarytrees.hs'
 ```
 
 Profile binarytrees specifically:
 
 ```bash
-scripts/bench_benchmark_flamewatch.sh binarytrees
-scripts/bench_benchmark_flamewatch.sh binarytrees --full --runs 3 --warmup 1
-scripts/bench_benchmark_flamewatch.sh binarytrees --jit
+scripts/bench/bench_benchmark_flamewatch.sh binarytrees
+scripts/bench/bench_benchmark_flamewatch.sh binarytrees --full --runs 3 --warmup 1
+scripts/bench/bench_benchmark_flamewatch.sh binarytrees --jit
 ```
 
 Latest report:
@@ -171,14 +171,14 @@ ocamlopt -o target/release/cfold_ocaml benchmarks/ocaml/cfold.ml
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench.sh cfold
+scripts/bench/bench.sh cfold
 ```
 
 Profile the Flux implementation:
 
 ```bash
-scripts/bench_benchmark_flamewatch.sh cfold
-scripts/bench_benchmark_flamewatch.sh cfold --jit
+scripts/bench/bench_benchmark_flamewatch.sh cfold
+scripts/bench/bench_benchmark_flamewatch.sh cfold --jit
 ```
 
 Latest report:
@@ -232,14 +232,14 @@ ocamlopt -o target/release/deriv_ocaml benchmarks/ocaml/deriv.ml
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench.sh deriv
+scripts/bench/bench.sh deriv
 ```
 
 Profile the Flux implementation:
 
 ```bash
-scripts/bench_benchmark_flamewatch.sh deriv
-scripts/bench_benchmark_flamewatch.sh deriv --jit
+scripts/bench/bench_benchmark_flamewatch.sh deriv
+scripts/bench/bench_benchmark_flamewatch.sh deriv --jit
 ```
 
 `deriv` currently benchmarks Flux VM by default. The Flux JIT path is not included in the cross-language matrix for this benchmark because it does not yet preserve the same counts as the VM/Haskell baseline.
@@ -249,7 +249,7 @@ Latest report:
 <!-- deriv-report:start -->
 # Symbolic Differentiation Benchmark Report
 
-_Run `scripts/bench.sh deriv` to generate this report._
+_Run `scripts/bench/bench.sh deriv` to generate this report._
 <!-- deriv-report:end -->
 
 ## N-Queens
@@ -285,14 +285,14 @@ ocamlopt -o target/release/nqueens_ocaml benchmarks/ocaml/nqueens.ml
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench.sh nqueens
+scripts/bench/bench.sh nqueens
 ```
 
 Profile the Flux implementation:
 
 ```bash
-scripts/bench_benchmark_flamewatch.sh nqueens
-scripts/bench_benchmark_flamewatch.sh nqueens --jit
+scripts/bench/bench_benchmark_flamewatch.sh nqueens
+scripts/bench/bench_benchmark_flamewatch.sh nqueens --jit
 ```
 
 Latest report:
@@ -300,7 +300,7 @@ Latest report:
 <!-- nqueens-report:start -->
 # N-Queens Benchmark Report
 
-_Run `scripts/bench.sh nqueens` to generate this report._
+_Run `scripts/bench/bench.sh nqueens` to generate this report._
 <!-- nqueens-report:end -->
 
 ## Quicksort
@@ -336,14 +336,14 @@ ocamlopt -o target/release/qsort_ocaml benchmarks/ocaml/qsort.ml
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench.sh qsort
+scripts/bench/bench.sh qsort
 ```
 
 Profile the Flux implementation:
 
 ```bash
-scripts/bench_benchmark_flamewatch.sh qsort
-scripts/bench_benchmark_flamewatch.sh qsort --jit
+scripts/bench/bench_benchmark_flamewatch.sh qsort
+scripts/bench/bench_benchmark_flamewatch.sh qsort --jit
 ```
 
 Latest report:
@@ -398,14 +398,14 @@ ocamlopt -o target/release/rbtree_ck_ocaml benchmarks/ocaml/rbtree_ck.ml
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench.sh rbtree_ck
+scripts/bench/bench.sh rbtree_ck
 ```
 
 Profile the Flux implementation:
 
 ```bash
-scripts/bench_benchmark_flamewatch.sh rbtree_ck
-scripts/bench_benchmark_flamewatch.sh rbtree_ck --jit
+scripts/bench/bench_benchmark_flamewatch.sh rbtree_ck
+scripts/bench/bench_benchmark_flamewatch.sh rbtree_ck --jit
 ```
 
 `rbtree_ck` currently benchmarks Flux VM by default. The Flux JIT path is not included in the cross-language matrix for this benchmark unless it is explicitly re-enabled.
@@ -415,7 +415,7 @@ Latest report:
 <!-- rbtree-ck-report:start -->
 # Red-Black Tree Benchmark Report
 
-_Run `scripts/bench.sh rbtree_ck` to generate this report._
+_Run `scripts/bench/bench.sh rbtree_ck` to generate this report._
 <!-- rbtree-ck-report:end -->
 
 ## Red-Black Tree
@@ -431,7 +431,7 @@ Sources:
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench.sh rbtree
+scripts/bench/bench.sh rbtree
 ```
 
 Latest report:
@@ -465,7 +465,7 @@ Sources:
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench.sh rbtree2
+scripts/bench/bench.sh rbtree2
 ```
 
 Latest report:
@@ -473,7 +473,7 @@ Latest report:
 <!-- rbtree2-report:start -->
 # Red-Black Tree 2 Benchmark Report
 
-_Run `scripts/bench.sh rbtree2` to generate this report._
+_Run `scripts/bench/bench.sh rbtree2` to generate this report._
 <!-- rbtree2-report:end -->
 
 ## Red-Black Tree Delete
@@ -489,7 +489,7 @@ Sources:
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench.sh rbtree_del
+scripts/bench/bench.sh rbtree_del
 ```
 
 Latest report:
@@ -497,5 +497,5 @@ Latest report:
 <!-- rbtree-del-report:start -->
 # Red-Black Tree Delete Benchmark Report
 
-_Run `scripts/bench.sh rbtree_del` to generate this report._
+_Run `scripts/bench/bench.sh rbtree_del` to generate this report._
 <!-- rbtree-del-report:end -->

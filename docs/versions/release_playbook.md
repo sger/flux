@@ -36,7 +36,7 @@ PRs without fragment should use `no-changelog` with justification.
 Run:
 
 ```bash
-scripts/release_check.sh
+scripts/release/release_check.sh
 ```
 
 Then run optional extra checks from:
@@ -49,13 +49,13 @@ Then run optional extra checks from:
 1. Rebuild `[Unreleased]` from fragments:
 
 ```bash
-scripts/changelog_from_fragments.sh
+scripts/changelog/changelog_from_fragments.sh
 ```
 
 2. Cut release section:
 
 ```bash
-scripts/release_cut.sh vX.Y.Z
+scripts/release/release_cut.sh vX.Y.Z
 ```
 
 3. Review `CHANGELOG.md`:

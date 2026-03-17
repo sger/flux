@@ -4,14 +4,14 @@ set -euo pipefail
 # Generate a changelog fragment draft from commit subjects between a base ref and HEAD.
 #
 # Usage:
-#   scripts/changelog_fragment_from_commits.sh [base-ref] [topic]
+#   scripts/changelog/changelog_fragment_from_commits.sh [base-ref] [topic]
 # Example:
-#   scripts/changelog_fragment_from_commits.sh main primops
+#   scripts/changelog/changelog_fragment_from_commits.sh main primops
 
 BASE_REF="${1:-main}"
 TOPIC="${2:-auto}"
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 if ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
