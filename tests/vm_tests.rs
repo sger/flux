@@ -1354,8 +1354,14 @@ fn test_tuple_literals_and_grouping() {
         run("to_string((1, 2, 3));"),
         Value::String("(1, 2, 3)".to_string().into())
     );
-    assert_eq!(run("to_string((42,));"), Value::String("(42,)".to_string().into()));
-    assert_eq!(run("to_string(());"), Value::String("()".to_string().into()));
+    assert_eq!(
+        run("to_string((42,));"),
+        Value::String("(42,)".to_string().into())
+    );
+    assert_eq!(
+        run("to_string(());"),
+        Value::String("()".to_string().into())
+    );
     assert_eq!(run("(1 + 2);"), Value::Integer(3));
 }
 
@@ -1390,7 +1396,10 @@ fn test_tuple_match_and_base_functions() {
         Value::Integer(3)
     );
     assert_eq!(run("len((1, 2, 3));"), Value::Integer(3));
-    assert_eq!(run(r#"type_of((1, 2));"#), Value::String("Tuple".to_string().into()));
+    assert_eq!(
+        run(r#"type_of((1, 2));"#),
+        Value::String("Tuple".to_string().into())
+    );
     assert_eq!(run("(1, 2) == (1, 2);"), Value::Boolean(true));
 }
 

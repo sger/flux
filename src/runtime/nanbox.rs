@@ -229,7 +229,7 @@ mod inner {
         /// Integers outside that range are heap-boxed as `Rc<Value>`.
         #[inline]
         pub fn from_int(n: i64) -> Self {
-            if n >= MIN_INLINE_INT && n <= MAX_INLINE_INT {
+            if (MIN_INLINE_INT..=MAX_INLINE_INT).contains(&n) {
                 // Sign-extend into 46 bits: mask to 46 bits.
                 let payload = (n as u64) & PAYLOAD_MASK;
                 NanBox::from_tag_payload(NanTag::Integer, payload)
@@ -292,7 +292,10 @@ mod inner {
             // Pointers are 8-byte aligned → bottom 3 bits are 0 → shift right 3
             debug_assert_eq!(addr & 0x7, 0, "Rc pointer is not 8-byte aligned");
             let shifted = addr >> 3;
-            debug_assert!(shifted <= PAYLOAD_MASK, "pointer exceeds 46-bit payload range");
+            debug_assert!(
+                shifted <= PAYLOAD_MASK,
+                "pointer exceeds 46-bit payload range"
+            );
             NanBox::from_tag_payload(NanTag::BoxedValue, shifted)
         }
 
@@ -333,9 +336,7 @@ mod inner {
         /// Decode as a GC slot index.
         #[inline(always)]
         pub fn as_gc_index(&self) -> u32 {
-            debug_assert!(
-                self.tag() == NanTag::GcHandle || self.tag() == NanTag::GcAdt
-            );
+            debug_assert!(self.tag() == NanTag::GcHandle || self.tag() == NanTag::GcAdt);
             self.payload() as u32
         }
 
@@ -401,11 +402,12 @@ mod inner {
                     // drop the Rc (decrementing count) at end of this block.
                     // We clone the inner Value first, so the caller gets a proper
                     // owned Value with its own Rc references.
-                    let ptr = self.as_raw_ptr();
-                    let rc = Rc::from_raw(ptr);
-                    let value = (*rc).clone();
-                    // rc drops here → decrements Rc count (this is the NanBox's "drop")
-                    value
+                    unsafe {
+                        let ptr = self.as_raw_ptr();
+                        let rc = Rc::from_raw(ptr);
+                        (*rc).clone()
+                        // rc drops here → decrements Rc count (this is the NanBox's "drop")
+                    }
                 }
             }
         }
@@ -488,7 +490,7 @@ mod inner {
 
         #[test]
         fn float_roundtrip() {
-            assert_eq!(roundtrip(Value::Float(3.14)), Value::Float(3.14));
+            assert_eq!(roundtrip(Value::Float(std::f64::consts::PI)), Value::Float(std::f64::consts::PI));
             assert_eq!(roundtrip(Value::Float(0.0)), Value::Float(0.0));
             assert_eq!(roundtrip(Value::Float(-1.5)), Value::Float(-1.5));
             // NaN round-trips as NaN (PartialEq returns false for NaN, so check bits)
@@ -523,8 +525,14 @@ mod inner {
             let small = MIN_INLINE_INT - 1;
             assert_eq!(roundtrip(Value::Integer(big)), Value::Integer(big));
             assert_eq!(roundtrip(Value::Integer(small)), Value::Integer(small));
-            assert_eq!(roundtrip(Value::Integer(i64::MAX)), Value::Integer(i64::MAX));
-            assert_eq!(roundtrip(Value::Integer(i64::MIN)), Value::Integer(i64::MIN));
+            assert_eq!(
+                roundtrip(Value::Integer(i64::MAX)),
+                Value::Integer(i64::MAX)
+            );
+            assert_eq!(
+                roundtrip(Value::Integer(i64::MIN)),
+                Value::Integer(i64::MIN)
+            );
         }
 
         #[test]
@@ -540,7 +548,10 @@ mod inner {
             assert_eq!(roundtrip(Value::EmptyList), Value::EmptyList);
             assert_eq!(roundtrip(Value::BaseFunction(0)), Value::BaseFunction(0));
             assert_eq!(roundtrip(Value::BaseFunction(42)), Value::BaseFunction(42));
-            assert_eq!(roundtrip(Value::BaseFunction(255)), Value::BaseFunction(255));
+            assert_eq!(
+                roundtrip(Value::BaseFunction(255)),
+                Value::BaseFunction(255)
+            );
         }
 
         #[test]
@@ -620,9 +631,12 @@ mod inner {
             // -1 should round-trip correctly (all-ones in 46 bits, sign-extended to i64)
             assert_eq!(roundtrip(Value::Integer(-1)), Value::Integer(-1));
             assert_eq!(roundtrip(Value::Integer(-100)), Value::Integer(-100));
-            assert_eq!(roundtrip(Value::Integer(MIN_INLINE_INT)), Value::Integer(MIN_INLINE_INT));
+            assert_eq!(
+                roundtrip(Value::Integer(MIN_INLINE_INT)),
+                Value::Integer(MIN_INLINE_INT)
+            );
         }
     }
 }
 
-pub use inner::{NanBox, NanTag, MAX_INLINE_INT, MIN_INLINE_INT};
+pub use inner::{MAX_INLINE_INT, MIN_INLINE_INT, NanBox, NanTag};

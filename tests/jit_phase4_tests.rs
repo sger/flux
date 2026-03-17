@@ -55,7 +55,10 @@ let x = Right("hello")
 x
 "#,
     );
-    assert_eq!(result, Value::Right(Rc::new(Value::String("hello".to_string().into()))));
+    assert_eq!(
+        result,
+        Value::Right(Rc::new(Value::String("hello".to_string().into())))
+    );
 }
 
 // ---------------------------------------------------------------------------

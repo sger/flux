@@ -1271,7 +1271,12 @@ fn test_base_get() {
         found,
         Value::Some(std::rc::Rc::new(Value::String("Alice".to_string().into())))
     );
-    let not_found = call_vm(&mut vm, "get", vec![map, Value::String("missing".to_string().into())]).unwrap();
+    let not_found = call_vm(
+        &mut vm,
+        "get",
+        vec![map, Value::String("missing".to_string().into())],
+    )
+    .unwrap();
     assert_eq!(not_found, Value::None);
 }
 
@@ -1378,7 +1383,11 @@ fn test_base_read_lines() {
 
 #[test]
 fn test_base_parse_int() {
-    let result = call("parse_int", vec![Value::String("  12345  ".to_string().into())]).unwrap();
+    let result = call(
+        "parse_int",
+        vec![Value::String("  12345  ".to_string().into())],
+    )
+    .unwrap();
     assert_eq!(result, Value::Integer(12345));
 }
 
@@ -1473,7 +1482,10 @@ fn test_base_parse_ints_and_split_ints() {
 
     let split = call(
         "split_ints",
-        vec![Value::String("1,2,-5".to_string().into()), Value::String(",".to_string().into())],
+        vec![
+            Value::String("1,2,-5".to_string().into()),
+            Value::String(",".to_string().into()),
+        ],
     )
     .unwrap();
     assert_eq!(

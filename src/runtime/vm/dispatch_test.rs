@@ -143,7 +143,10 @@ fn dispatch_op_return_local_moves_value_out_of_frame_slot() {
 #[test]
 fn dispatch_op_make_adt_moves_fields_from_stack() {
     let mut vm = new_vm();
-    vm.constants.push(super::slot::to_slot(Value::String(Rc::new("Node".to_string()))));
+    vm.constants
+        .push(super::slot::to_slot(Value::String(Rc::new(
+            "Node".to_string(),
+        ))));
     vm.stack_set(0, Value::Integer(1));
     vm.stack_set(1, Value::Integer(2));
     vm.sp = 2;

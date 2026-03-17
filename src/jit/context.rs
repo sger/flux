@@ -1,8 +1,8 @@
+use crate::runtime::nanbox::NanBox;
 use crate::runtime::{
     RuntimeContext, base::list_ops::format_value, function_contract::FunctionContract, gc::GcHeap,
     value::Value,
 };
-use crate::runtime::nanbox::NanBox;
 use crate::{
     diagnostics::position::{Position, Span},
     diagnostics::{

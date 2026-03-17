@@ -301,8 +301,7 @@ impl VM {
         let mut i = start;
         while i < end {
             let key = slot::from_slot(std::mem::replace(&mut self.stack[i], slot::uninit()));
-            let value =
-                slot::from_slot(std::mem::replace(&mut self.stack[i + 1], slot::uninit()));
+            let value = slot::from_slot(std::mem::replace(&mut self.stack[i + 1], slot::uninit()));
 
             let hash_key = key
                 .to_hash_key()
@@ -598,7 +597,7 @@ impl VM {
     ///
     /// Used by the REPL to persist globals across iterations without exposing
     /// the internal `Slot` type.
-    pub fn swap_globals_values(&mut self, external: &mut Vec<Value>) {
+    pub fn swap_globals_values(&mut self, external: &mut [Value]) {
         // Convert VM slots -> Values into external, and external Values -> slots into VM.
         let vm_len = self.globals.len();
         let ext_len = external.len();
@@ -606,11 +605,14 @@ impl VM {
         debug_assert_eq!(vm_len, ext_len);
 
         // Swap element-by-element.
-        for i in 0..vm_len.min(ext_len) {
-            let vm_val = slot::from_slot(std::mem::replace(&mut self.globals[i], slot::uninit()));
-            let ext_val = std::mem::replace(&mut external[i], Value::None);
-            self.globals[i] = slot::to_slot(ext_val);
-            external[i] = vm_val;
+        for (g, e) in self.globals[..vm_len.min(ext_len)]
+            .iter_mut()
+            .zip(external.iter_mut())
+        {
+            let vm_val = slot::from_slot(std::mem::replace(g, slot::uninit()));
+            let ext_val = std::mem::replace(e, Value::None);
+            *g = slot::to_slot(ext_val);
+            *e = vm_val;
         }
     }
 }
