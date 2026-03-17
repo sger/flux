@@ -36,7 +36,7 @@ Sections are optional; only include what applies.
 You can draft a fragment from commit subjects:
 
 ```bash
-scripts/changelog_fragment_from_commits.sh main primops
+scripts/changelog/changelog_fragment_from_commits.sh main primops
 ```
 
 Prefix mapping:
@@ -56,13 +56,13 @@ The generated file is a draft; review and edit for user-facing wording before co
 Update `[Unreleased]` from fragments:
 
 ```bash
-scripts/changelog_from_fragments.sh
+scripts/changelog/changelog_from_fragments.sh
 ```
 
 Cut a release section from `[Unreleased]`:
 
 ```bash
-scripts/release_cut.sh v0.0.4
+scripts/release/release_cut.sh v0.0.4
 ```
 
 This will:

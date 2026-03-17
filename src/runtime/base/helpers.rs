@@ -635,10 +635,24 @@ pub fn signature_for_id(id: BaseHmSignatureId) -> BaseHmSignature {
         Id::AssertThrows => sig_with_row_params(
             vec![],
             vec!["e"],
-            vec![t_fun(vec![], t_any(), row(vec![], Some("e")))],
+            vec![t_fun(vec![], t_any(), row(vec![], Some("e"))), t_any()],
             t_unit(),
             row(vec![], Some("e")),
         ),
+        Id::AssertMsg => sig(vec![t_bool(), t_string()], t_unit(), row(vec![], None)),
+        Id::Try => sig_with_row_params(
+            vec![],
+            vec!["e"],
+            vec![t_fun(vec![], t_any(), row(vec![], Some("e")))],
+            t_tuple(vec![t_string(), t_any()]),
+            row(vec![], Some("e")),
+        ),
+        Id::StrContains => sig(vec![t_string(), t_string()], t_bool(), row(vec![], None)),
+        Id::AssertGt => sig(vec![t_any(), t_any()], t_unit(), row(vec![], None)),
+        Id::AssertLt => sig(vec![t_any(), t_any()], t_unit(), row(vec![], None)),
+        Id::AssertGte => sig(vec![t_any(), t_any()], t_unit(), row(vec![], None)),
+        Id::AssertLte => sig(vec![t_any(), t_any()], t_unit(), row(vec![], None)),
+        Id::AssertLen => sig(vec![t_any(), t_int()], t_unit(), row(vec![], None)),
     }
 }
 

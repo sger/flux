@@ -4,7 +4,7 @@ set -euo pipefail
 # Cut a release in CHANGELOG.md from [Unreleased].
 #
 # Usage:
-#   scripts/release_cut.sh v0.0.4
+#   scripts/release/release_cut.sh v0.0.4
 
 if [ "$#" -ne 1 ]; then
   echo "Usage: $0 vX.Y.Z"
@@ -17,10 +17,10 @@ if ! [[ "$NEW_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-scripts/changelog_from_fragments.sh
+scripts/changelog/changelog_from_fragments.sh
 
 if grep -Eq "^## \[$NEW_VERSION\]" CHANGELOG.md; then
   echo "CHANGELOG.md already contains section for $NEW_VERSION"

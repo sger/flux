@@ -9,10 +9,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- `scripts/check_changelog_fragment.sh` to enforce changelog fragments in PR CI.
-- `scripts/changelog_from_fragments.sh` to rebuild `CHANGELOG.md` `[Unreleased]` from `changes/*.md`.
-- `scripts/release_cut.sh` to cut a new version section from `[Unreleased]` and update compare links.
-- `scripts/release_check.sh` local preflight command documented in `README.md`.
+- `scripts/changelog/check_changelog_fragment.sh` to enforce changelog fragments in PR CI.
+- `scripts/changelog/changelog_from_fragments.sh` to rebuild `CHANGELOG.md` `[Unreleased]` from `changes/*.md`.
+- `scripts/release/release_cut.sh` to cut a new version section from `[Unreleased]` and update compare links.
+- `scripts/release/release_check.sh` local preflight command documented in `README.md`.
 - add proposals for grammar improvements, deterministic effect replay, typed module contracts, and macro system
 - Effect-row constraint solver (`src/bytecode/compiler/effect_rows.rs`): `EffectRow`, `RowConstraint`, `RowSolution`, and `solve_row_constraints` implementing set-based row arithmetic with var binding, link propagation, and worklist-based resolution.
 - New error codes `E419` (unresolved single effect variable), `E420` (ambiguous multiple effect variables), `E421` (invalid effect subtraction), `E422` (unsatisfied effect subset) with deterministic sorted diagnostics.
@@ -179,10 +179,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [v0.0.3] - 2026-02-21
 
 ### Added
-- `scripts/check_changelog_fragment.sh` to enforce changelog fragments in PR CI.
-- `scripts/changelog_from_fragments.sh` to rebuild `CHANGELOG.md` `[Unreleased]` from `changes/*.md`.
-- `scripts/release_cut.sh` to cut a new version section from `[Unreleased]` and update compare links.
-- `scripts/release_check.sh` local preflight command documented in `README.md`.
+- `scripts/changelog/check_changelog_fragment.sh` to enforce changelog fragments in PR CI.
+- `scripts/changelog/changelog_from_fragments.sh` to rebuild `CHANGELOG.md` `[Unreleased]` from `changes/*.md`.
+- `scripts/release/release_cut.sh` to cut a new version section from `[Unreleased]` and update compare links.
+- `scripts/release/release_check.sh` local preflight command documented in `README.md`.
 - **Cranelift JIT backend** — compiles Flux programs to native machine code (`--features jit`, `--jit` flag)
 - **Persistent cons lists** — GC-managed immutable linked lists with O(1) prepend; `[h | t]` literal and pattern syntax
 - **HAMT hash maps** — Hash Array Mapped Trie with structural sharing on update; original maps are never mutated

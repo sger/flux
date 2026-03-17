@@ -218,6 +218,36 @@ pub(super) fn base_chars_borrowed(
     Ok(Value::Array(chars.into()))
 }
 
+pub(super) fn base_str_contains(
+    _ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_str_contains_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_str_contains_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 2, "str_contains", "str_contains(haystack, needle)")?;
+    let haystack = arg_string_ref(
+        args,
+        0,
+        "str_contains",
+        "first argument",
+        "str_contains(haystack, needle)",
+    )?;
+    let needle = arg_string_ref(
+        args,
+        1,
+        "str_contains",
+        "second argument",
+        "str_contains(haystack, needle)",
+    )?;
+    Ok(Value::Boolean(haystack.contains(needle)))
+}
+
 pub(super) fn base_substring(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
