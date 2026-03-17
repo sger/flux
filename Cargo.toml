@@ -8,6 +8,7 @@ default-run = "flux"
 
 [features]
 gc-telemetry = []
+nan-boxing = []
 jit = [
     "cranelift-codegen",
     "cranelift-frontend",

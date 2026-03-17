@@ -34,6 +34,9 @@ pub mod runtime_type;
 pub mod value;
 pub mod vm;
 
+#[cfg(feature = "nan-boxing")]
+pub mod nanbox;
+
 pub trait RuntimeContext {
     fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String>;
     fn invoke_base_function_borrowed(
