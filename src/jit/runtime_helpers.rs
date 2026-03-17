@@ -507,7 +507,7 @@ pub extern "C" fn rt_make_empty_list(ctx: *mut JitContext) -> *mut Value {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_make_string(ctx: *mut JitContext, ptr: *const u8, len: i64) -> *mut Value {
     let s = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len as usize)) };
-    let rc: Rc<str> = Rc::from(s);
+    let rc: Rc<String> = Rc::new(s.to_string());
     unsafe { ctx_ref(ctx) }.alloc(Value::String(rc))
 }
 
@@ -1466,7 +1466,7 @@ pub extern "C" fn rt_call_jit_function(
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_global(ctx: *mut JitContext, index: i64) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    let value = ctx.globals[index as usize].clone();
+    let value = ctx.global_get(index as usize);
     ctx.alloc(value)
 }
 
@@ -1474,7 +1474,7 @@ pub extern "C" fn rt_get_global(ctx: *mut JitContext, index: i64) -> *mut Value 
 pub extern "C" fn rt_set_global(ctx: *mut JitContext, index: i64, value: *mut Value) {
     let ctx = unsafe { ctx_ref(ctx) };
     let value = unsafe { (*value).clone() };
-    ctx.globals[index as usize] = value;
+    ctx.global_set(index as usize, value);
 }
 
 #[unsafe(no_mangle)]
@@ -2058,11 +2058,11 @@ pub extern "C" fn rt_make_adt(
     let ctx = unsafe { ctx_ref(ctx) };
     maybe_collect_gc(ctx);
     // ABI contract: constructor bytes are emitted by the compiler/JIT and must be valid UTF-8.
-    let constructor: Rc<str> = {
+    let constructor: Rc<String> = {
         let s = unsafe {
             from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
         };
-        Rc::from(s)
+        Rc::new(s.to_string())
     };
 
     // Fields arrive as raw `*mut Value` pointers; clone into owned runtime values.
@@ -2111,11 +2111,11 @@ pub extern "C" fn rt_make_adt1(
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     maybe_collect_gc(ctx);
-    let constructor: Rc<str> = {
+    let constructor: Rc<String> = {
         let s = unsafe {
             from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
         };
-        Rc::from(s)
+        Rc::new(s.to_string())
     };
     let v0 = unsafe { (*f0).clone() };
     let handle = ctx.gc_heap.alloc(HeapObject::Adt {
@@ -2136,11 +2136,11 @@ pub extern "C" fn rt_make_adt2(
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     maybe_collect_gc(ctx);
-    let constructor: Rc<str> = {
+    let constructor: Rc<String> = {
         let s = unsafe {
             from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
         };
-        Rc::from(s)
+        Rc::new(s.to_string())
     };
     let v0 = unsafe { (*f0).clone() };
     let v1 = unsafe { (*f1).clone() };
@@ -2163,11 +2163,11 @@ pub extern "C" fn rt_make_adt3(
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     maybe_collect_gc(ctx);
-    let constructor: Rc<str> = {
+    let constructor: Rc<String> = {
         let s = unsafe {
             from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
         };
-        Rc::from(s)
+        Rc::new(s.to_string())
     };
     let v0 = unsafe { (*f0).clone() };
     let v1 = unsafe { (*f1).clone() };
@@ -2192,11 +2192,11 @@ pub extern "C" fn rt_make_adt4(
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     maybe_collect_gc(ctx);
-    let constructor: Rc<str> = {
+    let constructor: Rc<String> = {
         let s = unsafe {
             from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
         };
-        Rc::from(s)
+        Rc::new(s.to_string())
     };
     let v0 = unsafe { (*f0).clone() };
     let v1 = unsafe { (*f1).clone() };
@@ -2224,11 +2224,11 @@ pub extern "C" fn rt_make_adt5(
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     maybe_collect_gc(ctx);
-    let constructor: Rc<str> = {
+    let constructor: Rc<String> = {
         let s = unsafe {
             from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
         };
-        Rc::from(s)
+        Rc::new(s.to_string())
     };
     let v0 = unsafe { (*f0).clone() };
     let v1 = unsafe { (*f1).clone() };

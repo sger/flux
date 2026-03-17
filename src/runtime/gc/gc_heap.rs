@@ -430,6 +430,103 @@ impl GcHeap {
         }
     }
 
+    // ── NanBox-aware tracing ──────────────────────────────────────────────────
+
+    /// Trace a single [`NanBox`] slot for GC roots.
+    ///
+    /// Immediate types (Integer, Boolean, None, Uninit, EmptyList, BaseFunction)
+    /// are skipped without allocation. GcHandle/GcAdt slots mark the handle
+    /// directly. BoxedValue slots decode to a [`Value`] and delegate to
+    /// [`mark_value`].
+    fn mark_nanbox(&mut self, nb: &crate::runtime::nanbox::NanBox) {
+        use crate::runtime::nanbox::NanTag;
+
+        if nb.is_float() {
+            // Raw f64 — no heap references.
+            return;
+        }
+        match nb.tag() {
+            // Immediate types: no heap references, nothing to mark.
+            NanTag::Integer
+            | NanTag::Boolean
+            | NanTag::None
+            | NanTag::Uninit
+            | NanTag::EmptyList
+            | NanTag::BaseFunction => {}
+            // Direct GC handles: mark without decoding to Value.
+            NanTag::GcHandle | NanTag::GcAdt => {
+                let handle = GcHandle(nb.as_gc_index());
+                let mut worklist = Vec::with_capacity(4);
+                self.mark_handle(handle, &mut worklist);
+                while let Some(item) = worklist.pop() {
+                    match item {
+                        WorkItem::Handle(h) => self.mark_handle(h, &mut worklist),
+                        WorkItem::Value(v) => self.mark_value(&v),
+                    }
+                }
+            }
+            // Heap-allocated Value behind an Rc: decode and trace normally.
+            NanTag::BoxedValue => {
+                let val = nb.clone().to_value();
+                self.mark_value(&val);
+            }
+        }
+    }
+
+    /// Trace a slice of [`NanBox`] slots for GC roots.
+    fn mark_nanbox_slice(&mut self, slots: &[crate::runtime::nanbox::NanBox]) {
+        let mut i = 0;
+        let len = slots.len();
+        while i < len {
+            self.mark_nanbox(&slots[i]);
+            i += 1;
+        }
+    }
+
+    /// Stop-the-world collection with NanBox root sets (feature = "nan-boxing").
+    ///
+    /// Replaces the [`collect`] shim that converted slots to `Vec<Value>`.
+    /// Immediate NanBox tags are skipped without any allocation; only
+    /// GcHandle, GcAdt, and BoxedValue tags trigger tracing.
+    #[allow(clippy::too_many_arguments)]
+    pub fn collect_nanboxed(
+        &mut self,
+        stack: &[crate::runtime::nanbox::NanBox],
+        sp: usize,
+        globals: &[crate::runtime::nanbox::NanBox],
+        constants: &[crate::runtime::nanbox::NanBox],
+        last_popped: &crate::runtime::nanbox::NanBox,
+        frames: &[Frame],
+        frame_index: usize,
+    ) {
+        let frame_roots = if !frames.is_empty() {
+            frame_index.min(frames.len() - 1) + 1
+        } else {
+            0
+        };
+        #[allow(unused_variables)]
+        let roots_count = sp + globals.len() + constants.len() + 1 + frame_roots;
+
+        #[cfg(feature = "gc-telemetry")]
+        self.begin_cycle(roots_count);
+
+        self.mark_nanbox_slice(&stack[..sp]);
+        self.mark_nanbox_slice(globals);
+        self.mark_nanbox_slice(constants);
+        self.mark_nanbox(last_popped);
+
+        if !frames.is_empty() {
+            let end = frame_index.min(frames.len() - 1);
+            let mut i = 0;
+            while i <= end {
+                self.mark_closure(&frames[i].closure);
+                i += 1;
+            }
+        }
+
+        self.finish_collection();
+    }
+
     fn sweep(&mut self) {
         let mut i = 0;
         let len = self.entries.len();
@@ -857,7 +954,7 @@ mod tests {
             tail: Value::None,
         });
         let adt = heap.alloc(HeapObject::Adt {
-            constructor: Rc::from("Node"),
+            constructor: Rc::new("Node".to_string()),
             fields: crate::runtime::value::AdtFields::from_vec(vec![
                 Value::Integer(1),
                 Value::Gc(list),

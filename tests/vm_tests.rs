@@ -835,9 +835,9 @@ fn test_base_map_with_base_callback() {
         run("map(#[1, 2, 3], to_string);"),
         Value::Array(
             vec![
-                Value::String("1".into()),
-                Value::String("2".into()),
-                Value::String("3".into()),
+                Value::String("1".to_string().into()),
+                Value::String("2".to_string().into()),
+                Value::String("3".to_string().into()),
             ]
             .into()
         )
@@ -880,7 +880,7 @@ fn test_base_fold_sum() {
 fn test_base_fold_string_concat() {
     assert_eq!(
         run(r#"fold(#["a", "b", "c"], "", fn(acc, x) { acc + x });"#),
-        Value::String("abc".into())
+        Value::String("abc".to_string().into())
     );
 }
 
@@ -1047,9 +1047,9 @@ fn test_map_type_of_homogeneous_array() {
         run(r#"map(#[1, 2, 3], type_of);"#),
         Value::Array(
             vec![
-                Value::String("Int".into()),
-                Value::String("Int".into()),
-                Value::String("Int".into()),
+                Value::String("Int".to_string().into()),
+                Value::String("Int".to_string().into()),
+                Value::String("Int".to_string().into()),
             ]
             .into()
         )
@@ -1090,7 +1090,7 @@ fn test_map_evaluation_order_with_side_effects() {
             fn(acc, x) { acc + to_string(x / 2) }
         );
     "#);
-    assert_eq!(result, Value::String("123".into()));
+    assert_eq!(result, Value::String("123".to_string().into()));
 }
 
 #[test]
@@ -1104,7 +1104,7 @@ fn test_filter_evaluation_order_stable() {
         );
     "#);
     // Should see all elements that passed (5, 3, 8) in order
-    assert_eq!(result, Value::String("538".into()));
+    assert_eq!(result, Value::String("538".to_string().into()));
 }
 
 #[test]
@@ -1115,7 +1115,7 @@ fn test_fold_evaluation_order_deterministic() {
             acc + to_string(x)
         });
     "#);
-    assert_eq!(result, Value::String("1234".into()));
+    assert_eq!(result, Value::String("1234".to_string().into()));
 }
 
 #[test]
@@ -1190,9 +1190,9 @@ fn test_filter_truthiness_empty_string_is_truthy() {
         run(r#"filter(#["", "a", "b"], fn(x) { x });"#),
         Value::Array(
             vec![
-                Value::String("".into()),
-                Value::String("a".into()),
-                Value::String("b".into()),
+                Value::String("".to_string().into()),
+                Value::String("a".to_string().into()),
+                Value::String("b".to_string().into()),
             ]
             .into()
         )
@@ -1352,10 +1352,16 @@ fn test_list_is_list() {
 fn test_tuple_literals_and_grouping() {
     assert_eq!(
         run("to_string((1, 2, 3));"),
-        Value::String("(1, 2, 3)".into())
+        Value::String("(1, 2, 3)".to_string().into())
     );
-    assert_eq!(run("to_string((42,));"), Value::String("(42,)".into()));
-    assert_eq!(run("to_string(());"), Value::String("()".into()));
+    assert_eq!(
+        run("to_string((42,));"),
+        Value::String("(42,)".to_string().into())
+    );
+    assert_eq!(
+        run("to_string(());"),
+        Value::String("()".to_string().into())
+    );
     assert_eq!(run("(1 + 2);"), Value::Integer(3));
 }
 
@@ -1364,7 +1370,7 @@ fn test_tuple_destructure_and_nested_destructure() {
     assert_eq!(run("let (a, b) = (1, 2); a + b;"), Value::Integer(3));
     assert_eq!(
         run(r#"let (x, y, z) = (1, "two", true); type_of(y);"#),
-        Value::String("String".into())
+        Value::String("String".to_string().into())
     );
     assert_eq!(
         run("let (a, (b, c)) = (1, (2, 3)); a + b + c;"),
@@ -1390,7 +1396,10 @@ fn test_tuple_match_and_base_functions() {
         Value::Integer(3)
     );
     assert_eq!(run("len((1, 2, 3));"), Value::Integer(3));
-    assert_eq!(run(r#"type_of((1, 2));"#), Value::String("Tuple".into()));
+    assert_eq!(
+        run(r#"type_of((1, 2));"#),
+        Value::String("Tuple".to_string().into())
+    );
     assert_eq!(run("(1, 2) == (1, 2);"), Value::Boolean(true));
 }
 

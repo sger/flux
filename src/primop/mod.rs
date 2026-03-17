@@ -875,11 +875,14 @@ mod tests {
         let result = execute_primop(
             &mut ctx,
             PrimOp::StringConcat,
-            vec![Value::String("Flux ".into()), Value::String("Lang".into())],
+            vec![
+                Value::String("Flux ".to_string().into()),
+                Value::String("Lang".to_string().into()),
+            ],
         )
         .expect("string_concat should succeed");
 
-        assert_eq!(result, Value::String("Flux Lang".into()));
+        assert_eq!(result, Value::String("Flux Lang".to_string().into()));
     }
 
     #[test]
@@ -889,14 +892,14 @@ mod tests {
             &mut ctx,
             PrimOp::StringSlice,
             vec![
-                Value::String("Hello World".into()),
+                Value::String("Hello World".to_string().into()),
                 Value::Integer(0),
                 Value::Integer(2),
             ],
         )
         .expect("string_slice should succeed");
 
-        assert_eq!(result, Value::String("He".into()))
+        assert_eq!(result, Value::String("He".to_string().into()))
     }
 
     #[test]
@@ -926,18 +929,21 @@ mod tests {
             &mut ctx,
             vec![(
                 HashKey::String("lang".to_string()),
-                Value::String("flux".into()),
+                Value::String("flux".to_string().into()),
             )],
         );
 
         let result = execute_primop(
             &mut ctx,
             PrimOp::MapGet,
-            vec![map, Value::String("lang".into())],
+            vec![map, Value::String("lang".to_string().into())],
         )
         .expect("map_get should succeed");
 
-        assert_eq!(result, Value::Some(Rc::new(Value::String("flux".into()))));
+        assert_eq!(
+            result,
+            Value::Some(Rc::new(Value::String("flux".to_string().into())))
+        );
     }
 
     #[test]
@@ -947,14 +953,14 @@ mod tests {
             &mut ctx,
             vec![(
                 HashKey::String("lang".to_string()),
-                Value::String("flux".into()),
+                Value::String("flux".to_string().into()),
             )],
         );
 
         let result = execute_primop(
             &mut ctx,
             PrimOp::MapGet,
-            vec![map, Value::String("missing".into())],
+            vec![map, Value::String("missing".to_string().into())],
         )
         .expect("map_get should succeed");
 
@@ -968,7 +974,7 @@ mod tests {
             &mut ctx,
             vec![(
                 HashKey::String("lang".to_string()),
-                Value::String("flux".into()),
+                Value::String("flux".to_string().into()),
             )],
         );
 
@@ -989,7 +995,7 @@ mod tests {
         let result = execute_primop(
             &mut ctx,
             PrimOp::Println,
-            vec![Value::String("Hello World".into())],
+            vec![Value::String("Hello World".to_string().into())],
         )
         .expect("should println");
 
@@ -1012,14 +1018,18 @@ mod tests {
         let updated = execute_primop(
             &mut ctx,
             PrimOp::MapSet,
-            vec![map, Value::String("answer".into()), Value::Integer(42)],
+            vec![
+                map,
+                Value::String("answer".to_string().into()),
+                Value::Integer(42),
+            ],
         )
         .expect("map_set should succeed");
 
         let fetched = execute_primop(
             &mut ctx,
             PrimOp::MapGet,
-            vec![updated, Value::String("answer".into())],
+            vec![updated, Value::String("answer".to_string().into())],
         )
         .expect("map_get should succeed");
 
@@ -1090,7 +1100,7 @@ mod tests {
     #[test]
     fn string_len_uses_utf8_byte_length_for_non_ascii() {
         let mut ctx = TestRuntimeContext::new();
-        let input = Value::String("é".into());
+        let input = Value::String("é".to_string().into());
 
         let string_len = execute_primop(&mut ctx, PrimOp::StringLen, vec![input.clone()])
             .expect("string_len should work");
@@ -1107,7 +1117,7 @@ mod tests {
         let fetched = execute_primop(
             &mut ctx,
             PrimOp::MapGet,
-            vec![map, Value::String("a".into())],
+            vec![map, Value::String("a".to_string().into())],
         )
         .expect("map_get works");
         assert_eq!(fetched, Value::Some(Rc::new(Value::Integer(1))));
@@ -1155,7 +1165,7 @@ mod tests {
         let fetched = execute_primop(
             &mut ctx,
             PrimOp::MapHas,
-            vec![map, Value::String("missing".into())],
+            vec![map, Value::String("missing".to_string().into())],
         )
         .expect("map_has works");
         assert_eq!(fetched, Value::Boolean(false));
