@@ -164,27 +164,15 @@ impl VM {
 
     fn collect_gc(&mut self) {
         #[cfg(feature = "nan-boxing")]
-        {
-            // Convert NanBox slices to Value slices for the GC (Phase 2 shim;
-            // Phase 3 will teach the GC to trace NanBox directly).
-            let stack_vals: Vec<Value> = self.stack[..self.sp]
-                .iter()
-                .map(slot::from_slot_ref)
-                .collect();
-            let globals_vals: Vec<Value> = self.globals.iter().map(slot::from_slot_ref).collect();
-            let constants_vals: Vec<Value> =
-                self.constants.iter().map(slot::from_slot_ref).collect();
-            let last_popped_val = slot::from_slot_ref(&self.last_popped);
-            self.gc_heap.collect(
-                &stack_vals,
-                self.sp,
-                &globals_vals,
-                &constants_vals,
-                &last_popped_val,
-                &self.frames,
-                self.frame_index,
-            );
-        }
+        self.gc_heap.collect_nanboxed(
+            &self.stack,
+            self.sp,
+            &self.globals,
+            &self.constants,
+            &self.last_popped,
+            &self.frames,
+            self.frame_index,
+        );
         #[cfg(not(feature = "nan-boxing"))]
         self.gc_heap.collect(
             &self.stack,
