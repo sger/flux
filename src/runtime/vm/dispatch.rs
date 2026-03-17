@@ -1251,6 +1251,38 @@ impl VM {
 
                 Ok(0)
             }
+
+            OpCode::OpPerformDirectIndexed => {
+                // Tail-resumptive perform with compile-time resolved handler.
+                // Skips handler stack search — uses encoded depth and arm index.
+                let handler_depth = Self::read_u8_fast(instructions, ip + 1);
+                let arm_index = Self::read_u8_fast(instructions, ip + 2);
+                let arity = Self::read_u8_fast(instructions, ip + 3);
+
+                let mut perform_args: Vec<Value> = Vec::with_capacity(arity);
+                for _ in 0..arity {
+                    perform_args.push(self.pop_untracked()?);
+                }
+                perform_args.reverse();
+
+                // Direct index into handler stack — no search.
+                let handler_idx = self.handler_stack.len() - 1 - handler_depth;
+                let arm_closure = self.handler_stack[handler_idx].arms[arm_index]
+                    .closure
+                    .clone();
+
+                // Same direct dispatch as OpPerformDirect: push arm closure,
+                // identity resume, then arguments.
+                self.push(Value::Closure(arm_closure))?;
+                let identity_fn = self.make_identity_closure();
+                self.push(identity_fn)?;
+                for arg in perform_args {
+                    self.push(arg)?;
+                }
+                self.execute_call(1 + arity)?;
+
+                Ok(0)
+            }
         }
     }
 }

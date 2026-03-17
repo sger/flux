@@ -3088,16 +3088,26 @@ impl Compiler {
             self.compile_non_tail_expression(arg)?;
         }
 
-        let effect_name = self.interner.resolve(effect).to_string().into_boxed_str();
-        let op_name = self.interner.resolve(op).to_string().into_boxed_str();
-        let desc = Value::PerformDescriptor(Rc::new(PerformDescriptor {
-            effect,
-            op,
-            effect_name,
-            op_name,
-        }));
-        let const_idx = self.add_constant(desc);
-        self.emit(OpCode::OpPerform, &[const_idx, args.len()]);
+        // Try static handler resolution: if the target handler is visible in
+        // the compile-time handler scope stack and is tail-resumptive, emit
+        // OpPerformDirectIndexed to skip the runtime handler search entirely.
+        if let Some((depth, arm_idx)) = self.resolve_handler_statically(effect, op) {
+            self.emit(
+                OpCode::OpPerformDirectIndexed,
+                &[depth, arm_idx, args.len()],
+            );
+        } else {
+            let effect_name = self.interner.resolve(effect).to_string().into_boxed_str();
+            let op_name = self.interner.resolve(op).to_string().into_boxed_str();
+            let desc = Value::PerformDescriptor(Rc::new(PerformDescriptor {
+                effect,
+                op,
+                effect_name,
+                op_name,
+            }));
+            let const_idx = self.add_constant(desc);
+            self.emit(OpCode::OpPerform, &[const_idx, args.len()]);
+        }
 
         Ok(())
     }
@@ -3278,6 +3288,9 @@ impl Compiler {
         // Detect tail-resumptive handlers and emit the optimized opcode.
         let is_direct =
             crate::bytecode::compiler::tail_resumptive::is_handler_tail_resumptive(arms);
+        // Save operations for handler scope before moving into descriptor.
+        let scope_ops = operations.clone();
+
         let desc = Value::HandlerDescriptor(Rc::new(HandlerDescriptor {
             effect,
             ops: operations,
@@ -3291,12 +3304,20 @@ impl Compiler {
         };
         self.emit(handle_op, &[desc_idx]);
 
+        // Push handler scope for static handler resolution (OpPerformDirectIndexed).
+        self.handler_scopes.push(super::HandlerScope {
+            effect,
+            is_direct,
+            ops: scope_ops,
+        });
+
         // Compile the handled expression with the effect available in scope.
         self.with_handled_effect(effect, |compiler| {
             compiler.compile_non_tail_expression(expr)
         })?;
 
-        // Remove the handler frame
+        // Pop handler scope and remove the handler frame.
+        self.handler_scopes.pop();
         self.emit(OpCode::OpEndHandle, &[]);
         Ok(())
     }
