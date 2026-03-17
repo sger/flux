@@ -248,6 +248,87 @@ fn test_mode_primops_fixture_passes_on_vm() {
 }
 
 #[test]
+fn dump_core_prints_core_ir_and_exits_before_execution() {
+    let file = example_path("basics/arithmetic.flx");
+    let output = run_flux(&["--dump-core", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected dump-core success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("def main ="),
+        "expected readable Core dump header, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("IAdd(1, 2)"),
+        "expected lowered typed primop in Core dump, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("%t1"),
+        "expected normalized temp names in readable dump, output:\n{}",
+        text
+    );
+    assert!(
+        !text.contains("#200000"),
+        "readable dump should not contain raw synthetic names, output:\n{}",
+        text
+    );
+    assert!(
+        !text.contains("print#?"),
+        "readable dump should hide external markers, output:\n{}",
+        text
+    );
+    assert!(
+        !text.contains("3\n"),
+        "dump-core should not execute the program, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn dump_core_debug_preserves_raw_identity_details() {
+    let file = example_path("basics/arithmetic.flx");
+    let output = run_flux(&["--dump-core=debug", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected dump-core debug success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("letrec main"),
+        "expected raw main thunk shape in debug dump, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("print#?[external]"),
+        "expected explicit external marker in debug dump, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("[synthetic]"),
+        "expected synthetic binder annotation in debug dump, output:\n{}",
+        text
+    );
+    assert!(
+        !text.contains("def main ="),
+        "debug dump should not normalize main thunk shape, output:\n{}",
+        text
+    );
+    assert!(
+        !text.contains("3\n"),
+        "dump-core debug should not execute the program, output:\n{}",
+        text
+    );
+}
+
+#[test]
 fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
     let file = example_path("type_system/failing/210_stage_all_errors_flag.flx");
 
