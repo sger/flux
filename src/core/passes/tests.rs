@@ -585,3 +585,125 @@ fn case_of_case_preserves_inner_guards() {
         other => panic!("expected Case, got {other:?}"),
     }
 }
+
+// ── inline_lets (occurrence-based inliner) ────────────────────────────────
+
+#[test]
+fn inliner_eliminates_dead_binding() {
+    // let x = 5; 42  →  42  (x is unused)
+    let mut interner = Interner::new();
+    let x = interner.intern("x");
+    let x_binder = binder(0, x);
+
+    let expr = CoreExpr::Let {
+        var: x_binder,
+        rhs: Box::new(CoreExpr::Lit(CoreLit::Int(5), s())),
+        body: Box::new(CoreExpr::Lit(CoreLit::Int(42), s())),
+        span: s(),
+    };
+
+    let result = inline_lets(expr);
+    assert!(
+        matches!(result, CoreExpr::Lit(CoreLit::Int(42), _)),
+        "dead binding should be eliminated, got {result:?}"
+    );
+}
+
+#[test]
+fn inliner_inlines_single_use() {
+    // let x = PrimOp(IAdd, [1, 2]); PrimOp(IMul, [x, 3])
+    //   → PrimOp(IMul, [PrimOp(IAdd, [1, 2]), 3])
+    let mut interner = Interner::new();
+    let x = interner.intern("x");
+    let x_binder = binder(0, x);
+
+    let rhs = CoreExpr::PrimOp {
+        op: CorePrimOp::IAdd,
+        args: vec![
+            CoreExpr::Lit(CoreLit::Int(1), s()),
+            CoreExpr::Lit(CoreLit::Int(2), s()),
+        ],
+        span: s(),
+    };
+    let body = CoreExpr::PrimOp {
+        op: CorePrimOp::IMul,
+        args: vec![var_ref(x_binder), CoreExpr::Lit(CoreLit::Int(3), s())],
+        span: s(),
+    };
+    let expr = CoreExpr::Let {
+        var: x_binder,
+        rhs: Box::new(rhs),
+        body: Box::new(body),
+        span: s(),
+    };
+
+    let result = inline_lets(expr);
+    // Should be a PrimOp(IMul, ...) not a Let.
+    assert!(
+        matches!(
+            result,
+            CoreExpr::PrimOp {
+                op: CorePrimOp::IMul,
+                ..
+            }
+        ),
+        "single-use binding should be inlined, got {result:?}"
+    );
+}
+
+#[test]
+fn inliner_inlines_small_multi_use() {
+    // let x = 3; PrimOp(IAdd, [x, x])  →  PrimOp(IAdd, [3, 3])
+    let mut interner = Interner::new();
+    let x = interner.intern("x");
+    let x_binder = binder(0, x);
+
+    let expr = CoreExpr::Let {
+        var: x_binder,
+        rhs: Box::new(CoreExpr::Lit(CoreLit::Int(3), s())),
+        body: Box::new(CoreExpr::PrimOp {
+            op: CorePrimOp::IAdd,
+            args: vec![var_ref(x_binder), var_ref(x_binder)],
+            span: s(),
+        }),
+        span: s(),
+    };
+
+    let result = inline_lets(expr);
+    match result {
+        CoreExpr::PrimOp { args, .. } => {
+            assert!(matches!(args[0], CoreExpr::Lit(CoreLit::Int(3), _)));
+            assert!(matches!(args[1], CoreExpr::Lit(CoreLit::Int(3), _)));
+        }
+        other => panic!("expected PrimOp, got {other:?}"),
+    }
+}
+
+#[test]
+fn inliner_preserves_letrec() {
+    // letrec f = Lam(...); f(1)  — recursive bindings must NOT be inlined.
+    let mut interner = Interner::new();
+    let f = interner.intern("f");
+    let f_binder = binder(0, f);
+
+    let expr = CoreExpr::LetRec {
+        var: f_binder,
+        rhs: Box::new(CoreExpr::Lam {
+            params: vec![binder(1, interner.intern("n"))],
+            body: Box::new(CoreExpr::Lit(CoreLit::Int(0), s())),
+            span: s(),
+        }),
+        body: Box::new(CoreExpr::App {
+            func: Box::new(var_ref(f_binder)),
+            args: vec![CoreExpr::Lit(CoreLit::Int(1), s())],
+            span: s(),
+        }),
+        span: s(),
+    };
+
+    let result = inline_lets(expr);
+    assert!(
+        matches!(result, CoreExpr::LetRec { .. }),
+        "letrec must be preserved, got {result:?}"
+    );
+}
