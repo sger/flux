@@ -5,7 +5,7 @@ use crate::{
         BlockId, FunctionId, IrBlock, IrCallTarget, IrExpr, IrFunction, IrFunctionOrigin, IrInstr,
         IrMetadata, IrParam, IrTerminator, IrType, IrVar,
     },
-    core::{CoreBinderId, CoreExpr, CoreTag},
+    core::{CoreBinderId, CoreExpr, CoreTag, CoreType},
     diagnostics::position::Span,
     syntax::{Identifier, effect_expr::EffectExpr, type_expr::TypeExpr},
 };
@@ -29,6 +29,8 @@ pub(super) struct FnCtx<'a> {
     pub(super) env: HashMap<CoreBinderId, IrVar>,
     pub(super) binder_names: HashMap<CoreBinderId, Identifier>,
     pub(super) last_value: Option<IrVar>,
+    pub(super) inferred_param_types: Vec<Option<CoreType>>,
+    pub(super) inferred_return_type: Option<CoreType>,
 }
 
 impl<'a> FnCtx<'a> {
@@ -60,6 +62,8 @@ impl<'a> FnCtx<'a> {
             env: HashMap::new(),
             binder_names: HashMap::new(),
             last_value: None,
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         }
     }
 
@@ -152,6 +156,8 @@ impl<'a> FnCtx<'a> {
             entry,
             origin: s.origin,
             metadata: IrMetadata::empty(),
+            inferred_param_types: s.inferred_param_types,
+            inferred_return_type: s.inferred_return_type,
         });
     }
 

@@ -4244,6 +4244,8 @@ mod tests {
                 entry: entry_block,
                 origin: IrFunctionOrigin::NamedFunction,
                 metadata: IrMetadata::empty(),
+                inferred_param_types: Vec::new(),
+                inferred_return_type: None,
             }],
             top_level_items: vec![IrTopLevelItem::Function {
                 is_public: false,
@@ -4312,6 +4314,8 @@ mod tests {
                 entry: entry_block,
                 origin: IrFunctionOrigin::NamedFunction,
                 metadata: IrMetadata::empty(),
+                inferred_param_types: Vec::new(),
+                inferred_return_type: None,
             }],
             top_level_items: vec![
                 IrTopLevelItem::Module {
@@ -4415,6 +4419,8 @@ mod tests {
             entry: BlockId(0),
             origin: IrFunctionOrigin::NamedFunction,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let entry = IrFunction {
             id: entry_id,
@@ -4440,6 +4446,8 @@ mod tests {
             entry: BlockId(1),
             origin: IrFunctionOrigin::ModuleTopLevel,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let ir_program = IrProgram {
             top_level_items: Vec::new(),
@@ -4492,6 +4500,8 @@ mod tests {
             entry: BlockId(0),
             origin: IrFunctionOrigin::NamedFunction,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let entry = IrFunction {
             id: entry_id,
@@ -4524,6 +4534,8 @@ mod tests {
             entry: BlockId(1),
             origin: IrFunctionOrigin::ModuleTopLevel,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let ir_program = IrProgram {
             top_level_items: Vec::new(),
@@ -4578,6 +4590,8 @@ mod tests {
             entry: BlockId(0),
             origin: IrFunctionOrigin::NamedFunction,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let entry = IrFunction {
             id: entry_id,
@@ -4619,6 +4633,8 @@ mod tests {
             entry: BlockId(1),
             origin: IrFunctionOrigin::ModuleTopLevel,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let ir_program = IrProgram {
             top_level_items: vec![IrTopLevelItem::Module {
@@ -4699,6 +4715,8 @@ mod tests {
             entry: BlockId(0),
             origin: IrFunctionOrigin::NamedFunction,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let ir_program = IrProgram {
             top_level_items: Vec::new(),
@@ -4759,6 +4777,8 @@ mod tests {
             entry: BlockId(0),
             origin: IrFunctionOrigin::NamedFunction,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let ir_program = IrProgram {
             top_level_items: Vec::new(),
@@ -4836,6 +4856,8 @@ mod tests {
             entry: BlockId(0),
             origin: IrFunctionOrigin::NamedFunction,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let ir_program = IrProgram {
             top_level_items: Vec::new(),
@@ -4890,6 +4912,8 @@ mod tests {
             entry: BlockId(0),
             origin: IrFunctionOrigin::FunctionLiteral,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let main_fn = IrFunction {
             id: main_id,
@@ -4927,6 +4951,8 @@ mod tests {
             entry: BlockId(1),
             origin: IrFunctionOrigin::NamedFunction,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let ir_program = IrProgram {
             top_level_items: Vec::new(),
@@ -4986,6 +5012,8 @@ mod tests {
             entry: BlockId(0),
             origin: IrFunctionOrigin::ModuleTopLevel,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let main = IrFunction {
             id: main_id,
@@ -5010,6 +5038,8 @@ mod tests {
             entry: BlockId(1),
             origin: IrFunctionOrigin::NamedFunction,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let ir_program = IrProgram {
             top_level_items: Vec::new(),
@@ -5072,6 +5102,8 @@ mod tests {
             entry: BlockId(0),
             origin: IrFunctionOrigin::FunctionLiteral,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let entry = IrFunction {
             id: entry_id,
@@ -5132,6 +5164,8 @@ mod tests {
             entry: BlockId(1),
             origin: IrFunctionOrigin::ModuleTopLevel,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let main = IrFunction {
             id: main_id,
@@ -5156,6 +5190,8 @@ mod tests {
             entry: BlockId(4),
             origin: IrFunctionOrigin::NamedFunction,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let ir_program = IrProgram {
             top_level_items: Vec::new(),
@@ -5220,6 +5256,8 @@ mod tests {
             entry: BlockId(0),
             origin: IrFunctionOrigin::FunctionLiteral,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let entry = IrFunction {
             id: entry_id,
@@ -5287,6 +5325,8 @@ mod tests {
             entry: BlockId(1),
             origin: IrFunctionOrigin::ModuleTopLevel,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let main = IrFunction {
             id: main_id,
@@ -5311,6 +5351,8 @@ mod tests {
             entry: BlockId(4),
             origin: IrFunctionOrigin::NamedFunction,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let ir_program = IrProgram {
             top_level_items: Vec::new(),
@@ -5369,6 +5411,8 @@ mod tests {
             entry: BlockId(0),
             origin: IrFunctionOrigin::NamedFunction,
             metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
         };
         let ir_program = IrProgram {
             top_level_items: Vec::new(),

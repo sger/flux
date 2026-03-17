@@ -62,6 +62,8 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 env: HashMap::new(),
                 binder_names: HashMap::new(),
                 last_value: None,
+                inferred_param_types: Vec::new(),
+                inferred_return_type: None,
             };
 
             // Captures first (matching VM convention for closures).
@@ -161,6 +163,8 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 env: HashMap::new(),
                 binder_names: HashMap::new(),
                 last_value: None,
+                inferred_param_types: Vec::new(),
+                inferred_return_type: None,
             };
 
             // Captures are the first params (matching how the VM expects them).
