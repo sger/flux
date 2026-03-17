@@ -2,6 +2,7 @@ use crate::runtime::{
     RuntimeContext, base::list_ops::format_value, function_contract::FunctionContract, gc::GcHeap,
     value::Value,
 };
+use crate::runtime::nanbox::NanBox;
 use crate::{
     diagnostics::position::{Position, Span},
     diagnostics::{
@@ -138,8 +139,8 @@ pub struct JitHandlerFrame {
 /// runtime helpers.
 pub struct JitContext {
     pub arena: ValueArena,
-    pub globals: Vec<Value>,
-    pub constants: Vec<Value>,
+    pub globals: Vec<NanBox>,
+    pub constants: Vec<NanBox>,
     pub gc_heap: GcHeap,
     pub jit_functions: Vec<JitFunctionEntry>,
     pub named_functions: HashMap<String, usize>,
@@ -374,7 +375,7 @@ impl JitContext {
     pub fn new() -> Self {
         Self {
             arena: ValueArena::new(),
-            globals: vec![Value::None; 65536],
+            globals: vec![NanBox::from_none(); 65536],
             constants: Vec::new(),
             gc_heap: GcHeap::new(),
             jit_functions: Vec::new(),
@@ -450,6 +451,16 @@ impl JitContext {
         }
     }
 
+    /// Read a global slot by index, returning a decoded `Value`.
+    pub fn global_get(&self, idx: usize) -> Value {
+        self.globals[idx].clone().to_value()
+    }
+
+    /// Write a `Value` into a global slot, encoding it as needed.
+    pub fn global_set(&mut self, idx: usize, value: Value) {
+        self.globals[idx] = NanBox::from_value(value);
+    }
+
     pub fn set_jit_functions(&mut self, functions: Vec<JitFunctionEntry>) {
         self.jit_functions = functions;
     }
@@ -488,8 +499,8 @@ impl JitContext {
                 roots.push(value.clone());
             }
         }
-        roots.extend(self.globals.iter().cloned());
-        roots.extend(self.constants.iter().cloned());
+        roots.extend(self.globals.iter().map(|s| s.clone().to_value()));
+        roots.extend(self.constants.iter().map(|s| s.clone().to_value()));
         for frame in &self.handler_stack {
             for arm in &frame.arms {
                 roots.push(arm.closure.clone());

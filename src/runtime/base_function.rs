@@ -91,7 +91,6 @@ impl BaseFunction {
     /// Keeping the bridge here means the call site in `function_call.rs` is always
     /// allocation-free for the arg-collection step (raw slots, no decode), while the
     /// per-function decode is deferred until the function actually needs the value.
-    #[cfg(feature = "nan-boxing")]
     pub fn call_owned_nanboxed(
         &self,
         ctx: &mut dyn RuntimeContext,

@@ -438,7 +438,6 @@ impl GcHeap {
     /// are skipped without allocation. GcHandle/GcAdt slots mark the handle
     /// directly. BoxedValue slots decode to a [`Value`] and delegate to
     /// [`mark_value`].
-    #[cfg(feature = "nan-boxing")]
     fn mark_nanbox(&mut self, nb: &crate::runtime::nanbox::NanBox) {
         use crate::runtime::nanbox::NanTag;
 
@@ -475,7 +474,6 @@ impl GcHeap {
     }
 
     /// Trace a slice of [`NanBox`] slots for GC roots.
-    #[cfg(feature = "nan-boxing")]
     fn mark_nanbox_slice(&mut self, slots: &[crate::runtime::nanbox::NanBox]) {
         let mut i = 0;
         let len = slots.len();
@@ -490,7 +488,6 @@ impl GcHeap {
     /// Replaces the [`collect`] shim that converted slots to `Vec<Value>`.
     /// Immediate NanBox tags are skipped without any allocation; only
     /// GcHandle, GcAdt, and BoxedValue tags trigger tracing.
-    #[cfg(feature = "nan-boxing")]
     #[allow(clippy::too_many_arguments)]
     pub fn collect_nanboxed(
         &mut self,
