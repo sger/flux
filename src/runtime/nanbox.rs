@@ -490,7 +490,10 @@ mod inner {
 
         #[test]
         fn float_roundtrip() {
-            assert_eq!(roundtrip(Value::Float(std::f64::consts::PI)), Value::Float(std::f64::consts::PI));
+            assert_eq!(
+                roundtrip(Value::Float(std::f64::consts::PI)),
+                Value::Float(std::f64::consts::PI)
+            );
             assert_eq!(roundtrip(Value::Float(0.0)), Value::Float(0.0));
             assert_eq!(roundtrip(Value::Float(-1.5)), Value::Float(-1.5));
             // NaN round-trips as NaN (PartialEq returns false for NaN, so check bits)
