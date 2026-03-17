@@ -232,9 +232,8 @@ impl VM {
             self.reset_sp(callee_idx.unwrap_or(args_start))?;
             let result = base_fn.call_owned(self, args)?;
             self.push(result)?;
+            Ok(())
         }
-
-        Ok(())
     }
 
     fn call_closure(&mut self, closure: Rc<Closure>, num_args: usize) -> Result<(), String> {
