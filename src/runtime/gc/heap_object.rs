@@ -13,7 +13,7 @@ pub enum HeapObject {
     Cons { head: Value, tail: Value },
     /// GC-backed ADT payload used by VM and JIT non-nullary constructors.
     Adt {
-        constructor: Rc<str>,
+        constructor: Rc<String>,
         fields: AdtFields,
     },
     /// Internal node of a Hash Array Mapped Trie (HAMT).
