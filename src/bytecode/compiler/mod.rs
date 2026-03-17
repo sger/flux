@@ -93,6 +93,16 @@ struct MainValidationState {
     is_valid_signature: bool,
 }
 
+/// Compile-time handler scope entry for static handler resolution.
+///
+/// Tracks an active `handle` block's effect, operations, and whether it's
+/// tail-resumptive, enabling `OpPerformDirectIndexed` emission.
+pub(super) struct HandlerScope {
+    pub effect: Symbol,
+    pub is_direct: bool,
+    pub ops: Vec<Symbol>,
+}
+
 pub struct Compiler {
     constants: Vec<Value>,
     pub symbol_table: SymbolTable,
@@ -121,6 +131,9 @@ pub struct Compiler {
     pub(super) function_param_effect_rows: Vec<HashMap<Symbol, effect_rows::EffectRow>>,
     // Effects currently handled by enclosing `handle ...` scopes.
     pub(super) handled_effects: Vec<Symbol>,
+    // Compile-time handler scope stack for static handler resolution.
+    // Tracks active handle blocks and their operations for OpPerformDirectIndexed.
+    pub(super) handler_scopes: Vec<HandlerScope>,
     // For each active function scope track local indexes captured by nested closures.
     pub(super) captured_local_indices: Vec<HashSet<usize>>,
     // Program-level free-variable analysis result for the latest compile pass.
@@ -192,6 +205,7 @@ impl Compiler {
             function_effects: Vec::new(),
             function_param_effect_rows: Vec::new(),
             handled_effects: Vec::new(),
+            handler_scopes: Vec::new(),
             captured_local_indices: Vec::new(),
             free_vars: HashSet::new(),
             tail_calls: Vec::new(),
@@ -2780,6 +2794,36 @@ impl Compiler {
         let result = f(self);
         self.handled_effects.pop();
         result
+    }
+
+    /// Try to resolve a perform target at compile time.
+    ///
+    /// Searches the handler scope stack (innermost first) for a tail-resumptive
+    /// handler matching the given effect and operation. Returns
+    /// `Some((depth, arm_index))` if found, where depth is the distance from
+    /// the top of the runtime handler stack (0 = innermost).
+    pub(super) fn resolve_handler_statically(
+        &self,
+        effect: Symbol,
+        op: Symbol,
+    ) -> Option<(usize, usize)> {
+        // Search from innermost handler outward.
+        for (i, scope) in self.handler_scopes.iter().rev().enumerate() {
+            if scope.effect == effect {
+                if !scope.is_direct {
+                    // Found the handler but it's not tail-resumptive —
+                    // can't use indexed direct dispatch.
+                    return None;
+                }
+                if let Some(arm_idx) = scope.ops.iter().position(|&o| o == op) {
+                    return Some((i, arm_idx));
+                }
+                // Effect matches but operation not found — shouldn't happen
+                // (validated earlier), fall through to runtime dispatch.
+                return None;
+            }
+        }
+        None
     }
 
     pub(super) fn is_effect_available(&self, required: Symbol) -> bool {
