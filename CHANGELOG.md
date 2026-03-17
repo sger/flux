@@ -140,6 +140,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - update examples and docs
 - fix unit tests
 - improve effect-row inference for function arguments and HM integration
+- improve runtime error boundary for vm and jit
+- rename nary→core, replace ir/ with backend_ir facade, restructure IR pipeline
+- fix examples for vm and jit output
+- Fix JIT runtime error rendering for arithmetic ops to match VM diagnostics
 
 ### Fixed
 - Hardened strict type/effect diagnostics for unresolved `perform` argument paths (locked with new failing fixture `192_perform_arg_unresolved_strict_e425.flx`).
@@ -154,6 +158,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - wire Base HM signatures into registry entries
 - clarify row variable allocator naming
 - rename row-var fresh counter for clarity
+- accept untyped closures for function-typed parameters
+- local variables shadow base functions in call resolution
+- unify call ABI, fix 5 parity gaps, add effect handler tests
+- close 16 JIT coverage gaps and add automated VM/JIT parity test
 
 ### Docs
 - Added `changes/README.md` and `changes/_template.md` for contributor guidance.
