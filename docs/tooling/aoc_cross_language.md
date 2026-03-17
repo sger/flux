@@ -25,13 +25,13 @@ Expected output for all three: `10426 10426`.
 3. Run cross-language comparison:
 
 ```bash
-scripts/bench.sh cfold --runs 30 --warmup 5
+scripts/bench/bench.sh cfold --runs 30 --warmup 5
 ```
 
 4. Generate VM flamegraph on the benchmark workload:
 
 ```bash
-scripts/bench_benchmark_flamewatch.sh cfold --skip-build
+scripts/bench/bench_benchmark_flamewatch.sh cfold --skip-build
 ```
 
 This writes `flamegraph.svg` at the project root and prints the top hot paths.
@@ -59,7 +59,7 @@ Why this order:
 Use:
 
 ```bash
-scripts/bench.sh --help
+scripts/bench/bench.sh --help
 ```
 
 ## Recommended Setup
@@ -73,13 +73,13 @@ scripts/bench.sh --help
 ### `cfold`
 
 ```bash
-scripts/bench.sh cfold --runs 30 --warmup 3
+scripts/bench/bench.sh cfold --runs 30 --warmup 3
 ```
 
 ### `binarytrees`
 
 ```bash
-scripts/bench.sh binarytrees --runs 30 --warmup 3
+scripts/bench/bench.sh binarytrees --runs 30 --warmup 3
 ```
 
 ## Optional: Compile + Run vs Run-only

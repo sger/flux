@@ -1,6 +1,8 @@
-use crate::runtime::{RuntimeContext, gc::HeapObject, value::Value};
+use std::rc::Rc;
 
-use super::helpers::check_arity_ref;
+use crate::runtime::{RuntimeContext, gc, gc::HeapObject, value::Value};
+
+use super::helpers::{check_arity_range_ref, check_arity_ref};
 
 /// Structural equality that handles GC cons-list comparison by value rather
 /// than by heap identity. Falls back to `PartialEq` for all other types.
@@ -44,7 +46,10 @@ fn values_equal(ctx: &dyn RuntimeContext, a: &Value, b: &Value) -> bool {
                     HeapObject::Cons { head: h1, tail: t1 },
                     HeapObject::Cons { head: h2, tail: t2 },
                 ) => values_equal(ctx, &h1, &h2) && values_equal(ctx, &t1, &t2),
-                // For HAMT maps fall back to identity comparison.
+                (
+                    HeapObject::HamtNode { .. } | HeapObject::HamtCollision { .. },
+                    HeapObject::HamtNode { .. } | HeapObject::HamtCollision { .. },
+                ) => gc::hamt::hamt_equal(ctx.gc_heap(), *ha, *hb),
                 _ => false,
             }
         }
@@ -170,21 +175,26 @@ pub(super) fn base_assert_throws_borrowed(
     ctx: &mut dyn RuntimeContext,
     args: &[&Value],
 ) -> Result<Value, String> {
-    check_arity_ref(
+    check_arity_range_ref(
         args,
+        1,
         2,
         "assert_throws",
-        "assert_throws(fn, expected_message)",
+        "assert_throws(fn) or assert_throws(fn, expected_message)",
     )?;
 
-    let expected = match args[1] {
-        Value::String(s) => s.to_string(),
-        other => {
-            return Err(format!(
-                "assert_throws expected String as second argument, got {}",
-                other.type_name()
-            ));
+    let expected_msg: Option<String> = if args.len() == 2 {
+        match args[1] {
+            Value::String(s) => Some(s.to_string()),
+            other => {
+                return Err(format!(
+                    "assert_throws expected String as second argument, got {}",
+                    other.type_name()
+                ));
+            }
         }
+    } else {
+        None
     };
 
     match args[0] {
@@ -199,15 +209,221 @@ pub(super) fn base_assert_throws_borrowed(
 
     match ctx.invoke_value(args[0].clone(), vec![]) {
         Ok(_) => Err("assert_throws failed: function completed without error".to_string()),
-        Err(msg) => {
-            if msg.contains(&expected) {
-                Ok(Value::None)
-            } else {
-                Err(format!(
-                    "assert_throws failed\n  expected error containing: {}\n  actual error: {}",
-                    expected, msg
-                ))
-            }
+        Err(msg) => match &expected_msg {
+            Some(expected) if msg.contains(expected.as_str()) => Ok(Value::None),
+            Some(expected) => Err(format!(
+                "assert_throws failed\n  expected error containing: {}\n  actual error: {}",
+                expected, msg
+            )),
+            None => Ok(Value::None),
+        },
+    }
+}
+
+pub(super) fn base_assert_msg(
+    _ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_assert_msg_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_assert_msg_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 2, "assert_msg", "assert_msg(condition, message)")?;
+    match args[0] {
+        Value::Boolean(true) => Ok(Value::None),
+        Value::Boolean(false) => match args[1] {
+            Value::String(s) => Err(format!("assertion failed: {}", s)),
+            other => Err(format!("assertion failed: {}", other)),
+        },
+        other => Err(format!(
+            "assert_msg expected Boolean as first argument, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Comparison assertions
+// ---------------------------------------------------------------------------
+
+fn value_as_f64(v: &Value) -> Option<f64> {
+    match v {
+        Value::Integer(i) => Some(*i as f64),
+        Value::Float(f) => Some(*f),
+        _ => None,
+    }
+}
+
+fn comparison_assert(
+    ctx: &dyn RuntimeContext,
+    args: &[&Value],
+    name: &str,
+    op_symbol: &str,
+    cmp: fn(f64, f64) -> bool,
+) -> Result<Value, String> {
+    check_arity_ref(args, 2, name, &format!("{name}(a, b)"))?;
+    let a = value_as_f64(args[0]).ok_or_else(|| {
+        format!(
+            "{} expected numeric first argument, got {}",
+            name,
+            args[0].type_name()
+        )
+    })?;
+    let b = value_as_f64(args[1]).ok_or_else(|| {
+        format!(
+            "{} expected numeric second argument, got {}",
+            name,
+            args[1].type_name()
+        )
+    })?;
+    if cmp(a, b) {
+        Ok(Value::None)
+    } else {
+        Err(format!(
+            "{} failed: expected {} {} {}",
+            name,
+            display_value(ctx, args[0]),
+            op_symbol,
+            display_value(ctx, args[1])
+        ))
+    }
+}
+
+pub(super) fn base_assert_gt(
+    ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_assert_gt_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_assert_gt_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    comparison_assert(ctx, args, "assert_gt", ">", |a, b| a > b)
+}
+
+pub(super) fn base_assert_lt(
+    ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_assert_lt_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_assert_lt_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    comparison_assert(ctx, args, "assert_lt", "<", |a, b| a < b)
+}
+
+pub(super) fn base_assert_gte(
+    ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_assert_gte_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_assert_gte_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    comparison_assert(ctx, args, "assert_gte", ">=", |a, b| a >= b)
+}
+
+pub(super) fn base_assert_lte(
+    ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_assert_lte_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_assert_lte_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    comparison_assert(ctx, args, "assert_lte", "<=", |a, b| a <= b)
+}
+
+// ---------------------------------------------------------------------------
+// Length assertion
+// ---------------------------------------------------------------------------
+
+pub(super) fn base_assert_len(
+    ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_assert_len_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_assert_len_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(
+        args,
+        2,
+        "assert_len",
+        "assert_len(collection, expected_length)",
+    )?;
+    let expected = match args[1] {
+        Value::Integer(n) => *n,
+        other => {
+            return Err(format!(
+                "assert_len expected Integer as second argument, got {}",
+                other.type_name()
+            ));
         }
+    };
+    let actual_val = super::collection_ops::base_len_borrowed(ctx, &[args[0]])?;
+    let actual = match actual_val {
+        Value::Integer(n) => n,
+        _ => return Err("assert_len: could not determine collection length".to_string()),
+    };
+    if actual == expected {
+        Ok(Value::None)
+    } else {
+        Err(format!(
+            "assert_len failed\n  expected length: {}\n  actual length:   {}",
+            expected, actual
+        ))
+    }
+}
+
+pub(super) fn base_try(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_try_borrowed(ctx, &borrowed)
+}
+
+pub(super) fn base_try_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "try", "try(fn)")?;
+    match args[0] {
+        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
+        other => {
+            return Err(format!(
+                "try expected callable as first argument, got {}",
+                other.type_name()
+            ));
+        }
+    }
+
+    match ctx.invoke_value(args[0].clone(), vec![]) {
+        Ok(val) => Ok(Value::Tuple(Rc::new(vec![Value::String("ok".into()), val]))),
+        Err(msg) => Ok(Value::Tuple(Rc::new(vec![
+            Value::String("error".into()),
+            Value::String(msg.into()),
+        ]))),
     }
 }

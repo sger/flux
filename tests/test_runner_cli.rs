@@ -248,6 +248,167 @@ fn test_mode_primops_fixture_passes_on_vm() {
 }
 
 #[test]
+fn test_mode_base_assertions_all_pass() {
+    let file = fixture_path("base_assertions.flx");
+    let output = run_flux(&["--test", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected all base assertion tests to pass, output:\n{}",
+        text
+    );
+
+    // Verify key test groups ran
+    assert!(
+        text.contains("PASS  test_assert_eq_integers"),
+        "expected assert_eq integer test, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_assert_eq_maps"),
+        "expected assert_eq map test (HAMT comparison), output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_assert_throws_one_arg"),
+        "expected 1-arg assert_throws, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_assert_throws_two_args"),
+        "expected 2-arg assert_throws, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_assert_msg_passes"),
+        "expected assert_msg test, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_assert_msg_custom_message"),
+        "expected assert_msg custom message test, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_try_ok"),
+        "expected try ok test, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_try_error"),
+        "expected try error test, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_try_does_not_propagate"),
+        "expected try isolation test, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_str_contains_found"),
+        "expected str_contains found test, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_assert_gt_passes"),
+        "expected assert_gt passes test, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_assert_lt_passes"),
+        "expected assert_lt passes test, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_assert_len_array"),
+        "expected assert_len array test, output:\n{}",
+        text
+    );
+
+    // Verify total count
+    assert!(
+        text.contains("37 tests: 37 passed, 0 failed"),
+        "expected 37 tests all passing, output:\n{}",
+        text
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Syntax test fixtures
+// ---------------------------------------------------------------------------
+
+fn run_syntax_fixture(name: &str, expected_count: u32) {
+    let file = fixture_path(name);
+    let output = run_flux(&["--test", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected all tests to pass in {}, output:\n{}",
+        name,
+        text
+    );
+
+    let summary = format!(
+        "{} tests: {} passed, 0 failed",
+        expected_count, expected_count
+    );
+    assert!(
+        text.contains(&summary),
+        "expected '{}' in {}, output:\n{}",
+        summary,
+        name,
+        text
+    );
+}
+
+#[test]
+fn test_syntax_let_and_operators() {
+    run_syntax_fixture("syntax_let_and_operators.flx", 24);
+}
+
+#[test]
+fn test_syntax_functions_and_lambdas() {
+    run_syntax_fixture("syntax_functions_and_lambdas.flx", 16);
+}
+
+#[test]
+fn test_syntax_control_flow() {
+    run_syntax_fixture("syntax_control_flow.flx", 17);
+}
+
+#[test]
+fn test_syntax_collections() {
+    run_syntax_fixture("syntax_collections.flx", 31);
+}
+
+#[test]
+fn test_syntax_pattern_matching() {
+    run_syntax_fixture("syntax_pattern_matching.flx", 13);
+}
+
+#[test]
+fn test_syntax_pipes_and_hof() {
+    run_syntax_fixture("syntax_pipes_and_hof.flx", 30);
+}
+
+#[test]
+fn test_syntax_strings() {
+    run_syntax_fixture("syntax_strings.flx", 23);
+}
+
+#[test]
+fn test_syntax_adt() {
+    run_syntax_fixture("syntax_adt.flx", 10);
+}
+
+#[test]
+fn test_syntax_comprehensions() {
+    run_syntax_fixture("syntax_comprehensions.flx", 11);
+}
+
+#[test]
 fn dump_core_prints_core_ir_and_exits_before_execution() {
     let file = example_path("basics/arithmetic.flx");
     let output = run_flux(&["--dump-core", file.to_str().unwrap()]);

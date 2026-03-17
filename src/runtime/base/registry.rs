@@ -44,6 +44,7 @@ pub const BASE_FASTCALL_ALLOWLIST: &[&str] = &[
     "sort_by",
     "split_ints",
     "starts_with",
+    "str_contains",
     "to_string",
     "trim",
     "type_of",
@@ -207,10 +208,17 @@ mod tests {
             "sum",
             "product",
             "assert_eq",
+            "assert_msg",
             "assert_neq",
             "assert_true",
             "assert_false",
             "assert_throws",
+            "assert_gt",
+            "assert_gte",
+            "assert_len",
+            "assert_lt",
+            "assert_lte",
+            "try",
         ]
         .into_iter()
         .collect();

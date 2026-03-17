@@ -1,0 +1,156 @@
+// Tests for pattern matching: literal, wildcard, tuple, list, ADT,
+// nested patterns, and guards.
+
+// --- tuple patterns ---
+
+fn test_match_tuple() {
+    let classify_point = \t -> match t {
+        (0, 0) -> "origin",
+        _ -> "other"
+    }
+    assert_eq(classify_point((0, 0)), "origin")
+    assert_eq(classify_point((1, 2)), "other")
+}
+
+// --- list patterns ---
+
+fn test_match_list_empty() {
+    let check_empty = \xs -> match xs {
+        [] -> "empty",
+        _ -> "non-empty"
+    }
+    assert_eq(check_empty([]), "empty")
+    assert_eq(check_empty(list(1)), "non-empty")
+}
+
+fn test_match_list_head_tail() {
+    let head_or_zero = \xs -> match xs {
+        [h | t] -> h,
+        [] -> 0
+    }
+    assert_eq(head_or_zero(list(10, 20, 30)), 10)
+    assert_eq(head_or_zero([]), 0)
+}
+
+fn list_sum(xs) {
+    match xs {
+        [] -> 0,
+        [h | t] -> h + list_sum(t)
+    }
+}
+
+fn test_match_list_recursive() {
+    assert_eq(list_sum(list(1, 2, 3, 4)), 10)
+    assert_eq(list_sum([]), 0)
+}
+
+fn list_length(xs) {
+    match xs {
+        [] -> 0,
+        [_ | t] -> 1 + list_length(t)
+    }
+}
+
+fn test_match_list_wildcard_head() {
+    assert_eq(list_length(list(1, 2, 3)), 3)
+    assert_eq(list_length([]), 0)
+}
+
+// --- option patterns ---
+
+fn test_match_option_chain() {
+    let safe_div = \(a, b) -> if b == 0 { None } else { Some(a / b) }
+    let result = match safe_div(10, 2) {
+        Some(v) -> v,
+        None -> -1
+    }
+    assert_eq(result, 5)
+
+    let result2 = match safe_div(10, 0) {
+        Some(v) -> v,
+        None -> -1
+    }
+    assert_eq(result2, -1)
+}
+
+fn test_match_nested_option() {
+    let inner = Some(Some(42))
+    let result = match inner {
+        Some(Some(x)) -> x,
+        Some(None) -> -1,
+        None -> -2
+    }
+    assert_eq(result, 42)
+}
+
+// --- either patterns ---
+
+fn test_match_either_left_right() {
+    let process = \e -> match e {
+        Left(msg) -> "err: " + msg,
+        Right(val) -> "ok: " + to_string(val)
+    }
+    assert_eq(process(Left("bad")), "err: bad")
+    assert_eq(process(Right(42)), "ok: 42")
+}
+
+// --- guard patterns ---
+
+fn test_match_guards_numeric() {
+    let grade = \score -> match score {
+        s if s >= 90 -> "A",
+        s if s >= 80 -> "B",
+        s if s >= 70 -> "C",
+        _ -> "F"
+    }
+    assert_eq(grade(95), "A")
+    assert_eq(grade(85), "B")
+    assert_eq(grade(75), "C")
+    assert_eq(grade(50), "F")
+}
+
+fn test_match_guard_with_option() {
+    let classify_opt = \opt -> match opt {
+        Some(x) if x > 100 -> "huge",
+        Some(x) if x > 0 -> "positive",
+        Some(x) -> "non-positive",
+        None -> "nothing"
+    }
+    assert_eq(classify_opt(Some(200)), "huge")
+    assert_eq(classify_opt(Some(50)), "positive")
+    assert_eq(classify_opt(Some(-5)), "non-positive")
+    assert_eq(classify_opt(None), "nothing")
+}
+
+fn test_match_guard_with_list() {
+    let classify_list = \xs -> match xs {
+        [h | _] if h > 10 -> "starts big",
+        [h | _] -> "starts small",
+        [] -> "empty"
+    }
+    assert_eq(classify_list(list(20, 1, 2)), "starts big")
+    assert_eq(classify_list(list(3, 1, 2)), "starts small")
+    assert_eq(classify_list([]), "empty")
+}
+
+// --- match as expression ---
+
+fn test_match_returns_value() {
+    let x = 5
+    let result = match x {
+        1 -> "one",
+        5 -> "five",
+        _ -> "other"
+    }
+    assert_eq(result, "five")
+}
+
+fn test_match_in_function_body() {
+    let abs_val = \n -> match n {
+        x if x < 0 -> -x,
+        x -> x
+    }
+    assert_eq(abs_val(5), 5)
+    assert_eq(abs_val(-3), 3)
+    assert_eq(abs_val(0), 0)
+}

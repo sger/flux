@@ -5,9 +5,9 @@ set -euo pipefail
 # Requires at least one changelog fragment file in pull requests.
 #
 # Usage:
-#   scripts/check_changelog_fragment.sh <base-ref>
+#   scripts/changelog/check_changelog_fragment.sh <base-ref>
 # Example:
-#   scripts/check_changelog_fragment.sh main
+#   scripts/changelog/check_changelog_fragment.sh main
 
 BASE_REF="${1:-main}"
 

@@ -32,7 +32,7 @@ jobs:
 
       - name: Changelog fragment check (PRs)
         if: github.event_name == 'pull_request'
-        run: scripts/check_changelog_fragment.sh "${{ github.base_ref }}"
+        run: scripts/changelog/check_changelog_fragment.sh "${{ github.base_ref }}"
 
       - name: Format (rustfmt)
         run: cargo fmt --all -- --check
@@ -50,7 +50,7 @@ jobs:
         run: cargo build --all --all-features
 
       - name: VM/JIT parity check (all examples)
-        run: scripts/check_parity.sh examples/basics examples/advanced examples/functions examples/patterns examples/tail_call examples/perf examples/primop tests/flux
+        run: scripts/release/check_parity.sh examples/basics examples/advanced examples/functions examples/patterns examples/tail_call examples/perf examples/primop tests/flux
 
   examples-smoke:
     name: Examples Tier 1 (PR smoke)
