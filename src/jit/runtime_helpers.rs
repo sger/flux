@@ -1466,7 +1466,7 @@ pub extern "C" fn rt_call_jit_function(
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_global(ctx: *mut JitContext, index: i64) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    let value = ctx.globals[index as usize].clone();
+    let value = ctx.global_get(index as usize);
     ctx.alloc(value)
 }
 
@@ -1474,7 +1474,7 @@ pub extern "C" fn rt_get_global(ctx: *mut JitContext, index: i64) -> *mut Value 
 pub extern "C" fn rt_set_global(ctx: *mut JitContext, index: i64, value: *mut Value) {
     let ctx = unsafe { ctx_ref(ctx) };
     let value = unsafe { (*value).clone() };
-    ctx.globals[index as usize] = value;
+    ctx.global_set(index as usize, value);
 }
 
 #[unsafe(no_mangle)]

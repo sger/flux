@@ -43,7 +43,6 @@ const STACK_GROW_MIN_CHUNK: usize = 4096;
 // read-then-own a slot should use `from_slot`; callers that need a clone
 // without consuming the slot should use `from_slot_ref`.
 
-#[cfg(feature = "nan-boxing")]
 mod slot {
     use crate::runtime::nanbox::NanBox;
     use crate::runtime::value::Value;
@@ -68,33 +67,6 @@ mod slot {
     #[inline(always)]
     pub fn from_slot_ref(s: &Slot) -> Value {
         s.clone().to_value()
-    }
-}
-
-#[cfg(not(feature = "nan-boxing"))]
-mod slot {
-    use crate::runtime::value::Value;
-
-    pub type Slot = Value;
-
-    #[inline(always)]
-    pub fn uninit() -> Slot {
-        Value::Uninit
-    }
-
-    #[inline(always)]
-    pub fn to_slot(v: Value) -> Slot {
-        v
-    }
-
-    #[inline(always)]
-    pub fn from_slot(s: Slot) -> Value {
-        s
-    }
-
-    #[inline(always)]
-    pub fn from_slot_ref(s: &Slot) -> Value {
-        s.clone()
     }
 }
 
@@ -163,18 +135,7 @@ impl VM {
     }
 
     fn collect_gc(&mut self) {
-        #[cfg(feature = "nan-boxing")]
         self.gc_heap.collect_nanboxed(
-            &self.stack,
-            self.sp,
-            &self.globals,
-            &self.constants,
-            &self.last_popped,
-            &self.frames,
-            self.frame_index,
-        );
-        #[cfg(not(feature = "nan-boxing"))]
-        self.gc_heap.collect(
             &self.stack,
             self.sp,
             &self.globals,
