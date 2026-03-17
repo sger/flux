@@ -153,49 +153,86 @@ impl VM {
         let fixed_arity = Self::base_function_fixed_arity(base_fn.name);
         let args_start = self.sp - num_args;
 
-        let args = if fixed_arity == Some(num_args) {
-            match num_args {
-                0 => Vec::new(),
-                1 => {
-                    // Fast path avoids loop overhead for common fixed arities.
-                    let a0 = self.stack_take(args_start);
-                    vec![a0]
-                }
-                2 => {
-                    let a0 = self.stack_take(args_start);
-                    let a1 = self.stack_take(args_start + 1);
-                    vec![a0, a1]
-                }
-                3 => {
-                    let a0 = self.stack_take(args_start);
-                    let a1 = self.stack_take(args_start + 1);
-                    let a2 = self.stack_take(args_start + 2);
-                    vec![a0, a1, a2]
-                }
-                _ => {
-                    let mut args = Vec::with_capacity(num_args);
-
-                    for i in args_start..self.sp {
-                        args.push(self.stack_take(i));
+        // ── NaN-boxing fast path ──────────────────────────────────────────────
+        // Collect raw NanBox slots without decoding to Value; the bridge in
+        // call_owned_nanboxed handles the decode internally.  This keeps the
+        // arg-collection loop allocation-free (no NanBox→Value conversion per arg).
+        #[cfg(feature = "nan-boxing")]
+        {
+            use crate::runtime::nanbox::NanBox;
+            let slots: Vec<NanBox> = if fixed_arity == Some(num_args) {
+                match num_args {
+                    0 => Vec::new(),
+                    1 => vec![self.stack_slot_take(args_start)],
+                    2 => vec![
+                        self.stack_slot_take(args_start),
+                        self.stack_slot_take(args_start + 1),
+                    ],
+                    3 => vec![
+                        self.stack_slot_take(args_start),
+                        self.stack_slot_take(args_start + 1),
+                        self.stack_slot_take(args_start + 2),
+                    ],
+                    _ => {
+                        let mut s = Vec::with_capacity(num_args);
+                        for i in args_start..self.sp {
+                            s.push(self.stack_slot_take(i));
+                        }
+                        s
                     }
-
-                    args
                 }
-            }
-        } else {
-            // Keep generic path to preserve existing Base-function-level arity errors.
-            let mut args = Vec::with_capacity(num_args);
+            } else {
+                let mut s = Vec::with_capacity(num_args);
+                for i in args_start..self.sp {
+                    s.push(self.stack_slot_take(i));
+                }
+                s
+            };
+            self.reset_sp(callee_idx.unwrap_or(args_start))?;
+            let result = base_fn.call_owned_nanboxed(self, slots)?;
+            return self.push_slot(result);
+        }
 
-            for i in args_start..self.sp {
-                args.push(self.stack_take(i));
-            }
-
-            args
-        };
-
-        self.reset_sp(callee_idx.unwrap_or(args_start))?;
-        let result = base_fn.call_owned(self, args)?;
-        self.push(result)?;
+        // ── Non-nan-boxing path (unchanged) ──────────────────────────────────
+        #[cfg(not(feature = "nan-boxing"))]
+        {
+            let args = if fixed_arity == Some(num_args) {
+                match num_args {
+                    0 => Vec::new(),
+                    1 => {
+                        let a0 = self.stack_take(args_start);
+                        vec![a0]
+                    }
+                    2 => {
+                        let a0 = self.stack_take(args_start);
+                        let a1 = self.stack_take(args_start + 1);
+                        vec![a0, a1]
+                    }
+                    3 => {
+                        let a0 = self.stack_take(args_start);
+                        let a1 = self.stack_take(args_start + 1);
+                        let a2 = self.stack_take(args_start + 2);
+                        vec![a0, a1, a2]
+                    }
+                    _ => {
+                        let mut args = Vec::with_capacity(num_args);
+                        for i in args_start..self.sp {
+                            args.push(self.stack_take(i));
+                        }
+                        args
+                    }
+                }
+            } else {
+                let mut args = Vec::with_capacity(num_args);
+                for i in args_start..self.sp {
+                    args.push(self.stack_take(i));
+                }
+                args
+            };
+            self.reset_sp(callee_idx.unwrap_or(args_start))?;
+            let result = base_fn.call_owned(self, args)?;
+            self.push(result)?;
+        }
 
         Ok(())
     }

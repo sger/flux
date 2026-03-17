@@ -583,6 +583,31 @@ impl VM {
         slot::from_slot(std::mem::replace(&mut self.stack[idx], slot::uninit()))
     }
 
+    /// Take the raw `Slot` at stack index `idx`, leaving `Uninit` in its place.
+    ///
+    /// Unlike [`stack_take`], this does NOT decode the slot to a [`Value`].
+    /// Use this in the NaN-boxing fast path to avoid an unnecessary decode/re-encode
+    /// round-trip when passing slots directly to [`BaseFunction::call_owned_nanboxed`].
+    #[inline(always)]
+    fn stack_slot_take(&mut self, idx: usize) -> Slot {
+        std::mem::replace(&mut self.stack[idx], slot::uninit())
+    }
+
+    /// Push a raw `Slot` onto the stack without encoding from [`Value`].
+    ///
+    /// Counterpart to [`stack_slot_take`]: used after [`BaseFunction::call_owned_nanboxed`]
+    /// returns a `Slot` so the result is stored without a decode/re-encode round-trip.
+    #[inline(always)]
+    fn push_slot(&mut self, s: Slot) -> Result<(), String> {
+        if self.sp < self.stack.len() {
+            self.stack[self.sp] = s;
+            self.sp += 1;
+            return Ok(());
+        }
+        // Slow path: grow stack. Must convert to Value to reuse push_slow's growth logic.
+        self.push_slow(slot::from_slot(s))
+    }
+
     /// Clone the Value at constants index `idx`.
     #[inline(always)]
     fn const_get(&self, idx: usize) -> Value {
