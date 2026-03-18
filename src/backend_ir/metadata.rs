@@ -72,10 +72,10 @@ pub fn collect_module_functions<V: Clone>(
             IrTopLevelItem::Function {
                 name, function_id, ..
             } => {
-                if let (Some(mod_name), Some(fn_id)) = (current_module, function_id) {
-                    if let Some(value) = resolve_fn(*fn_id) {
-                        module_functions.insert((mod_name, *name), value);
-                    }
+                if let (Some(mod_name), Some(fn_id)) = (current_module, function_id)
+                    && let Some(value) = resolve_fn(*fn_id)
+                {
+                    module_functions.insert((mod_name, *name), value);
                 }
             }
             IrTopLevelItem::Module { name, body, .. } => {

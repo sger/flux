@@ -37,6 +37,12 @@ pub struct LlvmCompilerContext {
     pub(crate) tbaa_heap: LLVMValueRef,
 }
 
+impl Default for LlvmCompilerContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LlvmCompilerContext {
     pub fn new() -> Self {
         wrapper::ensure_initialized();
@@ -111,10 +117,10 @@ impl LlvmCompilerContext {
 
     /// Map a declared external function to its actual address in the process.
     pub fn resolve_symbol(&self, name: &str, addr: *const u8) {
-        if let Some(engine) = &self.engine {
-            if let Some((func_ref, _)) = self.helpers.get(name) {
-                engine.add_global_mapping(*func_ref, addr);
-            }
+        if let Some(engine) = &self.engine
+            && let Some((func_ref, _)) = self.helpers.get(name)
+        {
+            engine.add_global_mapping(*func_ref, addr);
         }
     }
 

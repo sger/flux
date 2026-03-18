@@ -220,8 +220,6 @@ fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
 
 // ── Effect analysis ───────────────────────────────────────────────────────────
 
-/// Returns true if the expression is guaranteed to have no observable effects.
-///
 // ── Pattern helpers ───────────────────────────────────────────────────────────
 
 fn pat_binds_var(pat: &CorePat, var: CoreBinderId) -> bool {

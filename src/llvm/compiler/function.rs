@@ -22,6 +22,7 @@ use super::helpers::{
 
 // ── Function compilation ─────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn compile_function(
     ctx: &LlvmCompilerContext,
     program: &IrProgram,
@@ -200,6 +201,7 @@ pub(super) fn compile_function(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn compile_block(
     ctx: &LlvmCompilerContext,
     program: &IrProgram,
@@ -300,7 +302,7 @@ pub(super) fn compile_block(
                 // After runtime-dispatched binary ops, check for errors.
                 // IAdd/ISub/IMul/IDiv/IMod are inlined (operands proven Int) — no check needed.
                 // All others call rt_* helpers that may set ctx.error on type mismatches.
-                if matches!(
+                if (matches!(
                     expr,
                     IrExpr::Binary(
                         IrBinaryOp::Add
@@ -321,11 +323,10 @@ pub(super) fn compile_block(
                         _,
                         _
                     )
-                ) || matches!(expr, IrExpr::Prefix { .. })
+                ) || matches!(expr, IrExpr::Prefix { .. }))
+                    && let Some(span) = &metadata.span
                 {
-                    if let Some(span) = &metadata.span {
-                        emit_error_check_and_return(ctx, ctx_val, func_ref, span)?;
-                    }
+                    emit_error_check_and_return(ctx, ctx_val, func_ref, span)?;
                 }
 
                 env.insert(*dest, value);

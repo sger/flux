@@ -6,6 +6,7 @@
 
 pub mod compiler;
 pub mod context;
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub mod wrapper;
 
 use crate::backend_ir::{IrPassContext, lower_program_to_ir, run_ir_pass_pipeline};
