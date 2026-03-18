@@ -31,6 +31,7 @@ pub fn compile_program(
     ctx: &mut LlvmCompilerContext,
     program: &IrProgram,
     interner: &Interner,
+    opt_level: u32,
 ) -> Result<(), String> {
     // 1. Declare runtime helpers as external functions
     declare_runtime_helpers(ctx);
@@ -66,6 +67,10 @@ pub fn compile_program(
 
     // 4. Create entry wrapper: __flux_entry(ctx) → {i64, i64}
     compile_entry_wrapper(ctx, program, interner)?;
+
+    // 5. Compile identity function (used as `resume` in effect handlers)
+    compile_identity_function(ctx)?;
+
     if std::env::var("FLUX_LLVM_DUMP").is_ok() {
         eprintln!("[llvm] entry wrapper compiled OK");
     }
@@ -81,21 +86,44 @@ pub fn compile_program(
         return Err(err);
     }
 
-    // 7. Finalize (create execution engine for JIT)
+    // 7. Optimization passes are skipped for JIT mode.
+    // MCJIT on ARM64 has issues with optimized struct returns.
+    // For optimized code, use AOT emission (--emit-obj -O).
+    let _ = opt_level;
+
+    // 8. Finalize (create execution engine for JIT)
     ctx.finalize()?;
 
-    // 8. Resolve runtime symbols
+    // 9. Resolve runtime symbols
     resolve_all_runtime_symbols(ctx);
 
     Ok(())
 }
 
+fn run_opt_passes(ctx: &LlvmCompilerContext, opt_level: u32) -> Result<(), String> {
+    if opt_level == 0 {
+        return Ok(());
+    }
+    let tm = wrapper::LlvmTargetMachine::for_host(opt_level)?;
+    let triple = wrapper::get_default_target_triple();
+    wrapper::set_module_target(&ctx.module, &triple);
+    wrapper::set_module_data_layout(&ctx.module, &tm.data_layout());
+    let passes = match opt_level {
+        1 => "default<O1>",
+        2 => "default<O2>",
+        _ => "default<O3>",
+    };
+    wrapper::run_optimization_passes(&ctx.module, &tm, passes)
+}
+
 /// Compile an IR program into LLVM IR without creating an execution engine.
 /// Used for AOT emission (object file / assembly).
+/// Optimization passes are applied when `opt_level > 0`.
 pub fn compile_program_ir_only(
     ctx: &mut LlvmCompilerContext,
     program: &IrProgram,
     interner: &Interner,
+    opt_level: u32,
 ) -> Result<(), String> {
     declare_runtime_helpers(ctx);
 
@@ -115,6 +143,7 @@ pub fn compile_program_ir_only(
     }
 
     compile_entry_wrapper(ctx, program, interner)?;
+    compile_identity_function(ctx)?;
 
     if std::env::var("FLUX_LLVM_DUMP").is_ok() {
         eprintln!("=== LLVM IR ===\n{}\n===============", ctx.module.dump_to_string());
@@ -122,6 +151,9 @@ pub fn compile_program_ir_only(
     if let Err(err) = ctx.module.verify() {
         return Err(err);
     }
+
+    // Run optimization passes for AOT
+    run_opt_passes(ctx, opt_level)?;
 
     Ok(())
 }
@@ -222,6 +254,12 @@ fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
         ("rt_is_adt_constructor", i64_ty, vec![ptr_ty, ptr_ty, ptr_ty, i64_ty]),
         ("rt_adt_field", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
         ("rt_adt_field_or_none", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
+        // Primop call: (ctx, primop_id, args_ptr, nargs, sl, sc, el, ec) -> ptr
+        ("rt_call_primop", ptr_ty, vec![
+            ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty, i64_ty,
+        ]),
+        // Value unboxing: convert *mut Value back to proper {tag, payload}
+        ("rt_unbox_to_tagged", tv_ty, vec![ptr_ty, ptr_ty]),
         // Effect handlers
         ("rt_push_handler", void_ty, vec![ptr_ty, i64_ty, ptr_ty, ptr_ty, i64_ty]),
         ("rt_pop_handler", void_ty, vec![ptr_ty]),
@@ -378,6 +416,10 @@ fn compile_function(
         }
     }
 
+    // Track which IrVars hold known user function closures (no captures).
+    // Used by TailCall to emit musttail for indirect calls to known functions.
+    let mut var_fn_map: HashMap<IrVar, usize> = HashMap::new();
+
     // Compile each block
     for block in &function.blocks {
         if std::env::var("FLUX_LLVM_DUMP").is_ok() {
@@ -406,7 +448,7 @@ fn compile_function(
             }
         }
 
-        compile_block(ctx, program, function, block, &block_map, &mut env, ctx_val, interner, &phi_map, &global_binding_indices, adt_constructors)?;
+        compile_block(ctx, program, function, block, &block_map, &mut env, ctx_val, func_ref, interner, &phi_map, &global_binding_indices, adt_constructors, &mut var_fn_map)?;
     }
 
     Ok(())
@@ -420,10 +462,12 @@ fn compile_block(
     block_map: &HashMap<BlockId, LLVMBasicBlockRef>,
     env: &mut HashMap<IrVar, LLVMValueRef>,
     ctx_val: LLVMValueRef,
+    func_ref: LLVMValueRef,
     interner: &Interner,
     phi_map: &HashMap<(BlockId, usize), LLVMValueRef>,
     global_binding_indices: &HashMap<IrVar, usize>,
     adt_constructors: &HashMap<crate::syntax::Identifier, usize>,
+    var_fn_map: &mut HashMap<IrVar, usize>,
 ) -> Result<(), String> {
     // Compile instructions
     for (instr_idx, instr) in block.instrs.iter().enumerate() {
@@ -442,7 +486,21 @@ fn compile_block(
         }
         match instr {
             IrInstr::Assign { dest, expr, .. } => {
-                let value = compile_expr(ctx, program, expr, env, ctx_val, interner, adt_constructors)
+                // Track if this variable holds a known user function (for TCO)
+                match expr {
+                    IrExpr::MakeClosure(fn_id, captures) if captures.is_empty() => {
+                        if let Some(idx) = program.functions.iter().position(|f| f.id == *fn_id) {
+                            var_fn_map.insert(*dest, idx);
+                        }
+                    }
+                    IrExpr::LoadName(name) => {
+                        if let Some(idx) = program.functions.iter().position(|f| f.name == Some(*name)) {
+                            var_fn_map.insert(*dest, idx);
+                        }
+                    }
+                    _ => {}
+                }
+                let value = compile_expr(ctx, program, expr, env, ctx_val, func_ref, interner, adt_constructors)
                     .map_err(|e| format!("in assign v{}: {}", dest.0, e))?;
                 env.insert(*dest, value);
                 emit_set_global_if_bound(ctx, *dest, value, ctx_val, global_binding_indices)?;
@@ -454,7 +512,7 @@ fn compile_block(
                 ..
             } => {
                 let value =
-                    compile_call(ctx, program, function, target, args, env, ctx_val, interner, adt_constructors)?;
+                    compile_call(ctx, program, function, target, args, env, ctx_val, func_ref, interner, adt_constructors)?;
                 env.insert(*dest, value);
                 emit_set_global_if_bound(ctx, *dest, value, ctx_val, global_binding_indices)?;
             }
@@ -590,8 +648,10 @@ fn compile_block(
             ctx.builder.build_ret(value);
         }
         IrTerminator::Jump(target, args, _) => {
-            // Add incoming edges to target block's PHI nodes
-            let current_llvm_block = block_map[&block.id];
+            // Add incoming edges to target block's PHI nodes.
+            // Use get_insert_block() instead of block_map — after null-check
+            // insertions, the builder may be in a different (continue) block.
+            let current_llvm_block = ctx.builder.get_insert_block();
             for (param_idx, arg) in args.iter().enumerate() {
                 let val = get_var(env, *arg)?;
                 if let Some(&phi) = phi_map.get(&(*target, param_idx)) {
@@ -626,9 +686,69 @@ fn compile_block(
         IrTerminator::TailCall {
             callee, args, ..
         } => {
-            // Phase 1: compile as a regular call + return
-            let value = compile_call(ctx, program, function, callee, args, env, ctx_val, interner, adt_constructors)?;
-            ctx.builder.build_ret(value);
+            // For direct calls, use musttail for TCO (prevents stack overflow on deep recursion).
+            if let IrCallTarget::Direct(fn_id) = callee {
+                let fn_index = program
+                    .functions
+                    .iter()
+                    .position(|f| f.id == *fn_id)
+                    .ok_or_else(|| format!("missing tail callee {:?}", fn_id))?;
+                let (callee_fn, callee_ty) = ctx.functions[&fn_index];
+                let args_array = build_tagged_args_array(ctx, args, env)?;
+                let nargs = wrapper::const_i64(ctx.i64_type, args.len() as i64);
+                let null_captures = wrapper::const_null(ctx.ptr_type);
+                let zero_captures = wrapper::const_i64(ctx.i64_type, 0);
+                let call_inst = ctx.builder.build_call(
+                    callee_ty,
+                    callee_fn,
+                    &mut [ctx_val, args_array, nargs, null_captures, zero_captures],
+                    "tail_call",
+                );
+                unsafe {
+                    llvm_sys::core::LLVMSetTailCallKind(
+                        call_inst,
+                        llvm_sys::LLVMTailCallKind::LLVMTailCallKindMustTail,
+                    );
+                }
+                ctx.builder.build_ret(call_inst);
+            } else {
+                // Try to resolve Var/Named to a known user function for musttail.
+                let resolved_fn_index = match callee {
+                    IrCallTarget::Named(name) => {
+                        program.functions.iter().position(|f| f.name == Some(*name))
+                    }
+                    IrCallTarget::Var(var) => {
+                        var_fn_map.get(var).copied()
+                    }
+                    _ => None,
+                };
+
+                if let Some(fn_index) = resolved_fn_index {
+                    // Resolved to known function — emit musttail direct call
+                    let (callee_fn, callee_ty) = ctx.functions[&fn_index];
+                    let args_array = build_tagged_args_array(ctx, args, env)?;
+                    let nargs = wrapper::const_i64(ctx.i64_type, args.len() as i64);
+                    let null_captures = wrapper::const_null(ctx.ptr_type);
+                    let zero_captures = wrapper::const_i64(ctx.i64_type, 0);
+                    let call_inst = ctx.builder.build_call(
+                        callee_ty,
+                        callee_fn,
+                        &mut [ctx_val, args_array, nargs, null_captures, zero_captures],
+                        "tail_call",
+                    );
+                    unsafe {
+                        llvm_sys::core::LLVMSetTailCallKind(
+                            call_inst,
+                            llvm_sys::LLVMTailCallKind::LLVMTailCallKindMustTail,
+                        );
+                    }
+                    ctx.builder.build_ret(call_inst);
+                } else {
+                    // Unknown callee — fall back to regular call+return
+                    let value = compile_call(ctx, program, function, callee, args, env, ctx_val, func_ref, interner, adt_constructors)?;
+                    ctx.builder.build_ret(value);
+                }
+            }
         }
         IrTerminator::Unreachable(_) => {
             // Emit unreachable
@@ -643,12 +763,14 @@ fn compile_block(
 
 // ── Expression compilation ───────────────────────────────────────────────────
 
+#[allow(unused_variables)]
 fn compile_expr(
     ctx: &LlvmCompilerContext,
     program: &IrProgram,
     expr: &IrExpr,
     env: &mut HashMap<IrVar, LLVMValueRef>,
     ctx_val: LLVMValueRef,
+    func_ref: LLVMValueRef,
     interner: &Interner,
     adt_constructors: &HashMap<crate::syntax::Identifier, usize>,
 ) -> Result<LLVMValueRef, String> {
@@ -761,7 +883,7 @@ fn compile_expr(
                 let ptr_result = ctx
                     .builder
                     .build_call(fn_ty, func, &mut [ctx_val, idx_val], "global_ptr");
-                return Ok(build_ptr_tagged(ctx, ptr_result));
+                return unbox_ptr_result(ctx, ptr_result, ctx_val);
             }
 
             Err(format!("LLVM backend: unresolved name '{}'", name_str))
@@ -924,14 +1046,14 @@ fn compile_expr(
             let left_ptr = force_box_to_ptr(ctx, env, *left, ctx_val)?;
             let idx_ptr = force_box_to_ptr(ctx, env, *index, ctx_val)?;
             let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, left_ptr, idx_ptr], "index");
-            Ok(build_ptr_tagged(ctx, result))
+            unbox_ptr_result(ctx, result, ctx_val)
         }
         IrExpr::TupleFieldAccess { object, index } => {
             let (func, fn_ty) = get_helper(ctx, "rt_tuple_get")?;
             let obj_ptr = force_box_to_ptr(ctx, env, *object, ctx_val)?;
             let idx_val = wrapper::const_i64(ctx.i64_type, *index as i64);
             let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, obj_ptr, idx_val], "tuple_get");
-            Ok(build_ptr_tagged(ctx, result))
+            unbox_ptr_result(ctx, result, ctx_val)
         }
         IrExpr::TupleArityTest { value, arity } => {
             let (func, fn_ty) = get_helper(ctx, "rt_tuple_len_eq")?;
@@ -975,7 +1097,7 @@ fn compile_expr(
             let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
             let idx_val = wrapper::const_i64(ctx.i64_type, *index as i64);
             let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr, idx_val], "adt_field");
-            Ok(build_ptr_tagged(ctx, result))
+            unbox_ptr_result(ctx, result, ctx_val)
         }
         IrExpr::TagTest { value, tag } => {
             let helper_name = match tag {
@@ -999,7 +1121,7 @@ fn compile_expr(
             let (func, fn_ty) = get_helper(ctx, helper_name)?;
             let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
             let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr], "tag_payload");
-            Ok(build_ptr_tagged(ctx, result))
+            unbox_ptr_result(ctx, result, ctx_val)
         }
         IrExpr::ListTest { value, tag } => {
             let helper_name = match tag {
@@ -1015,7 +1137,7 @@ fn compile_expr(
             let (func, fn_ty) = get_helper(ctx, "rt_cons_head")?;
             let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
             let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr], "list_head");
-            Ok(build_ptr_tagged(ctx, result))
+            unbox_ptr_result(ctx, result, ctx_val)
         }
         IrExpr::ListTail { value } => {
             let (func, fn_ty) = get_helper(ctx, "rt_cons_tail")?;
@@ -1121,7 +1243,8 @@ fn compile_expr(
                       effect_global, effect_len, op_global, op_len, zero, zero],
                 "perform",
             );
-            Ok(build_ptr_tagged(ctx, result))
+            let result = emit_null_check(ctx, func_ref, result);
+            unbox_ptr_result(ctx, result, ctx_val)
         }
         IrExpr::Handle { .. } => {
             Err("LLVM backend: Handle expression not supported (use HandleScope instruction)".to_string())
@@ -1179,25 +1302,58 @@ fn compile_binary(
             );
             Ok(result)
         }
+        // Logical And/Or — extract payloads and use bitwise AND/OR on i64
+        IrBinaryOp::And => {
+            let (is_truthy, is_truthy_ty) = get_helper(ctx, "rt_is_truthy")?;
+            let l_tag = ctx.builder.build_extract_value(lhs, 0, "l_tag");
+            let l_payload = ctx.builder.build_extract_value(lhs, 1, "l_payload");
+            let r_tag = ctx.builder.build_extract_value(rhs, 0, "r_tag");
+            let r_payload = ctx.builder.build_extract_value(rhs, 1, "r_payload");
+            let l_truthy = ctx.builder.build_call(is_truthy_ty, is_truthy, &mut [ctx_val, l_tag, l_payload], "l_truthy");
+            let r_truthy = ctx.builder.build_call(is_truthy_ty, is_truthy, &mut [ctx_val, r_tag, r_payload], "r_truthy");
+            let zero = wrapper::const_i64(ctx.i64_type, 0);
+            let l_bool = ctx.builder.build_icmp(LLVMIntPredicate::LLVMIntNE, l_truthy, zero, "l_bool");
+            let r_bool = ctx.builder.build_icmp(LLVMIntPredicate::LLVMIntNE, r_truthy, zero, "r_bool");
+            let and_result = unsafe {
+                let c = std::ffi::CString::new("and").unwrap();
+                llvm_sys::core::LLVMBuildAnd(ctx.builder.raw_ptr(), l_bool, r_bool, c.as_ptr())
+            };
+            let result_i64 = unsafe {
+                let c = std::ffi::CString::new("and_ext").unwrap();
+                llvm_sys::core::LLVMBuildZExt(ctx.builder.raw_ptr(), and_result, ctx.i64_type, c.as_ptr())
+            };
+            Ok(build_bool_tagged(ctx, result_i64))
+        }
+        IrBinaryOp::Or => {
+            let (is_truthy, is_truthy_ty) = get_helper(ctx, "rt_is_truthy")?;
+            let l_tag = ctx.builder.build_extract_value(lhs, 0, "l_tag");
+            let l_payload = ctx.builder.build_extract_value(lhs, 1, "l_payload");
+            let r_tag = ctx.builder.build_extract_value(rhs, 0, "r_tag");
+            let r_payload = ctx.builder.build_extract_value(rhs, 1, "r_payload");
+            let l_truthy = ctx.builder.build_call(is_truthy_ty, is_truthy, &mut [ctx_val, l_tag, l_payload], "l_truthy");
+            let r_truthy = ctx.builder.build_call(is_truthy_ty, is_truthy, &mut [ctx_val, r_tag, r_payload], "r_truthy");
+            let zero = wrapper::const_i64(ctx.i64_type, 0);
+            let l_bool = ctx.builder.build_icmp(LLVMIntPredicate::LLVMIntNE, l_truthy, zero, "l_bool");
+            let r_bool = ctx.builder.build_icmp(LLVMIntPredicate::LLVMIntNE, r_truthy, zero, "r_bool");
+            let or_result = unsafe {
+                let c = std::ffi::CString::new("or").unwrap();
+                llvm_sys::core::LLVMBuildOr(ctx.builder.raw_ptr(), l_bool, r_bool, c.as_ptr())
+            };
+            let result_i64 = unsafe {
+                let c = std::ffi::CString::new("or_ext").unwrap();
+                llvm_sys::core::LLVMBuildZExt(ctx.builder.raw_ptr(), or_result, ctx.i64_type, c.as_ptr())
+            };
+            Ok(build_bool_tagged(ctx, result_i64))
+        }
         // Polymorphic / float arithmetic — delegate to runtime
         IrBinaryOp::Add | IrBinaryOp::Sub | IrBinaryOp::Mul | IrBinaryOp::Div | IrBinaryOp::Mod
-        | IrBinaryOp::FAdd | IrBinaryOp::FSub | IrBinaryOp::FMul | IrBinaryOp::FDiv
-        | IrBinaryOp::And | IrBinaryOp::Or => {
+        | IrBinaryOp::FAdd | IrBinaryOp::FSub | IrBinaryOp::FMul | IrBinaryOp::FDiv => {
             let helper_name = match op {
                 IrBinaryOp::Add | IrBinaryOp::FAdd => "rt_add",
                 IrBinaryOp::Sub | IrBinaryOp::FSub => "rt_sub",
                 IrBinaryOp::Mul | IrBinaryOp::FMul => "rt_mul",
                 IrBinaryOp::Div | IrBinaryOp::FDiv => "rt_div",
                 IrBinaryOp::Mod => "rt_mod",
-                // And/Or at the IR level are already non-short-circuit (operands evaluated).
-                // The runtime rt_add just returns its argument for bools — use rt_equal hack?
-                // Actually, And/Or should be implemented as boolean operations.
-                // For And: both must be truthy → (a != 0) & (b != 0)
-                // For Or: either truthy → (a != 0) | (b != 0)
-                // But the runtime helpers don't have rt_and/rt_or.
-                // Route through the generic Add path which handles bool+bool correctly.
-                IrBinaryOp::And => "rt_mul", // bool AND = multiply (0*x=0, 1*1=1)
-                IrBinaryOp::Or => "rt_add",  // bool OR  = add clamped (0+0=0, 1+0=1, 1+1=2→truthy)
                 _ => unreachable!(),
             };
             let (func, fn_ty) = get_helper(ctx, helper_name)?;
@@ -1219,6 +1375,7 @@ fn compile_binary(
 
 // ── Call compilation ─────────────────────────────────────────────────────────
 
+#[allow(unused_variables)]
 fn compile_call(
     ctx: &LlvmCompilerContext,
     program: &IrProgram,
@@ -1227,6 +1384,7 @@ fn compile_call(
     args: &[IrVar],
     env: &mut HashMap<IrVar, LLVMValueRef>,
     ctx_val: LLVMValueRef,
+    func_ref: LLVMValueRef,
     interner: &Interner,
     adt_constructors: &HashMap<crate::syntax::Identifier, usize>,
 ) -> Result<LLVMValueRef, String> {
@@ -1280,6 +1438,53 @@ fn compile_call(
                 return Ok(result);
             }
 
+            // Check if it's a primop
+            if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
+                let (func, fn_ty) = get_helper(ctx, "rt_call_primop")?;
+                let primop_id = wrapper::const_i64(ctx.i64_type, primop as i64);
+                let (force_boxed, force_boxed_ty) = get_helper(ctx, "rt_force_boxed")?;
+
+                // Build boxed *mut Value args array
+                let args_ptr = if args.is_empty() {
+                    wrapper::const_null(ctx.ptr_type)
+                } else {
+                    let array_ty = unsafe {
+                        llvm_sys::core::LLVMArrayType2(ctx.ptr_type, args.len() as u64)
+                    };
+                    let alloca = ctx.builder.build_alloca(array_ty, "primop_args");
+                    for (i, arg) in args.iter().enumerate() {
+                        let val = get_var(env, *arg)?;
+                        let tag = ctx.builder.build_extract_value(val, 0, "po_tag");
+                        let payload = ctx.builder.build_extract_value(val, 1, "po_payload");
+                        let boxed = ctx.builder.build_call(
+                            force_boxed_ty, force_boxed,
+                            &mut [ctx_val, tag, payload], "po_boxed",
+                        );
+                        let ptr_int = ctx.builder.build_extract_value(boxed, 1, "po_ptr_int");
+                        let ptr = ctx.builder.build_int_to_ptr(ptr_int, ctx.ptr_type, "po_ptr");
+                        let slot = unsafe {
+                            llvm_sys::core::LLVMBuildGEP2(
+                                ctx.builder.raw_ptr(), array_ty, alloca,
+                                [wrapper::const_i64(ctx.i64_type, 0), wrapper::const_i64(ctx.i64_type, i as i64)].as_mut_ptr(),
+                                2, c"po_slot".as_ptr(),
+                            )
+                        };
+                        ctx.builder.build_store(ptr, slot);
+                    }
+                    alloca
+                };
+
+                let nargs = wrapper::const_i64(ctx.i64_type, args.len() as i64);
+                let zero = wrapper::const_i64(ctx.i64_type, 0);
+                let result = ctx.builder.build_call(
+                    fn_ty, func,
+                    &mut [ctx_val, primop_id, args_ptr, nargs, zero, zero, zero, zero],
+                    "primop_call",
+                );
+                let result = emit_null_check(ctx, func_ref, result);
+                return unbox_ptr_result(ctx, result, ctx_val);
+            }
+
             // Check if it's a base function
             if let Some(base_idx) = crate::runtime::base::get_base_function_index(name_str) {
                 let (func, fn_ty) = get_helper(ctx, "rt_call_base_function_tagged")?;
@@ -1294,8 +1499,8 @@ fn compile_call(
                     &mut [ctx_val, idx_val, args_array, nargs, zero, zero, zero, zero],
                     "base_call",
                 );
-                // Result is *mut Value; wrap as PTR tag
-                return Ok(build_ptr_tagged(ctx, result));
+                let result = emit_null_check(ctx, func_ref, result);
+                return unbox_ptr_result(ctx, result, ctx_val);
             }
 
             // Check if it's an ADT constructor
@@ -1392,8 +1597,8 @@ fn compile_call(
                 &mut [ctx_val, callee_ptr, args_ptrs, nargs, zero, zero, zero, zero],
                 "var_call",
             );
-            // Result is *mut Value; wrap as PTR tag
-            Ok(build_ptr_tagged(ctx, result))
+            let result = emit_null_check(ctx, func_ref, result);
+            unbox_ptr_result(ctx, result, ctx_val)
         }
     }
 }
@@ -1456,6 +1661,28 @@ fn compile_entry_wrapper(
     ctx.builder.build_ret(result);
 
     Ok(())
+}
+
+// ── Identity function (effect handler resume) ────────────────────────────────
+
+/// Compile `__flux_identity(ctx, args, nargs, captures, ncaptures) -> {i64, i64}`
+/// that returns its first argument. Used as the `resume` value in effect handlers.
+/// Returns the function index in `ctx.functions`.
+fn compile_identity_function(ctx: &mut LlvmCompilerContext) -> Result<usize, String> {
+    let fn_type = ctx.user_function_type();
+    let func = ctx.module.add_function("__flux_identity", fn_type);
+    let idx = ctx.functions.len();
+    ctx.functions.insert(idx, (func, fn_type));
+
+    let block = ctx.llvm_ctx.append_basic_block(func, "entry");
+    ctx.builder.position_at_end(block);
+
+    // Load first arg from args_ptr[0] (tag at offset 0, payload at offset 1)
+    let args_ptr = wrapper::get_param(func, 1);
+    let tagged = load_tagged_from_ptr(ctx, args_ptr, 0, "id_arg");
+    ctx.builder.build_ret(tagged);
+
+    Ok(idx)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1534,6 +1761,49 @@ fn emit_set_global_if_bound(
         );
     }
     Ok(())
+}
+
+/// Check if a `*mut Value` pointer is null (runtime error). If null, return
+/// `{JIT_TAG_PTR, 0}` from the current function. If non-null, continue in a
+/// new block. The builder is left positioned at the continue block.
+fn emit_null_check(
+    ctx: &LlvmCompilerContext,
+    func_ref: LLVMValueRef,
+    ptr_result: LLVMValueRef,
+) -> LLVMValueRef {
+    let is_null = ctx.builder.build_icmp(
+        LLVMIntPredicate::LLVMIntEQ,
+        ptr_result,
+        wrapper::const_null(ctx.ptr_type),
+        "is_null",
+    );
+    let null_block = ctx.llvm_ctx.append_basic_block(func_ref, "null_err");
+    let continue_block = ctx.llvm_ctx.append_basic_block(func_ref, "continue");
+    ctx.builder.build_cond_br(is_null, null_block, continue_block);
+
+    ctx.builder.position_at_end(null_block);
+    let null_tagged = build_tagged_value(
+        ctx,
+        wrapper::const_i64(ctx.i64_type, JIT_TAG_PTR),
+        wrapper::const_i64(ctx.i64_type, 0),
+    );
+    ctx.builder.build_ret(null_tagged);
+
+    // Builder now at continue block — caller resumes here
+    ctx.builder.position_at_end(continue_block);
+    ptr_result
+}
+
+/// Convert a `*mut Value` pointer back to a properly tagged `{i64, i64}` value.
+/// Calls `rt_unbox_to_tagged` which reads the actual Value discriminant and
+/// produces the correct tag (INT for integers, BOOL for booleans, PTR for heap types).
+fn unbox_ptr_result(
+    ctx: &LlvmCompilerContext,
+    ptr_result: LLVMValueRef,
+    ctx_val: LLVMValueRef,
+) -> Result<LLVMValueRef, String> {
+    let (unbox, unbox_ty) = get_helper(ctx, "rt_unbox_to_tagged")?;
+    Ok(ctx.builder.build_call(unbox_ty, unbox, &mut [ctx_val, ptr_result], "unboxed"))
 }
 
 /// Force-box a tagged value to get a `*mut Value` pointer.
