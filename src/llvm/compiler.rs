@@ -509,10 +509,10 @@ fn compile_block(
                 dest,
                 target,
                 args,
-                ..
+                metadata,
             } => {
                 let value =
-                    compile_call(ctx, program, function, target, args, env, ctx_val, func_ref, interner, adt_constructors)?;
+                    compile_call(ctx, program, function, target, args, env, ctx_val, func_ref, interner, adt_constructors, metadata.span)?;
                 env.insert(*dest, value);
                 emit_set_global_if_bound(ctx, *dest, value, ctx_val, global_binding_indices)?;
             }
@@ -745,7 +745,7 @@ fn compile_block(
                     ctx.builder.build_ret(call_inst);
                 } else {
                     // Unknown callee — fall back to regular call+return
-                    let value = compile_call(ctx, program, function, callee, args, env, ctx_val, func_ref, interner, adt_constructors)?;
+                    let value = compile_call(ctx, program, function, callee, args, env, ctx_val, func_ref, interner, adt_constructors, None)?;
                     ctx.builder.build_ret(value);
                 }
             }
@@ -1387,7 +1387,22 @@ fn compile_call(
     func_ref: LLVMValueRef,
     interner: &Interner,
     adt_constructors: &HashMap<crate::syntax::Identifier, usize>,
+    call_span: Option<crate::diagnostics::position::Span>,
 ) -> Result<LLVMValueRef, String> {
+    // Extract span coordinates for error reporting
+    let (sl, sc, el, ec) = match call_span {
+        Some(span) => (
+            wrapper::const_i64(ctx.i64_type, span.start.line as i64),
+            wrapper::const_i64(ctx.i64_type, (span.start.column + 1) as i64),
+            wrapper::const_i64(ctx.i64_type, span.end.line as i64),
+            wrapper::const_i64(ctx.i64_type, (span.end.column + 1) as i64),
+        ),
+        None => {
+            let zero = wrapper::const_i64(ctx.i64_type, 0);
+            (zero, zero, zero, zero)
+        }
+    };
+
     if std::env::var("FLUX_LLVM_DUMP").is_ok() {
         eprintln!("[llvm]     compile_call target={:?}", target);
     }
@@ -1475,10 +1490,9 @@ fn compile_call(
                 };
 
                 let nargs = wrapper::const_i64(ctx.i64_type, args.len() as i64);
-                let zero = wrapper::const_i64(ctx.i64_type, 0);
                 let result = ctx.builder.build_call(
                     fn_ty, func,
-                    &mut [ctx_val, primop_id, args_ptr, nargs, zero, zero, zero, zero],
+                    &mut [ctx_val, primop_id, args_ptr, nargs, sl, sc, el, ec],
                     "primop_call",
                 );
                 let result = emit_null_check(ctx, func_ref, result);
@@ -1491,12 +1505,11 @@ fn compile_call(
                 let idx_val = wrapper::const_i64(ctx.i64_type, base_idx as i64);
                 let args_array = build_tagged_args_array(ctx, args, env)?;
                 let nargs = wrapper::const_i64(ctx.i64_type, args.len() as i64);
-                let zero = wrapper::const_i64(ctx.i64_type, 0);
 
                 let result = ctx.builder.build_call(
                     fn_ty,
                     func,
-                    &mut [ctx_val, idx_val, args_array, nargs, zero, zero, zero, zero],
+                    &mut [ctx_val, idx_val, args_array, nargs, sl, sc, el, ec],
                     "base_call",
                 );
                 let result = emit_null_check(ctx, func_ref, result);
@@ -1590,11 +1603,10 @@ fn compile_call(
             };
 
             let nargs = wrapper::const_i64(ctx.i64_type, args.len() as i64);
-            let zero = wrapper::const_i64(ctx.i64_type, 0);
             let result = ctx.builder.build_call(
                 rt_call_value_ty,
                 rt_call_value,
-                &mut [ctx_val, callee_ptr, args_ptrs, nargs, zero, zero, zero, zero],
+                &mut [ctx_val, callee_ptr, args_ptrs, nargs, sl, sc, el, ec],
                 "var_call",
             );
             let result = emit_null_check(ctx, func_ref, result);
