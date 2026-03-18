@@ -157,7 +157,7 @@ pub fn jit_execute(mut compiled: JitCompiledProgram) -> JitResult<(Value, JitCon
 ///
 /// # Safety
 /// The function pointer must be valid and the context must outlive the call.
-unsafe fn invoke_jit_thunk(ctx: &mut JitContext, thunk: &JitThunk) -> JitTaggedValue {
+pub unsafe fn invoke_jit_thunk(ctx: &mut JitContext, thunk: &JitThunk) -> JitTaggedValue {
     // Extract the function pointer and ABI before borrowing `ctx` mutably.
     let (fn_ptr, call_abi) = {
         let entry = &ctx.jit_functions[thunk.fn_index];

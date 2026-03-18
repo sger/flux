@@ -74,6 +74,10 @@ fn main() {
     let use_jit = args.iter().any(|arg| arg == "--jit");
     #[cfg(not(feature = "jit"))]
     let use_jit = false;
+    #[cfg(feature = "llvm")]
+    let use_llvm = args.iter().any(|arg| arg == "--llvm");
+    #[cfg(not(feature = "llvm"))]
+    let use_llvm = false;
     let mut roots = Vec::new();
     if verbose {
         args.retain(|arg| arg != "--verbose");
@@ -107,6 +111,9 @@ fn main() {
     }
     if use_jit {
         args.retain(|arg| arg != "--jit");
+    }
+    if use_llvm {
+        args.retain(|arg| arg != "--llvm");
     }
     if test_mode {
         args.retain(|arg| arg != "--test");
@@ -179,6 +186,7 @@ fn main() {
                 gc_threshold,
                 gc_telemetry,
                 use_jit,
+                use_llvm,
                 show_stats,
                 strict_mode,
                 diagnostics_format,
@@ -238,6 +246,7 @@ fn main() {
                     gc_threshold,
                     gc_telemetry,
                     use_jit,
+                    use_llvm,
                     show_stats,
                     strict_mode,
                     diagnostics_format,
@@ -441,6 +450,7 @@ fn run_file(
     gc_threshold: Option<usize>,
     gc_telemetry: bool,
     #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
+    #[cfg_attr(not(feature = "llvm"), allow(unused))] use_llvm: bool,
     show_stats: bool,
     strict_mode: bool,
     diagnostics_format: DiagnosticOutputFormat,
@@ -756,6 +766,88 @@ fn run_file(
                     }
                     Err(err) => {
                         emit_jit_error(&err, path, source.as_str(), max_errors, diagnostics_format);
+                        std::process::exit(1);
+                    }
+                }
+                if leak_detector {
+                    print_leak_stats();
+                }
+                return;
+            }
+
+            // --- LLVM execution path ---
+            #[cfg(feature = "llvm")]
+            if use_llvm {
+                use std::collections::HashMap;
+
+                let mut llvm_program = Program::new();
+                for node in graph.topo_order() {
+                    llvm_program
+                        .statements
+                        .extend(node.program.statements.clone());
+                }
+
+                if enable_optimize {
+                    let desugared = desugar(llvm_program);
+                    let optimized = constant_fold_with_interner(desugared, &compiler.interner);
+                    llvm_program = rename(optimized, HashMap::new());
+                }
+
+                let llvm_options = flux::llvm::LlvmOptions {
+                    no_gc,
+                    gc_threshold,
+                    source_file: Some(path.to_string()),
+                    source_text: Some(source.clone()),
+                };
+
+                let llvm_compile_start = Instant::now();
+                let prev_hook = std::panic::take_hook();
+                std::panic::set_hook(Box::new(|_| {}));
+                let llvm_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    flux::llvm::llvm_compile(&llvm_program, &compiler.interner, &llvm_options)
+                }));
+                std::panic::set_hook(prev_hook);
+                let compiled = match llvm_result {
+                    Ok(Ok(c)) => c,
+                    Ok(Err(err)) => {
+                        eprintln!("LLVM compilation failed: {}", err);
+                        std::process::exit(1);
+                    }
+                    Err(panic) => {
+                        let msg = panic
+                            .downcast_ref::<String>()
+                            .map(|s| s.as_str())
+                            .or_else(|| panic.downcast_ref::<&str>().copied())
+                            .unwrap_or("unknown panic");
+                        eprintln!("LLVM compilation panicked: {}", msg);
+                        std::process::exit(1);
+                    }
+                };
+                let llvm_compile_ms = llvm_compile_start.elapsed().as_secs_f64() * 1000.0;
+
+                let llvm_exec_start = Instant::now();
+                match flux::llvm::llvm_execute(compiled) {
+                    Ok((_result, mut ctx)) => {
+                        let llvm_exec_ms = llvm_exec_start.elapsed().as_secs_f64() * 1000.0;
+                        let _ = ctx;
+                        if show_stats {
+                            print_stats(&RunStats {
+                                parse_ms: Some(parse_ms),
+                                compile_ms: Some(llvm_compile_ms),
+                                execute_ms: llvm_exec_ms,
+                                cached: false,
+                                use_jit: true,
+                                module_count: Some(module_count),
+                                source_lines: source.lines().count(),
+                                globals_count: None,
+                                functions_count: None,
+                                instruction_bytes: None,
+                            });
+                        }
+                        ctx.clear_runtime_state();
+                    }
+                    Err(err) => {
+                        eprintln!("LLVM execution failed: {}", err);
                         std::process::exit(1);
                     }
                 }
