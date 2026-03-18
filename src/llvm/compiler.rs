@@ -54,8 +54,8 @@ pub fn compile_program(
         }
     }
 
-    // 4. Create entry wrapper: flux_main(ctx) → {i64, i64}
-    compile_entry_wrapper(ctx, program)?;
+    // 4. Create entry wrapper: __flux_entry(ctx) → {i64, i64}
+    compile_entry_wrapper(ctx, program, interner)?;
     if std::env::var("FLUX_LLVM_DUMP").is_ok() {
         eprintln!("[llvm] entry wrapper compiled OK");
     }
@@ -136,7 +136,11 @@ fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
         // Array/tuple
         ("rt_make_array", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
         ("rt_make_tuple", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
-        // Print / IO (called through base functions, not directly)
+        // Effect handlers
+        // rt_push_handler(ctx, effect_id, ops_ptr, closures_ptr, narms)
+        ("rt_push_handler", void_ty, vec![ptr_ty, i64_ty, ptr_ty, ptr_ty, i64_ty]),
+        // rt_pop_handler(ctx)
+        ("rt_pop_handler", void_ty, vec![ptr_ty]),
     ];
 
     for (name, ret_ty, param_tys) in helpers {
@@ -270,6 +274,23 @@ fn compile_function(
         env.insert(param.var, tagged);
     }
 
+    // Pre-compute handler pop counts: for each HandleScope, find the
+    // continuation block (where body_result becomes a param) and increment
+    // its pop count. At block entry, emit that many rt_pop_handler calls.
+    let mut handler_pop_counts: HashMap<BlockId, usize> = HashMap::new();
+    for block in &function.blocks {
+        for instr in &block.instrs {
+            if let IrInstr::HandleScope { body_result, .. } = instr {
+                // Find the continuation block: the block whose params include body_result
+                if let Some(cont_block) = function.blocks.iter().find(|b| {
+                    b.params.iter().any(|p| p.var == *body_result)
+                }) {
+                    *handler_pop_counts.entry(cont_block.id).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+
     // Compile each block
     for block in &function.blocks {
         if std::env::var("FLUX_LLVM_DUMP").is_ok() {
@@ -280,6 +301,15 @@ fn compile_function(
         // Only position if this isn't the entry block (already positioned)
         if block.id != function.entry {
             ctx.builder.position_at_end(llvm_block);
+        }
+
+        // Emit rt_pop_handler calls for continuation blocks
+        if let Some(&pop_count) = handler_pop_counts.get(&block.id) {
+            let (pop_handler, pop_handler_ty) = get_helper(ctx, "rt_pop_handler")
+                .map_err(|e| format!("handler pop: {}", e))?;
+            for _ in 0..pop_count {
+                ctx.builder.build_call(pop_handler_ty, pop_handler, &mut [ctx_val], "");
+            }
         }
 
         // Load block params from PHI nodes into env
@@ -340,9 +370,115 @@ fn compile_block(
                 env.insert(*dest, value);
                 emit_set_global_if_bound(ctx, *dest, value, ctx_val, global_binding_indices)?;
             }
-            IrInstr::HandleScope { .. } => {
-                // Phase 1: effect handlers not yet supported
-                return Err("HandleScope not yet supported in LLVM backend".to_string());
+            IrInstr::HandleScope {
+                effect,
+                arms,
+                body_entry: _,
+                body_result: _,
+                dest: _,
+                ..
+            } => {
+                // Build operation symbol ID array on the stack
+                let narms = arms.len();
+                if narms == 0 {
+                    // Empty handler — just push an empty handler frame
+                    let (push_handler, push_handler_ty) = get_helper(ctx, "rt_push_handler")?;
+                    let effect_val = wrapper::const_i64(ctx.i64_type, effect.as_u32() as i64);
+                    let null_ptr = wrapper::const_null(ctx.ptr_type);
+                    let zero = wrapper::const_i64(ctx.i64_type, 0);
+                    ctx.builder.build_call(
+                        push_handler_ty,
+                        push_handler,
+                        &mut [ctx_val, effect_val, null_ptr, null_ptr, zero],
+                        "",
+                    );
+                } else {
+                    // Build ops array: [op0_id, op1_id, ...]
+                    let ops_array_ty = unsafe {
+                        llvm_sys::core::LLVMArrayType2(ctx.i64_type, narms as u64)
+                    };
+                    let ops_alloca = ctx.builder.build_alloca(ops_array_ty, "handler_ops");
+                    for (i, arm) in arms.iter().enumerate() {
+                        let op_id = wrapper::const_i64(ctx.i64_type, arm.operation_name.as_u32() as i64);
+                        let slot = unsafe {
+                            llvm_sys::core::LLVMBuildGEP2(
+                                ctx.builder.raw_ptr(),
+                                ops_array_ty,
+                                ops_alloca,
+                                [wrapper::const_i64(ctx.i64_type, 0), wrapper::const_i64(ctx.i64_type, i as i64)].as_mut_ptr(),
+                                2,
+                                c"op_slot".as_ptr(),
+                            )
+                        };
+                        ctx.builder.build_store(op_id, slot);
+                    }
+
+                    // Build closures array: [closure0_ptr, closure1_ptr, ...]
+                    let closures_array_ty = unsafe {
+                        llvm_sys::core::LLVMArrayType2(ctx.ptr_type, narms as u64)
+                    };
+                    let closures_alloca = ctx.builder.build_alloca(closures_array_ty, "handler_closures");
+                    let (make_closure, make_closure_ty) = get_helper(ctx, "rt_make_jit_closure")?;
+
+                    for (i, arm) in arms.iter().enumerate() {
+                        // Find the function index for this arm's function
+                        let arm_fn_index = program
+                            .functions
+                            .iter()
+                            .position(|f| f.id == arm.function_id)
+                            .ok_or_else(|| format!("missing handler arm function {:?}", arm.function_id))?;
+
+                        // Build captures array for this arm
+                        let closure_ptr = if arm.capture_vars.is_empty() {
+                            let fn_idx_val = wrapper::const_i64(ctx.i64_type, arm_fn_index as i64);
+                            let null_ptr = wrapper::const_null(ctx.ptr_type);
+                            let zero = wrapper::const_i64(ctx.i64_type, 0);
+                            ctx.builder.build_call(
+                                make_closure_ty,
+                                make_closure,
+                                &mut [ctx_val, fn_idx_val, null_ptr, zero],
+                                "arm_closure",
+                            )
+                        } else {
+                            // Build captures as tagged value array
+                            let cap_args: Vec<IrVar> = arm.capture_vars.clone();
+                            let captures_buf = build_tagged_args_array(ctx, &cap_args, env)?;
+                            let ncaptures = wrapper::const_i64(ctx.i64_type, arm.capture_vars.len() as i64);
+                            let fn_idx_val = wrapper::const_i64(ctx.i64_type, arm_fn_index as i64);
+                            ctx.builder.build_call(
+                                make_closure_ty,
+                                make_closure,
+                                &mut [ctx_val, fn_idx_val, captures_buf, ncaptures],
+                                "arm_closure",
+                            )
+                        };
+
+                        let slot = unsafe {
+                            llvm_sys::core::LLVMBuildGEP2(
+                                ctx.builder.raw_ptr(),
+                                closures_array_ty,
+                                closures_alloca,
+                                [wrapper::const_i64(ctx.i64_type, 0), wrapper::const_i64(ctx.i64_type, i as i64)].as_mut_ptr(),
+                                2,
+                                c"closure_slot".as_ptr(),
+                            )
+                        };
+                        ctx.builder.build_store(closure_ptr, slot);
+                    }
+
+                    // Call rt_push_handler(ctx, effect_id, ops_ptr, closures_ptr, narms)
+                    let (push_handler, push_handler_ty) = get_helper(ctx, "rt_push_handler")?;
+                    let effect_val = wrapper::const_i64(ctx.i64_type, effect.as_u32() as i64);
+                    let narms_val = wrapper::const_i64(ctx.i64_type, narms as i64);
+                    ctx.builder.build_call(
+                        push_handler_ty,
+                        push_handler,
+                        &mut [ctx_val, effect_val, ops_alloca, closures_alloca, narms_val],
+                        "",
+                    );
+                }
+                // Control flow continues into the body blocks (handled by the
+                // normal terminator — typically Jump to body_entry).
             }
         }
     }
@@ -784,6 +920,7 @@ fn compile_call(
 fn compile_entry_wrapper(
     ctx: &mut LlvmCompilerContext,
     program: &IrProgram,
+    interner: &Interner,
 ) -> Result<(), String> {
     let entry_fn_type = ctx.entry_function_type();
     let entry_wrapper = ctx.module.add_function("__flux_entry", entry_fn_type);
@@ -792,8 +929,10 @@ fn compile_entry_wrapper(
     ctx.builder.position_at_end(block);
 
     let ctx_param = wrapper::get_param(entry_wrapper, 0);
+    let null_args = wrapper::const_null(ctx.ptr_type);
+    let zero = wrapper::const_i64(ctx.i64_type, 0);
 
-    // Find the entry function
+    // 1. Call the IR entry function (sets up globals, creates closures)
     let entry_idx = program
         .functions
         .iter()
@@ -801,17 +940,35 @@ fn compile_entry_wrapper(
         .ok_or_else(|| "missing entry function".to_string())?;
 
     let (entry_func, entry_func_ty) = ctx.functions[&entry_idx];
-
-    // Call with empty args
-    let null_args = wrapper::const_null(ctx.ptr_type);
-    let zero = wrapper::const_i64(ctx.i64_type, 0);
-
-    let result = ctx.builder.build_call(
+    let entry_result = ctx.builder.build_call(
         entry_func_ty,
         entry_func,
         &mut [ctx_param, null_args, zero, null_args, zero],
-        "main_result",
+        "entry_result",
     );
+
+    // 2. If there's a user-defined `main` function, call it too
+    //    (mirrors the Cranelift JIT's entry wrapper pattern)
+    let main_idx = program
+        .functions
+        .iter()
+        .position(|f| f.name.is_some() && interner.resolve(f.name.unwrap()) == "main");
+
+    let result = if let Some(main_idx) = main_idx {
+        if main_idx != entry_idx {
+            let (main_func, main_func_ty) = ctx.functions[&main_idx];
+            ctx.builder.build_call(
+                main_func_ty,
+                main_func,
+                &mut [ctx_param, null_args, zero, null_args, zero],
+                "main_result",
+            )
+        } else {
+            entry_result
+        }
+    } else {
+        entry_result
+    };
 
     ctx.builder.build_ret(result);
 
