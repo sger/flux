@@ -187,10 +187,10 @@ fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
         ("rt_adt_field", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
         ("rt_adt_field_or_none", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
         // Effect handlers
-        // rt_push_handler(ctx, effect_id, ops_ptr, closures_ptr, narms)
         ("rt_push_handler", void_ty, vec![ptr_ty, i64_ty, ptr_ty, ptr_ty, i64_ty]),
-        // rt_pop_handler(ctx)
         ("rt_pop_handler", void_ty, vec![ptr_ty]),
+        // rt_perform(ctx, effect_id, op_id, args_ptr, nargs, effect_name_ptr, effect_name_len, op_name_ptr, op_name_len, line, column) -> ptr
+        ("rt_perform", ptr_ty, vec![ptr_ty, i64_ty, i64_ty, ptr_ty, i64_ty, ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, i64_ty]),
     ];
 
     for (name, ret_ty, param_tys) in helpers {
@@ -1026,8 +1026,69 @@ fn compile_expr(
             }
             Err(format!("LLVM backend: unsupported member access '{}'", name_str))
         }
-        IrExpr::Perform { .. } | IrExpr::Handle { .. } => {
-            Err("LLVM backend: Perform/Handle expressions not yet supported (use HandleScope instruction)".to_string())
+        IrExpr::Perform { effect, operation, args } => {
+            let (func, fn_ty) = get_helper(ctx, "rt_perform")?;
+            let (force_boxed, force_boxed_ty) = get_helper(ctx, "rt_force_boxed")?;
+
+            let effect_id = wrapper::const_i64(ctx.i64_type, effect.as_u32() as i64);
+            let op_id = wrapper::const_i64(ctx.i64_type, operation.as_u32() as i64);
+
+            // Build boxed args array (*mut Value pointers)
+            let args_ptr = if args.is_empty() {
+                wrapper::const_null(ctx.ptr_type)
+            } else {
+                let array_ty = unsafe {
+                    llvm_sys::core::LLVMArrayType2(ctx.ptr_type, args.len() as u64)
+                };
+                let alloca = ctx.builder.build_alloca(array_ty, "perform_args");
+                for (i, arg) in args.iter().enumerate() {
+                    let val = get_var(env, *arg)?;
+                    let tag = ctx.builder.build_extract_value(val, 0, "pa_tag");
+                    let payload = ctx.builder.build_extract_value(val, 1, "pa_payload");
+                    let boxed = ctx.builder.build_call(
+                        force_boxed_ty, force_boxed,
+                        &mut [ctx_val, tag, payload], "pa_boxed",
+                    );
+                    let ptr_int = ctx.builder.build_extract_value(boxed, 1, "pa_ptr_int");
+                    let ptr = ctx.builder.build_int_to_ptr(ptr_int, ctx.ptr_type, "pa_ptr");
+                    let slot = unsafe {
+                        llvm_sys::core::LLVMBuildGEP2(
+                            ctx.builder.raw_ptr(), array_ty, alloca,
+                            [wrapper::const_i64(ctx.i64_type, 0), wrapper::const_i64(ctx.i64_type, i as i64)].as_mut_ptr(),
+                            2, c"pa_slot".as_ptr(),
+                        )
+                    };
+                    ctx.builder.build_store(ptr, slot);
+                }
+                alloca
+            };
+            let nargs = wrapper::const_i64(ctx.i64_type, args.len() as i64);
+
+            // Effect and operation name strings for error messages
+            let effect_name = interner.resolve(*effect);
+            let op_name = interner.resolve(*operation);
+            let effect_global = wrapper::create_global_string(
+                &ctx.module, &ctx.llvm_ctx,
+                &format!(".effect.{}", effect_name), effect_name.as_bytes(),
+            );
+            let op_global = wrapper::create_global_string(
+                &ctx.module, &ctx.llvm_ctx,
+                &format!(".op.{}", op_name), op_name.as_bytes(),
+            );
+            let effect_len = wrapper::const_i64(ctx.i64_type, effect_name.len() as i64);
+            let op_len = wrapper::const_i64(ctx.i64_type, op_name.len() as i64);
+            let zero = wrapper::const_i64(ctx.i64_type, 0);
+
+            let result = ctx.builder.build_call(
+                fn_ty, func,
+                &mut [ctx_val, effect_id, op_id, args_ptr, nargs,
+                      effect_global, effect_len, op_global, op_len, zero, zero],
+                "perform",
+            );
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::Handle { .. } => {
+            Err("LLVM backend: Handle expression not supported (use HandleScope instruction)".to_string())
         }
     }
 }
