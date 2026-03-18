@@ -296,18 +296,29 @@ pub(super) fn is_pure(expr: &CoreExpr) -> bool {
 fn is_primop_pure(op: &CorePrimOp) -> bool {
     match op {
         // Typed arithmetic on proven types — can't type-mismatch
-        CorePrimOp::IAdd | CorePrimOp::ISub | CorePrimOp::IMul
-        | CorePrimOp::FAdd | CorePrimOp::FSub | CorePrimOp::FMul => true,
+        CorePrimOp::IAdd
+        | CorePrimOp::ISub
+        | CorePrimOp::IMul
+        | CorePrimOp::FAdd
+        | CorePrimOp::FSub
+        | CorePrimOp::FMul => true,
         // Boolean/equality — can't fail
-        CorePrimOp::And | CorePrimOp::Or | CorePrimOp::Not
-        | CorePrimOp::Eq | CorePrimOp::NEq => true,
+        CorePrimOp::And | CorePrimOp::Or | CorePrimOp::Not | CorePrimOp::Eq | CorePrimOp::NEq => {
+            true
+        }
         // Constructors — always pure
-        CorePrimOp::MakeList | CorePrimOp::MakeArray
-        | CorePrimOp::MakeTuple | CorePrimOp::MakeHash
-        | CorePrimOp::Concat | CorePrimOp::Interpolate => true,
+        CorePrimOp::MakeList
+        | CorePrimOp::MakeArray
+        | CorePrimOp::MakeTuple
+        | CorePrimOp::MakeHash
+        | CorePrimOp::Concat
+        | CorePrimOp::Interpolate => true,
         // Division — may fail (division by zero)
-        CorePrimOp::Div | CorePrimOp::IDiv | CorePrimOp::FDiv
-        | CorePrimOp::Mod | CorePrimOp::IMod => false,
+        CorePrimOp::Div
+        | CorePrimOp::IDiv
+        | CorePrimOp::FDiv
+        | CorePrimOp::Mod
+        | CorePrimOp::IMod => false,
         // Generic arithmetic — may fail (type mismatch under gradual typing)
         CorePrimOp::Add | CorePrimOp::Sub | CorePrimOp::Mul => false,
         // Comparisons — may fail on incomparable types

@@ -231,25 +231,25 @@ pub(super) fn compile_call(
             if let Some(&arity) = adt_constructors.get(name)
                 && arity == args.len()
             {
-                    // Build ADT via rt_make_adt
-                    let (func, fn_ty) = get_helper(ctx, "rt_make_adt")?;
-                    let name_bytes = name_str.as_bytes();
-                    let global = wrapper::create_global_string(
-                        &ctx.module,
-                        &ctx.llvm_ctx,
-                        &format!(".adt.{}", name_str),
-                        name_bytes,
-                    );
-                    let name_len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
-                    let fields_buf = build_tagged_args_array(ctx, args, env)?;
-                    let nfields = wrapper::const_i64(ctx.i64_type, args.len() as i64);
-                    let result = ctx.builder.build_call(
-                        fn_ty,
-                        func,
-                        &mut [ctx_val, global, name_len, fields_buf, nfields],
-                        "adt_ctor",
-                    );
-                    return Ok(build_ptr_tagged(ctx, result));
+                // Build ADT via rt_make_adt
+                let (func, fn_ty) = get_helper(ctx, "rt_make_adt")?;
+                let name_bytes = name_str.as_bytes();
+                let global = wrapper::create_global_string(
+                    &ctx.module,
+                    &ctx.llvm_ctx,
+                    &format!(".adt.{}", name_str),
+                    name_bytes,
+                );
+                let name_len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
+                let fields_buf = build_tagged_args_array(ctx, args, env)?;
+                let nfields = wrapper::const_i64(ctx.i64_type, args.len() as i64);
+                let result = ctx.builder.build_call(
+                    fn_ty,
+                    func,
+                    &mut [ctx_val, global, name_len, fields_buf, nfields],
+                    "adt_ctor",
+                );
+                return Ok(build_ptr_tagged(ctx, result));
             }
 
             Err(format!(

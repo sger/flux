@@ -684,12 +684,7 @@ pub const FUNCTION_INDEX: u32 = u32::MAX;
 
 /// Add an LLVM enum attribute to a function at the given index.
 /// Index: `FUNCTION_INDEX` for function-level, `0` for return value, `1+` for params.
-pub fn add_function_attribute(
-    ctx: &LlvmCtx,
-    func: LLVMValueRef,
-    attr_name: &str,
-    index: u32,
-) {
+pub fn add_function_attribute(ctx: &LlvmCtx, func: LLVMValueRef, attr_name: &str, index: u32) {
     let c_name = CString::new(attr_name).unwrap();
     unsafe {
         let kind = LLVMGetEnumAttributeKindForName(c_name.as_ptr(), attr_name.len());

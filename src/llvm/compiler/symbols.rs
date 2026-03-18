@@ -9,7 +9,7 @@ use crate::syntax::interner::Interner;
 
 use super::super::context::LlvmCompilerContext;
 use super::super::wrapper::{
-    add_function_attribute, add_function_string_attribute, function_type, FUNCTION_INDEX,
+    FUNCTION_INDEX, add_function_attribute, add_function_string_attribute, function_type,
 };
 
 // ADT constructor and module function collection is shared with the JIT

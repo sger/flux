@@ -22,9 +22,9 @@ use crate::syntax::interner::Interner;
 use super::context::LlvmCompilerContext;
 use super::wrapper;
 
+use crate::backend_ir::metadata;
 use entry::{compile_entry_wrapper, compile_identity_function};
 use function::compile_function;
-use crate::backend_ir::metadata;
 use symbols::{declare_runtime_helpers, declare_user_functions, resolve_all_runtime_symbols};
 
 /// Compile an IR program into LLVM IR inside the given context.
