@@ -88,8 +88,8 @@ pub fn llvm_compile(
         .map_err(LlvmError::Internal)?;
 
     let main_ptr = llvm_ctx
-        .get_function_address("flux_main")
-        .ok_or_else(|| LlvmError::Internal("flux_main not found".to_string()))?
+        .get_function_address("__flux_entry")
+        .ok_or_else(|| LlvmError::Internal("__flux_entry not found".to_string()))?
         as *const u8;
 
     let mut jit_ctx = JitContext::new();
@@ -138,6 +138,11 @@ pub fn llvm_execute(mut compiled: LlvmCompiledProgram) -> LlvmResult<(Value, Jit
             std::mem::transmute(compiled.main_ptr);
         func(&mut compiled.ctx as *mut JitContext)
     };
+
+    // Leak the LLVM context to avoid drop-time crashes during development.
+    // TODO: fix proper cleanup
+    std::mem::forget(compiled._context);
+
 
     // Trampoline: re-invoke while the callee requests a mutual tail call.
     while result.tag == JIT_TAG_THUNK {

@@ -50,13 +50,20 @@ install_macos() {
         brew install "llvm@$LLVM_VERSION"
     fi
 
+    # zstd is required by LLVM's linker dependencies
+    if ! brew list zstd &>/dev/null; then
+        brew install zstd
+    fi
+
     LLVM_PREFIX=$(brew --prefix "llvm@$LLVM_VERSION")
+    ZSTD_LIB=$(brew --prefix zstd)/lib
     echo ""
     green "LLVM $LLVM_VERSION installed at $LLVM_PREFIX"
     echo ""
     info "Add this to your ~/.zshrc (or ~/.bash_profile):"
     echo ""
     echo "  export LLVM_SYS_180_PREFIX=$LLVM_PREFIX"
+    echo "  export LIBRARY_PATH=\"$ZSTD_LIB:\${LIBRARY_PATH:-}\""
     echo ""
 }
 
@@ -67,7 +74,8 @@ install_debian() {
     sudo apt-get install -y \
         "llvm-$LLVM_VERSION-dev" \
         "libclang-$LLVM_VERSION-dev" \
-        "lld-$LLVM_VERSION"
+        "lld-$LLVM_VERSION" \
+        libzstd-dev
 
     LLVM_PREFIX="/usr/lib/llvm-$LLVM_VERSION"
     echo ""

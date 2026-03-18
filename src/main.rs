@@ -827,9 +827,8 @@ fn run_file(
 
                 let llvm_exec_start = Instant::now();
                 match flux::llvm::llvm_execute(compiled) {
-                    Ok((_result, mut ctx)) => {
+                    Ok((_result, ctx)) => {
                         let llvm_exec_ms = llvm_exec_start.elapsed().as_secs_f64() * 1000.0;
-                        let _ = ctx;
                         if show_stats {
                             print_stats(&RunStats {
                                 parse_ms: Some(parse_ms),
@@ -844,7 +843,8 @@ fn run_file(
                                 instruction_bytes: None,
                             });
                         }
-                        ctx.clear_runtime_state();
+                        // Skip clear_runtime_state — just let ctx drop naturally
+                        drop(ctx);
                     }
                     Err(err) => {
                         eprintln!("LLVM execution failed: {}", err);
