@@ -479,7 +479,7 @@ fn run_file(
             });
             let cache_key = hash_cache_key(&base_cache_key, &strict_hash);
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
-            if !no_cache && !use_jit && matches!(dump_core, CoreDumpMode::None) {
+            if !no_cache && !use_jit && !use_llvm && matches!(dump_core, CoreDumpMode::None) {
                 if let Some(bytecode) =
                     cache.load(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
                 {
@@ -901,7 +901,7 @@ fn run_file(
                     deps.push((dep, hash));
                 }
             }
-            if !no_cache && !use_jit {
+            if !no_cache && !use_jit && !use_llvm {
                 let stored = cache
                     .store(
                         Path::new(path),
@@ -1526,32 +1526,6 @@ fn normalize_jit_cli_diagnostic(diag: &Diagnostic, source_path: &str) -> Diagnos
     diag
 }
 
-#[cfg(any(feature = "jit", feature = "llvm"))]
-fn synthetic_jit_stack_frames(
-    diag: &Diagnostic,
-    source_path: &str,
-    source_text: &str,
-) -> Vec<String> {
-    if diag.file() != Some(source_path) {
-        return Vec::new();
-    }
-    if !source_text.contains("fn main") {
-        return Vec::new();
-    }
-    let Some(span) = diag.span() else {
-        return Vec::new();
-    };
-    vec![
-        format!(
-            "main ({}:{}:{})",
-            flux::diagnostics::render_display_path(source_path),
-            span.start.line,
-            span.start.column + 1
-        ),
-        "<main>".to_string(),
-    ]
-}
-
 #[cfg(feature = "jit")]
 fn emit_jit_error(
     err: &JitError,
@@ -1575,7 +1549,9 @@ fn emit_jit_error(
             )
         }
         JitError::Runtime(diag) => {
-            let diag = normalize_jit_cli_diagnostic(diag.as_ref(), source_path);
+            // Strip stack trace — Cranelift JIT doesn't support real stack unwinding
+            let mut diag = normalize_jit_cli_diagnostic(diag.as_ref(), source_path);
+            diag.clear_stack_trace();
             match diagnostics_format {
                 DiagnosticOutputFormat::Text => {
                     let render_file = diag.file().unwrap_or(source_path);
@@ -1584,16 +1560,21 @@ fn emit_jit_error(
                     } else {
                         None
                     };
-                    let stack_frames = synthetic_jit_stack_frames(&diag, source_path, source_text);
-                    eprintln!(
-                        "{}",
-                        flux::diagnostics::render_runtime_diagnostic(
-                            &diag,
-                            render_file,
-                            render_source,
-                            &stack_frames,
-                        )
-                    )
+                    let stack_frames: Vec<String> = Vec::new();
+                    let rendered = flux::diagnostics::render_runtime_diagnostic(
+                        &diag,
+                        render_file,
+                        render_source,
+                        &stack_frames,
+                    );
+                    // Strip stack trace — Cranelift JIT doesn't support real stack unwinding
+                    let output = if let Some(idx) = rendered.find("Stack trace:") {
+                        let start = rendered[..idx].rfind('\n').map(|i| i + 1).unwrap_or(idx);
+                        rendered[..start].trim_end().to_string()
+                    } else {
+                        rendered
+                    };
+                    eprintln!("{}", output)
                 }
                 DiagnosticOutputFormat::Json | DiagnosticOutputFormat::JsonCompact => {
                     emit_diagnostics(
@@ -1610,7 +1591,13 @@ fn emit_jit_error(
             }
         }
         JitError::Internal(message) => {
-            eprintln!("{}", message);
+            let output = if let Some(idx) = message.find("Stack trace:") {
+                let start = message[..idx].rfind('\n').map(|i| i + 1).unwrap_or(idx);
+                message[..start].trim_end()
+            } else {
+                message.as_str()
+            };
+            eprintln!("{}", output);
         }
     }
 }
@@ -1625,7 +1612,9 @@ fn emit_llvm_error(
 ) {
     match err {
         flux::llvm::LlvmError::Compile(diag) | flux::llvm::LlvmError::Runtime(diag) => {
-            let diag = normalize_jit_cli_diagnostic(diag.as_ref(), source_path);
+            // Strip stack trace — LLVM backend doesn't support real stack unwinding
+            let mut diag = normalize_jit_cli_diagnostic(diag.as_ref(), source_path);
+            diag.clear_stack_trace();
             match diagnostics_format {
                 DiagnosticOutputFormat::Text => {
                     let render_file = diag.file().unwrap_or(source_path);
@@ -1634,16 +1623,21 @@ fn emit_llvm_error(
                     } else {
                         None
                     };
-                    let stack_frames = synthetic_jit_stack_frames(&diag, source_path, source_text);
-                    eprintln!(
-                        "{}",
-                        flux::diagnostics::render_runtime_diagnostic(
-                            &diag,
-                            render_file,
-                            render_source,
-                            &stack_frames,
-                        )
+                    let stack_frames: Vec<String> = Vec::new();
+                    let rendered = flux::diagnostics::render_runtime_diagnostic(
+                        &diag,
+                        render_file,
+                        render_source,
+                        &stack_frames,
                     );
+                    // Strip stack trace — LLVM doesn't support real stack unwinding
+                    let output = if let Some(idx) = rendered.find("Stack trace:") {
+                        let start = rendered[..idx].rfind('\n').map(|i| i + 1).unwrap_or(idx);
+                        rendered[..start].trim_end().to_string()
+                    } else {
+                        rendered
+                    };
+                    eprintln!("{}", output);
                 }
                 DiagnosticOutputFormat::Json | DiagnosticOutputFormat::JsonCompact => {
                     emit_diagnostics(
@@ -1660,7 +1654,16 @@ fn emit_llvm_error(
             }
         }
         flux::llvm::LlvmError::Internal(message) => {
-            eprintln!("{}", message);
+            // Strip any embedded stack trace from pre-rendered error strings.
+            // The "Stack trace:" marker may be preceded by ANSI color codes.
+            let output = if let Some(idx) = message.find("Stack trace:") {
+                // Back up to the preceding newline
+                let start = message[..idx].rfind('\n').map(|i| i + 1).unwrap_or(idx);
+                message[..start].trim_end()
+            } else {
+                message.as_str()
+            };
+            eprintln!("{}", output);
         }
     }
 }

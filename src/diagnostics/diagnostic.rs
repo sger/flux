@@ -162,6 +162,11 @@ impl Diagnostic {
         &self.stack_trace
     }
 
+    /// Remove any stack trace frames from this diagnostic.
+    pub fn clear_stack_trace(&mut self) {
+        self.stack_trace.clear();
+    }
+
     /// Return the compiler pipeline phase associated with this diagnostic, if known.
     pub fn phase(&self) -> Option<DiagnosticPhase> {
         self.phase
