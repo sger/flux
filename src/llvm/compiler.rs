@@ -15,8 +15,8 @@ use crate::cfg::{
     BlockId, IrBinaryOp, IrBlock, IrCallTarget, IrConst, IrExpr, IrFunction, IrInstr,
     IrListTest, IrProgram, IrTagTest, IrTerminator, IrVar,
 };
-use crate::jit::context::{JIT_TAG_BOOL, JIT_TAG_INT, JIT_TAG_PTR};
-use crate::jit::runtime_helpers::rt_symbols;
+use crate::runtime::native_context::{JIT_TAG_BOOL, JIT_TAG_INT, JIT_TAG_PTR};
+use crate::runtime::native_helpers::rt_symbols;
 use crate::syntax::interner::Interner;
 
 use super::context::LlvmCompilerContext;
