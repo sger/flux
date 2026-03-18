@@ -74,6 +74,7 @@ install_debian() {
     sudo apt-get install -y \
         "llvm-$LLVM_VERSION-dev" \
         "libclang-$LLVM_VERSION-dev" \
+        "libpolly-$LLVM_VERSION-dev" \
         "lld-$LLVM_VERSION" \
         libzstd-dev
 
