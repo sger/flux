@@ -1,6 +1,6 @@
 # Flux
 
-Flux is a functional language written in Rust with two execution backends: a stack-based **bytecode VM** and a **Cranelift JIT** that compiles to native machine code. It started as a learning project — inspired by [Writing a Compiler in Go](https://compilerbook.com/), [Crafting Interpreters](https://craftinginterpreters.com/), [Rust for Rustaceans](https://nostarch.com/rust-rustaceans), *Virtual Machines* by Iain D. Craig, and [Koka](https://koka-lang.github.io/koka/doc/index.html) for its approach to algebraic effects and effect rows.
+Flux is a pure functional language written in Rust with three execution backends: a stack-based **bytecode VM**, a **Cranelift JIT**, and an **LLVM native backend**. It features Hindley-Milner type inference, algebraic effects with row-polymorphic effect types, and familiar brace-style syntax. Inspired by [Haskell](https://www.haskell.org/) (purity, type inference), [Koka](https://koka-lang.github.io/koka/doc/index.html) (algebraic effects, effect rows), [Elm](https://elm-lang.org/) (human-friendly errors), and [Rust](https://www.rust-lang.org/) (syntax, tooling).
 
 ```flux
 fn greet(name) { "Hello, #{name}!" }
@@ -17,7 +17,7 @@ print(result)  // ["Hello, Alice!", "Hello, Charlie!"]
 
 ## Features
 
-- **Two execution backends** — Bytecode VM for portability; Cranelift JIT for native-speed execution. Both share the same Base function registry, GC heap, and collection library.
+- **Three execution backends** — Bytecode VM (fast startup), Cranelift JIT (fast native execution), LLVM (optimized native code + AOT object emission). All three share the same runtime, Base functions, GC heap, and collection library.
 - **Functional core** — Immutable `let` bindings, first-class functions, closures, higher-order Base functions
 - **Gradual type system** — Optional type annotations with Hindley-Milner inference. Unannotated code infers as `Any`; typed paths are statically checked at compile time.
 - **Algebraic effects** — Declare custom effects (`effect Console { ... }`), perform operations (`perform Console.print(...)`), and discharge them with `handle`. Built-in `IO` and `Time` effects enforced statically.
@@ -44,16 +44,19 @@ print(result)  // ["Hello, Alice!", "Hello, Charlie!"]
 
 **Build:**
 ```bash
-cargo build
-cargo build --features jit        # with Cranelift JIT backend
-cargo build --profile dev-fast    # opt-level 3 with lighter debug info
+cargo build                          # bytecode VM only
+cargo build --features jit           # + Cranelift JIT backend
+cargo build --features llvm          # + LLVM backend (requires LLVM 18)
+cargo build --all-features           # all backends
+cargo build --profile dev-fast       # opt-level 3 with lighter debug info
 ```
 
 **Run a program:**
 ```bash
-cargo run -- examples/basics/print.flx
-cargo run -- --root examples/ examples/advanced/grade_analyzer.flx
-cargo run --features jit -- examples/basics/fibonacci.flx --jit
+cargo run -- examples/basics/print.flx                                    # VM
+cargo run --features jit -- examples/basics/fibonacci.flx --jit           # Cranelift JIT
+cargo run --features llvm -- examples/basics/fibonacci.flx --llvm         # LLVM
+cargo run --features llvm -- examples/basics/fibonacci.flx --llvm --emit-obj -O  # AOT object file
 ```
 
 **Helper script** (sets module roots automatically):
@@ -67,48 +70,57 @@ scripts/run_examples.sh --all --jit    # run all using JIT backend
 
 ## Backend Parity
 
-| Capability | VM | JIT | Notes |
-|---|---|---|---|
-| Run Flux programs | Yes | Yes | JIT requires `cargo build/run --features jit` and `--jit` flag |
-| Base functions | Yes | Yes | Shared Base function registry/runtime behavior |
-| Unit test runner (`--test`) | Yes | Yes | Same `test_*` discovery and assertions |
-| AST optimizations (`-O`) | Yes | Yes | Shared optimization pipeline |
-| Analysis passes (`-A`) | Yes | Yes | Shared analysis pipeline |
-| GC / persistent collections | Yes | Yes | Shared runtime heap/collection model |
-| Bytecode cache | Yes | Partial | `--jit` bypasses VM cache-hit execution path |
-| VM instruction trace (`--trace`) | Yes | No | VM-only debugging feature |
+| Capability | VM | JIT | LLVM | Notes |
+|---|---|---|---|---|
+| Run Flux programs | Yes | Yes | Yes | JIT: `--features jit --jit`; LLVM: `--features llvm --llvm` |
+| Base functions | Yes | Yes | Yes | Shared Base function registry (83 functions) |
+| Unit test runner (`--test`) | Yes | Yes | Yes | Same `test_*` discovery and assertions |
+| Algebraic effects | Yes | Yes | Yes | Shared `rt_perform`/`rt_push_handler` runtime |
+| GC / persistent collections | Yes | Yes | Yes | Shared runtime heap/collection model |
+| Runtime error diagnostics | Yes | Yes | Yes | Same error codes and source snippets |
+| AOT object emission | No | No | Yes | `--emit-obj` produces `.o` files |
+| Bytecode cache | Yes | No | No | JIT/LLVM bypass VM cache |
+| VM instruction trace (`--trace`) | Yes | No | No | VM-only debugging feature |
+| LLVM optimization passes | No | No | Yes | O1/O2/O3 + tailcallelim for JIT mode |
+
+Parity is enforced by `scripts/release/check_parity.sh` which runs all example programs through all three backends and compares output.
 
 ---
 
 ## Version Feature Matrix
 
-| Feature | v0.0.1 | v0.0.2 | v0.0.3 | v0.0.4 |
-|---|---|---|---|---|
-| Bytecode VM backend | Yes | Yes | Yes | Yes |
-| Cranelift JIT backend | No | No | Yes | Yes |
-| Pattern matching (core) | Yes | Yes | Yes | Yes |
-| Pattern guards | No | Yes | Yes | Yes |
-| Cons list + tuple patterns | No | Partial | Yes | Yes |
-| Persistent cons lists | No | No | Yes | Yes |
-| HAMT hash maps | No | No | Yes | Yes |
-| Tuples | No | No | Yes | Yes |
-| Do-blocks | No | No | Yes | Yes |
-| Where clauses | No | No | Yes | Yes |
-| List comprehensions | No | No | Yes | Yes |
-| Base function count (approx) | 20+ | 35 | 75+ | 77 |
-| Built-in test runner (`--test`) | No | No | Yes | Yes |
-| Bytecode cache | Yes | Yes | Yes | Yes |
-| Type annotations (let + fn) | No | No | Partial | Yes |
-| Hindley-Milner type inference | No | No | No | Yes |
-| Gradual typing (`Any`) | No | No | No | Yes |
-| Algebraic effects (declare/perform/handle) | No | No | No | Yes |
-| Pure-by-default enforcement | No | No | No | Yes |
-| Effect polymorphism (`with e`) | No | No | No | Yes |
-| User-defined ADTs | No | No | No | Yes |
-| Generic ADTs (`<T>`) | No | No | No | Yes |
-| Exhaustiveness checking (ADT + general) | No | No | Partial | Yes |
-| Strict mode (`--strict`) | No | No | No | Yes |
-| Public API boundary enforcement | No | No | No | Yes |
+| Feature | v0.0.1 | v0.0.2 | v0.0.3 | v0.0.4 | Current |
+|---|---|---|---|---|---|
+| Bytecode VM backend | Yes | Yes | Yes | Yes | Yes |
+| Cranelift JIT backend | No | No | Yes | Yes | Yes |
+| LLVM native backend | No | No | No | No | Yes |
+| Core IR + optimization passes | No | No | No | No | Yes |
+| Pattern matching (core) | Yes | Yes | Yes | Yes | Yes |
+| Pattern guards | No | Yes | Yes | Yes | Yes |
+| Cons list + tuple patterns | No | Partial | Yes | Yes | Yes |
+| Persistent cons lists | No | No | Yes | Yes | Yes |
+| HAMT hash maps | No | No | Yes | Yes | Yes |
+| Tuples | No | No | Yes | Yes | Yes |
+| Do-blocks | No | No | Yes | Yes | Yes |
+| Where clauses | No | No | Yes | Yes | Yes |
+| List comprehensions | No | No | Yes | Yes | Yes |
+| Base function count (approx) | 20+ | 35 | 75+ | 77 | 83 |
+| Built-in test runner (`--test`) | No | No | Yes | Yes | Yes |
+| Bytecode cache | Yes | Yes | Yes | Yes | Yes |
+| Type annotations (let + fn) | No | No | Partial | Yes | Yes |
+| Hindley-Milner type inference | No | No | No | Yes | Yes |
+| Gradual typing (`Any`) | No | No | No | Yes | Yes |
+| Algebraic effects (declare/perform/handle) | No | No | No | Yes | Yes |
+| Pure-by-default enforcement | No | No | No | Yes | Yes |
+| Effect polymorphism (`with e`) | No | No | No | Yes | Yes |
+| User-defined ADTs | No | No | No | Yes | Yes |
+| Generic ADTs (`<T>`) | No | No | No | Yes | Yes |
+| Exhaustiveness checking (ADT + general) | No | No | Partial | Yes | Yes |
+| Strict mode (`--strict`) | No | No | No | Yes | Yes |
+| Public API boundary enforcement | No | No | No | Yes | Yes |
+| AOT object emission | No | No | No | No | Yes |
+| LLVM optimization passes (O1-O3) | No | No | No | No | Yes |
+| Backend parity testing | No | No | No | Partial | Yes (VM+JIT+LLVM) |
 
 Release notes:
 - `v0.0.1`: `docs/versions/whats_new_v0.0.1.md`
@@ -370,7 +382,9 @@ flux analyze-tail-calls <file.flx>     Show tail-call sites
 
 | Flag | VM | JIT | Description |
 |------|----|-----|-------------|
-| `--jit` | — | — | Use JIT backend (requires `--features jit`) |
+| `--jit` | — | — | Use Cranelift JIT backend (requires `--features jit`) |
+| `--llvm` | — | — | Use LLVM backend (requires `--features llvm` + LLVM 18) |
+| `--emit-obj` | — | — | Emit `.o` object file instead of executing (LLVM only) |
 | `--test` | Yes | Yes | Discover and run `test_*` functions; exit 0 on pass, 1 on failure |
 | `--test-filter <s>` | Yes | Yes | Only run tests whose names contain `<s>` (requires `--test`) |
 | `--stats` | Yes | Yes | Print timing and code metrics after run |
@@ -404,13 +418,13 @@ flux analyze-tail-calls <file.flx>     Show tail-call sites
   ────────────────────────────────────────────
 ```
 
-JIT output shows `jit compile [cranelift]` and `execute [native]` instead.
+JIT output shows `jit compile [cranelift]` and `execute [native]`. LLVM output shows `llvm compile [llvm]` and `execute [native]`.
 
 ---
 
 ## Base Functions
 
-All 77 Base functions are available without imports:
+All 83 Base functions are available without imports:
 
 | Category | Functions |
 |----------|-----------|
@@ -447,7 +461,7 @@ All 77 Base functions are available without imports:
 | [13. Match Exhaustiveness and ADTs](docs/guide/13_match_exhaustiveness_and_adts.md) | `type T = A \| B`, exhaustiveness, `E015`/`E083` |
 | [14. Real-World Pipeline Walkthrough](docs/guide/14_real_world_pipeline_walkthrough.md) | Combining modules, typed APIs, effects, and ADTs |
 
-**Compiler internals** — [`docs/internals/`](docs/internals/) covers bytecode, GC, JIT, value system, Base functions, diagnostics, error codes, linter, formatter, and the full type system + HM inference architecture.
+**Compiler internals** — [`docs/internals/`](docs/internals/) covers the full compilation pipeline (Core IR, CFG, bytecode), all three backends (VM, JIT, LLVM), GC, value system, Base functions, diagnostics, error codes, linter, formatter, and the type system + HM inference architecture.
 
 **Release history** — [`docs/versions/`](docs/versions/) has What's New documents for each tagged release.
 
@@ -459,19 +473,21 @@ All 77 Base functions are available without imports:
 src/
   syntax/       Lexer, parser, string interner, module graph, linter, formatter
   ast/          AST transforms: constant folding, desugaring, free vars, tail calls
-                type_infer.rs — Algorithm W HM inference engine (infer_program)
+                type_infer/ — Algorithm W HM inference engine with effect rows
   types/        HM type primitives: InferType, TypeSubst, Scheme, TypeEnv, unify
-  bytecode/     Bytecode compiler, opcodes, symbol tables, .fxc cache
-                compiler/contracts.rs — TypeExpr → RuntimeType conversion
-                compiler/hm_expr_typer.rs — strict-path HM expression type consumer
+  core/         Core IR (~12 expression variants), 7 optimization passes, Core → CFG lowering
+  cfg/          CFG-based backend IR: basic blocks, SSA-like vars, 7 lowering passes
+  backend_ir/   Public facade over cfg/, shared metadata collection utilities
+  bytecode/     Bytecode compiler (100 opcodes), symbol tables, .fxc cache
   runtime/
     vm/         Stack-based VM, instruction dispatch, tracing
-    base/       Base functions (array, string, map, numeric, higher-order, type checks)
+    base/       83 Base functions (collections, strings, maps, numeric, HOFs, type checks)
     gc/         Mark-and-sweep GC, HAMT persistent maps, telemetry
-    runtime_type.rs   — RuntimeType enum for boundary checks
-    function_contract.rs — FunctionContract (param/return runtime types)
-  jit/          Cranelift JIT backend (feature-gated): IR generation, runtime helpers, value arena
-  diagnostics/  Error types, rendering, builder pattern, aggregation, registry
+  jit/          Cranelift JIT backend (--features jit): CFG → Cranelift IR → machine code
+  llvm/         LLVM backend (--features llvm): CFG → LLVM IR → native code / AOT objects
+                compiler/ — 8 focused submodules (expressions, calls, binary_ops, etc.)
+                wrapper.rs — safe wrapper over LLVM C API with TBAA metadata support
+  diagnostics/  Elm-style error types, rendering, builder pattern, aggregation, registry
   primop/       PrimOp enum (71 ops), effect classification, fastcall allowlist
 examples/
   basics/       ~260 Flux programs organized by category
@@ -494,35 +510,37 @@ docs/
 Source (.flx)
     │
     ▼
-  Lexer          token stream
+  Lexer              token stream
     │
     ▼
-  Parser         AST (string-interned identifiers)
+  Parser             AST (string-interned identifiers)
     │
     ▼
-  AST Passes     constant folding · desugaring · free var collection · tail call detection
+  AST Passes         constant folding · desugaring · free vars · tail calls
     │
     ▼
-  PASS 1         predeclare all top-level names (enables mutual recursion)
+  HM Inference       Algorithm W — types + effect rows → TypeEnv + ExprTypeMap
     │
     ▼
-  HM Inference   Algorithm W — infer types, produce TypeEnv + ExprTypeMap
-                 emit E300/E301 on concrete mismatches
+  Core IR            ~12 expression variants, 7 optimization passes
     │
-    ├──────────────────────────────────────┐
-    ▼                                      ▼
-  PASS 2 (Bytecode)                   Cranelift JIT
-  type/effect validation              native machine code
-  .fxc cache                          (shares HM output)
-    │                                      │
-    ▼                                      ▼
-  Stack VM                            Native Execution
-    │                                      │
-    └──────────────────────────────────────┘
-                    │
-                    ▼
-              GC Heap (cons lists · HAMT maps)
-              + Runtime Boundary Checks (E055 · E1004)
+    ▼
+  Backend IR (CFG)   basic blocks, SSA-like vars, 7 lowering passes
+    │
+    ├────────────────────┬────────────────────┐
+    ▼                    ▼                    ▼
+  Bytecode           Cranelift JIT        LLVM Backend
+  compiler           native code          LLVM IR → native code
+  .fxc cache                              + AOT object emission
+    │                    │                    │
+    ▼                    ▼                    ▼
+  Stack VM           Native Execution     Native Execution
+    │                    │                    │
+    └────────────────────┴────────────────────┘
+                         │
+                         ▼
+                   Shared Runtime
+              GC · Base functions · Effects · Values
 ```
 
 ---
