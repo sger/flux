@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-use llvm_sys::prelude::*;
 use llvm_sys::LLVMIntPredicate;
+use llvm_sys::prelude::*;
 
 use crate::cfg::{
     BlockId, IrBinaryOp, IrBlock, IrCallTarget, IrExpr, IrFunction, IrInstr, IrProgram,
@@ -47,7 +47,11 @@ pub(super) fn compile_function(
             })
             .collect();
         if std::env::var("FLUX_LLVM_DUMP").is_ok() {
-            eprintln!("[llvm] entry fn: {} global bindings, {} globals", program.global_bindings.len(), program.globals.len());
+            eprintln!(
+                "[llvm] entry fn: {} global bindings, {} globals",
+                program.global_bindings.len(),
+                program.globals.len()
+            );
             for (var, idx) in &map {
                 eprintln!("[llvm]   v{} -> global[{}]", var.0, idx);
             }
@@ -87,9 +91,10 @@ pub(super) fn compile_function(
             let llvm_block = block_map[&block.id];
             ctx.builder.position_at_end(llvm_block);
             for (param_idx, _param) in block.params.iter().enumerate() {
-                let phi = ctx
-                    .builder
-                    .build_phi(ctx.tagged_value_type, &format!("phi_b{}_p{}", block.id.0, param_idx));
+                let phi = ctx.builder.build_phi(
+                    ctx.tagged_value_type,
+                    &format!("phi_b{}_p{}", block.id.0, param_idx),
+                );
                 phi_map.insert((block.id, param_idx), phi);
             }
         }
@@ -121,9 +126,11 @@ pub(super) fn compile_function(
         for instr in &block.instrs {
             if let IrInstr::HandleScope { body_result, .. } = instr {
                 // Find the continuation block: the block whose params include body_result
-                if let Some(cont_block) = function.blocks.iter().find(|b| {
-                    b.params.iter().any(|p| p.var == *body_result)
-                }) {
+                if let Some(cont_block) = function
+                    .blocks
+                    .iter()
+                    .find(|b| b.params.iter().any(|p| p.var == *body_result))
+                {
                     *handler_pop_counts.entry(cont_block.id).or_insert(0) += 1;
                 }
             }
@@ -138,7 +145,12 @@ pub(super) fn compile_function(
     // Compile each block
     for block in &function.blocks {
         if std::env::var("FLUX_LLVM_DUMP").is_ok() {
-            eprintln!("[llvm]  block {} (entry={}) instrs={}", block.id.0, block.id == function.entry, block.instrs.len());
+            eprintln!(
+                "[llvm]  block {} (entry={}) instrs={}",
+                block.id.0,
+                block.id == function.entry,
+                block.instrs.len()
+            );
             let _ = std::io::Write::flush(&mut std::io::stderr());
         }
         let llvm_block = block_map[&block.id];
@@ -149,10 +161,11 @@ pub(super) fn compile_function(
 
         // Emit rt_pop_handler calls for continuation blocks
         if let Some(&pop_count) = handler_pop_counts.get(&block.id) {
-            let (pop_handler, pop_handler_ty) = get_helper(ctx, "rt_pop_handler")
-                .map_err(|e| format!("handler pop: {}", e))?;
+            let (pop_handler, pop_handler_ty) =
+                get_helper(ctx, "rt_pop_handler").map_err(|e| format!("handler pop: {}", e))?;
             for _ in 0..pop_count {
-                ctx.builder.build_call(pop_handler_ty, pop_handler, &mut [ctx_val], "");
+                ctx.builder
+                    .build_call(pop_handler_ty, pop_handler, &mut [ctx_val], "");
             }
         }
 
@@ -163,7 +176,24 @@ pub(super) fn compile_function(
             }
         }
 
-        compile_block(ctx, program, function, block, &block_map, &mut env, ctx_val, func_ref, interner, &phi_map, &global_binding_indices, adt_constructors, &mut var_fn_map, module_functions, module_names, &mut module_env)?;
+        compile_block(
+            ctx,
+            program,
+            function,
+            block,
+            &block_map,
+            &mut env,
+            ctx_val,
+            func_ref,
+            interner,
+            &phi_map,
+            &global_binding_indices,
+            adt_constructors,
+            &mut var_fn_map,
+            module_functions,
+            module_names,
+            &mut module_env,
+        )?;
     }
 
     Ok(())
@@ -192,18 +222,37 @@ pub(super) fn compile_block(
         if std::env::var("FLUX_LLVM_DUMP").is_ok() {
             match instr {
                 IrInstr::Assign { dest, expr, .. } => {
-                    eprintln!("[llvm]   instr {}: Assign v{} = {:?}", instr_idx, dest.0, std::mem::discriminant(expr));
+                    eprintln!(
+                        "[llvm]   instr {}: Assign v{} = {:?}",
+                        instr_idx,
+                        dest.0,
+                        std::mem::discriminant(expr)
+                    );
                     let _ = std::io::Write::flush(&mut std::io::stderr());
                 }
-                IrInstr::Call { dest, target, args, .. } => {
-                    eprintln!("[llvm]   instr {}: Call v{} target={:?} nargs={}", instr_idx, dest.0, target, args.len());
+                IrInstr::Call {
+                    dest, target, args, ..
+                } => {
+                    eprintln!(
+                        "[llvm]   instr {}: Call v{} target={:?} nargs={}",
+                        instr_idx,
+                        dest.0,
+                        target,
+                        args.len()
+                    );
                     let _ = std::io::Write::flush(&mut std::io::stderr());
                 }
-                IrInstr::HandleScope { .. } => eprintln!("[llvm]   instr {}: HandleScope", instr_idx),
+                IrInstr::HandleScope { .. } => {
+                    eprintln!("[llvm]   instr {}: HandleScope", instr_idx)
+                }
             }
         }
         match instr {
-            IrInstr::Assign { dest, expr, metadata } => {
+            IrInstr::Assign {
+                dest,
+                expr,
+                metadata,
+            } => {
                 // Track if this variable holds a known user function (for TCO)
                 match expr {
                     IrExpr::MakeClosure(fn_id, captures) if captures.is_empty() => {
@@ -212,14 +261,18 @@ pub(super) fn compile_block(
                         }
                     }
                     IrExpr::LoadName(name) => {
-                        if let Some(idx) = program.functions.iter().position(|f| f.name == Some(*name)) {
+                        if let Some(idx) =
+                            program.functions.iter().position(|f| f.name == Some(*name))
+                        {
                             var_fn_map.insert(*dest, idx);
                         }
                         // Track if this var holds a module reference
                         let is_mod = interner.resolve(*name) == "Base"
                             || module_names.contains(name)
                             || module_names.iter().any(|m| {
-                                interner.resolve(*name).starts_with(&format!("{}.", interner.resolve(*m)))
+                                interner
+                                    .resolve(*name)
+                                    .starts_with(&format!("{}.", interner.resolve(*m)))
                             });
                         if is_mod {
                             module_env.insert(*dest, *name);
@@ -227,18 +280,43 @@ pub(super) fn compile_block(
                     }
                     _ => {}
                 }
-                let value = compile_expr(ctx, program, expr, env, ctx_val, func_ref, interner, adt_constructors, module_functions, module_names, module_env)
-                    .map_err(|e| format!("in assign v{}: {}", dest.0, e))?;
+                let value = compile_expr(
+                    ctx,
+                    program,
+                    expr,
+                    env,
+                    ctx_val,
+                    func_ref,
+                    interner,
+                    adt_constructors,
+                    module_functions,
+                    module_names,
+                    module_env,
+                )
+                .map_err(|e| format!("in assign v{}: {}", dest.0, e))?;
 
                 // After fallible binary ops, check for runtime errors and early-return
-                if matches!(expr, IrExpr::Binary(
-                    IrBinaryOp::Add | IrBinaryOp::IAdd
-                    | IrBinaryOp::Sub | IrBinaryOp::ISub
-                    | IrBinaryOp::Mul | IrBinaryOp::IMul
-                    | IrBinaryOp::Div | IrBinaryOp::IDiv
-                    | IrBinaryOp::Mod | IrBinaryOp::IMod
-                    | IrBinaryOp::FAdd | IrBinaryOp::FSub | IrBinaryOp::FMul | IrBinaryOp::FDiv, _, _
-                )) {
+                if matches!(
+                    expr,
+                    IrExpr::Binary(
+                        IrBinaryOp::Add
+                            | IrBinaryOp::IAdd
+                            | IrBinaryOp::Sub
+                            | IrBinaryOp::ISub
+                            | IrBinaryOp::Mul
+                            | IrBinaryOp::IMul
+                            | IrBinaryOp::Div
+                            | IrBinaryOp::IDiv
+                            | IrBinaryOp::Mod
+                            | IrBinaryOp::IMod
+                            | IrBinaryOp::FAdd
+                            | IrBinaryOp::FSub
+                            | IrBinaryOp::FMul
+                            | IrBinaryOp::FDiv,
+                        _,
+                        _
+                    )
+                ) {
                     if let Some(span) = &metadata.span {
                         emit_error_check_and_return(ctx, ctx_val, func_ref, span)?;
                     }
@@ -253,8 +331,19 @@ pub(super) fn compile_block(
                 args,
                 metadata,
             } => {
-                let value =
-                    compile_call(ctx, program, function, target, args, env, ctx_val, func_ref, interner, adt_constructors, metadata.span)?;
+                let value = compile_call(
+                    ctx,
+                    program,
+                    function,
+                    target,
+                    args,
+                    env,
+                    ctx_val,
+                    func_ref,
+                    interner,
+                    adt_constructors,
+                    metadata.span,
+                )?;
                 env.insert(*dest, value);
                 emit_set_global_if_bound(ctx, *dest, value, ctx_val, global_binding_indices)?;
             }
@@ -282,18 +371,22 @@ pub(super) fn compile_block(
                     );
                 } else {
                     // Build ops array: [op0_id, op1_id, ...]
-                    let ops_array_ty = unsafe {
-                        llvm_sys::core::LLVMArrayType2(ctx.i64_type, narms as u64)
-                    };
+                    let ops_array_ty =
+                        unsafe { llvm_sys::core::LLVMArrayType2(ctx.i64_type, narms as u64) };
                     let ops_alloca = ctx.builder.build_alloca(ops_array_ty, "handler_ops");
                     for (i, arm) in arms.iter().enumerate() {
-                        let op_id = wrapper::const_i64(ctx.i64_type, arm.operation_name.as_u32() as i64);
+                        let op_id =
+                            wrapper::const_i64(ctx.i64_type, arm.operation_name.as_u32() as i64);
                         let slot = unsafe {
                             llvm_sys::core::LLVMBuildGEP2(
                                 ctx.builder.raw_ptr(),
                                 ops_array_ty,
                                 ops_alloca,
-                                [wrapper::const_i64(ctx.i64_type, 0), wrapper::const_i64(ctx.i64_type, i as i64)].as_mut_ptr(),
+                                [
+                                    wrapper::const_i64(ctx.i64_type, 0),
+                                    wrapper::const_i64(ctx.i64_type, i as i64),
+                                ]
+                                .as_mut_ptr(),
                                 2,
                                 c"op_slot".as_ptr(),
                             )
@@ -302,10 +395,11 @@ pub(super) fn compile_block(
                     }
 
                     // Build closures array: [closure0_ptr, closure1_ptr, ...]
-                    let closures_array_ty = unsafe {
-                        llvm_sys::core::LLVMArrayType2(ctx.ptr_type, narms as u64)
-                    };
-                    let closures_alloca = ctx.builder.build_alloca(closures_array_ty, "handler_closures");
+                    let closures_array_ty =
+                        unsafe { llvm_sys::core::LLVMArrayType2(ctx.ptr_type, narms as u64) };
+                    let closures_alloca = ctx
+                        .builder
+                        .build_alloca(closures_array_ty, "handler_closures");
                     let (make_closure, make_closure_ty) = get_helper(ctx, "rt_make_jit_closure")?;
 
                     for (i, arm) in arms.iter().enumerate() {
@@ -314,7 +408,9 @@ pub(super) fn compile_block(
                             .functions
                             .iter()
                             .position(|f| f.id == arm.function_id)
-                            .ok_or_else(|| format!("missing handler arm function {:?}", arm.function_id))?;
+                            .ok_or_else(|| {
+                                format!("missing handler arm function {:?}", arm.function_id)
+                            })?;
 
                         // Build captures array for this arm
                         let closure_ptr = if arm.capture_vars.is_empty() {
@@ -331,7 +427,8 @@ pub(super) fn compile_block(
                             // Build captures as tagged value array
                             let cap_args: Vec<IrVar> = arm.capture_vars.clone();
                             let captures_buf = build_tagged_args_array(ctx, &cap_args, env)?;
-                            let ncaptures = wrapper::const_i64(ctx.i64_type, arm.capture_vars.len() as i64);
+                            let ncaptures =
+                                wrapper::const_i64(ctx.i64_type, arm.capture_vars.len() as i64);
                             let fn_idx_val = wrapper::const_i64(ctx.i64_type, arm_fn_index as i64);
                             ctx.builder.build_call(
                                 make_closure_ty,
@@ -346,7 +443,11 @@ pub(super) fn compile_block(
                                 ctx.builder.raw_ptr(),
                                 closures_array_ty,
                                 closures_alloca,
-                                [wrapper::const_i64(ctx.i64_type, 0), wrapper::const_i64(ctx.i64_type, i as i64)].as_mut_ptr(),
+                                [
+                                    wrapper::const_i64(ctx.i64_type, 0),
+                                    wrapper::const_i64(ctx.i64_type, i as i64),
+                                ]
+                                .as_mut_ptr(),
                                 2,
                                 c"closure_slot".as_ptr(),
                             )
@@ -373,13 +474,20 @@ pub(super) fn compile_block(
 
     // Compile terminator
     if std::env::var("FLUX_LLVM_DUMP").is_ok() {
-        eprintln!("[llvm]    terminator: {:?}", std::mem::discriminant(&block.terminator));
+        eprintln!(
+            "[llvm]    terminator: {:?}",
+            std::mem::discriminant(&block.terminator)
+        );
         let _ = std::io::Write::flush(&mut std::io::stderr());
     }
     match &block.terminator {
         IrTerminator::Return(var, _) => {
             if std::env::var("FLUX_LLVM_DUMP").is_ok() {
-                eprintln!("[llvm]    return v{}, in_env={}", var.0, env.contains_key(var));
+                eprintln!(
+                    "[llvm]    return v{}, in_env={}",
+                    var.0,
+                    env.contains_key(var)
+                );
                 let _ = std::io::Write::flush(&mut std::io::stderr());
             }
             let value = get_var(env, *var)?;
@@ -411,23 +519,16 @@ pub(super) fn compile_block(
         } => {
             let cond_val = get_var(env, *cond)?;
             // Extract the payload (boolean value) and compare to 0
-            let payload = ctx
-                .builder
-                .build_extract_value(cond_val, 1, "cond_payload");
+            let payload = ctx.builder.build_extract_value(cond_val, 1, "cond_payload");
             let zero = wrapper::const_i64(ctx.i64_type, 0);
-            let cond_bool = ctx.builder.build_icmp(
-                LLVMIntPredicate::LLVMIntNE,
-                payload,
-                zero,
-                "cond_bool",
-            );
+            let cond_bool =
+                ctx.builder
+                    .build_icmp(LLVMIntPredicate::LLVMIntNE, payload, zero, "cond_bool");
             let llvm_then = block_map[then_block];
             let llvm_else = block_map[else_block];
             ctx.builder.build_cond_br(cond_bool, llvm_then, llvm_else);
         }
-        IrTerminator::TailCall {
-            callee, args, ..
-        } => {
+        IrTerminator::TailCall { callee, args, .. } => {
             // For direct calls, use musttail for TCO (prevents stack overflow on deep recursion).
             if let IrCallTarget::Direct(fn_id) = callee {
                 let fn_index = program
@@ -459,9 +560,7 @@ pub(super) fn compile_block(
                     IrCallTarget::Named(name) => {
                         program.functions.iter().position(|f| f.name == Some(*name))
                     }
-                    IrCallTarget::Var(var) => {
-                        var_fn_map.get(var).copied()
-                    }
+                    IrCallTarget::Var(var) => var_fn_map.get(var).copied(),
                     _ => None,
                 };
 
@@ -487,7 +586,19 @@ pub(super) fn compile_block(
                     ctx.builder.build_ret(call_inst);
                 } else {
                     // Unknown callee — fall back to regular call+return
-                    let value = compile_call(ctx, program, function, callee, args, env, ctx_val, func_ref, interner, adt_constructors, None)?;
+                    let value = compile_call(
+                        ctx,
+                        program,
+                        function,
+                        callee,
+                        args,
+                        env,
+                        ctx_val,
+                        func_ref,
+                        interner,
+                        adt_constructors,
+                        None,
+                    )?;
                     ctx.builder.build_ret(value);
                 }
             }

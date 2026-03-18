@@ -1023,7 +1023,11 @@ impl JitCompiler {
 
                 for instr in &block.instrs {
                     match instr {
-                        BackendIrInstr::Assign { dest, expr, metadata } => {
+                        BackendIrInstr::Assign {
+                            dest,
+                            expr,
+                            metadata,
+                        } => {
                             let value = compile_simple_backend_ir_expr(
                                 module,
                                 helpers,
@@ -1039,18 +1043,34 @@ impl JitCompiler {
                             )?;
 
                             // After fallible binary ops, check for runtime errors and early-return
-                            if matches!(expr, BackendIrExpr::Binary(
-                                IrBinaryOp::Add | IrBinaryOp::IAdd
-                                | IrBinaryOp::Sub | IrBinaryOp::ISub
-                                | IrBinaryOp::Mul | IrBinaryOp::IMul
-                                | IrBinaryOp::Div | IrBinaryOp::IDiv
-                                | IrBinaryOp::Mod | IrBinaryOp::IMod
-                                | IrBinaryOp::FAdd | IrBinaryOp::FSub
-                                | IrBinaryOp::FMul | IrBinaryOp::FDiv, _, _
-                            )) {
+                            if matches!(
+                                expr,
+                                BackendIrExpr::Binary(
+                                    IrBinaryOp::Add
+                                        | IrBinaryOp::IAdd
+                                        | IrBinaryOp::Sub
+                                        | IrBinaryOp::ISub
+                                        | IrBinaryOp::Mul
+                                        | IrBinaryOp::IMul
+                                        | IrBinaryOp::Div
+                                        | IrBinaryOp::IDiv
+                                        | IrBinaryOp::Mod
+                                        | IrBinaryOp::IMod
+                                        | IrBinaryOp::FAdd
+                                        | IrBinaryOp::FSub
+                                        | IrBinaryOp::FMul
+                                        | IrBinaryOp::FDiv,
+                                    _,
+                                    _
+                                )
+                            ) {
                                 if let Some(span) = metadata.span {
                                     emit_error_check_and_return(
-                                        module, helpers, &mut builder, ctx_val, span,
+                                        module,
+                                        helpers,
+                                        &mut builder,
+                                        ctx_val,
+                                        span,
                                     );
                                 }
                             }

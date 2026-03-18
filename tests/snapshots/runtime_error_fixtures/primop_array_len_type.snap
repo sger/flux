@@ -30,7 +30,3 @@ error[E1004]: primop array_len expected Array, got Int
   |
 2 |     let ignored = array_len(1)
   |                   ^^^^^^^^^^^^
-
-Stack trace:
-  at main (examples/runtime_errors/primop_array_len_type.flx:2:19)
-  at <main>

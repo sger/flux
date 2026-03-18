@@ -1,7 +1,7 @@
 //! Binary operation compilation for the LLVM backend.
 
-use llvm_sys::prelude::*;
 use llvm_sys::LLVMIntPredicate;
+use llvm_sys::prelude::*;
 
 use crate::cfg::IrBinaryOp;
 
@@ -20,7 +20,12 @@ pub(super) fn compile_binary(
     // correctness: gradual typing may produce IAdd even when one operand is
     // None, so we need the runtime type check in rt_add/rt_sub/etc.
     match op {
-        IrBinaryOp::Lt | IrBinaryOp::Gt | IrBinaryOp::Le | IrBinaryOp::Ge | IrBinaryOp::Eq | IrBinaryOp::NotEq => {
+        IrBinaryOp::Lt
+        | IrBinaryOp::Gt
+        | IrBinaryOp::Le
+        | IrBinaryOp::Ge
+        | IrBinaryOp::Eq
+        | IrBinaryOp::NotEq => {
             // Use runtime helpers for polymorphic comparisons.
             // Note: there is no rt_less_than; for Lt we swap args and use rt_greater_than.
             let (helper_name, swap_args) = match op {
@@ -53,18 +58,37 @@ pub(super) fn compile_binary(
             let l_payload = ctx.builder.build_extract_value(lhs, 1, "l_payload");
             let r_tag = ctx.builder.build_extract_value(rhs, 0, "r_tag");
             let r_payload = ctx.builder.build_extract_value(rhs, 1, "r_payload");
-            let l_truthy = ctx.builder.build_call(is_truthy_ty, is_truthy, &mut [ctx_val, l_tag, l_payload], "l_truthy");
-            let r_truthy = ctx.builder.build_call(is_truthy_ty, is_truthy, &mut [ctx_val, r_tag, r_payload], "r_truthy");
+            let l_truthy = ctx.builder.build_call(
+                is_truthy_ty,
+                is_truthy,
+                &mut [ctx_val, l_tag, l_payload],
+                "l_truthy",
+            );
+            let r_truthy = ctx.builder.build_call(
+                is_truthy_ty,
+                is_truthy,
+                &mut [ctx_val, r_tag, r_payload],
+                "r_truthy",
+            );
             let zero = wrapper::const_i64(ctx.i64_type, 0);
-            let l_bool = ctx.builder.build_icmp(LLVMIntPredicate::LLVMIntNE, l_truthy, zero, "l_bool");
-            let r_bool = ctx.builder.build_icmp(LLVMIntPredicate::LLVMIntNE, r_truthy, zero, "r_bool");
+            let l_bool =
+                ctx.builder
+                    .build_icmp(LLVMIntPredicate::LLVMIntNE, l_truthy, zero, "l_bool");
+            let r_bool =
+                ctx.builder
+                    .build_icmp(LLVMIntPredicate::LLVMIntNE, r_truthy, zero, "r_bool");
             let and_result = unsafe {
                 let c = std::ffi::CString::new("and").unwrap();
                 llvm_sys::core::LLVMBuildAnd(ctx.builder.raw_ptr(), l_bool, r_bool, c.as_ptr())
             };
             let result_i64 = unsafe {
                 let c = std::ffi::CString::new("and_ext").unwrap();
-                llvm_sys::core::LLVMBuildZExt(ctx.builder.raw_ptr(), and_result, ctx.i64_type, c.as_ptr())
+                llvm_sys::core::LLVMBuildZExt(
+                    ctx.builder.raw_ptr(),
+                    and_result,
+                    ctx.i64_type,
+                    c.as_ptr(),
+                )
             };
             Ok(build_bool_tagged(ctx, result_i64))
         }
@@ -74,26 +98,55 @@ pub(super) fn compile_binary(
             let l_payload = ctx.builder.build_extract_value(lhs, 1, "l_payload");
             let r_tag = ctx.builder.build_extract_value(rhs, 0, "r_tag");
             let r_payload = ctx.builder.build_extract_value(rhs, 1, "r_payload");
-            let l_truthy = ctx.builder.build_call(is_truthy_ty, is_truthy, &mut [ctx_val, l_tag, l_payload], "l_truthy");
-            let r_truthy = ctx.builder.build_call(is_truthy_ty, is_truthy, &mut [ctx_val, r_tag, r_payload], "r_truthy");
+            let l_truthy = ctx.builder.build_call(
+                is_truthy_ty,
+                is_truthy,
+                &mut [ctx_val, l_tag, l_payload],
+                "l_truthy",
+            );
+            let r_truthy = ctx.builder.build_call(
+                is_truthy_ty,
+                is_truthy,
+                &mut [ctx_val, r_tag, r_payload],
+                "r_truthy",
+            );
             let zero = wrapper::const_i64(ctx.i64_type, 0);
-            let l_bool = ctx.builder.build_icmp(LLVMIntPredicate::LLVMIntNE, l_truthy, zero, "l_bool");
-            let r_bool = ctx.builder.build_icmp(LLVMIntPredicate::LLVMIntNE, r_truthy, zero, "r_bool");
+            let l_bool =
+                ctx.builder
+                    .build_icmp(LLVMIntPredicate::LLVMIntNE, l_truthy, zero, "l_bool");
+            let r_bool =
+                ctx.builder
+                    .build_icmp(LLVMIntPredicate::LLVMIntNE, r_truthy, zero, "r_bool");
             let or_result = unsafe {
                 let c = std::ffi::CString::new("or").unwrap();
                 llvm_sys::core::LLVMBuildOr(ctx.builder.raw_ptr(), l_bool, r_bool, c.as_ptr())
             };
             let result_i64 = unsafe {
                 let c = std::ffi::CString::new("or_ext").unwrap();
-                llvm_sys::core::LLVMBuildZExt(ctx.builder.raw_ptr(), or_result, ctx.i64_type, c.as_ptr())
+                llvm_sys::core::LLVMBuildZExt(
+                    ctx.builder.raw_ptr(),
+                    or_result,
+                    ctx.i64_type,
+                    c.as_ptr(),
+                )
             };
             Ok(build_bool_tagged(ctx, result_i64))
         }
         // Polymorphic / typed arithmetic — delegate to runtime for type safety
-        IrBinaryOp::Add | IrBinaryOp::IAdd | IrBinaryOp::Sub | IrBinaryOp::ISub
-        | IrBinaryOp::Mul | IrBinaryOp::IMul | IrBinaryOp::Div | IrBinaryOp::IDiv
-        | IrBinaryOp::Mod | IrBinaryOp::IMod
-        | IrBinaryOp::FAdd | IrBinaryOp::FSub | IrBinaryOp::FMul | IrBinaryOp::FDiv => {
+        IrBinaryOp::Add
+        | IrBinaryOp::IAdd
+        | IrBinaryOp::Sub
+        | IrBinaryOp::ISub
+        | IrBinaryOp::Mul
+        | IrBinaryOp::IMul
+        | IrBinaryOp::Div
+        | IrBinaryOp::IDiv
+        | IrBinaryOp::Mod
+        | IrBinaryOp::IMod
+        | IrBinaryOp::FAdd
+        | IrBinaryOp::FSub
+        | IrBinaryOp::FMul
+        | IrBinaryOp::FDiv => {
             let helper_name = match op {
                 IrBinaryOp::Add | IrBinaryOp::IAdd | IrBinaryOp::FAdd => "rt_add",
                 IrBinaryOp::Sub | IrBinaryOp::ISub | IrBinaryOp::FSub => "rt_sub",
@@ -114,7 +167,6 @@ pub(super) fn compile_binary(
                 "binop",
             );
             Ok(result)
-        }
-        // All IrBinaryOp variants are covered above.
+        } // All IrBinaryOp variants are covered above.
     }
 }

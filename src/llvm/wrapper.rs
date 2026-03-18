@@ -7,11 +7,11 @@ use std::ffi::{CStr, CString};
 use std::ptr;
 use std::sync::Once;
 
+use llvm_sys::analysis::{LLVMVerifierFailureAction, LLVMVerifyModule};
 use llvm_sys::core::*;
 use llvm_sys::execution_engine::*;
 use llvm_sys::prelude::*;
 use llvm_sys::target;
-use llvm_sys::analysis::{LLVMVerifyModule, LLVMVerifierFailureAction};
 
 // ── Initialization ───────────────────────────────────────────────────────────
 
@@ -19,13 +19,11 @@ static INIT: Once = Once::new();
 
 /// Initialize LLVM targets (called once per process).
 pub fn ensure_initialized() {
-    INIT.call_once(|| {
-        unsafe {
-            target::LLVM_InitializeNativeTarget();
-            target::LLVM_InitializeNativeAsmPrinter();
-            target::LLVM_InitializeNativeAsmParser();
-            LLVMLinkInMCJIT();
-        }
+    INIT.call_once(|| unsafe {
+        target::LLVM_InitializeNativeTarget();
+        target::LLVM_InitializeNativeAsmPrinter();
+        target::LLVM_InitializeNativeAsmParser();
+        LLVMLinkInMCJIT();
     });
 }
 
@@ -261,12 +259,7 @@ impl LlvmBuilder {
 
     // ── Struct / aggregate ───────────────────────────────────────────────
 
-    pub fn build_extract_value(
-        &self,
-        agg: LLVMValueRef,
-        index: u32,
-        name: &str,
-    ) -> LLVMValueRef {
+    pub fn build_extract_value(&self, agg: LLVMValueRef, index: u32, name: &str) -> LLVMValueRef {
         let c = CString::new(name).unwrap();
         unsafe { LLVMBuildExtractValue(self.raw, agg, index, c.as_ptr()) }
     }
@@ -396,11 +389,7 @@ impl LlvmExecutionEngine {
     pub fn get_function_address(&self, name: &str) -> Option<u64> {
         let c_name = CString::new(name).unwrap();
         let addr = unsafe { LLVMGetFunctionAddress(self.raw, c_name.as_ptr()) };
-        if addr == 0 {
-            None
-        } else {
-            Some(addr)
-        }
+        if addr == 0 { None } else { Some(addr) }
     }
 }
 
@@ -413,11 +402,7 @@ impl Drop for LlvmExecutionEngine {
 // ── Utility functions ────────────────────────────────────────────────────────
 
 /// Create an LLVM function type.
-pub fn function_type(
-    ret: LLVMTypeRef,
-    params: &[LLVMTypeRef],
-    is_var_arg: bool,
-) -> LLVMTypeRef {
+pub fn function_type(ret: LLVMTypeRef, params: &[LLVMTypeRef], is_var_arg: bool) -> LLVMTypeRef {
     unsafe {
         LLVMFunctionType(
             ret,
@@ -439,11 +424,7 @@ pub fn get_param(func: LLVMValueRef, index: u32) -> LLVMValueRef {
 }
 
 /// Add incoming edges to a phi node.
-pub fn add_incoming(
-    phi: LLVMValueRef,
-    values: &[LLVMValueRef],
-    blocks: &[LLVMBasicBlockRef],
-) {
+pub fn add_incoming(phi: LLVMValueRef, values: &[LLVMValueRef], blocks: &[LLVMBasicBlockRef]) {
     debug_assert_eq!(values.len(), blocks.len());
     unsafe {
         LLVMAddIncoming(
@@ -467,7 +448,9 @@ pub fn create_global_string(
     name: &str,
     data: &[u8],
 ) -> LLVMValueRef {
-    let array_ty = unsafe { llvm_sys::core::LLVMArrayType2(LLVMInt8TypeInContext(ctx.raw()), data.len() as u64) };
+    let array_ty = unsafe {
+        llvm_sys::core::LLVMArrayType2(LLVMInt8TypeInContext(ctx.raw()), data.len() as u64)
+    };
     let c_name = CString::new(name).unwrap();
     let global = unsafe { LLVMAddGlobal(module.raw(), array_ty, c_name.as_ptr()) };
     let init = unsafe {
@@ -504,7 +487,9 @@ pub fn get_default_target_triple() -> String {
 }
 
 /// Look up an LLVM target by triple.
-pub fn get_target_from_triple(triple: &str) -> Result<llvm_sys::target_machine::LLVMTargetRef, String> {
+pub fn get_target_from_triple(
+    triple: &str,
+) -> Result<llvm_sys::target_machine::LLVMTargetRef, String> {
     let c_triple = CString::new(triple).unwrap();
     let mut target_ref: llvm_sys::target_machine::LLVMTargetRef = ptr::null_mut();
     let mut err_msg: *mut i8 = ptr::null_mut();
@@ -586,12 +571,20 @@ impl LlvmTargetMachine {
 
     /// Emit the module to an object file.
     pub fn emit_object_file(&self, module: &LlvmModule, path: &str) -> Result<(), String> {
-        self.emit_to_file(module, path, llvm_sys::target_machine::LLVMCodeGenFileType::LLVMObjectFile)
+        self.emit_to_file(
+            module,
+            path,
+            llvm_sys::target_machine::LLVMCodeGenFileType::LLVMObjectFile,
+        )
     }
 
     /// Emit the module to an assembly file.
     pub fn emit_asm_file(&self, module: &LlvmModule, path: &str) -> Result<(), String> {
-        self.emit_to_file(module, path, llvm_sys::target_machine::LLVMCodeGenFileType::LLVMAssemblyFile)
+        self.emit_to_file(
+            module,
+            path,
+            llvm_sys::target_machine::LLVMCodeGenFileType::LLVMAssemblyFile,
+        )
     }
 
     fn emit_to_file(
@@ -655,14 +648,13 @@ pub fn run_optimization_passes(
     target_machine: &LlvmTargetMachine,
     passes: &str,
 ) -> Result<(), String> {
-    use llvm_sys::transforms::pass_builder::*;
     use llvm_sys::error::LLVMGetErrorMessage;
+    use llvm_sys::transforms::pass_builder::*;
 
     let c_passes = CString::new(passes).unwrap();
     let options = unsafe { LLVMCreatePassBuilderOptions() };
-    let err = unsafe {
-        LLVMRunPasses(module.raw(), c_passes.as_ptr(), target_machine.raw, options)
-    };
+    let err =
+        unsafe { LLVMRunPasses(module.raw(), c_passes.as_ptr(), target_machine.raw, options) };
     unsafe { LLVMDisposePassBuilderOptions(options) };
     if err.is_null() {
         Ok(())

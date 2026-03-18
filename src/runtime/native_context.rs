@@ -874,15 +874,29 @@ pub unsafe fn invoke_jit_thunk(ctx: &mut JitContext, thunk: &JitThunk) -> JitTag
         match call_abi {
             JitCallAbi::Array => {
                 type F = unsafe extern "C" fn(
-                    *mut JitContext, *const JitTaggedValue, i64, *mut Value, i64,
+                    *mut JitContext,
+                    *const JitTaggedValue,
+                    i64,
+                    *mut Value,
+                    i64,
                 ) -> JitTaggedValue;
                 let f: F = std::mem::transmute(fn_ptr);
-                f(ctx_ptr, thunk.args.as_ptr(), thunk.args.len() as i64, null_ptr, zero)
+                f(
+                    ctx_ptr,
+                    thunk.args.as_ptr(),
+                    thunk.args.len() as i64,
+                    null_ptr,
+                    zero,
+                )
             }
             JitCallAbi::Reg1 => {
                 let (t0, p0) = thunk_arg(&thunk.args, 0);
                 type F = unsafe extern "C" fn(
-                    *mut JitContext, i64, i64, *mut Value, i64,
+                    *mut JitContext,
+                    i64,
+                    i64,
+                    *mut Value,
+                    i64,
                 ) -> JitTaggedValue;
                 let f: F = std::mem::transmute(fn_ptr);
                 f(ctx_ptr, t0, p0, null_ptr, zero)
@@ -891,7 +905,13 @@ pub unsafe fn invoke_jit_thunk(ctx: &mut JitContext, thunk: &JitThunk) -> JitTag
                 let (t0, p0) = thunk_arg(&thunk.args, 0);
                 let (t1, p1) = thunk_arg(&thunk.args, 1);
                 type F = unsafe extern "C" fn(
-                    *mut JitContext, i64, i64, i64, i64, *mut Value, i64,
+                    *mut JitContext,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    *mut Value,
+                    i64,
                 ) -> JitTaggedValue;
                 let f: F = std::mem::transmute(fn_ptr);
                 f(ctx_ptr, t0, p0, t1, p1, null_ptr, zero)
@@ -901,7 +921,15 @@ pub unsafe fn invoke_jit_thunk(ctx: &mut JitContext, thunk: &JitThunk) -> JitTag
                 let (t1, p1) = thunk_arg(&thunk.args, 1);
                 let (t2, p2) = thunk_arg(&thunk.args, 2);
                 type F = unsafe extern "C" fn(
-                    *mut JitContext, i64, i64, i64, i64, i64, i64, *mut Value, i64,
+                    *mut JitContext,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    *mut Value,
+                    i64,
                 ) -> JitTaggedValue;
                 let f: F = std::mem::transmute(fn_ptr);
                 f(ctx_ptr, t0, p0, t1, p1, t2, p2, null_ptr, zero)
@@ -912,7 +940,17 @@ pub unsafe fn invoke_jit_thunk(ctx: &mut JitContext, thunk: &JitThunk) -> JitTag
                 let (t2, p2) = thunk_arg(&thunk.args, 2);
                 let (t3, p3) = thunk_arg(&thunk.args, 3);
                 type F = unsafe extern "C" fn(
-                    *mut JitContext, i64, i64, i64, i64, i64, i64, i64, i64, *mut Value, i64,
+                    *mut JitContext,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    i64,
+                    *mut Value,
+                    i64,
                 ) -> JitTaggedValue;
                 let f: F = std::mem::transmute(fn_ptr);
                 f(ctx_ptr, t0, p0, t1, p1, t2, p2, t3, p3, null_ptr, zero)
