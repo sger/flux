@@ -672,3 +672,46 @@ pub fn run_optimization_passes(
         Err(msg)
     }
 }
+
+/// Function-level attribute index (applies to the function itself, not params/return).
+pub const FUNCTION_INDEX: u32 = u32::MAX;
+
+/// Add an LLVM enum attribute to a function at the given index.
+/// Index: `FUNCTION_INDEX` for function-level, `0` for return value, `1+` for params.
+pub fn add_function_attribute(
+    ctx: &LlvmCtx,
+    func: LLVMValueRef,
+    attr_name: &str,
+    index: u32,
+) {
+    let c_name = CString::new(attr_name).unwrap();
+    unsafe {
+        let kind = LLVMGetEnumAttributeKindForName(c_name.as_ptr(), attr_name.len());
+        if kind > 0 {
+            let attr = LLVMCreateEnumAttribute(ctx.raw(), kind, 0);
+            LLVMAddAttributeAtIndex(func, index, attr);
+        }
+    }
+}
+
+/// Add an LLVM string attribute (e.g. `memory(read)`) to a function.
+pub fn add_function_string_attribute(
+    ctx: &LlvmCtx,
+    func: LLVMValueRef,
+    key: &str,
+    value: &str,
+    index: u32,
+) {
+    let c_key = CString::new(key).unwrap();
+    let c_val = CString::new(value).unwrap();
+    unsafe {
+        let attr = LLVMCreateStringAttribute(
+            ctx.raw(),
+            c_key.as_ptr(),
+            key.len() as u32,
+            c_val.as_ptr(),
+            value.len() as u32,
+        );
+        LLVMAddAttributeAtIndex(func, index, attr);
+    }
+}
