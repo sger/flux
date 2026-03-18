@@ -7,7 +7,7 @@ use crate::cfg::IrBinaryOp;
 
 use super::super::context::LlvmCompilerContext;
 use super::super::wrapper;
-use super::helpers::{build_bool_tagged, get_helper};
+use super::helpers::{build_bool_tagged, build_int_tagged, get_helper};
 
 pub(super) fn compile_binary(
     ctx: &LlvmCompilerContext,
@@ -132,27 +132,40 @@ pub(super) fn compile_binary(
             };
             Ok(build_bool_tagged(ctx, result_i64))
         }
-        // Polymorphic / typed arithmetic — delegate to runtime for type safety
-        IrBinaryOp::Add
-        | IrBinaryOp::IAdd
-        | IrBinaryOp::Sub
+        // Typed integer arithmetic — inlined (both operands guaranteed Int by Core IR)
+        IrBinaryOp::IAdd
         | IrBinaryOp::ISub
-        | IrBinaryOp::Mul
         | IrBinaryOp::IMul
-        | IrBinaryOp::Div
         | IrBinaryOp::IDiv
+        | IrBinaryOp::IMod => {
+            let lhs_payload = ctx.builder.build_extract_value(lhs, 1, "lhs_p");
+            let rhs_payload = ctx.builder.build_extract_value(rhs, 1, "rhs_p");
+            let result = match op {
+                IrBinaryOp::IAdd => ctx.builder.build_add(lhs_payload, rhs_payload, "iadd"),
+                IrBinaryOp::ISub => ctx.builder.build_sub(lhs_payload, rhs_payload, "isub"),
+                IrBinaryOp::IMul => ctx.builder.build_mul(lhs_payload, rhs_payload, "imul"),
+                IrBinaryOp::IDiv => ctx.builder.build_sdiv(lhs_payload, rhs_payload, "idiv"),
+                IrBinaryOp::IMod => ctx.builder.build_srem(lhs_payload, rhs_payload, "imod"),
+                _ => unreachable!(),
+            };
+            Ok(build_int_tagged(ctx, result))
+        }
+        // Polymorphic arithmetic — delegate to runtime for type safety
+        IrBinaryOp::Add
+        | IrBinaryOp::Sub
+        | IrBinaryOp::Mul
+        | IrBinaryOp::Div
         | IrBinaryOp::Mod
-        | IrBinaryOp::IMod
         | IrBinaryOp::FAdd
         | IrBinaryOp::FSub
         | IrBinaryOp::FMul
         | IrBinaryOp::FDiv => {
             let helper_name = match op {
-                IrBinaryOp::Add | IrBinaryOp::IAdd | IrBinaryOp::FAdd => "rt_add",
-                IrBinaryOp::Sub | IrBinaryOp::ISub | IrBinaryOp::FSub => "rt_sub",
-                IrBinaryOp::Mul | IrBinaryOp::IMul | IrBinaryOp::FMul => "rt_mul",
-                IrBinaryOp::Div | IrBinaryOp::IDiv | IrBinaryOp::FDiv => "rt_div",
-                IrBinaryOp::Mod | IrBinaryOp::IMod => "rt_mod",
+                IrBinaryOp::Add | IrBinaryOp::FAdd => "rt_add",
+                IrBinaryOp::Sub | IrBinaryOp::FSub => "rt_sub",
+                IrBinaryOp::Mul | IrBinaryOp::FMul => "rt_mul",
+                IrBinaryOp::Div | IrBinaryOp::FDiv => "rt_div",
+                IrBinaryOp::Mod => "rt_mod",
                 _ => unreachable!(),
             };
             let (func, fn_ty) = get_helper(ctx, helper_name)?;

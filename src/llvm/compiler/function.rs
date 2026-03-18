@@ -295,20 +295,17 @@ pub(super) fn compile_block(
                 )
                 .map_err(|e| format!("in assign v{}: {}", dest.0, e))?;
 
-                // After fallible binary ops, check for runtime errors and early-return
+                // After fallible polymorphic binary ops, check for runtime errors.
+                // IAdd/ISub/IMul/IDiv/IMod are not checked — they're inlined and
+                // the Core IR guarantees both operands are Int.
                 if matches!(
                     expr,
                     IrExpr::Binary(
                         IrBinaryOp::Add
-                            | IrBinaryOp::IAdd
                             | IrBinaryOp::Sub
-                            | IrBinaryOp::ISub
                             | IrBinaryOp::Mul
-                            | IrBinaryOp::IMul
                             | IrBinaryOp::Div
-                            | IrBinaryOp::IDiv
                             | IrBinaryOp::Mod
-                            | IrBinaryOp::IMod
                             | IrBinaryOp::FAdd
                             | IrBinaryOp::FSub
                             | IrBinaryOp::FMul
