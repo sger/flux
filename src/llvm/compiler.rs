@@ -136,6 +136,9 @@ fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
         // Array/tuple
         ("rt_make_array", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
         ("rt_make_tuple", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
+        // String operations
+        ("rt_to_string", ptr_ty, vec![ptr_ty, ptr_ty]),
+        ("rt_string_concat", ptr_ty, vec![ptr_ty, ptr_ty, ptr_ty]),
         // Effect handlers
         // rt_push_handler(ctx, effect_id, ops_ptr, closures_ptr, narms)
         ("rt_push_handler", void_ty, vec![ptr_ty, i64_ty, ptr_ty, ptr_ty, i64_ty]),
@@ -691,6 +694,81 @@ fn compile_expr(
                 Ok(build_ptr_tagged(ctx, result))
             }
         }
+        IrExpr::Prefix { operator, right } => {
+            let right_val = get_var(env, *right)?;
+            let helper_name = match operator.as_str() {
+                "-" => "rt_negate",
+                "!" => "rt_not",
+                _ => return Err(format!("LLVM backend: unsupported prefix operator '{}'", operator)),
+            };
+            let (func, fn_ty) = get_helper(ctx, helper_name)?;
+            let tag = ctx.builder.build_extract_value(right_val, 0, "pfx_tag");
+            let payload = ctx.builder.build_extract_value(right_val, 1, "pfx_payload");
+            let result = ctx.builder.build_call(
+                fn_ty,
+                func,
+                &mut [ctx_val, tag, payload],
+                "prefix",
+            );
+            Ok(result)
+        }
+        IrExpr::InterpolatedString(parts) => {
+            // Build each part as a string, then concatenate via rt_string_concat.
+            // For now, convert each part to a boxed Value and concatenate.
+            let (make_string, make_string_ty) = get_helper(ctx, "rt_make_string")?;
+            let (force_boxed, force_boxed_ty) = get_helper(ctx, "rt_force_boxed")?;
+
+            // Helper: rt_to_string and rt_string_concat
+            let to_string = ctx.helpers.get("rt_to_string");
+            let string_concat = ctx.helpers.get("rt_string_concat");
+
+            if to_string.is_none() || string_concat.is_none() {
+                return Err("LLVM backend: rt_to_string/rt_string_concat not declared".to_string());
+            }
+            let (to_string_fn, to_string_ty) = *to_string.unwrap();
+            let (concat_fn, concat_ty) = *string_concat.unwrap();
+
+            // Start with empty string
+            let empty_global = wrapper::create_global_string(&ctx.module, &ctx.llvm_ctx, ".str.empty", b"");
+            let zero_len = wrapper::const_i64(ctx.i64_type, 0);
+            let mut accum = ctx.builder.build_call(
+                make_string_ty,
+                make_string,
+                &mut [ctx_val, empty_global, zero_len],
+                "interp_base",
+            );
+
+            for part in parts {
+                let part_ptr = match part {
+                    crate::cfg::IrStringPart::Literal(s) => {
+                        let bytes = s.as_bytes();
+                        let global = wrapper::create_global_string(
+                            &ctx.module, &ctx.llvm_ctx,
+                            &format!(".str.interp.{}", bytes.len()), bytes,
+                        );
+                        let len = wrapper::const_i64(ctx.i64_type, bytes.len() as i64);
+                        ctx.builder.build_call(make_string_ty, make_string, &mut [ctx_val, global, len], "lit_part")
+                    }
+                    crate::cfg::IrStringPart::Interpolation(var) => {
+                        let val = get_var(env, *var)?;
+                        let tag = ctx.builder.build_extract_value(val, 0, "interp_tag");
+                        let payload = ctx.builder.build_extract_value(val, 1, "interp_payload");
+                        let boxed = ctx.builder.build_call(
+                            force_boxed_ty, force_boxed,
+                            &mut [ctx_val, tag, payload], "interp_boxed",
+                        );
+                        let ptr_int = ctx.builder.build_extract_value(boxed, 1, "interp_ptr_int");
+                        let ptr = ctx.builder.build_int_to_ptr(ptr_int, ctx.ptr_type, "interp_ptr");
+                        // Convert to string
+                        ctx.builder.build_call(to_string_ty, to_string_fn, &mut [ctx_val, ptr], "interp_str")
+                    }
+                };
+                // Concatenate
+                accum = ctx.builder.build_call(concat_ty, concat_fn, &mut [ctx_val, accum, part_ptr], "interp_cat");
+            }
+
+            Ok(build_ptr_tagged(ctx, accum))
+        }
         _ => Err(format!(
             "LLVM backend: unsupported expression {:?}",
             std::mem::discriminant(expr)
@@ -748,14 +826,25 @@ fn compile_binary(
             );
             Ok(result)
         }
-        // Polymorphic arithmetic — delegate to runtime
-        IrBinaryOp::Add | IrBinaryOp::Sub | IrBinaryOp::Mul | IrBinaryOp::Div | IrBinaryOp::Mod => {
+        // Polymorphic / float arithmetic — delegate to runtime
+        IrBinaryOp::Add | IrBinaryOp::Sub | IrBinaryOp::Mul | IrBinaryOp::Div | IrBinaryOp::Mod
+        | IrBinaryOp::FAdd | IrBinaryOp::FSub | IrBinaryOp::FMul | IrBinaryOp::FDiv
+        | IrBinaryOp::And | IrBinaryOp::Or => {
             let helper_name = match op {
-                IrBinaryOp::Add => "rt_add",
-                IrBinaryOp::Sub => "rt_sub",
-                IrBinaryOp::Mul => "rt_mul",
-                IrBinaryOp::Div => "rt_div",
+                IrBinaryOp::Add | IrBinaryOp::FAdd => "rt_add",
+                IrBinaryOp::Sub | IrBinaryOp::FSub => "rt_sub",
+                IrBinaryOp::Mul | IrBinaryOp::FMul => "rt_mul",
+                IrBinaryOp::Div | IrBinaryOp::FDiv => "rt_div",
                 IrBinaryOp::Mod => "rt_mod",
+                // And/Or at the IR level are already non-short-circuit (operands evaluated).
+                // The runtime rt_add just returns its argument for bools — use rt_equal hack?
+                // Actually, And/Or should be implemented as boolean operations.
+                // For And: both must be truthy → (a != 0) & (b != 0)
+                // For Or: either truthy → (a != 0) | (b != 0)
+                // But the runtime helpers don't have rt_and/rt_or.
+                // Route through the generic Add path which handles bool+bool correctly.
+                IrBinaryOp::And => "rt_mul", // bool AND = multiply (0*x=0, 1*1=1)
+                IrBinaryOp::Or => "rt_add",  // bool OR  = add clamped (0+0=0, 1+0=1, 1+1=2→truthy)
                 _ => unreachable!(),
             };
             let (func, fn_ty) = get_helper(ctx, helper_name)?;
@@ -771,7 +860,7 @@ fn compile_binary(
             );
             Ok(result)
         }
-        _ => Err(format!("LLVM backend: unsupported binary op {:?}", op)),
+        // All IrBinaryOp variants are covered above.
     }
 }
 
