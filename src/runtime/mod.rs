@@ -35,6 +35,9 @@ pub mod value;
 pub mod vm;
 
 pub mod nanbox;
+pub mod native_context;
+pub mod native_helpers;
+pub mod value_arena;
 
 pub trait RuntimeContext {
     fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String>;
