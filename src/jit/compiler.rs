@@ -1042,27 +1042,29 @@ impl JitCompiler {
                                 expr,
                             )?;
 
-                            // After fallible binary ops, check for runtime errors and early-return
+                            // After runtime-dispatched binary/prefix ops, check for errors.
+                            // IAdd/ISub/IMul/IDiv/IMod are inlined (operands proven Int) — no check needed.
                             if matches!(
                                 expr,
                                 BackendIrExpr::Binary(
                                     IrBinaryOp::Add
-                                        | IrBinaryOp::IAdd
                                         | IrBinaryOp::Sub
-                                        | IrBinaryOp::ISub
                                         | IrBinaryOp::Mul
-                                        | IrBinaryOp::IMul
                                         | IrBinaryOp::Div
-                                        | IrBinaryOp::IDiv
                                         | IrBinaryOp::Mod
-                                        | IrBinaryOp::IMod
                                         | IrBinaryOp::FAdd
                                         | IrBinaryOp::FSub
                                         | IrBinaryOp::FMul
-                                        | IrBinaryOp::FDiv,
+                                        | IrBinaryOp::FDiv
+                                        | IrBinaryOp::Gt
+                                        | IrBinaryOp::Ge
+                                        | IrBinaryOp::Le
+                                        | IrBinaryOp::Lt
+                                        | IrBinaryOp::Eq
+                                        | IrBinaryOp::NotEq,
                                     _,
                                     _
-                                )
+                                ) | BackendIrExpr::Prefix { .. }
                             ) {
                                 if let Some(span) = metadata.span {
                                     emit_error_check_and_return(
