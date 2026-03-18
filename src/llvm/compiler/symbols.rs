@@ -273,6 +273,18 @@ pub(super) fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
             add_function_attribute(&ctx.llvm_ctx, func, "willreturn", FUNCTION_INDEX);
         }
 
+        // Small, frequently-called helpers: hint LLVM to inline them
+        const INLINE_HELPERS: &[&str] = &[
+            "rt_make_integer", // 1 line: JitTaggedValue::int(value)
+            "rt_make_float",   // 1 line: JitTaggedValue::float_bits(bits)
+            "rt_make_bool",    // 1 line: JitTaggedValue::bool(value != 0)
+            "rt_is_truthy",    // small: clone_from_tagged + is_truthy
+            "rt_has_error",    // 1 line: ctx.error.is_some()
+        ];
+        if INLINE_HELPERS.contains(&name) {
+            add_function_attribute(&ctx.llvm_ctx, func, "inlinehint", FUNCTION_INDEX);
+        }
+
         ctx.helpers.insert(name, (func, fn_type));
     }
 }
