@@ -1066,16 +1066,15 @@ impl JitCompiler {
                                     _,
                                     _
                                 ) | BackendIrExpr::Prefix { .. }
-                            ) {
-                                if let Some(span) = metadata.span {
-                                    emit_error_check_and_return(
-                                        module,
-                                        helpers,
-                                        &mut builder,
-                                        ctx_val,
-                                        span,
-                                    );
-                                }
+                            ) && let Some(span) = metadata.span
+                            {
+                                emit_error_check_and_return(
+                                    module,
+                                    helpers,
+                                    &mut builder,
+                                    ctx_val,
+                                    span,
+                                );
                             }
 
                             env.insert(*dest, value);

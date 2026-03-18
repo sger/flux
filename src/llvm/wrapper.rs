@@ -34,6 +34,12 @@ pub struct LlvmCtx {
     raw: LLVMContextRef,
 }
 
+impl Default for LlvmCtx {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LlvmCtx {
     pub fn new() -> Self {
         Self {
