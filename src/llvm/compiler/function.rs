@@ -295,9 +295,9 @@ pub(super) fn compile_block(
                 )
                 .map_err(|e| format!("in assign v{}: {}", dest.0, e))?;
 
-                // After fallible polymorphic binary ops, check for runtime errors.
-                // IAdd/ISub/IMul/IDiv/IMod are not checked — they're inlined and
-                // the Core IR guarantees both operands are Int.
+                // After runtime-dispatched binary ops, check for errors.
+                // IAdd/ISub/IMul/IDiv/IMod are inlined (operands proven Int) — no check needed.
+                // All others call rt_* helpers that may set ctx.error on type mismatches.
                 if matches!(
                     expr,
                     IrExpr::Binary(
@@ -309,11 +309,18 @@ pub(super) fn compile_block(
                             | IrBinaryOp::FAdd
                             | IrBinaryOp::FSub
                             | IrBinaryOp::FMul
-                            | IrBinaryOp::FDiv,
+                            | IrBinaryOp::FDiv
+                            | IrBinaryOp::Gt
+                            | IrBinaryOp::Ge
+                            | IrBinaryOp::Le
+                            | IrBinaryOp::Lt
+                            | IrBinaryOp::Eq
+                            | IrBinaryOp::NotEq,
                         _,
                         _
                     )
-                ) {
+                ) || matches!(expr, IrExpr::Prefix { .. })
+                {
                     if let Some(span) = &metadata.span {
                         emit_error_check_and_return(ctx, ctx_val, func_ref, span)?;
                     }
