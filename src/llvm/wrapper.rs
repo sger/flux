@@ -485,3 +485,158 @@ pub fn create_global_string(
 pub fn const_null(ty: LLVMTypeRef) -> LLVMValueRef {
     unsafe { LLVMConstNull(ty) }
 }
+
+// ── Target machine and AOT emission ─────────────────────────────────────────
+
+/// Get the default target triple for the host.
+pub fn get_default_target_triple() -> String {
+    let raw = unsafe { llvm_sys::target_machine::LLVMGetDefaultTargetTriple() };
+    let s = unsafe { CStr::from_ptr(raw) }
+        .to_string_lossy()
+        .into_owned();
+    unsafe { LLVMDisposeMessage(raw) };
+    s
+}
+
+/// Look up an LLVM target by triple.
+pub fn get_target_from_triple(triple: &str) -> Result<llvm_sys::target_machine::LLVMTargetRef, String> {
+    let c_triple = CString::new(triple).unwrap();
+    let mut target_ref: llvm_sys::target_machine::LLVMTargetRef = ptr::null_mut();
+    let mut err_msg: *mut i8 = ptr::null_mut();
+    let failed = unsafe {
+        llvm_sys::target_machine::LLVMGetTargetFromTriple(
+            c_triple.as_ptr(),
+            &mut target_ref,
+            &mut err_msg,
+        )
+    };
+    if failed != 0 {
+        let msg = if err_msg.is_null() {
+            "unknown target".to_string()
+        } else {
+            let s = unsafe { CStr::from_ptr(err_msg) }
+                .to_string_lossy()
+                .into_owned();
+            unsafe { LLVMDisposeMessage(err_msg) };
+            s
+        };
+        Err(msg)
+    } else {
+        Ok(target_ref)
+    }
+}
+
+/// Owned LLVM target machine for code generation.
+pub struct LlvmTargetMachine {
+    raw: llvm_sys::target_machine::LLVMTargetMachineRef,
+}
+
+impl LlvmTargetMachine {
+    /// Create a target machine for the host.
+    pub fn for_host(opt_level: u32) -> Result<Self, String> {
+        use llvm_sys::target_machine::*;
+
+        let triple = get_default_target_triple();
+        let target = get_target_from_triple(&triple)?;
+        let c_triple = CString::new(triple).unwrap();
+        let c_cpu = CString::new("generic").unwrap();
+        let c_features = CString::new("").unwrap();
+
+        let level = match opt_level {
+            0 => LLVMCodeGenOptLevel::LLVMCodeGenLevelNone,
+            1 => LLVMCodeGenOptLevel::LLVMCodeGenLevelLess,
+            2 => LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault,
+            _ => LLVMCodeGenOptLevel::LLVMCodeGenLevelAggressive,
+        };
+
+        let raw = unsafe {
+            LLVMCreateTargetMachine(
+                target,
+                c_triple.as_ptr(),
+                c_cpu.as_ptr(),
+                c_features.as_ptr(),
+                level,
+                LLVMRelocMode::LLVMRelocPIC,
+                LLVMCodeModel::LLVMCodeModelDefault,
+            )
+        };
+        if raw.is_null() {
+            Err("failed to create target machine".to_string())
+        } else {
+            Ok(Self { raw })
+        }
+    }
+
+    /// Get the data layout string for this target.
+    pub fn data_layout(&self) -> String {
+        unsafe {
+            let td = llvm_sys::target_machine::LLVMCreateTargetDataLayout(self.raw);
+            let raw = llvm_sys::target::LLVMCopyStringRepOfTargetData(td);
+            let s = CStr::from_ptr(raw).to_string_lossy().into_owned();
+            LLVMDisposeMessage(raw);
+            llvm_sys::target::LLVMDisposeTargetData(td);
+            s
+        }
+    }
+
+    /// Emit the module to an object file.
+    pub fn emit_object_file(&self, module: &LlvmModule, path: &str) -> Result<(), String> {
+        self.emit_to_file(module, path, llvm_sys::target_machine::LLVMCodeGenFileType::LLVMObjectFile)
+    }
+
+    /// Emit the module to an assembly file.
+    pub fn emit_asm_file(&self, module: &LlvmModule, path: &str) -> Result<(), String> {
+        self.emit_to_file(module, path, llvm_sys::target_machine::LLVMCodeGenFileType::LLVMAssemblyFile)
+    }
+
+    fn emit_to_file(
+        &self,
+        module: &LlvmModule,
+        path: &str,
+        file_type: llvm_sys::target_machine::LLVMCodeGenFileType,
+    ) -> Result<(), String> {
+        let c_path = CString::new(path).unwrap();
+        let mut err_msg: *mut i8 = ptr::null_mut();
+        let failed = unsafe {
+            llvm_sys::target_machine::LLVMTargetMachineEmitToFile(
+                self.raw,
+                module.raw(),
+                c_path.as_ptr() as *mut _,
+                file_type,
+                &mut err_msg,
+            )
+        };
+        if failed != 0 {
+            let msg = if err_msg.is_null() {
+                "unknown emission error".to_string()
+            } else {
+                let s = unsafe { CStr::from_ptr(err_msg) }
+                    .to_string_lossy()
+                    .into_owned();
+                unsafe { LLVMDisposeMessage(err_msg) };
+                s
+            };
+            Err(msg)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Drop for LlvmTargetMachine {
+    fn drop(&mut self) {
+        unsafe { llvm_sys::target_machine::LLVMDisposeTargetMachine(self.raw) };
+    }
+}
+
+/// Set the target triple on a module.
+pub fn set_module_target(module: &LlvmModule, triple: &str) {
+    let c_triple = CString::new(triple).unwrap();
+    unsafe { LLVMSetTarget(module.raw(), c_triple.as_ptr()) };
+}
+
+/// Set the data layout on a module.
+pub fn set_module_data_layout(module: &LlvmModule, layout: &str) {
+    let c_layout = CString::new(layout).unwrap();
+    unsafe { LLVMSetDataLayout(module.raw(), c_layout.as_ptr()) };
+}

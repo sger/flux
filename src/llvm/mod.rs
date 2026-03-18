@@ -178,3 +178,61 @@ pub fn llvm_compile_and_run(
     let compiled = llvm_compile(program, interner, options)?;
     llvm_execute(compiled)
 }
+
+/// Compile a Flux program and emit an object file (AOT compilation).
+pub fn llvm_emit_object(
+    program: &Program,
+    interner: &Interner,
+    options: &LlvmOptions,
+    output_path: &str,
+    opt_level: u32,
+) -> LlvmResult<()> {
+    let mut hm_compiler = Compiler::new_with_interner(
+        options.source_file.clone().unwrap_or_default(),
+        interner.clone(),
+    );
+    let hm_expr_types = hm_compiler.infer_expr_types_for_program(program);
+    let mut ir_program = lower_program_to_ir(program, &hm_expr_types)
+        .map_err(|diag| LlvmError::Compile(Box::new(diag)))?;
+    run_ir_pass_pipeline(&mut ir_program, &IrPassContext)
+        .map_err(|diag| LlvmError::Compile(Box::new(diag)))?;
+
+    let mut llvm_ctx = LlvmCompilerContext::new();
+
+    // Compile to LLVM IR (without creating execution engine)
+    compiler::compile_program_ir_only(&mut llvm_ctx, &ir_program, interner)
+        .map_err(LlvmError::Internal)?;
+
+    // Emit to object file
+    llvm_ctx
+        .emit_object_file(output_path, opt_level)
+        .map_err(LlvmError::Internal)
+}
+
+/// Compile a Flux program and emit an assembly file.
+pub fn llvm_emit_asm(
+    program: &Program,
+    interner: &Interner,
+    options: &LlvmOptions,
+    output_path: &str,
+    opt_level: u32,
+) -> LlvmResult<()> {
+    let mut hm_compiler = Compiler::new_with_interner(
+        options.source_file.clone().unwrap_or_default(),
+        interner.clone(),
+    );
+    let hm_expr_types = hm_compiler.infer_expr_types_for_program(program);
+    let mut ir_program = lower_program_to_ir(program, &hm_expr_types)
+        .map_err(|diag| LlvmError::Compile(Box::new(diag)))?;
+    run_ir_pass_pipeline(&mut ir_program, &IrPassContext)
+        .map_err(|diag| LlvmError::Compile(Box::new(diag)))?;
+
+    let mut llvm_ctx = LlvmCompilerContext::new();
+
+    compiler::compile_program_ir_only(&mut llvm_ctx, &ir_program, interner)
+        .map_err(LlvmError::Internal)?;
+
+    llvm_ctx
+        .emit_asm_file(output_path, opt_level)
+        .map_err(LlvmError::Internal)
+}
