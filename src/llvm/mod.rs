@@ -107,9 +107,10 @@ pub fn llvm_compile(
             ))
             .unwrap_or(0) as *const u8;
 
+        let explicit_arity = func.params.len().saturating_sub(func.captures.len());
         entries.push(crate::jit::context::JitFunctionEntry {
             ptr: fn_addr,
-            num_params: func.params.len(),
+            num_params: explicit_arity,
             call_abi: crate::jit::context::JitCallAbi::Array,
             contract: None,
             return_span: None,
@@ -139,9 +140,6 @@ pub fn llvm_execute(mut compiled: LlvmCompiledProgram) -> LlvmResult<(Value, Jit
         func(&mut compiled.ctx as *mut JitContext)
     };
 
-    // Leak the LLVM context to avoid drop-time crashes during development.
-    // TODO: fix proper cleanup
-    std::mem::forget(compiled._context);
 
 
     // Trampoline: re-invoke while the callee requests a mutual tail call.

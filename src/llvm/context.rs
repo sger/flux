@@ -8,11 +8,15 @@ use llvm_sys::prelude::*;
 use super::wrapper::{self, LlvmBuilder, LlvmCtx, LlvmExecutionEngine, LlvmModule};
 
 /// Holds all LLVM state needed during compilation and execution.
+///
+/// Field order matters for drop: the execution engine must be dropped before
+/// the builder and context, because it holds references to their memory.
 pub struct LlvmCompilerContext {
-    pub(crate) llvm_ctx: LlvmCtx,
-    pub(crate) module: LlvmModule,
-    pub(crate) builder: LlvmBuilder,
+    // Drop order: engine first, then builder, then module, then context.
     pub(crate) engine: Option<LlvmExecutionEngine>,
+    pub(crate) builder: LlvmBuilder,
+    pub(crate) module: LlvmModule,
+    pub(crate) llvm_ctx: LlvmCtx,
 
     // Cached LLVM types
     pub(crate) i64_type: LLVMTypeRef,
@@ -43,10 +47,10 @@ impl LlvmCompilerContext {
         let void_type = llvm_ctx.void_type();
 
         Self {
-            llvm_ctx,
-            module,
-            builder,
             engine: None,
+            builder,
+            module,
+            llvm_ctx,
             i64_type,
             ptr_type,
             tagged_value_type,
