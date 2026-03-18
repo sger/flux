@@ -4,7 +4,9 @@
 
 The Flux bytecode compiler translates the AST to a compact stack-based instruction set. Compiled programs can be cached as `.fxc` files.
 
-## Instruction Set (62 opcodes)
+## Instruction Set (100 opcodes)
+
+> **Note:** The opcode table below documents a representative subset. Not all 100 opcodes are listed here; see `src/bytecode/opcodes.rs` for the complete enumeration.
 
 ### Constants and Literals
 
