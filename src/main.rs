@@ -800,11 +800,13 @@ fn run_file(
                     llvm_program = rename(optimized, HashMap::new());
                 }
 
+                let llvm_opt_level = if enable_optimize { 2 } else { 0 };
                 let llvm_options = flux::llvm::LlvmOptions {
                     no_gc,
                     gc_threshold,
                     source_file: Some(path.to_string()),
                     source_text: Some(source.clone()),
+                    opt_level: llvm_opt_level,
                 };
 
                 // AOT: emit object file instead of JIT execution
@@ -840,7 +842,7 @@ fn run_file(
                 let compiled = match llvm_result {
                     Ok(Ok(c)) => c,
                     Ok(Err(err)) => {
-                        eprintln!("LLVM compilation failed: {}", err);
+                        emit_llvm_error(&err, path, source.as_str(), max_errors, diagnostics_format);
                         std::process::exit(1);
                     }
                     Err(panic) => {
@@ -876,7 +878,7 @@ fn run_file(
                         ctx.clear_runtime_state();
                     }
                     Err(err) => {
-                        eprintln!("LLVM execution failed: {}", err);
+                        emit_llvm_error(&err, path, source.as_str(), max_errors, diagnostics_format);
                         std::process::exit(1);
                     }
                 }
@@ -1607,6 +1609,56 @@ fn emit_jit_error(
             }
         }
         JitError::Internal(message) => {
+            eprintln!("{}", message);
+        }
+    }
+}
+
+#[cfg(feature = "llvm")]
+fn emit_llvm_error(
+    err: &flux::llvm::LlvmError,
+    source_path: &str,
+    source_text: &str,
+    max_errors: usize,
+    diagnostics_format: DiagnosticOutputFormat,
+) {
+    match err {
+        flux::llvm::LlvmError::Compile(diag) | flux::llvm::LlvmError::Runtime(diag) => {
+            let diag = normalize_jit_cli_diagnostic(diag.as_ref(), source_path);
+            match diagnostics_format {
+                DiagnosticOutputFormat::Text => {
+                    let render_file = diag.file().unwrap_or(source_path);
+                    let render_source = if render_file == source_path {
+                        Some(source_text)
+                    } else {
+                        None
+                    };
+                    let stack_frames = synthetic_jit_stack_frames(&diag, source_path, source_text);
+                    eprintln!(
+                        "{}",
+                        flux::diagnostics::render_runtime_diagnostic(
+                            &diag,
+                            render_file,
+                            render_source,
+                            &stack_frames,
+                        )
+                    );
+                }
+                DiagnosticOutputFormat::Json | DiagnosticOutputFormat::JsonCompact => {
+                    emit_diagnostics(
+                        std::slice::from_ref(&diag),
+                        Some(source_path),
+                        Some(source_text),
+                        false,
+                        max_errors,
+                        diagnostics_format,
+                        false,
+                        true,
+                    )
+                }
+            }
+        }
+        flux::llvm::LlvmError::Internal(message) => {
             eprintln!("{}", message);
         }
     }

@@ -191,6 +191,11 @@ impl LlvmBuilder {
         self.raw
     }
 
+    /// Get the current insertion block.
+    pub fn get_insert_block(&self) -> LLVMBasicBlockRef {
+        unsafe { LLVMGetInsertBlock(self.raw) }
+    }
+
     pub fn position_at_end(&self, block: LLVMBasicBlockRef) {
         unsafe { LLVMPositionBuilderAtEnd(self.raw, block) };
     }
@@ -639,4 +644,39 @@ pub fn set_module_target(module: &LlvmModule, triple: &str) {
 pub fn set_module_data_layout(module: &LlvmModule, layout: &str) {
     let c_layout = CString::new(layout).unwrap();
     unsafe { LLVMSetDataLayout(module.raw(), c_layout.as_ptr()) };
+}
+
+/// Run the LLVM optimization pipeline on a module.
+///
+/// Uses the new pass builder API (LLVM 15+). Pass strings like
+/// `"default<O0>"`, `"default<O1>"`, `"default<O2>"`, `"default<O3>"`.
+pub fn run_optimization_passes(
+    module: &LlvmModule,
+    target_machine: &LlvmTargetMachine,
+    passes: &str,
+) -> Result<(), String> {
+    use llvm_sys::transforms::pass_builder::*;
+    use llvm_sys::error::LLVMGetErrorMessage;
+
+    let c_passes = CString::new(passes).unwrap();
+    let options = unsafe { LLVMCreatePassBuilderOptions() };
+    let err = unsafe {
+        LLVMRunPasses(module.raw(), c_passes.as_ptr(), target_machine.raw, options)
+    };
+    unsafe { LLVMDisposePassBuilderOptions(options) };
+    if err.is_null() {
+        Ok(())
+    } else {
+        let msg_ptr = unsafe { LLVMGetErrorMessage(err) };
+        let msg = if msg_ptr.is_null() {
+            "unknown pass error".to_string()
+        } else {
+            let s = unsafe { CStr::from_ptr(msg_ptr) }
+                .to_string_lossy()
+                .into_owned();
+            unsafe { llvm_sys::error::LLVMDisposeErrorMessage(msg_ptr) };
+            s
+        };
+        Err(msg)
+    }
 }
