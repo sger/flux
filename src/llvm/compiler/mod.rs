@@ -122,9 +122,11 @@ pub fn compile_program(
         return Err(err);
     }
 
-    // 7. Optimization passes are skipped for JIT mode.
-    // MCJIT on ARM64 has issues with optimized struct returns.
-    // For optimized code, use AOT emission (--emit-obj -O).
+    // 7. Run minimal optimization: tailcallelim converts self-recursive
+    // tail calls to loops (zero overhead vs thunk trampoline).
+    // Full O2/O3 pipeline is skipped for JIT — MCJIT on ARM64 has issues
+    // with optimized struct returns. For full optimization, use AOT emission.
+    run_tailcallelim(ctx)?;
     let _ = opt_level;
 
     // 8. Finalize (create execution engine for JIT)
@@ -134,6 +136,14 @@ pub fn compile_program(
     resolve_all_runtime_symbols(ctx);
 
     Ok(())
+}
+
+fn run_tailcallelim(ctx: &LlvmCompilerContext) -> Result<(), String> {
+    let tm = wrapper::LlvmTargetMachine::for_host(0)?;
+    let triple = wrapper::get_default_target_triple();
+    wrapper::set_module_target(&ctx.module, &triple);
+    wrapper::set_module_data_layout(&ctx.module, &tm.data_layout());
+    wrapper::run_optimization_passes(&ctx.module, &tm, "tailcallelim")
 }
 
 fn run_opt_passes(ctx: &LlvmCompilerContext, opt_level: u32) -> Result<(), String> {
