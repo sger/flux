@@ -223,12 +223,12 @@ fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
 /// Returns true if the expression is guaranteed to have no observable effects.
 ///
 /// Conservative: returns false for anything that might perform IO, call a
-/// function, or raise an effect.
+/// function, or raise an effect.  PrimOps are NOT effect-free because
+/// arithmetic on mismatched types (e.g. `1 + None`) raises a runtime error.
 fn is_effect_free(expr: &CoreExpr) -> bool {
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
         CoreExpr::Con { fields, .. } => fields.iter().all(is_effect_free),
-        CoreExpr::PrimOp { args, .. } => args.iter().all(is_effect_free),
         CoreExpr::Lam { .. } => true, // lambda itself is a value
         _ => false,
     }

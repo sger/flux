@@ -144,6 +144,15 @@ pub fn jit_execute(mut compiled: JitCompiledProgram) -> JitResult<(Value, JitCon
         ));
     }
 
+    // Check for runtime errors even when the result tag is not null-ptr
+    // (e.g. rt_add returns None on type mismatch but sets ctx.error)
+    if let Some(diag) = compiled.ctx.take_runtime_error() {
+        return Err(JitError::Runtime(Box::new(diag)));
+    }
+    if let Some(err) = compiled.ctx.take_internal_error() {
+        return Err(JitError::Internal(err));
+    }
+
     let result = compiled
         .ctx
         .clone_from_tagged(result)

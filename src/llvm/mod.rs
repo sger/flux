@@ -121,7 +121,10 @@ pub fn llvm_compile(
             num_params: explicit_arity,
             call_abi: crate::runtime::native_context::JitCallAbi::Array,
             contract,
-            return_span: None,
+            return_span: func
+                .return_type_annotation
+                .as_ref()
+                .map(|_| func.body_span),
         });
     }
 
@@ -182,6 +185,15 @@ pub fn llvm_execute(mut compiled: LlvmCompiledProgram) -> LlvmResult<(Value, Jit
                 .take_internal_error()
                 .unwrap_or_else(|| "unknown LLVM error".to_string()),
         ));
+    }
+
+    // Check for runtime errors even when the result tag is not null-ptr
+    // (e.g. rt_add returns None on type mismatch but sets ctx.error)
+    if let Some(diag) = compiled.ctx.take_runtime_error() {
+        return Err(LlvmError::Runtime(Box::new(diag)));
+    }
+    if let Some(err) = compiled.ctx.take_internal_error() {
+        return Err(LlvmError::Internal(err));
     }
 
     let result = compiled
