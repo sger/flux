@@ -360,11 +360,20 @@ impl<'a> super::AstLowerer<'a> {
         }
 
         // Determine the concrete result type from HM inference.
-        // For arithmetic ops (+, -, *, /, %), the result type is the operand type,
-        // so we can select `IAdd`/`FAdd` directly rather than leaving it generic.
+        // For arithmetic ops (+, -, *, /, %), only emit typed variants (IAdd/FAdd)
+        // when both operands AND the result are provably the correct type.
+        // Under gradual typing, a type mismatch (e.g. 1 + None) may infer the
+        // result as Int while one operand is Any/None — emitting IAdd would skip
+        // the runtime type check and produce garbage.
         let result_ty = self.hm_expr_types.get(&id);
-        let is_int = matches!(result_ty, Some(InferType::Con(TypeConstructor::Int)));
-        let is_float = matches!(result_ty, Some(InferType::Con(TypeConstructor::Float)));
+        let left_ty = self.hm_expr_types.get(&left.expr_id());
+        let right_ty = self.hm_expr_types.get(&right.expr_id());
+        let is_int = matches!(result_ty, Some(InferType::Con(TypeConstructor::Int)))
+            && matches!(left_ty, Some(InferType::Con(TypeConstructor::Int)))
+            && matches!(right_ty, Some(InferType::Con(TypeConstructor::Int)));
+        let is_float = matches!(result_ty, Some(InferType::Con(TypeConstructor::Float)))
+            && matches!(left_ty, Some(InferType::Con(TypeConstructor::Float)))
+            && matches!(right_ty, Some(InferType::Con(TypeConstructor::Float)));
 
         let op = match operator {
             // Arithmetic — specialized by result type when known.
