@@ -5,6 +5,8 @@ pub mod core;
 pub mod diagnostics;
 #[cfg(feature = "jit")]
 pub mod jit;
+#[cfg(feature = "llvm")]
+pub mod llvm;
 pub mod primop;
 pub mod runtime;
 pub mod shared_ir;
