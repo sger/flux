@@ -65,12 +65,13 @@ bash scripts/ci/install_llvm.sh
 # Or manually:
 
 # macOS (Homebrew)
-brew install llvm@18
+brew install llvm@18 zstd
 echo 'export LLVM_SYS_180_PREFIX=$(brew --prefix llvm@18)' >> ~/.zshrc
+echo 'export LIBRARY_PATH="$(brew --prefix zstd)/lib:${LIBRARY_PATH:-}"' >> ~/.zshrc
 source ~/.zshrc
 
 # Ubuntu / Debian / WSL
-sudo apt-get install -y llvm-18-dev libclang-18-dev lld-18
+sudo apt-get install -y llvm-18-dev libclang-18-dev lld-18 libzstd-dev
 echo 'export LLVM_SYS_180_PREFIX=/usr/lib/llvm-18' >> ~/.bashrc
 source ~/.bashrc
 
