@@ -8,7 +8,9 @@ use crate::runtime::native_helpers::rt_symbols;
 use crate::syntax::interner::Interner;
 
 use super::super::context::LlvmCompilerContext;
-use super::super::wrapper::function_type;
+use super::super::wrapper::{
+    add_function_attribute, add_function_string_attribute, function_type, FUNCTION_INDEX,
+};
 
 // ADT constructor and module function collection is shared with the JIT
 // backend via `crate::backend_ir::metadata`.
@@ -215,9 +217,62 @@ pub(super) fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
         ),
     ];
 
+    // Read-only helpers: inspect values without modifying ctx or heap.
+    const READONLY_HELPERS: &[&str] = &[
+        "rt_is_truthy",
+        "rt_is_cons",
+        "rt_is_some",
+        "rt_is_left",
+        "rt_is_right",
+        "rt_is_none",
+        "rt_is_empty_list",
+        "rt_is_adt_constructor",
+        "rt_is_tuple",
+        "rt_tuple_len_eq",
+        "rt_values_equal",
+        "rt_has_error",
+    ];
+
+    // Constructor helpers: allocate but don't modify error state on valid input.
+    const CONSTRUCTOR_HELPERS: &[&str] = &[
+        "rt_make_integer",
+        "rt_make_float",
+        "rt_make_bool",
+        "rt_make_none",
+        "rt_make_string",
+        "rt_make_some",
+        "rt_make_left",
+        "rt_make_right",
+        "rt_make_cons",
+        "rt_make_empty_list",
+        "rt_make_array",
+        "rt_make_tuple",
+        "rt_make_hash",
+        "rt_make_adt",
+        "rt_intern_unit_adt",
+        "rt_force_boxed",
+        "rt_to_string",
+        "rt_string_concat",
+        "rt_unbox_to_tagged",
+    ];
+
     for (name, ret_ty, param_tys) in helpers {
         let fn_type = function_type(ret_ty, &param_tys, false);
         let func = ctx.module.add_function(name, fn_type);
+
+        // All helpers: nounwind (none throw C++ exceptions)
+        add_function_attribute(&ctx.llvm_ctx, func, "nounwind", FUNCTION_INDEX);
+
+        if READONLY_HELPERS.contains(&name) {
+            // memory(read) = function only reads memory, never writes
+            add_function_string_attribute(&ctx.llvm_ctx, func, "memory", "read", FUNCTION_INDEX);
+            add_function_attribute(&ctx.llvm_ctx, func, "nofree", FUNCTION_INDEX);
+            add_function_attribute(&ctx.llvm_ctx, func, "willreturn", FUNCTION_INDEX);
+        } else if CONSTRUCTOR_HELPERS.contains(&name) {
+            add_function_attribute(&ctx.llvm_ctx, func, "nofree", FUNCTION_INDEX);
+            add_function_attribute(&ctx.llvm_ctx, func, "willreturn", FUNCTION_INDEX);
+        }
+
         ctx.helpers.insert(name, (func, fn_type));
     }
 }
