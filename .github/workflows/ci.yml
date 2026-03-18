@@ -22,9 +22,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache LLVM apt packages
+        id: cache-llvm
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: llvm-18-apt-${{ runner.os }}
+
       - name: Install LLVM 18
         run: |
-          sudo apt-get update -qq
+          if [ "${{ steps.cache-llvm.outputs.cache-hit }}" != "true" ]; then
+            sudo apt-get update -qq
+          fi
           sudo apt-get install -y llvm-18-dev libclang-18-dev libpolly-18-dev lld-18 libzstd-dev
 
       # Installs Rust toolchain + rustfmt + clippy
@@ -70,9 +79,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache LLVM apt packages
+        id: cache-llvm
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: llvm-18-apt-${{ runner.os }}
+
       - name: Install LLVM 18
         run: |
-          sudo apt-get update -qq
+          if [ "${{ steps.cache-llvm.outputs.cache-hit }}" != "true" ]; then
+            sudo apt-get update -qq
+          fi
           sudo apt-get install -y llvm-18-dev libclang-18-dev libpolly-18-dev lld-18 libzstd-dev
 
       - name: Setup Rust
@@ -98,9 +116,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache LLVM apt packages
+        id: cache-llvm
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: llvm-18-apt-${{ runner.os }}
+
       - name: Install LLVM 18
         run: |
-          sudo apt-get update -qq
+          if [ "${{ steps.cache-llvm.outputs.cache-hit }}" != "true" ]; then
+            sudo apt-get update -qq
+          fi
           sudo apt-get install -y llvm-18-dev libclang-18-dev libpolly-18-dev lld-18 libzstd-dev
 
       - name: Setup Rust
@@ -168,9 +195,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache LLVM apt packages
+        id: cache-llvm
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: llvm-18-apt-${{ runner.os }}
+
       - name: Install LLVM 18
         run: |
-          sudo apt-get update -qq
+          if [ "${{ steps.cache-llvm.outputs.cache-hit }}" != "true" ]; then
+            sudo apt-get update -qq
+          fi
           sudo apt-get install -y llvm-18-dev libclang-18-dev libpolly-18-dev lld-18 libzstd-dev
 
       - name: Setup Rust
