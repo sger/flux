@@ -31,6 +31,10 @@ pub struct LlvmCompilerContext {
 
     /// User functions from the IR program (FunctionId index → LLVM function ref + type).
     pub(crate) functions: HashMap<usize, (LLVMValueRef, LLVMTypeRef)>,
+
+    /// TBAA access tags for alias analysis.
+    pub(crate) tbaa_args: LLVMValueRef,
+    pub(crate) tbaa_heap: LLVMValueRef,
 }
 
 impl LlvmCompilerContext {
@@ -54,6 +58,13 @@ impl LlvmCompilerContext {
             wrapper::set_module_data_layout(&module, &tm.data_layout());
         }
 
+        // Build TBAA type hierarchy for alias analysis
+        let tbaa_root = wrapper::create_tbaa_root(&llvm_ctx, "flux.root");
+        let tbaa_args_node = wrapper::create_tbaa_node(&llvm_ctx, "flux.args", tbaa_root);
+        let tbaa_heap_node = wrapper::create_tbaa_node(&llvm_ctx, "flux.heap", tbaa_root);
+        let tbaa_args = wrapper::create_tbaa_access_tag(&llvm_ctx, tbaa_args_node);
+        let tbaa_heap = wrapper::create_tbaa_access_tag(&llvm_ctx, tbaa_heap_node);
+
         Self {
             engine: None,
             builder,
@@ -65,6 +76,8 @@ impl LlvmCompilerContext {
             void_type,
             helpers: HashMap::new(),
             functions: HashMap::new(),
+            tbaa_args,
+            tbaa_heap,
         }
     }
 
