@@ -455,6 +455,32 @@ pub fn get_undef(ty: LLVMTypeRef) -> LLVMValueRef {
     unsafe { LLVMGetUndef(ty) }
 }
 
+/// Create a global constant string in the module and return a pointer to it.
+pub fn create_global_string(
+    module: &LlvmModule,
+    ctx: &LlvmCtx,
+    name: &str,
+    data: &[u8],
+) -> LLVMValueRef {
+    let array_ty = unsafe { llvm_sys::core::LLVMArrayType2(LLVMInt8TypeInContext(ctx.raw()), data.len() as u64) };
+    let c_name = CString::new(name).unwrap();
+    let global = unsafe { LLVMAddGlobal(module.raw(), array_ty, c_name.as_ptr()) };
+    let init = unsafe {
+        llvm_sys::core::LLVMConstStringInContext(
+            ctx.raw(),
+            data.as_ptr() as *const _,
+            data.len() as u32,
+            1, // don't null-terminate
+        )
+    };
+    unsafe {
+        LLVMSetInitializer(global, init);
+        LLVMSetGlobalConstant(global, 1);
+        llvm_sys::core::LLVMSetLinkage(global, llvm_sys::LLVMLinkage::LLVMPrivateLinkage);
+    }
+    global
+}
+
 /// Create a constant null pointer.
 pub fn const_null(ty: LLVMTypeRef) -> LLVMValueRef {
     unsafe { LLVMConstNull(ty) }

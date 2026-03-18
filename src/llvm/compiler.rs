@@ -582,16 +582,25 @@ fn compile_expr(
                 .build_call(fn_ty, func, &mut [ctx_val, bits], "float");
             Ok(result)
         }
-        IrExpr::Const(IrConst::String(_s)) => {
-            // Phase 1: string constants via rt_make_string
-            // For simplicity, we embed the string bytes as a global constant.
-            // This requires more LLVM API surface; for now return a None placeholder.
-            // TODO: implement string constants properly
-            let (func, fn_ty) = get_helper(ctx, "rt_make_none")?;
-            let result = ctx
-                .builder
-                .build_call(fn_ty, func, &mut [ctx_val], "str_placeholder");
-            Ok(result)
+        IrExpr::Const(IrConst::String(s)) => {
+            // Embed string bytes as a global constant, then call rt_make_string
+            let bytes = s.as_bytes();
+            let global_name = format!(".str.{}", s.len());
+            let global = wrapper::create_global_string(
+                &ctx.module,
+                &ctx.llvm_ctx,
+                &global_name,
+                bytes,
+            );
+            let (make_string, make_string_ty) = get_helper(ctx, "rt_make_string")?;
+            let len_val = wrapper::const_i64(ctx.i64_type, bytes.len() as i64);
+            let ptr_result = ctx.builder.build_call(
+                make_string_ty,
+                make_string,
+                &mut [ctx_val, global, len_val],
+                "str",
+            );
+            Ok(build_ptr_tagged(ctx, ptr_result))
         }
         IrExpr::Var(var) => get_var(env, *var),
         IrExpr::Binary(op, lhs, rhs) => {
@@ -656,9 +665,10 @@ fn compile_expr(
                 .position(|f| f.id == *fn_id)
                 .ok_or_else(|| format!("missing function {:?}", fn_id))?;
 
+            let (func, fn_ty) = get_helper(ctx, "rt_make_jit_closure")?;
+            let fn_idx_val = wrapper::const_i64(ctx.i64_type, fn_index as i64);
+
             if captures.is_empty() {
-                let (func, fn_ty) = get_helper(ctx, "rt_make_jit_closure")?;
-                let fn_idx_val = wrapper::const_i64(ctx.i64_type, fn_index as i64);
                 let null_ptr = wrapper::const_null(ctx.ptr_type);
                 let zero = wrapper::const_i64(ctx.i64_type, 0);
                 let result = ctx.builder.build_call(
@@ -669,8 +679,16 @@ fn compile_expr(
                 );
                 Ok(build_ptr_tagged(ctx, result))
             } else {
-                // TODO: allocate captures array on stack, fill, pass to rt_make_jit_closure
-                Err("LLVM backend: closures with captures not yet supported".to_string())
+                // Build captures as a tagged value array (consecutive {tag, payload} i64 pairs)
+                let captures_buf = build_tagged_args_array(ctx, captures, env)?;
+                let ncaptures = wrapper::const_i64(ctx.i64_type, captures.len() as i64);
+                let result = ctx.builder.build_call(
+                    fn_ty,
+                    func,
+                    &mut [ctx_val, fn_idx_val, captures_buf, ncaptures],
+                    "closure",
+                );
+                Ok(build_ptr_tagged(ctx, result))
             }
         }
         _ => Err(format!(
