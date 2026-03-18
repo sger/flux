@@ -11,7 +11,7 @@ pub mod wrapper;
 use crate::backend_ir::{IrPassContext, lower_program_to_ir, run_ir_pass_pipeline};
 use crate::bytecode::compiler::Compiler;
 use crate::diagnostics::Diagnostic;
-use crate::jit::context::{JIT_TAG_PTR, JIT_TAG_THUNK, JitContext, JitTaggedValue};
+use crate::runtime::native_context::{JIT_TAG_PTR, JIT_TAG_THUNK, JitContext, JitTaggedValue};
 use crate::runtime::value::Value;
 use crate::syntax::{interner::Interner, program::Program};
 
@@ -110,10 +110,10 @@ pub fn llvm_compile(
             .unwrap_or(0) as *const u8;
 
         let explicit_arity = func.params.len().saturating_sub(func.captures.len());
-        entries.push(crate::jit::context::JitFunctionEntry {
+        entries.push(crate::runtime::native_context::JitFunctionEntry {
             ptr: fn_addr,
             num_params: explicit_arity,
-            call_abi: crate::jit::context::JitCallAbi::Array,
+            call_abi: crate::runtime::native_context::JitCallAbi::Array,
             contract: None,
             return_span: None,
         });
@@ -124,10 +124,10 @@ pub fn llvm_compile(
     let identity_addr = llvm_ctx
         .get_function_address("__flux_identity")
         .unwrap_or(0) as *const u8;
-    entries.push(crate::jit::context::JitFunctionEntry {
+    entries.push(crate::runtime::native_context::JitFunctionEntry {
         ptr: identity_addr,
         num_params: 1,
-        call_abi: crate::jit::context::JitCallAbi::Array,
+        call_abi: crate::runtime::native_context::JitCallAbi::Array,
         contract: None,
         return_span: None,
     });
@@ -163,7 +163,7 @@ pub fn llvm_execute(mut compiled: LlvmCompiledProgram) -> LlvmResult<(Value, Jit
         let thunk = compiled.ctx.pending_thunk.take().ok_or_else(|| {
             LlvmError::Internal("JIT_TAG_THUNK returned without pending_thunk".to_string())
         })?;
-        result = unsafe { crate::jit::invoke_jit_thunk(&mut compiled.ctx, &thunk) };
+        result = unsafe { crate::runtime::native_context::invoke_jit_thunk(&mut compiled.ctx, &thunk) };
     }
 
     if result.tag == JIT_TAG_PTR && result.as_ptr().is_null() {

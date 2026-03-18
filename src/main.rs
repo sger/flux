@@ -7,7 +7,7 @@ use std::{
     time::Instant,
 };
 
-#[cfg(feature = "jit")]
+#[cfg(any(feature = "jit", feature = "llvm"))]
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
@@ -33,9 +33,10 @@ use flux::{
         module_graph::ModuleGraph, parser::Parser,
     },
 };
+#[cfg(any(feature = "jit", feature = "llvm"))]
+use flux::ast::{constant_fold_with_interner, desugar, rename};
 #[cfg(feature = "jit")]
 use flux::{
-    ast::{constant_fold_with_interner, desugar, rename},
     jit::JitError,
     runtime::jit_closure::JitClosure,
     runtime::vm::test_runner::run_test_fns,
@@ -1515,7 +1516,7 @@ fn emit_diagnostics(
     }
 }
 
-#[cfg(feature = "jit")]
+#[cfg(any(feature = "jit", feature = "llvm"))]
 fn normalize_jit_cli_diagnostic(diag: &Diagnostic, source_path: &str) -> Diagnostic {
     let mut diag = diag.clone();
     let keep_original = matches!(diag.file(), Some("<unknown>" | "<jit>"));
@@ -1525,7 +1526,7 @@ fn normalize_jit_cli_diagnostic(diag: &Diagnostic, source_path: &str) -> Diagnos
     diag
 }
 
-#[cfg(feature = "jit")]
+#[cfg(any(feature = "jit", feature = "llvm"))]
 fn synthetic_jit_stack_frames(
     diag: &Diagnostic,
     source_path: &str,

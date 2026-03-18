@@ -16,7 +16,7 @@ jit = [
     "cranelift-native",
     "target-lexicon",
 ]
-llvm = ["llvm-sys", "jit"]
+llvm = ["llvm-sys"]
 
 [dependencies]
 sha2 = "0.10"
