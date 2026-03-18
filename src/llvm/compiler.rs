@@ -13,7 +13,7 @@ use llvm_sys::LLVMIntPredicate;
 
 use crate::cfg::{
     BlockId, IrBinaryOp, IrBlock, IrCallTarget, IrConst, IrExpr, IrFunction, IrInstr,
-    IrProgram, IrTerminator, IrVar,
+    IrListTest, IrProgram, IrTagTest, IrTerminator, IrVar,
 };
 use crate::jit::context::{JIT_TAG_BOOL, JIT_TAG_INT, JIT_TAG_PTR};
 use crate::jit::runtime_helpers::rt_symbols;
@@ -35,7 +35,17 @@ pub fn compile_program(
     // 1. Declare runtime helpers as external functions
     declare_runtime_helpers(ctx);
 
-    // 2. Forward-declare all user functions
+    // 2. Collect ADT constructor arities from top-level data declarations
+    let mut adt_constructors: HashMap<crate::syntax::Identifier, usize> = HashMap::new();
+    for item in program.top_level_items.iter() {
+        if let crate::cfg::IrTopLevelItem::Data { variants, .. } = item {
+            for variant in variants {
+                adt_constructors.insert(variant.name, variant.fields.len());
+            }
+        }
+    }
+
+    // 3. Forward-declare all user functions
     declare_user_functions(ctx, program, interner);
 
     // 3. Compile each function body
@@ -48,7 +58,7 @@ pub fn compile_program(
                 function.captures.len(),
                 function.blocks.len());
         }
-        compile_function(ctx, program, function, idx, interner)?;
+        compile_function(ctx, program, function, idx, interner, &adt_constructors)?;
         if std::env::var("FLUX_LLVM_DUMP").is_ok() {
             eprintln!("[llvm] function {} compiled OK", idx);
         }
@@ -139,6 +149,43 @@ fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
         // String operations
         ("rt_to_string", ptr_ty, vec![ptr_ty, ptr_ty]),
         ("rt_string_concat", ptr_ty, vec![ptr_ty, ptr_ty, ptr_ty]),
+        // Hash map
+        ("rt_make_hash", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
+        // Indexing: (ctx, collection, key) -> ptr
+        ("rt_index", ptr_ty, vec![ptr_ty, ptr_ty, ptr_ty]),
+        // Cons list
+        ("rt_make_cons", ptr_ty, vec![ptr_ty, ptr_ty, ptr_ty]),
+        ("rt_make_empty_list", ptr_ty, vec![ptr_ty]),
+        ("rt_is_cons", i64_ty, vec![ptr_ty, ptr_ty]),
+        ("rt_cons_head", ptr_ty, vec![ptr_ty, ptr_ty]),
+        ("rt_cons_tail", ptr_ty, vec![ptr_ty, ptr_ty]),
+        // Sum types: Some/Left/Right
+        ("rt_make_some", ptr_ty, vec![ptr_ty, ptr_ty]),
+        ("rt_make_left", ptr_ty, vec![ptr_ty, ptr_ty]),
+        ("rt_make_right", ptr_ty, vec![ptr_ty, ptr_ty]),
+        // Pattern matching tests: (ctx, value) -> i64 (0 or 1)
+        ("rt_is_some", i64_ty, vec![ptr_ty, ptr_ty]),
+        ("rt_is_left", i64_ty, vec![ptr_ty, ptr_ty]),
+        ("rt_is_right", i64_ty, vec![ptr_ty, ptr_ty]),
+        ("rt_is_none", i64_ty, vec![ptr_ty, ptr_ty]),
+        ("rt_is_empty_list", i64_ty, vec![ptr_ty, ptr_ty]),
+        // Unwrap: (ctx, value) -> ptr
+        ("rt_unwrap_some", ptr_ty, vec![ptr_ty, ptr_ty]),
+        ("rt_unwrap_left", ptr_ty, vec![ptr_ty, ptr_ty]),
+        ("rt_unwrap_right", ptr_ty, vec![ptr_ty, ptr_ty]),
+        // Value equality: (ctx, a, b) -> i64
+        ("rt_values_equal", i64_ty, vec![ptr_ty, ptr_ty, ptr_ty]),
+        // Tuple ops
+        ("rt_is_tuple", i64_ty, vec![ptr_ty, ptr_ty]),
+        ("rt_tuple_len_eq", i64_ty, vec![ptr_ty, ptr_ty, i64_ty]),
+        ("rt_tuple_get", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
+        // ADT construction: (ctx, name_ptr, name_len, fields_ptr, nfields) -> ptr
+        ("rt_make_adt", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty, ptr_ty, i64_ty]),
+        ("rt_intern_unit_adt", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
+        // ADT pattern matching
+        ("rt_is_adt_constructor", i64_ty, vec![ptr_ty, ptr_ty, ptr_ty, i64_ty]),
+        ("rt_adt_field", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
+        ("rt_adt_field_or_none", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
         // Effect handlers
         // rt_push_handler(ctx, effect_id, ops_ptr, closures_ptr, narms)
         ("rt_push_handler", void_ty, vec![ptr_ty, i64_ty, ptr_ty, ptr_ty, i64_ty]),
@@ -195,6 +242,7 @@ fn compile_function(
     function: &IrFunction,
     fn_index: usize,
     interner: &Interner,
+    adt_constructors: &HashMap<crate::syntax::Identifier, usize>,
 ) -> Result<(), String> {
     // Build global binding map for the entry function.
     // Assignments to global-bound vars emit rt_set_global after the value is computed.
@@ -322,7 +370,7 @@ fn compile_function(
             }
         }
 
-        compile_block(ctx, program, function, block, &block_map, &mut env, ctx_val, interner, &phi_map, &global_binding_indices)?;
+        compile_block(ctx, program, function, block, &block_map, &mut env, ctx_val, interner, &phi_map, &global_binding_indices, adt_constructors)?;
     }
 
     Ok(())
@@ -339,6 +387,7 @@ fn compile_block(
     interner: &Interner,
     phi_map: &HashMap<(BlockId, usize), LLVMValueRef>,
     global_binding_indices: &HashMap<IrVar, usize>,
+    adt_constructors: &HashMap<crate::syntax::Identifier, usize>,
 ) -> Result<(), String> {
     // Compile instructions
     for (instr_idx, instr) in block.instrs.iter().enumerate() {
@@ -357,7 +406,7 @@ fn compile_block(
         }
         match instr {
             IrInstr::Assign { dest, expr, .. } => {
-                let value = compile_expr(ctx, program, expr, env, ctx_val, interner)
+                let value = compile_expr(ctx, program, expr, env, ctx_val, interner, adt_constructors)
                     .map_err(|e| format!("in assign v{}: {}", dest.0, e))?;
                 env.insert(*dest, value);
                 emit_set_global_if_bound(ctx, *dest, value, ctx_val, global_binding_indices)?;
@@ -369,7 +418,7 @@ fn compile_block(
                 ..
             } => {
                 let value =
-                    compile_call(ctx, program, function, target, args, env, ctx_val, interner)?;
+                    compile_call(ctx, program, function, target, args, env, ctx_val, interner, adt_constructors)?;
                 env.insert(*dest, value);
                 emit_set_global_if_bound(ctx, *dest, value, ctx_val, global_binding_indices)?;
             }
@@ -542,7 +591,7 @@ fn compile_block(
             callee, args, ..
         } => {
             // Phase 1: compile as a regular call + return
-            let value = compile_call(ctx, program, function, callee, args, env, ctx_val, interner)?;
+            let value = compile_call(ctx, program, function, callee, args, env, ctx_val, interner, adt_constructors)?;
             ctx.builder.build_ret(value);
         }
         IrTerminator::Unreachable(_) => {
@@ -565,6 +614,7 @@ fn compile_expr(
     env: &mut HashMap<IrVar, LLVMValueRef>,
     ctx_val: LLVMValueRef,
     interner: &Interner,
+    adt_constructors: &HashMap<crate::syntax::Identifier, usize>,
 ) -> Result<LLVMValueRef, String> {
     match expr {
         IrExpr::Const(IrConst::Int(n)) => Ok(build_int_tagged(ctx, *n)),
@@ -649,7 +699,26 @@ fn compile_expr(
                 return Ok(build_ptr_tagged(ctx, ptr_result));
             }
 
-            // 3. Check if it's a global variable
+            // 3. Check if it's a unit ADT constructor (0-arity)
+            if let Some(&arity) = adt_constructors.get(name) {
+                if arity == 0 {
+                    let (intern_adt, intern_adt_ty) = get_helper(ctx, "rt_intern_unit_adt")?;
+                    let name_bytes = name_str.as_bytes();
+                    let global = wrapper::create_global_string(
+                        &ctx.module, &ctx.llvm_ctx,
+                        &format!(".adt.{}", name_str), name_bytes,
+                    );
+                    let len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
+                    let ptr_result = ctx.builder.build_call(
+                        intern_adt_ty, intern_adt,
+                        &mut [ctx_val, global, len], "unit_adt",
+                    );
+                    return Ok(build_ptr_tagged(ctx, ptr_result));
+                }
+                // Non-zero arity constructors are handled via Named calls / MakeAdt
+            }
+
+            // 4. Check if it's a global variable
             if let Some(idx) = program.globals.iter().position(|g| *g == *name) {
                 let (func, fn_ty) = get_helper(ctx, "rt_get_global")?;
                 let idx_val = wrapper::const_i64(ctx.i64_type, idx as i64);
@@ -769,10 +838,197 @@ fn compile_expr(
 
             Ok(build_ptr_tagged(ctx, accum))
         }
-        _ => Err(format!(
-            "LLVM backend: unsupported expression {:?}",
-            std::mem::discriminant(expr)
-        )),
+        IrExpr::EmptyList => {
+            let (func, fn_ty) = get_helper(ctx, "rt_make_empty_list")?;
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val], "empty_list");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::MakeArray(vars) => {
+            let (func, fn_ty) = get_helper(ctx, "rt_make_array")?;
+            let args_buf = build_tagged_args_array(ctx, vars, env)?;
+            let len = wrapper::const_i64(ctx.i64_type, vars.len() as i64);
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, args_buf, len], "array");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::MakeTuple(vars) => {
+            let (func, fn_ty) = get_helper(ctx, "rt_make_tuple")?;
+            let args_buf = build_tagged_args_array(ctx, vars, env)?;
+            let len = wrapper::const_i64(ctx.i64_type, vars.len() as i64);
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, args_buf, len], "tuple");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::MakeHash(pairs) => {
+            // rt_make_hash expects interleaved [k0, v0, k1, v1, ...] tagged values
+            let (func, fn_ty) = get_helper(ctx, "rt_make_hash")?;
+            let flat: Vec<IrVar> = pairs.iter().flat_map(|(k, v)| [*k, *v]).collect();
+            let args_buf = build_tagged_args_array(ctx, &flat, env)?;
+            let npairs = wrapper::const_i64(ctx.i64_type, pairs.len() as i64);
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, args_buf, npairs], "hash");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::MakeList(vars) => {
+            // Build a cons list right-to-left: cons(last, cons(... cons(first, empty)))
+            let (make_cons, make_cons_ty) = get_helper(ctx, "rt_make_cons")?;
+            let (make_empty, make_empty_ty) = get_helper(ctx, "rt_make_empty_list")?;
+            let (force_boxed, force_boxed_ty) = get_helper(ctx, "rt_force_boxed")?;
+            let mut tail = ctx.builder.build_call(make_empty_ty, make_empty, &mut [ctx_val], "list_tail");
+            for var in vars.iter().rev() {
+                let val = get_var(env, *var)?;
+                let tag = ctx.builder.build_extract_value(val, 0, "le_tag");
+                let payload = ctx.builder.build_extract_value(val, 1, "le_payload");
+                let boxed = ctx.builder.build_call(force_boxed_ty, force_boxed, &mut [ctx_val, tag, payload], "le_boxed");
+                let ptr_int = ctx.builder.build_extract_value(boxed, 1, "le_ptr_int");
+                let head = ctx.builder.build_int_to_ptr(ptr_int, ctx.ptr_type, "le_ptr");
+                tail = ctx.builder.build_call(make_cons_ty, make_cons, &mut [ctx_val, head, tail], "list_cons");
+            }
+            Ok(build_ptr_tagged(ctx, tail))
+        }
+        IrExpr::Index { left, index } => {
+            let (func, fn_ty) = get_helper(ctx, "rt_index")?;
+            let left_ptr = force_box_to_ptr(ctx, env, *left, ctx_val)?;
+            let idx_ptr = force_box_to_ptr(ctx, env, *index, ctx_val)?;
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, left_ptr, idx_ptr], "index");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::TupleFieldAccess { object, index } => {
+            let (func, fn_ty) = get_helper(ctx, "rt_tuple_get")?;
+            let obj_ptr = force_box_to_ptr(ctx, env, *object, ctx_val)?;
+            let idx_val = wrapper::const_i64(ctx.i64_type, *index as i64);
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, obj_ptr, idx_val], "tuple_get");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::TupleArityTest { value, arity } => {
+            let (func, fn_ty) = get_helper(ctx, "rt_tuple_len_eq")?;
+            let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
+            let arity_val = wrapper::const_i64(ctx.i64_type, *arity as i64);
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr, arity_val], "tuple_arity");
+            Ok(build_bool_tagged(ctx, result))
+        }
+        IrExpr::MakeAdt(constructor, fields) => {
+            let name_str = interner.resolve(*constructor);
+            let name_bytes = name_str.as_bytes();
+            if fields.is_empty() {
+                // Unit ADT — use rt_intern_unit_adt for deduplication
+                let (func, fn_ty) = get_helper(ctx, "rt_intern_unit_adt")?;
+                let global = wrapper::create_global_string(&ctx.module, &ctx.llvm_ctx, &format!(".adt.{}", name_str), name_bytes);
+                let len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
+                let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, global, len], "unit_adt");
+                Ok(build_ptr_tagged(ctx, result))
+            } else {
+                let (func, fn_ty) = get_helper(ctx, "rt_make_adt")?;
+                let global = wrapper::create_global_string(&ctx.module, &ctx.llvm_ctx, &format!(".adt.{}", name_str), name_bytes);
+                let name_len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
+                let fields_buf = build_tagged_args_array(ctx, fields, env)?;
+                let nfields = wrapper::const_i64(ctx.i64_type, fields.len() as i64);
+                let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, global, name_len, fields_buf, nfields], "adt");
+                Ok(build_ptr_tagged(ctx, result))
+            }
+        }
+        IrExpr::AdtTagTest { value, constructor } => {
+            let (func, fn_ty) = get_helper(ctx, "rt_is_adt_constructor")?;
+            let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
+            let name_str = interner.resolve(*constructor);
+            let name_bytes = name_str.as_bytes();
+            let global = wrapper::create_global_string(&ctx.module, &ctx.llvm_ctx, &format!(".adt.{}", name_str), name_bytes);
+            let len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr, global, len], "adt_test");
+            Ok(build_bool_tagged(ctx, result))
+        }
+        IrExpr::AdtField { value, index } => {
+            let (func, fn_ty) = get_helper(ctx, "rt_adt_field")?;
+            let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
+            let idx_val = wrapper::const_i64(ctx.i64_type, *index as i64);
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr, idx_val], "adt_field");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::TagTest { value, tag } => {
+            let helper_name = match tag {
+                IrTagTest::None => "rt_is_none",
+                IrTagTest::Some => "rt_is_some",
+                IrTagTest::Left => "rt_is_left",
+                IrTagTest::Right => "rt_is_right",
+            };
+            let (func, fn_ty) = get_helper(ctx, helper_name)?;
+            let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr], "tag_test");
+            Ok(build_bool_tagged(ctx, result))
+        }
+        IrExpr::TagPayload { value, tag } => {
+            let helper_name = match tag {
+                IrTagTest::Some => "rt_unwrap_some",
+                IrTagTest::Left => "rt_unwrap_left",
+                IrTagTest::Right => "rt_unwrap_right",
+                IrTagTest::None => return Err("LLVM backend: cannot unwrap None".to_string()),
+            };
+            let (func, fn_ty) = get_helper(ctx, helper_name)?;
+            let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr], "tag_payload");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::ListTest { value, tag } => {
+            let helper_name = match tag {
+                IrListTest::Empty => "rt_is_empty_list",
+                IrListTest::Cons => "rt_is_cons",
+            };
+            let (func, fn_ty) = get_helper(ctx, helper_name)?;
+            let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr], "list_test");
+            Ok(build_bool_tagged(ctx, result))
+        }
+        IrExpr::ListHead { value } => {
+            let (func, fn_ty) = get_helper(ctx, "rt_cons_head")?;
+            let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr], "list_head");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::ListTail { value } => {
+            let (func, fn_ty) = get_helper(ctx, "rt_cons_tail")?;
+            let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr], "list_tail");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::Some(var) => {
+            let (func, fn_ty) = get_helper(ctx, "rt_make_some")?;
+            let ptr = force_box_to_ptr(ctx, env, *var, ctx_val)?;
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, ptr], "some");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::Left(var) => {
+            let (func, fn_ty) = get_helper(ctx, "rt_make_left")?;
+            let ptr = force_box_to_ptr(ctx, env, *var, ctx_val)?;
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, ptr], "left");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::Right(var) => {
+            let (func, fn_ty) = get_helper(ctx, "rt_make_right")?;
+            let ptr = force_box_to_ptr(ctx, env, *var, ctx_val)?;
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, ptr], "right");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::Cons { head, tail } => {
+            let (func, fn_ty) = get_helper(ctx, "rt_make_cons")?;
+            let head_ptr = force_box_to_ptr(ctx, env, *head, ctx_val)?;
+            let tail_ptr = force_box_to_ptr(ctx, env, *tail, ctx_val)?;
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, head_ptr, tail_ptr], "cons");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::MemberAccess { object, member, module_name: _ } => {
+            // Module member access — force-box the object and look up member
+            // For now, treat as a global lookup on the member name
+            let _obj_val = get_var(env, *object)?;
+            let name_str = interner.resolve(*member);
+            // Check base functions first
+            if let Some(idx) = crate::runtime::base::get_base_function_index(name_str) {
+                let (make_base_fn, make_base_fn_ty) = get_helper(ctx, "rt_make_base_function")?;
+                let idx_val = wrapper::const_i64(ctx.i64_type, idx as i64);
+                let ptr_result = ctx.builder.build_call(make_base_fn_ty, make_base_fn, &mut [ctx_val, idx_val], "member_base_fn");
+                return Ok(build_ptr_tagged(ctx, ptr_result));
+            }
+            Err(format!("LLVM backend: unsupported member access '{}'", name_str))
+        }
+        IrExpr::Perform { .. } | IrExpr::Handle { .. } => {
+            Err("LLVM backend: Perform/Handle expressions not yet supported (use HandleScope instruction)".to_string())
+        }
     }
 }
 
@@ -875,6 +1131,7 @@ fn compile_call(
     env: &mut HashMap<IrVar, LLVMValueRef>,
     ctx_val: LLVMValueRef,
     interner: &Interner,
+    adt_constructors: &HashMap<crate::syntax::Identifier, usize>,
 ) -> Result<LLVMValueRef, String> {
     if std::env::var("FLUX_LLVM_DUMP").is_ok() {
         eprintln!("[llvm]     compile_call target={:?}", target);
@@ -942,6 +1199,28 @@ fn compile_call(
                 );
                 // Result is *mut Value; wrap as PTR tag
                 return Ok(build_ptr_tagged(ctx, result));
+            }
+
+            // Check if it's an ADT constructor
+            if let Some(&arity) = adt_constructors.get(name) {
+                if arity == args.len() {
+                    // Build ADT via rt_make_adt
+                    let (func, fn_ty) = get_helper(ctx, "rt_make_adt")?;
+                    let name_bytes = name_str.as_bytes();
+                    let global = wrapper::create_global_string(
+                        &ctx.module, &ctx.llvm_ctx,
+                        &format!(".adt.{}", name_str), name_bytes,
+                    );
+                    let name_len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
+                    let fields_buf = build_tagged_args_array(ctx, args, env)?;
+                    let nfields = wrapper::const_i64(ctx.i64_type, args.len() as i64);
+                    let result = ctx.builder.build_call(
+                        fn_ty, func,
+                        &mut [ctx_val, global, name_len, fields_buf, nfields],
+                        "adt_ctor",
+                    );
+                    return Ok(build_ptr_tagged(ctx, result));
+                }
             }
 
             Err(format!(
@@ -1160,6 +1439,23 @@ fn emit_set_global_if_bound(
     Ok(())
 }
 
+/// Force-box a tagged value to get a `*mut Value` pointer.
+/// Calls `rt_force_boxed` and extracts the pointer from the result.
+fn force_box_to_ptr(
+    ctx: &LlvmCompilerContext,
+    env: &HashMap<IrVar, LLVMValueRef>,
+    var: IrVar,
+    ctx_val: LLVMValueRef,
+) -> Result<LLVMValueRef, String> {
+    let val = get_var(env, var)?;
+    let (force_boxed, force_boxed_ty) = get_helper(ctx, "rt_force_boxed")?;
+    let tag = ctx.builder.build_extract_value(val, 0, "fb_tag");
+    let payload = ctx.builder.build_extract_value(val, 1, "fb_payload");
+    let boxed = ctx.builder.build_call(force_boxed_ty, force_boxed, &mut [ctx_val, tag, payload], "fb_boxed");
+    let ptr_int = ctx.builder.build_extract_value(boxed, 1, "fb_ptr_int");
+    Ok(ctx.builder.build_int_to_ptr(ptr_int, ctx.ptr_type, "fb_ptr"))
+}
+
 fn get_var(env: &HashMap<IrVar, LLVMValueRef>, var: IrVar) -> Result<LLVMValueRef, String> {
     env.get(&var)
         .copied()
@@ -1195,10 +1491,26 @@ fn build_int_tagged(ctx: &LlvmCompilerContext, value: impl IntoI64OrValue) -> LL
 }
 
 /// Build a tagged boolean constant.
-fn build_bool_tagged(ctx: &LlvmCompilerContext, value: bool) -> LLVMValueRef {
+fn build_bool_tagged(ctx: &LlvmCompilerContext, value: impl IntoBoolOrValue) -> LLVMValueRef {
     let tag = wrapper::const_i64(ctx.i64_type, JIT_TAG_BOOL);
-    let payload = wrapper::const_i64(ctx.i64_type, value as i64);
+    let payload = value.to_bool_payload(ctx.i64_type);
     build_tagged_value(ctx, tag, payload)
+}
+
+trait IntoBoolOrValue {
+    fn to_bool_payload(self, i64_type: LLVMTypeRef) -> LLVMValueRef;
+}
+
+impl IntoBoolOrValue for bool {
+    fn to_bool_payload(self, i64_type: LLVMTypeRef) -> LLVMValueRef {
+        wrapper::const_i64(i64_type, self as i64)
+    }
+}
+
+impl IntoBoolOrValue for LLVMValueRef {
+    fn to_bool_payload(self, _i64_type: LLVMTypeRef) -> LLVMValueRef {
+        self // already an i64 value (0 or 1)
+    }
 }
 
 /// Build a tagged PTR value from a pointer.
