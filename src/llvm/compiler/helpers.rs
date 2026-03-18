@@ -34,6 +34,7 @@ pub(super) fn load_tagged_from_ptr(
     let tag = ctx
         .builder
         .build_load(ctx.i64_type, tag_ptr, &format!("{}_tag", prefix));
+    wrapper::set_tbaa(tag, ctx.tbaa_args);
 
     let payload_offset = wrapper::const_i64(ctx.i64_type, (index * 2 + 1) as i64);
     let payload_ptr = unsafe {
@@ -49,6 +50,7 @@ pub(super) fn load_tagged_from_ptr(
     let payload = ctx
         .builder
         .build_load(ctx.i64_type, payload_ptr, &format!("{}_payload", prefix));
+    wrapper::set_tbaa(payload, ctx.tbaa_args);
 
     build_tagged_value(ctx, tag, payload)
 }
@@ -308,7 +310,8 @@ pub(super) fn build_tagged_args_array(
                 c"arg_tag_slot".as_ptr(),
             )
         };
-        ctx.builder.build_store(tag, tag_ptr);
+        let tag_store = ctx.builder.build_store(tag, tag_ptr);
+        wrapper::set_tbaa(tag_store, ctx.tbaa_args);
 
         let payload_offset = wrapper::const_i64(ctx.i64_type, (i * 2 + 1) as i64);
         let payload_ptr = unsafe {
@@ -321,7 +324,8 @@ pub(super) fn build_tagged_args_array(
                 c"arg_payload_slot".as_ptr(),
             )
         };
-        ctx.builder.build_store(payload, payload_ptr);
+        let payload_store = ctx.builder.build_store(payload, payload_ptr);
+        wrapper::set_tbaa(payload_store, ctx.tbaa_args);
     }
 
     Ok(alloca)

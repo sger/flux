@@ -750,7 +750,8 @@ pub(super) fn compile_expr(
                             c"pa_slot".as_ptr(),
                         )
                     };
-                    ctx.builder.build_store(ptr, slot);
+                    let s = ctx.builder.build_store(ptr, slot);
+                    wrapper::set_tbaa(s, ctx.tbaa_args);
                 }
                 alloca
             };

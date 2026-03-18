@@ -119,7 +119,8 @@ pub(super) fn compile_call(
                                     c"ca_slot".as_ptr(),
                                 )
                             };
-                            ctx.builder.build_store(ptr, slot);
+                            let s = ctx.builder.build_store(ptr, slot);
+                            wrapper::set_tbaa(s, ctx.tbaa_args);
                         }
                         alloca
                     };
@@ -192,7 +193,8 @@ pub(super) fn compile_call(
                                 c"po_slot".as_ptr(),
                             )
                         };
-                        ctx.builder.build_store(ptr, slot);
+                        let s = ctx.builder.build_store(ptr, slot);
+                        wrapper::set_tbaa(s, ctx.tbaa_args);
                     }
                     alloca
                 };
@@ -320,7 +322,8 @@ pub(super) fn compile_call(
                             c"varg_slot".as_ptr(),
                         )
                     };
-                    ctx.builder.build_store(ptr, slot_ptr);
+                    let s = ctx.builder.build_store(ptr, slot_ptr);
+                    wrapper::set_tbaa(s, ctx.tbaa_args);
                 }
                 alloca
             };
