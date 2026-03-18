@@ -52,6 +52,8 @@ pub struct LlvmOptions {
     pub gc_threshold: Option<usize>,
     pub source_file: Option<String>,
     pub source_text: Option<String>,
+    /// LLVM optimization level: 0 (none), 1 (basic), 2 (default), 3 (aggressive).
+    pub opt_level: u32,
 }
 
 /// Compiled LLVM program ready to execute.
@@ -84,7 +86,7 @@ pub fn llvm_compile(
 
     let mut llvm_ctx = LlvmCompilerContext::new();
 
-    compiler::compile_program(&mut llvm_ctx, &ir_program, interner)
+    compiler::compile_program(&mut llvm_ctx, &ir_program, interner, options.opt_level)
         .map_err(LlvmError::Internal)?;
 
     let main_ptr = llvm_ctx
@@ -116,7 +118,21 @@ pub fn llvm_compile(
             return_span: None,
         });
     }
+
+    // Register the identity function (used as `resume` in effect handlers)
+    let identity_fn_index = entries.len();
+    let identity_addr = llvm_ctx
+        .get_function_address("__flux_identity")
+        .unwrap_or(0) as *const u8;
+    entries.push(crate::jit::context::JitFunctionEntry {
+        ptr: identity_addr,
+        num_params: 1,
+        call_abi: crate::jit::context::JitCallAbi::Array,
+        contract: None,
+        return_span: None,
+    });
     jit_ctx.set_jit_functions(entries);
+    jit_ctx.identity_fn_index = identity_fn_index;
 
     if options.no_gc {
         jit_ctx.gc_heap.set_enabled(false);
@@ -200,7 +216,7 @@ pub fn llvm_emit_object(
     let mut llvm_ctx = LlvmCompilerContext::new();
 
     // Compile to LLVM IR (without creating execution engine)
-    compiler::compile_program_ir_only(&mut llvm_ctx, &ir_program, interner)
+    compiler::compile_program_ir_only(&mut llvm_ctx, &ir_program, interner, opt_level)
         .map_err(LlvmError::Internal)?;
 
     // Emit to object file
@@ -229,7 +245,7 @@ pub fn llvm_emit_asm(
 
     let mut llvm_ctx = LlvmCompilerContext::new();
 
-    compiler::compile_program_ir_only(&mut llvm_ctx, &ir_program, interner)
+    compiler::compile_program_ir_only(&mut llvm_ctx, &ir_program, interner, opt_level)
         .map_err(LlvmError::Internal)?;
 
     llvm_ctx

@@ -2512,6 +2512,22 @@ pub extern "C" fn rt_perform(
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Value unboxing (LLVM backend)
+// ---------------------------------------------------------------------------
+
+/// Convert a `*mut Value` arena pointer back to a properly tagged `JitTaggedValue`.
+///
+/// This reads the actual `Value` discriminant from the pointer and produces
+/// the correct tag (INT for integers, BOOL for booleans, etc.) instead of
+/// blindly wrapping as `JIT_TAG_PTR`. Used by the LLVM backend after
+/// `rt_call_value` and other helpers that return `*mut Value`.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_unbox_to_tagged(ctx: *mut JitContext, value: *mut Value) -> JitTaggedValue {
+    let ctx = unsafe { ctx_ref(ctx) };
+    ctx.boxed_ptr_to_tagged(value)
+}
+
 // Lookup table for registering helpers with Cranelift JITModule
 // ---------------------------------------------------------------------------
 
@@ -2632,5 +2648,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_push_handler", rt_push_handler as *const u8),
         ("rt_pop_handler", rt_pop_handler as *const u8),
         ("rt_perform", rt_perform as *const u8),
+        // Value unboxing (LLVM backend)
+        ("rt_unbox_to_tagged", rt_unbox_to_tagged as *const u8),
     ]
 }

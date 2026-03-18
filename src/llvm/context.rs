@@ -46,6 +46,14 @@ impl LlvmCompilerContext {
         let tagged_value_type = llvm_ctx.struct_type(&[i64_type, i64_type], false);
         let void_type = llvm_ctx.void_type();
 
+        // Set module target triple and data layout for the host upfront.
+        // This is required for MCJIT and for optimization passes to work correctly.
+        let triple = wrapper::get_default_target_triple();
+        wrapper::set_module_target(&module, &triple);
+        if let Ok(tm) = wrapper::LlvmTargetMachine::for_host(0) {
+            wrapper::set_module_data_layout(&module, &tm.data_layout());
+        }
+
         Self {
             engine: None,
             builder,
