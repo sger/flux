@@ -694,7 +694,7 @@ impl JitCompiler {
                 .declare_function(&function_name, Linkage::Local, &sig)
                 .map_err(|e| format!("declare {}: {}", function_name, e))?;
             let function_index = self.jit_functions.len();
-            let contract = runtime_contract_from_annotations(
+            let contract = crate::runtime::function_contract::runtime_contract_from_annotations(
                 &function.parameter_types,
                 &function.return_type_annotation,
                 &function.effects,
@@ -3432,6 +3432,7 @@ fn is_base_symbol(name: Identifier, interner: &Interner) -> bool {
 // Utility functions
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 fn convert_type_expr_for_contract(ty: &TypeExpr, interner: &Interner) -> Option<RuntimeType> {
     match ty {
         TypeExpr::Named { name, args, .. } => {
@@ -3473,6 +3474,7 @@ fn convert_type_expr_for_contract(ty: &TypeExpr, interner: &Interner) -> Option<
     }
 }
 
+#[allow(dead_code)]
 fn runtime_contract_from_annotations(
     parameter_types: &[Option<TypeExpr>],
     return_type: &Option<TypeExpr>,

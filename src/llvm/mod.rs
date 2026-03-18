@@ -110,11 +110,17 @@ pub fn llvm_compile(
             .unwrap_or(0) as *const u8;
 
         let explicit_arity = func.params.len().saturating_sub(func.captures.len());
+        let contract = crate::runtime::function_contract::runtime_contract_from_annotations(
+            &func.parameter_types,
+            &func.return_type_annotation,
+            &func.effects,
+            interner,
+        );
         entries.push(crate::runtime::native_context::JitFunctionEntry {
             ptr: fn_addr,
             num_params: explicit_arity,
             call_abi: crate::runtime::native_context::JitCallAbi::Array,
-            contract: None,
+            contract,
             return_span: None,
         });
     }
