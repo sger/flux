@@ -46,6 +46,11 @@ pub fn compile_program(
         }
     }
 
+    // 2b. Collect module functions: (module_name, fn_name) → function index
+    let mut module_functions: HashMap<(crate::syntax::Identifier, crate::syntax::Identifier), usize> = HashMap::new();
+    let mut module_names: Vec<crate::syntax::Identifier> = Vec::new();
+    collect_module_functions(&program.top_level_items, None, program, &mut module_functions, &mut module_names);
+
     // 3. Forward-declare all user functions
     declare_user_functions(ctx, program, interner);
 
@@ -59,7 +64,7 @@ pub fn compile_program(
                 function.captures.len(),
                 function.blocks.len());
         }
-        compile_function(ctx, program, function, idx, interner, &adt_constructors)?;
+        compile_function(ctx, program, function, idx, interner, &adt_constructors, &module_functions, &module_names)?;
         if std::env::var("FLUX_LLVM_DUMP").is_ok() {
             eprintln!("[llvm] function {} compiled OK", idx);
         }
@@ -136,10 +141,14 @@ pub fn compile_program_ir_only(
         }
     }
 
+    let mut module_functions: HashMap<(crate::syntax::Identifier, crate::syntax::Identifier), usize> = HashMap::new();
+    let mut module_names: Vec<crate::syntax::Identifier> = Vec::new();
+    collect_module_functions(&program.top_level_items, None, program, &mut module_functions, &mut module_names);
+
     declare_user_functions(ctx, program, interner);
 
     for (idx, function) in program.functions.iter().enumerate() {
-        compile_function(ctx, program, function, idx, interner, &adt_constructors)?;
+        compile_function(ctx, program, function, idx, interner, &adt_constructors, &module_functions, &module_names)?;
     }
 
     compile_entry_wrapper(ctx, program, interner)?;
@@ -156,6 +165,37 @@ pub fn compile_program_ir_only(
     run_opt_passes(ctx, opt_level)?;
 
     Ok(())
+}
+
+/// Recursively collect module functions from top-level items.
+fn collect_module_functions(
+    items: &[crate::cfg::IrTopLevelItem],
+    current_module: Option<crate::syntax::Identifier>,
+    program: &IrProgram,
+    module_functions: &mut HashMap<(crate::syntax::Identifier, crate::syntax::Identifier), usize>,
+    module_names: &mut Vec<crate::syntax::Identifier>,
+) {
+    for item in items {
+        match item {
+            crate::cfg::IrTopLevelItem::Function {
+                name, function_id, ..
+            } => {
+                if let (Some(mod_name), Some(fn_id)) = (current_module, function_id) {
+                    if let Some(idx) = program.functions.iter().position(|f| f.id == *fn_id) {
+                        module_functions.insert((mod_name, *name), idx);
+                    }
+                }
+            }
+            crate::cfg::IrTopLevelItem::Module { name, body, .. } => {
+                module_names.push(*name);
+                collect_module_functions(body, Some(*name), program, module_functions, module_names);
+            }
+            crate::cfg::IrTopLevelItem::Import { name, .. } => {
+                module_names.push(*name);
+            }
+            _ => {}
+        }
+    }
 }
 
 // ── Runtime helper declaration ───────────────────────────────────────────────
@@ -258,6 +298,10 @@ fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
         ("rt_call_primop", ptr_ty, vec![
             ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty, i64_ty,
         ]),
+        // JIT function call with contract checking: (ctx, fn_idx, args_ptr, nargs, sl, sc, el, ec) -> ptr
+        ("rt_call_jit_function", ptr_ty, vec![
+            ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty, i64_ty,
+        ]),
         // Value unboxing: convert *mut Value back to proper {tag, payload}
         ("rt_unbox_to_tagged", tv_ty, vec![ptr_ty, ptr_ty]),
         // Effect handlers
@@ -317,6 +361,8 @@ fn compile_function(
     fn_index: usize,
     interner: &Interner,
     adt_constructors: &HashMap<crate::syntax::Identifier, usize>,
+    module_functions: &HashMap<(crate::syntax::Identifier, crate::syntax::Identifier), usize>,
+    module_names: &[crate::syntax::Identifier],
 ) -> Result<(), String> {
     // Build global binding map for the entry function.
     // Assignments to global-bound vars emit rt_set_global after the value is computed.
@@ -417,8 +463,9 @@ fn compile_function(
     }
 
     // Track which IrVars hold known user function closures (no captures).
-    // Used by TailCall to emit musttail for indirect calls to known functions.
     let mut var_fn_map: HashMap<IrVar, usize> = HashMap::new();
+    // Track which IrVars hold module references (for MemberAccess resolution).
+    let mut module_env: HashMap<IrVar, crate::syntax::Identifier> = HashMap::new();
 
     // Compile each block
     for block in &function.blocks {
@@ -448,7 +495,7 @@ fn compile_function(
             }
         }
 
-        compile_block(ctx, program, function, block, &block_map, &mut env, ctx_val, func_ref, interner, &phi_map, &global_binding_indices, adt_constructors, &mut var_fn_map)?;
+        compile_block(ctx, program, function, block, &block_map, &mut env, ctx_val, func_ref, interner, &phi_map, &global_binding_indices, adt_constructors, &mut var_fn_map, module_functions, module_names, &mut module_env)?;
     }
 
     Ok(())
@@ -468,6 +515,9 @@ fn compile_block(
     global_binding_indices: &HashMap<IrVar, usize>,
     adt_constructors: &HashMap<crate::syntax::Identifier, usize>,
     var_fn_map: &mut HashMap<IrVar, usize>,
+    module_functions: &HashMap<(crate::syntax::Identifier, crate::syntax::Identifier), usize>,
+    module_names: &[crate::syntax::Identifier],
+    module_env: &mut HashMap<IrVar, crate::syntax::Identifier>,
 ) -> Result<(), String> {
     // Compile instructions
     for (instr_idx, instr) in block.instrs.iter().enumerate() {
@@ -497,10 +547,18 @@ fn compile_block(
                         if let Some(idx) = program.functions.iter().position(|f| f.name == Some(*name)) {
                             var_fn_map.insert(*dest, idx);
                         }
+                        // Track if this var holds a module reference
+                        let is_mod = module_names.contains(name)
+                            || module_names.iter().any(|m| {
+                                interner.resolve(*name).starts_with(&format!("{}.", interner.resolve(*m)))
+                            });
+                        if is_mod {
+                            module_env.insert(*dest, *name);
+                        }
                     }
                     _ => {}
                 }
-                let value = compile_expr(ctx, program, expr, env, ctx_val, func_ref, interner, adt_constructors)
+                let value = compile_expr(ctx, program, expr, env, ctx_val, func_ref, interner, adt_constructors, module_functions, module_names, module_env)
                     .map_err(|e| format!("in assign v{}: {}", dest.0, e))?;
                 env.insert(*dest, value);
                 emit_set_global_if_bound(ctx, *dest, value, ctx_val, global_binding_indices)?;
@@ -773,6 +831,9 @@ fn compile_expr(
     func_ref: LLVMValueRef,
     interner: &Interner,
     adt_constructors: &HashMap<crate::syntax::Identifier, usize>,
+    module_functions: &HashMap<(crate::syntax::Identifier, crate::syntax::Identifier), usize>,
+    module_names: &[crate::syntax::Identifier],
+    module_env: &HashMap<IrVar, crate::syntax::Identifier>,
 ) -> Result<LLVMValueRef, String> {
     match expr {
         IrExpr::Const(IrConst::Int(n)) => Ok(build_int_tagged(ctx, *n)),
@@ -884,6 +945,57 @@ fn compile_expr(
                     .builder
                     .build_call(fn_ty, func, &mut [ctx_val, idx_val], "global_ptr");
                 return unbox_ptr_result(ctx, ptr_result, ctx_val);
+            }
+
+            // 5. Check if it's a module name or qualified module path
+            let is_module_ref = module_names.contains(name)
+                || module_names.iter().any(|m| name_str.starts_with(&format!("{}.", interner.resolve(*m))));
+            if is_module_ref {
+                // Module reference — return None tagged value (used only as target for MemberAccess)
+                let (func, fn_ty) = get_helper(ctx, "rt_make_none")?;
+                return Ok(ctx.builder.build_call(fn_ty, func, &mut [ctx_val], "module_ref"));
+            }
+
+            // 6. Check if it's a qualified module name with function (e.g., "Module.function")
+            if name_str.contains('.') {
+                let parts: Vec<&str> = name_str.splitn(2, '.').collect();
+                if parts.len() == 2 {
+                    let mod_part = parts[0];
+                    let member_part = parts[1];
+                    // Look up in module_functions by resolving the string parts back to Identifiers
+                    for (&(mod_id, fn_id), &fn_index) in module_functions.iter() {
+                        if interner.resolve(mod_id) == mod_part && interner.resolve(fn_id) == member_part {
+                            let (make_closure, make_closure_ty) = get_helper(ctx, "rt_make_jit_closure")?;
+                            let fn_idx_val = wrapper::const_i64(ctx.i64_type, fn_index as i64);
+                            let null_ptr = wrapper::const_null(ctx.ptr_type);
+                            let zero = wrapper::const_i64(ctx.i64_type, 0);
+                            let ptr_result = ctx.builder.build_call(
+                                make_closure_ty, make_closure,
+                                &mut [ctx_val, fn_idx_val, null_ptr, zero], "qualified_fn",
+                            );
+                            return Ok(build_ptr_tagged(ctx, ptr_result));
+                        }
+                    }
+                    // Check if it's a qualified ADT constructor
+                    for (&ctor_name, &arity) in adt_constructors.iter() {
+                        if interner.resolve(ctor_name) == member_part {
+                            if arity == 0 {
+                                let (intern_adt, intern_adt_ty) = get_helper(ctx, "rt_intern_unit_adt")?;
+                                let ctor_bytes = member_part.as_bytes();
+                                let global = wrapper::create_global_string(
+                                    &ctx.module, &ctx.llvm_ctx,
+                                    &format!(".adt.{}", member_part), ctor_bytes,
+                                );
+                                let len = wrapper::const_i64(ctx.i64_type, ctor_bytes.len() as i64);
+                                let ptr_result = ctx.builder.build_call(
+                                    intern_adt_ty, intern_adt,
+                                    &mut [ctx_val, global, len], "qualified_unit_adt",
+                                );
+                                return Ok(build_ptr_tagged(ctx, ptr_result));
+                            }
+                        }
+                    }
+                }
             }
 
             Err(format!("LLVM backend: unresolved name '{}'", name_str))
@@ -1170,19 +1282,70 @@ fn compile_expr(
             let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, head_ptr, tail_ptr], "cons");
             Ok(build_ptr_tagged(ctx, result))
         }
-        IrExpr::MemberAccess { object, member, module_name: _ } => {
-            // Module member access — force-box the object and look up member
-            // For now, treat as a global lookup on the member name
-            let _obj_val = get_var(env, *object)?;
+        IrExpr::MemberAccess { object, member, module_name } => {
             let name_str = interner.resolve(*member);
-            // Check base functions first
+
+            // Tier 1: Resolve via module_env or module_name
+            let resolved_module = module_name.or_else(|| module_env.get(object).copied());
+            if let Some(mod_name) = resolved_module {
+                // Check module functions: (mod_name, member) → function index
+                if let Some(&fn_index) = module_functions.get(&(mod_name, *member)) {
+                    let (make_closure, make_closure_ty) = get_helper(ctx, "rt_make_jit_closure")?;
+                    let fn_idx_val = wrapper::const_i64(ctx.i64_type, fn_index as i64);
+                    let null_ptr = wrapper::const_null(ctx.ptr_type);
+                    let zero = wrapper::const_i64(ctx.i64_type, 0);
+                    let ptr_result = ctx.builder.build_call(
+                        make_closure_ty, make_closure,
+                        &mut [ctx_val, fn_idx_val, null_ptr, zero], "module_fn",
+                    );
+                    return Ok(build_ptr_tagged(ctx, ptr_result));
+                }
+                // Check ADT constructors from the module (unit ADTs)
+                if let Some(&arity) = adt_constructors.get(member) {
+                    if arity == 0 {
+                        let (intern_adt, intern_adt_ty) = get_helper(ctx, "rt_intern_unit_adt")?;
+                        let name_bytes = name_str.as_bytes();
+                        let global = wrapper::create_global_string(
+                            &ctx.module, &ctx.llvm_ctx,
+                            &format!(".adt.{}", name_str), name_bytes,
+                        );
+                        let len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
+                        let ptr_result = ctx.builder.build_call(
+                            intern_adt_ty, intern_adt,
+                            &mut [ctx_val, global, len], "module_unit_adt",
+                        );
+                        return Ok(build_ptr_tagged(ctx, ptr_result));
+                    }
+                }
+            }
+
+            // Tier 2: Base module functions
             if let Some(idx) = crate::runtime::base::get_base_function_index(name_str) {
                 let (make_base_fn, make_base_fn_ty) = get_helper(ctx, "rt_make_base_function")?;
                 let idx_val = wrapper::const_i64(ctx.i64_type, idx as i64);
                 let ptr_result = ctx.builder.build_call(make_base_fn_ty, make_base_fn, &mut [ctx_val, idx_val], "member_base_fn");
                 return Ok(build_ptr_tagged(ctx, ptr_result));
             }
-            Err(format!("LLVM backend: unsupported member access '{}'", name_str))
+
+            // Tier 3: Dynamic member access via rt_index (fallback)
+            let obj_ptr = force_box_to_ptr(ctx, env, *object, ctx_val)?;
+            let member_str_bytes = name_str.as_bytes();
+            let (make_string, make_string_ty) = get_helper(ctx, "rt_make_string")?;
+            let member_global = wrapper::create_global_string(
+                &ctx.module, &ctx.llvm_ctx,
+                &format!(".member.{}", name_str), member_str_bytes,
+            );
+            let member_len = wrapper::const_i64(ctx.i64_type, member_str_bytes.len() as i64);
+            let member_val = ctx.builder.build_call(
+                make_string_ty, make_string,
+                &mut [ctx_val, member_global, member_len], "member_key",
+            );
+            let (index_fn, index_ty) = get_helper(ctx, "rt_index")?;
+            let result = ctx.builder.build_call(
+                index_ty, index_fn,
+                &mut [ctx_val, obj_ptr, member_val], "member_access",
+            );
+            unbox_ptr_result(ctx, result, ctx_val)
         }
         IrExpr::Perform { effect, operation, args } => {
             let (func, fn_ty) = get_helper(ctx, "rt_perform")?;
@@ -1438,6 +1601,57 @@ fn compile_call(
                 .iter()
                 .position(|f| f.name == Some(*name))
             {
+                let ir_func = &program.functions[fn_index];
+                let has_contract = ir_func.parameter_types.iter().any(|t| t.is_some())
+                    || ir_func.return_type_annotation.is_some();
+
+                if has_contract {
+                    // Route through rt_call_jit_function for contract checking
+                    let (func, fn_ty) = get_helper(ctx, "rt_call_jit_function")?;
+                    let (force_boxed, force_boxed_ty) = get_helper(ctx, "rt_force_boxed")?;
+                    let fn_idx_val = wrapper::const_i64(ctx.i64_type, fn_index as i64);
+
+                    // Build boxed *mut Value args array
+                    let args_ptr = if args.is_empty() {
+                        wrapper::const_null(ctx.ptr_type)
+                    } else {
+                        let array_ty = unsafe {
+                            llvm_sys::core::LLVMArrayType2(ctx.ptr_type, args.len() as u64)
+                        };
+                        let alloca = ctx.builder.build_alloca(array_ty, "contract_args");
+                        for (i, arg) in args.iter().enumerate() {
+                            let val = get_var(env, *arg)?;
+                            let tag = ctx.builder.build_extract_value(val, 0, "ca_tag");
+                            let payload = ctx.builder.build_extract_value(val, 1, "ca_payload");
+                            let boxed = ctx.builder.build_call(
+                                force_boxed_ty, force_boxed,
+                                &mut [ctx_val, tag, payload], "ca_boxed",
+                            );
+                            let ptr_int = ctx.builder.build_extract_value(boxed, 1, "ca_ptr_int");
+                            let ptr = ctx.builder.build_int_to_ptr(ptr_int, ctx.ptr_type, "ca_ptr");
+                            let slot = unsafe {
+                                llvm_sys::core::LLVMBuildGEP2(
+                                    ctx.builder.raw_ptr(), array_ty, alloca,
+                                    [wrapper::const_i64(ctx.i64_type, 0), wrapper::const_i64(ctx.i64_type, i as i64)].as_mut_ptr(),
+                                    2, c"ca_slot".as_ptr(),
+                                )
+                            };
+                            ctx.builder.build_store(ptr, slot);
+                        }
+                        alloca
+                    };
+
+                    let nargs = wrapper::const_i64(ctx.i64_type, args.len() as i64);
+                    let result = ctx.builder.build_call(
+                        fn_ty, func,
+                        &mut [ctx_val, fn_idx_val, args_ptr, nargs, sl, sc, el, ec],
+                        "contract_call",
+                    );
+                    let result = emit_null_check(ctx, func_ref, result);
+                    return unbox_ptr_result(ctx, result, ctx_val);
+                }
+
+                // No contract — direct call (fast path)
                 let (callee, callee_ty) = ctx.functions[&fn_index];
                 let args_array = build_tagged_args_array(ctx, args, env)?;
                 let nargs = wrapper::const_i64(ctx.i64_type, args.len() as i64);
