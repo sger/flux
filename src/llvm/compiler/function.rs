@@ -529,78 +529,52 @@ pub(super) fn compile_block(
             ctx.builder.build_cond_br(cond_bool, llvm_then, llvm_else);
         }
         IrTerminator::TailCall { callee, args, .. } => {
-            // For direct calls, use musttail for TCO (prevents stack overflow on deep recursion).
-            if let IrCallTarget::Direct(fn_id) = callee {
-                let fn_index = program
-                    .functions
-                    .iter()
-                    .position(|f| f.id == *fn_id)
-                    .ok_or_else(|| format!("missing tail callee {:?}", fn_id))?;
-                let (callee_fn, callee_ty) = ctx.functions[&fn_index];
+            // Thunk-based tail call optimization: instead of a direct tail call
+            // (which can't use musttail due to stack-allocated args buffers),
+            // call rt_set_thunk to copy args to the heap and return a JIT_TAG_THUNK
+            // marker. The trampoline loop in llvm_execute re-invokes the target.
+            let resolved_fn_index = match callee {
+                IrCallTarget::Direct(fn_id) => Some(
+                    program
+                        .functions
+                        .iter()
+                        .position(|f| f.id == *fn_id)
+                        .ok_or_else(|| format!("missing tail callee {:?}", fn_id))?,
+                ),
+                IrCallTarget::Named(name) => {
+                    program.functions.iter().position(|f| f.name == Some(*name))
+                }
+                IrCallTarget::Var(var) => var_fn_map.get(var).copied(),
+            };
+
+            if let Some(fn_index) = resolved_fn_index {
                 let args_array = build_tagged_args_array(ctx, args, env)?;
                 let nargs = wrapper::const_i64(ctx.i64_type, args.len() as i64);
-                let null_captures = wrapper::const_null(ctx.ptr_type);
-                let zero_captures = wrapper::const_i64(ctx.i64_type, 0);
-                let call_inst = ctx.builder.build_call(
-                    callee_ty,
-                    callee_fn,
-                    &mut [ctx_val, args_array, nargs, null_captures, zero_captures],
-                    "tail_call",
+                let fn_idx_val = wrapper::const_i64(ctx.i64_type, fn_index as i64);
+                let (set_thunk, set_thunk_ty) = get_helper(ctx, "rt_set_thunk")?;
+                let result = ctx.builder.build_call(
+                    set_thunk_ty,
+                    set_thunk,
+                    &mut [ctx_val, fn_idx_val, args_array, nargs],
+                    "set_thunk",
                 );
-                unsafe {
-                    llvm_sys::core::LLVMSetTailCallKind(
-                        call_inst,
-                        llvm_sys::LLVMTailCallKind::LLVMTailCallKindNone,
-                    );
-                }
-                ctx.builder.build_ret(call_inst);
+                ctx.builder.build_ret(result);
             } else {
-                // Try to resolve Var/Named to a known user function for musttail.
-                let resolved_fn_index = match callee {
-                    IrCallTarget::Named(name) => {
-                        program.functions.iter().position(|f| f.name == Some(*name))
-                    }
-                    IrCallTarget::Var(var) => var_fn_map.get(var).copied(),
-                    _ => None,
-                };
-
-                if let Some(fn_index) = resolved_fn_index {
-                    // Resolved to known function — emit musttail direct call
-                    let (callee_fn, callee_ty) = ctx.functions[&fn_index];
-                    let args_array = build_tagged_args_array(ctx, args, env)?;
-                    let nargs = wrapper::const_i64(ctx.i64_type, args.len() as i64);
-                    let null_captures = wrapper::const_null(ctx.ptr_type);
-                    let zero_captures = wrapper::const_i64(ctx.i64_type, 0);
-                    let call_inst = ctx.builder.build_call(
-                        callee_ty,
-                        callee_fn,
-                        &mut [ctx_val, args_array, nargs, null_captures, zero_captures],
-                        "tail_call",
-                    );
-                    unsafe {
-                        llvm_sys::core::LLVMSetTailCallKind(
-                            call_inst,
-                            llvm_sys::LLVMTailCallKind::LLVMTailCallKindNone,
-                        );
-                    }
-                    ctx.builder.build_ret(call_inst);
-                } else {
-                    // Unknown callee — fall back to regular call+return
-                    let value = compile_call(
-                        ctx,
-                        program,
-                        function,
-                        callee,
-                        args,
-                        env,
-                        ctx_val,
-                        func_ref,
-                        interner,
-                        adt_constructors,
-                        None,
-                    )?;
-                    ctx.builder.build_ret(value);
-                }
+                // Unknown callee — fall back to regular call+return
+                let value = compile_call(
+                    ctx,
+                    program,
+                    function,
+                    callee,
+                    args,
+                    env,
+                    ctx_val,
+                    func_ref,
+                    interner,
+                    adt_constructors,
+                    None,
+                )?;
+                ctx.builder.build_ret(value);
             }
         }
         IrTerminator::Unreachable(_) => {
