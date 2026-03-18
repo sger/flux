@@ -274,6 +274,8 @@ pub(super) fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
         ),
         // Error checking: (ctx) -> i64 (0 or 1)
         ("rt_has_error", i64_ty, vec![ptr_ty]),
+        // Tail call thunk: (ctx, fn_index, args_ptr, nargs) -> {i64, i64} (JIT_TAG_THUNK marker)
+        ("rt_set_thunk", tv_ty, vec![ptr_ty, i64_ty, ptr_ty, i64_ty]),
         // Error rendering: (ctx, start_line, start_col, end_line, end_col) -> void
         (
             "rt_render_error_with_span",
