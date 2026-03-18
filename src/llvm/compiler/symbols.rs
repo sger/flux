@@ -54,7 +54,13 @@ pub(super) fn collect_module_functions(
             }
             crate::cfg::IrTopLevelItem::Module { name, body, .. } => {
                 module_names.push(*name);
-                collect_module_functions(body, Some(*name), program, module_functions, module_names);
+                collect_module_functions(
+                    body,
+                    Some(*name),
+                    program,
+                    module_functions,
+                    module_names,
+                );
             }
             crate::cfg::IrTopLevelItem::Import { name, alias, .. } => {
                 module_names.push(*name);
@@ -89,17 +95,57 @@ pub(super) fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
     let helpers: Vec<(&str, LLVMTypeRef, Vec<LLVMTypeRef>)> = vec![
         // Arithmetic: (ctx, tv, tv) -> tv  — but the C ABI flattens JitTaggedValue
         // rt_add(ctx: ptr, a_tag: i64, a_payload: i64, b_tag: i64, b_payload: i64) -> {i64, i64}
-        ("rt_add", tv_ty, vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty]),
-        ("rt_sub", tv_ty, vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty]),
-        ("rt_mul", tv_ty, vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty]),
-        ("rt_div", tv_ty, vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty]),
-        ("rt_mod", tv_ty, vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty]),
+        (
+            "rt_add",
+            tv_ty,
+            vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty],
+        ),
+        (
+            "rt_sub",
+            tv_ty,
+            vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty],
+        ),
+        (
+            "rt_mul",
+            tv_ty,
+            vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty],
+        ),
+        (
+            "rt_div",
+            tv_ty,
+            vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty],
+        ),
+        (
+            "rt_mod",
+            tv_ty,
+            vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty],
+        ),
         // Comparison: same signature
-        ("rt_equal", tv_ty, vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty]),
-        ("rt_not_equal", tv_ty, vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty]),
-        ("rt_greater_than", tv_ty, vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty]),
-        ("rt_less_than_or_equal", tv_ty, vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty]),
-        ("rt_greater_than_or_equal", tv_ty, vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty]),
+        (
+            "rt_equal",
+            tv_ty,
+            vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty],
+        ),
+        (
+            "rt_not_equal",
+            tv_ty,
+            vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty],
+        ),
+        (
+            "rt_greater_than",
+            tv_ty,
+            vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty],
+        ),
+        (
+            "rt_less_than_or_equal",
+            tv_ty,
+            vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty],
+        ),
+        (
+            "rt_greater_than_or_equal",
+            tv_ty,
+            vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty],
+        ),
         // Unary
         ("rt_negate", tv_ty, vec![ptr_ty, i64_ty, i64_ty]),
         ("rt_not", tv_ty, vec![ptr_ty, i64_ty, i64_ty]),
@@ -117,18 +163,30 @@ pub(super) fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
         // Base function allocation: (ctx, idx) -> *mut Value
         ("rt_make_base_function", ptr_ty, vec![ptr_ty, i64_ty]),
         // Base function call: (ctx, idx, args_ptr, nargs, sl, sc, el, ec) -> ptr
-        ("rt_call_base_function_tagged", ptr_ty, vec![
-            ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty, i64_ty,
-        ]),
+        (
+            "rt_call_base_function_tagged",
+            ptr_ty,
+            vec![
+                ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty, i64_ty,
+            ],
+        ),
         // Generic value call: (ctx, callee, args_ptr, nargs, sl, sc, el, ec) -> ptr
-        ("rt_call_value", ptr_ty, vec![
-            ptr_ty, ptr_ty, ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty, i64_ty,
-        ]),
+        (
+            "rt_call_value",
+            ptr_ty,
+            vec![
+                ptr_ty, ptr_ty, ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty, i64_ty,
+            ],
+        ),
         // Global access
         ("rt_get_global", ptr_ty, vec![ptr_ty, i64_ty]),
         ("rt_set_global", void_ty, vec![ptr_ty, i64_ty, ptr_ty]),
         // Closure creation: (ctx, fn_index, captures_ptr, ncaptures) -> ptr
-        ("rt_make_jit_closure", ptr_ty, vec![ptr_ty, i64_ty, ptr_ty, i64_ty]),
+        (
+            "rt_make_jit_closure",
+            ptr_ty,
+            vec![ptr_ty, i64_ty, ptr_ty, i64_ty],
+        ),
         // Array/tuple
         ("rt_make_array", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
         ("rt_make_tuple", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
@@ -166,31 +224,62 @@ pub(super) fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
         ("rt_tuple_len_eq", i64_ty, vec![ptr_ty, ptr_ty, i64_ty]),
         ("rt_tuple_get", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
         // ADT construction: (ctx, name_ptr, name_len, fields_ptr, nfields) -> ptr
-        ("rt_make_adt", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty, ptr_ty, i64_ty]),
+        (
+            "rt_make_adt",
+            ptr_ty,
+            vec![ptr_ty, ptr_ty, i64_ty, ptr_ty, i64_ty],
+        ),
         ("rt_intern_unit_adt", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
         // ADT pattern matching
-        ("rt_is_adt_constructor", i64_ty, vec![ptr_ty, ptr_ty, ptr_ty, i64_ty]),
+        (
+            "rt_is_adt_constructor",
+            i64_ty,
+            vec![ptr_ty, ptr_ty, ptr_ty, i64_ty],
+        ),
         ("rt_adt_field", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
         ("rt_adt_field_or_none", ptr_ty, vec![ptr_ty, ptr_ty, i64_ty]),
         // Primop call: (ctx, primop_id, args_ptr, nargs, sl, sc, el, ec) -> ptr
-        ("rt_call_primop", ptr_ty, vec![
-            ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty, i64_ty,
-        ]),
+        (
+            "rt_call_primop",
+            ptr_ty,
+            vec![
+                ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty, i64_ty,
+            ],
+        ),
         // JIT function call with contract checking: (ctx, fn_idx, args_ptr, nargs, sl, sc, el, ec) -> ptr
-        ("rt_call_jit_function", ptr_ty, vec![
-            ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty, i64_ty,
-        ]),
+        (
+            "rt_call_jit_function",
+            ptr_ty,
+            vec![
+                ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty, i64_ty,
+            ],
+        ),
         // Value unboxing: convert *mut Value back to proper {tag, payload}
         ("rt_unbox_to_tagged", tv_ty, vec![ptr_ty, ptr_ty]),
         // Effect handlers
-        ("rt_push_handler", void_ty, vec![ptr_ty, i64_ty, ptr_ty, ptr_ty, i64_ty]),
+        (
+            "rt_push_handler",
+            void_ty,
+            vec![ptr_ty, i64_ty, ptr_ty, ptr_ty, i64_ty],
+        ),
         ("rt_pop_handler", void_ty, vec![ptr_ty]),
         // rt_perform(ctx, effect_id, op_id, args_ptr, nargs, effect_name_ptr, effect_name_len, op_name_ptr, op_name_len, line, column) -> ptr
-        ("rt_perform", ptr_ty, vec![ptr_ty, i64_ty, i64_ty, ptr_ty, i64_ty, ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, i64_ty]),
+        (
+            "rt_perform",
+            ptr_ty,
+            vec![
+                ptr_ty, i64_ty, i64_ty, ptr_ty, i64_ty, ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty,
+                i64_ty,
+            ],
+        ),
         // Error checking: (ctx) -> i64 (0 or 1)
         ("rt_has_error", i64_ty, vec![ptr_ty]),
         // Error rendering: (ctx, start_line, start_col, end_line, end_col) -> void
-        ("rt_render_error_with_span", void_ty, vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty]),
+        (
+            "rt_render_error_with_span",
+            void_ty,
+            vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty],
+        ),
     ];
 
     for (name, ret_ty, param_tys) in helpers {
@@ -211,7 +300,12 @@ pub(super) fn resolve_all_runtime_symbols(ctx: &LlvmCompilerContext) {
         }
     }
     if std::env::var("FLUX_LLVM_DUMP").is_ok() {
-        eprintln!("[llvm] resolved {}/{} runtime symbols ({} declared)", resolved, symbols.len(), ctx.helpers.len());
+        eprintln!(
+            "[llvm] resolved {}/{} runtime symbols ({} declared)",
+            resolved,
+            symbols.len(),
+            ctx.helpers.len()
+        );
         let _ = std::io::Write::flush(&mut std::io::stderr());
     }
 }

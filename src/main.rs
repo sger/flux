@@ -8,6 +8,8 @@ use std::{
 };
 
 #[cfg(any(feature = "jit", feature = "llvm"))]
+use flux::ast::{constant_fold_with_interner, desugar, rename};
+#[cfg(any(feature = "jit", feature = "llvm"))]
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
@@ -33,13 +35,9 @@ use flux::{
         module_graph::ModuleGraph, parser::Parser,
     },
 };
-#[cfg(any(feature = "jit", feature = "llvm"))]
-use flux::ast::{constant_fold_with_interner, desugar, rename};
 #[cfg(feature = "jit")]
 use flux::{
-    jit::JitError,
-    runtime::jit_closure::JitClosure,
-    runtime::vm::test_runner::run_test_fns,
+    jit::JitError, runtime::jit_closure::JitClosure, runtime::vm::test_runner::run_test_fns,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -843,7 +841,13 @@ fn run_file(
                 let compiled = match llvm_result {
                     Ok(Ok(c)) => c,
                     Ok(Err(err)) => {
-                        emit_llvm_error(&err, path, source.as_str(), max_errors, diagnostics_format);
+                        emit_llvm_error(
+                            &err,
+                            path,
+                            source.as_str(),
+                            max_errors,
+                            diagnostics_format,
+                        );
                         std::process::exit(1);
                     }
                     Err(panic) => {
@@ -879,7 +883,13 @@ fn run_file(
                         ctx.clear_runtime_state();
                     }
                     Err(err) => {
-                        emit_llvm_error(&err, path, source.as_str(), max_errors, diagnostics_format);
+                        emit_llvm_error(
+                            &err,
+                            path,
+                            source.as_str(),
+                            max_errors,
+                            diagnostics_format,
+                        );
                         std::process::exit(1);
                     }
                 }

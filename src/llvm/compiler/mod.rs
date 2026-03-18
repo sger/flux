@@ -48,9 +48,18 @@ pub fn compile_program(
     collect_adt_constructors(&program.top_level_items, &mut adt_constructors);
 
     // 2b. Collect module functions: (module_name, fn_name) → function index
-    let mut module_functions: HashMap<(crate::syntax::Identifier, crate::syntax::Identifier), usize> = HashMap::new();
+    let mut module_functions: HashMap<
+        (crate::syntax::Identifier, crate::syntax::Identifier),
+        usize,
+    > = HashMap::new();
     let mut module_names: Vec<crate::syntax::Identifier> = Vec::new();
-    collect_module_functions(&program.top_level_items, None, program, &mut module_functions, &mut module_names);
+    collect_module_functions(
+        &program.top_level_items,
+        None,
+        program,
+        &mut module_functions,
+        &mut module_names,
+    );
 
     // 3. Forward-declare all user functions
     declare_user_functions(ctx, program, interner);
@@ -58,14 +67,28 @@ pub fn compile_program(
     // 3. Compile each function body
     for (idx, function) in program.functions.iter().enumerate() {
         if std::env::var("FLUX_LLVM_DUMP").is_ok() {
-            eprintln!("[llvm] compiling function {} ({}) params={} captures={} blocks={}",
+            eprintln!(
+                "[llvm] compiling function {} ({}) params={} captures={} blocks={}",
                 idx,
-                function.name.map(|n| interner.resolve(n).to_string()).unwrap_or_else(|| "anon".to_string()),
+                function
+                    .name
+                    .map(|n| interner.resolve(n).to_string())
+                    .unwrap_or_else(|| "anon".to_string()),
                 function.params.len(),
                 function.captures.len(),
-                function.blocks.len());
+                function.blocks.len()
+            );
         }
-        compile_function(ctx, program, function, idx, interner, &adt_constructors, &module_functions, &module_names)?;
+        compile_function(
+            ctx,
+            program,
+            function,
+            idx,
+            interner,
+            &adt_constructors,
+            &module_functions,
+            &module_names,
+        )?;
         if std::env::var("FLUX_LLVM_DUMP").is_ok() {
             eprintln!("[llvm] function {} compiled OK", idx);
         }
@@ -83,7 +106,10 @@ pub fn compile_program(
 
     // 5. Verify
     if std::env::var("FLUX_LLVM_DUMP").is_ok() {
-        eprintln!("=== LLVM IR ===\n{}\n===============", ctx.module.dump_to_string());
+        eprintln!(
+            "=== LLVM IR ===\n{}\n===============",
+            ctx.module.dump_to_string()
+        );
     }
     if let Err(err) = ctx.module.verify() {
         if std::env::var("FLUX_LLVM_DUMP").is_ok() {
@@ -136,21 +162,42 @@ pub fn compile_program_ir_only(
     let mut adt_constructors: HashMap<crate::syntax::Identifier, usize> = HashMap::new();
     collect_adt_constructors(&program.top_level_items, &mut adt_constructors);
 
-    let mut module_functions: HashMap<(crate::syntax::Identifier, crate::syntax::Identifier), usize> = HashMap::new();
+    let mut module_functions: HashMap<
+        (crate::syntax::Identifier, crate::syntax::Identifier),
+        usize,
+    > = HashMap::new();
     let mut module_names: Vec<crate::syntax::Identifier> = Vec::new();
-    collect_module_functions(&program.top_level_items, None, program, &mut module_functions, &mut module_names);
+    collect_module_functions(
+        &program.top_level_items,
+        None,
+        program,
+        &mut module_functions,
+        &mut module_names,
+    );
 
     declare_user_functions(ctx, program, interner);
 
     for (idx, function) in program.functions.iter().enumerate() {
-        compile_function(ctx, program, function, idx, interner, &adt_constructors, &module_functions, &module_names)?;
+        compile_function(
+            ctx,
+            program,
+            function,
+            idx,
+            interner,
+            &adt_constructors,
+            &module_functions,
+            &module_names,
+        )?;
     }
 
     compile_entry_wrapper(ctx, program, interner)?;
     compile_identity_function(ctx)?;
 
     if std::env::var("FLUX_LLVM_DUMP").is_ok() {
-        eprintln!("=== LLVM IR ===\n{}\n===============", ctx.module.dump_to_string());
+        eprintln!(
+            "=== LLVM IR ===\n{}\n===============",
+            ctx.module.dump_to_string()
+        );
     }
     if let Err(err) = ctx.module.verify() {
         return Err(err);

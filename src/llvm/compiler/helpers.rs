@@ -3,8 +3,8 @@
 
 use std::collections::HashMap;
 
-use llvm_sys::prelude::*;
 use llvm_sys::LLVMIntPredicate;
+use llvm_sys::prelude::*;
 
 use crate::cfg::IrVar;
 use crate::runtime::native_context::JIT_TAG_PTR;
@@ -74,16 +74,14 @@ pub(super) fn emit_set_global_if_bound(
             "gb_boxed",
         );
         let ptr_int = ctx.builder.build_extract_value(boxed, 1, "gb_ptr_int");
-        let ptr = ctx.builder.build_int_to_ptr(ptr_int, ctx.ptr_type, "gb_ptr");
+        let ptr = ctx
+            .builder
+            .build_int_to_ptr(ptr_int, ctx.ptr_type, "gb_ptr");
 
         let (set_global, set_global_ty) = get_helper(ctx, "rt_set_global")?;
         let idx_val = wrapper::const_i64(ctx.i64_type, global_idx as i64);
-        ctx.builder.build_call(
-            set_global_ty,
-            set_global,
-            &mut [ctx_val, idx_val, ptr],
-            "",
-        );
+        ctx.builder
+            .build_call(set_global_ty, set_global, &mut [ctx_val, idx_val, ptr], "");
     }
     Ok(())
 }
@@ -98,7 +96,9 @@ pub(super) fn emit_error_check_and_return(
     span: &crate::diagnostics::position::Span,
 ) -> Result<(), String> {
     let (has_error, has_error_ty) = get_helper(ctx, "rt_has_error")?;
-    let err_flag = ctx.builder.build_call(has_error_ty, has_error, &mut [ctx_val], "has_err");
+    let err_flag = ctx
+        .builder
+        .build_call(has_error_ty, has_error, &mut [ctx_val], "has_err");
     let is_err = ctx.builder.build_icmp(
         LLVMIntPredicate::LLVMIntNE,
         err_flag,
@@ -115,7 +115,8 @@ pub(super) fn emit_error_check_and_return(
     let sc = wrapper::const_i64(ctx.i64_type, (span.start.column + 1) as i64);
     let el = wrapper::const_i64(ctx.i64_type, span.end.line as i64);
     let ec = wrapper::const_i64(ctx.i64_type, (span.end.column + 1) as i64);
-    ctx.builder.build_call(render_ty, render, &mut [ctx_val, sl, sc, el, ec], "");
+    ctx.builder
+        .build_call(render_ty, render, &mut [ctx_val, sl, sc, el, ec], "");
     let null_tagged = build_tagged_value(
         ctx,
         wrapper::const_i64(ctx.i64_type, JIT_TAG_PTR),
@@ -143,7 +144,8 @@ pub(super) fn emit_null_check(
     );
     let null_block = ctx.llvm_ctx.append_basic_block(func_ref, "null_err");
     let continue_block = ctx.llvm_ctx.append_basic_block(func_ref, "continue");
-    ctx.builder.build_cond_br(is_null, null_block, continue_block);
+    ctx.builder
+        .build_cond_br(is_null, null_block, continue_block);
 
     ctx.builder.position_at_end(null_block);
     let null_tagged = build_tagged_value(
@@ -167,7 +169,9 @@ pub(super) fn unbox_ptr_result(
     ctx_val: LLVMValueRef,
 ) -> Result<LLVMValueRef, String> {
     let (unbox, unbox_ty) = get_helper(ctx, "rt_unbox_to_tagged")?;
-    Ok(ctx.builder.build_call(unbox_ty, unbox, &mut [ctx_val, ptr_result], "unboxed"))
+    Ok(ctx
+        .builder
+        .build_call(unbox_ty, unbox, &mut [ctx_val, ptr_result], "unboxed"))
 }
 
 /// Force-box a tagged value to get a `*mut Value` pointer.
@@ -182,12 +186,22 @@ pub(super) fn force_box_to_ptr(
     let (force_boxed, force_boxed_ty) = get_helper(ctx, "rt_force_boxed")?;
     let tag = ctx.builder.build_extract_value(val, 0, "fb_tag");
     let payload = ctx.builder.build_extract_value(val, 1, "fb_payload");
-    let boxed = ctx.builder.build_call(force_boxed_ty, force_boxed, &mut [ctx_val, tag, payload], "fb_boxed");
+    let boxed = ctx.builder.build_call(
+        force_boxed_ty,
+        force_boxed,
+        &mut [ctx_val, tag, payload],
+        "fb_boxed",
+    );
     let ptr_int = ctx.builder.build_extract_value(boxed, 1, "fb_ptr_int");
-    Ok(ctx.builder.build_int_to_ptr(ptr_int, ctx.ptr_type, "fb_ptr"))
+    Ok(ctx
+        .builder
+        .build_int_to_ptr(ptr_int, ctx.ptr_type, "fb_ptr"))
 }
 
-pub(super) fn get_var(env: &HashMap<IrVar, LLVMValueRef>, var: IrVar) -> Result<LLVMValueRef, String> {
+pub(super) fn get_var(
+    env: &HashMap<IrVar, LLVMValueRef>,
+    var: IrVar,
+) -> Result<LLVMValueRef, String> {
     env.get(&var)
         .copied()
         .ok_or_else(|| format!("LLVM backend: undefined variable {:?}", var))
@@ -215,7 +229,10 @@ pub(super) fn build_tagged_value(
 }
 
 /// Build a tagged integer constant.
-pub(super) fn build_int_tagged(ctx: &LlvmCompilerContext, value: impl IntoI64OrValue) -> LLVMValueRef {
+pub(super) fn build_int_tagged(
+    ctx: &LlvmCompilerContext,
+    value: impl IntoI64OrValue,
+) -> LLVMValueRef {
     use crate::runtime::native_context::JIT_TAG_INT;
     let tag = wrapper::const_i64(ctx.i64_type, JIT_TAG_INT);
     let payload = value.to_llvm_value(ctx.i64_type);
@@ -223,7 +240,10 @@ pub(super) fn build_int_tagged(ctx: &LlvmCompilerContext, value: impl IntoI64OrV
 }
 
 /// Build a tagged boolean constant.
-pub(super) fn build_bool_tagged(ctx: &LlvmCompilerContext, value: impl IntoBoolOrValue) -> LLVMValueRef {
+pub(super) fn build_bool_tagged(
+    ctx: &LlvmCompilerContext,
+    value: impl IntoBoolOrValue,
+) -> LLVMValueRef {
     use crate::runtime::native_context::JIT_TAG_BOOL;
     let tag = wrapper::const_i64(ctx.i64_type, JIT_TAG_BOOL);
     let payload = value.to_bool_payload(ctx.i64_type);
@@ -268,9 +288,7 @@ pub(super) fn build_tagged_args_array(
 
     // Allocate space for args.len() * 2 i64s on the stack as a flat i64 array.
     let total_slots = args.len() * 2;
-    let array_ty = unsafe {
-        llvm_sys::core::LLVMArrayType2(ctx.i64_type, total_slots as u64)
-    };
+    let array_ty = unsafe { llvm_sys::core::LLVMArrayType2(ctx.i64_type, total_slots as u64) };
     let alloca = ctx.builder.build_alloca(array_ty, "args_buf");
 
     for (i, arg) in args.iter().enumerate() {
