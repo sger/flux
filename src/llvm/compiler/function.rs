@@ -180,6 +180,7 @@ pub(super) fn compile_function(
             ctx,
             program,
             function,
+            fn_index,
             block,
             &block_map,
             &mut env,
@@ -203,6 +204,7 @@ pub(super) fn compile_block(
     ctx: &LlvmCompilerContext,
     program: &IrProgram,
     function: &IrFunction,
+    current_fn_index: usize,
     block: &IrBlock,
     block_map: &HashMap<BlockId, LLVMBasicBlockRef>,
     env: &mut HashMap<IrVar, LLVMValueRef>,
@@ -552,17 +554,41 @@ pub(super) fn compile_block(
             };
 
             if let Some(fn_index) = resolved_fn_index {
-                let args_array = build_tagged_args_array(ctx, args, env)?;
-                let nargs = wrapper::const_i64(ctx.i64_type, args.len() as i64);
-                let fn_idx_val = wrapper::const_i64(ctx.i64_type, fn_index as i64);
-                let (set_thunk, set_thunk_ty) = get_helper(ctx, "rt_set_thunk")?;
-                let result = ctx.builder.build_call(
-                    set_thunk_ty,
-                    set_thunk,
-                    &mut [ctx_val, fn_idx_val, args_array, nargs],
-                    "set_thunk",
-                );
-                ctx.builder.build_ret(result);
+                if fn_index == current_fn_index {
+                    // Self-recursive tail call: emit direct call + ret.
+                    // LLVM's tailcallelim pass will convert this to a loop.
+                    let (callee_fn, callee_ty) = ctx.functions[&fn_index];
+                    let args_array = build_tagged_args_array(ctx, args, env)?;
+                    let nargs = wrapper::const_i64(ctx.i64_type, args.len() as i64);
+                    let null_captures = wrapper::const_null(ctx.ptr_type);
+                    let zero_captures = wrapper::const_i64(ctx.i64_type, 0);
+                    let call_inst = ctx.builder.build_call(
+                        callee_ty,
+                        callee_fn,
+                        &mut [ctx_val, args_array, nargs, null_captures, zero_captures],
+                        "self_tail_call",
+                    );
+                    unsafe {
+                        llvm_sys::core::LLVMSetTailCallKind(
+                            call_inst,
+                            llvm_sys::LLVMTailCallKind::LLVMTailCallKindTail,
+                        );
+                    }
+                    ctx.builder.build_ret(call_inst);
+                } else {
+                    // Mutual recursion: use thunk trampoline
+                    let args_array = build_tagged_args_array(ctx, args, env)?;
+                    let nargs = wrapper::const_i64(ctx.i64_type, args.len() as i64);
+                    let fn_idx_val = wrapper::const_i64(ctx.i64_type, fn_index as i64);
+                    let (set_thunk, set_thunk_ty) = get_helper(ctx, "rt_set_thunk")?;
+                    let result = ctx.builder.build_call(
+                        set_thunk_ty,
+                        set_thunk,
+                        &mut [ctx_val, fn_idx_val, args_array, nargs],
+                        "set_thunk",
+                    );
+                    ctx.builder.build_ret(result);
+                }
             } else {
                 // Unknown callee — fall back to regular call+return
                 let value = compile_call(
