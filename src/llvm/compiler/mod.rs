@@ -220,9 +220,7 @@ pub fn compile_program_ir_only(
             ctx.module.dump_to_string()
         );
     }
-    if let Err(err) = ctx.module.verify() {
-        return Err(err);
-    }
+    ctx.module.verify()?;
 
     // Run optimization passes for AOT
     run_opt_passes(ctx, opt_level)?;

@@ -771,88 +771,6 @@ impl RuntimeContext for JitContext {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::rc::Rc;
-
-    use super::{JitContext, is_rendered_runtime_diagnostic};
-    use crate::runtime::{
-        gc::heap_object::HeapObject,
-        value::{AdtFields, Value},
-    };
-
-    #[test]
-    fn collect_gc_preserves_shadow_rooted_gc_adt() {
-        let mut ctx = JitContext::new();
-        let list = ctx.gc_heap.alloc(HeapObject::Cons {
-            head: Value::Integer(1),
-            tail: Value::None,
-        });
-        let adt = ctx.gc_heap.alloc(HeapObject::Adt {
-            constructor: Rc::new("Node".to_string()),
-            fields: AdtFields::from_vec(vec![Value::Gc(list)]),
-        });
-        let root = ctx.alloc(Value::GcAdt(adt));
-        ctx.push_gc_roots(&[root]);
-
-        ctx.gc_heap.alloc(HeapObject::Cons {
-            head: Value::Integer(99),
-            tail: Value::None,
-        });
-
-        ctx.collect_gc();
-        assert_eq!(ctx.gc_heap.live_count(), 2);
-        assert_eq!(
-            unsafe { &*root }.adt_constructor(&ctx.gc_heap),
-            Some("Node")
-        );
-
-        ctx.pop_gc_roots();
-        ctx.arena.reset();
-        ctx.collect_gc();
-        assert_eq!(ctx.gc_heap.live_count(), 0);
-    }
-
-    #[test]
-    fn collect_gc_preserves_arena_rooted_gc_adt_without_shadow_roots() {
-        let mut ctx = JitContext::new();
-        let list = ctx.gc_heap.alloc(HeapObject::Cons {
-            head: Value::Integer(1),
-            tail: Value::None,
-        });
-        let adt = ctx.gc_heap.alloc(HeapObject::Adt {
-            constructor: Rc::new("Node".to_string()),
-            fields: AdtFields::from_vec(vec![Value::Gc(list)]),
-        });
-        let root = ctx.alloc(Value::GcAdt(adt));
-
-        ctx.gc_heap.alloc(HeapObject::Cons {
-            head: Value::Integer(99),
-            tail: Value::None,
-        });
-
-        ctx.collect_gc();
-        assert_eq!(ctx.gc_heap.live_count(), 2);
-        assert_eq!(
-            unsafe { &*root }.adt_constructor(&ctx.gc_heap),
-            Some("Node")
-        );
-    }
-
-    #[test]
-    fn rendered_runtime_diagnostic_detection_accepts_plain_text_header() {
-        let rendered = "• 1 error • examples/io/read_file_demo.flx\nerror[E1009]: read_file failed";
-        assert!(is_rendered_runtime_diagnostic(rendered));
-    }
-
-    #[test]
-    fn rendered_runtime_diagnostic_detection_ignores_leading_ansi_and_whitespace() {
-        let rendered =
-            "\n\u{1b}[1m• 1 error • examples/io/read_file_demo.flx\nerror[E1009]: read_file failed";
-        assert!(is_rendered_runtime_diagnostic(rendered));
-    }
-}
-
 // ── Thunk trampoline (shared by JIT and LLVM backends) ──────────────────────
 
 /// Dispatch a single trampoline step: call a JIT function via the ABI stored
@@ -964,5 +882,87 @@ fn thunk_arg(args: &[JitTaggedValue], idx: usize) -> (i64, i64) {
         (args[idx].tag, args[idx].payload)
     } else {
         (0, 0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use super::{JitContext, is_rendered_runtime_diagnostic};
+    use crate::runtime::{
+        gc::heap_object::HeapObject,
+        value::{AdtFields, Value},
+    };
+
+    #[test]
+    fn collect_gc_preserves_shadow_rooted_gc_adt() {
+        let mut ctx = JitContext::new();
+        let list = ctx.gc_heap.alloc(HeapObject::Cons {
+            head: Value::Integer(1),
+            tail: Value::None,
+        });
+        let adt = ctx.gc_heap.alloc(HeapObject::Adt {
+            constructor: Rc::new("Node".to_string()),
+            fields: AdtFields::from_vec(vec![Value::Gc(list)]),
+        });
+        let root = ctx.alloc(Value::GcAdt(adt));
+        ctx.push_gc_roots(&[root]);
+
+        ctx.gc_heap.alloc(HeapObject::Cons {
+            head: Value::Integer(99),
+            tail: Value::None,
+        });
+
+        ctx.collect_gc();
+        assert_eq!(ctx.gc_heap.live_count(), 2);
+        assert_eq!(
+            unsafe { &*root }.adt_constructor(&ctx.gc_heap),
+            Some("Node")
+        );
+
+        ctx.pop_gc_roots();
+        ctx.arena.reset();
+        ctx.collect_gc();
+        assert_eq!(ctx.gc_heap.live_count(), 0);
+    }
+
+    #[test]
+    fn collect_gc_preserves_arena_rooted_gc_adt_without_shadow_roots() {
+        let mut ctx = JitContext::new();
+        let list = ctx.gc_heap.alloc(HeapObject::Cons {
+            head: Value::Integer(1),
+            tail: Value::None,
+        });
+        let adt = ctx.gc_heap.alloc(HeapObject::Adt {
+            constructor: Rc::new("Node".to_string()),
+            fields: AdtFields::from_vec(vec![Value::Gc(list)]),
+        });
+        let root = ctx.alloc(Value::GcAdt(adt));
+
+        ctx.gc_heap.alloc(HeapObject::Cons {
+            head: Value::Integer(99),
+            tail: Value::None,
+        });
+
+        ctx.collect_gc();
+        assert_eq!(ctx.gc_heap.live_count(), 2);
+        assert_eq!(
+            unsafe { &*root }.adt_constructor(&ctx.gc_heap),
+            Some("Node")
+        );
+    }
+
+    #[test]
+    fn rendered_runtime_diagnostic_detection_accepts_plain_text_header() {
+        let rendered = "• 1 error • examples/io/read_file_demo.flx\nerror[E1009]: read_file failed";
+        assert!(is_rendered_runtime_diagnostic(rendered));
+    }
+
+    #[test]
+    fn rendered_runtime_diagnostic_detection_ignores_leading_ansi_and_whitespace() {
+        let rendered =
+            "\n\u{1b}[1m• 1 error • examples/io/read_file_demo.flx\nerror[E1009]: read_file failed";
+        assert!(is_rendered_runtime_diagnostic(rendered));
     }
 }

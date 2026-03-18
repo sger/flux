@@ -15,7 +15,7 @@ use super::helpers::{
     emit_null_check, force_box_to_ptr, get_helper, get_var, unbox_ptr_result,
 };
 
-#[allow(unused_variables)]
+#[allow(unused_variables, clippy::too_many_arguments)]
 pub(super) fn compile_expr(
     ctx: &LlvmCompilerContext,
     program: &IrProgram,
@@ -115,27 +115,27 @@ pub(super) fn compile_expr(
             }
 
             // 4. Check if it's a unit ADT constructor (0-arity)
-            if let Some(&arity) = adt_constructors.get(name) {
-                if arity == 0 {
-                    let (intern_adt, intern_adt_ty) = get_helper(ctx, "rt_intern_unit_adt")?;
-                    let name_bytes = name_str.as_bytes();
-                    let global = wrapper::create_global_string(
-                        &ctx.module,
-                        &ctx.llvm_ctx,
-                        &format!(".adt.{}", name_str),
-                        name_bytes,
-                    );
-                    let len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
-                    let ptr_result = ctx.builder.build_call(
-                        intern_adt_ty,
-                        intern_adt,
-                        &mut [ctx_val, global, len],
-                        "unit_adt",
-                    );
-                    return Ok(build_ptr_tagged(ctx, ptr_result));
-                }
-                // Non-zero arity constructors are handled via Named calls / MakeAdt
+            if let Some(&arity) = adt_constructors.get(name)
+                && arity == 0
+            {
+                let (intern_adt, intern_adt_ty) = get_helper(ctx, "rt_intern_unit_adt")?;
+                let name_bytes = name_str.as_bytes();
+                let global = wrapper::create_global_string(
+                    &ctx.module,
+                    &ctx.llvm_ctx,
+                    &format!(".adt.{}", name_str),
+                    name_bytes,
+                );
+                let len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
+                let ptr_result = ctx.builder.build_call(
+                    intern_adt_ty,
+                    intern_adt,
+                    &mut [ctx_val, global, len],
+                    "unit_adt",
+                );
+                return Ok(build_ptr_tagged(ctx, ptr_result));
             }
+            // Non-zero arity constructors are handled via Named calls / MakeAdt
 
             // 5. Check if it's a module name or qualified module path
             let is_module_ref = name_str == "Base"
@@ -159,21 +159,20 @@ pub(super) fn compile_expr(
                     let member_part = parts[1];
 
                     // Check if it's a qualified Base function (e.g., "Base.len")
-                    if mod_part == "Base" {
-                        if let Some(idx) =
+                    if mod_part == "Base"
+                        && let Some(idx) =
                             crate::runtime::base::get_base_function_index(member_part)
-                        {
-                            let (make_base_fn, make_base_fn_ty) =
-                                get_helper(ctx, "rt_make_base_function")?;
-                            let idx_val = wrapper::const_i64(ctx.i64_type, idx as i64);
-                            let ptr_result = ctx.builder.build_call(
-                                make_base_fn_ty,
-                                make_base_fn,
-                                &mut [ctx_val, idx_val],
-                                "qualified_base_fn",
-                            );
-                            return Ok(build_ptr_tagged(ctx, ptr_result));
-                        }
+                    {
+                        let (make_base_fn, make_base_fn_ty) =
+                            get_helper(ctx, "rt_make_base_function")?;
+                        let idx_val = wrapper::const_i64(ctx.i64_type, idx as i64);
+                        let ptr_result = ctx.builder.build_call(
+                            make_base_fn_ty,
+                            make_base_fn,
+                            &mut [ctx_val, idx_val],
+                            "qualified_base_fn",
+                        );
+                        return Ok(build_ptr_tagged(ctx, ptr_result));
                     }
 
                     // Look up in module_functions by resolving the string parts back to Identifiers
@@ -197,26 +196,26 @@ pub(super) fn compile_expr(
                     }
                     // Check if it's a qualified ADT constructor
                     for (&ctor_name, &arity) in adt_constructors.iter() {
-                        if interner.resolve(ctor_name) == member_part {
-                            if arity == 0 {
-                                let (intern_adt, intern_adt_ty) =
-                                    get_helper(ctx, "rt_intern_unit_adt")?;
-                                let ctor_bytes = member_part.as_bytes();
-                                let global = wrapper::create_global_string(
-                                    &ctx.module,
-                                    &ctx.llvm_ctx,
-                                    &format!(".adt.{}", member_part),
-                                    ctor_bytes,
-                                );
-                                let len = wrapper::const_i64(ctx.i64_type, ctor_bytes.len() as i64);
-                                let ptr_result = ctx.builder.build_call(
-                                    intern_adt_ty,
-                                    intern_adt,
-                                    &mut [ctx_val, global, len],
-                                    "qualified_unit_adt",
-                                );
-                                return Ok(build_ptr_tagged(ctx, ptr_result));
-                            }
+                        if interner.resolve(ctor_name) == member_part
+                            && arity == 0
+                        {
+                            let (intern_adt, intern_adt_ty) =
+                                get_helper(ctx, "rt_intern_unit_adt")?;
+                            let ctor_bytes = member_part.as_bytes();
+                            let global = wrapper::create_global_string(
+                                &ctx.module,
+                                &ctx.llvm_ctx,
+                                &format!(".adt.{}", member_part),
+                                ctor_bytes,
+                            );
+                            let len = wrapper::const_i64(ctx.i64_type, ctor_bytes.len() as i64);
+                            let ptr_result = ctx.builder.build_call(
+                                intern_adt_ty,
+                                intern_adt,
+                                &mut [ctx_val, global, len],
+                                "qualified_unit_adt",
+                            );
+                            return Ok(build_ptr_tagged(ctx, ptr_result));
                         }
                     }
                 }
@@ -633,25 +632,25 @@ pub(super) fn compile_expr(
                     return Ok(build_ptr_tagged(ctx, ptr_result));
                 }
                 // Check ADT constructors from the module (unit ADTs)
-                if let Some(&arity) = adt_constructors.get(member) {
-                    if arity == 0 {
-                        let (intern_adt, intern_adt_ty) = get_helper(ctx, "rt_intern_unit_adt")?;
-                        let name_bytes = name_str.as_bytes();
-                        let global = wrapper::create_global_string(
-                            &ctx.module,
-                            &ctx.llvm_ctx,
-                            &format!(".adt.{}", name_str),
-                            name_bytes,
-                        );
-                        let len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
-                        let ptr_result = ctx.builder.build_call(
-                            intern_adt_ty,
-                            intern_adt,
-                            &mut [ctx_val, global, len],
-                            "module_unit_adt",
-                        );
-                        return Ok(build_ptr_tagged(ctx, ptr_result));
-                    }
+                if let Some(&arity) = adt_constructors.get(member)
+                    && arity == 0
+                {
+                    let (intern_adt, intern_adt_ty) = get_helper(ctx, "rt_intern_unit_adt")?;
+                    let name_bytes = name_str.as_bytes();
+                    let global = wrapper::create_global_string(
+                        &ctx.module,
+                        &ctx.llvm_ctx,
+                        &format!(".adt.{}", name_str),
+                        name_bytes,
+                    );
+                    let len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
+                    let ptr_result = ctx.builder.build_call(
+                        intern_adt_ty,
+                        intern_adt,
+                        &mut [ctx_val, global, len],
+                        "module_unit_adt",
+                    );
+                    return Ok(build_ptr_tagged(ctx, ptr_result));
                 }
             }
 

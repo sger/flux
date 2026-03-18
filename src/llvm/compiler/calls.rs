@@ -14,7 +14,7 @@ use super::helpers::{
     unbox_ptr_result,
 };
 
-#[allow(unused_variables)]
+#[allow(unused_variables, clippy::too_many_arguments)]
 pub(super) fn compile_call(
     ctx: &LlvmCompilerContext,
     program: &IrProgram,
@@ -228,8 +228,9 @@ pub(super) fn compile_call(
             }
 
             // Check if it's an ADT constructor
-            if let Some(&arity) = adt_constructors.get(name) {
-                if arity == args.len() {
+            if let Some(&arity) = adt_constructors.get(name)
+                && arity == args.len()
+            {
                     // Build ADT via rt_make_adt
                     let (func, fn_ty) = get_helper(ctx, "rt_make_adt")?;
                     let name_bytes = name_str.as_bytes();
@@ -249,7 +250,6 @@ pub(super) fn compile_call(
                         "adt_ctor",
                     );
                     return Ok(build_ptr_tagged(ctx, result));
-                }
             }
 
             Err(format!(
