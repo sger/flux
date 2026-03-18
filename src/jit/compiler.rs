@@ -2037,11 +2037,7 @@ fn collect_backend_top_level_declaration_metadata(
     // ADT constructors and module metadata use shared utilities
     crate::backend_ir::metadata::collect_adt_constructors(items, adt_constructors);
     let mut module_names: Vec<Identifier> = Vec::new();
-    crate::backend_ir::metadata::collect_module_metadata(
-        items,
-        &mut module_names,
-        import_aliases,
-    );
+    crate::backend_ir::metadata::collect_module_metadata(items, &mut module_names, import_aliases);
     for name in module_names {
         imported_modules.insert(name);
     }
@@ -2060,19 +2056,13 @@ fn register_backend_top_level_module_functions(
         &|fn_id| backend_function_metas.get(&fn_id).copied(),
         &mut scope.module_functions,
     );
-    crate::backend_ir::metadata::apply_import_aliases(
-        &mut scope.module_functions,
-        import_aliases,
-    );
+    crate::backend_ir::metadata::apply_import_aliases(&mut scope.module_functions, import_aliases);
 
     // JIT-specific: track which ADT constructor belongs to which data type
     collect_adt_constructor_owners(items, scope);
 }
 
-fn collect_adt_constructor_owners(
-    items: &[crate::backend_ir::IrTopLevelItem],
-    scope: &mut Scope,
-) {
+fn collect_adt_constructor_owners(items: &[crate::backend_ir::IrTopLevelItem], scope: &mut Scope) {
     for item in items {
         match item {
             crate::backend_ir::IrTopLevelItem::Data { name, variants, .. } => {

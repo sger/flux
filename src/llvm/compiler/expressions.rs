@@ -196,9 +196,7 @@ pub(super) fn compile_expr(
                     }
                     // Check if it's a qualified ADT constructor
                     for (&ctor_name, &arity) in adt_constructors.iter() {
-                        if interner.resolve(ctor_name) == member_part
-                            && arity == 0
-                        {
+                        if interner.resolve(ctor_name) == member_part && arity == 0 {
                             let (intern_adt, intern_adt_ty) =
                                 get_helper(ctx, "rt_intern_unit_adt")?;
                             let ctor_bytes = member_part.as_bytes();
