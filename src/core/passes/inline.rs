@@ -14,14 +14,14 @@
 /// ```
 use crate::core::CoreExpr;
 
-use super::helpers::{is_pure, map_children, subst};
+use super::helpers::{is_trivially_pure, map_children, subst};
 
 pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
     match expr {
         CoreExpr::Let { var, rhs, body, .. } => {
             let rhs = inline_trivial_lets(*rhs);
             let body = inline_trivial_lets(*body);
-            if is_pure(&rhs) {
+            if is_trivially_pure(&rhs) {
                 // Substitute and continue — may unlock further inlining.
                 inline_trivial_lets(subst(body, var.id, &rhs))
             } else {
