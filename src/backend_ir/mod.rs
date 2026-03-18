@@ -13,6 +13,7 @@ use crate::{
     types::infer_type::InferType,
 };
 
+pub mod metadata;
 pub mod primitives;
 pub mod lower {
     pub use crate::cfg::lower::*;

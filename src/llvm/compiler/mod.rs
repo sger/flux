@@ -24,10 +24,8 @@ use super::wrapper;
 
 use entry::{compile_entry_wrapper, compile_identity_function};
 use function::compile_function;
-use symbols::{
-    collect_adt_constructors, collect_module_functions, declare_runtime_helpers,
-    declare_user_functions, resolve_all_runtime_symbols,
-};
+use crate::backend_ir::metadata;
+use symbols::{declare_runtime_helpers, declare_user_functions, resolve_all_runtime_symbols};
 
 /// Compile an IR program into LLVM IR inside the given context.
 ///
@@ -43,23 +41,29 @@ pub fn compile_program(
     // 1. Declare runtime helpers as external functions
     declare_runtime_helpers(ctx);
 
-    // 2. Collect ADT constructor arities from all data declarations (including inside modules)
+    // 2. Collect ADT constructors, module names, and module functions
     let mut adt_constructors: HashMap<crate::syntax::Identifier, usize> = HashMap::new();
-    collect_adt_constructors(&program.top_level_items, &mut adt_constructors);
+    metadata::collect_adt_constructors(&program.top_level_items, &mut adt_constructors);
 
-    // 2b. Collect module functions: (module_name, fn_name) → function index
     let mut module_functions: HashMap<
         (crate::syntax::Identifier, crate::syntax::Identifier),
         usize,
     > = HashMap::new();
     let mut module_names: Vec<crate::syntax::Identifier> = Vec::new();
-    collect_module_functions(
+    let mut import_aliases: HashMap<crate::syntax::Identifier, crate::syntax::Identifier> =
+        HashMap::new();
+    metadata::collect_module_metadata(
+        &program.top_level_items,
+        &mut module_names,
+        &mut import_aliases,
+    );
+    metadata::collect_module_functions(
         &program.top_level_items,
         None,
-        program,
+        &|fn_id| program.functions.iter().position(|f| f.id == fn_id),
         &mut module_functions,
-        &mut module_names,
     );
+    metadata::apply_import_aliases(&mut module_functions, &import_aliases);
 
     // 3. Forward-declare all user functions
     declare_user_functions(ctx, program, interner);
@@ -160,20 +164,27 @@ pub fn compile_program_ir_only(
     declare_runtime_helpers(ctx);
 
     let mut adt_constructors: HashMap<crate::syntax::Identifier, usize> = HashMap::new();
-    collect_adt_constructors(&program.top_level_items, &mut adt_constructors);
+    metadata::collect_adt_constructors(&program.top_level_items, &mut adt_constructors);
 
     let mut module_functions: HashMap<
         (crate::syntax::Identifier, crate::syntax::Identifier),
         usize,
     > = HashMap::new();
     let mut module_names: Vec<crate::syntax::Identifier> = Vec::new();
-    collect_module_functions(
+    let mut import_aliases: HashMap<crate::syntax::Identifier, crate::syntax::Identifier> =
+        HashMap::new();
+    metadata::collect_module_metadata(
+        &program.top_level_items,
+        &mut module_names,
+        &mut import_aliases,
+    );
+    metadata::collect_module_functions(
         &program.top_level_items,
         None,
-        program,
+        &|fn_id| program.functions.iter().position(|f| f.id == fn_id),
         &mut module_functions,
-        &mut module_names,
     );
+    metadata::apply_import_aliases(&mut module_functions, &import_aliases);
 
     declare_user_functions(ctx, program, interner);
 

@@ -1,8 +1,6 @@
 //! Symbol collection and declaration: ADT constructors, module functions,
 //! runtime helper declarations, symbol resolution, and user function forward declarations.
 
-use std::collections::HashMap;
-
 use llvm_sys::prelude::*;
 
 use crate::cfg::IrProgram;
@@ -12,75 +10,8 @@ use crate::syntax::interner::Interner;
 use super::super::context::LlvmCompilerContext;
 use super::super::wrapper::function_type;
 
-/// Recursively collect ADT constructor arities from all data declarations,
-/// including those nested inside modules.
-pub(super) fn collect_adt_constructors(
-    items: &[crate::cfg::IrTopLevelItem],
-    adt_constructors: &mut HashMap<crate::syntax::Identifier, usize>,
-) {
-    for item in items {
-        match item {
-            crate::cfg::IrTopLevelItem::Data { variants, .. } => {
-                for variant in variants {
-                    adt_constructors.insert(variant.name, variant.fields.len());
-                }
-            }
-            crate::cfg::IrTopLevelItem::Module { body, .. } => {
-                collect_adt_constructors(body, adt_constructors);
-            }
-            _ => {}
-        }
-    }
-}
-
-/// Recursively collect module functions from top-level items.
-pub(super) fn collect_module_functions(
-    items: &[crate::cfg::IrTopLevelItem],
-    current_module: Option<crate::syntax::Identifier>,
-    program: &IrProgram,
-    module_functions: &mut HashMap<(crate::syntax::Identifier, crate::syntax::Identifier), usize>,
-    module_names: &mut Vec<crate::syntax::Identifier>,
-) {
-    for item in items {
-        match item {
-            crate::cfg::IrTopLevelItem::Function {
-                name, function_id, ..
-            } => {
-                if let (Some(mod_name), Some(fn_id)) = (current_module, function_id) {
-                    if let Some(idx) = program.functions.iter().position(|f| f.id == *fn_id) {
-                        module_functions.insert((mod_name, *name), idx);
-                    }
-                }
-            }
-            crate::cfg::IrTopLevelItem::Module { name, body, .. } => {
-                module_names.push(*name);
-                collect_module_functions(
-                    body,
-                    Some(*name),
-                    program,
-                    module_functions,
-                    module_names,
-                );
-            }
-            crate::cfg::IrTopLevelItem::Import { name, alias, .. } => {
-                module_names.push(*name);
-                if let Some(alias_id) = alias {
-                    module_names.push(*alias_id);
-                    // Duplicate module function entries under the alias
-                    let aliased: Vec<_> = module_functions
-                        .iter()
-                        .filter(|((mod_id, _), _)| *mod_id == *name)
-                        .map(|((_, fn_id), &idx)| ((*alias_id, *fn_id), idx))
-                        .collect();
-                    for (key, idx) in aliased {
-                        module_functions.insert(key, idx);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-}
+// ADT constructor and module function collection is shared with the JIT
+// backend via `crate::backend_ir::metadata`.
 
 // ── Runtime helper declaration ───────────────────────────────────────────────
 

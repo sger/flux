@@ -736,10 +736,11 @@ impl JitCompiler {
             &backend_function_metas,
             &mut scope,
         );
+        let import_aliases = scope.import_aliases.clone();
         register_backend_top_level_module_functions(
             ir_program.top_level_items(),
-            None,
             &backend_function_metas,
+            &import_aliases,
             &mut scope,
         );
 
@@ -2034,77 +2035,56 @@ fn collect_backend_top_level_declaration_metadata(
     import_aliases: &mut HashMap<Identifier, Identifier>,
     adt_constructors: &mut HashMap<Identifier, usize>,
 ) {
-    for item in items {
-        match item {
-            crate::backend_ir::IrTopLevelItem::Function { .. } => {}
-            crate::backend_ir::IrTopLevelItem::Module { name, body, .. } => {
-                imported_modules.insert(*name);
-                collect_backend_top_level_declaration_metadata(
-                    body,
-                    imported_modules,
-                    import_aliases,
-                    adt_constructors,
-                );
-            }
-            crate::backend_ir::IrTopLevelItem::Import { name, alias, .. } => {
-                imported_modules.insert(*name);
-                if let Some(alias) = alias {
-                    import_aliases.insert(*alias, *name);
-                }
-            }
-            crate::backend_ir::IrTopLevelItem::Data { name, variants, .. } => {
-                for variant in variants {
-                    adt_constructors.insert(variant.name, variant.fields.len());
-                }
-                let _ = name;
-            }
-            crate::backend_ir::IrTopLevelItem::EffectDecl { .. }
-            | crate::backend_ir::IrTopLevelItem::Let { .. }
-            | crate::backend_ir::IrTopLevelItem::LetDestructure { .. }
-            | crate::backend_ir::IrTopLevelItem::Return { .. }
-            | crate::backend_ir::IrTopLevelItem::Expression { .. }
-            | crate::backend_ir::IrTopLevelItem::Assign { .. } => {}
-        }
+    // ADT constructors and module metadata use shared utilities
+    crate::backend_ir::metadata::collect_adt_constructors(items, adt_constructors);
+    let mut module_names: Vec<Identifier> = Vec::new();
+    crate::backend_ir::metadata::collect_module_metadata(
+        items,
+        &mut module_names,
+        import_aliases,
+    );
+    for name in module_names {
+        imported_modules.insert(name);
     }
 }
 
 fn register_backend_top_level_module_functions(
     items: &[crate::backend_ir::IrTopLevelItem],
-    current_module: Option<Identifier>,
     backend_function_metas: &HashMap<BackendFunctionId, JitFunctionMeta>,
+    import_aliases: &HashMap<Identifier, Identifier>,
+    scope: &mut Scope,
+) {
+    // Use shared generic collection, parameterized on JitFunctionMeta
+    crate::backend_ir::metadata::collect_module_functions(
+        items,
+        None,
+        &|fn_id| backend_function_metas.get(&fn_id).copied(),
+        &mut scope.module_functions,
+    );
+    crate::backend_ir::metadata::apply_import_aliases(
+        &mut scope.module_functions,
+        import_aliases,
+    );
+
+    // JIT-specific: track which ADT constructor belongs to which data type
+    collect_adt_constructor_owners(items, scope);
+}
+
+fn collect_adt_constructor_owners(
+    items: &[crate::backend_ir::IrTopLevelItem],
     scope: &mut Scope,
 ) {
     for item in items {
         match item {
-            crate::backend_ir::IrTopLevelItem::Function {
-                name, function_id, ..
-            } => {
-                if let (Some(module_name), Some(function_id)) = (current_module, function_id)
-                    && let Some(meta) = backend_function_metas.get(function_id).copied()
-                {
-                    scope.module_functions.insert((module_name, *name), meta);
-                }
-            }
-            crate::backend_ir::IrTopLevelItem::Module { name, body, .. } => {
-                register_backend_top_level_module_functions(
-                    body,
-                    Some(*name),
-                    backend_function_metas,
-                    scope,
-                );
-            }
             crate::backend_ir::IrTopLevelItem::Data { name, variants, .. } => {
                 for variant in variants {
                     scope.adt_constructor_owner.insert(variant.name, *name);
                 }
             }
-            crate::backend_ir::IrTopLevelItem::Import { .. }
-            | crate::backend_ir::IrTopLevelItem::EffectDecl { .. }
-            | crate::backend_ir::IrTopLevelItem::Let { .. }
-            | crate::backend_ir::IrTopLevelItem::LetDestructure { .. }
-            | crate::backend_ir::IrTopLevelItem::Return { .. }
-            | crate::backend_ir::IrTopLevelItem::Expression { .. }
-            | crate::backend_ir::IrTopLevelItem::Assign { .. } => {}
+            crate::backend_ir::IrTopLevelItem::Module { body, .. } => {
+                collect_adt_constructor_owners(body, scope);
+            }
+            _ => {}
         }
     }
 }
