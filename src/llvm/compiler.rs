@@ -81,11 +81,47 @@ pub fn compile_program(
         return Err(err);
     }
 
-    // 7. Finalize (create execution engine)
+    // 7. Finalize (create execution engine for JIT)
     ctx.finalize()?;
 
     // 8. Resolve runtime symbols
     resolve_all_runtime_symbols(ctx);
+
+    Ok(())
+}
+
+/// Compile an IR program into LLVM IR without creating an execution engine.
+/// Used for AOT emission (object file / assembly).
+pub fn compile_program_ir_only(
+    ctx: &mut LlvmCompilerContext,
+    program: &IrProgram,
+    interner: &Interner,
+) -> Result<(), String> {
+    declare_runtime_helpers(ctx);
+
+    let mut adt_constructors: HashMap<crate::syntax::Identifier, usize> = HashMap::new();
+    for item in program.top_level_items.iter() {
+        if let crate::cfg::IrTopLevelItem::Data { variants, .. } = item {
+            for variant in variants {
+                adt_constructors.insert(variant.name, variant.fields.len());
+            }
+        }
+    }
+
+    declare_user_functions(ctx, program, interner);
+
+    for (idx, function) in program.functions.iter().enumerate() {
+        compile_function(ctx, program, function, idx, interner, &adt_constructors)?;
+    }
+
+    compile_entry_wrapper(ctx, program, interner)?;
+
+    if std::env::var("FLUX_LLVM_DUMP").is_ok() {
+        eprintln!("=== LLVM IR ===\n{}\n===============", ctx.module.dump_to_string());
+    }
+    if let Err(err) = ctx.module.verify() {
+        return Err(err);
+    }
 
     Ok(())
 }

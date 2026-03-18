@@ -101,4 +101,22 @@ impl LlvmCompilerContext {
     pub fn get_function_address(&self, name: &str) -> Option<u64> {
         self.engine.as_ref()?.get_function_address(name)
     }
+
+    /// Finalize for AOT: set target triple/data layout and emit to object file.
+    pub fn emit_object_file(&self, path: &str, opt_level: u32) -> Result<(), String> {
+        let tm = wrapper::LlvmTargetMachine::for_host(opt_level)?;
+        let triple = wrapper::get_default_target_triple();
+        wrapper::set_module_target(&self.module, &triple);
+        wrapper::set_module_data_layout(&self.module, &tm.data_layout());
+        tm.emit_object_file(&self.module, path)
+    }
+
+    /// Emit assembly text file.
+    pub fn emit_asm_file(&self, path: &str, opt_level: u32) -> Result<(), String> {
+        let tm = wrapper::LlvmTargetMachine::for_host(opt_level)?;
+        let triple = wrapper::get_default_target_triple();
+        wrapper::set_module_target(&self.module, &triple);
+        wrapper::set_module_data_layout(&self.module, &tm.data_layout());
+        tm.emit_asm_file(&self.module, path)
+    }
 }

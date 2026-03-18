@@ -78,6 +78,10 @@ fn main() {
     let use_llvm = args.iter().any(|arg| arg == "--llvm");
     #[cfg(not(feature = "llvm"))]
     let use_llvm = false;
+    #[cfg(feature = "llvm")]
+    let emit_obj = args.iter().any(|arg| arg == "--emit-obj");
+    #[cfg(not(feature = "llvm"))]
+    let emit_obj = false;
     let mut roots = Vec::new();
     if verbose {
         args.retain(|arg| arg != "--verbose");
@@ -114,6 +118,9 @@ fn main() {
     }
     if use_llvm {
         args.retain(|arg| arg != "--llvm");
+    }
+    if emit_obj {
+        args.retain(|arg| arg != "--emit-obj");
     }
     if test_mode {
         args.retain(|arg| arg != "--test");
@@ -799,6 +806,29 @@ fn run_file(
                     source_file: Some(path.to_string()),
                     source_text: Some(source.clone()),
                 };
+
+                // AOT: emit object file instead of JIT execution
+                let emit_obj = std::env::args().any(|a| a == "--emit-obj");
+                if emit_obj {
+                    let output = path.replace(".flx", ".o");
+                    let opt = if enable_optimize { 2 } else { 0 };
+                    match flux::llvm::llvm_emit_object(
+                        &llvm_program,
+                        &compiler.interner,
+                        &llvm_options,
+                        &output,
+                        opt,
+                    ) {
+                        Ok(()) => {
+                            println!("Emitted object file: {}", output);
+                        }
+                        Err(err) => {
+                            eprintln!("LLVM AOT compilation failed: {}", err);
+                            std::process::exit(1);
+                        }
+                    }
+                    return;
+                }
 
                 let llvm_compile_start = Instant::now();
                 let prev_hook = std::panic::take_hook();
