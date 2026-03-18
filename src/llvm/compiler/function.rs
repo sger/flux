@@ -397,7 +397,8 @@ pub(super) fn compile_block(
                                 c"op_slot".as_ptr(),
                             )
                         };
-                        ctx.builder.build_store(op_id, slot);
+                        let s = ctx.builder.build_store(op_id, slot);
+                        wrapper::set_tbaa(s, ctx.tbaa_args);
                     }
 
                     // Build closures array: [closure0_ptr, closure1_ptr, ...]
@@ -458,7 +459,8 @@ pub(super) fn compile_block(
                                 c"closure_slot".as_ptr(),
                             )
                         };
-                        ctx.builder.build_store(closure_ptr, slot);
+                        let s = ctx.builder.build_store(closure_ptr, slot);
+                        wrapper::set_tbaa(s, ctx.tbaa_heap);
                     }
 
                     // Call rt_push_handler(ctx, effect_id, ops_ptr, closures_ptr, narms)

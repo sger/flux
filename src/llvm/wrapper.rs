@@ -715,3 +715,43 @@ pub fn add_function_string_attribute(
         LLVMAddAttributeAtIndex(func, index, attr);
     }
 }
+
+// ── TBAA (Type-Based Alias Analysis) metadata ────────────────────────────────
+
+/// Create a TBAA root node: `!{!"name"}`.
+pub fn create_tbaa_root(ctx: &LlvmCtx, name: &str) -> LLVMValueRef {
+    unsafe {
+        let md_str = LLVMMDStringInContext2(ctx.raw(), name.as_ptr().cast(), name.len());
+        let node = LLVMMDNodeInContext2(ctx.raw(), [md_str].as_mut_ptr(), 1);
+        LLVMMetadataAsValue(ctx.raw(), node)
+    }
+}
+
+/// Create a TBAA type node: `!{!"name", !parent}`.
+pub fn create_tbaa_node(ctx: &LlvmCtx, name: &str, parent: LLVMValueRef) -> LLVMValueRef {
+    unsafe {
+        let md_str = LLVMMDStringInContext2(ctx.raw(), name.as_ptr().cast(), name.len());
+        let parent_md = LLVMValueAsMetadata(parent);
+        let node = LLVMMDNodeInContext2(ctx.raw(), [md_str, parent_md].as_mut_ptr(), 2);
+        LLVMMetadataAsValue(ctx.raw(), node)
+    }
+}
+
+/// Create a TBAA access tag: `!{!type_node, !type_node, i64 0}`.
+/// Used to annotate individual load/store instructions.
+pub fn create_tbaa_access_tag(ctx: &LlvmCtx, type_node: LLVMValueRef) -> LLVMValueRef {
+    unsafe {
+        let type_md = LLVMValueAsMetadata(type_node);
+        let i64_ty = LLVMInt64TypeInContext(ctx.raw());
+        let zero = LLVMConstInt(i64_ty, 0, 0);
+        let zero_md = LLVMValueAsMetadata(zero);
+        let node = LLVMMDNodeInContext2(ctx.raw(), [type_md, type_md, zero_md].as_mut_ptr(), 3);
+        LLVMMetadataAsValue(ctx.raw(), node)
+    }
+}
+
+/// Attach TBAA metadata to a load or store instruction.
+pub fn set_tbaa(instr: LLVMValueRef, tbaa_tag: LLVMValueRef) {
+    let kind = unsafe { LLVMGetMDKindID(c"tbaa".as_ptr(), 4) };
+    unsafe { LLVMSetMetadata(instr, kind, tbaa_tag) };
+}
