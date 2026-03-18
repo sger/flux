@@ -4,9 +4,7 @@ use std::collections::HashMap;
 
 use llvm_sys::prelude::*;
 
-use crate::cfg::{
-    IrConst, IrExpr, IrListTest, IrProgram, IrTagTest, IrVar,
-};
+use crate::cfg::{IrConst, IrExpr, IrListTest, IrProgram, IrTagTest, IrVar};
 use crate::syntax::interner::Interner;
 
 use super::super::context::LlvmCompilerContext;
@@ -37,9 +35,7 @@ pub(super) fn compile_expr(
         IrExpr::Const(IrConst::Unit) => {
             // Unit is represented as None
             let (func, fn_ty) = get_helper(ctx, "rt_make_none")?;
-            let result = ctx
-                .builder
-                .build_call(fn_ty, func, &mut [ctx_val], "unit");
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val], "unit");
             Ok(result)
         }
         IrExpr::Const(IrConst::Float(f)) => {
@@ -54,12 +50,8 @@ pub(super) fn compile_expr(
             // Embed string bytes as a global constant, then call rt_make_string
             let bytes = s.as_bytes();
             let global_name = format!(".str.{}", s.len());
-            let global = wrapper::create_global_string(
-                &ctx.module,
-                &ctx.llvm_ctx,
-                &global_name,
-                bytes,
-            );
+            let global =
+                wrapper::create_global_string(&ctx.module, &ctx.llvm_ctx, &global_name, bytes);
             let (make_string, make_string_ty) = get_helper(ctx, "rt_make_string")?;
             let len_val = wrapper::const_i64(ctx.i64_type, bytes.len() as i64);
             let ptr_result = ctx.builder.build_call(
@@ -78,9 +70,7 @@ pub(super) fn compile_expr(
         }
         IrExpr::None => {
             let (func, fn_ty) = get_helper(ctx, "rt_make_none")?;
-            let result = ctx
-                .builder
-                .build_call(fn_ty, func, &mut [ctx_val], "none");
+            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val], "none");
             Ok(result)
         }
         IrExpr::LoadName(name) => {
@@ -105,9 +95,9 @@ pub(super) fn compile_expr(
             if let Some(idx) = program.globals.iter().position(|g| *g == *name) {
                 let (func, fn_ty) = get_helper(ctx, "rt_get_global")?;
                 let idx_val = wrapper::const_i64(ctx.i64_type, idx as i64);
-                let ptr_result = ctx
-                    .builder
-                    .build_call(fn_ty, func, &mut [ctx_val, idx_val], "global_ptr");
+                let ptr_result =
+                    ctx.builder
+                        .build_call(fn_ty, func, &mut [ctx_val, idx_val], "global_ptr");
                 return unbox_ptr_result(ctx, ptr_result, ctx_val);
             }
 
@@ -130,13 +120,17 @@ pub(super) fn compile_expr(
                     let (intern_adt, intern_adt_ty) = get_helper(ctx, "rt_intern_unit_adt")?;
                     let name_bytes = name_str.as_bytes();
                     let global = wrapper::create_global_string(
-                        &ctx.module, &ctx.llvm_ctx,
-                        &format!(".adt.{}", name_str), name_bytes,
+                        &ctx.module,
+                        &ctx.llvm_ctx,
+                        &format!(".adt.{}", name_str),
+                        name_bytes,
                     );
                     let len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
                     let ptr_result = ctx.builder.build_call(
-                        intern_adt_ty, intern_adt,
-                        &mut [ctx_val, global, len], "unit_adt",
+                        intern_adt_ty,
+                        intern_adt,
+                        &mut [ctx_val, global, len],
+                        "unit_adt",
                     );
                     return Ok(build_ptr_tagged(ctx, ptr_result));
                 }
@@ -146,11 +140,15 @@ pub(super) fn compile_expr(
             // 5. Check if it's a module name or qualified module path
             let is_module_ref = name_str == "Base"
                 || module_names.contains(name)
-                || module_names.iter().any(|m| name_str.starts_with(&format!("{}.", interner.resolve(*m))));
+                || module_names
+                    .iter()
+                    .any(|m| name_str.starts_with(&format!("{}.", interner.resolve(*m))));
             if is_module_ref {
                 // Module reference — return None tagged value (used only as target for MemberAccess)
                 let (func, fn_ty) = get_helper(ctx, "rt_make_none")?;
-                return Ok(ctx.builder.build_call(fn_ty, func, &mut [ctx_val], "module_ref"));
+                return Ok(ctx
+                    .builder
+                    .build_call(fn_ty, func, &mut [ctx_val], "module_ref"));
             }
 
             // 6. Check if it's a qualified module name with function (e.g., "Module.function")
@@ -162,8 +160,11 @@ pub(super) fn compile_expr(
 
                     // Check if it's a qualified Base function (e.g., "Base.len")
                     if mod_part == "Base" {
-                        if let Some(idx) = crate::runtime::base::get_base_function_index(member_part) {
-                            let (make_base_fn, make_base_fn_ty) = get_helper(ctx, "rt_make_base_function")?;
+                        if let Some(idx) =
+                            crate::runtime::base::get_base_function_index(member_part)
+                        {
+                            let (make_base_fn, make_base_fn_ty) =
+                                get_helper(ctx, "rt_make_base_function")?;
                             let idx_val = wrapper::const_i64(ctx.i64_type, idx as i64);
                             let ptr_result = ctx.builder.build_call(
                                 make_base_fn_ty,
@@ -177,14 +178,19 @@ pub(super) fn compile_expr(
 
                     // Look up in module_functions by resolving the string parts back to Identifiers
                     for (&(mod_id, fn_id), &fn_index) in module_functions.iter() {
-                        if interner.resolve(mod_id) == mod_part && interner.resolve(fn_id) == member_part {
-                            let (make_closure, make_closure_ty) = get_helper(ctx, "rt_make_jit_closure")?;
+                        if interner.resolve(mod_id) == mod_part
+                            && interner.resolve(fn_id) == member_part
+                        {
+                            let (make_closure, make_closure_ty) =
+                                get_helper(ctx, "rt_make_jit_closure")?;
                             let fn_idx_val = wrapper::const_i64(ctx.i64_type, fn_index as i64);
                             let null_ptr = wrapper::const_null(ctx.ptr_type);
                             let zero = wrapper::const_i64(ctx.i64_type, 0);
                             let ptr_result = ctx.builder.build_call(
-                                make_closure_ty, make_closure,
-                                &mut [ctx_val, fn_idx_val, null_ptr, zero], "qualified_fn",
+                                make_closure_ty,
+                                make_closure,
+                                &mut [ctx_val, fn_idx_val, null_ptr, zero],
+                                "qualified_fn",
                             );
                             return Ok(build_ptr_tagged(ctx, ptr_result));
                         }
@@ -193,16 +199,21 @@ pub(super) fn compile_expr(
                     for (&ctor_name, &arity) in adt_constructors.iter() {
                         if interner.resolve(ctor_name) == member_part {
                             if arity == 0 {
-                                let (intern_adt, intern_adt_ty) = get_helper(ctx, "rt_intern_unit_adt")?;
+                                let (intern_adt, intern_adt_ty) =
+                                    get_helper(ctx, "rt_intern_unit_adt")?;
                                 let ctor_bytes = member_part.as_bytes();
                                 let global = wrapper::create_global_string(
-                                    &ctx.module, &ctx.llvm_ctx,
-                                    &format!(".adt.{}", member_part), ctor_bytes,
+                                    &ctx.module,
+                                    &ctx.llvm_ctx,
+                                    &format!(".adt.{}", member_part),
+                                    ctor_bytes,
                                 );
                                 let len = wrapper::const_i64(ctx.i64_type, ctor_bytes.len() as i64);
                                 let ptr_result = ctx.builder.build_call(
-                                    intern_adt_ty, intern_adt,
-                                    &mut [ctx_val, global, len], "qualified_unit_adt",
+                                    intern_adt_ty,
+                                    intern_adt,
+                                    &mut [ctx_val, global, len],
+                                    "qualified_unit_adt",
                                 );
                                 return Ok(build_ptr_tagged(ctx, ptr_result));
                             }
@@ -251,17 +262,19 @@ pub(super) fn compile_expr(
             let helper_name = match operator.as_str() {
                 "-" => "rt_negate",
                 "!" => "rt_not",
-                _ => return Err(format!("LLVM backend: unsupported prefix operator '{}'", operator)),
+                _ => {
+                    return Err(format!(
+                        "LLVM backend: unsupported prefix operator '{}'",
+                        operator
+                    ));
+                }
             };
             let (func, fn_ty) = get_helper(ctx, helper_name)?;
             let tag = ctx.builder.build_extract_value(right_val, 0, "pfx_tag");
             let payload = ctx.builder.build_extract_value(right_val, 1, "pfx_payload");
-            let result = ctx.builder.build_call(
-                fn_ty,
-                func,
-                &mut [ctx_val, tag, payload],
-                "prefix",
-            );
+            let result =
+                ctx.builder
+                    .build_call(fn_ty, func, &mut [ctx_val, tag, payload], "prefix");
             Ok(result)
         }
         IrExpr::InterpolatedString(parts) => {
@@ -281,7 +294,8 @@ pub(super) fn compile_expr(
             let (concat_fn, concat_ty) = *string_concat.unwrap();
 
             // Start with empty string
-            let empty_global = wrapper::create_global_string(&ctx.module, &ctx.llvm_ctx, ".str.empty", b"");
+            let empty_global =
+                wrapper::create_global_string(&ctx.module, &ctx.llvm_ctx, ".str.empty", b"");
             let zero_len = wrapper::const_i64(ctx.i64_type, 0);
             let mut accum = ctx.builder.build_call(
                 make_string_ty,
@@ -295,49 +309,76 @@ pub(super) fn compile_expr(
                     crate::cfg::IrStringPart::Literal(s) => {
                         let bytes = s.as_bytes();
                         let global = wrapper::create_global_string(
-                            &ctx.module, &ctx.llvm_ctx,
-                            &format!(".str.interp.{}", bytes.len()), bytes,
+                            &ctx.module,
+                            &ctx.llvm_ctx,
+                            &format!(".str.interp.{}", bytes.len()),
+                            bytes,
                         );
                         let len = wrapper::const_i64(ctx.i64_type, bytes.len() as i64);
-                        ctx.builder.build_call(make_string_ty, make_string, &mut [ctx_val, global, len], "lit_part")
+                        ctx.builder.build_call(
+                            make_string_ty,
+                            make_string,
+                            &mut [ctx_val, global, len],
+                            "lit_part",
+                        )
                     }
                     crate::cfg::IrStringPart::Interpolation(var) => {
                         let val = get_var(env, *var)?;
                         let tag = ctx.builder.build_extract_value(val, 0, "interp_tag");
                         let payload = ctx.builder.build_extract_value(val, 1, "interp_payload");
                         let boxed = ctx.builder.build_call(
-                            force_boxed_ty, force_boxed,
-                            &mut [ctx_val, tag, payload], "interp_boxed",
+                            force_boxed_ty,
+                            force_boxed,
+                            &mut [ctx_val, tag, payload],
+                            "interp_boxed",
                         );
                         let ptr_int = ctx.builder.build_extract_value(boxed, 1, "interp_ptr_int");
-                        let ptr = ctx.builder.build_int_to_ptr(ptr_int, ctx.ptr_type, "interp_ptr");
+                        let ptr = ctx
+                            .builder
+                            .build_int_to_ptr(ptr_int, ctx.ptr_type, "interp_ptr");
                         // Convert to string
-                        ctx.builder.build_call(to_string_ty, to_string_fn, &mut [ctx_val, ptr], "interp_str")
+                        ctx.builder.build_call(
+                            to_string_ty,
+                            to_string_fn,
+                            &mut [ctx_val, ptr],
+                            "interp_str",
+                        )
                     }
                 };
                 // Concatenate
-                accum = ctx.builder.build_call(concat_ty, concat_fn, &mut [ctx_val, accum, part_ptr], "interp_cat");
+                accum = ctx.builder.build_call(
+                    concat_ty,
+                    concat_fn,
+                    &mut [ctx_val, accum, part_ptr],
+                    "interp_cat",
+                );
             }
 
             Ok(build_ptr_tagged(ctx, accum))
         }
         IrExpr::EmptyList => {
             let (func, fn_ty) = get_helper(ctx, "rt_make_empty_list")?;
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val], "empty_list");
+            let result = ctx
+                .builder
+                .build_call(fn_ty, func, &mut [ctx_val], "empty_list");
             Ok(build_ptr_tagged(ctx, result))
         }
         IrExpr::MakeArray(vars) => {
             let (func, fn_ty) = get_helper(ctx, "rt_make_array")?;
             let args_buf = build_tagged_args_array(ctx, vars, env)?;
             let len = wrapper::const_i64(ctx.i64_type, vars.len() as i64);
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, args_buf, len], "array");
+            let result =
+                ctx.builder
+                    .build_call(fn_ty, func, &mut [ctx_val, args_buf, len], "array");
             Ok(build_ptr_tagged(ctx, result))
         }
         IrExpr::MakeTuple(vars) => {
             let (func, fn_ty) = get_helper(ctx, "rt_make_tuple")?;
             let args_buf = build_tagged_args_array(ctx, vars, env)?;
             let len = wrapper::const_i64(ctx.i64_type, vars.len() as i64);
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, args_buf, len], "tuple");
+            let result =
+                ctx.builder
+                    .build_call(fn_ty, func, &mut [ctx_val, args_buf, len], "tuple");
             Ok(build_ptr_tagged(ctx, result))
         }
         IrExpr::MakeHash(pairs) => {
@@ -346,7 +387,9 @@ pub(super) fn compile_expr(
             let flat: Vec<IrVar> = pairs.iter().flat_map(|(k, v)| [*k, *v]).collect();
             let args_buf = build_tagged_args_array(ctx, &flat, env)?;
             let npairs = wrapper::const_i64(ctx.i64_type, pairs.len() as i64);
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, args_buf, npairs], "hash");
+            let result =
+                ctx.builder
+                    .build_call(fn_ty, func, &mut [ctx_val, args_buf, npairs], "hash");
             Ok(build_ptr_tagged(ctx, result))
         }
         IrExpr::MakeList(vars) => {
@@ -354,15 +397,29 @@ pub(super) fn compile_expr(
             let (make_cons, make_cons_ty) = get_helper(ctx, "rt_make_cons")?;
             let (make_empty, make_empty_ty) = get_helper(ctx, "rt_make_empty_list")?;
             let (force_boxed, force_boxed_ty) = get_helper(ctx, "rt_force_boxed")?;
-            let mut tail = ctx.builder.build_call(make_empty_ty, make_empty, &mut [ctx_val], "list_tail");
+            let mut tail =
+                ctx.builder
+                    .build_call(make_empty_ty, make_empty, &mut [ctx_val], "list_tail");
             for var in vars.iter().rev() {
                 let val = get_var(env, *var)?;
                 let tag = ctx.builder.build_extract_value(val, 0, "le_tag");
                 let payload = ctx.builder.build_extract_value(val, 1, "le_payload");
-                let boxed = ctx.builder.build_call(force_boxed_ty, force_boxed, &mut [ctx_val, tag, payload], "le_boxed");
+                let boxed = ctx.builder.build_call(
+                    force_boxed_ty,
+                    force_boxed,
+                    &mut [ctx_val, tag, payload],
+                    "le_boxed",
+                );
                 let ptr_int = ctx.builder.build_extract_value(boxed, 1, "le_ptr_int");
-                let head = ctx.builder.build_int_to_ptr(ptr_int, ctx.ptr_type, "le_ptr");
-                tail = ctx.builder.build_call(make_cons_ty, make_cons, &mut [ctx_val, head, tail], "list_cons");
+                let head = ctx
+                    .builder
+                    .build_int_to_ptr(ptr_int, ctx.ptr_type, "le_ptr");
+                tail = ctx.builder.build_call(
+                    make_cons_ty,
+                    make_cons,
+                    &mut [ctx_val, head, tail],
+                    "list_cons",
+                );
             }
             Ok(build_ptr_tagged(ctx, tail))
         }
@@ -370,21 +427,30 @@ pub(super) fn compile_expr(
             let (func, fn_ty) = get_helper(ctx, "rt_index")?;
             let left_ptr = force_box_to_ptr(ctx, env, *left, ctx_val)?;
             let idx_ptr = force_box_to_ptr(ctx, env, *index, ctx_val)?;
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, left_ptr, idx_ptr], "index");
+            let result =
+                ctx.builder
+                    .build_call(fn_ty, func, &mut [ctx_val, left_ptr, idx_ptr], "index");
             unbox_ptr_result(ctx, result, ctx_val)
         }
         IrExpr::TupleFieldAccess { object, index } => {
             let (func, fn_ty) = get_helper(ctx, "rt_tuple_get")?;
             let obj_ptr = force_box_to_ptr(ctx, env, *object, ctx_val)?;
             let idx_val = wrapper::const_i64(ctx.i64_type, *index as i64);
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, obj_ptr, idx_val], "tuple_get");
+            let result =
+                ctx.builder
+                    .build_call(fn_ty, func, &mut [ctx_val, obj_ptr, idx_val], "tuple_get");
             unbox_ptr_result(ctx, result, ctx_val)
         }
         IrExpr::TupleArityTest { value, arity } => {
             let (func, fn_ty) = get_helper(ctx, "rt_tuple_len_eq")?;
             let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
             let arity_val = wrapper::const_i64(ctx.i64_type, *arity as i64);
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr, arity_val], "tuple_arity");
+            let result = ctx.builder.build_call(
+                fn_ty,
+                func,
+                &mut [ctx_val, val_ptr, arity_val],
+                "tuple_arity",
+            );
             Ok(build_bool_tagged(ctx, result))
         }
         IrExpr::MakeAdt(constructor, fields) => {
@@ -393,17 +459,34 @@ pub(super) fn compile_expr(
             if fields.is_empty() {
                 // Unit ADT — use rt_intern_unit_adt for deduplication
                 let (func, fn_ty) = get_helper(ctx, "rt_intern_unit_adt")?;
-                let global = wrapper::create_global_string(&ctx.module, &ctx.llvm_ctx, &format!(".adt.{}", name_str), name_bytes);
+                let global = wrapper::create_global_string(
+                    &ctx.module,
+                    &ctx.llvm_ctx,
+                    &format!(".adt.{}", name_str),
+                    name_bytes,
+                );
                 let len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
-                let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, global, len], "unit_adt");
+                let result =
+                    ctx.builder
+                        .build_call(fn_ty, func, &mut [ctx_val, global, len], "unit_adt");
                 Ok(build_ptr_tagged(ctx, result))
             } else {
                 let (func, fn_ty) = get_helper(ctx, "rt_make_adt")?;
-                let global = wrapper::create_global_string(&ctx.module, &ctx.llvm_ctx, &format!(".adt.{}", name_str), name_bytes);
+                let global = wrapper::create_global_string(
+                    &ctx.module,
+                    &ctx.llvm_ctx,
+                    &format!(".adt.{}", name_str),
+                    name_bytes,
+                );
                 let name_len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
                 let fields_buf = build_tagged_args_array(ctx, fields, env)?;
                 let nfields = wrapper::const_i64(ctx.i64_type, fields.len() as i64);
-                let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, global, name_len, fields_buf, nfields], "adt");
+                let result = ctx.builder.build_call(
+                    fn_ty,
+                    func,
+                    &mut [ctx_val, global, name_len, fields_buf, nfields],
+                    "adt",
+                );
                 Ok(build_ptr_tagged(ctx, result))
             }
         }
@@ -412,16 +495,28 @@ pub(super) fn compile_expr(
             let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
             let name_str = interner.resolve(*constructor);
             let name_bytes = name_str.as_bytes();
-            let global = wrapper::create_global_string(&ctx.module, &ctx.llvm_ctx, &format!(".adt.{}", name_str), name_bytes);
+            let global = wrapper::create_global_string(
+                &ctx.module,
+                &ctx.llvm_ctx,
+                &format!(".adt.{}", name_str),
+                name_bytes,
+            );
             let len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr, global, len], "adt_test");
+            let result = ctx.builder.build_call(
+                fn_ty,
+                func,
+                &mut [ctx_val, val_ptr, global, len],
+                "adt_test",
+            );
             Ok(build_bool_tagged(ctx, result))
         }
         IrExpr::AdtField { value, index } => {
             let (func, fn_ty) = get_helper(ctx, "rt_adt_field_or_none")?;
             let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
             let idx_val = wrapper::const_i64(ctx.i64_type, *index as i64);
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr, idx_val], "adt_field");
+            let result =
+                ctx.builder
+                    .build_call(fn_ty, func, &mut [ctx_val, val_ptr, idx_val], "adt_field");
             unbox_ptr_result(ctx, result, ctx_val)
         }
         IrExpr::TagTest { value, tag } => {
@@ -433,7 +528,9 @@ pub(super) fn compile_expr(
             };
             let (func, fn_ty) = get_helper(ctx, helper_name)?;
             let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr], "tag_test");
+            let result = ctx
+                .builder
+                .build_call(fn_ty, func, &mut [ctx_val, val_ptr], "tag_test");
             Ok(build_bool_tagged(ctx, result))
         }
         IrExpr::TagPayload { value, tag } => {
@@ -445,7 +542,9 @@ pub(super) fn compile_expr(
             };
             let (func, fn_ty) = get_helper(ctx, helper_name)?;
             let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr], "tag_payload");
+            let result =
+                ctx.builder
+                    .build_call(fn_ty, func, &mut [ctx_val, val_ptr], "tag_payload");
             unbox_ptr_result(ctx, result, ctx_val)
         }
         IrExpr::ListTest { value, tag } => {
@@ -455,47 +554,65 @@ pub(super) fn compile_expr(
             };
             let (func, fn_ty) = get_helper(ctx, helper_name)?;
             let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr], "list_test");
+            let result = ctx
+                .builder
+                .build_call(fn_ty, func, &mut [ctx_val, val_ptr], "list_test");
             Ok(build_bool_tagged(ctx, result))
         }
         IrExpr::ListHead { value } => {
             let (func, fn_ty) = get_helper(ctx, "rt_cons_head")?;
             let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr], "list_head");
+            let result = ctx
+                .builder
+                .build_call(fn_ty, func, &mut [ctx_val, val_ptr], "list_head");
             unbox_ptr_result(ctx, result, ctx_val)
         }
         IrExpr::ListTail { value } => {
             let (func, fn_ty) = get_helper(ctx, "rt_cons_tail")?;
             let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr], "list_tail");
+            let result = ctx
+                .builder
+                .build_call(fn_ty, func, &mut [ctx_val, val_ptr], "list_tail");
             Ok(build_ptr_tagged(ctx, result))
         }
         IrExpr::Some(var) => {
             let (func, fn_ty) = get_helper(ctx, "rt_make_some")?;
             let ptr = force_box_to_ptr(ctx, env, *var, ctx_val)?;
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, ptr], "some");
+            let result = ctx
+                .builder
+                .build_call(fn_ty, func, &mut [ctx_val, ptr], "some");
             Ok(build_ptr_tagged(ctx, result))
         }
         IrExpr::Left(var) => {
             let (func, fn_ty) = get_helper(ctx, "rt_make_left")?;
             let ptr = force_box_to_ptr(ctx, env, *var, ctx_val)?;
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, ptr], "left");
+            let result = ctx
+                .builder
+                .build_call(fn_ty, func, &mut [ctx_val, ptr], "left");
             Ok(build_ptr_tagged(ctx, result))
         }
         IrExpr::Right(var) => {
             let (func, fn_ty) = get_helper(ctx, "rt_make_right")?;
             let ptr = force_box_to_ptr(ctx, env, *var, ctx_val)?;
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, ptr], "right");
+            let result = ctx
+                .builder
+                .build_call(fn_ty, func, &mut [ctx_val, ptr], "right");
             Ok(build_ptr_tagged(ctx, result))
         }
         IrExpr::Cons { head, tail } => {
             let (func, fn_ty) = get_helper(ctx, "rt_make_cons")?;
             let head_ptr = force_box_to_ptr(ctx, env, *head, ctx_val)?;
             let tail_ptr = force_box_to_ptr(ctx, env, *tail, ctx_val)?;
-            let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, head_ptr, tail_ptr], "cons");
+            let result =
+                ctx.builder
+                    .build_call(fn_ty, func, &mut [ctx_val, head_ptr, tail_ptr], "cons");
             Ok(build_ptr_tagged(ctx, result))
         }
-        IrExpr::MemberAccess { object, member, module_name } => {
+        IrExpr::MemberAccess {
+            object,
+            member,
+            module_name,
+        } => {
             let name_str = interner.resolve(*member);
 
             // Tier 1: Resolve via module_env or module_name
@@ -508,8 +625,10 @@ pub(super) fn compile_expr(
                     let null_ptr = wrapper::const_null(ctx.ptr_type);
                     let zero = wrapper::const_i64(ctx.i64_type, 0);
                     let ptr_result = ctx.builder.build_call(
-                        make_closure_ty, make_closure,
-                        &mut [ctx_val, fn_idx_val, null_ptr, zero], "module_fn",
+                        make_closure_ty,
+                        make_closure,
+                        &mut [ctx_val, fn_idx_val, null_ptr, zero],
+                        "module_fn",
                     );
                     return Ok(build_ptr_tagged(ctx, ptr_result));
                 }
@@ -519,13 +638,17 @@ pub(super) fn compile_expr(
                         let (intern_adt, intern_adt_ty) = get_helper(ctx, "rt_intern_unit_adt")?;
                         let name_bytes = name_str.as_bytes();
                         let global = wrapper::create_global_string(
-                            &ctx.module, &ctx.llvm_ctx,
-                            &format!(".adt.{}", name_str), name_bytes,
+                            &ctx.module,
+                            &ctx.llvm_ctx,
+                            &format!(".adt.{}", name_str),
+                            name_bytes,
                         );
                         let len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
                         let ptr_result = ctx.builder.build_call(
-                            intern_adt_ty, intern_adt,
-                            &mut [ctx_val, global, len], "module_unit_adt",
+                            intern_adt_ty,
+                            intern_adt,
+                            &mut [ctx_val, global, len],
+                            "module_unit_adt",
                         );
                         return Ok(build_ptr_tagged(ctx, ptr_result));
                     }
@@ -536,7 +659,12 @@ pub(super) fn compile_expr(
             if let Some(idx) = crate::runtime::base::get_base_function_index(name_str) {
                 let (make_base_fn, make_base_fn_ty) = get_helper(ctx, "rt_make_base_function")?;
                 let idx_val = wrapper::const_i64(ctx.i64_type, idx as i64);
-                let ptr_result = ctx.builder.build_call(make_base_fn_ty, make_base_fn, &mut [ctx_val, idx_val], "member_base_fn");
+                let ptr_result = ctx.builder.build_call(
+                    make_base_fn_ty,
+                    make_base_fn,
+                    &mut [ctx_val, idx_val],
+                    "member_base_fn",
+                );
                 return Ok(build_ptr_tagged(ctx, ptr_result));
             }
 
@@ -545,30 +673,42 @@ pub(super) fn compile_expr(
             let member_str_bytes = name_str.as_bytes();
             let (make_string, make_string_ty) = get_helper(ctx, "rt_make_string")?;
             let member_global = wrapper::create_global_string(
-                &ctx.module, &ctx.llvm_ctx,
-                &format!(".member.{}", name_str), member_str_bytes,
+                &ctx.module,
+                &ctx.llvm_ctx,
+                &format!(".member.{}", name_str),
+                member_str_bytes,
             );
             let member_len = wrapper::const_i64(ctx.i64_type, member_str_bytes.len() as i64);
             let member_val = ctx.builder.build_call(
-                make_string_ty, make_string,
-                &mut [ctx_val, member_global, member_len], "member_key",
+                make_string_ty,
+                make_string,
+                &mut [ctx_val, member_global, member_len],
+                "member_key",
             );
             let (index_fn, index_ty) = get_helper(ctx, "rt_index")?;
             let indexed = ctx.builder.build_call(
-                index_ty, index_fn,
-                &mut [ctx_val, obj_ptr, member_val], "member_access",
+                index_ty,
+                index_fn,
+                &mut [ctx_val, obj_ptr, member_val],
+                "member_access",
             );
             let indexed = emit_null_check(ctx, func_ref, indexed);
             // Unwrap Some wrapper from rt_index result
             let (unwrap_some, unwrap_some_ty) = get_helper(ctx, "rt_unwrap_some")?;
             let result = ctx.builder.build_call(
-                unwrap_some_ty, unwrap_some,
-                &mut [ctx_val, indexed], "member_unwrap",
+                unwrap_some_ty,
+                unwrap_some,
+                &mut [ctx_val, indexed],
+                "member_unwrap",
             );
             let result = emit_null_check(ctx, func_ref, result);
             unbox_ptr_result(ctx, result, ctx_val)
         }
-        IrExpr::Perform { effect, operation, args } => {
+        IrExpr::Perform {
+            effect,
+            operation,
+            args,
+        } => {
             let (func, fn_ty) = get_helper(ctx, "rt_perform")?;
             let (force_boxed, force_boxed_ty) = get_helper(ctx, "rt_force_boxed")?;
 
@@ -579,25 +719,35 @@ pub(super) fn compile_expr(
             let args_ptr = if args.is_empty() {
                 wrapper::const_null(ctx.ptr_type)
             } else {
-                let array_ty = unsafe {
-                    llvm_sys::core::LLVMArrayType2(ctx.ptr_type, args.len() as u64)
-                };
+                let array_ty =
+                    unsafe { llvm_sys::core::LLVMArrayType2(ctx.ptr_type, args.len() as u64) };
                 let alloca = ctx.builder.build_alloca(array_ty, "perform_args");
                 for (i, arg) in args.iter().enumerate() {
                     let val = get_var(env, *arg)?;
                     let tag = ctx.builder.build_extract_value(val, 0, "pa_tag");
                     let payload = ctx.builder.build_extract_value(val, 1, "pa_payload");
                     let boxed = ctx.builder.build_call(
-                        force_boxed_ty, force_boxed,
-                        &mut [ctx_val, tag, payload], "pa_boxed",
+                        force_boxed_ty,
+                        force_boxed,
+                        &mut [ctx_val, tag, payload],
+                        "pa_boxed",
                     );
                     let ptr_int = ctx.builder.build_extract_value(boxed, 1, "pa_ptr_int");
-                    let ptr = ctx.builder.build_int_to_ptr(ptr_int, ctx.ptr_type, "pa_ptr");
+                    let ptr = ctx
+                        .builder
+                        .build_int_to_ptr(ptr_int, ctx.ptr_type, "pa_ptr");
                     let slot = unsafe {
                         llvm_sys::core::LLVMBuildGEP2(
-                            ctx.builder.raw_ptr(), array_ty, alloca,
-                            [wrapper::const_i64(ctx.i64_type, 0), wrapper::const_i64(ctx.i64_type, i as i64)].as_mut_ptr(),
-                            2, c"pa_slot".as_ptr(),
+                            ctx.builder.raw_ptr(),
+                            array_ty,
+                            alloca,
+                            [
+                                wrapper::const_i64(ctx.i64_type, 0),
+                                wrapper::const_i64(ctx.i64_type, i as i64),
+                            ]
+                            .as_mut_ptr(),
+                            2,
+                            c"pa_slot".as_ptr(),
                         )
                     };
                     ctx.builder.build_store(ptr, slot);
@@ -610,28 +760,45 @@ pub(super) fn compile_expr(
             let effect_name = interner.resolve(*effect);
             let op_name = interner.resolve(*operation);
             let effect_global = wrapper::create_global_string(
-                &ctx.module, &ctx.llvm_ctx,
-                &format!(".effect.{}", effect_name), effect_name.as_bytes(),
+                &ctx.module,
+                &ctx.llvm_ctx,
+                &format!(".effect.{}", effect_name),
+                effect_name.as_bytes(),
             );
             let op_global = wrapper::create_global_string(
-                &ctx.module, &ctx.llvm_ctx,
-                &format!(".op.{}", op_name), op_name.as_bytes(),
+                &ctx.module,
+                &ctx.llvm_ctx,
+                &format!(".op.{}", op_name),
+                op_name.as_bytes(),
             );
             let effect_len = wrapper::const_i64(ctx.i64_type, effect_name.len() as i64);
             let op_len = wrapper::const_i64(ctx.i64_type, op_name.len() as i64);
             let zero = wrapper::const_i64(ctx.i64_type, 0);
 
             let result = ctx.builder.build_call(
-                fn_ty, func,
-                &mut [ctx_val, effect_id, op_id, args_ptr, nargs,
-                      effect_global, effect_len, op_global, op_len, zero, zero],
+                fn_ty,
+                func,
+                &mut [
+                    ctx_val,
+                    effect_id,
+                    op_id,
+                    args_ptr,
+                    nargs,
+                    effect_global,
+                    effect_len,
+                    op_global,
+                    op_len,
+                    zero,
+                    zero,
+                ],
                 "perform",
             );
             let result = emit_null_check(ctx, func_ref, result);
             unbox_ptr_result(ctx, result, ctx_val)
         }
-        IrExpr::Handle { .. } => {
-            Err("LLVM backend: Handle expression not supported (use HandleScope instruction)".to_string())
-        }
+        IrExpr::Handle { .. } => Err(
+            "LLVM backend: Handle expression not supported (use HandleScope instruction)"
+                .to_string(),
+        ),
     }
 }

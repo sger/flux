@@ -13,11 +13,11 @@ use std::str::from_utf8_unchecked;
 
 use crate::diagnostics::position::{Position, Span};
 use crate::diagnostics::{Diagnostic, DiagnosticPhase, ErrorType};
+use crate::primop::{PrimOp, execute_primop};
+use crate::runtime::RuntimeContext;
 use crate::runtime::native_context::{
     JitHandlerArm, JitHandlerFrame, JitTaggedValue, is_rendered_runtime_diagnostic,
 };
-use crate::primop::{PrimOp, execute_primop};
-use crate::runtime::RuntimeContext;
 use crate::runtime::{
     base::get_base_function_by_index,
     base::list_ops::format_value,

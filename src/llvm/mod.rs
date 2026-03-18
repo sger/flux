@@ -121,10 +121,7 @@ pub fn llvm_compile(
             num_params: explicit_arity,
             call_abi: crate::runtime::native_context::JitCallAbi::Array,
             contract,
-            return_span: func
-                .return_type_annotation
-                .as_ref()
-                .map(|_| func.body_span),
+            return_span: func.return_type_annotation.as_ref().map(|_| func.body_span),
         });
     }
 
@@ -165,14 +162,13 @@ pub fn llvm_execute(mut compiled: LlvmCompiledProgram) -> LlvmResult<(Value, Jit
         func(&mut compiled.ctx as *mut JitContext)
     };
 
-
-
     // Trampoline: re-invoke while the callee requests a mutual tail call.
     while result.tag == JIT_TAG_THUNK {
         let thunk = compiled.ctx.pending_thunk.take().ok_or_else(|| {
             LlvmError::Internal("JIT_TAG_THUNK returned without pending_thunk".to_string())
         })?;
-        result = unsafe { crate::runtime::native_context::invoke_jit_thunk(&mut compiled.ctx, &thunk) };
+        result =
+            unsafe { crate::runtime::native_context::invoke_jit_thunk(&mut compiled.ctx, &thunk) };
     }
 
     if result.tag == JIT_TAG_PTR && result.as_ptr().is_null() {

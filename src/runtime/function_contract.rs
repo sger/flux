@@ -58,9 +58,9 @@ fn convert_type_expr_for_contract(ty: &TypeExpr, interner: &Interner) -> Option<
                 ("Option", 1) => Some(RuntimeType::Option(Box::new(
                     convert_type_expr_for_contract(&args[0], interner)?,
                 ))),
-                ("List", 1) => Some(RuntimeType::List(Box::new(
-                    convert_type_expr_for_contract(&args[0], interner)?,
-                ))),
+                ("List", 1) => Some(RuntimeType::List(Box::new(convert_type_expr_for_contract(
+                    &args[0], interner,
+                )?))),
                 ("Either", 2) => Some(RuntimeType::Either(
                     Box::new(convert_type_expr_for_contract(&args[0], interner)?),
                     Box::new(convert_type_expr_for_contract(&args[1], interner)?),
