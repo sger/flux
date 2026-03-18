@@ -438,6 +438,14 @@ pub extern "C" fn rt_render_error_with_span(
     }
 }
 
+/// Returns 1 if `ctx.error` is set (a runtime error occurred), 0 otherwise.
+/// Used by LLVM/JIT compiled code to check for errors after fallible operations.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_has_error(ctx: *mut JitContext) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    if ctx.error.is_some() { 1 } else { 0 }
+}
+
 // ---------------------------------------------------------------------------
 // Value constructors
 // ---------------------------------------------------------------------------
@@ -1445,14 +1453,11 @@ pub extern "C" fn rt_call_jit_function(
         ctx.check_contract_return(function_index as usize, &result_value)
     {
         let preview = format_value(ctx, &result_value);
-        ctx.set_runtime_error_diag(ctx.runtime_type_error_diagnostic_at(
+        ctx.set_runtime_error_diag(ctx.contract_return_error_diagnostic(
+            function_index as usize,
             &expected,
             &actual,
             Some(&preview),
-            start_line as usize,
-            start_column as usize,
-            end_line as usize,
-            end_column as usize,
         ));
         return ptr::null_mut();
     }
@@ -2544,6 +2549,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
             "rt_render_error_with_span",
             rt_render_error_with_span as *const u8,
         ),
+        ("rt_has_error", rt_has_error as *const u8),
         ("rt_force_boxed", rt_force_boxed as *const u8),
         ("rt_push_gc_roots", rt_push_gc_roots as *const u8),
         ("rt_pop_gc_roots", rt_pop_gc_roots as *const u8),

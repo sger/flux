@@ -1023,7 +1023,7 @@ impl JitCompiler {
 
                 for instr in &block.instrs {
                     match instr {
-                        BackendIrInstr::Assign { dest, expr, .. } => {
+                        BackendIrInstr::Assign { dest, expr, metadata } => {
                             let value = compile_simple_backend_ir_expr(
                                 module,
                                 helpers,
@@ -1037,6 +1037,24 @@ impl JitCompiler {
                                 interner,
                                 expr,
                             )?;
+
+                            // After fallible binary ops, check for runtime errors and early-return
+                            if matches!(expr, BackendIrExpr::Binary(
+                                IrBinaryOp::Add | IrBinaryOp::IAdd
+                                | IrBinaryOp::Sub | IrBinaryOp::ISub
+                                | IrBinaryOp::Mul | IrBinaryOp::IMul
+                                | IrBinaryOp::Div | IrBinaryOp::IDiv
+                                | IrBinaryOp::Mod | IrBinaryOp::IMod
+                                | IrBinaryOp::FAdd | IrBinaryOp::FSub
+                                | IrBinaryOp::FMul | IrBinaryOp::FDiv, _, _
+                            )) {
+                                if let Some(span) = metadata.span {
+                                    emit_error_check_and_return(
+                                        module, helpers, &mut builder, ctx_val, span,
+                                    );
+                                }
+                            }
+
                             env.insert(*dest, value);
                             match expr {
                                 BackendIrExpr::LoadName(name) => {
@@ -3075,6 +3093,36 @@ fn compile_simple_backend_ir_truthiness_condition(
     builder.ins().icmp_imm(IntCC::NotEqual, truthy_i64, 0)
 }
 
+/// After a fallible runtime operation (e.g. rt_add), check if ctx.error is set.
+/// If so, render the error with span info and return a null-tagged value to
+/// propagate the error upward. Builder is left at the continue block.
+fn emit_error_check_and_return(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+    span: Span,
+) {
+    let has_error = get_helper_func_ref(module, helpers, builder, "rt_has_error");
+    let call = builder.ins().call(has_error, &[ctx_val]);
+    let err_flag = builder.inst_results(call)[0];
+    let is_err = builder.ins().icmp_imm(IntCC::NotEqual, err_flag, 0);
+
+    let err_block = builder.create_block();
+    let continue_block = builder.create_block();
+    builder
+        .ins()
+        .brif(is_err, err_block, &[], continue_block, &[]);
+
+    builder.switch_to_block(err_block);
+    emit_render_error_with_span(module, helpers, builder, ctx_val, span);
+    emit_return_null_tagged(builder);
+    builder.seal_block(err_block);
+
+    builder.switch_to_block(continue_block);
+    builder.seal_block(continue_block);
+}
+
 /// After a runtime helper that may set `ctx.error`, emit a call to
 /// `rt_render_error_with_span` so the raw error is rendered as a structured
 /// diagnostic with source location.  This produces VM-parity error output.
@@ -3636,6 +3684,14 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             HelperSig {
                 num_params: 5,
                 num_returns: 0,
+            },
+        ),
+        // rt_has_error(ctx) -> i64 (0 or 1)
+        (
+            "rt_has_error",
+            HelperSig {
+                num_params: 1,
+                num_returns: 1,
             },
         ),
         (

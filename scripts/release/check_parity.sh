@@ -108,6 +108,7 @@ for dir in ${dirs[@]}; do
     jit_cmd="target/debug/flux ${extra_args_str}${root_args_str}--no-cache $f --jit"
     vm_cargo_cmd="cargo run -- ${extra_args_str}${root_args_str}--no-cache $f"
     jit_cargo_cmd="cargo run --features jit -- ${extra_args_str}${root_args_str}--no-cache $f --jit"
+    llvm_cargo_cmd="cargo run --features llvm -- ${extra_args_str}${root_args_str}--no-cache $f --llvm"
 
     if ((${#extra_args[@]} > 0)) || ((${#root_args[@]} > 0)); then
       vm_out=$(NO_COLOR=1 target/debug/flux "${extra_args[@]:+${extra_args[@]}}" "${root_args[@]:+${root_args[@]}}" --no-cache "$f" 2>&1) || true
@@ -152,21 +153,25 @@ for dir in ${dirs[@]}; do
       fail=$((fail + 1))
       jit_ok=false
       failures="${failures}\n  \033[31m✗\033[0m $f  exit: vm=$vm_rc jit=$jit_rc"
-      failures="${failures}\n      VM cmd:  $vm_cmd"
-      failures="${failures}\n      VM run:  $vm_cargo_cmd"
-      failures="${failures}\n      JIT cmd: $jit_cmd"
-      failures="${failures}\n      JIT run: $jit_cargo_cmd"
+      failures="${failures}\n      VM run:   $vm_cargo_cmd"
+      failures="${failures}\n      JIT run:  $jit_cargo_cmd"
+      failures="${failures}\n      LLVM run: $llvm_cargo_cmd"
+      failures="${failures}\n    ── VM output ──"
+      failures="${failures}\n$(echo "$vm_out" | sed 's/^/      /')"
+      failures="${failures}\n    ── JIT output ──"
+      failures="${failures}\n$(echo "$jit_out" | sed 's/^/      /')"
     elif [[ "$vm_rc" -eq 0 && "$vm_cmp" != "$jit_cmp" ]]; then
       fail=$((fail + 1))
       jit_ok=false
       failures="${failures}\n  \033[31m✗\033[0m $f  output differs (VM vs JIT)"
       failures="${failures}\n      Compare mode: ${mode/exact/exact raw output}"
-      failures="${failures}\n      VM cmd:  $vm_cmd"
-      failures="${failures}\n      VM run:  $vm_cargo_cmd"
-      failures="${failures}\n      JIT cmd: $jit_cmd"
-      failures="${failures}\n      JIT run: $jit_cargo_cmd"
-      failures="${failures}\n      VM out:  $(echo "$vm_out" | head -1)"
-      failures="${failures}\n      JIT out: $(echo "$jit_out" | head -1)"
+      failures="${failures}\n      VM run:   $vm_cargo_cmd"
+      failures="${failures}\n      JIT run:  $jit_cargo_cmd"
+      failures="${failures}\n      LLVM run: $llvm_cargo_cmd"
+      failures="${failures}\n    ── VM output ──"
+      failures="${failures}\n$(echo "$vm_out" | sed 's/^/      /')"
+      failures="${failures}\n    ── JIT output ──"
+      failures="${failures}\n$(echo "$jit_out" | sed 's/^/      /')"
     fi
 
     # Check VM vs LLVM parity (if LLVM available)
@@ -176,14 +181,25 @@ for dir in ${dirs[@]}; do
         llvm_fail=$((llvm_fail + 1))
         llvm_ok=false
         failures="${failures}\n  \033[31m✗\033[0m $f  exit: vm=$vm_rc llvm=$llvm_rc"
-        failures="${failures}\n      LLVM cmd: $llvm_cmd"
+        failures="${failures}\n      VM run:   $vm_cargo_cmd"
+        failures="${failures}\n      JIT run:  $jit_cargo_cmd"
+        failures="${failures}\n      LLVM run: $llvm_cargo_cmd"
+        failures="${failures}\n    ── VM output ──"
+        failures="${failures}\n$(echo "$vm_out" | sed 's/^/      /')"
+        failures="${failures}\n    ── LLVM output ──"
+        failures="${failures}\n$(echo "$llvm_out" | sed 's/^/      /')"
       elif [[ "$vm_cmp" != "$llvm_cmp" ]]; then
         llvm_fail=$((llvm_fail + 1))
         llvm_ok=false
         failures="${failures}\n  \033[31m✗\033[0m $f  output differs (VM vs LLVM)"
-        failures="${failures}\n      LLVM cmd: $llvm_cmd"
-        failures="${failures}\n      VM out:  $(echo "$vm_out" | head -1)"
-        failures="${failures}\n      LLVM out: $(echo "$llvm_out" | head -1)"
+        failures="${failures}\n      Compare mode: ${mode/exact/exact raw output}"
+        failures="${failures}\n      VM run:   $vm_cargo_cmd"
+        failures="${failures}\n      JIT run:  $jit_cargo_cmd"
+        failures="${failures}\n      LLVM run: $llvm_cargo_cmd"
+        failures="${failures}\n    ── VM output ──"
+        failures="${failures}\n$(echo "$vm_out" | sed 's/^/      /')"
+        failures="${failures}\n    ── LLVM output ──"
+        failures="${failures}\n$(echo "$llvm_out" | sed 's/^/      /')"
       else
         llvm_pass=$((llvm_pass + 1))
       fi
@@ -215,8 +231,7 @@ if [[ "$fail" -eq 0 ]]; then
     echo -e "\033[33m- Skipped $skip examples\033[0m"
   fi
 else
-  echo -e "\033[31m✗ $fail/$total VM/JIT parity failures:\033[0m"
-  echo -e "$failures"
+  echo -e "\033[31m✗ $fail/$total VM/JIT parity failures\033[0m"
 fi
 
 if [[ "$has_llvm" == true ]]; then
@@ -227,6 +242,12 @@ if [[ "$has_llvm" == true ]]; then
   fi
 else
   echo -e "\033[33m- LLVM parity skipped (not compiled with --features llvm)\033[0m"
+fi
+
+if [[ -n "$failures" ]]; then
+  echo ""
+  echo -e "\033[31m── Failure details ──\033[0m"
+  echo -e "$failures"
 fi
 
 if [[ "$fail" -ne 0 || "$llvm_fail" -ne 0 ]]; then

@@ -36,15 +36,9 @@ pub fn compile_program(
     // 1. Declare runtime helpers as external functions
     declare_runtime_helpers(ctx);
 
-    // 2. Collect ADT constructor arities from top-level data declarations
+    // 2. Collect ADT constructor arities from all data declarations (including inside modules)
     let mut adt_constructors: HashMap<crate::syntax::Identifier, usize> = HashMap::new();
-    for item in program.top_level_items.iter() {
-        if let crate::cfg::IrTopLevelItem::Data { variants, .. } = item {
-            for variant in variants {
-                adt_constructors.insert(variant.name, variant.fields.len());
-            }
-        }
-    }
+    collect_adt_constructors(&program.top_level_items, &mut adt_constructors);
 
     // 2b. Collect module functions: (module_name, fn_name) → function index
     let mut module_functions: HashMap<(crate::syntax::Identifier, crate::syntax::Identifier), usize> = HashMap::new();
@@ -133,13 +127,7 @@ pub fn compile_program_ir_only(
     declare_runtime_helpers(ctx);
 
     let mut adt_constructors: HashMap<crate::syntax::Identifier, usize> = HashMap::new();
-    for item in program.top_level_items.iter() {
-        if let crate::cfg::IrTopLevelItem::Data { variants, .. } = item {
-            for variant in variants {
-                adt_constructors.insert(variant.name, variant.fields.len());
-            }
-        }
-    }
+    collect_adt_constructors(&program.top_level_items, &mut adt_constructors);
 
     let mut module_functions: HashMap<(crate::syntax::Identifier, crate::syntax::Identifier), usize> = HashMap::new();
     let mut module_names: Vec<crate::syntax::Identifier> = Vec::new();
@@ -167,6 +155,27 @@ pub fn compile_program_ir_only(
     Ok(())
 }
 
+/// Recursively collect ADT constructor arities from all data declarations,
+/// including those nested inside modules.
+fn collect_adt_constructors(
+    items: &[crate::cfg::IrTopLevelItem],
+    adt_constructors: &mut HashMap<crate::syntax::Identifier, usize>,
+) {
+    for item in items {
+        match item {
+            crate::cfg::IrTopLevelItem::Data { variants, .. } => {
+                for variant in variants {
+                    adt_constructors.insert(variant.name, variant.fields.len());
+                }
+            }
+            crate::cfg::IrTopLevelItem::Module { body, .. } => {
+                collect_adt_constructors(body, adt_constructors);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Recursively collect module functions from top-level items.
 fn collect_module_functions(
     items: &[crate::cfg::IrTopLevelItem],
@@ -190,8 +199,20 @@ fn collect_module_functions(
                 module_names.push(*name);
                 collect_module_functions(body, Some(*name), program, module_functions, module_names);
             }
-            crate::cfg::IrTopLevelItem::Import { name, .. } => {
+            crate::cfg::IrTopLevelItem::Import { name, alias, .. } => {
                 module_names.push(*name);
+                if let Some(alias_id) = alias {
+                    module_names.push(*alias_id);
+                    // Duplicate module function entries under the alias
+                    let aliased: Vec<_> = module_functions
+                        .iter()
+                        .filter(|((mod_id, _), _)| *mod_id == *name)
+                        .map(|((_, fn_id), &idx)| ((*alias_id, *fn_id), idx))
+                        .collect();
+                    for (key, idx) in aliased {
+                        module_functions.insert(key, idx);
+                    }
+                }
             }
             _ => {}
         }
@@ -309,6 +330,10 @@ fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
         ("rt_pop_handler", void_ty, vec![ptr_ty]),
         // rt_perform(ctx, effect_id, op_id, args_ptr, nargs, effect_name_ptr, effect_name_len, op_name_ptr, op_name_len, line, column) -> ptr
         ("rt_perform", ptr_ty, vec![ptr_ty, i64_ty, i64_ty, ptr_ty, i64_ty, ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, i64_ty]),
+        // Error checking: (ctx) -> i64 (0 or 1)
+        ("rt_has_error", i64_ty, vec![ptr_ty]),
+        // Error rendering: (ctx, start_line, start_col, end_line, end_col) -> void
+        ("rt_render_error_with_span", void_ty, vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty]),
     ];
 
     for (name, ret_ty, param_tys) in helpers {
@@ -535,7 +560,7 @@ fn compile_block(
             }
         }
         match instr {
-            IrInstr::Assign { dest, expr, .. } => {
+            IrInstr::Assign { dest, expr, metadata } => {
                 // Track if this variable holds a known user function (for TCO)
                 match expr {
                     IrExpr::MakeClosure(fn_id, captures) if captures.is_empty() => {
@@ -548,7 +573,8 @@ fn compile_block(
                             var_fn_map.insert(*dest, idx);
                         }
                         // Track if this var holds a module reference
-                        let is_mod = module_names.contains(name)
+                        let is_mod = interner.resolve(*name) == "Base"
+                            || module_names.contains(name)
                             || module_names.iter().any(|m| {
                                 interner.resolve(*name).starts_with(&format!("{}.", interner.resolve(*m)))
                             });
@@ -560,6 +586,21 @@ fn compile_block(
                 }
                 let value = compile_expr(ctx, program, expr, env, ctx_val, func_ref, interner, adt_constructors, module_functions, module_names, module_env)
                     .map_err(|e| format!("in assign v{}: {}", dest.0, e))?;
+
+                // After fallible binary ops, check for runtime errors and early-return
+                if matches!(expr, IrExpr::Binary(
+                    IrBinaryOp::Add | IrBinaryOp::IAdd
+                    | IrBinaryOp::Sub | IrBinaryOp::ISub
+                    | IrBinaryOp::Mul | IrBinaryOp::IMul
+                    | IrBinaryOp::Div | IrBinaryOp::IDiv
+                    | IrBinaryOp::Mod | IrBinaryOp::IMod
+                    | IrBinaryOp::FAdd | IrBinaryOp::FSub | IrBinaryOp::FMul | IrBinaryOp::FDiv, _, _
+                )) {
+                    if let Some(span) = &metadata.span {
+                        emit_error_check_and_return(ctx, ctx_val, func_ref, span)?;
+                    }
+                }
+
                 env.insert(*dest, value);
                 emit_set_global_if_bound(ctx, *dest, value, ctx_val, global_binding_indices)?;
             }
@@ -765,7 +806,7 @@ fn compile_block(
                 unsafe {
                     llvm_sys::core::LLVMSetTailCallKind(
                         call_inst,
-                        llvm_sys::LLVMTailCallKind::LLVMTailCallKindMustTail,
+                        llvm_sys::LLVMTailCallKind::LLVMTailCallKindNone,
                     );
                 }
                 ctx.builder.build_ret(call_inst);
@@ -797,7 +838,7 @@ fn compile_block(
                     unsafe {
                         llvm_sys::core::LLVMSetTailCallKind(
                             call_inst,
-                            llvm_sys::LLVMTailCallKind::LLVMTailCallKindMustTail,
+                            llvm_sys::LLVMTailCallKind::LLVMTailCallKindNone,
                         );
                     }
                     ctx.builder.build_ret(call_inst);
@@ -905,7 +946,17 @@ fn compile_expr(
                 return Ok(build_ptr_tagged(ctx, ptr_result));
             }
 
-            // 2. Check if it's a base function
+            // 2. Check if it's a global variable (globals shadow base functions)
+            if let Some(idx) = program.globals.iter().position(|g| *g == *name) {
+                let (func, fn_ty) = get_helper(ctx, "rt_get_global")?;
+                let idx_val = wrapper::const_i64(ctx.i64_type, idx as i64);
+                let ptr_result = ctx
+                    .builder
+                    .build_call(fn_ty, func, &mut [ctx_val, idx_val], "global_ptr");
+                return unbox_ptr_result(ctx, ptr_result, ctx_val);
+            }
+
+            // 3. Check if it's a base function
             if let Some(idx) = crate::runtime::base::get_base_function_index(name_str) {
                 let (make_base_fn, make_base_fn_ty) = get_helper(ctx, "rt_make_base_function")?;
                 let idx_val = wrapper::const_i64(ctx.i64_type, idx as i64);
@@ -918,7 +969,7 @@ fn compile_expr(
                 return Ok(build_ptr_tagged(ctx, ptr_result));
             }
 
-            // 3. Check if it's a unit ADT constructor (0-arity)
+            // 4. Check if it's a unit ADT constructor (0-arity)
             if let Some(&arity) = adt_constructors.get(name) {
                 if arity == 0 {
                     let (intern_adt, intern_adt_ty) = get_helper(ctx, "rt_intern_unit_adt")?;
@@ -937,18 +988,9 @@ fn compile_expr(
                 // Non-zero arity constructors are handled via Named calls / MakeAdt
             }
 
-            // 4. Check if it's a global variable
-            if let Some(idx) = program.globals.iter().position(|g| *g == *name) {
-                let (func, fn_ty) = get_helper(ctx, "rt_get_global")?;
-                let idx_val = wrapper::const_i64(ctx.i64_type, idx as i64);
-                let ptr_result = ctx
-                    .builder
-                    .build_call(fn_ty, func, &mut [ctx_val, idx_val], "global_ptr");
-                return unbox_ptr_result(ctx, ptr_result, ctx_val);
-            }
-
             // 5. Check if it's a module name or qualified module path
-            let is_module_ref = module_names.contains(name)
+            let is_module_ref = name_str == "Base"
+                || module_names.contains(name)
                 || module_names.iter().any(|m| name_str.starts_with(&format!("{}.", interner.resolve(*m))));
             if is_module_ref {
                 // Module reference — return None tagged value (used only as target for MemberAccess)
@@ -962,6 +1004,22 @@ fn compile_expr(
                 if parts.len() == 2 {
                     let mod_part = parts[0];
                     let member_part = parts[1];
+
+                    // Check if it's a qualified Base function (e.g., "Base.len")
+                    if mod_part == "Base" {
+                        if let Some(idx) = crate::runtime::base::get_base_function_index(member_part) {
+                            let (make_base_fn, make_base_fn_ty) = get_helper(ctx, "rt_make_base_function")?;
+                            let idx_val = wrapper::const_i64(ctx.i64_type, idx as i64);
+                            let ptr_result = ctx.builder.build_call(
+                                make_base_fn_ty,
+                                make_base_fn,
+                                &mut [ctx_val, idx_val],
+                                "qualified_base_fn",
+                            );
+                            return Ok(build_ptr_tagged(ctx, ptr_result));
+                        }
+                    }
+
                     // Look up in module_functions by resolving the string parts back to Identifiers
                     for (&(mod_id, fn_id), &fn_index) in module_functions.iter() {
                         if interner.resolve(mod_id) == mod_part && interner.resolve(fn_id) == member_part {
@@ -1205,7 +1263,7 @@ fn compile_expr(
             Ok(build_bool_tagged(ctx, result))
         }
         IrExpr::AdtField { value, index } => {
-            let (func, fn_ty) = get_helper(ctx, "rt_adt_field")?;
+            let (func, fn_ty) = get_helper(ctx, "rt_adt_field_or_none")?;
             let val_ptr = force_box_to_ptr(ctx, env, *value, ctx_val)?;
             let idx_val = wrapper::const_i64(ctx.i64_type, *index as i64);
             let result = ctx.builder.build_call(fn_ty, func, &mut [ctx_val, val_ptr, idx_val], "adt_field");
@@ -1341,10 +1399,18 @@ fn compile_expr(
                 &mut [ctx_val, member_global, member_len], "member_key",
             );
             let (index_fn, index_ty) = get_helper(ctx, "rt_index")?;
-            let result = ctx.builder.build_call(
+            let indexed = ctx.builder.build_call(
                 index_ty, index_fn,
                 &mut [ctx_val, obj_ptr, member_val], "member_access",
             );
+            let indexed = emit_null_check(ctx, func_ref, indexed);
+            // Unwrap Some wrapper from rt_index result
+            let (unwrap_some, unwrap_some_ty) = get_helper(ctx, "rt_unwrap_some")?;
+            let result = ctx.builder.build_call(
+                unwrap_some_ty, unwrap_some,
+                &mut [ctx_val, indexed], "member_unwrap",
+            );
+            let result = emit_null_check(ctx, func_ref, result);
             unbox_ptr_result(ctx, result, ctx_val)
         }
         IrExpr::Perform { effect, operation, args } => {
@@ -1424,21 +1490,10 @@ fn compile_binary(
     rhs: LLVMValueRef,
     ctx_val: LLVMValueRef,
 ) -> Result<LLVMValueRef, String> {
-    // For typed integer operations, inline the arithmetic
+    // For typed integer operations, delegate to the runtime helpers for
+    // correctness: gradual typing may produce IAdd even when one operand is
+    // None, so we need the runtime type check in rt_add/rt_sub/etc.
     match op {
-        IrBinaryOp::IAdd | IrBinaryOp::ISub | IrBinaryOp::IMul | IrBinaryOp::IDiv | IrBinaryOp::IMod => {
-            let lhs_payload = ctx.builder.build_extract_value(lhs, 1, "lhs_p");
-            let rhs_payload = ctx.builder.build_extract_value(rhs, 1, "rhs_p");
-            let result = match op {
-                IrBinaryOp::IAdd => ctx.builder.build_add(lhs_payload, rhs_payload, "iadd"),
-                IrBinaryOp::ISub => ctx.builder.build_sub(lhs_payload, rhs_payload, "isub"),
-                IrBinaryOp::IMul => ctx.builder.build_mul(lhs_payload, rhs_payload, "imul"),
-                IrBinaryOp::IDiv => ctx.builder.build_sdiv(lhs_payload, rhs_payload, "idiv"),
-                IrBinaryOp::IMod => ctx.builder.build_srem(lhs_payload, rhs_payload, "imod"),
-                _ => unreachable!(),
-            };
-            Ok(build_int_tagged(ctx, result))
-        }
         IrBinaryOp::Lt | IrBinaryOp::Gt | IrBinaryOp::Le | IrBinaryOp::Ge | IrBinaryOp::Eq | IrBinaryOp::NotEq => {
             // Use runtime helpers for polymorphic comparisons.
             // Note: there is no rt_less_than; for Lt we swap args and use rt_greater_than.
@@ -1508,15 +1563,17 @@ fn compile_binary(
             };
             Ok(build_bool_tagged(ctx, result_i64))
         }
-        // Polymorphic / float arithmetic — delegate to runtime
-        IrBinaryOp::Add | IrBinaryOp::Sub | IrBinaryOp::Mul | IrBinaryOp::Div | IrBinaryOp::Mod
+        // Polymorphic / typed arithmetic — delegate to runtime for type safety
+        IrBinaryOp::Add | IrBinaryOp::IAdd | IrBinaryOp::Sub | IrBinaryOp::ISub
+        | IrBinaryOp::Mul | IrBinaryOp::IMul | IrBinaryOp::Div | IrBinaryOp::IDiv
+        | IrBinaryOp::Mod | IrBinaryOp::IMod
         | IrBinaryOp::FAdd | IrBinaryOp::FSub | IrBinaryOp::FMul | IrBinaryOp::FDiv => {
             let helper_name = match op {
-                IrBinaryOp::Add | IrBinaryOp::FAdd => "rt_add",
-                IrBinaryOp::Sub | IrBinaryOp::FSub => "rt_sub",
-                IrBinaryOp::Mul | IrBinaryOp::FMul => "rt_mul",
-                IrBinaryOp::Div | IrBinaryOp::FDiv => "rt_div",
-                IrBinaryOp::Mod => "rt_mod",
+                IrBinaryOp::Add | IrBinaryOp::IAdd | IrBinaryOp::FAdd => "rt_add",
+                IrBinaryOp::Sub | IrBinaryOp::ISub | IrBinaryOp::FSub => "rt_sub",
+                IrBinaryOp::Mul | IrBinaryOp::IMul | IrBinaryOp::FMul => "rt_mul",
+                IrBinaryOp::Div | IrBinaryOp::IDiv | IrBinaryOp::FDiv => "rt_div",
+                IrBinaryOp::Mod | IrBinaryOp::IMod => "rt_mod",
                 _ => unreachable!(),
             };
             let (func, fn_ty) = get_helper(ctx, helper_name)?;
@@ -1986,6 +2043,45 @@ fn emit_set_global_if_bound(
             "",
         );
     }
+    Ok(())
+}
+
+/// After a fallible operation (e.g. rt_add), check if ctx.error is set.
+/// If so, render the error with span info and return a null-tagged value
+/// to propagate the error upward. Builder is left at the continue block.
+fn emit_error_check_and_return(
+    ctx: &LlvmCompilerContext,
+    ctx_val: LLVMValueRef,
+    func_ref: LLVMValueRef,
+    span: &crate::diagnostics::position::Span,
+) -> Result<(), String> {
+    let (has_error, has_error_ty) = get_helper(ctx, "rt_has_error")?;
+    let err_flag = ctx.builder.build_call(has_error_ty, has_error, &mut [ctx_val], "has_err");
+    let is_err = ctx.builder.build_icmp(
+        LLVMIntPredicate::LLVMIntNE,
+        err_flag,
+        wrapper::const_i64(ctx.i64_type, 0),
+        "is_err",
+    );
+    let err_block = ctx.llvm_ctx.append_basic_block(func_ref, "rt_err");
+    let continue_block = ctx.llvm_ctx.append_basic_block(func_ref, "no_err");
+    ctx.builder.build_cond_br(is_err, err_block, continue_block);
+
+    ctx.builder.position_at_end(err_block);
+    let (render, render_ty) = get_helper(ctx, "rt_render_error_with_span")?;
+    let sl = wrapper::const_i64(ctx.i64_type, span.start.line as i64);
+    let sc = wrapper::const_i64(ctx.i64_type, (span.start.column + 1) as i64);
+    let el = wrapper::const_i64(ctx.i64_type, span.end.line as i64);
+    let ec = wrapper::const_i64(ctx.i64_type, (span.end.column + 1) as i64);
+    ctx.builder.build_call(render_ty, render, &mut [ctx_val, sl, sc, el, ec], "");
+    let null_tagged = build_tagged_value(
+        ctx,
+        wrapper::const_i64(ctx.i64_type, JIT_TAG_PTR),
+        wrapper::const_i64(ctx.i64_type, 0),
+    );
+    ctx.builder.build_ret(null_tagged);
+
+    ctx.builder.position_at_end(continue_block);
     Ok(())
 }
 
