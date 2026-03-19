@@ -102,12 +102,47 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             span,
         } => {
             let scrutinee = Box::new(transform(*scrutinee));
+
+            // Extract scrutinee variable for drop-after-destructure.
+            // After ANF, the scrutinee is always a Var.
+            let scrutinee_var = match scrutinee.as_ref() {
+                CoreExpr::Var { var, .. } => var.binder.map(|id| {
+                    CoreBinder { id, name: var.name }
+                }),
+                _ => None,
+            };
+
             let alts = alts
                 .into_iter()
                 .map(|alt| {
                     let rhs = transform(alt.rhs);
                     // Drop unused pattern-bound variables at start of RHS
                     let rhs = drop_unused_pat_vars(&alt.pat, rhs, span);
+
+                    // Perceus: after destructuring a constructor pattern, the
+                    // scrutinee's wrapper (Rc) is dead — only the extracted
+                    // fields are live. Insert Drop(scrutinee) so the wrapper
+                    // can be reused by a subsequent constructor of the same shape.
+                    //
+                    // Only insert the Drop when:
+                    // 1. The pattern destructures a constructor (Con/Tuple)
+                    // 2. The scrutinee is not used in the RHS
+                    // 3. The RHS contains a Con of compatible shape (so reuse can fire)
+                    // This avoids inserting Drops that would be no-ops (the value is
+                    // freed at scope end anyway) and prevents CFG lowering issues.
+                    let rhs = if let Some(scrut_binder) = scrutinee_var {
+                        if is_constructor_pat(&alt.pat)
+                            && !scrutinee_used_in_rhs(scrut_binder.id, &rhs)
+                            && has_compatible_con(&alt.pat, &rhs)
+                        {
+                            wrap_drop(scrut_binder, rhs, span)
+                        } else {
+                            rhs
+                        }
+                    } else {
+                        rhs
+                    };
+
                     CoreAlt {
                         pat: alt.pat,
                         guard: alt.guard.map(transform),
@@ -297,5 +332,57 @@ fn find_binder_in_pat(pat: &crate::core::CorePat, target: CoreBinderId) -> Optio
         crate::core::CorePat::Lit(_)
         | crate::core::CorePat::Wildcard
         | crate::core::CorePat::EmptyList => None,
+    }
+}
+
+/// Check if a pattern destructures a constructor (Con, Cons, Some, etc.).
+/// Wildcard, Lit, and EmptyList patterns don't destructure — the scrutinee
+/// wrapper isn't "opened", so there's nothing to reuse.
+fn is_constructor_pat(pat: &crate::core::CorePat) -> bool {
+    matches!(
+        pat,
+        crate::core::CorePat::Con { .. } | crate::core::CorePat::Tuple(_)
+    )
+}
+
+/// Check if the scrutinee variable is still used in the RHS.
+/// If it is, we can't drop it (it's still live).
+fn scrutinee_used_in_rhs(scrut_id: CoreBinderId, rhs: &CoreExpr) -> bool {
+    use_counts(rhs).get(&scrut_id).copied().unwrap_or(0) > 0
+}
+
+/// Check if the RHS body (through Let/Drop chains) ends with a Con whose
+/// tag is compatible with the pattern's constructor tag.
+fn has_compatible_con(pat: &crate::core::CorePat, rhs: &CoreExpr) -> bool {
+    let pat_tag = match pat {
+        crate::core::CorePat::Con { tag, .. } => Some(tag),
+        _ => None,
+    };
+    let Some(pat_tag) = pat_tag else {
+        return false;
+    };
+    find_con_tag_in_spine(rhs)
+        .is_some_and(|ref con_tag| tags_shape_compatible(pat_tag, con_tag))
+}
+
+fn find_con_tag_in_spine(expr: &CoreExpr) -> Option<crate::core::CoreTag> {
+    match expr {
+        CoreExpr::Con { tag, .. } | CoreExpr::Reuse { tag, .. } => Some(tag.clone()),
+        CoreExpr::Let { body, .. } | CoreExpr::Drop { body, .. } | CoreExpr::Dup { body, .. } => {
+            find_con_tag_in_spine(body)
+        }
+        _ => None,
+    }
+}
+
+fn tags_shape_compatible(a: &crate::core::CoreTag, b: &crate::core::CoreTag) -> bool {
+    use crate::core::CoreTag;
+    match (a, b) {
+        (CoreTag::Cons, CoreTag::Cons) => true,
+        (CoreTag::Some, CoreTag::Some) => true,
+        (CoreTag::Left, CoreTag::Left) => true,
+        (CoreTag::Right, CoreTag::Right) => true,
+        (CoreTag::Named(a), CoreTag::Named(b)) => a == b,
+        _ => false,
     }
 }

@@ -2080,13 +2080,29 @@ impl Compiler {
         let mut core =
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
         crate::core::passes::run_core_passes(&mut core);
-        match mode {
+
+        // Collect Aether stats across all definitions
+        let mut total_stats = crate::aether::AetherStats::default();
+        for def in &core.defs {
+            let s = crate::aether::collect_stats(&def.expr);
+            total_stats.dups += s.dups;
+            total_stats.drops += s.drops;
+            total_stats.reuses += s.reuses;
+        }
+
+        let ir_text = match mode {
             crate::core::display::CoreDisplayMode::Readable => {
                 crate::core::display::display_program_readable(&core, &self.interner)
             }
             crate::core::display::CoreDisplayMode::Debug => {
                 crate::core::display::display_program_debug(&core, &self.interner)
             }
+        };
+
+        if total_stats.dups > 0 || total_stats.drops > 0 || total_stats.reuses > 0 {
+            format!("{}\n── Aether stats ──\n{}", ir_text, total_stats)
+        } else {
+            ir_text
         }
     }
 
