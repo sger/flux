@@ -351,7 +351,7 @@ The production backend program is assembled from Core-backed lowering:
 
 The `IrProgram` is then consumed by one of three backends:
 
-- **Bytecode compiler** (`bytecode/`) → stack-based VM (`runtime/vm/`)
+- **Bytecode compiler** (`bytecode/`) → stack-based VM (`bytecode/vm/`)
 - **Cranelift JIT** (`jit/`) → native code via Cranelift, executed in-process
 - **LLVM backend** (`llvm/`) → native code via LLVM 18, executed in-process or emitted as object/assembly
 

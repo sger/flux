@@ -12,13 +12,13 @@ use std::collections::HashMap;
 use flux::ast::type_infer::{InferProgramConfig, infer_program};
 use flux::backend_ir::{IrBinaryOp, IrExpr, IrInstr, IrTerminator, lower_program_to_ir};
 use flux::bytecode::compiler::Compiler;
+use flux::bytecode::vm::VM;
 use flux::core::{
     CoreExpr, CorePrimOp, lower_ast::lower_program_ast, passes::run_core_passes,
     to_ir::lower_core_to_ir,
 };
 use flux::diagnostics::render_diagnostics;
 use flux::runtime::value::Value;
-use flux::runtime::vm::VM;
 use flux::syntax::{expression::ExprId, interner::Interner, lexer::Lexer, parser::Parser};
 use flux::types::infer_type::InferType;
 
