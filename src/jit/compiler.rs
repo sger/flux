@@ -694,7 +694,7 @@ impl JitCompiler {
                 .declare_function(&function_name, Linkage::Local, &sig)
                 .map_err(|e| format!("declare {}: {}", function_name, e))?;
             let function_index = self.jit_functions.len();
-            let contract = runtime_contract_from_annotations(
+            let contract = crate::runtime::function_contract::runtime_contract_from_annotations(
                 &function.parameter_types,
                 &function.return_type_annotation,
                 &function.effects,
@@ -736,10 +736,11 @@ impl JitCompiler {
             &backend_function_metas,
             &mut scope,
         );
+        let import_aliases = scope.import_aliases.clone();
         register_backend_top_level_module_functions(
             ir_program.top_level_items(),
-            None,
             &backend_function_metas,
+            &import_aliases,
             &mut scope,
         );
 
@@ -1023,7 +1024,11 @@ impl JitCompiler {
 
                 for instr in &block.instrs {
                     match instr {
-                        BackendIrInstr::Assign { dest, expr, .. } => {
+                        BackendIrInstr::Assign {
+                            dest,
+                            expr,
+                            metadata,
+                        } => {
                             let value = compile_simple_backend_ir_expr(
                                 module,
                                 helpers,
@@ -1037,6 +1042,41 @@ impl JitCompiler {
                                 interner,
                                 expr,
                             )?;
+
+                            // After runtime-dispatched binary/prefix ops, check for errors.
+                            // IAdd/ISub/IMul/IDiv/IMod are inlined (operands proven Int) — no check needed.
+                            if matches!(
+                                expr,
+                                BackendIrExpr::Binary(
+                                    IrBinaryOp::Add
+                                        | IrBinaryOp::Sub
+                                        | IrBinaryOp::Mul
+                                        | IrBinaryOp::Div
+                                        | IrBinaryOp::Mod
+                                        | IrBinaryOp::FAdd
+                                        | IrBinaryOp::FSub
+                                        | IrBinaryOp::FMul
+                                        | IrBinaryOp::FDiv
+                                        | IrBinaryOp::Gt
+                                        | IrBinaryOp::Ge
+                                        | IrBinaryOp::Le
+                                        | IrBinaryOp::Lt
+                                        | IrBinaryOp::Eq
+                                        | IrBinaryOp::NotEq,
+                                    _,
+                                    _
+                                ) | BackendIrExpr::Prefix { .. }
+                            ) && let Some(span) = metadata.span
+                            {
+                                emit_error_check_and_return(
+                                    module,
+                                    helpers,
+                                    &mut builder,
+                                    ctx_val,
+                                    span,
+                                );
+                            }
+
                             env.insert(*dest, value);
                             match expr {
                                 BackendIrExpr::LoadName(name) => {
@@ -1994,77 +2034,46 @@ fn collect_backend_top_level_declaration_metadata(
     import_aliases: &mut HashMap<Identifier, Identifier>,
     adt_constructors: &mut HashMap<Identifier, usize>,
 ) {
-    for item in items {
-        match item {
-            crate::backend_ir::IrTopLevelItem::Function { .. } => {}
-            crate::backend_ir::IrTopLevelItem::Module { name, body, .. } => {
-                imported_modules.insert(*name);
-                collect_backend_top_level_declaration_metadata(
-                    body,
-                    imported_modules,
-                    import_aliases,
-                    adt_constructors,
-                );
-            }
-            crate::backend_ir::IrTopLevelItem::Import { name, alias, .. } => {
-                imported_modules.insert(*name);
-                if let Some(alias) = alias {
-                    import_aliases.insert(*alias, *name);
-                }
-            }
-            crate::backend_ir::IrTopLevelItem::Data { name, variants, .. } => {
-                for variant in variants {
-                    adt_constructors.insert(variant.name, variant.fields.len());
-                }
-                let _ = name;
-            }
-            crate::backend_ir::IrTopLevelItem::EffectDecl { .. }
-            | crate::backend_ir::IrTopLevelItem::Let { .. }
-            | crate::backend_ir::IrTopLevelItem::LetDestructure { .. }
-            | crate::backend_ir::IrTopLevelItem::Return { .. }
-            | crate::backend_ir::IrTopLevelItem::Expression { .. }
-            | crate::backend_ir::IrTopLevelItem::Assign { .. } => {}
-        }
+    // ADT constructors and module metadata use shared utilities
+    crate::backend_ir::metadata::collect_adt_constructors(items, adt_constructors);
+    let mut module_names: Vec<Identifier> = Vec::new();
+    crate::backend_ir::metadata::collect_module_metadata(items, &mut module_names, import_aliases);
+    for name in module_names {
+        imported_modules.insert(name);
     }
 }
 
 fn register_backend_top_level_module_functions(
     items: &[crate::backend_ir::IrTopLevelItem],
-    current_module: Option<Identifier>,
     backend_function_metas: &HashMap<BackendFunctionId, JitFunctionMeta>,
+    import_aliases: &HashMap<Identifier, Identifier>,
     scope: &mut Scope,
 ) {
+    // Use shared generic collection, parameterized on JitFunctionMeta
+    crate::backend_ir::metadata::collect_module_functions(
+        items,
+        None,
+        &|fn_id| backend_function_metas.get(&fn_id).copied(),
+        &mut scope.module_functions,
+    );
+    crate::backend_ir::metadata::apply_import_aliases(&mut scope.module_functions, import_aliases);
+
+    // JIT-specific: track which ADT constructor belongs to which data type
+    collect_adt_constructor_owners(items, scope);
+}
+
+fn collect_adt_constructor_owners(items: &[crate::backend_ir::IrTopLevelItem], scope: &mut Scope) {
     for item in items {
         match item {
-            crate::backend_ir::IrTopLevelItem::Function {
-                name, function_id, ..
-            } => {
-                if let (Some(module_name), Some(function_id)) = (current_module, function_id)
-                    && let Some(meta) = backend_function_metas.get(function_id).copied()
-                {
-                    scope.module_functions.insert((module_name, *name), meta);
-                }
-            }
-            crate::backend_ir::IrTopLevelItem::Module { name, body, .. } => {
-                register_backend_top_level_module_functions(
-                    body,
-                    Some(*name),
-                    backend_function_metas,
-                    scope,
-                );
-            }
             crate::backend_ir::IrTopLevelItem::Data { name, variants, .. } => {
                 for variant in variants {
                     scope.adt_constructor_owner.insert(variant.name, *name);
                 }
             }
-            crate::backend_ir::IrTopLevelItem::Import { .. }
-            | crate::backend_ir::IrTopLevelItem::EffectDecl { .. }
-            | crate::backend_ir::IrTopLevelItem::Let { .. }
-            | crate::backend_ir::IrTopLevelItem::LetDestructure { .. }
-            | crate::backend_ir::IrTopLevelItem::Return { .. }
-            | crate::backend_ir::IrTopLevelItem::Expression { .. }
-            | crate::backend_ir::IrTopLevelItem::Assign { .. } => {}
+            crate::backend_ir::IrTopLevelItem::Module { body, .. } => {
+                collect_adt_constructor_owners(body, scope);
+            }
+            _ => {}
         }
     }
 }
@@ -3075,6 +3084,36 @@ fn compile_simple_backend_ir_truthiness_condition(
     builder.ins().icmp_imm(IntCC::NotEqual, truthy_i64, 0)
 }
 
+/// After a fallible runtime operation (e.g. rt_add), check if ctx.error is set.
+/// If so, render the error with span info and return a null-tagged value to
+/// propagate the error upward. Builder is left at the continue block.
+fn emit_error_check_and_return(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+    span: Span,
+) {
+    let has_error = get_helper_func_ref(module, helpers, builder, "rt_has_error");
+    let call = builder.ins().call(has_error, &[ctx_val]);
+    let err_flag = builder.inst_results(call)[0];
+    let is_err = builder.ins().icmp_imm(IntCC::NotEqual, err_flag, 0);
+
+    let err_block = builder.create_block();
+    let continue_block = builder.create_block();
+    builder
+        .ins()
+        .brif(is_err, err_block, &[], continue_block, &[]);
+
+    builder.switch_to_block(err_block);
+    emit_render_error_with_span(module, helpers, builder, ctx_val, span);
+    emit_return_null_tagged(builder);
+    builder.seal_block(err_block);
+
+    builder.switch_to_block(continue_block);
+    builder.seal_block(continue_block);
+}
+
 /// After a runtime helper that may set `ctx.error`, emit a call to
 /// `rt_render_error_with_span` so the raw error is rendered as a structured
 /// diagnostic with source location.  This produces VM-parity error output.
@@ -3432,6 +3471,7 @@ fn is_base_symbol(name: Identifier, interner: &Interner) -> bool {
 // Utility functions
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 fn convert_type_expr_for_contract(ty: &TypeExpr, interner: &Interner) -> Option<RuntimeType> {
     match ty {
         TypeExpr::Named { name, args, .. } => {
@@ -3473,6 +3513,7 @@ fn convert_type_expr_for_contract(ty: &TypeExpr, interner: &Interner) -> Option<
     }
 }
 
+#[allow(dead_code)]
 fn runtime_contract_from_annotations(
     parameter_types: &[Option<TypeExpr>],
     return_type: &Option<TypeExpr>,
@@ -3634,6 +3675,14 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             HelperSig {
                 num_params: 5,
                 num_returns: 0,
+            },
+        ),
+        // rt_has_error(ctx) -> i64 (0 or 1)
+        (
+            "rt_has_error",
+            HelperSig {
+                num_params: 1,
+                num_returns: 1,
             },
         ),
         (

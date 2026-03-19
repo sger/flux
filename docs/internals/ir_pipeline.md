@@ -15,9 +15,9 @@ AST and executable code in Flux, and how they interact.
                         │  ~12 variants      basic blocks         │
         ──────────►     │  functional        imperative           │  ──────────►
                         │  tree-shaped       graph-shaped         │
-                        │                                         │     Bytecode
-                        │  Optimization:     Code generation:     │        or
-                        │  beta reduce,      opcodes, jumps,      │     Native
+                        │                                         │     Bytecode (VM)
+                        │  Optimization:     Code generation:     │     Cranelift (JIT)
+                        │  beta reduce,      opcodes, jumps,      │     LLVM (native)
                         │  COKC, inline      register alloc       │
                         └─────────────────────────────────────────┘
 ```
@@ -336,7 +336,7 @@ through:
 - `core/lower_ast.rs`
 - `core/to_ir.rs`
 - `backend_ir/`
-- bytecode/JIT codegen
+- bytecode/JIT/LLVM codegen
 
 ---
 
@@ -349,10 +349,73 @@ The production backend program is assembled from Core-backed lowering:
 3. `core/to_ir.rs` lowers Core into backend `IrProgram`
 4. `backend_ir` pass/validation/codegen layers consume that `IrProgram`
 
+The `IrProgram` is then consumed by one of three backends:
+
+- **Bytecode compiler** (`bytecode/`) → stack-based VM (`runtime/vm/`)
+- **Cranelift JIT** (`jit/`) → native code via Cranelift, executed in-process
+- **LLVM backend** (`llvm/`) → native code via LLVM 18, executed in-process or emitted as object/assembly
+
 Top-level declaration metadata such as modules, data declarations, and effect
 declarations is now carried through Core and emitted into backend
 `IrTopLevelItem`s, so production backends do not need to reconstruct those
 shapes from the source AST.
+
+---
+
+## LLVM Backend
+
+> Source: `src/llvm/` — requires `--features llvm` and LLVM 18 to build
+
+The LLVM backend compiles the backend `IrProgram` to native machine code using
+LLVM 18 via the `llvm-sys` crate. It shares the same runtime helpers, GC heap,
+and value representation as the Cranelift JIT.
+
+### Architecture
+
+```
+IrProgram (Backend IR)
+ │
+ ▼
+LLVM Compiler (src/llvm/compiler/)
+ │   ├── mod.rs          orchestration
+ │   ├── symbols.rs      runtime helper declarations
+ │   ├── function.rs     function/block compilation
+ │   ├── expressions.rs  expression compilation
+ │   ├── binary_ops.rs   arithmetic/comparison operators
+ │   ├── calls.rs        function call compilation
+ │   ├── entry.rs        program entry point
+ │   └── helpers.rs      codegen utilities
+ │
+ ▼
+LLVM IR
+ │   LLVM optimization passes (O0–O3)
+ ▼
+Native machine code (MCJIT)
+ │
+ ▼
+Execution via JitContext (shared with Cranelift JIT)
+```
+
+### Key design points
+
+- **Tagged value ABI**: All values are `{i64, i64}` structs (tag + payload).
+  Tags: `JIT_TAG_INT=1`, `JIT_TAG_BOOL=2`, `JIT_TAG_FLOAT=3`, `JIT_TAG_PTR=4`.
+- **Array calling convention**: Functions take `(ctx, args_ptr, nargs, captures_ptr, ncaptures) → {i64, i64}`.
+- **Runtime delegation**: 50+ `rt_*` extern "C" helpers handle polymorphic operations,
+  GC allocation, closures, effect handlers, and base function dispatch.
+- **Error propagation**: Null `{JIT_TAG_PTR, 0}` signals an error; `ctx.error` carries the message.
+  After fallible operations, compiled code checks `rt_has_error` and renders diagnostics
+  via `rt_render_error_with_span`.
+- **Shared runtime**: Uses the same `JitContext`, `JitFunctionEntry`, and `rt_*` helpers as the
+  Cranelift JIT — the two backends are interchangeable at the runtime level.
+- **AOT support**: Can emit `.o` object files and `.s` assembly via `llvm_emit_object`/`llvm_emit_asm`.
+
+### Parity with VM
+
+Backend parity is enforced by `scripts/release/check_parity.sh`, which runs all
+example programs through VM, JIT, and LLVM and compares output. The only expected
+differences are stack traces (VM-only). These are normalized by the `runtime_no_stack`
+exception mode in `check_parity_exceptions.tsv`.
 
 ---
 

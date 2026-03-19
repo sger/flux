@@ -9,7 +9,7 @@
 /// Recursive (`LetRec`) bindings are never inlined (would create infinite expansion).
 use crate::core::{CoreBinderId, CoreExpr, CorePat};
 
-use super::helpers::{expr_size, map_children, subst};
+use super::helpers::{expr_size, is_pure, map_children, subst};
 
 /// Maximum node count of an RHS to inline when the binder is used more than once.
 const INLINE_THRESHOLD: usize = 10;
@@ -31,7 +31,7 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
 
             let count = count_occurrences(var.id, &body);
 
-            if count == 0 && is_effect_free(&rhs) {
+            if count == 0 && is_pure(&rhs) {
                 // Dead binding — drop it.
                 body
             } else if count == 0 {
@@ -219,20 +219,6 @@ fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
 }
 
 // ── Effect analysis ───────────────────────────────────────────────────────────
-
-/// Returns true if the expression is guaranteed to have no observable effects.
-///
-/// Conservative: returns false for anything that might perform IO, call a
-/// function, or raise an effect.
-fn is_effect_free(expr: &CoreExpr) -> bool {
-    match expr {
-        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
-        CoreExpr::Con { fields, .. } => fields.iter().all(is_effect_free),
-        CoreExpr::PrimOp { args, .. } => args.iter().all(is_effect_free),
-        CoreExpr::Lam { .. } => true, // lambda itself is a value
-        _ => false,
-    }
-}
 
 // ── Pattern helpers ───────────────────────────────────────────────────────────
 

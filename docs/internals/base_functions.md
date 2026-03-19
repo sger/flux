@@ -6,7 +6,7 @@
 > - Base API classification and review policy: `docs/internals/base_api.md`
 > - Flow stdlib architecture: `docs/proposals/0030_flow.md`
 
-Flux currently exposes 75 runtime Base function implementations. After Proposal 0028 Phase 7, Base naming is canonical.
+Flux currently exposes 83 runtime Base function implementations. After Proposal 0028 Phase 7, Base naming is canonical.
 
 ## Current Architecture (Phase 6)
 
@@ -14,13 +14,15 @@ Flux currently exposes 75 runtime Base function implementations. After Proposal 
 
 Base function implementations live under `src/runtime/base/*`:
 - `array_ops.rs`
-- `string_ops.rs`
+- `assert_ops.rs`
+- `collection_ops.rs`
 - `hash_ops.rs`
+- `higher_order_ops.rs`
+- `io_ops.rs`
 - `list_ops.rs`
 - `numeric_ops.rs`
-- `io_ops.rs`
+- `string_ops.rs`
 - `type_check.rs`
-- `assert_ops.rs`
 
 Each Base function uses the same signature:
 

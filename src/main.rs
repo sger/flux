@@ -7,7 +7,9 @@ use std::{
     time::Instant,
 };
 
-#[cfg(feature = "jit")]
+#[cfg(any(feature = "jit", feature = "llvm"))]
+use flux::ast::{constant_fold_with_interner, desugar, rename};
+#[cfg(any(feature = "jit", feature = "llvm"))]
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
@@ -35,10 +37,7 @@ use flux::{
 };
 #[cfg(feature = "jit")]
 use flux::{
-    ast::{constant_fold_with_interner, desugar, rename},
-    jit::JitError,
-    runtime::jit_closure::JitClosure,
-    runtime::vm::test_runner::run_test_fns,
+    jit::JitError, runtime::jit_closure::JitClosure, runtime::vm::test_runner::run_test_fns,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +73,14 @@ fn main() {
     let use_jit = args.iter().any(|arg| arg == "--jit");
     #[cfg(not(feature = "jit"))]
     let use_jit = false;
+    #[cfg(feature = "llvm")]
+    let use_llvm = args.iter().any(|arg| arg == "--llvm");
+    #[cfg(not(feature = "llvm"))]
+    let use_llvm = false;
+    #[cfg(feature = "llvm")]
+    let emit_obj = args.iter().any(|arg| arg == "--emit-obj");
+    #[cfg(not(feature = "llvm"))]
+    let emit_obj = false;
     let mut roots = Vec::new();
     if verbose {
         args.retain(|arg| arg != "--verbose");
@@ -107,6 +114,12 @@ fn main() {
     }
     if use_jit {
         args.retain(|arg| arg != "--jit");
+    }
+    if use_llvm {
+        args.retain(|arg| arg != "--llvm");
+    }
+    if emit_obj {
+        args.retain(|arg| arg != "--emit-obj");
     }
     if test_mode {
         args.retain(|arg| arg != "--test");
@@ -179,6 +192,7 @@ fn main() {
                 gc_threshold,
                 gc_telemetry,
                 use_jit,
+                use_llvm,
                 show_stats,
                 strict_mode,
                 diagnostics_format,
@@ -238,6 +252,7 @@ fn main() {
                     gc_threshold,
                     gc_telemetry,
                     use_jit,
+                    use_llvm,
                     show_stats,
                     strict_mode,
                     diagnostics_format,
@@ -441,6 +456,7 @@ fn run_file(
     gc_threshold: Option<usize>,
     gc_telemetry: bool,
     #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
+    #[cfg_attr(not(feature = "llvm"), allow(unused))] use_llvm: bool,
     show_stats: bool,
     strict_mode: bool,
     diagnostics_format: DiagnosticOutputFormat,
@@ -461,7 +477,7 @@ fn run_file(
             });
             let cache_key = hash_cache_key(&base_cache_key, &strict_hash);
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
-            if !no_cache && !use_jit && matches!(dump_core, CoreDumpMode::None) {
+            if !no_cache && !use_jit && !use_llvm && matches!(dump_core, CoreDumpMode::None) {
                 if let Some(bytecode) =
                     cache.load(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
                 {
@@ -765,6 +781,124 @@ fn run_file(
                 return;
             }
 
+            // --- LLVM execution path ---
+            #[cfg(feature = "llvm")]
+            if use_llvm {
+                use std::collections::HashMap;
+
+                let mut llvm_program = Program::new();
+                for node in graph.topo_order() {
+                    llvm_program
+                        .statements
+                        .extend(node.program.statements.clone());
+                }
+
+                if enable_optimize {
+                    let desugared = desugar(llvm_program);
+                    let optimized = constant_fold_with_interner(desugared, &compiler.interner);
+                    llvm_program = rename(optimized, HashMap::new());
+                }
+
+                let llvm_opt_level = if enable_optimize { 2 } else { 0 };
+                let llvm_options = flux::llvm::LlvmOptions {
+                    no_gc,
+                    gc_threshold,
+                    source_file: Some(path.to_string()),
+                    source_text: Some(source.clone()),
+                    opt_level: llvm_opt_level,
+                };
+
+                // AOT: emit object file instead of JIT execution
+                let emit_obj = std::env::args().any(|a| a == "--emit-obj");
+                if emit_obj {
+                    let output = path.replace(".flx", ".o");
+                    let opt = if enable_optimize { 2 } else { 0 };
+                    match flux::llvm::llvm_emit_object(
+                        &llvm_program,
+                        &compiler.interner,
+                        &llvm_options,
+                        &output,
+                        opt,
+                    ) {
+                        Ok(()) => {
+                            println!("Emitted object file: {}", output);
+                        }
+                        Err(err) => {
+                            eprintln!("LLVM AOT compilation failed: {}", err);
+                            std::process::exit(1);
+                        }
+                    }
+                    return;
+                }
+
+                let llvm_compile_start = Instant::now();
+                let prev_hook = std::panic::take_hook();
+                std::panic::set_hook(Box::new(|_| {}));
+                let llvm_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    flux::llvm::llvm_compile(&llvm_program, &compiler.interner, &llvm_options)
+                }));
+                std::panic::set_hook(prev_hook);
+                let compiled = match llvm_result {
+                    Ok(Ok(c)) => c,
+                    Ok(Err(err)) => {
+                        emit_llvm_error(
+                            &err,
+                            path,
+                            source.as_str(),
+                            max_errors,
+                            diagnostics_format,
+                        );
+                        std::process::exit(1);
+                    }
+                    Err(panic) => {
+                        let msg = panic
+                            .downcast_ref::<String>()
+                            .map(|s| s.as_str())
+                            .or_else(|| panic.downcast_ref::<&str>().copied())
+                            .unwrap_or("unknown panic");
+                        eprintln!("LLVM compilation panicked: {}", msg);
+                        std::process::exit(1);
+                    }
+                };
+                let llvm_compile_ms = llvm_compile_start.elapsed().as_secs_f64() * 1000.0;
+
+                let llvm_exec_start = Instant::now();
+                match flux::llvm::llvm_execute(compiled) {
+                    Ok((_result, mut ctx)) => {
+                        let llvm_exec_ms = llvm_exec_start.elapsed().as_secs_f64() * 1000.0;
+                        if show_stats {
+                            print_stats(&RunStats {
+                                parse_ms: Some(parse_ms),
+                                compile_ms: Some(llvm_compile_ms),
+                                execute_ms: llvm_exec_ms,
+                                cached: false,
+                                use_jit: true,
+                                module_count: Some(module_count),
+                                source_lines: source.lines().count(),
+                                globals_count: None,
+                                functions_count: None,
+                                instruction_bytes: None,
+                            });
+                        }
+                        ctx.clear_runtime_state();
+                    }
+                    Err(err) => {
+                        emit_llvm_error(
+                            &err,
+                            path,
+                            source.as_str(),
+                            max_errors,
+                            diagnostics_format,
+                        );
+                        std::process::exit(1);
+                    }
+                }
+                if leak_detector {
+                    print_leak_stats();
+                }
+                return;
+            }
+
             let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
             let bytecode = compiler.bytecode();
             let globals_count = compiler.symbol_table.num_definitions;
@@ -777,7 +911,7 @@ fn run_file(
                     deps.push((dep, hash));
                 }
             }
-            if !no_cache && !use_jit {
+            if !no_cache && !use_jit && !use_llvm {
                 let stored = cache
                     .store(
                         Path::new(path),
@@ -1392,7 +1526,7 @@ fn emit_diagnostics(
     }
 }
 
-#[cfg(feature = "jit")]
+#[cfg(any(feature = "jit", feature = "llvm"))]
 fn normalize_jit_cli_diagnostic(diag: &Diagnostic, source_path: &str) -> Diagnostic {
     let mut diag = diag.clone();
     let keep_original = matches!(diag.file(), Some("<unknown>" | "<jit>"));
@@ -1400,32 +1534,6 @@ fn normalize_jit_cli_diagnostic(diag: &Diagnostic, source_path: &str) -> Diagnos
         diag.set_file(flux::diagnostics::render_display_path(source_path));
     }
     diag
-}
-
-#[cfg(feature = "jit")]
-fn synthetic_jit_stack_frames(
-    diag: &Diagnostic,
-    source_path: &str,
-    source_text: &str,
-) -> Vec<String> {
-    if diag.file() != Some(source_path) {
-        return Vec::new();
-    }
-    if !source_text.contains("fn main") {
-        return Vec::new();
-    }
-    let Some(span) = diag.span() else {
-        return Vec::new();
-    };
-    vec![
-        format!(
-            "main ({}:{}:{})",
-            flux::diagnostics::render_display_path(source_path),
-            span.start.line,
-            span.start.column + 1
-        ),
-        "<main>".to_string(),
-    ]
 }
 
 #[cfg(feature = "jit")]
@@ -1451,7 +1559,9 @@ fn emit_jit_error(
             )
         }
         JitError::Runtime(diag) => {
-            let diag = normalize_jit_cli_diagnostic(diag.as_ref(), source_path);
+            // Strip stack trace — Cranelift JIT doesn't support real stack unwinding
+            let mut diag = normalize_jit_cli_diagnostic(diag.as_ref(), source_path);
+            diag.clear_stack_trace();
             match diagnostics_format {
                 DiagnosticOutputFormat::Text => {
                     let render_file = diag.file().unwrap_or(source_path);
@@ -1460,16 +1570,21 @@ fn emit_jit_error(
                     } else {
                         None
                     };
-                    let stack_frames = synthetic_jit_stack_frames(&diag, source_path, source_text);
-                    eprintln!(
-                        "{}",
-                        flux::diagnostics::render_runtime_diagnostic(
-                            &diag,
-                            render_file,
-                            render_source,
-                            &stack_frames,
-                        )
-                    )
+                    let stack_frames: Vec<String> = Vec::new();
+                    let rendered = flux::diagnostics::render_runtime_diagnostic(
+                        &diag,
+                        render_file,
+                        render_source,
+                        &stack_frames,
+                    );
+                    // Strip stack trace — Cranelift JIT doesn't support real stack unwinding
+                    let output = if let Some(idx) = rendered.find("Stack trace:") {
+                        let start = rendered[..idx].rfind('\n').map(|i| i + 1).unwrap_or(idx);
+                        rendered[..start].trim_end().to_string()
+                    } else {
+                        rendered
+                    };
+                    eprintln!("{}", output)
                 }
                 DiagnosticOutputFormat::Json | DiagnosticOutputFormat::JsonCompact => {
                     emit_diagnostics(
@@ -1486,7 +1601,79 @@ fn emit_jit_error(
             }
         }
         JitError::Internal(message) => {
-            eprintln!("{}", message);
+            let output = if let Some(idx) = message.find("Stack trace:") {
+                let start = message[..idx].rfind('\n').map(|i| i + 1).unwrap_or(idx);
+                message[..start].trim_end()
+            } else {
+                message.as_str()
+            };
+            eprintln!("{}", output);
+        }
+    }
+}
+
+#[cfg(feature = "llvm")]
+fn emit_llvm_error(
+    err: &flux::llvm::LlvmError,
+    source_path: &str,
+    source_text: &str,
+    max_errors: usize,
+    diagnostics_format: DiagnosticOutputFormat,
+) {
+    match err {
+        flux::llvm::LlvmError::Compile(diag) | flux::llvm::LlvmError::Runtime(diag) => {
+            // Strip stack trace — LLVM backend doesn't support real stack unwinding
+            let mut diag = normalize_jit_cli_diagnostic(diag.as_ref(), source_path);
+            diag.clear_stack_trace();
+            match diagnostics_format {
+                DiagnosticOutputFormat::Text => {
+                    let render_file = diag.file().unwrap_or(source_path);
+                    let render_source = if render_file == source_path {
+                        Some(source_text)
+                    } else {
+                        None
+                    };
+                    let stack_frames: Vec<String> = Vec::new();
+                    let rendered = flux::diagnostics::render_runtime_diagnostic(
+                        &diag,
+                        render_file,
+                        render_source,
+                        &stack_frames,
+                    );
+                    // Strip stack trace — LLVM doesn't support real stack unwinding
+                    let output = if let Some(idx) = rendered.find("Stack trace:") {
+                        let start = rendered[..idx].rfind('\n').map(|i| i + 1).unwrap_or(idx);
+                        rendered[..start].trim_end().to_string()
+                    } else {
+                        rendered
+                    };
+                    eprintln!("{}", output);
+                }
+                DiagnosticOutputFormat::Json | DiagnosticOutputFormat::JsonCompact => {
+                    emit_diagnostics(
+                        std::slice::from_ref(&diag),
+                        Some(source_path),
+                        Some(source_text),
+                        false,
+                        max_errors,
+                        diagnostics_format,
+                        false,
+                        true,
+                    )
+                }
+            }
+        }
+        flux::llvm::LlvmError::Internal(message) => {
+            // Strip any embedded stack trace from pre-rendered error strings.
+            // The "Stack trace:" marker may be preceded by ANSI color codes.
+            let output = if let Some(idx) = message.find("Stack trace:") {
+                // Back up to the preceding newline
+                let start = message[..idx].rfind('\n').map(|i| i + 1).unwrap_or(idx);
+                message[..start].trim_end()
+            } else {
+                message.as_str()
+            };
+            eprintln!("{}", output);
         }
     }
 }

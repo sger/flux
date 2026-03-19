@@ -466,7 +466,7 @@ Snapshot governance:
 
 ## 9. Base Function HM Signatures (0074)
 
-All 77 base functions have declarative `BaseHmSignature` entries in `src/runtime/base/helpers.rs` (`signature_for_id`). These are lowered to `Scheme` values via `scheme_for_signature_id` and installed in the `TypeEnv` before HM inference, enabling precise type checking at builtin call sites.
+All 83 base functions have declarative `BaseHmSignature` entries in `src/runtime/base/helpers.rs` (`signature_for_id`). These are lowered to `Scheme` values via `scheme_for_signature_id` and installed in the `TypeEnv` before HM inference, enabling precise type checking at builtin call sites.
 
 | Helper | Type |
 |--------|------|
