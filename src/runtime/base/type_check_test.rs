@@ -1,7 +1,7 @@
 use crate::{
     bytecode::bytecode::Bytecode,
     bytecode::vm::VM,
-    runtime::{gc::hamt::hamt_empty, value::Value},
+    runtime::{hamt as rc_hamt, value::Value},
 };
 
 use super::type_check::{
@@ -46,10 +46,9 @@ fn is_type_checks_values() {
         Value::Boolean(true)
     );
     {
-        let mut vm = test_vm();
-        let root = hamt_empty(&mut vm.gc_heap);
+        let root = rc_hamt::hamt_empty();
         assert_eq!(
-            base_is_hash(&mut vm, vec![Value::Gc(root)]).unwrap(),
+            base_is_hash(&mut test_vm(), vec![Value::HashMap(root)]).unwrap(),
             Value::Boolean(true)
         );
     }

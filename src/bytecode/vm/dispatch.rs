@@ -8,7 +8,6 @@ use crate::{
         closure::Closure,
         cons_cell::ConsCell,
         continuation::Continuation,
-        gc::HeapObject,
         handler_arm::HandlerArm,
         handler_frame::HandlerFrame,
         leak_detector,
@@ -94,18 +93,6 @@ impl VM {
     #[inline(never)]
     fn cons_tail_type_err(found: &Value) -> String {
         format!("tail: expected list, got {}", found.type_name())
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn cons_head_heap_err(other: &HeapObject) -> String {
-        format!("head: expected list, got {:?}", other)
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn cons_tail_heap_err(other: &HeapObject) -> String {
-        format!("tail: expected list, got {:?}", other)
     }
 
     #[cold]
@@ -756,8 +743,7 @@ impl VM {
                 }
                 let idx = self.sp - 1;
                 let slot_val = self.stack_get(idx);
-                let is_cons = matches!(&slot_val, Value::Cons(_))
-                    || matches!(&slot_val, Value::Gc(h) if matches!(self.gc_heap.get(*h), HeapObject::Cons { .. }));
+                let is_cons = matches!(&slot_val, Value::Cons(_));
                 self.stack_set(idx, Value::Boolean(is_cons));
                 Ok(1)
             }
@@ -785,10 +771,6 @@ impl VM {
                         };
                         self.stack_set(idx, head);
                     }
-                    Value::Gc(h) => match self.gc_heap.get(h) {
-                        HeapObject::Cons { head, .. } => self.stack_set(idx, head.clone()),
-                        other => return Err(Self::cons_head_heap_err(other)),
-                    },
                     _ => return Err(Self::cons_head_type_err(&value)),
                 }
                 Ok(1)
@@ -808,10 +790,6 @@ impl VM {
                         };
                         self.stack_set(idx, tail);
                     }
-                    Value::Gc(h) => match self.gc_heap.get(h) {
-                        HeapObject::Cons { tail, .. } => self.stack_set(idx, tail.clone()),
-                        other => return Err(Self::cons_tail_heap_err(other)),
-                    },
                     _ => return Err(Self::cons_tail_type_err(&value)),
                 }
                 Ok(1)
@@ -892,7 +870,7 @@ impl VM {
                 let idx = self.sp - 1;
                 let slot_val = self.stack_get(idx);
                 let is_adt = match &slot_val {
-                    value if value.adt_constructor(&self.gc_heap) == Some(construct_name) => true,
+                    value if value.adt_constructor() == Some(construct_name) => true,
                     Value::AdtUnit(name) => name.as_ref() == construct_name,
                     _ => false,
                 };
@@ -908,15 +886,13 @@ impl VM {
                 let adt = self.pop_untracked()?;
                 match adt {
                     Value::Adt(_) => {
-                        let len = adt.adt_field_count(&self.gc_heap).unwrap_or(0);
-                        let value = adt.adt_clone_field(&self.gc_heap, field_idx).ok_or_else(
-                            || {
-                                format!(
-                                    "OpAdtField: field index {} out of bounds (adt has {} fields)",
-                                    field_idx, len
-                                )
-                            },
-                        )?;
+                        let len = adt.adt_field_count().unwrap_or(0);
+                        let value = adt.adt_clone_field(field_idx).ok_or_else(|| {
+                            format!(
+                                "OpAdtField: field index {} out of bounds (adt has {} fields)",
+                                field_idx, len
+                            )
+                        })?;
                         self.push(value)?;
                         Ok(2) // 1 opcode + 1 field_idx
                     }
@@ -954,7 +930,7 @@ impl VM {
                 };
                 let peek_val = self.peek(0)?;
                 let is_match = match &peek_val {
-                    value if value.adt_constructor(&self.gc_heap) == Some(constructor_name) => true,
+                    value if value.adt_constructor() == Some(constructor_name) => true,
                     Value::AdtUnit(name) => name.as_ref() == constructor_name,
                     _ => false,
                 };
@@ -992,7 +968,7 @@ impl VM {
                 let bp = self.frames[self.frame_index].base_pointer;
                 let local_val = self.stack_get(bp + local_idx);
                 let is_match = match &local_val {
-                    value if value.adt_constructor(&self.gc_heap) == Some(constructor_name) => true,
+                    value if value.adt_constructor() == Some(constructor_name) => true,
                     Value::AdtUnit(name) => name.as_ref() == constructor_name,
                     _ => false,
                 };
@@ -1010,10 +986,9 @@ impl VM {
                 let adt = self.pop_untracked()?;
                 match adt {
                     Value::Adt(_) => {
-                        let (f0, f1) =
-                            adt.adt_clone_two_fields(&self.gc_heap).ok_or_else(|| {
-                                "OpAdtFields2: ADT has fewer than 2 fields".to_string()
-                            })?;
+                        let (f0, f1) = adt.adt_clone_two_fields().ok_or_else(|| {
+                            "OpAdtFields2: ADT has fewer than 2 fields".to_string()
+                        })?;
                         self.push(f0)?;
                         self.push(f1)?;
                         Ok(1) // just the opcode byte

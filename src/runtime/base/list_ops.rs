@@ -1,14 +1,6 @@
 use std::rc::Rc;
 
-use crate::runtime::{
-    RuntimeContext,
-    cons_cell::ConsCell,
-    gc::{
-        HeapObject,
-        hamt::{format_hamt, is_hamt},
-    },
-    value::Value,
-};
+use crate::runtime::{RuntimeContext, cons_cell::ConsCell, hamt as rc_hamt, value::Value};
 
 use super::helpers::{check_arity_ref, format_hint, type_error};
 
@@ -19,22 +11,12 @@ pub(super) fn base_hd(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<
 }
 
 pub(super) fn base_hd_borrowed(
-    ctx: &mut dyn RuntimeContext,
+    _ctx: &mut dyn RuntimeContext,
     args: &[&Value],
 ) -> Result<Value, String> {
     check_arity_ref(args, 1, "hd", "hd(list)")?;
     match args[0] {
         Value::Cons(cell) => Ok(cell.head.clone()),
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { head, .. } => Ok(head.clone()),
-            _ => Err(type_error(
-                "hd",
-                "argument",
-                "List",
-                args[0].type_name(),
-                "hd(list)",
-            )),
-        },
         Value::Array(_) => Err(format!(
             "hd expects a List, got Array. Use first(arr) for arrays or to_list(arr) to convert{}",
             format_hint("hd(list)")
@@ -56,22 +38,12 @@ pub(super) fn base_tl(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<
 }
 
 pub(super) fn base_tl_borrowed(
-    ctx: &mut dyn RuntimeContext,
+    _ctx: &mut dyn RuntimeContext,
     args: &[&Value],
 ) -> Result<Value, String> {
     check_arity_ref(args, 1, "tl", "tl(list)")?;
     match args[0] {
         Value::Cons(cell) => Ok(cell.tail.clone()),
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { tail, .. } => Ok(tail.clone()),
-            _ => Err(type_error(
-                "tl",
-                "argument",
-                "List",
-                args[0].type_name(),
-                "tl(list)",
-            )),
-        },
         Value::Array(_) => Err(format!(
             "tl expects a List, got Array. Use rest(arr) for arrays or to_list(arr) to convert{}",
             format_hint("tl(list)")
@@ -96,16 +68,11 @@ pub(super) fn base_is_list(
 }
 
 pub(super) fn base_is_list_borrowed(
-    ctx: &mut dyn RuntimeContext,
+    _ctx: &mut dyn RuntimeContext,
     args: &[&Value],
 ) -> Result<Value, String> {
     check_arity_ref(args, 1, "is_list", "is_list(x)")?;
-    let result = match args[0] {
-        Value::None | Value::EmptyList => true,
-        Value::Cons(_) => true,
-        Value::Gc(h) => matches!(ctx.gc_heap().get(*h), HeapObject::Cons { .. }),
-        _ => false,
-    };
+    let result = matches!(args[0], Value::None | Value::EmptyList | Value::Cons(_));
     Ok(Value::Boolean(result))
 }
 
@@ -151,7 +118,7 @@ pub(super) fn base_to_array(
 }
 
 pub(super) fn base_to_array_borrowed(
-    ctx: &mut dyn RuntimeContext,
+    _ctx: &mut dyn RuntimeContext,
     args: &[&Value],
 ) -> Result<Value, String> {
     check_arity_ref(args, 1, "to_array", "to_array(list)")?;
@@ -164,21 +131,6 @@ pub(super) fn base_to_array_borrowed(
                 elements.push(cell.head.clone());
                 current = cell.tail.clone();
             }
-            Value::Gc(h) => match ctx.gc_heap().get(*h) {
-                HeapObject::Cons { head, tail } => {
-                    elements.push(head.clone());
-                    current = tail.clone();
-                }
-                _ => {
-                    return Err(type_error(
-                        "to_array",
-                        "argument",
-                        "List",
-                        "non-list Gc value",
-                        "to_array(list)",
-                    ));
-                }
-            },
             _ => {
                 return Err(type_error(
                     "to_array",
@@ -204,7 +156,7 @@ pub(super) fn base_list(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resu
 }
 
 /// Helper: collects a cons list into a Vec for internal use by base_functions.
-pub(super) fn collect_list(ctx: &dyn RuntimeContext, value: &Value) -> Option<Vec<Value>> {
+pub(super) fn collect_list(_ctx: &dyn RuntimeContext, value: &Value) -> Option<Vec<Value>> {
     let mut elements = Vec::new();
     let mut current = value.clone();
     loop {
@@ -214,20 +166,13 @@ pub(super) fn collect_list(ctx: &dyn RuntimeContext, value: &Value) -> Option<Ve
                 elements.push(cell.head.clone());
                 current = cell.tail.clone();
             }
-            Value::Gc(h) => match ctx.gc_heap().get(*h) {
-                HeapObject::Cons { head, tail } => {
-                    elements.push(head.clone());
-                    current = tail.clone();
-                }
-                _ => return None,
-            },
             _ => return None,
         }
     }
 }
 
 /// Helper: counts the length of a cons list.
-pub(crate) fn list_len(ctx: &dyn RuntimeContext, value: &Value) -> Option<usize> {
+pub(crate) fn list_len(_ctx: &dyn RuntimeContext, value: &Value) -> Option<usize> {
     let mut count = 0;
     let mut current = value.clone();
     loop {
@@ -237,13 +182,6 @@ pub(crate) fn list_len(ctx: &dyn RuntimeContext, value: &Value) -> Option<usize>
                 count += 1;
                 current = cell.tail.clone();
             }
-            Value::Gc(h) => match ctx.gc_heap().get(*h) {
-                HeapObject::Cons { tail, .. } => {
-                    count += 1;
-                    current = tail.clone();
-                }
-                _ => return None,
-            },
             _ => return None,
         }
     }
@@ -272,7 +210,7 @@ pub fn format_value(ctx: &dyn RuntimeContext, value: &Value) -> String {
             }
         }
         Value::Adt(_) => {
-            if let Some(adt) = value.as_adt(ctx.gc_heap()) {
+            if let Some(adt) = value.as_adt() {
                 let items: Vec<String> =
                     adt.fields().iter().map(|v| format_value(ctx, v)).collect();
                 format!("{}({})", adt.constructor(), items.join(", "))
@@ -282,19 +220,7 @@ pub fn format_value(ctx: &dyn RuntimeContext, value: &Value) -> String {
         }
         Value::AdtUnit(name) => name.to_string(),
         Value::Cons(_) => format_list(ctx, value).unwrap_or_else(|| "<malformed list>".to_string()),
-        Value::HashMap(node) => crate::runtime::hamt::format_hamt(node),
-        Value::Gc(h) => {
-            if is_hamt(ctx.gc_heap(), *h) {
-                format_hamt(ctx.gc_heap(), *h)
-            } else {
-                match ctx.gc_heap().get(*h) {
-                    HeapObject::Cons { .. } => {
-                        format_list(ctx, value).unwrap_or_else(|| format!("<gc@{}>", h.index()))
-                    }
-                    _ => format!("<gc@{}>", h.index()),
-                }
-            }
-        }
+        Value::HashMap(node) => rc_hamt::format_hamt(node),
         _ => value.to_string(),
     }
 }

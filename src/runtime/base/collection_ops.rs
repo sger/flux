@@ -1,12 +1,6 @@
 use std::rc::Rc;
 
-use crate::runtime::{
-    RuntimeContext,
-    cons_cell::ConsCell,
-    gc::{HeapObject, hamt::hamt_len},
-    hamt as rc_hamt,
-    value::Value,
-};
+use crate::runtime::{RuntimeContext, cons_cell::ConsCell, hamt as rc_hamt, value::Value};
 
 use super::helpers::{
     arg_array_ref, arg_int_ref, check_arity, check_arity_ref, format_hint, type_error,
@@ -33,15 +27,6 @@ pub(super) fn base_len_borrowed(
             None => Err("len: malformed list".to_string()),
         },
         Value::HashMap(node) => Ok(Value::Integer(rc_hamt::hamt_len(node) as i64)),
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => match list_ops::list_len(ctx, args[0]) {
-                Some(len) => Ok(Value::Integer(len as i64)),
-                None => Err("len: malformed list".to_string()),
-            },
-            HeapObject::HamtNode { .. } | HeapObject::HamtCollision { .. } => {
-                Ok(Value::Integer(hamt_len(ctx.gc_heap(), *h) as i64))
-            }
-        },
         other => Err(type_error(
             "len",
             "argument",
@@ -58,7 +43,7 @@ pub(super) fn base_first(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resu
 }
 
 pub(super) fn base_first_borrowed(
-    ctx: &mut dyn RuntimeContext,
+    _ctx: &mut dyn RuntimeContext,
     args: &[&Value],
 ) -> Result<Value, String> {
     check_arity_ref(args, 1, "first", "first(collection)")?;
@@ -72,16 +57,6 @@ pub(super) fn base_first_borrowed(
         }
         Value::None | Value::EmptyList => Ok(Value::None),
         Value::Cons(cell) => Ok(cell.head.clone()),
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { head, .. } => Ok(head.clone()),
-            _ => Err(type_error(
-                "first",
-                "argument",
-                "Array or List",
-                "Map",
-                "first(collection)",
-            )),
-        },
         other => Err(type_error(
             "first",
             "argument",
@@ -116,20 +91,6 @@ pub(super) fn base_last_borrowed(
             Some(elems) => Ok(elems.into_iter().last().unwrap()),
             None => Err("last: malformed list".to_string()),
         },
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => match list_ops::collect_list(ctx, args[0]) {
-                Some(elems) if elems.is_empty() => Ok(Value::None),
-                Some(elems) => Ok(elems.into_iter().last().unwrap()),
-                None => Err("last: malformed list".to_string()),
-            },
-            _ => Err(type_error(
-                "last",
-                "argument",
-                "Array or List",
-                "Map",
-                "last(collection)",
-            )),
-        },
         other => Err(type_error(
             "last",
             "argument",
@@ -146,7 +107,7 @@ pub(super) fn base_rest(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resul
 }
 
 pub(super) fn base_rest_borrowed(
-    ctx: &mut dyn RuntimeContext,
+    _ctx: &mut dyn RuntimeContext,
     args: &[&Value],
 ) -> Result<Value, String> {
     check_arity_ref(args, 1, "rest", "rest(collection)")?;
@@ -160,16 +121,6 @@ pub(super) fn base_rest_borrowed(
         }
         Value::None | Value::EmptyList => Ok(Value::None),
         Value::Cons(cell) => Ok(cell.tail.clone()),
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { tail, .. } => Ok(tail.clone()),
-            _ => Err(type_error(
-                "rest",
-                "argument",
-                "Array or List",
-                "Map",
-                "rest(collection)",
-            )),
-        },
         other => Err(type_error(
             "rest",
             "argument",
@@ -266,24 +217,6 @@ pub(super) fn base_reverse_borrowed(
             }
             Ok(list)
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                let elements =
-                    list_ops::collect_list(ctx, args[0]).ok_or("reverse: malformed list")?;
-                let mut list = Value::EmptyList;
-                for elem in elements {
-                    list = ConsCell::cons(elem, list);
-                }
-                Ok(list)
-            }
-            _ => Err(type_error(
-                "reverse",
-                "argument",
-                "Array or List",
-                "Map",
-                "reverse(collection)",
-            )),
-        },
         other => Err(type_error(
             "reverse",
             "argument",
@@ -320,21 +253,6 @@ pub(super) fn base_contains_borrowed(
             let found = elements.iter().any(|item| item == elem);
             Ok(Value::Boolean(found))
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                let elements =
-                    list_ops::collect_list(ctx, args[0]).ok_or("contains: malformed list")?;
-                let found = elements.iter().any(|item| item == elem);
-                Ok(Value::Boolean(found))
-            }
-            _ => Err(type_error(
-                "contains",
-                "first argument",
-                "Array or List",
-                "Map",
-                "contains(collection, elem)",
-            )),
-        },
         other => Err(type_error(
             "contains",
             "first argument",
@@ -492,20 +410,6 @@ pub(super) fn base_sum_borrowed(
             let values: Vec<&Value> = elements.iter().collect();
             aggregate_numeric(&values, "sum", "sum(collection)", false)
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                let elements = list_ops::collect_list(ctx, args[0]).ok_or("sum: malformed list")?;
-                let values: Vec<&Value> = elements.iter().collect();
-                aggregate_numeric(&values, "sum", "sum(collection)", false)
-            }
-            _ => Err(type_error(
-                "sum",
-                "argument",
-                "Array or List",
-                "Map",
-                "sum(collection)",
-            )),
-        },
         other => Err(type_error(
             "sum",
             "argument",
@@ -541,21 +445,6 @@ pub(super) fn base_product_borrowed(
             let values: Vec<&Value> = elements.iter().collect();
             aggregate_numeric(&values, "product", "product(collection)", true)
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                let elements =
-                    list_ops::collect_list(ctx, args[0]).ok_or("product: malformed list")?;
-                let values: Vec<&Value> = elements.iter().collect();
-                aggregate_numeric(&values, "product", "product(collection)", true)
-            }
-            _ => Err(type_error(
-                "product",
-                "argument",
-                "Array or List",
-                "Map",
-                "product(collection)",
-            )),
-        },
         other => Err(type_error(
             "product",
             "argument",

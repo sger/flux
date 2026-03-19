@@ -1,8 +1,4 @@
-use crate::runtime::{
-    RuntimeContext,
-    gc::{HeapObject, hamt::is_hamt},
-    value::Value,
-};
+use crate::runtime::{RuntimeContext, value::Value};
 
 use super::helpers::check_arity_ref;
 
@@ -15,17 +11,13 @@ pub(super) fn base_type_of(
 }
 
 pub(super) fn base_type_of_borrowed(
-    ctx: &mut dyn RuntimeContext,
+    _ctx: &mut dyn RuntimeContext,
     args: &[&Value],
 ) -> Result<Value, String> {
     check_arity_ref(args, 1, "type_of", "type_of(x)")?;
     let name = match args[0] {
         Value::Cons(_) => "List",
         Value::HashMap(_) => "Map",
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => "List",
-            HeapObject::HamtNode { .. } | HeapObject::HamtCollision { .. } => "Map",
-        },
         other => other.type_name(),
     };
 
@@ -121,15 +113,11 @@ pub(super) fn base_is_hash(
 }
 
 pub(super) fn base_is_hash_borrowed(
-    ctx: &mut dyn RuntimeContext,
+    _ctx: &mut dyn RuntimeContext,
     args: &[&Value],
 ) -> Result<Value, String> {
     check_arity_ref(args, 1, "is_hash", "is_hash(x)")?;
-    let result = match args[0] {
-        Value::HashMap(_) => true,
-        Value::Gc(h) => is_hamt(ctx.gc_heap(), *h),
-        _ => false,
-    };
+    let result = matches!(args[0], Value::HashMap(_));
     Ok(Value::Boolean(result))
 }
 

@@ -29,15 +29,12 @@ impl Drop for ConsCell {
         // Without this, a list of 10K+ elements would recursively drop
         // Rc<ConsCell> nodes and overflow the stack.
         let mut cur = std::mem::replace(&mut self.tail, Value::EmptyList);
-        loop {
-            match cur {
-                Value::Cons(rc) => match Rc::try_unwrap(rc) {
-                    Ok(mut cell) => {
-                        cur = std::mem::replace(&mut cell.tail, Value::EmptyList);
-                    }
-                    Err(_) => break, // shared tail — other references exist, stop
-                },
-                _ => break,
+        while let Value::Cons(rc) = cur {
+            match Rc::try_unwrap(rc) {
+                Ok(mut cell) => {
+                    cur = std::mem::replace(&mut cell.tail, Value::EmptyList);
+                }
+                Err(_) => break, // shared tail — other references exist, stop
             }
         }
     }

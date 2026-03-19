@@ -1,11 +1,7 @@
 use std::{collections::HashSet, fmt};
 
 use crate::{
-    runtime::{
-        RuntimeContext,
-        gc::{HeapObject, hamt::is_hamt},
-        value::Value,
-    },
+    runtime::{RuntimeContext, value::Value},
     syntax::Identifier,
 };
 
@@ -98,15 +94,6 @@ impl RuntimeType {
                             }
                             current = &cell.tail;
                         }
-                        Value::Gc(handle) => match ctx.gc_heap().get(*handle) {
-                            HeapObject::Cons { head, tail } => {
-                                if !inner.matches_value(head, ctx) {
-                                    return false;
-                                }
-                                current = tail;
-                            }
-                            _ => return false,
-                        },
                         _ => return false,
                     }
                 }
@@ -120,10 +107,7 @@ impl RuntimeType {
                 Value::Array(elements) => elements.iter().all(|v| inner.matches_value(v, ctx)),
                 _ => false,
             },
-            RuntimeType::Map(_, _) => match value {
-                Value::Gc(h) => is_hamt(ctx.gc_heap(), *h),
-                _ => false,
-            },
+            RuntimeType::Map(_, _) => matches!(value, Value::HashMap(_)),
             RuntimeType::Tuple(expected) => match value {
                 Value::Tuple(elements) if elements.len() == expected.len() => expected
                     .iter()
@@ -229,12 +213,8 @@ impl fmt::Display for RuntimeType {
 mod tests {
     use super::RuntimeType;
     use crate::runtime::{
-        RuntimeContext,
-        closure::Closure,
-        compiled_function::CompiledFunction,
-        function_contract::FunctionContract,
-        gc::{GcHeap, HeapObject},
-        value::Value,
+        RuntimeContext, closure::Closure, compiled_function::CompiledFunction, cons_cell::ConsCell,
+        function_contract::FunctionContract, gc::GcHeap, value::Value,
     };
     use std::rc::Rc;
 
@@ -281,16 +261,11 @@ mod tests {
 
     #[test]
     fn list_runtime_type_matches_cons_lists_recursively() {
-        let mut ctx = TestCtx::new();
-        let h2 = ctx.gc_heap_mut().alloc(HeapObject::Cons {
-            head: Value::Integer(2),
-            tail: Value::EmptyList,
-        });
-        let h1 = ctx.gc_heap_mut().alloc(HeapObject::Cons {
-            head: Value::Integer(1),
-            tail: Value::Gc(h2),
-        });
-        let good = Value::Gc(h1);
+        let ctx = TestCtx::new();
+        let good = ConsCell::cons(
+            Value::Integer(1),
+            ConsCell::cons(Value::Integer(2), Value::EmptyList),
+        );
 
         let ty = RuntimeType::List(Box::new(RuntimeType::Int));
         assert!(ty.matches_value(&good, &ctx));
@@ -298,16 +273,11 @@ mod tests {
 
     #[test]
     fn list_runtime_type_rejects_mixed_element_types() {
-        let mut ctx = TestCtx::new();
-        let h2 = ctx.gc_heap_mut().alloc(HeapObject::Cons {
-            head: Value::String("x".to_string().into()),
-            tail: Value::EmptyList,
-        });
-        let h1 = ctx.gc_heap_mut().alloc(HeapObject::Cons {
-            head: Value::Integer(1),
-            tail: Value::Gc(h2),
-        });
-        let bad = Value::Gc(h1);
+        let ctx = TestCtx::new();
+        let bad = ConsCell::cons(
+            Value::Integer(1),
+            ConsCell::cons(Value::String("x".to_string().into()), Value::EmptyList),
+        );
 
         let ty = RuntimeType::List(Box::new(RuntimeType::Int));
         assert!(!ty.matches_value(&bad, &ctx));
