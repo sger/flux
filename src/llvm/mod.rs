@@ -9,8 +9,8 @@ pub mod context;
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub mod wrapper;
 
-use crate::backend_ir::{IrPassContext, lower_program_to_ir, run_ir_pass_pipeline};
 use crate::bytecode::compiler::Compiler;
+use crate::cfg::{IrPassContext, lower_program_to_ir, run_ir_pass_pipeline};
 use crate::diagnostics::Diagnostic;
 use crate::runtime::native_context::{JIT_TAG_PTR, JIT_TAG_THUNK, JitContext, JitTaggedValue};
 use crate::runtime::value::Value;

@@ -476,8 +476,7 @@ src/
                 type_infer/ — Algorithm W HM inference engine with effect rows
   types/        HM type primitives: InferType, TypeSubst, Scheme, TypeEnv, unify
   core/         Core IR (~12 expression variants), 7 optimization passes, Core → CFG lowering
-  cfg/          CFG-based backend IR: basic blocks, SSA-like vars, 7 lowering passes
-  backend_ir/   Public facade over cfg/, shared metadata collection utilities
+  cfg/          CFG-based backend IR: basic blocks, SSA-like vars, 7 passes, lower_program_to_ir()
   bytecode/     Bytecode compiler (100 opcodes), symbol tables, .fxc cache
   runtime/
     vm/         Stack-based VM, instruction dispatch, tracing
