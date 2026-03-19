@@ -16,7 +16,7 @@
 use crate::core::{CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreVarRef};
 use crate::diagnostics::position::Span;
 
-use super::analysis::{pat_binders, use_counts};
+use super::analysis::{owned_use_count, pat_binders, use_counts};
 
 /// Insert Dup/Drop annotations into a Core IR expression.
 ///
@@ -36,23 +36,27 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             let rhs = Box::new(transform(*rhs));
             let body = transform(*body);
 
-            // Count uses of `var` in body
+            // Count total and owned uses of `var` in body.
+            // Owned uses are positions that consume the value (Con fields,
+            // Return, Lam capture, App args). Borrowed uses (PrimOp operands,
+            // Case scrutinee, App func) don't need Rc::clone.
             let body_counts = use_counts(&body);
-            let uses = body_counts.get(&var.id).copied().unwrap_or(0);
+            let total = body_counts.get(&var.id).copied().unwrap_or(0);
+            let owned = owned_use_count(var.id, &body);
 
-            let body = match uses {
-                0 => {
-                    // Variable unused in body — drop it immediately
-                    wrap_drop(var, body, span)
-                }
-                1 => {
-                    // Exactly one use — ownership transferred, no dup/drop
-                    body
-                }
-                n => {
-                    // N uses — insert (N-1) Dups wrapping the body
-                    wrap_dups(var, body, span, n - 1)
-                }
+            let body = if total == 0 {
+                // Variable unused — drop immediately
+                wrap_drop(var, body, span)
+            } else if owned == 0 {
+                // All uses are borrowed — no dup needed, no drop needed
+                // (Rust's Rc will handle the final drop at scope end)
+                body
+            } else if owned == 1 {
+                // Single owned use — ownership transferred, no dup
+                body
+            } else {
+                // Multiple owned uses — insert (owned-1) Dups
+                wrap_dups(var, body, span, owned - 1)
             };
 
             CoreExpr::Let {
@@ -72,15 +76,16 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             let rhs = Box::new(transform(*rhs));
             let body = transform(*body);
 
-            // For LetRec, count uses in body only (self-reference in rhs is
-            // handled by the closure mechanism, not by dup/drop).
             let body_counts = use_counts(&body);
-            let uses = body_counts.get(&var.id).copied().unwrap_or(0);
+            let total = body_counts.get(&var.id).copied().unwrap_or(0);
+            let owned = owned_use_count(var.id, &body);
 
-            let body = match uses {
-                0 => wrap_drop(var, body, span),
-                1 => body,
-                n => wrap_dups(var, body, span, n - 1),
+            let body = if total == 0 {
+                wrap_drop(var, body, span)
+            } else if owned <= 1 {
+                body
+            } else {
+                wrap_dups(var, body, span, owned - 1)
             };
 
             CoreExpr::LetRec {
