@@ -608,10 +608,15 @@ impl VM {
                 let tuple = self.pop_untracked()?;
                 match tuple {
                     Value::Tuple(elements) => {
-                        let value = elements
-                            .get(index)
-                            .cloned()
-                            .ok_or_else(|| Self::tuple_oob_err(index, elements.len()))?;
+                        if index >= elements.len() {
+                            return Err(Self::tuple_oob_err(index, elements.len()));
+                        }
+                        // Aether: try to move the element without cloning when tuple is
+                        // uniquely owned (Rc::strong_count == 1).
+                        let value = match Rc::try_unwrap(elements) {
+                            Ok(mut vec) => vec.swap_remove(index),
+                            Err(shared) => shared[index].clone(),
+                        };
                         self.push(value)?;
                         Ok(2)
                     }
