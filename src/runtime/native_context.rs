@@ -1,6 +1,6 @@
 use crate::runtime::nanbox::NanBox;
 use crate::runtime::{
-    RuntimeContext, base::list_ops::format_value, function_contract::FunctionContract, gc::GcHeap,
+    RuntimeContext, base::list_ops::format_value, function_contract::FunctionContract,
     value::Value,
 };
 use crate::{
@@ -134,14 +134,13 @@ pub struct JitHandlerFrame {
 
 /// Execution context for JIT-compiled code.
 ///
-/// Holds the value arena, globals, constants, GC heap, and error state.
+/// Holds the value arena, globals, constants, and error state.
 /// Passed as a `*mut JitContext` (i64) to all JIT-compiled functions and
 /// runtime helpers.
 pub struct JitContext {
     pub arena: ValueArena,
     pub globals: Vec<NanBox>,
     pub constants: Vec<NanBox>,
-    pub gc_heap: GcHeap,
     pub jit_functions: Vec<JitFunctionEntry>,
     pub named_functions: HashMap<String, usize>,
     pub source_file: Option<String>,
@@ -190,7 +189,6 @@ impl JitContext {
         self.runtime_error = None;
         self.error = None;
         self.unit_adts.clear();
-        self.gc_heap = GcHeap::new();
         self.arena.reset();
     }
 
@@ -377,7 +375,6 @@ impl JitContext {
             arena: ValueArena::new(),
             globals: vec![NanBox::from_none(); 65536],
             constants: Vec::new(),
-            gc_heap: GcHeap::new(),
             jit_functions: Vec::new(),
             named_functions: HashMap::new(),
             source_file: None,
@@ -485,29 +482,6 @@ impl JitContext {
         }
     }
 
-    pub fn collect_gc(&mut self) {
-        let mut roots: Vec<Value> = Vec::with_capacity(
-            self.arena.iter().count()
-                + self.shadow_roots.len()
-                + self.globals.len()
-                + self.constants.len()
-                + self.handler_stack.len(),
-        );
-        roots.extend(self.arena.iter().cloned());
-        for ptr in &self.shadow_roots {
-            if let Some(value) = unsafe { ptr.as_ref() } {
-                roots.push(value.clone());
-            }
-        }
-        roots.extend(self.globals.iter().map(|s| s.clone().to_value()));
-        roots.extend(self.constants.iter().map(|s| s.clone().to_value()));
-        for frame in &self.handler_stack {
-            for arm in &frame.arms {
-                roots.push(arm.closure.clone());
-            }
-        }
-        self.gc_heap.collect_roots(roots.iter());
-    }
 }
 
 fn strip_leading_ansi_and_whitespace(mut message: &str) -> &str {
@@ -751,14 +725,6 @@ impl RuntimeContext for JitContext {
         base.call_borrowed(self, args)
     }
 
-    fn gc_heap(&self) -> &GcHeap {
-        &self.gc_heap
-    }
-
-    fn gc_heap_mut(&mut self) -> &mut GcHeap {
-        &mut self.gc_heap
-    }
-
     fn callable_contract<'a>(&'a self, callee: &'a Value) -> Option<&'a FunctionContract> {
         match callee {
             Value::JitClosure(closure) => self
@@ -887,42 +853,7 @@ fn thunk_arg(args: &[JitTaggedValue], idx: usize) -> (i64, i64) {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-
-    use super::{JitContext, is_rendered_runtime_diagnostic};
-    use crate::runtime::value::{AdtFields, Value};
-
-    #[test]
-    fn collect_gc_preserves_shadow_rooted_adt() {
-        let mut ctx = JitContext::new();
-        let cons_val = crate::runtime::cons_cell::ConsCell::cons(Value::Integer(1), Value::None);
-        let adt_val = Value::Adt(Rc::new(crate::runtime::value::AdtValue {
-            constructor: Rc::new("Node".to_string()),
-            fields: AdtFields::from_vec(vec![cons_val]),
-        }));
-        let root = ctx.alloc(adt_val);
-        ctx.push_gc_roots(&[root]);
-
-        ctx.collect_gc();
-        assert_eq!(unsafe { &*root }.adt_constructor(), Some("Node"));
-
-        ctx.pop_gc_roots();
-        ctx.arena.reset();
-    }
-
-    #[test]
-    fn collect_gc_preserves_arena_rooted_adt_without_shadow_roots() {
-        let mut ctx = JitContext::new();
-        let cons_val = crate::runtime::cons_cell::ConsCell::cons(Value::Integer(1), Value::None);
-        let adt_val = Value::Adt(Rc::new(crate::runtime::value::AdtValue {
-            constructor: Rc::new("Node".to_string()),
-            fields: AdtFields::from_vec(vec![cons_val]),
-        }));
-        let root = ctx.alloc(adt_val);
-
-        ctx.collect_gc();
-        assert_eq!(unsafe { &*root }.adt_constructor(), Some("Node"));
-    }
+    use super::is_rendered_runtime_diagnostic;
 
     #[test]
     fn rendered_runtime_diagnostic_detection_accepts_plain_text_header() {

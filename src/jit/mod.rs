@@ -49,8 +49,6 @@ pub type JitResult<T> = Result<T, JitError>;
 /// Runtime options for JIT execution.
 #[derive(Default)]
 pub struct JitOptions {
-    pub no_gc: bool,
-    pub gc_threshold: Option<usize>,
     pub source_file: Option<String>,
     pub source_text: Option<String>,
 }
@@ -99,13 +97,6 @@ pub fn jit_compile(
     ctx.set_named_functions(compiler.named_functions());
     ctx.set_source_context(options.source_file.clone(), options.source_text.clone());
     ctx.identity_fn_index = compiler.identity_fn_index;
-
-    if options.no_gc {
-        ctx.gc_heap.set_enabled(false);
-    }
-    if let Some(threshold) = options.gc_threshold {
-        ctx.gc_heap.set_threshold(threshold);
-    }
 
     Ok(JitCompiledProgram {
         _compiler: compiler,

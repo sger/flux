@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::{
     bytecode::{bytecode::Bytecode, op_code::OpCode},
     runtime::{
-        closure::Closure, compiled_function::CompiledFunction, frame::Frame, gc::GcHeap, hamt,
+        closure::Closure, compiled_function::CompiledFunction, frame::Frame, hamt,
         handler_frame::HandlerFrame, leak_detector, value::Value,
     },
 };
@@ -73,7 +73,6 @@ pub struct VM {
     frames: Vec<Frame>,
     frame_index: usize,
     trace: bool,
-    pub gc_heap: GcHeap,
     tail_arg_scratch: Vec<Slot>,
     /// Active effect handlers pushed by OpHandle / popped by OpEndHandle.
     pub(crate) handler_stack: Vec<HandlerFrame>,
@@ -94,7 +93,6 @@ impl VM {
             frames: vec![main_frame],
             frame_index: 0,
             trace: false,
-            gc_heap: GcHeap::new(),
             tail_arg_scratch: Vec::new(),
             handler_stack: Vec::new(),
         }
@@ -104,19 +102,6 @@ impl VM {
         self.trace = enabled;
     }
 
-    pub fn set_gc_enabled(&mut self, _enabled: bool) {
-        // No-op: GC heap removed in Aether Phase 4.
-    }
-
-    pub fn set_gc_threshold(&mut self, _threshold: usize) {
-        // No-op: GC heap removed in Aether Phase 4.
-    }
-
-    /// Returns the GC telemetry report, if compiled with the `gc-telemetry` feature.
-    #[cfg(feature = "gc-telemetry")]
-    pub fn gc_telemetry_report(&self) -> String {
-        String::from("GC heap removed in Aether Phase 4. No telemetry available.")
-    }
 
     /// Create a closure that acts as the identity function: `fn(x) -> x`.
     /// Used as the `resume` parameter for tail-resumptive `OpPerformDirect`,

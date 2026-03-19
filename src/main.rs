@@ -26,7 +26,7 @@ use flux::{
         DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticPhase, DiagnosticsAggregator,
         quality::module_skipped_note, render_diagnostics_json,
     },
-    runtime::{gc::GcHeap, value::Value},
+    runtime::value::Value,
     syntax::{
         formatter::format_source, interner::Interner, lexer::Lexer, linter::Linter,
         module_graph::ModuleGraph, parser::Parser,
@@ -60,8 +60,6 @@ fn main() {
     let roots_only = args.iter().any(|arg| arg == "--roots-only");
     let enable_optimize = args.iter().any(|arg| arg == "--optimize" || arg == "-O");
     let enable_analyze = args.iter().any(|arg| arg == "--analyze" || arg == "-A");
-    let no_gc = args.iter().any(|arg| arg == "--no-gc");
-    let gc_telemetry = args.iter().any(|arg| arg == "--gc-telemetry");
     let show_stats = args.iter().any(|arg| arg == "--stats");
     let test_mode = args.iter().any(|arg| arg == "--test");
     let strict_mode = args.iter().any(|arg| arg == "--strict");
@@ -100,12 +98,6 @@ fn main() {
     if enable_analyze {
         args.retain(|arg| arg != "--analyze" && arg != "-A");
     }
-    if no_gc {
-        args.retain(|arg| arg != "--no-gc");
-    }
-    if gc_telemetry {
-        args.retain(|arg| arg != "--gc-telemetry");
-    }
     if show_stats {
         args.retain(|arg| arg != "--stats");
     }
@@ -128,10 +120,6 @@ fn main() {
         args.retain(|arg| arg != "--all-errors");
     }
     let dump_core = match extract_dump_core_mode(&mut args) {
-        Some(value) => value,
-        None => return,
-    };
-    let gc_threshold = match extract_gc_threshold(&mut args) {
         Some(value) => value,
         None => return,
     };
@@ -165,8 +153,7 @@ fn main() {
                 enable_analyze,
                 max_errors,
                 &roots,
-                no_gc,
-                gc_threshold,
+
                 use_jit,
                 test_filter.as_deref(),
                 strict_mode,
@@ -185,9 +172,8 @@ fn main() {
                 enable_analyze,
                 max_errors,
                 &roots,
-                no_gc,
-                gc_threshold,
-                gc_telemetry,
+
+
                 use_jit,
                 use_llvm,
                 show_stats,
@@ -225,8 +211,7 @@ fn main() {
                     enable_analyze,
                     max_errors,
                     &roots,
-                    no_gc,
-                    gc_threshold,
+
                     use_jit,
                     test_filter.as_deref(),
                     strict_mode,
@@ -245,9 +230,8 @@ fn main() {
                     enable_analyze,
                     max_errors,
                     &roots,
-                    no_gc,
-                    gc_threshold,
-                    gc_telemetry,
+
+    
                     use_jit,
                     use_llvm,
                     show_stats,
@@ -421,7 +405,6 @@ Flags:
   --max-errors <n>   Limit displayed errors (default: 50)
   --root <path>      Add a module root (can be repeated)
   --roots-only       Use only explicitly provided --root values
-  --gc-telemetry     Print GC telemetry report after execution (requires --features gc-telemetry)
   --stats            Print execution analytics (parse/compile/execute times, module info)
   --strict           Enable strict type/effect boundary checks
   --all-errors       Show diagnostics from all phases (disable stage-aware filtering)
@@ -449,9 +432,7 @@ fn run_file(
     enable_analyze: bool,
     max_errors: usize,
     extra_roots: &[std::path::PathBuf],
-    no_gc: bool,
-    gc_threshold: Option<usize>,
-    gc_telemetry: bool,
+
     #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
     #[cfg_attr(not(feature = "llvm"), allow(unused))] use_llvm: bool,
     show_stats: bool,
@@ -485,28 +466,12 @@ fn run_file(
                     let instruction_bytes = bytecode.instructions.len();
                     let mut vm = VM::new(bytecode);
                     vm.set_trace(trace);
-                    if no_gc {
-                        vm.set_gc_enabled(false);
-                    }
-                    if let Some(threshold) = gc_threshold {
-                        vm.set_gc_threshold(threshold);
-                    }
                     let exec_start = Instant::now();
                     if let Err(err) = vm.run() {
                         eprintln!("{}", err);
                         std::process::exit(1);
                     }
                     let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
-                    #[cfg(feature = "gc-telemetry")]
-                    if gc_telemetry {
-                        println!("\n{}", vm.gc_telemetry_report());
-                    }
-                    #[cfg(not(feature = "gc-telemetry"))]
-                    if gc_telemetry {
-                        eprintln!(
-                            "Warning: --gc-telemetry requires building with `--features gc-telemetry`"
-                        );
-                    }
                     if leak_detector {
                         print_leak_stats();
                     }
@@ -705,8 +670,7 @@ fn run_file(
                 }
 
                 let jit_options = flux::jit::JitOptions {
-                    no_gc,
-                    gc_threshold,
+
                     source_file: Some(path.to_string()),
                     source_text: Some(source.clone()),
                 };
@@ -740,16 +704,6 @@ fn run_file(
                 match flux::jit::jit_execute(compiled) {
                     Ok((_result, mut ctx)) => {
                         let jit_exec_ms = jit_exec_start.elapsed().as_secs_f64() * 1000.0;
-                        #[cfg(feature = "gc-telemetry")]
-                        if gc_telemetry {
-                            println!("\n{}", ctx.gc_heap.telemetry_report());
-                        }
-                        #[cfg(not(feature = "gc-telemetry"))]
-                        if gc_telemetry {
-                            eprintln!(
-                                "Warning: --gc-telemetry requires building with `--features gc-telemetry`"
-                            );
-                        }
                         let _ = ctx;
                         if show_stats {
                             print_stats(&RunStats {
@@ -798,8 +752,7 @@ fn run_file(
 
                 let llvm_opt_level = if enable_optimize { 2 } else { 0 };
                 let llvm_options = flux::llvm::LlvmOptions {
-                    no_gc,
-                    gc_threshold,
+
                     source_file: Some(path.to_string()),
                     source_text: Some(source.clone()),
                     opt_level: llvm_opt_level,
@@ -925,28 +878,12 @@ fn run_file(
 
             let mut vm = VM::new(bytecode);
             vm.set_trace(trace);
-            if no_gc {
-                vm.set_gc_enabled(false);
-            }
-            if let Some(threshold) = gc_threshold {
-                vm.set_gc_threshold(threshold);
-            }
             let exec_start = Instant::now();
             if let Err(err) = vm.run() {
                 eprintln!("{}", err);
                 std::process::exit(1);
             }
             let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
-            #[cfg(feature = "gc-telemetry")]
-            if gc_telemetry {
-                println!("\n{}", vm.gc_telemetry_report());
-            }
-            #[cfg(not(feature = "gc-telemetry"))]
-            if gc_telemetry {
-                eprintln!(
-                    "Warning: --gc-telemetry requires building with `--features gc-telemetry`"
-                );
-            }
             if leak_detector {
                 print_leak_stats();
             }
@@ -979,8 +916,7 @@ fn run_test_file(
     enable_analyze: bool,
     max_errors: usize,
     extra_roots: &[std::path::PathBuf],
-    no_gc: bool,
-    gc_threshold: Option<usize>,
+
     #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
     test_filter: Option<&str>,
     strict_mode: bool,
@@ -1154,8 +1090,7 @@ fn run_test_file(
         }
 
         let jit_options = flux::jit::JitOptions {
-            no_gc,
-            gc_threshold,
+
             source_file: Some(path.to_string()),
             source_text: Some(source.clone()),
         };
@@ -1199,12 +1134,6 @@ fn run_test_file(
     } else {
         let bytecode = compiler.bytecode();
         let mut vm = VM::new(bytecode);
-        if no_gc {
-            vm.set_gc_enabled(false);
-        }
-        if let Some(threshold) = gc_threshold {
-            vm.set_gc_threshold(threshold);
-        }
         if let Err(err) = vm.run() {
             eprintln!("Error during test setup: {}", err);
             std::process::exit(1);
@@ -1218,12 +1147,6 @@ fn run_test_file(
     let all_passed = {
         let bytecode = compiler.bytecode();
         let mut vm = VM::new(bytecode);
-        if no_gc {
-            vm.set_gc_enabled(false);
-        }
-        if let Some(threshold) = gc_threshold {
-            vm.set_gc_threshold(threshold);
-        }
         if let Err(err) = vm.run() {
             eprintln!("Error during test setup: {}", err);
             std::process::exit(1);
@@ -1343,37 +1266,6 @@ fn extract_dump_core_mode(args: &mut Vec<String>) -> Option<CoreDumpMode> {
         mode = next_mode;
     }
     Some(mode)
-}
-
-fn extract_gc_threshold(args: &mut Vec<String>) -> Option<Option<usize>> {
-    let mut threshold = None;
-    let mut i = 0;
-    while i < args.len() {
-        let value_str = if args[i] == "--gc-threshold" {
-            if i + 1 >= args.len() {
-                eprintln!("Usage: flux <file.flx> --gc-threshold <n>");
-                return None;
-            }
-            let v = args.remove(i + 1);
-            args.remove(i);
-            v
-        } else if let Some(v) = args[i].strip_prefix("--gc-threshold=") {
-            let v = v.to_string();
-            args.remove(i);
-            v
-        } else {
-            i += 1;
-            continue;
-        };
-        match value_str.parse::<usize>() {
-            Ok(parsed) => threshold = Some(parsed),
-            Err(_) => {
-                eprintln!("Error: --gc-threshold expects a non-negative integer.");
-                return None;
-            }
-        }
-    }
-    Some(threshold)
 }
 
 fn extract_diagnostic_format(args: &mut Vec<String>) -> Option<DiagnosticOutputFormat> {
@@ -2214,8 +2106,6 @@ fn repl(trace: bool) {
     let bootstrap = Compiler::new_with_interner("<repl>", Interner::new());
     let (mut symbol_table, mut constants, mut interner) = bootstrap.take_state();
     let mut globals: Vec<Value> = vec![Value::None; 65536];
-    let mut gc_heap = GcHeap::new();
-
     loop {
         print!("flux> ");
         io::stdout().flush().unwrap();
@@ -2307,7 +2197,6 @@ fn repl(trace: bool) {
         let mut vm = VM::new(bytecode);
         vm.set_trace(trace);
         vm.swap_globals_values(&mut globals);
-        std::mem::swap(&mut vm.gc_heap, &mut gc_heap);
 
         match vm.run() {
             Ok(()) => {
@@ -2323,7 +2212,6 @@ fn repl(trace: bool) {
 
         // Persist VM state for next iteration
         vm.swap_globals_values(&mut globals);
-        std::mem::swap(&mut vm.gc_heap, &mut gc_heap);
     }
 
     println!("Goodbye!");
