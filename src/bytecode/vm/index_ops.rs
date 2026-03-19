@@ -1,5 +1,6 @@
 use crate::runtime::{
     gc::{GcHandle, HeapObject, hamt::hamt_lookup},
+    hamt,
     value::Value,
 };
 
@@ -19,6 +20,7 @@ impl VM {
                 self.execute_array_index(elements, *idx)
             }
             (Value::Cons(_), Value::Integer(idx)) => self.execute_cons_list_index(&left, *idx),
+            (Value::HashMap(node), _) => self.execute_rc_hamt_index(node, &index),
             (Value::Gc(handle), _) => {
                 match &index {
                     Value::Integer(idx) => {
@@ -79,6 +81,20 @@ impl VM {
                 },
                 _ => return self.push(Value::None),
             }
+        }
+    }
+
+    fn execute_rc_hamt_index(
+        &mut self,
+        node: &crate::runtime::hamt::HamtNode,
+        key: &Value,
+    ) -> Result<(), String> {
+        let hash_key = key
+            .to_hash_key()
+            .ok_or_else(|| format!("unusable as hash key: {}", key.type_name()))?;
+        match hamt::hamt_lookup(node, &hash_key) {
+            Some(value) => self.push(Value::Some(std::rc::Rc::new(value))),
+            None => self.push(Value::None),
         }
     }
 

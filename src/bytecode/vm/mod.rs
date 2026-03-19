@@ -6,10 +6,8 @@ use crate::{
         closure::Closure,
         compiled_function::CompiledFunction,
         frame::Frame,
-        gc::{
-            GcHandle, GcHeap, HeapObject,
-            hamt::{hamt_empty, hamt_insert},
-        },
+        gc::{GcHandle, GcHeap, HeapObject},
+        hamt,
         handler_frame::HandlerFrame,
         leak_detector,
         value::Value,
@@ -297,7 +295,7 @@ impl VM {
     }
 
     fn build_hash(&mut self, start: usize, end: usize) -> Result<Value, String> {
-        let mut root = hamt_empty(&mut self.gc_heap);
+        let mut root = hamt::hamt_empty();
         let mut i = start;
         while i < end {
             let key = slot::from_slot(std::mem::replace(&mut self.stack[i], slot::uninit()));
@@ -307,11 +305,11 @@ impl VM {
                 .to_hash_key()
                 .ok_or_else(|| format!("unusable as hash key: {}", key.type_name()))?;
 
-            root = hamt_insert(&mut self.gc_heap, root, hash_key, value);
+            root = hamt::hamt_insert(&root, hash_key, value);
             i += 2;
         }
         leak_detector::record_hash();
-        Ok(Value::Gc(root))
+        Ok(Value::HashMap(root))
     }
 
     fn current_frame(&self) -> &Frame {

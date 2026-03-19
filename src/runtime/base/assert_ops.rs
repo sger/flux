@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::runtime::{RuntimeContext, gc, gc::HeapObject, value::Value};
+use crate::runtime::{RuntimeContext, gc, gc::HeapObject, hamt as rc_hamt, value::Value};
 
 use super::helpers::{check_arity_range_ref, check_arity_ref};
 
@@ -39,6 +39,7 @@ fn values_equal(ctx: &dyn RuntimeContext, a: &Value, b: &Value) -> bool {
             values_equal(ctx, &a_cell.head, &b_cell.head)
                 && values_equal(ctx, &a_cell.tail, &b_cell.tail)
         }
+        (Value::HashMap(a_node), Value::HashMap(b_node)) => rc_hamt::hamt_equal(a_node, b_node),
         (Value::Gc(ha), Value::Gc(hb)) => {
             if ha == hb {
                 return true; // Same heap slot — trivially equal.
@@ -67,7 +68,7 @@ fn values_equal(ctx: &dyn RuntimeContext, a: &Value, b: &Value) -> bool {
 /// `[1, 2, 3]` rather than `<gc@N>`.
 fn display_value(ctx: &dyn RuntimeContext, v: &Value) -> String {
     match v {
-        Value::Gc(_) | Value::Tuple(_) | Value::Array(_) | Value::Adt(_) => {
+        Value::HashMap(_) | Value::Gc(_) | Value::Tuple(_) | Value::Array(_) | Value::Adt(_) => {
             super::list_ops::format_value(ctx, v)
         }
         _ => format!("{}", v),

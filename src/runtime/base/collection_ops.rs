@@ -4,6 +4,7 @@ use crate::runtime::{
     RuntimeContext,
     cons_cell::ConsCell,
     gc::{HeapObject, hamt::hamt_len},
+    hamt as rc_hamt,
     value::Value,
 };
 
@@ -31,6 +32,7 @@ pub(super) fn base_len_borrowed(
             Some(len) => Ok(Value::Integer(len as i64)),
             None => Err("len: malformed list".to_string()),
         },
+        Value::HashMap(node) => Ok(Value::Integer(rc_hamt::hamt_len(node) as i64)),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => match list_ops::list_len(ctx, args[0]) {
                 Some(len) => Ok(Value::Integer(len as i64)),

@@ -8,6 +8,7 @@ use crate::runtime::{
         GcHandle,
         hamt::{hamt_insert, hamt_lookup, is_hamt},
     },
+    hamt as rc_hamt,
     value::Value,
 };
 
@@ -491,8 +492,14 @@ fn execute_map_primop(
                     key.type_name()
                 )
             })?;
-            let handle = expect_hamt_handle(ctx, &map, op)?;
-            match hamt_lookup(ctx.gc_heap(), handle, &hash) {
+            let result = match &map {
+                Value::HashMap(node) => rc_hamt::hamt_lookup(node, &hash),
+                _ => {
+                    let handle = expect_hamt_handle(ctx, &map, op)?;
+                    hamt_lookup(ctx.gc_heap(), handle, &hash)
+                }
+            };
+            match result {
                 Some(value) => Ok(Value::Some(Rc::new(value))),
                 None => Ok(Value::None),
             }
@@ -509,9 +516,16 @@ fn execute_map_primop(
                     key.type_name()
                 )
             })?;
-            let handle = expect_hamt_handle(ctx, &map, op)?;
-            let updated = hamt_insert(ctx.gc_heap_mut(), handle, hash, value);
-            Ok(Value::Gc(updated))
+            match map {
+                Value::HashMap(node) => {
+                    Ok(Value::HashMap(rc_hamt::hamt_insert(&node, hash, value)))
+                }
+                _ => {
+                    let handle = expect_hamt_handle(ctx, &map, op)?;
+                    let updated = hamt_insert(ctx.gc_heap_mut(), handle, hash, value);
+                    Ok(Value::Gc(updated))
+                }
+            }
         }
         PrimOp::MapHas => {
             let mut args = args;
@@ -524,10 +538,14 @@ fn execute_map_primop(
                     key.type_name()
                 )
             })?;
-            let handle = expect_hamt_handle(ctx, &map, op)?;
-            Ok(Value::Boolean(
-                hamt_lookup(ctx.gc_heap(), handle, &hash).is_some(),
-            ))
+            let found = match &map {
+                Value::HashMap(node) => rc_hamt::hamt_lookup(node, &hash).is_some(),
+                _ => {
+                    let handle = expect_hamt_handle(ctx, &map, op)?;
+                    hamt_lookup(ctx.gc_heap(), handle, &hash).is_some()
+                }
+            };
+            Ok(Value::Boolean(found))
         }
         _ => dispatch_error("map", op),
     }

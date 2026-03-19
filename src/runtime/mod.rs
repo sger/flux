@@ -24,6 +24,7 @@ pub mod continuation;
 pub mod frame;
 pub mod function_contract;
 pub mod gc;
+pub mod hamt;
 pub mod handler_arm;
 pub mod handler_descriptor;
 pub mod handler_frame;

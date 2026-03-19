@@ -345,6 +345,13 @@ impl GcHeap {
                         worklist.push(WorkItem::Value(cell.head.clone()));
                         worklist.push(WorkItem::Value(cell.tail.clone()));
                     }
+                    // Rc-based HAMT maps: trace inner values that may reference GC objects
+                    // during migration.
+                    Value::HashMap(node) => {
+                        for pair in crate::runtime::hamt::hamt_iter(node.as_ref()) {
+                            worklist.push(WorkItem::Value(pair.1));
+                        }
+                    }
                     // Internal constant-pool values: no GC references
                     Value::HandlerDescriptor(_) | Value::PerformDescriptor(_) => {}
                     // Leaf types: no GC references
