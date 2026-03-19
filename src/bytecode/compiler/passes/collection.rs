@@ -1,0 +1,25 @@
+use crate::syntax::program::Program;
+
+use super::super::{Compiler, pipeline::CollectionResult};
+
+impl Compiler {
+    /// Phase 1: Collect definitions and validate program structure.
+    pub(in crate::bytecode::compiler) fn phase_collection(
+        &mut self,
+        program: &Program,
+    ) -> CollectionResult {
+        self.process_base_directives(program);
+        self.collect_module_function_visibility(program);
+        self.collect_module_adt_constructors(program);
+        self.collect_module_contracts(program);
+        self.infer_unannotated_function_effects(program);
+        self.collect_adt_definitions(program);
+        self.collect_effect_declarations(program);
+        let main_state = self.validate_main_entrypoint(program);
+        self.validate_top_level_effectful_code(program, main_state.has_main);
+        self.validate_main_root_effect_discharge(program, main_state);
+        self.validate_strict_mode(program, main_state.has_main);
+
+        CollectionResult { main_state }
+    }
+}
