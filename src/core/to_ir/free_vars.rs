@@ -111,6 +111,14 @@ pub(super) fn free_vars_rec(
                 }
             }
         }
+        CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
+            if let Some(binder) = var.binder
+                && !bound.contains(&binder)
+            {
+                free.insert(binder);
+            }
+            free_vars_rec(body, bound, free);
+        }
     }
 }
 

@@ -368,6 +368,9 @@ impl<'a> FnCtx<'a> {
                 self.current_block = cont_block_idx;
                 dest
             }
+
+            // Dup/Drop — transparent at IR level (no-op), just lower the body.
+            CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => self.lower_expr(body),
         }
     }
 }

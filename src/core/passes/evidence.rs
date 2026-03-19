@@ -254,5 +254,17 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
             value: Box::new(evidence_transform(*value, next_id, evidence)),
             span,
         },
+
+        CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
+            var,
+            body: Box::new(evidence_transform(*body, next_id, evidence)),
+            span,
+        },
+
+        CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
+            var,
+            body: Box::new(evidence_transform(*body, next_id, evidence)),
+            span,
+        },
     }
 }

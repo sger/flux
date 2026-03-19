@@ -222,6 +222,18 @@ impl<'a> Formatter<'a> {
                 push_indent(out, indent + 2);
                 self.write_expr(out, body, indent + 2);
             }
+            CoreExpr::Dup { var, body, .. } => {
+                write!(out, "dup {}", self.resolve_var(var)).unwrap();
+                out.push('\n');
+                push_indent(out, indent);
+                self.write_expr(out, body, indent);
+            }
+            CoreExpr::Drop { var, body, .. } => {
+                write!(out, "drop {}", self.resolve_var(var)).unwrap();
+                out.push('\n');
+                push_indent(out, indent);
+                self.write_expr(out, body, indent);
+            }
         }
     }
 
