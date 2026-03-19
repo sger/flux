@@ -282,6 +282,7 @@ pub fn format_value(ctx: &dyn RuntimeContext, value: &Value) -> String {
         }
         Value::AdtUnit(name) => name.to_string(),
         Value::Cons(_) => format_list(ctx, value).unwrap_or_else(|| "<malformed list>".to_string()),
+        Value::HashMap(node) => crate::runtime::hamt::format_hamt(node),
         Value::Gc(h) => {
             if is_hamt(ctx.gc_heap(), *h) {
                 format_hamt(ctx.gc_heap(), *h)

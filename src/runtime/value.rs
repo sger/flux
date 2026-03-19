@@ -6,6 +6,7 @@ use crate::runtime::{
     cons_cell::ConsCell,
     continuation::Continuation,
     gc::{gc_handle::GcHandle, gc_heap::GcHeap},
+    hamt::HamtNode,
     handler_descriptor::HandlerDescriptor,
     hash_key::HashKey,
     jit_closure::JitClosure,
@@ -300,6 +301,9 @@ pub enum Value {
     /// Rc-based cons cell for persistent linked lists (Aether Phase 1).
     /// Replaces `Value::Gc(GcHandle)` pointing to `HeapObject::Cons`.
     Cons(Rc<ConsCell>),
+    /// Rc-based HAMT persistent map (Aether Phase 3).
+    /// Replaces `Value::Gc(GcHandle)` pointing to `HeapObject::HamtNode`.
+    HashMap(Rc<HamtNode>),
 }
 
 impl fmt::Display for Value {
@@ -351,6 +355,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, "[{}]", items.join(", "))
             }
+            Value::HashMap(node) => write!(f, "{}", crate::runtime::hamt::format_hamt(node)),
             Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
             Value::Adt(adt) => {
                 if adt.fields.is_empty() {
@@ -393,6 +398,7 @@ impl Value {
             Value::Array(_) => "Array",
             Value::Tuple(_) => "Tuple",
             Value::Cons(_) => "List",
+            Value::HashMap(_) => "Map",
             Value::Gc(_) => "Gc",
             Value::Adt(_) | Value::AdtUnit(_) => "Adt",
             Value::Continuation(_) => "Continuation",
@@ -469,6 +475,7 @@ impl Value {
                 }
             }
             Value::Cons(_) => self.to_string(), // uses Display impl
+            Value::HashMap(node) => crate::runtime::hamt::format_hamt(node),
             Value::Gc(handle) => format!("<gc@{}>", handle.index()),
             Value::Adt(adt) => {
                 if adt.fields.is_empty() {
