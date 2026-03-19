@@ -27,7 +27,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives
-          key: llvm-18-apt-${{ runner.os }}
+          key: llvm-18-apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            llvm-18-apt-${{ runner.os }}-
 
       - name: Install LLVM 18
         run: |
@@ -84,7 +86,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives
-          key: llvm-18-apt-${{ runner.os }}
+          key: llvm-18-apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            llvm-18-apt-${{ runner.os }}-
 
       - name: Install LLVM 18
         run: |
@@ -121,7 +125,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives
-          key: llvm-18-apt-${{ runner.os }}
+          key: llvm-18-apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            llvm-18-apt-${{ runner.os }}-
 
       - name: Install LLVM 18
         run: |
@@ -200,7 +206,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives
-          key: llvm-18-apt-${{ runner.os }}
+          key: llvm-18-apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            llvm-18-apt-${{ runner.os }}-
 
       - name: Install LLVM 18
         run: |
