@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::backend_ir::{IrFunction, IrProgram};
+use crate::cfg::{IrFunction, IrProgram};
 use crate::{
     ast::type_infer::display_infer_type,
     bytecode::{

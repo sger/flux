@@ -10,7 +10,7 @@
 
 Add an LLVM-based native code backend to Flux as an optional feature (`--features llvm`),
 producing highly optimised machine code for release builds. The backend consumes the
-existing `backend_ir::IrProgram` (CFG IR) directly — no new intermediate representation
+existing `cfg::IrProgram` (CFG IR) directly — no new intermediate representation
 is required. A thin safe wrapper over `llvm-sys` is introduced rather than a third-party
 binding crate, keeping the dependency surface minimal and LLVM-version-agnostic.
 
@@ -100,7 +100,7 @@ on all three backends; only performance differs.
 
 For compiler contributors, the LLVM backend is a new module `src/llvm/` that
 mirrors `src/jit/` structurally. It consumes `IrProgram` from
-`backend_ir::lower_program_to_ir()` — the same entry point the Cranelift JIT uses —
+`cfg::lower_program_to_ir()` — the same entry point the Cranelift JIT uses —
 and emits LLVM IR via a thin wrapper over `llvm-sys`.
 
 ---
@@ -119,7 +119,7 @@ Source (.flx)
       └── LLVM backend       → AOT / JIT execution  ← new
 ```
 
-The `backend_ir` boundary introduced in proposal 0086 makes this addition
+The `cfg` boundary introduced in proposal 0086 makes this addition
 possible without touching anything above it.
 
 ### New module: `src/llvm/`

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    backend_ir::{
+    cfg::{
         FunctionId, IrBlock, IrExpr, IrFunctionOrigin, IrInstr, IrMetadata, IrParam, IrTerminator,
         IrType, IrVar,
     },

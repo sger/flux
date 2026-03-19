@@ -9,8 +9,8 @@ pub mod context;
 pub mod runtime_helpers;
 pub mod value_arena;
 
-use crate::backend_ir::{IrPassContext, lower_program_to_ir, run_ir_pass_pipeline};
 use crate::bytecode::compiler::Compiler;
+use crate::cfg::{IrPassContext, lower_program_to_ir, run_ir_pass_pipeline};
 use crate::diagnostics::Diagnostic;
 use crate::runtime::value::Value;
 use crate::syntax::{interner::Interner, program::Program};

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::backend_ir::{
+use crate::cfg::{
     BlockId, IrBinaryOp, IrBlock, IrCallTarget, IrConst, IrExpr, IrFunction, IrInstr, IrListTest,
     IrTagTest, IrTerminator, IrVar,
 };

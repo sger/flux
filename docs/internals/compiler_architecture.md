@@ -149,7 +149,7 @@ This architecture document focuses on component layout; semantic truth for type/
 | **AST Transforms** | `ast/` | 3K | Desugar, constant fold, free vars, tail calls |
 | **Type Inference** | `ast/type_infer/` | 4K | HM Algorithm W + effect rows |
 | **Core IR** | `core/` | 5K | Semantic IR + 7 optimization passes |
-| **Backend IR** | `cfg/` | 3K | CFG representation + 7 lowering passes |
+| **Backend IR** | `cfg/` | 3K | CFG representation + 7 passes + `lower_program_to_ir()` |
 | **VM Backend** | `bytecode/` | 15K | `compiler/` (7-phase pipeline, CFG → opcodes) + `vm/` (stack-based executor) |
 | **JIT Backend** | `jit/` | 6K | CFG → Cranelift → machine code |
 | **LLVM Backend** | `llvm/` | 3K | CFG → LLVM IR → machine code / object files |
@@ -383,13 +383,11 @@ src/
 │   │   └── free_vars.rs     Free variable analysis for closure capture
 │   └── display.rs           Core IR pretty-printer (--dump-core flag)
 │
-├── backend_ir/              Backend IR facade (re-exports cfg/)
-│   └── mod.rs               Canonical boundary, lower_program_to_ir()
-│
-├── cfg/                     CFG-based backend IR implementation
-│   ├── mod.rs               IrFunction, IrBlock, IrInstr, IrTerminator, IrType
+├── cfg/                     CFG-based backend IR (consumed by all 3 backends)
+│   ├── mod.rs               IrFunction, IrBlock, IrInstr, IrTerminator, IrType, lower_program_to_ir()
 │   ├── passes.rs            7 CFG optimization passes
 │   ├── validate.rs          IR validation (locals, terminators, types)
+│   ├── metadata.rs          Shared metadata collection for native backends (JIT, LLVM)
 │   └── lower.rs             Legacy AST → CFG lowering (being replaced by core/to_ir/)
 │
 ├── bytecode/                Bytecode compiler + format

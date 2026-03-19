@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::type_infer::InferProgramConfig;
-use crate::backend_ir::{FunctionId, IrFunction, IrInstr, IrProgram, IrTerminator};
 use crate::bytecode::compiler::effect_rows::EffectRow;
 use crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult;
+use crate::cfg::{FunctionId, IrFunction, IrInstr, IrProgram, IrTerminator};
 use crate::syntax::expression::ExprId;
 use crate::types::infer_effect_row::InferEffectRow;
 use crate::types::{TypeVarId, infer_type::InferType, scheme::Scheme};

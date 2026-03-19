@@ -1,4 +1,4 @@
-use crate::backend_ir::IrProgram;
+use crate::cfg::IrProgram;
 use crate::diagnostics::DiagnosticPhase;
 use crate::syntax::{
     pattern_validate::validate_program_patterns, program::Program, statement::Statement,
