@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use crate::cfg::{
     BlockId, IrBinaryOp, IrBlock, IrCallTarget, IrConst, IrExpr, IrFunction, IrInstr, IrListTest,
@@ -7,7 +8,7 @@ use crate::cfg::{
 use crate::{
     bytecode::op_code::OpCode,
     diagnostics::{Diagnostic, DiagnosticBuilder},
-    runtime::value::Value,
+    runtime::{handler_descriptor::HandlerDescriptor, value::Value},
     syntax::symbol::Symbol,
 };
 
@@ -93,7 +94,7 @@ impl Compiler {
                         IrCallTarget::Named(_) | IrCallTarget::Direct(_) | IrCallTarget::Var(_)
                     )
                 }
-                IrInstr::HandleScope { .. } => false,
+                IrInstr::HandleScope { .. } => true,
                 IrInstr::AetherDrop { .. } => true,
             }) {
                 return false;
@@ -164,10 +165,31 @@ impl Compiler {
                     .or_insert_with(|| self.symbol_table.define_temp());
             }
             for instr in &block.instrs {
-                if let IrInstr::Assign { dest, .. } = instr {
-                    bindings
-                        .entry(*dest)
-                        .or_insert_with(|| self.symbol_table.define_temp());
+                match instr {
+                    IrInstr::Assign { dest, .. }
+                    | IrInstr::Call { dest, .. }
+                    | IrInstr::HandleScope { dest, .. } => {
+                        bindings
+                            .entry(*dest)
+                            .or_insert_with(|| self.symbol_table.define_temp());
+                    }
+                    IrInstr::AetherDrop { .. } => {}
+                }
+            }
+        }
+
+        // Identify continuation blocks for HandleScope instructions.
+        // The cont block is the block whose parameter matches HandleScope's dest.
+        let mut end_handle_blocks = HashSet::<BlockId>::new();
+        for block in &function.blocks {
+            for instr in &block.instrs {
+                if let IrInstr::HandleScope { dest, .. } = instr {
+                    // Find the block that has dest as a parameter
+                    for b in &function.blocks {
+                        if b.params.iter().any(|p| p.var == *dest) {
+                            end_handle_blocks.insert(b.id);
+                        }
+                    }
                 }
             }
         }
@@ -187,6 +209,11 @@ impl Compiler {
                 block_offsets.insert(block.id, self.current_instructions().len());
                 if false_target_blocks.remove(&block.id) {
                     self.emit(OpCode::OpPop, &[]);
+                }
+
+                // Emit OpEndHandle at the start of a handle-scope continuation block
+                if end_handle_blocks.contains(&block.id) {
+                    self.emit(OpCode::OpEndHandle, &[]);
                 }
 
                 for instr in &block.instrs {
@@ -269,9 +296,49 @@ impl Compiler {
                 self.emit_store_binding(binding);
                 Ok(())
             }
-            IrInstr::HandleScope { .. } => Err(Self::boxed(Diagnostic::warning(
-                "unsupported HandleScope in bytecode CFG compatibility path",
-            ))),
+            IrInstr::HandleScope {
+                effect, arms, dest, ..
+            } => {
+                // 1. Emit arm closures (each arm is a MakeClosure)
+                for arm in arms {
+                    for cap in &arm.capture_vars {
+                        self.load_symbol(bindings.get(cap).ok_or_else(|| {
+                            Self::boxed(Diagnostic::warning(
+                                "missing CFG bytecode handle capture binding",
+                            ))
+                        })?);
+                    }
+                    let fn_symbol = self
+                        .lookup_ir_function_symbol_by_raw_id(arm.function_id.0)
+                        .ok_or_else(|| {
+                            Self::boxed(Diagnostic::warning(
+                                "missing CFG bytecode handle arm function symbol",
+                            ))
+                        })?;
+                    let fn_binding = self.symbol_table.resolve(fn_symbol).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode handle arm function binding",
+                        ))
+                    })?;
+                    self.emit_closure_index(fn_binding.index, arm.capture_vars.len());
+                }
+
+                // 2. Create HandlerDescriptor constant and emit OpHandle
+                let ops: Vec<_> = arms.iter().map(|a| a.operation_name).collect();
+                let descriptor = HandlerDescriptor {
+                    effect: *effect,
+                    ops,
+                };
+                let const_idx = self.add_constant(Value::HandlerDescriptor(Rc::new(descriptor)));
+                self.emit(OpCode::OpHandle, &[const_idx]);
+
+                // 3. Body blocks follow inline; OpEndHandle will be emitted at
+                //    the start of the continuation block (tracked by end_handle_blocks).
+                //    The dest binding is assigned when the cont block's param
+                //    receives the body result via jump args.
+                let _ = dest; // dest is handled by block param assignment
+                Ok(())
+            }
             IrInstr::AetherDrop { var, .. } => {
                 // Aether early-release: overwrite the local slot with None to
                 // decrement the Rc refcount as soon as the value is no longer

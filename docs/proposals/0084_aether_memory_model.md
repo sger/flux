@@ -497,17 +497,10 @@ are correct and measured.
 | Phase 2 | ✅ Implemented | `Value::GcAdt` removed, all ADTs unified under `Value::Adt(Rc<AdtValue>)` |
 | Phase 3 | ✅ Implemented | Rc-based HAMT in `src/runtime/hamt.rs`, `Value::HashMap(Rc<HamtNode>)` |
 | Phase 4 | ✅ Implemented | `Value::Gc` removed, `NanTag::GcHandle` freed, GC code paths deleted |
-| Phase 5 | 📋 Planned | Core IR `Dup`/`Drop` insertion |
-| Phase 6 | 📋 Planned | Borrowing analysis (skip dup/drop for read-only params) |
-| Phase 7 | 📋 Planned | Reuse tokens (zero-alloc functional updates) |
+| Phase 5 | ✅ Implemented | Core IR `Dup`/`Drop` insertion, borrowing elision for read-only params |
+| Phase 6 | ✅ Implemented | Borrowing analysis (`owned_use_count` skips dup for borrowed positions) |
+| Phase 7 | ✅ Implemented | Reuse tokens (`Reuse` node, `rt_reuse_cons`/`rt_reuse_adt` runtime helpers, backend emission) |
 | Phase 8 | 📋 Future | Actor transfer semantics |
-
-### Remaining cleanup (Phase 4 completion)
-
-- Remove `GcHeap` stub struct and `RuntimeContext::gc_heap()`/`gc_heap_mut()` trait methods
-- Delete `src/runtime/gc/` directory entirely
-- Remove `gc-telemetry` feature flag
-- Update `hamt_bench.rs` to use Rc-based HAMT module
 
 ## Expected impact
 

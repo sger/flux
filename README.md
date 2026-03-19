@@ -27,7 +27,7 @@ print(result)  // ["Hello, Alice!", "Hello, Charlie!"]
 - **ADTs** — User-defined nominal algebraic data types: `type Shape = Circle(Float) | Rect(Float, Float)`. Generic ADTs with `<T>` parameters. Constructor-space exhaustiveness checking (`E083`).
 - **Pattern matching** — `match` on literals, `Some`/`None`, `Left`/`Right`, cons cells `[h | t]`, tuples, ADT constructors, with guards. Non-exhaustive matches diagnosed at compile time (`E015`/`E083`).
 - **List comprehensions** — `[x * 2 | x <- xs, x > 0]` desugared at parse time to `map`/`filter`/`flat_map`
-- **Persistent collections** — GC-managed cons lists and HAMT hash maps with structural sharing
+- **Persistent collections** — Rc-managed cons lists and HAMT hash maps with structural sharing
 - **Pipe operator** — `a |> f(b)` desugars to `f(a, b)` — natural left-to-right data pipelines
 - **Modules** — Static qualified namespaces, imports with aliases, `public fn` exported boundaries, cycle detection at compile time
 - **String interpolation** — `"Hello #{name}, result is #{1 + 2}"`
@@ -35,7 +35,7 @@ print(result)  // ["Hello, Alice!", "Hello, Charlie!"]
 - **Diagnostics** — Elm-style errors with stable codes (`E030`, `W200`, `E300`, `E400`), source snippets, inline suggestions
 - **Tooling** — Linter, formatter, bytecode inspector, free-variable analyzer, tail-call detector, `--stats`
 - **Bytecode cache** — `.fxc` files with SHA-2 hash–based dependency-aware invalidation
-- **GC** — Mark-and-sweep for persistent data structures, configurable threshold, optional telemetry
+- **Perceus-style reference counting** — Compile-time dup/drop insertion with borrowing elision and reuse tokens for zero-allocation functional updates (Aether memory model)
 - **Editor support** — VS Code syntax highlighting (`tools/vscode/`)
 
 ---

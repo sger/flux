@@ -2841,20 +2841,24 @@ fn compile_simple_backend_ir_expr(
             Ok(JitValue::boxed(result))
         }
         BackendIrExpr::DropReuse(var) => {
-            let val = env
-                .get(var)
-                .copied()
-                .ok_or_else(|| format!("missing backend IR drop_reuse var {:?}", var))?;
-            let val = box_jit_value(module, helpers, builder, ctx_val, val);
-            let helper = get_helper_func_ref(module, helpers, builder, "rt_drop_reuse");
-            let call = builder.ins().call(helper, &[ctx_val, val]);
-            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+            if let Some(&val) = env.get(var) {
+                let val = box_jit_value(module, helpers, builder, ctx_val, val);
+                let helper = get_helper_func_ref(module, helpers, builder, "rt_drop_reuse");
+                let call = builder.ins().call(helper, &[ctx_val, val]);
+                Ok(JitValue::boxed(builder.inst_results(call)[0]))
+            } else {
+                // Token not in scope (e.g., scrutinee in a Case branch block).
+                // Return null — reuse constructors will fall back to fresh allocation.
+                Ok(JitValue::boxed(builder.ins().iconst(types::I64, 0)))
+            }
         }
         BackendIrExpr::ReuseCons { token, head, tail } => {
-            let token_val = env
-                .get(token)
-                .copied()
-                .ok_or_else(|| format!("missing backend IR reuse_cons token {:?}", token))?;
+            let token_boxed = if let Some(&token_val) = env.get(token) {
+                box_jit_value(module, helpers, builder, ctx_val, token_val)
+            } else {
+                // Token not in scope — null token makes rt_reuse_cons allocate fresh
+                builder.ins().iconst(types::I64, 0)
+            };
             let head_val = env
                 .get(head)
                 .copied()
@@ -2863,7 +2867,6 @@ fn compile_simple_backend_ir_expr(
                 .get(tail)
                 .copied()
                 .ok_or_else(|| format!("missing backend IR reuse_cons tail {:?}", tail))?;
-            let token_boxed = box_jit_value(module, helpers, builder, ctx_val, token_val);
             let head_boxed = box_jit_value(module, helpers, builder, ctx_val, head_val);
             let tail_boxed = box_jit_value(module, helpers, builder, ctx_val, tail_val);
             let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_cons");
@@ -2873,15 +2876,16 @@ fn compile_simple_backend_ir_expr(
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         BackendIrExpr::ReuseSome { token, inner } => {
-            let token_val = env
-                .get(token)
-                .copied()
-                .ok_or_else(|| format!("missing backend IR reuse_some token {:?}", token))?;
+            let token_boxed = if let Some(&token_val) = env.get(token) {
+                box_jit_value(module, helpers, builder, ctx_val, token_val)
+            } else {
+                // Token not in scope — null token makes rt_reuse_some allocate fresh
+                builder.ins().iconst(types::I64, 0)
+            };
             let inner_val = env
                 .get(inner)
                 .copied()
                 .ok_or_else(|| format!("missing backend IR reuse_some inner {:?}", inner))?;
-            let token_boxed = box_jit_value(module, helpers, builder, ctx_val, token_val);
             let inner_boxed = box_jit_value(module, helpers, builder, ctx_val, inner_val);
             let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_some");
             let call = builder
@@ -2890,15 +2894,16 @@ fn compile_simple_backend_ir_expr(
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         BackendIrExpr::ReuseLeft { token, inner } => {
-            let token_val = env
-                .get(token)
-                .copied()
-                .ok_or_else(|| format!("missing backend IR reuse_left token {:?}", token))?;
+            let token_boxed = if let Some(&token_val) = env.get(token) {
+                box_jit_value(module, helpers, builder, ctx_val, token_val)
+            } else {
+                // Token not in scope — null token makes rt_reuse_left allocate fresh
+                builder.ins().iconst(types::I64, 0)
+            };
             let inner_val = env
                 .get(inner)
                 .copied()
                 .ok_or_else(|| format!("missing backend IR reuse_left inner {:?}", inner))?;
-            let token_boxed = box_jit_value(module, helpers, builder, ctx_val, token_val);
             let inner_boxed = box_jit_value(module, helpers, builder, ctx_val, inner_val);
             let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_left");
             let call = builder
@@ -2907,15 +2912,16 @@ fn compile_simple_backend_ir_expr(
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         BackendIrExpr::ReuseRight { token, inner } => {
-            let token_val = env
-                .get(token)
-                .copied()
-                .ok_or_else(|| format!("missing backend IR reuse_right token {:?}", token))?;
+            let token_boxed = if let Some(&token_val) = env.get(token) {
+                box_jit_value(module, helpers, builder, ctx_val, token_val)
+            } else {
+                // Token not in scope — null token makes rt_reuse_right allocate fresh
+                builder.ins().iconst(types::I64, 0)
+            };
             let inner_val = env
                 .get(inner)
                 .copied()
                 .ok_or_else(|| format!("missing backend IR reuse_right inner {:?}", inner))?;
-            let token_boxed = box_jit_value(module, helpers, builder, ctx_val, token_val);
             let inner_boxed = box_jit_value(module, helpers, builder, ctx_val, inner_val);
             let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_right");
             let call = builder
@@ -2928,11 +2934,12 @@ fn compile_simple_backend_ir_expr(
             constructor,
             fields,
         } => {
-            let token_val = env
-                .get(token)
-                .copied()
-                .ok_or_else(|| format!("missing backend IR reuse_adt token {:?}", token))?;
-            let token_boxed = box_jit_value(module, helpers, builder, ctx_val, token_val);
+            let token_boxed = if let Some(&token_val) = env.get(token) {
+                box_jit_value(module, helpers, builder, ctx_val, token_val)
+            } else {
+                // Token not in scope — null token makes rt_reuse_adt allocate fresh
+                builder.ins().iconst(types::I64, 0)
+            };
             let name_str = interner.resolve(*constructor);
             let bytes = name_str.as_bytes().to_vec();
             let data = module
@@ -4408,6 +4415,54 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             HelperSig {
                 num_params: 2,
                 num_returns: 0,
+            },
+        ),
+        // Aether Perceus reuse: rt_drop_reuse(ctx, val_ptr) -> *mut Value
+        (
+            "rt_drop_reuse",
+            HelperSig {
+                num_params: 2,
+                num_returns: 1,
+            },
+        ),
+        // rt_reuse_cons(ctx, token, head, tail) -> *mut Value
+        (
+            "rt_reuse_cons",
+            HelperSig {
+                num_params: 4,
+                num_returns: 1,
+            },
+        ),
+        // rt_reuse_some(ctx, token, inner) -> *mut Value
+        (
+            "rt_reuse_some",
+            HelperSig {
+                num_params: 3,
+                num_returns: 1,
+            },
+        ),
+        // rt_reuse_left(ctx, token, inner) -> *mut Value
+        (
+            "rt_reuse_left",
+            HelperSig {
+                num_params: 3,
+                num_returns: 1,
+            },
+        ),
+        // rt_reuse_right(ctx, token, inner) -> *mut Value
+        (
+            "rt_reuse_right",
+            HelperSig {
+                num_params: 3,
+                num_returns: 1,
+            },
+        ),
+        // rt_reuse_adt(ctx, token, name_ptr, name_len, fields_ptr, nfields) -> *mut Value
+        (
+            "rt_reuse_adt",
+            HelperSig {
+                num_params: 6,
+                num_returns: 1,
             },
         ),
     ]

@@ -26,8 +26,8 @@ fn rewrite(expr: CoreExpr) -> CoreExpr {
             if let Some(result) = try_reuse_direct(&var, body.clone(), span) {
                 return result;
             }
-            // Try the let-chain pattern: Drop { var, Let { .., Con { .. } } }
-            if let Some(result) = try_reuse_let_chain(&var, body.clone(), span) {
+            // Try the spine pattern: Drop { var, Let/Drop chain ending in Con { .. } }
+            if let Some(result) = try_reuse_in_spine(&var, body.clone(), span) {
                 return result;
             }
             CoreExpr::Drop {
@@ -197,21 +197,22 @@ fn try_reuse_direct(
     }
 }
 
-/// Let-chain pattern:
-/// ```text
-/// Drop { var: x, body: Let { var: y, rhs, body: Con { tag, fields, span } } }
-/// ```
-/// becomes:
-/// ```text
-/// Let { var: y, rhs, body: Reuse { token: x, tag, fields, span } }
-/// ```
+/// Spine pattern: searches through a spine of Let and Drop nodes for a Con
+/// at the end that can be reused.
 ///
-/// Also handles chains of Lets ending in a Con.
-fn try_reuse_let_chain(
+/// Handles patterns like:
+/// ```text
+/// Drop { var: x, body: Let { var: y, rhs, body: Con { .. } } }
+/// Drop { var: x, body: Drop { var: z, body: Con { .. } } }
+/// Drop { var: x, body: Let { var: y, rhs, body: Drop { var: z, body: Con { .. } } } }
+/// ```
+fn try_reuse_in_spine(
     var: &CoreVarRef,
     body: CoreExpr,
     _drop_span: crate::diagnostics::position::Span,
 ) -> Option<CoreExpr> {
+    let binder_id = var.binder?;
+
     match body {
         CoreExpr::Let {
             var: let_var,
@@ -220,7 +221,6 @@ fn try_reuse_let_chain(
             span: let_span,
         } => {
             // Check if the rhs uses the dropped var — if so, can't hoist past it
-            let binder_id = var.binder?;
             let rhs_counts = use_counts(&rhs);
             if rhs_counts.contains_key(&binder_id) {
                 return None;
@@ -245,14 +245,49 @@ fn try_reuse_let_chain(
                         None
                     }
                 }
-                // Recurse into nested lets
-                CoreExpr::Let { .. } => {
-                    let inner = try_reuse_let_chain(var, *let_body.clone(), _drop_span)?;
+                // Recurse into nested lets or drops
+                CoreExpr::Let { .. } | CoreExpr::Drop { .. } => {
+                    let inner = try_reuse_in_spine(var, *let_body.clone(), _drop_span)?;
                     Some(CoreExpr::Let {
                         var: let_var,
                         rhs,
                         body: Box::new(inner),
                         span: let_span,
+                    })
+                }
+                _ => None,
+            }
+        }
+        CoreExpr::Drop {
+            var: inner_var,
+            body: inner_body,
+            span: drop_span,
+        } => {
+            // Keep the inner Drop, try reuse in its body
+            match *inner_body {
+                CoreExpr::Con { tag, fields, span } => {
+                    if is_heap_tag(&tag) && var_not_free_in_fields(var, &fields) {
+                        Some(CoreExpr::Drop {
+                            var: inner_var,
+                            body: Box::new(CoreExpr::Reuse {
+                                token: *var,
+                                tag,
+                                fields,
+                                span,
+                            }),
+                            span: drop_span,
+                        })
+                    } else {
+                        None
+                    }
+                }
+                // Recurse into nested lets or drops
+                CoreExpr::Let { .. } | CoreExpr::Drop { .. } => {
+                    let result = try_reuse_in_spine(var, *inner_body.clone(), _drop_span)?;
+                    Some(CoreExpr::Drop {
+                        var: inner_var,
+                        body: Box::new(result),
+                        span: drop_span,
                     })
                 }
                 _ => None,
