@@ -67,7 +67,7 @@ fn values_equal(ctx: &dyn RuntimeContext, a: &Value, b: &Value) -> bool {
 /// `[1, 2, 3]` rather than `<gc@N>`.
 fn display_value(ctx: &dyn RuntimeContext, v: &Value) -> String {
     match v {
-        Value::Gc(_) | Value::GcAdt(_) | Value::Tuple(_) | Value::Array(_) | Value::Adt(_) => {
+        Value::Gc(_) | Value::Tuple(_) | Value::Array(_) | Value::Adt(_) => {
             super::list_ops::format_value(ctx, v)
         }
         _ => format!("{}", v),

@@ -24,7 +24,6 @@ pub(super) fn base_type_of_borrowed(
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => "List",
             HeapObject::HamtNode { .. } | HeapObject::HamtCollision { .. } => "Map",
-            HeapObject::Adt { .. } => "Adt",
         },
         other => other.type_name(),
     };

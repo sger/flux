@@ -17,16 +17,14 @@ use super::heap_object::HeapObject;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ObjectKind {
     Cons = 0,
-    Adt = 1,
-    HamtNode = 2,
-    HamtCollision = 3,
+    HamtNode = 1,
+    HamtCollision = 2,
 }
 
 impl ObjectKind {
     pub fn from_object(obj: &HeapObject) -> Self {
         match obj {
             HeapObject::Cons { .. } => ObjectKind::Cons,
-            HeapObject::Adt { .. } => ObjectKind::Adt,
             HeapObject::HamtNode { .. } => ObjectKind::HamtNode,
             HeapObject::HamtCollision { .. } => ObjectKind::HamtCollision,
         }
@@ -35,16 +33,14 @@ impl ObjectKind {
     pub fn label(self) -> &'static str {
         match self {
             ObjectKind::Cons => "Cons",
-            ObjectKind::Adt => "Adt",
             ObjectKind::HamtNode => "HamtNode",
             ObjectKind::HamtCollision => "HamtCollision",
         }
     }
 
     /// All variants for iteration.
-    pub const ALL: [ObjectKind; 4] = [
+    pub const ALL: [ObjectKind; 3] = [
         ObjectKind::Cons,
-        ObjectKind::Adt,
         ObjectKind::HamtNode,
         ObjectKind::HamtCollision,
     ];

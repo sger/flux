@@ -858,11 +858,10 @@ impl VM {
                 if arity == 0 {
                     self.push(Value::AdtUnit(constructor_name))?;
                 } else {
-                    let handle = self.gc_heap.alloc(HeapObject::Adt {
+                    self.push(Value::Adt(Rc::new(crate::runtime::value::AdtValue {
                         constructor: constructor_name,
                         fields: AdtFields::from_vec(fields),
-                    });
-                    self.push(Value::GcAdt(handle))?;
+                    })))?;
                 }
                 Ok(4) // 1 opcode + 2 const_idx + 1 arity
             }
@@ -908,7 +907,7 @@ impl VM {
                 let field_idx = Self::read_u8_fast(instructions, ip + 1);
                 let adt = self.pop_untracked()?;
                 match adt {
-                    Value::Adt(_) | Value::GcAdt(_) => {
+                    Value::Adt(_) => {
                         let len = adt.adt_field_count(&self.gc_heap).unwrap_or(0);
                         let value = adt.adt_clone_field(&self.gc_heap, field_idx).ok_or_else(
                             || {
@@ -1010,7 +1009,7 @@ impl VM {
                 // Stack after:  [..., field0, field1]
                 let adt = self.pop_untracked()?;
                 match adt {
-                    Value::Adt(_) | Value::GcAdt(_) => {
+                    Value::Adt(_) => {
                         let (f0, f1) =
                             adt.adt_clone_two_fields(&self.gc_heap).ok_or_else(|| {
                                 "OpAdtFields2: ADT has fewer than 2 fields".to_string()

@@ -56,7 +56,6 @@ impl VM {
                 (Value::Function(l), Value::Function(r)) => Rc::ptr_eq(l, r),
                 (Value::Closure(l), Value::Closure(r)) => Rc::ptr_eq(l, r),
                 (Value::Gc(l), Value::Gc(r)) => l == r,
-                (Value::GcAdt(l), Value::GcAdt(r)) => l == r,
                 _ => false,
             };
             if ptr_eq {
@@ -146,11 +145,8 @@ impl VM {
                 OpCode::OpNotEqual => Ok(l != r),
                 _ => Err(format!("cannot compare Right with {:?}", opcode)),
             },
-            (Value::AdtUnit(_), Value::AdtUnit(_))
-            | (Value::Adt(_), Value::Adt(_))
-            | (Value::GcAdt(_), Value::GcAdt(_))
-            | (Value::Adt(_), Value::GcAdt(_))
-            | (Value::GcAdt(_), Value::Adt(_)) => match opcode {
+            (Value::AdtUnit(_), Value::AdtUnit(_)) | (Value::Adt(_), Value::Adt(_)) => match opcode
+            {
                 OpCode::OpEqual => Ok(self.adt_or_value_equal(left, right)),
                 OpCode::OpNotEqual => Ok(!self.adt_or_value_equal(left, right)),
                 _ => Err(format!("cannot compare Adt with {:?}", opcode)),
@@ -158,9 +154,7 @@ impl VM {
             (Value::AdtUnit(_), _)
             | (_, Value::AdtUnit(_))
             | (Value::Adt(_), _)
-            | (_, Value::Adt(_))
-            | (Value::GcAdt(_), _)
-            | (_, Value::GcAdt(_)) => match opcode {
+            | (_, Value::Adt(_)) => match opcode {
                 OpCode::OpEqual => Ok(false),
                 OpCode::OpNotEqual => Ok(true),
                 _ => Err(format!("cannot compare Adt with {:?}", opcode)),

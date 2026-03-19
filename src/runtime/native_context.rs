@@ -902,11 +902,11 @@ mod tests {
             head: Value::Integer(1),
             tail: Value::None,
         });
-        let adt = ctx.gc_heap.alloc(HeapObject::Adt {
+        let adt_val = Value::Adt(Rc::new(crate::runtime::value::AdtValue {
             constructor: Rc::new("Node".to_string()),
             fields: AdtFields::from_vec(vec![Value::Gc(list)]),
-        });
-        let root = ctx.alloc(Value::GcAdt(adt));
+        }));
+        let root = ctx.alloc(adt_val);
         ctx.push_gc_roots(&[root]);
 
         ctx.gc_heap.alloc(HeapObject::Cons {
@@ -915,7 +915,7 @@ mod tests {
         });
 
         ctx.collect_gc();
-        assert_eq!(ctx.gc_heap.live_count(), 2);
+        assert_eq!(ctx.gc_heap.live_count(), 1); // only the cons cell (list) survives
         assert_eq!(
             unsafe { &*root }.adt_constructor(&ctx.gc_heap),
             Some("Node")
@@ -934,11 +934,11 @@ mod tests {
             head: Value::Integer(1),
             tail: Value::None,
         });
-        let adt = ctx.gc_heap.alloc(HeapObject::Adt {
+        let adt_val = Value::Adt(Rc::new(crate::runtime::value::AdtValue {
             constructor: Rc::new("Node".to_string()),
             fields: AdtFields::from_vec(vec![Value::Gc(list)]),
-        });
-        let root = ctx.alloc(Value::GcAdt(adt));
+        }));
+        let root = ctx.alloc(adt_val);
 
         ctx.gc_heap.alloc(HeapObject::Cons {
             head: Value::Integer(99),
@@ -946,7 +946,7 @@ mod tests {
         });
 
         ctx.collect_gc();
-        assert_eq!(ctx.gc_heap.live_count(), 2);
+        assert_eq!(ctx.gc_heap.live_count(), 1); // only the cons cell (list) survives
         assert_eq!(
             unsafe { &*root }.adt_constructor(&ctx.gc_heap),
             Some("Node")

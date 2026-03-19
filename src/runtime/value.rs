@@ -5,7 +5,7 @@ use crate::runtime::{
     compiled_function::CompiledFunction,
     cons_cell::ConsCell,
     continuation::Continuation,
-    gc::{gc_handle::GcHandle, gc_heap::GcHeap, heap_object::HeapObject},
+    gc::{gc_handle::GcHandle, gc_heap::GcHeap},
     handler_descriptor::HandlerDescriptor,
     hash_key::HashKey,
     jit_closure::JitClosure,
@@ -193,27 +193,20 @@ impl std::ops::Index<usize> for AdtFields {
     }
 }
 
-pub enum AdtRef<'a> {
-    Rc(&'a AdtValue),
-    Gc {
-        constructor: &'a Rc<String>,
-        fields: &'a AdtFields,
-    },
-}
+/// Unified reference to an ADT value's data.
+///
+/// After Aether Phase 2, all ADTs are `Value::Adt(Rc<AdtValue>)`, so this is
+/// a simple newtype wrapper. Kept for API compatibility with callers that use
+/// `.constructor()` / `.fields()` accessor style.
+pub struct AdtRef<'a>(pub &'a AdtValue);
 
 impl<'a> AdtRef<'a> {
     pub fn constructor(&self) -> &str {
-        match self {
-            AdtRef::Rc(adt) => adt.constructor.as_ref(),
-            AdtRef::Gc { constructor, .. } => constructor.as_ref(),
-        }
+        self.0.constructor.as_ref()
     }
 
     pub fn fields(&self) -> &'a AdtFields {
-        match self {
-            AdtRef::Rc(adt) => &adt.fields,
-            AdtRef::Gc { fields, .. } => fields,
-        }
+        &self.0.fields
     }
 }
 
@@ -290,8 +283,6 @@ pub enum Value {
     Tuple(Rc<Vec<Value>>),
     /// GC-managed heap object (cons cell, HAMT map node).
     Gc(GcHandle),
-    /// GC-managed ADT payload.
-    GcAdt(GcHandle),
     /// User-defined ADT constructor value: `Circle(1.0)`, `Red`, `Node(l, v, r)`.
     Adt(Rc<AdtValue>),
     /// Zero-field ADT constructor: `Tip`, `Red`, `None` (user-defined).
@@ -361,7 +352,6 @@ impl fmt::Display for Value {
                 write!(f, "[{}]", items.join(", "))
             }
             Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
-            Value::GcAdt(handle) => write!(f, "<gc-adt@{}>", handle.index()),
             Value::Adt(adt) => {
                 if adt.fields.is_empty() {
                     write!(f, "{}", adt.constructor)
@@ -404,7 +394,7 @@ impl Value {
             Value::Tuple(_) => "Tuple",
             Value::Cons(_) => "List",
             Value::Gc(_) => "Gc",
-            Value::GcAdt(_) | Value::Adt(_) | Value::AdtUnit(_) => "Adt",
+            Value::Adt(_) | Value::AdtUnit(_) => "Adt",
             Value::Continuation(_) => "Continuation",
             Value::HandlerDescriptor(_) => "HandlerDescriptor",
             Value::PerformDescriptor(_) => "PerformDescriptor",
@@ -480,7 +470,6 @@ impl Value {
             }
             Value::Cons(_) => self.to_string(), // uses Display impl
             Value::Gc(handle) => format!("<gc@{}>", handle.index()),
-            Value::GcAdt(handle) => format!("<gc-adt@{}>", handle.index()),
             Value::Adt(adt) => {
                 if adt.fields.is_empty() {
                     adt.constructor.to_string()
@@ -496,30 +485,16 @@ impl Value {
         }
     }
 
-    pub fn as_adt<'a>(&'a self, heap: &'a GcHeap) -> Option<AdtRef<'a>> {
+    pub fn as_adt(&self, _heap: &GcHeap) -> Option<AdtRef<'_>> {
         match self {
-            Value::Adt(adt) => Some(AdtRef::Rc(adt)),
-            Value::GcAdt(handle) => match heap.get(*handle) {
-                HeapObject::Adt {
-                    constructor,
-                    fields,
-                } => Some(AdtRef::Gc {
-                    constructor,
-                    fields,
-                }),
-                _ => None,
-            },
+            Value::Adt(adt) => Some(AdtRef(adt)),
             _ => None,
         }
     }
 
-    pub fn adt_constructor<'a>(&'a self, heap: &'a GcHeap) -> Option<&'a str> {
+    pub fn adt_constructor(&self, _heap: &GcHeap) -> Option<&str> {
         match self {
             Value::Adt(adt) => Some(adt.constructor.as_ref()),
-            Value::GcAdt(handle) => match heap.get(*handle) {
-                HeapObject::Adt { constructor, .. } => Some(constructor.as_ref()),
-                _ => None,
-            },
             _ => None,
         }
     }

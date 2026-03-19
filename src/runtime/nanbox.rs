@@ -108,8 +108,6 @@ mod inner {
         BaseFunction = 0x5,
         /// `Value::Gc(GcHandle)`: payload holds the u32 slot index.
         GcHandle = 0x6,
-        /// `Value::GcAdt(GcHandle)`: payload holds the u32 slot index.
-        GcAdt = 0x7,
         /// Heap-allocated `Rc<Value>` for any Value variant not encoded inline.
         /// Payload holds the `Rc<Value>` raw pointer shifted right 3 bits.
         BoxedValue = 0x8,
@@ -127,8 +125,7 @@ mod inner {
                 0x4 => NanTag::EmptyList,
                 0x5 => NanTag::BaseFunction,
                 0x6 => NanTag::GcHandle,
-                0x7 => NanTag::GcAdt,
-                0x8 => NanTag::BoxedValue,
+                0x7 | 0x8 => NanTag::BoxedValue,
                 _ => NanTag::BoxedValue, // reserved tags fall back to boxed
             }
         }
@@ -274,12 +271,6 @@ mod inner {
             NanBox::from_tag_payload(NanTag::GcHandle, handle as u64)
         }
 
-        /// Encode a GC ADT handle.
-        #[inline(always)]
-        pub fn from_gc_adt(handle: u32) -> Self {
-            NanBox::from_tag_payload(NanTag::GcAdt, handle as u64)
-        }
-
         /// Box any [`Value`] behind an `Rc<Value>` and encode the pointer.
         ///
         /// This is the fallback path for all heap-allocated Value variants
@@ -336,7 +327,7 @@ mod inner {
         /// Decode as a GC slot index.
         #[inline(always)]
         pub fn as_gc_index(&self) -> u32 {
-            debug_assert!(self.tag() == NanTag::GcHandle || self.tag() == NanTag::GcAdt);
+            debug_assert!(self.tag() == NanTag::GcHandle);
             self.payload() as u32
         }
 
@@ -344,8 +335,8 @@ mod inner {
 
         /// Encode a [`Value`] as a [`NanBox`].
         ///
-        /// All 24 Value variants are handled. Immediate types (Int, Float, Bool,
-        /// None, Uninit, EmptyList, BaseFunction, GcHandle, GcAdt) are encoded
+        /// All Value variants are handled. Immediate types (Int, Float, Bool,
+        /// None, Uninit, EmptyList, BaseFunction, GcHandle) are encoded
         /// inline. All other variants are heap-boxed via [`NanBox::box_value`].
         pub fn from_value(v: Value) -> Self {
             match v {
@@ -357,7 +348,6 @@ mod inner {
                 Value::EmptyList => NanBox::from_empty_list(),
                 Value::BaseFunction(idx) => NanBox::from_base_fn(idx),
                 Value::Gc(h) => NanBox::from_gc(h.index()),
-                Value::GcAdt(h) => NanBox::from_gc_adt(h.index()),
                 // Everything else goes through the boxed path.
                 other => NanBox::box_value(other),
             }
@@ -396,7 +386,6 @@ mod inner {
                 NanTag::EmptyList => Value::EmptyList,
                 NanTag::BaseFunction => Value::BaseFunction(self.as_base_fn()),
                 NanTag::GcHandle => Value::Gc(GcHandle(self.as_gc_index())),
-                NanTag::GcAdt => Value::GcAdt(GcHandle(self.as_gc_index())),
                 NanTag::BoxedValue => {
                     // Reconstruct the Rc. `from_raw` takes ownership, which will
                     // drop the Rc (decrementing count) at end of this block.
@@ -561,8 +550,7 @@ mod inner {
         fn gc_handle_roundtrip() {
             let h = Value::Gc(GcHandle::new_for_test(0));
             assert_eq!(roundtrip(h.clone()), h);
-            let h2 = Value::GcAdt(GcHandle::new_for_test(999));
-            assert_eq!(roundtrip(h2.clone()), h2);
+            // GcAdt removed in Aether Phase 2; ADTs now go through BoxedValue.
         }
 
         #[test]
