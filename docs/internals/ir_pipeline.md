@@ -146,17 +146,14 @@ Translates functional `CoreExpr` trees into imperative CFG basic blocks:
 
 ## Backend IR
 
-> Canonical API: `src/backend_ir/`
->
-> Current implementation: `src/cfg/`
+> Location: `src/cfg/`
 >
 > Canonical IR IDs live in `src/shared_ir/`.
 >
-> `cfg/` is the private backend engine; production backend traffic flows
-> through `backend_ir/`.
+> Entry point: `cfg::lower_program_to_ir()` orchestrates AST → Core → CFG.
 
-The current backend IR is the CFG (Control Flow Graph) representation consumed
-by both the bytecode compiler and the Cranelift JIT. Programs are represented
+The backend IR is the CFG (Control Flow Graph) representation consumed
+by all three backends (VM, Cranelift JIT, LLVM). Programs are represented
 as collections of **functions**, each containing **basic blocks** connected by
 jumps and branches.
 
@@ -335,7 +332,7 @@ through:
 
 - `core/lower_ast.rs`
 - `core/to_ir.rs`
-- `backend_ir/`
+- `cfg/` (passes, validation)
 - bytecode/JIT/LLVM codegen
 
 ---
@@ -347,11 +344,11 @@ The production backend program is assembled from Core-backed lowering:
 1. `core/lower_ast.rs` produces `CoreProgram`
 2. `core/passes.rs` simplifies/normalizes Core
 3. `core/to_ir.rs` lowers Core into backend `IrProgram`
-4. `backend_ir` pass/validation/codegen layers consume that `IrProgram`
+4. `cfg` pass/validation/codegen layers consume that `IrProgram`
 
 The `IrProgram` is then consumed by one of three backends:
 
-- **Bytecode compiler** (`bytecode/`) → stack-based VM (`runtime/vm/`)
+- **Bytecode compiler** (`bytecode/`) → stack-based VM (`bytecode/vm/`)
 - **Cranelift JIT** (`jit/`) → native code via Cranelift, executed in-process
 - **LLVM backend** (`llvm/`) → native code via LLVM 18, executed in-process or emitted as object/assembly
 

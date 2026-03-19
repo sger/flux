@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    backend_ir::{
+    cfg::{
         BlockId, FunctionId, IrBlock, IrCallTarget, IrExpr, IrFunction, IrFunctionOrigin, IrInstr,
         IrMetadata, IrParam, IrTerminator, IrType, IrVar,
     },
@@ -324,7 +324,7 @@ impl<'a> FnCtx<'a> {
                 let mut scope_arms = Vec::new();
                 for h in handlers {
                     let (fn_id, capture_vars) = self.lower_handler_arm(h);
-                    scope_arms.push(crate::backend_ir::HandleScopeArm {
+                    scope_arms.push(crate::cfg::HandleScopeArm {
                         operation_name: h.operation,
                         function_id: fn_id,
                         capture_vars,
@@ -341,7 +341,7 @@ impl<'a> FnCtx<'a> {
                 let dest = self.ctx.alloc_var();
                 self.blocks[cont_block_idx]
                     .params
-                    .push(crate::backend_ir::IrBlockParam {
+                    .push(crate::cfg::IrBlockParam {
                         var: dest,
                         ty: IrType::Any,
                     });

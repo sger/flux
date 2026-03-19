@@ -1,4 +1,4 @@
-use crate::runtime::vm::trace;
+use crate::bytecode::vm::trace;
 
 #[test]
 fn strip_ansi_removes_escape_sequences() {

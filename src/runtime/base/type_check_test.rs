@@ -1,6 +1,7 @@
 use crate::{
     bytecode::bytecode::Bytecode,
-    runtime::{gc::hamt::hamt_empty, value::Value, vm::VM},
+    bytecode::vm::VM,
+    runtime::{gc::hamt::hamt_empty, value::Value},
 };
 
 use super::type_check::{

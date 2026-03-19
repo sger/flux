@@ -13,6 +13,10 @@ use flux::ast::{constant_fold_with_interner, desugar, rename};
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
+    bytecode::vm::{
+        VM,
+        test_runner::{collect_test_functions, print_test_report, run_tests},
+    },
     bytecode::{
         bytecode_cache::{BytecodeCache, hash_bytes, hash_cache_key, hash_file},
         compiler::Compiler,
@@ -22,14 +26,7 @@ use flux::{
         DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticPhase, DiagnosticsAggregator,
         quality::module_skipped_note, render_diagnostics_json,
     },
-    runtime::{
-        gc::GcHeap,
-        value::Value,
-        vm::{
-            VM,
-            test_runner::{collect_test_functions, print_test_report, run_tests},
-        },
-    },
+    runtime::{gc::GcHeap, value::Value},
     syntax::{
         formatter::format_source, interner::Interner, lexer::Lexer, linter::Linter,
         module_graph::ModuleGraph, parser::Parser,
@@ -37,7 +34,7 @@ use flux::{
 };
 #[cfg(feature = "jit")]
 use flux::{
-    jit::JitError, runtime::jit_closure::JitClosure, runtime::vm::test_runner::run_test_fns,
+    bytecode::vm::test_runner::run_test_fns, jit::JitError, runtime::jit_closure::JitClosure,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
