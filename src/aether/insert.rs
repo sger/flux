@@ -214,6 +214,19 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             body: Box::new(transform(*body)),
             span,
         },
+
+        // Reuse — recurse into fields
+        CoreExpr::Reuse {
+            token,
+            tag,
+            fields,
+            span,
+        } => CoreExpr::Reuse {
+            token,
+            tag,
+            fields: fields.into_iter().map(transform).collect(),
+            span,
+        },
     }
 }
 

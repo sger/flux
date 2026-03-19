@@ -253,5 +253,29 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
             body: Box::new(anf_expr(*body, next_id)),
             span,
         },
+
+        // Reuse — normalize fields to atoms (same as Con), keep token as-is.
+        CoreExpr::Reuse {
+            token,
+            tag,
+            fields,
+            span,
+        } => {
+            let mut bindings = Vec::new();
+            let fields: Vec<CoreExpr> = fields
+                .into_iter()
+                .map(|f| {
+                    let f = anf_expr(f, next_id);
+                    anf_atom(f, next_id, &mut bindings)
+                })
+                .collect();
+            let reuse = CoreExpr::Reuse {
+                token,
+                tag,
+                fields,
+                span,
+            };
+            wrap_lets(bindings, reuse, span)
+        }
     }
 }

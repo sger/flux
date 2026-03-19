@@ -677,6 +677,14 @@ mod tests {
                 out.push(var);
                 collect_var_refs(body, out);
             }
+            CoreExpr::Reuse {
+                token, fields, ..
+            } => {
+                out.push(token);
+                for field in fields {
+                    collect_var_refs(field, out);
+                }
+            }
         }
     }
 
