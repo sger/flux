@@ -369,8 +369,21 @@ impl<'a> FnCtx<'a> {
                 dest
             }
 
-            // Dup/Drop — transparent at IR level (no-op), just lower the body.
-            CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => self.lower_expr(body),
+            // Dup — transparent at IR level (Rc clone is automatic), just lower the body.
+            CoreExpr::Dup { body, .. } => self.lower_expr(body),
+
+            // Drop — emit AetherDrop to signal early release, then lower the body.
+            CoreExpr::Drop { var, body, span } => {
+                if let Some(binder) = var.binder
+                    && let Some(&ir_var) = self.env.get(&binder)
+                {
+                    self.emit(IrInstr::AetherDrop {
+                        var: ir_var,
+                        metadata: IrMetadata::from_span(*span),
+                    });
+                }
+                self.lower_expr(body)
+            }
 
             // Reuse — for now, lower as regular Con (ignore token).
             // Proper IR lowering for in-place reuse will be added later.

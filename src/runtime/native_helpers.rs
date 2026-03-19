@@ -2455,6 +2455,25 @@ pub extern "C" fn rt_unbox_to_tagged(ctx: *mut JitContext, value: *mut Value) ->
     ctx.boxed_ptr_to_tagged(value)
 }
 
+// ---------------------------------------------------------------------------
+// Aether memory model
+// ---------------------------------------------------------------------------
+
+/// Aether: drop a heap-allocated Value early by replacing it with None.
+/// The arena slot is overwritten so the old Value's Rc is decremented immediately.
+/// The caller guarantees the value will not be used after this call.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_aether_drop(_ctx: *mut JitContext, val_ptr: *mut Value) {
+    if val_ptr.is_null() {
+        return;
+    }
+    // Replace the Value with None, which drops the old value (decrementing its Rc).
+    // The arena slot now contains None, safe for the arena to drop later.
+    unsafe {
+        ptr::write(val_ptr, Value::None);
+    }
+}
+
 // Lookup table for registering helpers with Cranelift JITModule
 // ---------------------------------------------------------------------------
 
@@ -2578,5 +2597,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_perform", rt_perform as *const u8),
         // Value unboxing (LLVM backend)
         ("rt_unbox_to_tagged", rt_unbox_to_tagged as *const u8),
+        // Aether memory model
+        ("rt_aether_drop", rt_aether_drop as *const u8),
     ]
 }
