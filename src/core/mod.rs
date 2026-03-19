@@ -347,6 +347,15 @@ pub enum CoreExpr {
         body: Box<CoreExpr>,
         span: Span,
     },
+    /// Aether: reuse a dropped value's allocation for a new constructor.
+    /// If the token's Rc is uniquely owned, writes fields in-place.
+    /// If shared, falls back to fresh allocation.
+    Reuse {
+        token: CoreVarRef,
+        tag: CoreTag,
+        fields: Vec<CoreExpr>,
+        span: Span,
+    },
 }
 
 // ── Top-level definitions ─────────────────────────────────────────────────────
@@ -436,7 +445,8 @@ impl CoreExpr {
             | CoreExpr::Perform { span, .. }
             | CoreExpr::Handle { span, .. }
             | CoreExpr::Dup { span, .. }
-            | CoreExpr::Drop { span, .. } => *span,
+            | CoreExpr::Drop { span, .. }
+            | CoreExpr::Reuse { span, .. } => *span,
         }
     }
 

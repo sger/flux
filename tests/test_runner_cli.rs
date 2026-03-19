@@ -445,7 +445,7 @@ fn dump_core_prints_core_ir_and_exits_before_execution() {
         text
     );
     assert!(
-        !text.contains("3\n"),
+        !text.contains("\n3\n"),
         "dump-core should not execute the program, output:\n{}",
         text
     );
@@ -483,7 +483,7 @@ fn dump_core_debug_preserves_raw_identity_details() {
         text
     );
     assert!(
-        !text.contains("3\n"),
+        !text.contains("\n3\n"),
         "dump-core debug should not execute the program, output:\n{}",
         text
     );

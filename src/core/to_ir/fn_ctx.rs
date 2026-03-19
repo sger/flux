@@ -371,6 +371,35 @@ impl<'a> FnCtx<'a> {
 
             // Dup/Drop — transparent at IR level (no-op), just lower the body.
             CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => self.lower_expr(body),
+
+            // Reuse — for now, lower as regular Con (ignore token).
+            // Proper IR lowering for in-place reuse will be added later.
+            CoreExpr::Reuse {
+                tag, fields, span, ..
+            } => {
+                let field_vars: Vec<IrVar> = fields.iter().map(|f| self.lower_expr(f)).collect();
+                let dest = self.ctx.alloc_var();
+                let ir_expr = match tag {
+                    CoreTag::None => IrExpr::None,
+                    CoreTag::Some => IrExpr::Some(*field_vars.first().expect("Some needs 1 field")),
+                    CoreTag::Left => IrExpr::Left(*field_vars.first().expect("Left needs 1 field")),
+                    CoreTag::Right => {
+                        IrExpr::Right(*field_vars.first().expect("Right needs 1 field"))
+                    }
+                    CoreTag::Nil => IrExpr::EmptyList,
+                    CoreTag::Cons => IrExpr::Cons {
+                        head: field_vars[0],
+                        tail: field_vars[1],
+                    },
+                    CoreTag::Named(name) => IrExpr::MakeAdt(*name, field_vars),
+                };
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: ir_expr,
+                    metadata: IrMetadata::from_span(*span),
+                });
+                dest
+            }
         }
     }
 }

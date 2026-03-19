@@ -177,6 +177,20 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
             body: Box::new(subst(*body, var, replacement)),
             span,
         },
+        CoreExpr::Reuse {
+            token,
+            tag,
+            fields,
+            span,
+        } => CoreExpr::Reuse {
+            token,
+            tag,
+            fields: fields
+                .into_iter()
+                .map(|f| subst(f, var, replacement))
+                .collect(),
+            span,
+        },
         other => other,
     }
 }
@@ -300,6 +314,17 @@ pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreE
             body: Box::new(f(*body)),
             span,
         },
+        CoreExpr::Reuse {
+            token,
+            tag,
+            fields,
+            span,
+        } => CoreExpr::Reuse {
+            token,
+            tag,
+            fields: fields.into_iter().map(f).collect(),
+            span,
+        },
         other => other,
     }
 }
@@ -320,7 +345,7 @@ pub(super) fn is_pure(expr: &CoreExpr) -> bool {
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
         CoreExpr::Lam { .. } => true,
-        CoreExpr::Con { fields, .. } => fields.iter().all(is_pure),
+        CoreExpr::Con { fields, .. } | CoreExpr::Reuse { fields, .. } => fields.iter().all(is_pure),
         CoreExpr::PrimOp { op, args, .. } => is_primop_pure(op) && args.iter().all(is_pure),
         _ => false, // App, Let, LetRec, Case, Perform, Handle, Return
     }
@@ -415,6 +440,9 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
         | CoreExpr::Drop {
             var: ref_var, body, ..
         } => ref_var.binder == Some(var) || appears_free(var, body),
+        CoreExpr::Reuse {
+            token, fields, ..
+        } => token.binder == Some(var) || fields.iter().any(|f| appears_free(var, f)),
     }
 }
 
@@ -446,6 +474,7 @@ pub(super) fn expr_size(expr: &CoreExpr) -> usize {
             1 + expr_size(body) + handlers.iter().map(|h| expr_size(&h.body)).sum::<usize>()
         }
         CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => 1 + expr_size(body),
+        CoreExpr::Reuse { fields, .. } => 1 + fields.iter().map(expr_size).sum::<usize>(),
     }
 }
 
