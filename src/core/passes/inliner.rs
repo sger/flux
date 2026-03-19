@@ -169,11 +169,13 @@ fn count_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
             let self_count = if ref_var.binder == Some(var) { 1 } else { 0 };
             self_count + count_occurrences(var, body)
         }
-        CoreExpr::Reuse {
-            token, fields, ..
-        } => {
+        CoreExpr::Reuse { token, fields, .. } => {
             let token_count = if token.binder == Some(var) { 1 } else { 0 };
-            token_count + fields.iter().map(|f| count_occurrences(var, f)).sum::<usize>()
+            token_count
+                + fields
+                    .iter()
+                    .map(|f| count_occurrences(var, f))
+                    .sum::<usize>()
         }
     }
 }
@@ -233,9 +235,7 @@ fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
                         && occurs_under_lambda(var, &h.body)
                 })
         }
-        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
-            occurs_under_lambda(var, body)
-        }
+        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => occurs_under_lambda(var, body),
         CoreExpr::Reuse { fields, .. } => fields.iter().any(|f| occurs_under_lambda(var, f)),
     }
 }

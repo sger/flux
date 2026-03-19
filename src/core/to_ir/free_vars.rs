@@ -119,9 +119,7 @@ pub(super) fn free_vars_rec(
             }
             free_vars_rec(body, bound, free);
         }
-        CoreExpr::Reuse {
-            token, fields, ..
-        } => {
+        CoreExpr::Reuse { token, fields, .. } => {
             if let Some(binder) = token.binder
                 && !bound.contains(&binder)
             {

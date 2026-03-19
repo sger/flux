@@ -498,27 +498,18 @@ pub(super) fn compile_block(
                         ptr_tag,
                         "ad_is_ptr",
                     );
-                    let drop_bb =
-                        ctx.llvm_ctx.append_basic_block(func_ref, "aether_drop");
-                    let cont_bb =
-                        ctx.llvm_ctx.append_basic_block(func_ref, "aether_cont");
+                    let drop_bb = ctx.llvm_ctx.append_basic_block(func_ref, "aether_drop");
+                    let cont_bb = ctx.llvm_ctx.append_basic_block(func_ref, "aether_cont");
                     ctx.builder.build_cond_br(is_ptr, drop_bb, cont_bb);
 
                     ctx.builder.position_at_end(drop_bb);
-                    let payload =
-                        ctx.builder.build_extract_value(tagged, 1, "ad_payload");
-                    let ptr_val = ctx.builder.build_int_to_ptr(
-                        payload,
-                        ctx.ptr_type,
-                        "ad_ptr",
-                    );
+                    let payload = ctx.builder.build_extract_value(tagged, 1, "ad_payload");
+                    let ptr_val = ctx
+                        .builder
+                        .build_int_to_ptr(payload, ctx.ptr_type, "ad_ptr");
                     let (drop_fn, drop_ty) = get_helper(ctx, "rt_aether_drop")?;
-                    ctx.builder.build_call(
-                        drop_ty,
-                        drop_fn,
-                        &mut [ctx_val, ptr_val],
-                        "",
-                    );
+                    ctx.builder
+                        .build_call(drop_ty, drop_fn, &mut [ctx_val, ptr_val], "");
                     ctx.builder.build_br(cont_bb);
 
                     ctx.builder.position_at_end(cont_bb);

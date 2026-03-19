@@ -24,7 +24,7 @@ use crate::runtime::{
     cons_cell::ConsCell,
     hamt as rc_hamt,
     jit_closure::JitClosure,
-    value::{AdtFields, Value},
+    value::{AdtFields, AdtValue, Value},
 };
 
 use crate::runtime::native_context::{
@@ -391,7 +391,6 @@ fn clone_values_from_tagged_ptrs(
     }
     Some(values)
 }
-
 
 // ---------------------------------------------------------------------------
 // Error helpers
@@ -2459,6 +2458,224 @@ pub extern "C" fn rt_unbox_to_tagged(ctx: *mut JitContext, value: *mut Value) ->
 // Aether memory model
 // ---------------------------------------------------------------------------
 
+/// Aether Phase 7 (Perceus reuse): try to reuse a value's allocation.
+/// If the Rc inside the Value has strong_count == 1 (uniquely owned), returns
+/// the pointer unchanged (reusable token). If shared, drops the Rc reference
+/// (by overwriting with None) and returns null.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_drop_reuse(_ctx: *mut JitContext, val_ptr: *mut Value) -> *mut Value {
+    if val_ptr.is_null() {
+        return ptr::null_mut();
+    }
+    let value = unsafe { &*val_ptr };
+    let is_unique = match value {
+        Value::Cons(rc) => Rc::strong_count(rc) == 1,
+        Value::Adt(rc) => Rc::strong_count(rc) == 1,
+        Value::Some(rc) | Value::Left(rc) | Value::Right(rc) => Rc::strong_count(rc) == 1,
+        Value::Tuple(rc) => Rc::strong_count(rc) == 1,
+        Value::Array(rc) => Rc::strong_count(rc) == 1,
+        _ => false, // Non-Rc types can't be reused
+    };
+    if is_unique {
+        val_ptr // Return the pointer — caller will write new fields in-place
+    } else {
+        // Shared — drop our reference and return null
+        unsafe {
+            ptr::write(val_ptr, Value::None);
+        }
+        ptr::null_mut()
+    }
+}
+
+/// Aether Phase 7 (Perceus reuse): construct a Cons cell, reusing the token's
+/// allocation if non-null. When the token is non-null and holds a `Value::Cons`
+/// whose `Rc` is uniquely owned, `Rc::get_mut` will succeed and the head/tail
+/// are overwritten in-place without allocating a new `Rc`.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_reuse_cons(
+    ctx: *mut JitContext,
+    token: *mut Value,
+    head_ptr: *mut Value,
+    tail_ptr: *mut Value,
+) -> *mut Value {
+    let head = if head_ptr.is_null() {
+        Value::None
+    } else {
+        unsafe { (*head_ptr).clone() }
+    };
+    let tail = if tail_ptr.is_null() {
+        Value::None
+    } else {
+        unsafe { (*tail_ptr).clone() }
+    };
+
+    if !token.is_null() {
+        let token_val = unsafe { &mut *token };
+        if let Value::Cons(rc) = token_val
+            && let Some(cell) = Rc::get_mut(rc)
+        {
+            // In-place reuse: write new head/tail without allocating.
+            cell.head = head;
+            cell.tail = tail;
+            return token;
+        }
+        // Shape mismatch or not actually unique — overwrite with fresh
+        unsafe {
+            ptr::write(token, ConsCell::cons(head, tail));
+        }
+        token
+    } else {
+        // Fallback: allocate fresh
+        let ctx = unsafe { ctx_ref(ctx) };
+        ctx.alloc(ConsCell::cons(head, tail))
+    }
+}
+
+/// Aether Phase 7 (Perceus reuse): construct a Some value, reusing the token's
+/// allocation if non-null.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_reuse_some(
+    ctx: *mut JitContext,
+    token: *mut Value,
+    inner_ptr: *mut Value,
+) -> *mut Value {
+    let inner = if inner_ptr.is_null() {
+        Value::None
+    } else {
+        unsafe { (*inner_ptr).clone() }
+    };
+
+    if !token.is_null() {
+        let token_val = unsafe { &mut *token };
+        if let Value::Some(rc) = token_val
+            && let Some(v) = Rc::get_mut(rc)
+        {
+            *v = inner;
+            return token;
+        }
+        unsafe {
+            ptr::write(token, Value::Some(Rc::new(inner)));
+        }
+        token
+    } else {
+        let ctx = unsafe { ctx_ref(ctx) };
+        ctx.alloc(Value::Some(Rc::new(inner)))
+    }
+}
+
+/// Aether Phase 7 (Perceus reuse): construct a Left value, reusing the token's
+/// allocation if non-null.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_reuse_left(
+    ctx: *mut JitContext,
+    token: *mut Value,
+    inner_ptr: *mut Value,
+) -> *mut Value {
+    let inner = if inner_ptr.is_null() {
+        Value::None
+    } else {
+        unsafe { (*inner_ptr).clone() }
+    };
+
+    if !token.is_null() {
+        let token_val = unsafe { &mut *token };
+        if let Value::Left(rc) = token_val
+            && let Some(v) = Rc::get_mut(rc)
+        {
+            *v = inner;
+            return token;
+        }
+        unsafe {
+            ptr::write(token, Value::Left(Rc::new(inner)));
+        }
+        token
+    } else {
+        let ctx = unsafe { ctx_ref(ctx) };
+        ctx.alloc(Value::Left(Rc::new(inner)))
+    }
+}
+
+/// Aether Phase 7 (Perceus reuse): construct a Right value, reusing the token's
+/// allocation if non-null.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_reuse_right(
+    ctx: *mut JitContext,
+    token: *mut Value,
+    inner_ptr: *mut Value,
+) -> *mut Value {
+    let inner = if inner_ptr.is_null() {
+        Value::None
+    } else {
+        unsafe { (*inner_ptr).clone() }
+    };
+
+    if !token.is_null() {
+        let token_val = unsafe { &mut *token };
+        if let Value::Right(rc) = token_val
+            && let Some(v) = Rc::get_mut(rc)
+        {
+            *v = inner;
+            return token;
+        }
+        unsafe {
+            ptr::write(token, Value::Right(Rc::new(inner)));
+        }
+        token
+    } else {
+        let ctx = unsafe { ctx_ref(ctx) };
+        ctx.alloc(Value::Right(Rc::new(inner)))
+    }
+}
+
+/// Aether Phase 7 (Perceus reuse): construct an ADT value, reusing the token's
+/// allocation if non-null.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_reuse_adt(
+    ctx: *mut JitContext,
+    token: *mut Value,
+    name_ptr: *const u8,
+    name_len: i64,
+    fields_ptr: *const JitTaggedValue,
+    nfields: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let constructor_name = Rc::new(
+        unsafe { from_utf8_unchecked(from_raw_parts(name_ptr, name_len as usize)) }.to_string(),
+    );
+    let Some(fields) =
+        clone_values_from_tagged_ptrs(ctx, fields_ptr, nfields as usize, "reuse ADT construction")
+    else {
+        return ptr::null_mut();
+    };
+    let adt_fields = AdtFields::from_vec(fields);
+
+    if !token.is_null() {
+        let token_val = unsafe { &mut *token };
+        if let Value::Adt(rc) = token_val
+            && let Some(adt) = Rc::get_mut(rc)
+        {
+            adt.constructor = constructor_name;
+            adt.fields = adt_fields;
+            return token;
+        }
+        unsafe {
+            ptr::write(
+                token,
+                Value::Adt(Rc::new(AdtValue {
+                    constructor: constructor_name,
+                    fields: adt_fields,
+                })),
+            );
+        }
+        token
+    } else {
+        ctx.alloc(Value::Adt(Rc::new(AdtValue {
+            constructor: constructor_name,
+            fields: adt_fields,
+        })))
+    }
+}
+
 /// Aether: drop a heap-allocated Value early by replacing it with None.
 /// The arena slot is overwritten so the old Value's Rc is decremented immediately.
 /// The caller guarantees the value will not be used after this call.
@@ -2599,5 +2816,12 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_unbox_to_tagged", rt_unbox_to_tagged as *const u8),
         // Aether memory model
         ("rt_aether_drop", rt_aether_drop as *const u8),
+        // Aether Phase 7: Perceus reuse helpers
+        ("rt_drop_reuse", rt_drop_reuse as *const u8),
+        ("rt_reuse_cons", rt_reuse_cons as *const u8),
+        ("rt_reuse_some", rt_reuse_some as *const u8),
+        ("rt_reuse_left", rt_reuse_left as *const u8),
+        ("rt_reuse_right", rt_reuse_right as *const u8),
+        ("rt_reuse_adt", rt_reuse_adt as *const u8),
     ]
 }

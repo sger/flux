@@ -1272,9 +1272,7 @@ impl JitCompiler {
                                     &mut builder,
                                     "rt_aether_drop",
                                 );
-                                builder
-                                    .ins()
-                                    .call(drop_fn, &[ctx_val, binding.value]);
+                                builder.ins().call(drop_fn, &[ctx_val, binding.value]);
                             }
                         }
                         BackendIrInstr::HandleScope { effect, arms, .. } => {
@@ -1819,7 +1817,13 @@ fn backend_ir_jit_support_error(ir_program: &IrProgram, interner: &Interner) -> 
                             | BackendIrExpr::Left(_)
                             | BackendIrExpr::Right(_)
                             | BackendIrExpr::Cons { .. }
-                            | BackendIrExpr::Perform { .. } => {}
+                            | BackendIrExpr::Perform { .. }
+                            | BackendIrExpr::DropReuse(_)
+                            | BackendIrExpr::ReuseCons { .. }
+                            | BackendIrExpr::ReuseSome { .. }
+                            | BackendIrExpr::ReuseLeft { .. }
+                            | BackendIrExpr::ReuseRight { .. }
+                            | BackendIrExpr::ReuseAdt { .. } => {}
                             BackendIrExpr::LoadName(name) => {
                                 let is_supported_load = named_functions.contains(name)
                                     || global_names.contains(name)
@@ -2835,6 +2839,144 @@ fn compile_simple_backend_ir_expr(
             let result = builder.inst_results(call)[0];
             emit_return_on_null_value(builder, result);
             Ok(JitValue::boxed(result))
+        }
+        BackendIrExpr::DropReuse(var) => {
+            let val = env
+                .get(var)
+                .copied()
+                .ok_or_else(|| format!("missing backend IR drop_reuse var {:?}", var))?;
+            let val = box_jit_value(module, helpers, builder, ctx_val, val);
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_drop_reuse");
+            let call = builder.ins().call(helper, &[ctx_val, val]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
+        BackendIrExpr::ReuseCons { token, head, tail } => {
+            let token_val = env
+                .get(token)
+                .copied()
+                .ok_or_else(|| format!("missing backend IR reuse_cons token {:?}", token))?;
+            let head_val = env
+                .get(head)
+                .copied()
+                .ok_or_else(|| format!("missing backend IR reuse_cons head {:?}", head))?;
+            let tail_val = env
+                .get(tail)
+                .copied()
+                .ok_or_else(|| format!("missing backend IR reuse_cons tail {:?}", tail))?;
+            let token_boxed = box_jit_value(module, helpers, builder, ctx_val, token_val);
+            let head_boxed = box_jit_value(module, helpers, builder, ctx_val, head_val);
+            let tail_boxed = box_jit_value(module, helpers, builder, ctx_val, tail_val);
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_cons");
+            let call = builder
+                .ins()
+                .call(helper, &[ctx_val, token_boxed, head_boxed, tail_boxed]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
+        BackendIrExpr::ReuseSome { token, inner } => {
+            let token_val = env
+                .get(token)
+                .copied()
+                .ok_or_else(|| format!("missing backend IR reuse_some token {:?}", token))?;
+            let inner_val = env
+                .get(inner)
+                .copied()
+                .ok_or_else(|| format!("missing backend IR reuse_some inner {:?}", inner))?;
+            let token_boxed = box_jit_value(module, helpers, builder, ctx_val, token_val);
+            let inner_boxed = box_jit_value(module, helpers, builder, ctx_val, inner_val);
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_some");
+            let call = builder
+                .ins()
+                .call(helper, &[ctx_val, token_boxed, inner_boxed]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
+        BackendIrExpr::ReuseLeft { token, inner } => {
+            let token_val = env
+                .get(token)
+                .copied()
+                .ok_or_else(|| format!("missing backend IR reuse_left token {:?}", token))?;
+            let inner_val = env
+                .get(inner)
+                .copied()
+                .ok_or_else(|| format!("missing backend IR reuse_left inner {:?}", inner))?;
+            let token_boxed = box_jit_value(module, helpers, builder, ctx_val, token_val);
+            let inner_boxed = box_jit_value(module, helpers, builder, ctx_val, inner_val);
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_left");
+            let call = builder
+                .ins()
+                .call(helper, &[ctx_val, token_boxed, inner_boxed]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
+        BackendIrExpr::ReuseRight { token, inner } => {
+            let token_val = env
+                .get(token)
+                .copied()
+                .ok_or_else(|| format!("missing backend IR reuse_right token {:?}", token))?;
+            let inner_val = env
+                .get(inner)
+                .copied()
+                .ok_or_else(|| format!("missing backend IR reuse_right inner {:?}", inner))?;
+            let token_boxed = box_jit_value(module, helpers, builder, ctx_val, token_val);
+            let inner_boxed = box_jit_value(module, helpers, builder, ctx_val, inner_val);
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_right");
+            let call = builder
+                .ins()
+                .call(helper, &[ctx_val, token_boxed, inner_boxed]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
+        BackendIrExpr::ReuseAdt {
+            token,
+            constructor,
+            fields,
+        } => {
+            let token_val = env
+                .get(token)
+                .copied()
+                .ok_or_else(|| format!("missing backend IR reuse_adt token {:?}", token))?;
+            let token_boxed = box_jit_value(module, helpers, builder, ctx_val, token_val);
+            let name_str = interner.resolve(*constructor);
+            let bytes = name_str.as_bytes().to_vec();
+            let data = module
+                .declare_anonymous_data(false, false)
+                .map_err(|e| e.to_string())?;
+            let mut desc = DataDescription::new();
+            desc.define(bytes.into_boxed_slice());
+            module.define_data(data, &desc).map_err(|e| e.to_string())?;
+            let gv = module.declare_data_in_func(data, builder.func);
+            let name_ptr = builder.ins().global_value(PTR_TYPE, gv);
+            let name_len = builder.ins().iconst(PTR_TYPE, name_str.len() as i64);
+            // Build tagged fields array
+            let field_vals = fields
+                .iter()
+                .map(|var| {
+                    env.get(var)
+                        .copied()
+                        .ok_or_else(|| format!("missing backend IR reuse_adt field {:?}", var))
+                        .map(|v| box_and_guard_jit_value(module, helpers, builder, ctx_val, v))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let slot = builder.create_sized_stack_slot(StackSlotData::new(
+                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                (field_vals.len().max(1) as u32) * 16,
+                3,
+            ));
+            for (i, val) in field_vals.iter().enumerate() {
+                builder.ins().stack_store(*val, slot, (i * 16) as i32);
+            }
+            let fields_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+            let nfields = builder.ins().iconst(PTR_TYPE, fields.len() as i64);
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_adt");
+            let call = builder.ins().call(
+                helper,
+                &[
+                    ctx_val,
+                    token_boxed,
+                    name_ptr,
+                    name_len,
+                    fields_ptr,
+                    nfields,
+                ],
+            );
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         _ => Err("unsupported backend IR expression in direct JIT path".to_string()),
     }

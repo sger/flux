@@ -235,10 +235,7 @@ impl<'a> Formatter<'a> {
                 self.write_expr(out, body, indent);
             }
             CoreExpr::Reuse {
-                token,
-                tag,
-                fields,
-                ..
+                token, tag, fields, ..
             } => {
                 write!(out, "reuse {} ", self.resolve_var(token)).unwrap();
                 self.write_tag(out, tag);

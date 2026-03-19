@@ -124,11 +124,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             }
         }
 
-        CoreExpr::Lam {
-            params,
-            body,
-            span,
-        } => {
+        CoreExpr::Lam { params, body, span } => {
             let body = Box::new(transform(*body));
 
             // Drop unused parameters at start of body
@@ -281,10 +277,7 @@ fn drop_unused_pat_vars(pat: &crate::core::CorePat, rhs: CoreExpr, span: Span) -
 }
 
 /// Find a CoreBinder in a pattern by its ID.
-fn find_binder_in_pat(
-    pat: &crate::core::CorePat,
-    target: CoreBinderId,
-) -> Option<CoreBinder> {
+fn find_binder_in_pat(pat: &crate::core::CorePat, target: CoreBinderId) -> Option<CoreBinder> {
     match pat {
         crate::core::CorePat::Var(binder) => {
             if binder.id == target {

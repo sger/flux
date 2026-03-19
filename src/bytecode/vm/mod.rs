@@ -102,7 +102,6 @@ impl VM {
         self.trace = enabled;
     }
 
-
     /// Create a closure that acts as the identity function: `fn(x) -> x`.
     /// Used as the `resume` parameter for tail-resumptive `OpPerformDirect`,
     /// so that `resume(v)` simply returns `v`.

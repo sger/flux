@@ -47,7 +47,9 @@ impl Compiler {
                 | IrExpr::ListHead { .. }
                 | IrExpr::ListTail { .. }
                 | IrExpr::AdtTagTest { .. }
-                | IrExpr::AdtField { .. } => true,
+                | IrExpr::AdtField { .. }
+                | IrExpr::MakeClosure(_, _)
+                | IrExpr::Perform { .. } => true,
                 IrExpr::Binary(op, _, _) => matches!(
                     op,
                     IrBinaryOp::Add
@@ -468,6 +470,58 @@ impl Compiler {
                 };
                 Ok(())
             }
+            IrExpr::MakeClosure(fn_id, captures) => {
+                // Load each capture variable onto the stack
+                for cap in captures {
+                    self.load_symbol(bindings.get(cap).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode closure capture binding",
+                        ))
+                    })?);
+                }
+                // Resolve FunctionId → Symbol → Binding to get the constant index
+                let fn_symbol = self
+                    .lookup_ir_function_symbol_by_raw_id(fn_id.0)
+                    .ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode closure function symbol",
+                        ))
+                    })?;
+                let fn_binding = self.symbol_table.resolve(fn_symbol).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode closure function binding",
+                    ))
+                })?;
+                self.emit_closure_index(fn_binding.index, captures.len());
+                Ok(())
+            }
+            IrExpr::Perform {
+                effect,
+                operation,
+                args,
+            } => {
+                // Push arguments onto the stack
+                for arg in args {
+                    self.load_symbol(bindings.get(arg).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode perform arg binding",
+                        ))
+                    })?);
+                }
+                // Create PerformDescriptor constant
+                let effect_name = self.sym(*effect).to_string();
+                let op_name = self.sym(*operation).to_string();
+                let descriptor = crate::runtime::perform_descriptor::PerformDescriptor {
+                    effect: *effect,
+                    op: *operation,
+                    effect_name: effect_name.into(),
+                    op_name: op_name.into(),
+                };
+                let const_idx =
+                    self.add_constant(Value::PerformDescriptor(std::rc::Rc::new(descriptor)));
+                self.emit(OpCode::OpPerform, &[const_idx, args.len()]);
+                Ok(())
+            }
             _ => Err(Self::boxed(Diagnostic::warning(
                 "unsupported CFG bytecode expression lowering",
             ))),
@@ -513,9 +567,7 @@ impl Compiler {
                 // Effect checking for named tail calls.
                 if let IrCallTarget::Named(name) = callee {
                     let name_str = self.sym(*name);
-                    if let Some(primop) =
-                        crate::primop::resolve_primop_call(name_str, args.len())
-                    {
+                    if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
                         let required = match primop.effect_kind() {
                             crate::primop::PrimEffect::Io => Some("IO"),
                             crate::primop::PrimEffect::Time => Some("Time"),
@@ -615,9 +667,7 @@ impl Compiler {
         // available in the surrounding scope.
         if let IrCallTarget::Named(name) = target {
             let name_str = self.sym(*name);
-            if let Some(primop) =
-                crate::primop::resolve_primop_call(name_str, args.len())
-            {
+            if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
                 let required = match primop.effect_kind() {
                     crate::primop::PrimEffect::Io => Some("IO"),
                     crate::primop::PrimEffect::Time => Some("Time"),
