@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    backend_ir::{
+    cfg::{
         FunctionId, IrConst, IrExpr, IrFunctionOrigin, IrInstr, IrMetadata, IrParam, IrProgram,
         IrTopLevelItem, IrType,
     },
@@ -61,10 +61,10 @@ pub(super) struct ToIrCtx {
     pub(super) next_var_id: u32,
     pub(super) next_block_id: u32,
     pub(super) next_function_id: u32,
-    pub(super) functions: Vec<crate::backend_ir::IrFunction>,
+    pub(super) functions: Vec<crate::cfg::IrFunction>,
     pub(super) top_level_items: Vec<IrTopLevelItem>,
     pub(super) globals: Vec<Identifier>,
-    pub(super) global_bindings: Vec<crate::backend_ir::IrGlobalBinding>,
+    pub(super) global_bindings: Vec<crate::cfg::IrGlobalBinding>,
 }
 
 impl ToIrCtx {
@@ -80,16 +80,16 @@ impl ToIrCtx {
         }
     }
 
-    pub(super) fn alloc_var(&mut self) -> crate::backend_ir::IrVar {
+    pub(super) fn alloc_var(&mut self) -> crate::cfg::IrVar {
         let id = self.next_var_id;
         self.next_var_id += 1;
-        crate::backend_ir::IrVar(id)
+        crate::cfg::IrVar(id)
     }
 
-    pub(super) fn alloc_block(&mut self) -> crate::backend_ir::BlockId {
+    pub(super) fn alloc_block(&mut self) -> crate::cfg::BlockId {
         let id = self.next_block_id;
         self.next_block_id += 1;
-        crate::backend_ir::BlockId(id)
+        crate::cfg::BlockId(id)
     }
 
     pub(super) fn alloc_function(&mut self) -> FunctionId {
@@ -224,7 +224,7 @@ impl ToIrCtx {
                 entry_fn
                     .ctx
                     .global_bindings
-                    .push(crate::backend_ir::IrGlobalBinding {
+                    .push(crate::cfg::IrGlobalBinding {
                         name: def.name,
                         var: g_var,
                     });

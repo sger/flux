@@ -1,4 +1,4 @@
-use crate::backend_ir::{IrPassContext, IrProgram, lower_program_to_ir, run_ir_pass_pipeline};
+use crate::cfg::{IrPassContext, IrProgram, lower_program_to_ir, run_ir_pass_pipeline};
 use crate::diagnostics::Diagnostic;
 use crate::syntax::program::Program;
 

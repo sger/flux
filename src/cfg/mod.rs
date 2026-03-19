@@ -1,8 +1,10 @@
 use std::{collections::HashMap, fmt};
 
 use crate::{
-    core::CoreType,
-    diagnostics::position::Span,
+    core::{
+        CoreType, lower_ast::lower_program_ast, passes::run_core_passes, to_ir::lower_core_to_ir,
+    },
+    diagnostics::{Diagnostic, position::Span},
     syntax::{
         Identifier,
         block::Block,
@@ -10,17 +12,35 @@ use crate::{
         effect_expr::EffectExpr,
         effect_ops::EffectOp,
         expression::{ExprId, Expression, Pattern},
+        program::Program,
         type_expr::TypeExpr,
     },
     types::infer_type::InferType,
 };
 
 pub mod lower;
+pub mod metadata;
 pub mod passes;
 pub mod validate;
 
 pub use passes::{IrPassContext, run_ir_pass_pipeline};
 pub use validate::validate_ir;
+
+/// Lower a parsed program to the CFG-based backend IR.
+///
+/// Orchestrates: AST → Core IR → Core passes → CFG IR.
+#[allow(clippy::result_large_err)]
+pub fn lower_program_to_ir(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+) -> Result<IrProgram, Diagnostic> {
+    let mut core = lower_program_ast(program, hm_expr_types);
+    run_core_passes(&mut core);
+    let mut ir = lower_core_to_ir(&core);
+    ir.hm_expr_types = hm_expr_types.clone();
+    ir.core = Some(core);
+    Ok(ir)
+}
 
 /// Update `function_id` in each `IrTopLevelItem::Function` of `items` to
 /// reference the Core IR-derived CFG function instead of the old structured-IR

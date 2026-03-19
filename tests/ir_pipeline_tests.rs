@@ -10,9 +10,9 @@
 use std::collections::HashMap;
 
 use flux::ast::type_infer::{InferProgramConfig, infer_program};
-use flux::backend_ir::{IrBinaryOp, IrExpr, IrInstr, IrTerminator, lower_program_to_ir};
 use flux::bytecode::compiler::Compiler;
 use flux::bytecode::vm::VM;
+use flux::cfg::{IrBinaryOp, IrExpr, IrInstr, IrTerminator, lower_program_to_ir};
 use flux::core::{
     CoreExpr, CorePrimOp, lower_ast::lower_program_ast, passes::run_core_passes,
     to_ir::lower_core_to_ir,

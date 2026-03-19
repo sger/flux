@@ -22,7 +22,7 @@ use crate::syntax::interner::Interner;
 use super::context::LlvmCompilerContext;
 use super::wrapper;
 
-use crate::backend_ir::metadata;
+use crate::cfg::metadata;
 use entry::{compile_entry_wrapper, compile_identity_function};
 use function::compile_function;
 use symbols::{declare_runtime_helpers, declare_user_functions, resolve_all_runtime_symbols};
