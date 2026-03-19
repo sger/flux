@@ -2,7 +2,7 @@
 ///
 /// These utilities (substitution, tree walking, free-variable analysis) are
 /// used by multiple optimization passes.
-use crate::core::{CoreBinderId, CoreExpr, CoreHandler, CorePat};
+use crate::core::{CoreBinderId, CoreExpr, CoreHandler, CorePat, CorePrimOp};
 
 // ── Substitution ──────────────────────────────────────────────────────────────
 
@@ -272,9 +272,62 @@ pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreE
 
 // ── Analysis helpers ──────────────────────────────────────────────────────────
 
-/// Returns true when `expr` is guaranteed pure (no effects, no calls).
-pub(super) fn is_pure(expr: &CoreExpr) -> bool {
+/// Returns true when `expr` is trivially pure — only literals and variables.
+/// Used by `inline_trivial_lets` which must not duplicate non-trivial computation.
+pub(super) fn is_trivially_pure(expr: &CoreExpr) -> bool {
     matches!(expr, CoreExpr::Lit(_, _) | CoreExpr::Var { .. })
+}
+
+/// Returns true when `expr` is guaranteed pure (no effects, no calls, cannot fail).
+/// Uses primop-level classification: typed arithmetic on proven types is pure,
+/// generic arithmetic that may fail on type mismatches is not.
+/// Used by dead-binding elimination where the question is "can we drop this?".
+pub(super) fn is_pure(expr: &CoreExpr) -> bool {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
+        CoreExpr::Lam { .. } => true,
+        CoreExpr::Con { fields, .. } => fields.iter().all(is_pure),
+        CoreExpr::PrimOp { op, args, .. } => is_primop_pure(op) && args.iter().all(is_pure),
+        _ => false, // App, Let, LetRec, Case, Perform, Handle, Return
+    }
+}
+
+/// Classify whether a primitive operation can fail at runtime.
+fn is_primop_pure(op: &CorePrimOp) -> bool {
+    match op {
+        // Typed arithmetic on proven types — can't type-mismatch
+        CorePrimOp::IAdd
+        | CorePrimOp::ISub
+        | CorePrimOp::IMul
+        | CorePrimOp::FAdd
+        | CorePrimOp::FSub
+        | CorePrimOp::FMul => true,
+        // Boolean/equality — can't fail
+        CorePrimOp::And | CorePrimOp::Or | CorePrimOp::Not | CorePrimOp::Eq | CorePrimOp::NEq => {
+            true
+        }
+        // Constructors — always pure
+        CorePrimOp::MakeList
+        | CorePrimOp::MakeArray
+        | CorePrimOp::MakeTuple
+        | CorePrimOp::MakeHash
+        | CorePrimOp::Concat
+        | CorePrimOp::Interpolate => true,
+        // Division — may fail (division by zero)
+        CorePrimOp::Div
+        | CorePrimOp::IDiv
+        | CorePrimOp::FDiv
+        | CorePrimOp::Mod
+        | CorePrimOp::IMod => false,
+        // Generic arithmetic — may fail (type mismatch under gradual typing)
+        CorePrimOp::Add | CorePrimOp::Sub | CorePrimOp::Mul => false,
+        // Comparisons — may fail on incomparable types
+        CorePrimOp::Lt | CorePrimOp::Le | CorePrimOp::Gt | CorePrimOp::Ge => false,
+        // Negation — may fail (wrong type)
+        CorePrimOp::Neg => false,
+        // Access ops — may fail (out of bounds, missing key)
+        CorePrimOp::Index | CorePrimOp::MemberAccess(_) | CorePrimOp::TupleField(_) => false,
+    }
 }
 
 /// Returns true when `var` appears free in `expr`.

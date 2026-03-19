@@ -87,55 +87,56 @@ This architecture document focuses on component layout; semantic truth for type/
               │  7. type_directed_unboxing                       │
               └────────────────────────┬────────────────────────┘
                                        │
-                          ┌────────────┴────────────┐
-                          │                         │
-               ┌──────────▼──────────┐   ┌─────────▼──────────┐
-               │   VM Bytecode Path  │   │    JIT Path         │
-               │                     │   │                     │
-               │  Bytecode Compiler  │   │  Cranelift Compiler │
-               │  (bytecode/compiler)│   │  (jit/compiler.rs)  │
-               │                     │   │                     │
-               │  IrFunction →       │   │  IrFunction →       │
-               │  OpCode stream      │   │  Cranelift IR →     │
-               │                     │   │  Machine code       │
-               │  ┌───────────────┐  │   │                     │
-               │  │ Evidence path │  │   │  ┌───────────────┐  │
-               │  │ TR handlers → │  │   │  │ JitValueKind  │  │
-               │  │ OpGetLocal +  │  │   │  │ Int/Float/Bool│  │
-               │  │ OpCall        │  │   │  │ (unboxed in   │  │
-               │  └───────────────┘  │   │  │  registers)   │  │
-               │                     │   │  └───────────────┘  │
-               │  ┌───────────────┐  │   │                     │
-               │  │ Static handler│  │   │  ┌───────────────┐  │
-               │  │ resolution    │  │   │  │ rt_perform /  │  │
-               │  │ OpPerformDirect│ │   │  │ rt_push_handler│ │
-               │  │ Indexed       │  │   │  │ (runtime      │  │
-               │  └───────────────┘  │   │  │  helpers)     │  │
-               └──────────┬──────────┘   │  └───────────────┘  │
-                          │              └─────────┬──────────┘
-                          │                        │
-               ┌──────────▼──────────┐   ┌────────▼───────────┐
-               │   VM Execution      │   │  Native Execution   │
-               │  (runtime/vm/)      │   │  (Cranelift output)  │
-               │                     │   │                     │
-               │  Stack-based VM     │   │  Direct machine     │
-               │  dispatch loop      │   │  code execution     │
-               │                     │   │                     │
-               │  handler_stack      │   │  handler_stack      │
-               │  (effect runtime)   │   │  (via rt_* helpers) │
-               └──────────┬──────────┘   └────────┬───────────┘
-                          │                        │
-                          └────────────┬───────────┘
-                                       │
-                          ┌────────────▼────────────┐
-                          │    Shared Runtime        │
-                          │                          │
-                          │  Value enum (25 variants)│
-                          │  GC (mark & sweep)       │
-                          │  Base functions (75)      │
-                          │  Closures / Continuations │
-                          │  HAMT persistent maps     │
-                          └──────────────────────────┘
+                          ┌────────────┼────────────────────────┐
+                          │            │                        │
+               ┌──────────▼──────────┐ │ ┌─────────▼──────────┐ │ ┌──────────▼──────────┐
+               │   VM Bytecode Path  │ │ │    JIT Path         │ │ │    LLVM Path         │
+               │                     │ │ │                     │ │ │                      │
+               │  Bytecode Compiler  │ │ │  Cranelift Compiler │ │ │  LLVM Compiler       │
+               │  (bytecode/compiler)│ │ │  (jit/compiler.rs)  │ │ │  (llvm/compiler/)    │
+               │                     │ │ │                     │ │ │                      │
+               │  IrFunction →       │ │ │  IrFunction →       │ │ │  IrFunction →        │
+               │  OpCode stream      │ │ │  Cranelift IR →     │ │ │  LLVM IR →           │
+               │                     │ │ │  Machine code       │ │ │  Machine code        │
+               │  ┌───────────────┐  │ │ │                     │ │ │                      │
+               │  │ Evidence path │  │ │ │  ┌───────────────┐  │ │ │  ┌────────────────┐  │
+               │  │ TR handlers → │  │ │ │  │ JitValueKind  │  │ │ │  │ Tagged values   │  │
+               │  │ OpGetLocal +  │  │ │ │  │ Int/Float/Bool│  │ │ │  │ {i64 tag, i64  │  │
+               │  │ OpCall        │  │ │ │  │ (unboxed in   │  │ │ │  │  payload}       │  │
+               │  └───────────────┘  │ │ │  │  registers)   │  │ │ │  └────────────────┘  │
+               │                     │ │ │  └───────────────┘  │ │ │                      │
+               │  ┌───────────────┐  │ │ │                     │ │ │  ┌────────────────┐  │
+               │  │ Static handler│  │ │ │  ┌───────────────┐  │ │ │  │ 50+ rt_*       │  │
+               │  │ resolution    │  │ │ │  │ rt_perform /  │  │ │ │  │ helpers shared │  │
+               │  │ OpPerformDirect│ │ │ │  │ rt_push_handler│ │ │ │  │ with JIT       │  │
+               │  │ Indexed       │  │ │ │  │ (runtime      │  │ │ │  │                │  │
+               │  └───────────────┘  │ │ │  │  helpers)     │  │ │ │  │ AOT: .o / .s   │  │
+               └──────────┬──────────┘ │ │  └───────────────┘  │ │ │  └────────────────┘  │
+                          │            │ └─────────┬──────────┘ │ └──────────┬──────────┘
+                          │            │           │            │            │
+               ┌──────────▼──────────┐ │ ┌────────▼────────────▼────────────▼─┐
+               │   VM Execution      │ │ │       Native Execution              │
+               │  (runtime/vm/)      │ │ │  (Cranelift or LLVM output)         │
+               │                     │ │ │                                     │
+               │  Stack-based VM     │ │ │  Direct machine code execution      │
+               │  dispatch loop      │ │ │  JitContext (shared by both)        │
+               │                     │ │ │                                     │
+               │  handler_stack      │ │ │  handler_stack (via rt_* helpers)   │
+               │  (effect runtime)   │ │ │                                     │
+               └──────────┬──────────┘ │ └──────────────────┬──────────────────┘
+                          │            │                    │
+                          └────────────┴──────┬─────────────┘
+                                              │
+                          ┌───────────────────▼───────────────┐
+                          │         Shared Runtime             │
+                          │                                    │
+                          │  Value enum (25 variants)          │
+                          │  GC (mark & sweep)                 │
+                          │  Base functions (77)                │
+                          │  Closures / Continuations          │
+                          │  HAMT persistent maps              │
+                          │  JitContext + 50+ rt_* helpers     │
+                          └────────────────────────────────────┘
 ```
 
 ---
@@ -151,6 +152,7 @@ This architecture document focuses on component layout; semantic truth for type/
 | **Backend IR** | `cfg/` | 3K | CFG representation + 7 lowering passes |
 | **VM Backend** | `bytecode/compiler/` | 11K | CFG → bytecode opcodes |
 | **JIT Backend** | `jit/` | 6K | CFG → Cranelift → machine code |
+| **LLVM Backend** | `llvm/` | 3K | CFG → LLVM IR → machine code / object files |
 | **Runtime** | `runtime/` | 8K | VM dispatch, GC, base functions, values |
 | **Diagnostics** | `diagnostics/` | 3K | Elm-style error rendering |
 
@@ -369,6 +371,20 @@ src/
 │   ├── runtime_helpers.rs   Native callbacks: rt_perform, rt_push_handler, GC alloc
 │   └── value_arena.rs       Pointer-stable allocation for JIT values
 │
+├── llvm/                    LLVM backend (--features llvm, requires LLVM 18)
+│   ├── mod.rs               Public API: llvm_compile, llvm_execute, llvm_emit_object
+│   ├── context.rs           LlvmCompilerContext (LLVM module, builder, types, helpers)
+│   ├── wrapper.rs           Safe wrapper over ~30 LLVM C API functions
+│   └── compiler/            Compilation pipeline
+│       ├── mod.rs           Orchestration (compile_program, compile_program_ir_only)
+│       ├── symbols.rs       ADT/module collection, 50+ rt_* helper declarations
+│       ├── function.rs      compile_function + compile_block
+│       ├── expressions.rs   compile_expr (~30 IrExpr variants)
+│       ├── binary_ops.rs    Arithmetic/comparison operator compilation
+│       ├── calls.rs         Function call compilation (direct/named/var/primop)
+│       ├── entry.rs         __flux_entry wrapper + __flux_identity for effects
+│       └── helpers.rs       Tagged value builders, null checks, boxing utilities
+│
 ├── primop/                  41 primitive operations with frozen discriminants
 │
 └── diagnostics/             Structured error reporting
@@ -418,12 +434,17 @@ enum Value {
 }
 ```
 
-### JIT Two-Tier Value System
+### JIT/LLVM Tagged Value System
 
-The JIT uses `JitValueKind` to avoid unnecessary boxing:
+The Cranelift JIT uses `JitValueKind` to avoid unnecessary boxing:
 - `JitValueKind::Int` / `Float` / `Bool` — raw machine values in registers
 - `JitValueKind::Boxed` — `*mut Value` arena pointers
 - Boxing is deferred until values escape (stored in ADT, returned, etc.)
+
+The LLVM backend uses `{i64, i64}` structs (tag + payload) for all values.
+Both backends share the same `JitContext`, `JitFunctionEntry`, and 50+ `rt_*`
+runtime helpers (`runtime/native_helpers.rs`), making them interchangeable
+at the runtime level. Parity is enforced by `scripts/release/check_parity.sh`.
 
 ### Base Function Registration
 
@@ -470,6 +491,7 @@ Three-token lookahead. Error recovery via `sync_to_*` functions. Tokens defined 
 | Flag | Description |
 |------|-------------|
 | `--jit` | Use Cranelift JIT backend instead of VM |
+| `--llvm` | Use LLVM backend instead of VM (requires `--features llvm`) |
 | `--test` | Run `test_*` functions in the file |
 | `--trace` | Print VM instruction trace |
 | `--strict` | Enforce type annotations on public functions |
