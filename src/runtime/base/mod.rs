@@ -88,7 +88,7 @@ fn base_print_borrowed(ctx: &mut dyn RuntimeContext, args: &[&Value]) -> Result<
             print!(" ");
         }
         match arg {
-            Value::Gc(_) | Value::Tuple(_) | Value::Array(_) | Value::Adt(_) => {
+            Value::Tuple(_) | Value::Array(_) | Value::Adt(_) => {
                 print!("{}", list_ops::format_value(ctx, arg))
             }
             _ => print!("{}", list_ops::format_value(ctx, arg)),

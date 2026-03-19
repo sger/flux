@@ -6,7 +6,7 @@ use super::VM;
 
 impl VM {
     fn adt_values_equal(&self, left: &Value, right: &Value) -> bool {
-        match (left.as_adt(&self.gc_heap), right.as_adt(&self.gc_heap)) {
+        match (left.as_adt(), right.as_adt()) {
             (Some(left_adt), Some(right_adt)) => {
                 if left_adt.constructor() != right_adt.constructor() {
                     return false;
@@ -55,7 +55,6 @@ impl VM {
                 (Value::Right(l), Value::Right(r)) => Rc::ptr_eq(l, r),
                 (Value::Function(l), Value::Function(r)) => Rc::ptr_eq(l, r),
                 (Value::Closure(l), Value::Closure(r)) => Rc::ptr_eq(l, r),
-                (Value::Gc(l), Value::Gc(r)) => l == r,
                 _ => false,
             };
             if ptr_eq {

@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::runtime::{RuntimeContext, gc, gc::HeapObject, hamt as rc_hamt, value::Value};
+use crate::runtime::{RuntimeContext, hamt as rc_hamt, value::Value};
 
 use super::helpers::{check_arity_range_ref, check_arity_ref};
 
@@ -9,13 +9,14 @@ use super::helpers::{check_arity_range_ref, check_arity_ref};
 ///
 /// Special case: `Value::None` and `Value::EmptyList` are both valid empty-list
 /// sentinels (produced by different code paths) and are treated as equal here.
+#[allow(clippy::only_used_in_recursion)]
 fn values_equal(ctx: &dyn RuntimeContext, a: &Value, b: &Value) -> bool {
     match (a, b) {
         // Both are empty-list sentinels — treat as equal regardless of variant.
         (Value::None | Value::EmptyList, Value::None | Value::EmptyList) => true,
         (Value::AdtUnit(left), Value::AdtUnit(right)) => left == right,
         (left, right) if left.type_name() == "Adt" && right.type_name() == "Adt" => {
-            match (left.as_adt(ctx.gc_heap()), right.as_adt(ctx.gc_heap())) {
+            match (left.as_adt(), right.as_adt()) {
                 (Some(left_adt), Some(right_adt)) => {
                     if left_adt.constructor() != right_adt.constructor() {
                         return false;
@@ -40,24 +41,6 @@ fn values_equal(ctx: &dyn RuntimeContext, a: &Value, b: &Value) -> bool {
                 && values_equal(ctx, &a_cell.tail, &b_cell.tail)
         }
         (Value::HashMap(a_node), Value::HashMap(b_node)) => rc_hamt::hamt_equal(a_node, b_node),
-        (Value::Gc(ha), Value::Gc(hb)) => {
-            if ha == hb {
-                return true; // Same heap slot — trivially equal.
-            }
-            let obj_a = ctx.gc_heap().get(*ha).clone();
-            let obj_b = ctx.gc_heap().get(*hb).clone();
-            match (obj_a, obj_b) {
-                (
-                    HeapObject::Cons { head: h1, tail: t1 },
-                    HeapObject::Cons { head: h2, tail: t2 },
-                ) => values_equal(ctx, &h1, &h2) && values_equal(ctx, &t1, &t2),
-                (
-                    HeapObject::HamtNode { .. } | HeapObject::HamtCollision { .. },
-                    HeapObject::HamtNode { .. } | HeapObject::HamtCollision { .. },
-                ) => gc::hamt::hamt_equal(ctx.gc_heap(), *ha, *hb),
-                _ => false,
-            }
-        }
         // None == None (empty list tail)
         _ => a == b,
     }
@@ -68,7 +51,7 @@ fn values_equal(ctx: &dyn RuntimeContext, a: &Value, b: &Value) -> bool {
 /// `[1, 2, 3]` rather than `<gc@N>`.
 fn display_value(ctx: &dyn RuntimeContext, v: &Value) -> String {
     match v {
-        Value::HashMap(_) | Value::Gc(_) | Value::Tuple(_) | Value::Array(_) | Value::Adt(_) => {
+        Value::HashMap(_) | Value::Tuple(_) | Value::Array(_) | Value::Adt(_) => {
             super::list_ops::format_value(ctx, v)
         }
         _ => format!("{}", v),

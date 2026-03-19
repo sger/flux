@@ -252,14 +252,12 @@ fn test_array_index() {
 #[test]
 fn test_hash_literals() {
     let result = run(r#"{"a": 1};"#);
-    // Hash literals now produce Value::Gc pointing to HAMT node
-    match result {
-        Value::Gc(_) => {
-            // Hash literal with 1 key-value pair produces a Gc value
-            // The actual content is verified via index/base tests
-        }
-        _ => panic!("expected Gc (HAMT map), got {:?}", result),
-    }
+    // Hash literals produce Value::HashMap (Rc-based HAMT)
+    assert!(
+        matches!(result, Value::HashMap(_)),
+        "expected HashMap, got {:?}",
+        result
+    );
 }
 
 #[test]
@@ -1277,7 +1275,7 @@ fn test_chained_operations_large_array() {
 fn test_cons_syntax() {
     let result = run("[1 | [2 | [3 | []]]];");
     // Returns a cons cell (Rc-based or GC-based)
-    assert!(matches!(result, Value::Cons(_) | Value::Gc(_)));
+    assert!(matches!(result, Value::Cons(_)));
 }
 
 #[test]

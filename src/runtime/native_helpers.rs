@@ -22,7 +22,6 @@ use crate::runtime::{
     base::get_base_function_by_index,
     base::list_ops::format_value,
     cons_cell::ConsCell,
-    gc::{hamt::hamt_lookup as gc_hamt_lookup, heap_object::HeapObject},
     hamt as rc_hamt,
     jit_closure::JitClosure,
     value::{AdtFields, Value},
@@ -564,12 +563,8 @@ pub extern "C" fn rt_is_cons(ctx: *mut JitContext, value: *mut Value) -> i64 {
     if value.is_null() {
         return 0;
     }
-    let ctx = unsafe { ctx_ref(ctx) };
-    let is_cons = matches!(unsafe { &*value }, Value::Cons(_))
-        || matches!(
-            unsafe { &*value },
-            Value::Gc(h) if matches!(ctx.gc_heap.get(*h), HeapObject::Cons { .. })
-        );
+    let _ctx = unsafe { ctx_ref(ctx) };
+    let is_cons = matches!(unsafe { &*value }, Value::Cons(_));
     if is_cons { 1 } else { 0 }
 }
 
@@ -582,13 +577,6 @@ pub extern "C" fn rt_cons_head(ctx: *mut JitContext, value: *mut Value) -> *mut 
     }
     match unsafe { &*value } {
         Value::Cons(cell) => ctx.alloc(cell.head.clone()),
-        Value::Gc(h) => match ctx.gc_heap.get(*h) {
-            HeapObject::Cons { head, .. } => ctx.alloc(head.clone()),
-            _ => {
-                ctx.error = Some("cons head expected non-empty list".to_string());
-                ptr::null_mut()
-            }
-        },
         _ => {
             ctx.error = Some("cons head expected non-empty list".to_string());
             ptr::null_mut()
@@ -605,13 +593,6 @@ pub extern "C" fn rt_cons_tail(ctx: *mut JitContext, value: *mut Value) -> *mut 
     }
     match unsafe { &*value } {
         Value::Cons(cell) => ctx.alloc(cell.tail.clone()),
-        Value::Gc(h) => match ctx.gc_heap.get(*h) {
-            HeapObject::Cons { tail, .. } => ctx.alloc(tail.clone()),
-            _ => {
-                ctx.error = Some("cons tail expected non-empty list".to_string());
-                ptr::null_mut()
-            }
-        },
         _ => {
             ctx.error = Some("cons tail expected non-empty list".to_string());
             ptr::null_mut()
@@ -897,6 +878,7 @@ pub extern "C" fn rt_not_equal(
     JitTaggedValue::bool(!result)
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn values_equal(ctx: &JitContext, a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Integer(l), Value::Integer(r)) => l == r,
@@ -913,7 +895,7 @@ fn values_equal(ctx: &JitContext, a: &Value, b: &Value) -> bool {
         (Value::Tuple(l), Value::Tuple(r)) => l == r,
         (Value::AdtUnit(l), Value::AdtUnit(r)) => l == r,
         (left, right) if left.type_name() == "Adt" && right.type_name() == "Adt" => {
-            match (left.as_adt(&ctx.gc_heap), right.as_adt(&ctx.gc_heap)) {
+            match (left.as_adt(), right.as_adt()) {
                 (Some(left_adt), Some(right_adt)) => {
                     if left_adt.constructor() != right_adt.constructor() {
                         return false;
@@ -1744,19 +1726,10 @@ pub extern "C" fn rt_is_none(_ctx: *mut JitContext, value: *mut Value) -> i64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_is_empty_list(ctx: *mut JitContext, value: *mut Value) -> i64 {
+pub extern "C" fn rt_is_empty_list(_ctx: *mut JitContext, value: *mut Value) -> i64 {
     let v = unsafe { &*value };
     match v {
         Value::EmptyList | Value::None => 1,
-        // Also check for empty cons-based list (shouldn't normally happen,
-        // but handle gracefully)
-        Value::Gc(h) => {
-            let ctx = unsafe { ctx_ref(ctx) };
-            match ctx.gc_heap.get(*h) {
-                HeapObject::Cons { .. } => 0,
-                _ => 0,
-            }
-        }
         _ => 0,
     }
 }
@@ -1915,59 +1888,6 @@ pub extern "C" fn rt_index(
                 None => ctx.alloc(Value::None),
             }
         }
-        (Value::Gc(handle), _) => match index {
-            Value::Integer(idx) => match ctx.gc_heap.get(*handle) {
-                HeapObject::Cons { .. } => {
-                    if *idx < 0 {
-                        return ctx.alloc(Value::None);
-                    }
-                    let mut current = Value::Gc(*handle);
-                    let mut remaining = *idx as usize;
-                    loop {
-                        match &current {
-                            Value::Gc(h) => match ctx.gc_heap.get(*h) {
-                                HeapObject::Cons { head, tail } => {
-                                    if remaining == 0 {
-                                        return ctx.alloc(Value::Some(Rc::new(head.clone())));
-                                    }
-                                    remaining -= 1;
-                                    current = tail.clone();
-                                }
-                                _ => return ctx.alloc(Value::None),
-                            },
-                            _ => return ctx.alloc(Value::None),
-                        }
-                    }
-                }
-                _ => {
-                    let hash_key = match index.to_hash_key() {
-                        Some(k) => k,
-                        None => {
-                            ctx.error =
-                                Some(format!("unusable as hash key: {}", index.type_name()));
-                            return ptr::null_mut();
-                        }
-                    };
-                    match gc_hamt_lookup(&ctx.gc_heap, *handle, &hash_key) {
-                        Some(value) => ctx.alloc(Value::Some(Rc::new(value))),
-                        None => ctx.alloc(Value::None),
-                    }
-                }
-            },
-            _ => {
-                let hash_key = match index.to_hash_key() {
-                    Some(k) => k,
-                    None => {
-                        ctx.error = Some(format!("unusable as hash key: {}", index.type_name()));
-                        return ptr::null_mut();
-                    }
-                };
-                match gc_hamt_lookup(&ctx.gc_heap, *handle, &hash_key) {
-                    Some(value) => ctx.alloc(Value::Some(Rc::new(value))),
-                    None => ctx.alloc(Value::None),
-                }
-            }
-        },
         _ => {
             ctx.error = Some(format!(
                 "index operator not supported: {}",
@@ -2261,7 +2181,7 @@ pub extern "C" fn rt_is_adt_constructor(
     constructor_ptr: *const u8,
     constructor_len: i64,
 ) -> i64 {
-    let ctx = unsafe { ctx_ref(ctx) };
+    let _ctx = unsafe { ctx_ref(ctx) };
     // Null values never match any constructor tag.
     if value.is_null() {
         return 0;
@@ -2272,7 +2192,7 @@ pub extern "C" fn rt_is_adt_constructor(
         unsafe { from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize)) };
 
     match unsafe { &*value } {
-        value if value.adt_constructor(&ctx.gc_heap) == Some(expected) => 1,
+        value if value.adt_constructor() == Some(expected) => 1,
         Value::AdtUnit(name) => {
             if name.as_ref() == expected {
                 1
@@ -2303,10 +2223,10 @@ pub extern "C" fn rt_adt_field(
         value @ Value::Adt(_) => {
             // Field index comes from JIT as i64 and is interpreted as usize.
             let idx = field_idx as usize;
-            if let Some(field) = value.adt_clone_field(&ctx.gc_heap, idx) {
+            if let Some(field) = value.adt_clone_field(idx) {
                 ctx.alloc(field)
             } else {
-                let len = value.adt_field_count(&ctx.gc_heap).unwrap_or(0);
+                let len = value.adt_field_count().unwrap_or(0);
                 // Out-of-bounds ADT field access is reported through JitContext error state.
                 ctx.error = Some(format!(
                     "adt field index {} out of bounds (len={})",
@@ -2347,7 +2267,7 @@ pub extern "C" fn rt_adt_field_or_none(
     match unsafe { &*value } {
         value @ Value::Adt(_) => {
             let idx = field_idx as usize;
-            if let Some(field) = value.adt_clone_field(&ctx.gc_heap, idx) {
+            if let Some(field) = value.adt_clone_field(idx) {
                 ctx.alloc(field)
             } else {
                 ctx.alloc(Value::None)

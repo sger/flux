@@ -890,67 +890,38 @@ mod tests {
     use std::rc::Rc;
 
     use super::{JitContext, is_rendered_runtime_diagnostic};
-    use crate::runtime::{
-        gc::heap_object::HeapObject,
-        value::{AdtFields, Value},
-    };
+    use crate::runtime::value::{AdtFields, Value};
 
     #[test]
-    fn collect_gc_preserves_shadow_rooted_gc_adt() {
+    fn collect_gc_preserves_shadow_rooted_adt() {
         let mut ctx = JitContext::new();
-        let list = ctx.gc_heap.alloc(HeapObject::Cons {
-            head: Value::Integer(1),
-            tail: Value::None,
-        });
+        let cons_val = crate::runtime::cons_cell::ConsCell::cons(Value::Integer(1), Value::None);
         let adt_val = Value::Adt(Rc::new(crate::runtime::value::AdtValue {
             constructor: Rc::new("Node".to_string()),
-            fields: AdtFields::from_vec(vec![Value::Gc(list)]),
+            fields: AdtFields::from_vec(vec![cons_val]),
         }));
         let root = ctx.alloc(adt_val);
         ctx.push_gc_roots(&[root]);
 
-        ctx.gc_heap.alloc(HeapObject::Cons {
-            head: Value::Integer(99),
-            tail: Value::None,
-        });
-
         ctx.collect_gc();
-        assert_eq!(ctx.gc_heap.live_count(), 1); // only the cons cell (list) survives
-        assert_eq!(
-            unsafe { &*root }.adt_constructor(&ctx.gc_heap),
-            Some("Node")
-        );
+        assert_eq!(unsafe { &*root }.adt_constructor(), Some("Node"));
 
         ctx.pop_gc_roots();
         ctx.arena.reset();
-        ctx.collect_gc();
-        assert_eq!(ctx.gc_heap.live_count(), 0);
     }
 
     #[test]
-    fn collect_gc_preserves_arena_rooted_gc_adt_without_shadow_roots() {
+    fn collect_gc_preserves_arena_rooted_adt_without_shadow_roots() {
         let mut ctx = JitContext::new();
-        let list = ctx.gc_heap.alloc(HeapObject::Cons {
-            head: Value::Integer(1),
-            tail: Value::None,
-        });
+        let cons_val = crate::runtime::cons_cell::ConsCell::cons(Value::Integer(1), Value::None);
         let adt_val = Value::Adt(Rc::new(crate::runtime::value::AdtValue {
             constructor: Rc::new("Node".to_string()),
-            fields: AdtFields::from_vec(vec![Value::Gc(list)]),
+            fields: AdtFields::from_vec(vec![cons_val]),
         }));
         let root = ctx.alloc(adt_val);
 
-        ctx.gc_heap.alloc(HeapObject::Cons {
-            head: Value::Integer(99),
-            tail: Value::None,
-        });
-
         ctx.collect_gc();
-        assert_eq!(ctx.gc_heap.live_count(), 1); // only the cons cell (list) survives
-        assert_eq!(
-            unsafe { &*root }.adt_constructor(&ctx.gc_heap),
-            Some("Node")
-        );
+        assert_eq!(unsafe { &*root }.adt_constructor(), Some("Node"));
     }
 
     #[test]

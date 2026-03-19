@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::runtime::{RuntimeContext, cons_cell::ConsCell, gc::HeapObject, value::Value};
+use crate::runtime::{RuntimeContext, cons_cell::ConsCell, value::Value};
 
 use super::helpers::{check_arity, type_error};
 use super::list_ops;
@@ -90,31 +90,6 @@ pub(super) fn base_map(
             }
             Ok(list)
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                let elements =
-                    list_ops::collect_list(ctx, &args[0]).ok_or("map: malformed list")?;
-                let mut results = Vec::with_capacity(elements.len());
-                for (idx, item) in elements.into_iter().enumerate() {
-                    let result = invoke_unary_callback(ctx, func, item)
-                        .map_err(|e| format!("map: callback error at index {}: {}", idx, e))?;
-                    results.push(result);
-                }
-                // Build a cons list from results
-                let mut list = Value::EmptyList;
-                for elem in results.into_iter().rev() {
-                    list = ConsCell::cons(elem, list);
-                }
-                Ok(list)
-            }
-            _ => Err(type_error(
-                "map",
-                "first argument",
-                "Array or List",
-                "Map",
-                "map(collection, fn)",
-            )),
-        },
         other => Err(type_error(
             "map",
             "first argument",
@@ -206,33 +181,6 @@ pub(super) fn base_filter(
             }
             Ok(list)
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                let elements =
-                    list_ops::collect_list(ctx, &args[0]).ok_or("filter: malformed list")?;
-                let mut results = Vec::new();
-                for (idx, item) in elements.into_iter().enumerate() {
-                    let result = invoke_unary_callback(ctx, func, item.clone())
-                        .map_err(|e| format!("filter: callback error at index {}: {}", idx, e))?;
-                    if result.is_truthy() {
-                        results.push(item);
-                    }
-                }
-                // Build a cons list from results
-                let mut list = Value::EmptyList;
-                for elem in results.into_iter().rev() {
-                    list = ConsCell::cons(elem, list);
-                }
-                Ok(list)
-            }
-            _ => Err(type_error(
-                "filter",
-                "first argument",
-                "Array or List",
-                "Map",
-                "filter(collection, pred)",
-            )),
-        },
         other => Err(type_error(
             "filter",
             "first argument",
@@ -298,7 +246,7 @@ pub(super) fn base_flat_map(
                     .map_err(|e| format!("flat_map: callback error at index {}: {}", idx, e))?;
                 match inner {
                     Value::None | Value::EmptyList => {}
-                    Value::Cons(_) | Value::Gc(_) => {
+                    Value::Cons(_) => {
                         let inner_elems = list_ops::collect_list(ctx, &inner)
                             .ok_or("flat_map: callback returned malformed list")?;
                         results.extend(inner_elems);
@@ -318,44 +266,6 @@ pub(super) fn base_flat_map(
             }
             Ok(list)
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                let elements =
-                    list_ops::collect_list(ctx, &args[0]).ok_or("flat_map: malformed list")?;
-                let mut results: Vec<Value> = Vec::new();
-                for (idx, item) in elements.into_iter().enumerate() {
-                    let inner = invoke_unary_callback(ctx, func, item)
-                        .map_err(|e| format!("flat_map: callback error at index {}: {}", idx, e))?;
-                    match inner {
-                        Value::None | Value::EmptyList => {}
-                        Value::Cons(_) | Value::Gc(_) => {
-                            let inner_elems = list_ops::collect_list(ctx, &inner)
-                                .ok_or("flat_map: callback returned malformed list")?;
-                            results.extend(inner_elems);
-                        }
-                        other => {
-                            return Err(format!(
-                                "flat_map: callback must return a List when input is List, got {}",
-                                other.type_name()
-                            ));
-                        }
-                    }
-                }
-                // Build cons list from results
-                let mut list = Value::EmptyList;
-                for elem in results.into_iter().rev() {
-                    list = ConsCell::cons(elem, list);
-                }
-                Ok(list)
-            }
-            _ => Err(type_error(
-                "flat_map",
-                "first argument",
-                "Array or List",
-                "Map",
-                "flat_map(collection, fn)",
-            )),
-        },
         other => Err(type_error(
             "flat_map",
             "first argument",
@@ -411,27 +321,6 @@ pub(super) fn base_any(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result
             }
             Ok(Value::Boolean(false))
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                let elements =
-                    list_ops::collect_list(ctx, &args[0]).ok_or("any: malformed list")?;
-                for (idx, item) in elements.into_iter().enumerate() {
-                    let result = invoke_unary_callback(ctx, func, item)
-                        .map_err(|e| format!("any: callback error at index {}: {}", idx, e))?;
-                    if result.is_truthy() {
-                        return Ok(Value::Boolean(true));
-                    }
-                }
-                Ok(Value::Boolean(false))
-            }
-            _ => Err(type_error(
-                "any",
-                "first argument",
-                "Array or List",
-                "Map",
-                "any(collection, pred)",
-            )),
-        },
         other => Err(type_error(
             "any",
             "first argument",
@@ -487,27 +376,6 @@ pub(super) fn base_all(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result
             }
             Ok(Value::Boolean(true))
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                let elements =
-                    list_ops::collect_list(ctx, &args[0]).ok_or("all: malformed list")?;
-                for (idx, item) in elements.into_iter().enumerate() {
-                    let result = invoke_unary_callback(ctx, func, item)
-                        .map_err(|e| format!("all: callback error at index {}: {}", idx, e))?;
-                    if !result.is_truthy() {
-                        return Ok(Value::Boolean(false));
-                    }
-                }
-                Ok(Value::Boolean(true))
-            }
-            _ => Err(type_error(
-                "all",
-                "first argument",
-                "Array or List",
-                "Map",
-                "all(collection, pred)",
-            )),
-        },
         other => Err(type_error(
             "all",
             "first argument",
@@ -563,27 +431,6 @@ pub(super) fn base_find(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resul
             }
             Ok(Value::None)
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                let elements =
-                    list_ops::collect_list(ctx, &args[0]).ok_or("find: malformed list")?;
-                for (idx, item) in elements.into_iter().enumerate() {
-                    let result = invoke_unary_callback(ctx, func, item.clone())
-                        .map_err(|e| format!("find: callback error at index {}: {}", idx, e))?;
-                    if result.is_truthy() {
-                        return Ok(Value::Some(Rc::new(item)));
-                    }
-                }
-                Ok(Value::None)
-            }
-            _ => Err(type_error(
-                "find",
-                "first argument",
-                "Array or List",
-                "Map",
-                "find(collection, pred)",
-            )),
-        },
         other => Err(type_error(
             "find",
             "first argument",
@@ -676,20 +523,6 @@ pub(super) fn base_zip(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result
         Value::Cons(_) => {
             list_ops::collect_list(ctx, &args[0]).ok_or("zip: malformed first list")?
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                list_ops::collect_list(ctx, &args[0]).ok_or("zip: malformed first list")?
-            }
-            _ => {
-                return Err(type_error(
-                    "zip",
-                    "first argument",
-                    "Array or List",
-                    "Map",
-                    "zip(xs, ys)",
-                ));
-            }
-        },
         other => {
             return Err(type_error(
                 "zip",
@@ -707,20 +540,6 @@ pub(super) fn base_zip(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result
         Value::Cons(_) => {
             list_ops::collect_list(ctx, &args[1]).ok_or("zip: malformed second list")?
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                list_ops::collect_list(ctx, &args[1]).ok_or("zip: malformed second list")?
-            }
-            _ => {
-                return Err(type_error(
-                    "zip",
-                    "second argument",
-                    "Array or List",
-                    "Map",
-                    "zip(xs, ys)",
-                ));
-            }
-        },
         other => {
             return Err(type_error(
                 "zip",
@@ -763,20 +582,6 @@ pub(super) fn base_flatten(
                             .ok_or_else(|| format!("flatten: malformed list at index {}", idx))?;
                         result.extend(elems);
                     }
-                    Value::Gc(h) => match ctx.gc_heap().get(*h) {
-                        HeapObject::Cons { .. } => {
-                            let elems = list_ops::collect_list(ctx, item).ok_or_else(|| {
-                                format!("flatten: malformed list at index {}", idx)
-                            })?;
-                            result.extend(elems);
-                        }
-                        _ => {
-                            return Err(format!(
-                                "flatten: element at index {} must be Array or List, got Map",
-                                idx
-                            ));
-                        }
-                    },
                     other => {
                         return Err(format!(
                             "flatten: element at index {} must be Array or List, got {}",
@@ -802,20 +607,6 @@ pub(super) fn base_flatten(
                         })?;
                         result.extend(elems);
                     }
-                    Value::Gc(h) => match ctx.gc_heap().get(*h) {
-                        HeapObject::Cons { .. } => {
-                            let elems = list_ops::collect_list(ctx, &item).ok_or_else(|| {
-                                format!("flatten: malformed inner list at index {}", idx)
-                            })?;
-                            result.extend(elems);
-                        }
-                        _ => {
-                            return Err(format!(
-                                "flatten: element at index {} must be Array or List, got Map",
-                                idx
-                            ));
-                        }
-                    },
                     other => {
                         return Err(format!(
                             "flatten: element at index {} must be Array or List, got {}",
@@ -827,55 +618,6 @@ pub(super) fn base_flatten(
             }
             Ok(Value::Array(result.into()))
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                let outer =
-                    list_ops::collect_list(ctx, &args[0]).ok_or("flatten: malformed list")?;
-                let mut result = Vec::new();
-                for (idx, item) in outer.into_iter().enumerate() {
-                    match &item {
-                        Value::Array(inner) => result.extend(inner.iter().cloned()),
-                        Value::None | Value::EmptyList => {}
-                        Value::Cons(_) => {
-                            let elems = list_ops::collect_list(ctx, &item).ok_or_else(|| {
-                                format!("flatten: malformed inner list at index {}", idx)
-                            })?;
-                            result.extend(elems);
-                        }
-                        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-                            HeapObject::Cons { .. } => {
-                                let elems =
-                                    list_ops::collect_list(ctx, &item).ok_or_else(|| {
-                                        format!("flatten: malformed inner list at index {}", idx)
-                                    })?;
-                                result.extend(elems);
-                            }
-                            _ => {
-                                return Err(format!(
-                                    "flatten: element at index {} must be Array or List, got Map",
-                                    idx
-                                ));
-                            }
-                        },
-                        other => {
-                            return Err(format!(
-                                "flatten: element at index {} must be Array or List, got {}",
-                                idx,
-                                other.type_name()
-                            ));
-                        }
-                    }
-                }
-                Ok(Value::Array(result.into()))
-            }
-            _ => Err(type_error(
-                "flatten",
-                "argument",
-                "Array or List",
-                "Map",
-                "flatten(collection)",
-            )),
-        },
         other => Err(type_error(
             "flatten",
             "argument",
@@ -933,28 +675,6 @@ pub(super) fn base_count(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resu
             }
             Ok(Value::Integer(n))
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                let elements =
-                    list_ops::collect_list(ctx, &args[0]).ok_or("count: malformed list")?;
-                let mut n: i64 = 0;
-                for (idx, item) in elements.into_iter().enumerate() {
-                    let result = invoke_unary_callback(ctx, func, item)
-                        .map_err(|e| format!("count: callback error at index {}: {}", idx, e))?;
-                    if result.is_truthy() {
-                        n += 1;
-                    }
-                }
-                Ok(Value::Integer(n))
-            }
-            _ => Err(type_error(
-                "count",
-                "first argument",
-                "Array or List",
-                "Map",
-                "count(collection, pred)",
-            )),
-        },
         other => Err(type_error(
             "count",
             "first argument",
@@ -1006,24 +726,6 @@ pub(super) fn base_fold(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resul
             }
             Ok(acc)
         }
-        Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                let elements =
-                    list_ops::collect_list(ctx, &args[0]).ok_or("fold: malformed list")?;
-                for (idx, item) in elements.into_iter().enumerate() {
-                    acc = invoke_binary_callback(ctx, func, acc, item)
-                        .map_err(|e| format!("fold: callback error at index {}: {}", idx, e))?;
-                }
-                Ok(acc)
-            }
-            _ => Err(type_error(
-                "fold",
-                "first argument",
-                "Array or List",
-                "Map",
-                "fold(collection, initial, fn)",
-            )),
-        },
         other => Err(type_error(
             "fold",
             "first argument",

@@ -1,16 +1,9 @@
 use std::{cell::RefCell, fmt, rc::Rc};
 
 use crate::runtime::{
-    closure::Closure,
-    compiled_function::CompiledFunction,
-    cons_cell::ConsCell,
-    continuation::Continuation,
-    gc::{gc_handle::GcHandle, gc_heap::GcHeap},
-    hamt::HamtNode,
-    handler_descriptor::HandlerDescriptor,
-    hash_key::HashKey,
-    jit_closure::JitClosure,
-    perform_descriptor::PerformDescriptor,
+    closure::Closure, compiled_function::CompiledFunction, cons_cell::ConsCell,
+    continuation::Continuation, hamt::HamtNode, handler_descriptor::HandlerDescriptor,
+    hash_key::HashKey, jit_closure::JitClosure, perform_descriptor::PerformDescriptor,
 };
 
 /// Inner data for an ADT constructor value, boxed behind a single `Rc` so that
@@ -282,8 +275,6 @@ pub enum Value {
     Array(Rc<Vec<Value>>),
     /// Fixed-size heterogeneous ordered collection.
     Tuple(Rc<Vec<Value>>),
-    /// GC-managed heap object (cons cell, HAMT map node).
-    Gc(GcHandle),
     /// User-defined ADT constructor value: `Circle(1.0)`, `Red`, `Node(l, v, r)`.
     Adt(Rc<AdtValue>),
     /// Zero-field ADT constructor: `Tip`, `Red`, `None` (user-defined).
@@ -356,7 +347,6 @@ impl fmt::Display for Value {
                 write!(f, "[{}]", items.join(", "))
             }
             Value::HashMap(node) => write!(f, "{}", crate::runtime::hamt::format_hamt(node)),
-            Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
             Value::Adt(adt) => {
                 if adt.fields.is_empty() {
                     write!(f, "{}", adt.constructor)
@@ -399,7 +389,6 @@ impl Value {
             Value::Tuple(_) => "Tuple",
             Value::Cons(_) => "List",
             Value::HashMap(_) => "Map",
-            Value::Gc(_) => "Gc",
             Value::Adt(_) | Value::AdtUnit(_) => "Adt",
             Value::Continuation(_) => "Continuation",
             Value::HandlerDescriptor(_) => "HandlerDescriptor",
@@ -476,7 +465,6 @@ impl Value {
             }
             Value::Cons(_) => self.to_string(), // uses Display impl
             Value::HashMap(node) => crate::runtime::hamt::format_hamt(node),
-            Value::Gc(handle) => format!("<gc@{}>", handle.index()),
             Value::Adt(adt) => {
                 if adt.fields.is_empty() {
                     adt.constructor.to_string()
@@ -492,31 +480,30 @@ impl Value {
         }
     }
 
-    pub fn as_adt(&self, _heap: &GcHeap) -> Option<AdtRef<'_>> {
+    pub fn as_adt(&self) -> Option<AdtRef<'_>> {
         match self {
             Value::Adt(adt) => Some(AdtRef(adt)),
             _ => None,
         }
     }
 
-    pub fn adt_constructor(&self, _heap: &GcHeap) -> Option<&str> {
+    pub fn adt_constructor(&self) -> Option<&str> {
         match self {
             Value::Adt(adt) => Some(adt.constructor.as_ref()),
             _ => None,
         }
     }
 
-    pub fn adt_field_count(&self, heap: &GcHeap) -> Option<usize> {
-        self.as_adt(heap).map(|adt| adt.fields().len())
+    pub fn adt_field_count(&self) -> Option<usize> {
+        self.as_adt().map(|adt| adt.fields().len())
     }
 
-    pub fn adt_clone_field(&self, heap: &GcHeap, idx: usize) -> Option<Value> {
-        self.as_adt(heap)
-            .and_then(|adt| adt.fields().get(idx).cloned())
+    pub fn adt_clone_field(&self, idx: usize) -> Option<Value> {
+        self.as_adt().and_then(|adt| adt.fields().get(idx).cloned())
     }
 
-    pub fn adt_clone_two_fields(&self, heap: &GcHeap) -> Option<(Value, Value)> {
-        let adt = self.as_adt(heap)?;
+    pub fn adt_clone_two_fields(&self) -> Option<(Value, Value)> {
+        let adt = self.as_adt()?;
         let f0 = adt.fields().get(0)?.clone();
         let f1 = adt.fields().get(1)?.clone();
         Some((f0, f1))
@@ -638,13 +625,6 @@ mod tests {
             }
             _ => panic!("expected array values"),
         }
-    }
-
-    #[test]
-    fn test_clone_shares_gc_handle() {
-        let gc = Value::Gc(GcHandle::new_for_test(42));
-        let gc_clone = gc.clone();
-        assert_eq!(gc, gc_clone);
     }
 
     #[test]

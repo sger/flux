@@ -1,10 +1,6 @@
 use crate::{
     bytecode::{bytecode::Bytecode, vm::VM},
-    runtime::{
-        gc::hamt::{hamt_empty, hamt_insert},
-        hash_key::HashKey,
-        value::Value,
-    },
+    runtime::{hamt as rc_hamt, hash_key::HashKey, value::Value},
 };
 
 fn new_vm() -> VM {
@@ -66,14 +62,9 @@ fn tuple_index_in_bounds() {
 #[test]
 fn hash_index_missing_key() {
     let mut vm = new_vm();
-    let mut root = hamt_empty(&mut vm.gc_heap);
-    root = hamt_insert(
-        &mut vm.gc_heap,
-        root,
-        HashKey::String("k".to_string()),
-        Value::Integer(1),
-    );
-    let hash = Value::Gc(root);
+    let mut root = rc_hamt::hamt_empty();
+    root = rc_hamt::hamt_insert(&root, HashKey::String("k".to_string()), Value::Integer(1));
+    let hash = Value::HashMap(root);
 
     vm.execute_index_expression(hash, Value::String("missing".to_string().into()))
         .unwrap();
