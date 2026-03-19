@@ -155,7 +155,7 @@ fn dispatch_op_make_adt_moves_fields_from_stack() {
 
     assert_eq!(advance, 4);
     assert_eq!(vm.sp, 1);
-    assert!(matches!(vm.stack_get(0), Value::GcAdt(_)));
+    assert!(matches!(vm.stack_get(0), Value::Adt(_)));
     let adt_val = vm.stack_get(0);
     assert_eq!(adt_val.adt_constructor(&vm.gc_heap), Some("Node"));
     assert_eq!(
