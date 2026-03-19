@@ -20,6 +20,7 @@ pub(super) fn base_type_of_borrowed(
 ) -> Result<Value, String> {
     check_arity_ref(args, 1, "type_of", "type_of(x)")?;
     let name = match args[0] {
+        Value::Cons(_) => "List",
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => "List",
             HeapObject::HamtNode { .. } | HeapObject::HamtCollision { .. } => "Map",

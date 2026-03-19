@@ -21,6 +21,7 @@ use crate::runtime::native_context::{
 use crate::runtime::{
     base::get_base_function_by_index,
     base::list_ops::format_value,
+    cons_cell::ConsCell,
     gc::{
         hamt::{hamt_empty, hamt_insert, hamt_lookup},
         heap_object::HeapObject,
@@ -555,11 +556,9 @@ pub extern "C" fn rt_make_cons(
         ctx.error = Some("cons received null value".to_string());
         return ptr::null_mut();
     }
-    let handle = ctx.gc_heap.alloc(HeapObject::Cons {
-        head: unsafe { (*head).clone() },
-        tail: unsafe { (*tail).clone() },
-    });
-    ctx.alloc(Value::Gc(handle))
+    ctx.alloc(ConsCell::cons(unsafe { (*head).clone() }, unsafe {
+        (*tail).clone()
+    }))
 }
 
 #[unsafe(no_mangle)]
@@ -568,10 +567,11 @@ pub extern "C" fn rt_is_cons(ctx: *mut JitContext, value: *mut Value) -> i64 {
         return 0;
     }
     let ctx = unsafe { ctx_ref(ctx) };
-    let is_cons = matches!(
-        unsafe { &*value },
-        Value::Gc(h) if matches!(ctx.gc_heap.get(*h), HeapObject::Cons { .. })
-    );
+    let is_cons = matches!(unsafe { &*value }, Value::Cons(_))
+        || matches!(
+            unsafe { &*value },
+            Value::Gc(h) if matches!(ctx.gc_heap.get(*h), HeapObject::Cons { .. })
+        );
     if is_cons { 1 } else { 0 }
 }
 
@@ -583,6 +583,7 @@ pub extern "C" fn rt_cons_head(ctx: *mut JitContext, value: *mut Value) -> *mut 
         return ptr::null_mut();
     }
     match unsafe { &*value } {
+        Value::Cons(cell) => ctx.alloc(cell.head.clone()),
         Value::Gc(h) => match ctx.gc_heap.get(*h) {
             HeapObject::Cons { head, .. } => ctx.alloc(head.clone()),
             _ => {
@@ -605,6 +606,7 @@ pub extern "C" fn rt_cons_tail(ctx: *mut JitContext, value: *mut Value) -> *mut 
         return ptr::null_mut();
     }
     match unsafe { &*value } {
+        Value::Cons(cell) => ctx.alloc(cell.tail.clone()),
         Value::Gc(h) => match ctx.gc_heap.get(*h) {
             HeapObject::Cons { tail, .. } => ctx.alloc(tail.clone()),
             _ => {

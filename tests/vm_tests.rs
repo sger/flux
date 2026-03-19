@@ -1276,8 +1276,8 @@ fn test_chained_operations_large_array() {
 #[test]
 fn test_cons_syntax() {
     let result = run("[1 | [2 | [3 | []]]];");
-    // Returns a Gc handle (cons cell)
-    assert!(matches!(result, Value::Gc(_)));
+    // Returns a cons cell (Rc-based or GC-based)
+    assert!(matches!(result, Value::Cons(_) | Value::Gc(_)));
 }
 
 #[test]

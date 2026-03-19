@@ -6,6 +6,7 @@ use crate::{
         base::get_base_function_by_index,
         base::list_ops::format_value,
         closure::Closure,
+        cons_cell::ConsCell,
         continuation::Continuation,
         gc::HeapObject,
         handler_arm::HandlerArm,
@@ -746,8 +747,7 @@ impl VM {
             }
             OpCode::OpCons => {
                 let (head, tail) = self.pop_pair_untracked()?;
-                let handle = self.gc_alloc(HeapObject::Cons { head, tail });
-                self.push(Value::Gc(handle))?;
+                self.push(ConsCell::cons(head, tail))?;
                 Ok(1)
             }
             OpCode::OpIsCons => {
@@ -756,7 +756,8 @@ impl VM {
                 }
                 let idx = self.sp - 1;
                 let slot_val = self.stack_get(idx);
-                let is_cons = matches!(&slot_val, Value::Gc(h) if matches!(self.gc_heap.get(*h), HeapObject::Cons { .. }));
+                let is_cons = matches!(&slot_val, Value::Cons(_))
+                    || matches!(&slot_val, Value::Gc(h) if matches!(self.gc_heap.get(*h), HeapObject::Cons { .. }));
                 self.stack_set(idx, Value::Boolean(is_cons));
                 Ok(1)
             }
@@ -775,8 +776,16 @@ impl VM {
                 }
                 let idx = self.sp - 1;
                 let value = self.stack_take(idx);
-                match &value {
-                    Value::Gc(h) => match self.gc_heap.get(*h) {
+                match value {
+                    // Aether: try_unwrap to move head without cloning when unique.
+                    Value::Cons(cell) => {
+                        let head = match Rc::try_unwrap(cell) {
+                            Ok(mut owned) => std::mem::replace(&mut owned.head, Value::EmptyList),
+                            Err(shared) => shared.head.clone(),
+                        };
+                        self.stack_set(idx, head);
+                    }
+                    Value::Gc(h) => match self.gc_heap.get(h) {
                         HeapObject::Cons { head, .. } => self.stack_set(idx, head.clone()),
                         other => return Err(Self::cons_head_heap_err(other)),
                     },
@@ -790,8 +799,16 @@ impl VM {
                 }
                 let idx = self.sp - 1;
                 let value = self.stack_take(idx);
-                match &value {
-                    Value::Gc(h) => match self.gc_heap.get(*h) {
+                match value {
+                    // Aether: try_unwrap to move tail without cloning when unique.
+                    Value::Cons(cell) => {
+                        let tail = match Rc::try_unwrap(cell) {
+                            Ok(mut owned) => std::mem::replace(&mut owned.tail, Value::EmptyList),
+                            Err(shared) => shared.tail.clone(),
+                        };
+                        self.stack_set(idx, tail);
+                    }
+                    Value::Gc(h) => match self.gc_heap.get(h) {
                         HeapObject::Cons { tail, .. } => self.stack_set(idx, tail.clone()),
                         other => return Err(Self::cons_tail_heap_err(other)),
                     },

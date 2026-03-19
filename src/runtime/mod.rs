@@ -19,6 +19,7 @@ pub mod base;
 pub mod base_function;
 pub mod closure;
 pub mod compiled_function;
+pub mod cons_cell;
 pub mod continuation;
 pub mod frame;
 pub mod function_contract;

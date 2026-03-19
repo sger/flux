@@ -18,12 +18,13 @@ impl VM {
             (Value::Tuple(elements), Value::Integer(idx)) => {
                 self.execute_array_index(elements, *idx)
             }
+            (Value::Cons(_), Value::Integer(idx)) => self.execute_cons_list_index(&left, *idx),
             (Value::Gc(handle), _) => {
                 match &index {
                     Value::Integer(idx) => {
                         // Check if it's a list (Cons) or a map (HamtNode)
                         match self.gc_heap.get(*handle) {
-                            HeapObject::Cons { .. } => self.execute_list_index(*handle, *idx),
+                            HeapObject::Cons { .. } => self.execute_cons_list_index(&left, *idx),
                             _ => self.execute_hamt_index(*handle, &index),
                         }
                     }
@@ -47,18 +48,25 @@ impl VM {
         }
     }
 
-    /// Indexes into a cons-cell list by traversing the spine.
+    /// Indexes into a cons-cell list (Value::Cons or Value::Gc(Cons)) by traversing the spine.
     /// Returns Some(element) or None for out-of-bounds.
-    fn execute_list_index(&mut self, handle: GcHandle, index: i64) -> Result<(), String> {
+    fn execute_cons_list_index(&mut self, value: &Value, index: i64) -> Result<(), String> {
         if index < 0 {
             return self.push(Value::None);
         }
 
-        let mut current = Value::Gc(handle);
+        let mut current = value.clone();
         let mut remaining = index as usize;
 
         loop {
             match &current {
+                Value::Cons(cell) => {
+                    if remaining == 0 {
+                        return self.push(Value::Some(std::rc::Rc::new(cell.head.clone())));
+                    }
+                    remaining -= 1;
+                    current = cell.tail.clone();
+                }
                 Value::Gc(h) => match self.gc_heap.get(*h) {
                     HeapObject::Cons { head, tail } => {
                         if remaining == 0 {

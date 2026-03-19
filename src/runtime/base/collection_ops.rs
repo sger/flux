@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use crate::runtime::{
     RuntimeContext,
+    cons_cell::ConsCell,
     gc::{HeapObject, hamt::hamt_len},
     value::Value,
 };
@@ -26,6 +27,10 @@ pub(super) fn base_len_borrowed(
         Value::Array(arr) => Ok(Value::Integer(arr.len() as i64)),
         Value::Tuple(tuple) => Ok(Value::Integer(tuple.len() as i64)),
         Value::None | Value::EmptyList => Ok(Value::Integer(0)),
+        Value::Cons(_) => match list_ops::list_len(ctx, args[0]) {
+            Some(len) => Ok(Value::Integer(len as i64)),
+            None => Err("len: malformed list".to_string()),
+        },
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => match list_ops::list_len(ctx, args[0]) {
                 Some(len) => Ok(Value::Integer(len as i64)),
@@ -71,6 +76,7 @@ pub(super) fn base_first_borrowed(
             }
         }
         Value::None | Value::EmptyList => Ok(Value::None),
+        Value::Cons(cell) => Ok(cell.head.clone()),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { head, .. } => Ok(head.clone()),
             _ => Err(type_error(
@@ -110,6 +116,11 @@ pub(super) fn base_last_borrowed(
             }
         }
         Value::None | Value::EmptyList => Ok(Value::None),
+        Value::Cons(_) => match list_ops::collect_list(ctx, args[0]) {
+            Some(elems) if elems.is_empty() => Ok(Value::None),
+            Some(elems) => Ok(elems.into_iter().last().unwrap()),
+            None => Err("last: malformed list".to_string()),
+        },
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => match list_ops::collect_list(ctx, args[0]) {
                 Some(elems) if elems.is_empty() => Ok(Value::None),
@@ -153,6 +164,7 @@ pub(super) fn base_rest_borrowed(
             }
         }
         Value::None | Value::EmptyList => Ok(Value::None),
+        Value::Cons(cell) => Ok(cell.tail.clone()),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { tail, .. } => Ok(tail.clone()),
             _ => Err(type_error(
@@ -251,17 +263,21 @@ pub(super) fn base_reverse_borrowed(
             Ok(Value::Array(out.into()))
         }
         Value::None | Value::EmptyList => Ok(Value::None),
+        Value::Cons(_) => {
+            let elements = list_ops::collect_list(ctx, args[0]).ok_or("reverse: malformed list")?;
+            let mut list = Value::EmptyList;
+            for elem in elements {
+                list = ConsCell::cons(elem, list);
+            }
+            Ok(list)
+        }
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
                 let elements =
                     list_ops::collect_list(ctx, args[0]).ok_or("reverse: malformed list")?;
-                let mut list = Value::None;
+                let mut list = Value::EmptyList;
                 for elem in elements {
-                    let handle = ctx.gc_heap_mut().alloc(HeapObject::Cons {
-                        head: elem,
-                        tail: list,
-                    });
-                    list = Value::Gc(handle);
+                    list = ConsCell::cons(elem, list);
                 }
                 Ok(list)
             }
@@ -303,6 +319,12 @@ pub(super) fn base_contains_borrowed(
             Ok(Value::Boolean(found))
         }
         Value::None | Value::EmptyList => Ok(Value::Boolean(false)),
+        Value::Cons(_) => {
+            let elements =
+                list_ops::collect_list(ctx, args[0]).ok_or("contains: malformed list")?;
+            let found = elements.iter().any(|item| item == elem);
+            Ok(Value::Boolean(found))
+        }
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
                 let elements =
@@ -470,6 +492,11 @@ pub(super) fn base_sum_borrowed(
             aggregate_numeric(&values, "sum", "sum(collection)", false)
         }
         Value::None | Value::EmptyList => Ok(Value::Integer(0)),
+        Value::Cons(_) => {
+            let elements = list_ops::collect_list(ctx, args[0]).ok_or("sum: malformed list")?;
+            let values: Vec<&Value> = elements.iter().collect();
+            aggregate_numeric(&values, "sum", "sum(collection)", false)
+        }
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
                 let elements = list_ops::collect_list(ctx, args[0]).ok_or("sum: malformed list")?;
@@ -514,6 +541,11 @@ pub(super) fn base_product_borrowed(
             aggregate_numeric(&values, "product", "product(collection)", true)
         }
         Value::None | Value::EmptyList => Ok(Value::Integer(1)),
+        Value::Cons(_) => {
+            let elements = list_ops::collect_list(ctx, args[0]).ok_or("product: malformed list")?;
+            let values: Vec<&Value> = elements.iter().collect();
+            aggregate_numeric(&values, "product", "product(collection)", true)
+        }
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
                 let elements =
