@@ -269,9 +269,6 @@ impl GcHeap {
                         // Follow heap references lazily through dedicated handle items.
                         worklist.push(WorkItem::Handle(handle));
                     }
-                    Value::GcAdt(handle) => {
-                        worklist.push(WorkItem::Handle(handle));
-                    }
                     Value::Some(inner)
                     | Value::Left(inner)
                     | Value::Right(inner)
@@ -393,14 +390,6 @@ impl GcHeap {
                 worklist.push(WorkItem::Value(head.clone()));
                 worklist.push(WorkItem::Value(tail.clone()));
             }
-            HeapObject::Adt { fields, .. } => {
-                let mut i = 0;
-                let len = fields.len();
-                while i < len {
-                    worklist.push(WorkItem::Value(fields[i].clone()));
-                    i += 1;
-                }
-            }
             HeapObject::HamtNode { children, .. } => {
                 let mut i = 0;
                 let len = children.len();
@@ -441,7 +430,7 @@ impl GcHeap {
     /// Trace a single [`NanBox`] slot for GC roots.
     ///
     /// Immediate types (Integer, Boolean, None, Uninit, EmptyList, BaseFunction)
-    /// are skipped without allocation. GcHandle/GcAdt slots mark the handle
+    /// are skipped without allocation. GcHandle slots mark the handle
     /// directly. BoxedValue slots decode to a [`Value`] and delegate to
     /// [`mark_value`].
     fn mark_nanbox(&mut self, nb: &crate::runtime::nanbox::NanBox) {
@@ -460,7 +449,7 @@ impl GcHeap {
             | NanTag::EmptyList
             | NanTag::BaseFunction => {}
             // Direct GC handles: mark without decoding to Value.
-            NanTag::GcHandle | NanTag::GcAdt => {
+            NanTag::GcHandle => {
                 let handle = GcHandle(nb.as_gc_index());
                 let mut worklist = Vec::with_capacity(4);
                 self.mark_handle(handle, &mut worklist);
@@ -493,7 +482,7 @@ impl GcHeap {
     ///
     /// Replaces the [`collect`] shim that converted slots to `Vec<Value>`.
     /// Immediate NanBox tags are skipped without any allocation; only
-    /// GcHandle, GcAdt, and BoxedValue tags trigger tracing.
+    /// GcHandle and BoxedValue tags trigger tracing.
     #[allow(clippy::too_many_arguments)]
     pub fn collect_nanboxed(
         &mut self,
@@ -953,36 +942,31 @@ mod tests {
     }
 
     #[test]
-    fn test_collect_preserves_gc_adt_and_nested_handles() {
+    fn test_collect_preserves_adt_with_nested_gc_handles() {
+        use crate::runtime::value::{AdtFields, AdtValue};
+
         let mut heap = GcHeap::new();
         let list = heap.alloc(HeapObject::Cons {
             head: Value::Integer(7),
             tail: Value::None,
         });
-        let adt = heap.alloc(HeapObject::Adt {
+        let adt = Value::Adt(Rc::new(AdtValue {
             constructor: Rc::new("Node".to_string()),
-            fields: crate::runtime::value::AdtFields::from_vec(vec![
-                Value::Integer(1),
-                Value::Gc(list),
-            ]),
-        });
+            fields: AdtFields::from_vec(vec![Value::Integer(1), Value::Gc(list)]),
+        }));
 
         heap.alloc(HeapObject::Cons {
             head: Value::Integer(99),
             tail: Value::None,
         });
 
-        heap.collect_roots([&Value::GcAdt(adt)]);
-        assert_eq!(heap.live_count(), 2);
-        match heap.get(adt) {
-            HeapObject::Adt {
-                constructor,
-                fields,
-            } => {
-                assert_eq!(constructor.as_ref(), "Node");
-                assert_eq!(fields[1], Value::Gc(list));
+        heap.collect_roots([&adt]);
+        assert_eq!(heap.live_count(), 1); // only the cons cell survives
+        match heap.get(list) {
+            HeapObject::Cons { head, .. } => {
+                assert_eq!(*head, Value::Integer(7));
             }
-            _ => panic!("expected Adt"),
+            _ => panic!("expected Cons"),
         }
     }
 

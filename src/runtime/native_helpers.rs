@@ -2085,11 +2085,10 @@ pub extern "C" fn rt_make_adt(
     if fields.is_empty() {
         ctx.alloc(Value::AdtUnit(constructor))
     } else {
-        let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+        ctx.alloc(Value::Adt(Rc::new(crate::runtime::value::AdtValue {
             constructor,
             fields: AdtFields::from_vec(fields),
-        });
-        ctx.alloc(Value::GcAdt(handle))
+        })))
     }
 }
 
@@ -2125,11 +2124,10 @@ pub extern "C" fn rt_make_adt1(
         Rc::new(s.to_string())
     };
     let v0 = unsafe { (*f0).clone() };
-    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+    ctx.alloc(Value::Adt(Rc::new(crate::runtime::value::AdtValue {
         constructor,
         fields: AdtFields::from_vec(vec![v0]),
-    });
-    ctx.alloc(Value::GcAdt(handle))
+    })))
 }
 
 /// Specialized 2-field ADT constructor — avoids stack-slot + loop overhead.
@@ -2151,11 +2149,10 @@ pub extern "C" fn rt_make_adt2(
     };
     let v0 = unsafe { (*f0).clone() };
     let v1 = unsafe { (*f1).clone() };
-    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+    ctx.alloc(Value::Adt(Rc::new(crate::runtime::value::AdtValue {
         constructor,
         fields: AdtFields::from_vec(vec![v0, v1]),
-    });
-    ctx.alloc(Value::GcAdt(handle))
+    })))
 }
 
 /// Specialized 3-field ADT constructor — avoids stack-slot + loop overhead.
@@ -2179,11 +2176,10 @@ pub extern "C" fn rt_make_adt3(
     let v0 = unsafe { (*f0).clone() };
     let v1 = unsafe { (*f1).clone() };
     let v2 = unsafe { (*f2).clone() };
-    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+    ctx.alloc(Value::Adt(Rc::new(crate::runtime::value::AdtValue {
         constructor,
         fields: AdtFields::from_vec(vec![v0, v1, v2]),
-    });
-    ctx.alloc(Value::GcAdt(handle))
+    })))
 }
 
 /// Specialized 4-field ADT constructor — avoids stack-slot + loop overhead.
@@ -2209,11 +2205,10 @@ pub extern "C" fn rt_make_adt4(
     let v1 = unsafe { (*f1).clone() };
     let v2 = unsafe { (*f2).clone() };
     let v3 = unsafe { (*f3).clone() };
-    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+    ctx.alloc(Value::Adt(Rc::new(crate::runtime::value::AdtValue {
         constructor,
         fields: AdtFields::from_vec(vec![v0, v1, v2, v3]),
-    });
-    ctx.alloc(Value::GcAdt(handle))
+    })))
 }
 
 /// Specialized 5-field ADT constructor — avoids stack-slot + loop overhead.
@@ -2242,11 +2237,10 @@ pub extern "C" fn rt_make_adt5(
     let v2 = unsafe { (*f2).clone() };
     let v3 = unsafe { (*f3).clone() };
     let v4 = unsafe { (*f4).clone() };
-    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+    ctx.alloc(Value::Adt(Rc::new(crate::runtime::value::AdtValue {
         constructor,
         fields: AdtFields::from_vec(vec![v0, v1, v2, v3, v4]),
-    });
-    ctx.alloc(Value::GcAdt(handle))
+    })))
 }
 
 #[unsafe(no_mangle)]
@@ -2295,7 +2289,7 @@ pub extern "C" fn rt_adt_field(
     }
 
     match unsafe { &*value } {
-        value @ (Value::Adt(_) | Value::GcAdt(_)) => {
+        value @ Value::Adt(_) => {
             // Field index comes from JIT as i64 and is interpreted as usize.
             let idx = field_idx as usize;
             if let Some(field) = value.adt_clone_field(&ctx.gc_heap, idx) {
@@ -2340,7 +2334,7 @@ pub extern "C" fn rt_adt_field_or_none(
     }
 
     match unsafe { &*value } {
-        value @ (Value::Adt(_) | Value::GcAdt(_)) => {
+        value @ Value::Adt(_) => {
             let idx = field_idx as usize;
             if let Some(field) = value.adt_clone_field(&ctx.gc_heap, idx) {
                 ctx.alloc(field)
