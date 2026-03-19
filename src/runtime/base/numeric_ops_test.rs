@@ -1,7 +1,4 @@
-use crate::{
-    bytecode::bytecode::Bytecode,
-    runtime::{value::Value, vm::VM},
-};
+use crate::{bytecode::bytecode::Bytecode, bytecode::vm::VM, runtime::value::Value};
 
 use super::numeric_ops::{base_abs, base_max, base_min};
 

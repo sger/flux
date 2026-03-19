@@ -1,7 +1,4 @@
-use crate::{
-    bytecode::bytecode::Bytecode,
-    runtime::{value::Value, vm::VM},
-};
+use crate::{bytecode::bytecode::Bytecode, bytecode::vm::VM, runtime::value::Value};
 
 use super::string_ops::{
     base_chars, base_ends_with, base_join, base_lower, base_replace, base_split, base_starts_with,

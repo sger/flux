@@ -116,7 +116,7 @@ This architecture document focuses on component layout; semantic truth for type/
                           │            │           │            │            │
                ┌──────────▼──────────┐ │ ┌────────▼────────────▼────────────▼─┐
                │   VM Execution      │ │ │       Native Execution              │
-               │  (runtime/vm/)      │ │ │  (Cranelift or LLVM output)         │
+               │  (bytecode/vm/)     │ │ │  (Cranelift or LLVM output)         │
                │                     │ │ │                                     │
                │  Stack-based VM     │ │ │  Direct machine code execution      │
                │  dispatch loop      │ │ │  JitContext (shared by both)        │
@@ -149,11 +149,11 @@ This architecture document focuses on component layout; semantic truth for type/
 | **AST Transforms** | `ast/` | 3K | Desugar, constant fold, free vars, tail calls |
 | **Type Inference** | `ast/type_infer/` | 4K | HM Algorithm W + effect rows |
 | **Core IR** | `core/` | 5K | Semantic IR + 7 optimization passes |
-| **Backend IR** | `cfg/` | 3K | CFG representation + 7 lowering passes |
-| **VM Backend** | `bytecode/compiler/` | 11K | CFG → bytecode opcodes |
+| **Backend IR** | `cfg/` | 3K | CFG representation + 7 passes + `lower_program_to_ir()` |
+| **VM Backend** | `bytecode/` | 15K | `compiler/` (7-phase pipeline, CFG → opcodes) + `vm/` (stack-based executor) |
 | **JIT Backend** | `jit/` | 6K | CFG → Cranelift → machine code |
 | **LLVM Backend** | `llvm/` | 3K | CFG → LLVM IR → machine code / object files |
-| **Runtime** | `runtime/` | 8K | VM dispatch, GC, base functions, values |
+| **Runtime** | `runtime/` | 8K | GC, base functions, values, closures — shared by all 3 backends |
 | **Diagnostics** | `diagnostics/` | 3K | Elm-style error rendering |
 
 ---
@@ -221,6 +221,76 @@ The backend IR optimization pipeline (`cfg/passes.rs`) runs 7 passes:
 | 5 | `local_cse` | Common subexpression elimination (per-block) |
 | 6 | `intern_unit_adts` | Optimize zero-field ADT constructors |
 | 7 | `type_directed_unboxing` | Specialize binary ops based on IrType |
+
+---
+
+## Execution Backends
+
+All three backends consume the same `IrProgram` (from `cfg/`) and share the same `runtime/` (Value, GC, base functions, closures, `rt_*` helpers). Parity between backends is enforced by `scripts/release/check_parity.sh`.
+
+### VM Backend (`bytecode/`)
+
+The default backend. Compiles CFG IR to a stack-based bytecode instruction set (~85 opcodes), then executes it in an interpreter loop.
+
+**Compiler** (`bytecode/compiler/`):
+- 7-phase pipeline (proposal 0044): reset → collection → predeclaration → type_inference → ir_lowering → codegen → finalization
+- Produces `Vec<u8>` instruction streams with `OpCode` variants
+- Handles effect handler compilation: `OpHandle`, `OpHandleDirect`, `OpPerform`, `OpPerformDirectIndexed`
+- Two-phase type-informed optimization (proposal 0077): infer → fold → reinfer for dead branch elimination
+
+**VM** (`bytecode/vm/`):
+- Stack-based dispatch loop (`dispatch.rs`) — fetches opcodes, manipulates value stack and call frames
+- `handler_stack` for algebraic effect runtime — push/pop handler frames, continuation capture
+- Function calls via `function_call.rs` — handles closures, base functions, tail calls
+- Supports `--trace` flag for instruction-level tracing
+- `test_runner.rs` implements `--test` flag (collects and runs `test_*` functions)
+
+**Bytecode format**:
+- Opcodes are `#[repr(u8)]` with u16 operands (3 bytes per instruction for jumps)
+- Compiled bytecode cached as `.fxc` files (SHA-2 content hashing)
+- Constants pool for literals, debug info for source mapping
+
+### Cranelift JIT Backend (`jit/`)
+
+Compiles CFG IR to native machine code via Cranelift, runs in-process. Enabled with `--jit` flag (requires `--features jit`).
+
+**Compiler** (`jit/compiler.rs`, ~5.4K lines):
+- Translates `IrFunction`/`IrBlock`/`IrInstr` → Cranelift IR → machine code
+- Two-tier value system via `JitValueKind`: `Int`/`Float`/`Bool` stay as raw i64 in registers; `Boxed` uses `*mut Value` arena pointers — boxing deferred until values escape
+- `JitCtx<'a>` bundles read-only compilation context (helpers, interner, return_block, tail_call flag)
+- Effect handlers via `rt_perform`/`rt_push_handler` runtime helper calls
+
+**Runtime bridge** (`jit/runtime_helpers.rs`):
+- 50+ `rt_*` native callbacks shared with LLVM backend
+- Handles GC allocation, effect perform/handle, closure creation, base function dispatch
+- `value_arena.rs` provides pointer-stable allocation for JIT values
+
+### LLVM Backend (`llvm/`)
+
+Compiles CFG IR to LLVM IR for native AOT compilation or in-process execution. Enabled with `--llvm` flag (requires `--features llvm` and LLVM 18).
+
+**Compiler** (`llvm/compiler/`):
+- `{i64, i64}` tagged value representation (tag + payload) for all values
+- Shares the same 50+ `rt_*` runtime helpers as the Cranelift JIT
+- Can emit object files (`.o`/`.s`) for AOT compilation or execute in-process
+- `LlvmCompilerContext` wraps LLVM module, builder, type cache, and helper declarations
+- Safe wrapper (`wrapper.rs`) over ~30 LLVM C API functions
+
+### Shared Runtime (`runtime/`)
+
+Pure infrastructure consumed by all three backends — no backend-specific code:
+
+| Component | What it provides |
+|-----------|-----------------|
+| `value.rs` | `Value` enum (25 variants) — the universal runtime representation |
+| `base/` | 77 base functions (IO, array, string, math, higher-order, assertions) |
+| `gc/` | Mark-and-sweep GC heap, HAMT persistent maps, cons lists |
+| `closure.rs` | Closure struct (compiled function + captured values) |
+| `continuation.rs` | Continuation struct (captured frames for effect resume) |
+| `handler_frame.rs` | HandlerFrame (effect name + arms + boundary info) |
+| `native_helpers.rs` | 50+ `rt_*` functions called by JIT and LLVM backends |
+| `native_context.rs` | `JitContext` — shared execution context for JIT/LLVM |
+| `nanbox.rs` | NaN-boxing representation for compact value encoding |
 
 ---
 
@@ -313,18 +383,25 @@ src/
 │   │   └── free_vars.rs     Free variable analysis for closure capture
 │   └── display.rs           Core IR pretty-printer (--dump-core flag)
 │
-├── backend_ir/              Backend IR facade (re-exports cfg/)
-│   └── mod.rs               Canonical boundary, lower_program_to_ir()
-│
-├── cfg/                     CFG-based backend IR implementation
-│   ├── mod.rs               IrFunction, IrBlock, IrInstr, IrTerminator, IrType
+├── cfg/                     CFG-based backend IR (consumed by all 3 backends)
+│   ├── mod.rs               IrFunction, IrBlock, IrInstr, IrTerminator, IrType, lower_program_to_ir()
 │   ├── passes.rs            7 CFG optimization passes
 │   ├── validate.rs          IR validation (locals, terminators, types)
+│   ├── metadata.rs          Shared metadata collection for native backends (JIT, LLVM)
 │   └── lower.rs             Legacy AST → CFG lowering (being replaced by core/to_ir/)
 │
 ├── bytecode/                Bytecode compiler + format
 │   ├── compiler/            CFG IR → stack-based bytecode
-│   │   ├── mod.rs           Compiler struct, state management (~3K lines)
+│   │   ├── mod.rs           Compiler struct, state management
+│   │   ├── pipeline.rs      7-phase compile orchestrator (proposal 0044)
+│   │   ├── passes/          Per-phase modules:
+│   │   │   ├── reset.rs         Phase 0: clear per-file state
+│   │   │   ├── collection.rs    Phase 1: collect definitions + validate structure
+│   │   │   ├── predeclaration.rs Phase 2: forward-declare function names
+│   │   │   ├── type_inference.rs Phase 3: HM inference (single/two-phase)
+│   │   │   ├── ir_lowering.rs   Phase 4: AST → backend IR + IR passes
+│   │   │   ├── codegen.rs       Phase 5: pattern validation + bytecode emission
+│   │   │   └── finalization.rs  Phase 6: main entry + diagnostic merging
 │   │   ├── expression.rs    Expression compilation (~4.6K lines)
 │   │   ├── statement.rs     Statement compilation (~1K lines)
 │   │   ├── cfg_bytecode.rs  Direct CFG → bytecode path
@@ -333,16 +410,21 @@ src/
 │   │   ├── contracts.rs     Runtime type contracts
 │   │   ├── hm_expr_typer.rs HM type lookup helpers
 │   │   └── ...              Supporting modules (builder, errors, suggestions)
+│   ├── vm/                  Stack-based VM (moved from runtime/ for backend symmetry)
+│   │   ├── mod.rs           VM struct, handler_stack, identity closure
+│   │   ├── dispatch.rs      Main dispatch loop (~1.3K lines)
+│   │   ├── function_call.rs Function call / return / resume mechanics
+│   │   ├── test_runner.rs   --test flag: collect and run test_* functions
+│   │   ├── trace.rs         Instruction tracing (--trace flag)
+│   │   ├── binary_ops.rs    Binary arithmetic operations
+│   │   ├── comparison_ops.rs Comparison operations
+│   │   ├── index_ops.rs     Index operations
+│   │   └── primop.rs        Primitive operation dispatch
 │   ├── op_code.rs           ~85 opcodes (OpGetLocal, OpCall, OpPerformDirectIndexed, ...)
 │   ├── symbol_table.rs      Variable/function/Base-function tracking per scope
 │   └── bytecode_cache/      .fxc bytecode cache (SHA-2 content hashing)
 │
-├── runtime/                 Bytecode VM and supporting runtime
-│   ├── vm/                  Stack-based VM, instruction dispatch, call frames
-│   │   ├── dispatch.rs      Main dispatch loop (~1.3K lines)
-│   │   ├── function_call.rs Function call / return / resume mechanics
-│   │   ├── mod.rs           VM struct, handler_stack, identity closure
-│   │   └── test_runner.rs   --test flag: collect and run test_* functions
+├── runtime/                 Shared runtime (all 3 backends)
 │   ├── value.rs             Value enum (25 variants)
 │   ├── compiled_function.rs CompiledFunction struct
 │   ├── closure.rs           Closure struct (function + captured values)

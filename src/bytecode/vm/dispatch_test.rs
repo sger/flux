@@ -1,12 +1,10 @@
 use crate::{
-    bytecode::bytecode::Bytecode,
-    bytecode::op_code::OpCode,
+    bytecode::{bytecode::Bytecode, op_code::OpCode, vm::VM},
     runtime::{
         closure::Closure,
         compiled_function::CompiledFunction,
         frame::Frame,
         value::{AdtFields, AdtValue, Value},
-        vm::VM,
     },
 };
 use std::rc::Rc;

@@ -1,3 +1,4 @@
+use flux::bytecode::vm::VM;
 use flux::bytecode::{
     bytecode::Bytecode,
     compiler::Compiler,
@@ -5,7 +6,6 @@ use flux::bytecode::{
 };
 use flux::diagnostics::render_diagnostics;
 use flux::runtime::value::Value;
-use flux::runtime::vm::VM;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::parser::Parser;
 

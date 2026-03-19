@@ -1,6 +1,7 @@
 use crate::{
     bytecode::bytecode::Bytecode,
-    runtime::{base::get_base_function_index, value::Value, vm::VM},
+    bytecode::vm::VM,
+    runtime::{base::get_base_function_index, value::Value},
 };
 
 use super::higher_order_ops::{
