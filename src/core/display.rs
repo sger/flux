@@ -234,6 +234,25 @@ impl<'a> Formatter<'a> {
                 push_indent(out, indent);
                 self.write_expr(out, body, indent);
             }
+            CoreExpr::Reuse {
+                token,
+                tag,
+                fields,
+                ..
+            } => {
+                write!(out, "reuse {} ", self.resolve_var(token)).unwrap();
+                self.write_tag(out, tag);
+                if !fields.is_empty() {
+                    out.push('(');
+                    for (i, f) in fields.iter().enumerate() {
+                        if i > 0 {
+                            out.push_str(", ");
+                        }
+                        self.write_expr_inline(out, f, indent);
+                    }
+                    out.push(')');
+                }
+            }
         }
     }
 

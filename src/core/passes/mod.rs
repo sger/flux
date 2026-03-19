@@ -123,6 +123,11 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
         Dup { body, .. } | Drop { body, .. } => {
             collect_max_binder_id(body, max);
         }
+        Reuse { fields, .. } => {
+            for f in fields {
+                collect_max_binder_id(f, max);
+            }
+        }
     }
 }
 

@@ -123,6 +123,11 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
         CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
             out.extend(collect_core_exprs(body));
         }
+        CoreExpr::Reuse { fields, .. } => {
+            for f in fields {
+                out.extend(collect_core_exprs(f));
+            }
+        }
     }
     out
 }

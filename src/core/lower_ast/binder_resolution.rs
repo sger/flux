@@ -111,6 +111,14 @@ fn resolve_expr_binders(expr: &mut CoreExpr, scopes: &mut Vec<BinderScope>) {
             var.binder = lookup_binder(scopes, var.name);
             resolve_expr_binders(body, scopes);
         }
+        CoreExpr::Reuse {
+            token, fields, ..
+        } => {
+            token.binder = lookup_binder(scopes, token.name);
+            for field in fields {
+                resolve_expr_binders(field, scopes);
+            }
+        }
     }
 }
 
@@ -193,6 +201,16 @@ fn validate_expr_binders(expr: &CoreExpr, scopes: &mut Vec<BinderScope>) -> bool
                 _ => false,
             };
             var_ok && validate_expr_binders(body, scopes)
+        }
+        CoreExpr::Reuse {
+            token, fields, ..
+        } => {
+            let token_ok = match (token.binder, lookup_binder(scopes, token.name)) {
+                (Some(actual), Some(expected)) => actual == expected,
+                (None, None) => true,
+                _ => false,
+            };
+            token_ok && fields.iter().all(|field| validate_expr_binders(field, scopes))
         }
     }
 }

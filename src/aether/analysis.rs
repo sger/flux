@@ -120,6 +120,17 @@ fn count_uses(expr: &CoreExpr, counts: &mut HashMap<CoreBinderId, usize>) {
         CoreExpr::Drop { body, .. } => {
             count_uses(body, counts);
         }
+        // Reuse: token is a use + recurse into fields (same as Con).
+        CoreExpr::Reuse {
+            token, fields, ..
+        } => {
+            if let Some(id) = token.binder {
+                *counts.entry(id).or_insert(0) += 1;
+            }
+            for f in fields {
+                count_uses(f, counts);
+            }
+        }
     }
 }
 
@@ -280,6 +291,13 @@ fn count_owned(var: CoreBinderId, expr: &CoreExpr) -> usize {
             dup_use + count_owned(var, body)
         }
         CoreExpr::Drop { body, .. } => count_owned(var, body),
+        // Reuse: token is owned (reuse consumes the token), fields are owned (stored).
+        CoreExpr::Reuse {
+            token, fields, ..
+        } => {
+            let token_use = if token.binder == Some(var) { 1 } else { 0 };
+            token_use + fields.iter().map(|f| count_owned(var, f)).sum::<usize>()
+        }
     }
 }
 
@@ -337,6 +355,12 @@ fn total_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
             (if v.binder == Some(var) { 1 } else { 0 }) + total_occurrences(var, body)
         }
         CoreExpr::Drop { body, .. } => total_occurrences(var, body),
+        CoreExpr::Reuse {
+            token, fields, ..
+        } => {
+            (if token.binder == Some(var) { 1 } else { 0 })
+                + fields.iter().map(|f| total_occurrences(var, f)).sum::<usize>()
+        }
     }
 }
 

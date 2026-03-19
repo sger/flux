@@ -266,5 +266,20 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
             body: Box::new(evidence_transform(*body, next_id, evidence)),
             span,
         },
+
+        CoreExpr::Reuse {
+            token,
+            tag,
+            fields,
+            span,
+        } => CoreExpr::Reuse {
+            token,
+            tag,
+            fields: fields
+                .into_iter()
+                .map(|f| evidence_transform(f, next_id, evidence))
+                .collect(),
+            span,
+        },
     }
 }
