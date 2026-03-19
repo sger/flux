@@ -798,5 +798,88 @@ pub(super) fn compile_expr(
             "LLVM backend: Handle expression not supported (use HandleScope instruction)"
                 .to_string(),
         ),
+        IrExpr::DropReuse(var) => {
+            let (func, fn_ty) = get_helper(ctx, "rt_drop_reuse")?;
+            let val_ptr = force_box_to_ptr(ctx, env, *var, ctx_val)?;
+            let result = ctx
+                .builder
+                .build_call(fn_ty, func, &mut [ctx_val, val_ptr], "drop_reuse");
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::ReuseCons { token, head, tail } => {
+            let (func, fn_ty) = get_helper(ctx, "rt_reuse_cons")?;
+            let token_ptr = force_box_to_ptr(ctx, env, *token, ctx_val)?;
+            let head_ptr = force_box_to_ptr(ctx, env, *head, ctx_val)?;
+            let tail_ptr = force_box_to_ptr(ctx, env, *tail, ctx_val)?;
+            let result = ctx.builder.build_call(
+                fn_ty,
+                func,
+                &mut [ctx_val, token_ptr, head_ptr, tail_ptr],
+                "reuse_cons",
+            );
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::ReuseSome { token, inner } => {
+            let (func, fn_ty) = get_helper(ctx, "rt_reuse_some")?;
+            let token_ptr = force_box_to_ptr(ctx, env, *token, ctx_val)?;
+            let inner_ptr = force_box_to_ptr(ctx, env, *inner, ctx_val)?;
+            let result = ctx.builder.build_call(
+                fn_ty,
+                func,
+                &mut [ctx_val, token_ptr, inner_ptr],
+                "reuse_some",
+            );
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::ReuseLeft { token, inner } => {
+            let (func, fn_ty) = get_helper(ctx, "rt_reuse_left")?;
+            let token_ptr = force_box_to_ptr(ctx, env, *token, ctx_val)?;
+            let inner_ptr = force_box_to_ptr(ctx, env, *inner, ctx_val)?;
+            let result = ctx.builder.build_call(
+                fn_ty,
+                func,
+                &mut [ctx_val, token_ptr, inner_ptr],
+                "reuse_left",
+            );
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::ReuseRight { token, inner } => {
+            let (func, fn_ty) = get_helper(ctx, "rt_reuse_right")?;
+            let token_ptr = force_box_to_ptr(ctx, env, *token, ctx_val)?;
+            let inner_ptr = force_box_to_ptr(ctx, env, *inner, ctx_val)?;
+            let result = ctx.builder.build_call(
+                fn_ty,
+                func,
+                &mut [ctx_val, token_ptr, inner_ptr],
+                "reuse_right",
+            );
+            Ok(build_ptr_tagged(ctx, result))
+        }
+        IrExpr::ReuseAdt {
+            token,
+            constructor,
+            fields,
+        } => {
+            let (func, fn_ty) = get_helper(ctx, "rt_reuse_adt")?;
+            let token_ptr = force_box_to_ptr(ctx, env, *token, ctx_val)?;
+            let name_str = interner.resolve(*constructor);
+            let name_bytes = name_str.as_bytes();
+            let global = wrapper::create_global_string(
+                &ctx.module,
+                &ctx.llvm_ctx,
+                &format!(".adt.reuse.{}", name_str),
+                name_bytes,
+            );
+            let name_len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
+            let fields_buf = build_tagged_args_array(ctx, fields, env)?;
+            let nfields = wrapper::const_i64(ctx.i64_type, fields.len() as i64);
+            let result = ctx.builder.build_call(
+                fn_ty,
+                func,
+                &mut [ctx_val, token_ptr, global, name_len, fields_buf, nfields],
+                "reuse_adt",
+            );
+            Ok(build_ptr_tagged(ctx, result))
+        }
     }
 }

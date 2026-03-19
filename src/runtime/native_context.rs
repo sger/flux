@@ -1,7 +1,6 @@
 use crate::runtime::nanbox::NanBox;
 use crate::runtime::{
-    RuntimeContext, base::list_ops::format_value, function_contract::FunctionContract,
-    value::Value,
+    RuntimeContext, base::list_ops::format_value, function_contract::FunctionContract, value::Value,
 };
 use crate::{
     diagnostics::position::{Position, Span},
@@ -481,7 +480,6 @@ impl JitContext {
             self.shadow_roots.truncate(start);
         }
     }
-
 }
 
 fn strip_leading_ansi_and_whitespace(mut message: &str) -> &str {

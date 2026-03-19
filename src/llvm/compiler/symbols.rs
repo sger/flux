@@ -217,6 +217,27 @@ pub(super) fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
         ),
         // Aether: rt_aether_drop(ctx, val_ptr) -> void
         ("rt_aether_drop", void_ty, vec![ptr_ty, ptr_ty]),
+        // Aether Phase 7: Perceus reuse helpers
+        // rt_drop_reuse(ctx, val_ptr) -> ptr (non-null = reusable, null = shared)
+        ("rt_drop_reuse", ptr_ty, vec![ptr_ty, ptr_ty]),
+        // rt_reuse_cons(ctx, token, head, tail) -> ptr
+        (
+            "rt_reuse_cons",
+            ptr_ty,
+            vec![ptr_ty, ptr_ty, ptr_ty, ptr_ty],
+        ),
+        // rt_reuse_some(ctx, token, inner) -> ptr
+        ("rt_reuse_some", ptr_ty, vec![ptr_ty, ptr_ty, ptr_ty]),
+        // rt_reuse_left(ctx, token, inner) -> ptr
+        ("rt_reuse_left", ptr_ty, vec![ptr_ty, ptr_ty, ptr_ty]),
+        // rt_reuse_right(ctx, token, inner) -> ptr
+        ("rt_reuse_right", ptr_ty, vec![ptr_ty, ptr_ty, ptr_ty]),
+        // rt_reuse_adt(ctx, token, name_ptr, name_len, fields_ptr, nfields) -> ptr
+        (
+            "rt_reuse_adt",
+            ptr_ty,
+            vec![ptr_ty, ptr_ty, ptr_ty, i64_ty, ptr_ty, i64_ty],
+        ),
     ];
 
     // Read-only helpers: inspect values without modifying ctx or heap.
@@ -256,6 +277,11 @@ pub(super) fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
         "rt_to_string",
         "rt_string_concat",
         "rt_unbox_to_tagged",
+        "rt_reuse_cons",
+        "rt_reuse_some",
+        "rt_reuse_left",
+        "rt_reuse_right",
+        "rt_reuse_adt",
     ];
 
     for (name, ret_ty, param_tys) in helpers {

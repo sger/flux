@@ -440,9 +440,9 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
         | CoreExpr::Drop {
             var: ref_var, body, ..
         } => ref_var.binder == Some(var) || appears_free(var, body),
-        CoreExpr::Reuse {
-            token, fields, ..
-        } => token.binder == Some(var) || fields.iter().any(|f| appears_free(var, f)),
+        CoreExpr::Reuse { token, fields, .. } => {
+            token.binder == Some(var) || fields.iter().any(|f| appears_free(var, f))
+        }
     }
 }
 

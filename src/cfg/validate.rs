@@ -240,6 +240,25 @@ fn ensure_expr_vars_defined(expr: &IrExpr, defined: &HashSet<IrVar>) -> Result<(
             ensure_defined(*head, defined)?;
             ensure_defined(*tail, defined)
         }
+        IrExpr::DropReuse(var) => ensure_defined(*var, defined),
+        IrExpr::ReuseCons { token, head, tail } => {
+            ensure_defined(*token, defined)?;
+            ensure_defined(*head, defined)?;
+            ensure_defined(*tail, defined)
+        }
+        IrExpr::ReuseSome { token, inner }
+        | IrExpr::ReuseLeft { token, inner }
+        | IrExpr::ReuseRight { token, inner } => {
+            ensure_defined(*token, defined)?;
+            ensure_defined(*inner, defined)
+        }
+        IrExpr::ReuseAdt { token, fields, .. } => {
+            ensure_defined(*token, defined)?;
+            for field in fields {
+                ensure_defined(*field, defined)?;
+            }
+            Ok(())
+        }
         IrExpr::Perform { args, .. } => {
             for arg in args {
                 ensure_defined(*arg, defined)?;
