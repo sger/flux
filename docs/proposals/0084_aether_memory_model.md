@@ -1,6 +1,6 @@
 - Feature Name: Aether Memory Model
 - Start Date: 2026-03-08
-- Status: Draft
+- Status: Partially Implemented (Phases 0-4 complete)
 - Proposal PR:
 - Flux Issue:
 
@@ -9,59 +9,61 @@
 ## Summary
 [summary]: #summary
 
-**Aether** is Flux's reuse-oriented reference-counted memory model. It is inspired by
-Perceus (Reinking et al., PLDI 2021) but designed for Flux's specific requirements:
-three execution backends (VM, JIT, LLVM), algebraic effects with continuations, and
-future actor-based concurrency.
+**Aether** is Flux's memory model. It replaces the legacy mark-and-sweep GC with
+pure reference counting (`Rc`) and progressively adds compile-time optimizations
+inspired by Perceus (Reinking et al., PLDI 2021).
 
-Aether unifies proposals 0068 (uniqueness analysis), 0069 (in-place reuse), and 0070
-(GC heap elimination) under a single coherent design with a pragmatic phased rollout.
+Aether is designed for Flux's specific requirements: three execution backends
+(VM, JIT, LLVM), algebraic effects with continuations, and future actor-based
+concurrency.
+
+Aether unifies proposals 0068 (uniqueness analysis), 0069 (in-place reuse), and
+0070 (GC heap elimination) under a single coherent design.
 
 ### Core principles
 
 1. Values are **semantically immutable** at the language level.
-2. The runtime uses **reference counting (`Rc`) as the baseline ownership mechanism**.
+2. The runtime uses **reference counting (`Rc`) as the sole ownership mechanism**.
 3. Storage may be **reused internally** when uniqueness makes that observationally safe.
 4. VM, JIT, and LLVM must preserve the **same observable memory semantics**.
 5. **No ownership syntax leakage** — Aether is invisible to Flux programmers.
 
-### Aether vs Perceus
+### Aether vs Perceus — honest assessment
 
-| Aspect | Perceus (Koka) | Aether (Flux) |
-|--------|---------------|---------------|
-| Scope | Compiler algorithm for one backend (C) | Memory model for 3 backends |
-| IR level | Operates on Koka Core IR before C emission | Operates on Core IR before backend split |
-| Reuse tokens | `reuse` binder in Core IR | Runtime `Rc::try_unwrap` (Phase 0-3) + Core IR dup/drop (Phase 4+) |
-| Borrowing | `Borrowed.hs` — static parameter analysis | Phase 5 — skip dup/drop for non-escaping locals |
-| Drop specialization | `Parc.hs` generates type-specific drops | Phase 3 — iterative drop for cons spines |
-| Cycle handling | Type system guarantees no cycles | No-cycle invariant (same guarantee) |
-| Actor awareness | None — Koka is single-threaded | Explicit actor boundary rules (future) |
-| Effect awareness | Implicit — effects compiled away | Explicit reuse barriers at handler/continuation boundaries |
-| GC interaction | No GC at all | Transitional: GC for cons/HAMT/ADT now, migrate to Rc |
+| Aspect | Perceus (Koka) | Aether (Flux) — Current | Aether — Target (Phase 7) |
+|--------|---------------|------------------------|--------------------------|
+| RC insertion | Compile-time (Core IR dup/drop) | Automatic (Rust's Rc) | Compile-time (Core IR dup/drop) |
+| Borrowing | Static parameter analysis (`Borrowed.hs`) | None | Phase 6 — skip dup/drop for non-escaping values |
+| Reuse tokens | `reuse` binder → zero-alloc updates | None — `Rc::new()` every time | Phase 7 — reuse freed allocations |
+| In-place mutation | Yes, when uniquely owned | Partial (`Rc::try_unwrap` moves fields) | Full, via reuse tokens |
+| GC | None | **None** (eliminated in Phase 4) | None |
+| Drop specialization | Type-specific generated drops | Iterative drop for cons spines | Type-specific drops via Core IR |
+| Scope | One backend (C) | Three backends (VM, JIT, LLVM) | Three backends |
+| Effect awareness | Implicit | Explicit reuse barriers | Explicit |
+| Actor awareness | None (single-threaded) | Future | Future |
+
+**Current state (post Phase 4):** Aether is "Rc everywhere" — correct, GC-free, and
+simpler than before, but not yet Perceus-level. The compile-time optimizations in
+Phases 5-7 are what close the gap.
 
 ## Motivation
 [motivation]: #motivation
 
-### Current state
+### Problem solved (Phases 0-4)
 
-Flux has **two memory management systems** running simultaneously:
+Flux previously had **two memory management systems** running simultaneously:
 
 1. **`Rc<T>`** — used by most `Value` variants (Array, String, Closure, Some/Left/Right)
-2. **`GcHeap` (mark-and-sweep)** — used by `Value::Gc` for cons lists, HAMT maps, and
-   some ADTs (`Value::GcAdt`)
+2. **`GcHeap` (mark-and-sweep)** — used by `Value::Gc` for cons lists, HAMT maps, and ADTs
 
-This dual system creates problems:
+This dual system caused: two allocation paths, two deallocation mechanisms,
+`GcHandle` indices that can't cross actor boundaries, and no unified reuse strategy.
 
-- Two different allocation paths, two different deallocation mechanisms
-- `GcHandle` is a `u32` index into a global heap — cannot cross actor boundaries
-- No unified reuse strategy — `Rc` values don't benefit from uniqueness, GC values
-  don't benefit from reference counting
-- Base functions like `map`, `filter`, `push` always allocate new collections even
-  when the input is uniquely owned and could be reused in-place
+**Phases 0-4 eliminated the GC entirely.** All values now use `Rc`.
 
-### Existing infrastructure (discovered during 0068 analysis)
+### Existing infrastructure
 
-The codebase already has significant ownership infrastructure that 0068 underestimated:
+The codebase has significant ownership infrastructure:
 
 | Infrastructure | Location | What it does |
 |---|---|---|
@@ -74,8 +76,15 @@ The codebase already has significant ownership infrastructure that 0068 underest
 | `try_emit_consumed_param()` | `compiler/expression.rs` | Decision: count == 1 AND local → emit `OpConsumeLocal` |
 | `AdtFields::into_two()` / `into_nth()` | `runtime/value.rs` | Move semantics for ADT fields |
 
-**The gap is scope, not mechanism.** The use-count analysis only runs per match arm body,
-not per full function. Extending it to function scope covers ~70% of what 0068 proposed.
+### Remaining problem (Phases 5-7)
+
+With Rc as the sole mechanism, the overhead profile is:
+
+1. **Redundant Rc::clone/drop pairs** — cloning a value only to drop it two instructions later
+2. **No borrowing** — function parameters are always Rc::clone'd even when only read
+3. **No allocation reuse** — every cons/ADT/tuple allocates fresh even when the old one is dead
+
+Perceus solves all three at compile time. Phases 5-7 bring those optimizations to Flux.
 
 ## Guide-level explanation
 [guide-level-explanation]: #guide-level-explanation
@@ -143,109 +152,7 @@ If any condition unmet → allocate fresh (correctness over performance).
 4. **Foreign/runtime boundary** — host callbacks, JIT helper calls, debug tooling
 5. **Actor boundary** — values sent between actors (future)
 
-### GC heap migration (from proposal 0070)
-
-The `GcHeap` currently manages three object types:
-
-| Object | GC alloc sites | Migration target |
-|--------|---------------|-----------------|
-| `HeapObject::Cons` | ~10 (VM, base functions, list_ops) | `Value::ConsList(Rc<ConsList>)` |
-| `HeapObject::Adt` | ~12 (VM, native_helpers) | Unified `Value::Adt` (partially done) |
-| `HeapObject::HamtNode` | ~30 (hamt.rs — every insert/delete/merge) | `Value::HamtMap(Rc<HamtNode>)` |
-
-**Critical blocker for cons lists:** Deep `Rc<ConsList>` chains will stack-overflow on
-drop (Rust's `Rc` uses recursive drop). Iterative drop is required before migration:
-
-```rust
-impl Drop for ConsList {
-    fn drop(&mut self) {
-        let mut cur = std::mem::replace(&mut self.tail, Value::EmptyList);
-        loop {
-            match cur {
-                Value::ConsList(rc) => match Rc::try_unwrap(rc) {
-                    Ok(mut cell) => cur = std::mem::replace(&mut cell.tail, Value::EmptyList),
-                    Err(_) => break, // shared tail, stop iterating
-                },
-                _ => break,
-            }
-        }
-    }
-}
-```
-
-### Base function reuse fast paths (from proposal 0069)
-
-The highest-impact reuse optimization is in base functions, **not** new opcodes:
-
-```rust
-// Example: base_map with Aether reuse
-pub fn base_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    match &args[0] {
-        Value::Array(arr) => {
-            let func = &args[1];
-            // Aether fast path: if uniquely owned, mutate in-place
-            if Rc::strong_count(arr) == 1 {
-                let arr_rc = match args.into_iter().next().unwrap() {
-                    Value::Array(a) => a,
-                    _ => unreachable!(),
-                };
-                if let Ok(mut vec) = Rc::try_unwrap(arr_rc) {
-                    for elem in vec.iter_mut() {
-                        *elem = ctx.invoke_unary_value(func, std::mem::replace(elem, Value::None))?;
-                    }
-                    return Ok(Value::Array(Rc::new(vec)));
-                }
-            }
-            // Fallback: allocate new Vec
-            let results: Result<Vec<Value>, String> = arr.iter()
-                .map(|elem| ctx.invoke_unary_value(func, elem.clone()))
-                .collect();
-            Ok(Value::Array(Rc::new(results?)))
-        }
-        _ => { /* ... */ }
-    }
-}
-```
-
-Apply same pattern to: `base_filter`, `base_push`, `base_sort`, `base_sort_by`.
-
-All 3 backends benefit because base functions are shared runtime code.
-
-**Note on 0069's `OpReuseCheck` / `OpReuseArray` / `Value::ReuseToken`:** These are
-deferred to Phase 4+. Adding `Value::ReuseToken` touches 50+ match sites across the
-codebase. The base function approach achieves 80% of the benefit at 10% of the cost
-for the common operations (`map`, `filter`, `push`).
-
-### Uniqueness analysis (from proposal 0068)
-
-**0068 as written proposes a new `src/ast/uniqueness.rs` module operating on AST.** Based
-on our analysis, this should be revised:
-
-**What already exists (extend, don't rebuild):**
-
-| 0068 Feature | Current status |
-|---|---|
-| Ownership tracking per binding | `consumable_local_use_counts` — exists but per-arm only |
-| AST walk for use counting | `collect_consumable_param_uses()` — exists |
-| Emit move for last-use locals | `OpConsumeLocal` — exists |
-| Decision logic (count == 1 → move) | `try_emit_consumed_param()` — exists |
-
-**What to extend:**
-
-1. Widen `collect_consumable_param_uses()` from per-match-arm to per-function scope
-2. Add closure-capture awareness: variable in `collect_free_vars()` of any lambda → Shared
-3. Track cross-statement last-use in sequential `let` bindings
-
-**What to defer:**
-
-- Core IR ownership annotations (`CoreExpr::Dup`/`CoreExpr::Drop`) — Phase 4
-- `OwnershipMap` as explicit data structure — only if Phase 0-2 prove insufficient
-- `--perceus` / `--aether` CLI flag — make always-on when ready
-
 ### Where Aether fits in the Flux compilation pipeline
-
-Aether operates at **multiple levels** of the pipeline, with each phase targeting the
-most effective insertion point:
 
 ```text
 Source → Lexer → Parser → AST → HM Type Inference
@@ -253,22 +160,21 @@ Source → Lexer → Parser → AST → HM Type Inference
                     ┌──────────────────▼──────────────────┐
                     │         Core IR (core/)              │
                     │                                      │
-                    │  Phase 5: CoreExpr::Dup / Drop       │ ← explicit RC operations
-                    │  Phase 6: Borrowing elision           │ ← skip dup/drop pairs
-                    │                                      │
-                    │  Runs AFTER existing Core passes:     │
+                    │  Existing passes (unchanged):        │
                     │  beta → cokc → case_of_case →        │
                     │  inline → dead_let → evidence → anf  │
-                    │  THEN: aether_rc → aether_borrow     │
+                    │                                      │
+                    │  Phase 5: aether_rc                  │ ← dup/drop insertion
+                    │  Phase 6: aether_borrow              │ ← borrow elision
+                    │  Phase 7: aether_reuse               │ ← reuse token insertion
                     │                                      │
                     └──────────────────┬──────────────────┘
                                        │
                     ┌──────────────────▼──────────────────┐
                     │         CFG IR (cfg/)                 │
                     │                                      │
-                    │  Dup/Drop lower to explicit           │
-                    │  Rc::clone / Rc::drop calls           │
-                    │  in IrInstr                           │
+                    │  Dup/Drop/Reuse lower to explicit     │
+                    │  Rc operations in IrInstr             │
                     └──────────────────┬──────────────────┘
                                        │
               ┌────────────────────────┼────────────────────────┐
@@ -276,10 +182,9 @@ Source → Lexer → Parser → AST → HM Type Inference
      ┌────────▼────────┐     ┌────────▼────────┐     ┌────────▼────────┐
      │   VM Backend     │     │   JIT Backend    │     │  LLVM Backend   │
      │                  │     │                  │     │                 │
-     │  Phase 0: extend │     │  Dup/Drop →      │     │  Dup/Drop →     │
-     │  OpConsumeLocal  │     │  inline RC ops   │     │  LLVM intrinsics│
+     │  OpDup/OpDrop    │     │  Dup/Drop →      │     │  Dup/Drop →     │
+     │  opcodes         │     │  inline RC ops   │     │  LLVM intrinsics│
      │  + Rc::try_unwrap│     │  or rt_* calls   │     │  (ARC-style)    │
-     │  in dispatch.rs  │     │                  │     │                 │
      └──────────────────┘     └──────────────────┘     └─────────────────┘
               │                        │                        │
               └────────────────────────┼────────────────────────┘
@@ -287,9 +192,9 @@ Source → Lexer → Parser → AST → HM Type Inference
                     ┌──────────────────▼──────────────────┐
                     │       Shared Runtime (runtime/)       │
                     │                                      │
-                    │  Phase 0: base function Rc reuse     │ ← map, filter, push
-                    │  Phase 1-3: GcHeap → Rc migration    │ ← cons, ADT, HAMT
-                    │  Phase 4: delete GcHeap              │
+                    │  ✅ Phase 0: base function Rc reuse  │
+                    │  ✅ Phase 1-3: GcHeap → Rc migration │
+                    │  ✅ Phase 4: GcHeap deleted           │
                     └──────────────────────────────────────┘
 ```
 
@@ -305,152 +210,337 @@ would produce incorrect results. The passes must stabilize the code first.
 lifetimes, not control flow. Core IR's tree structure makes lifetime analysis natural.
 CFG's block-and-jump structure would require dataflow analysis for the same information.
 
-**Phase 0-3 are different:** They operate at the runtime/VM level without Core IR changes.
-This is intentional — they exploit existing infrastructure (OpConsumeLocal, Rc::try_unwrap,
-base function signatures) and deliver value before the heavier Core IR work.
-
 ## Phased rollout
 [phased-rollout]: #phased-rollout
 
-### Phase 0: Quick wins (no Core IR changes, no new modules)
-
-**Estimated effort: 1-2 weeks. No dependencies.**
+### Phase 0: Runtime Rc reuse fast paths ✅ IMPLEMENTED
 
 VM-level optimizations using existing infrastructure:
 
-1. **Extend `OpConsumeLocal` to full function scope**
-   - Widen `collect_consumable_param_uses()` from per-match-arm to entire function body
-   - Mark last-use of any local binding, emit `OpConsumeLocal` instead of `OpGetLocal`
-   - Files: `src/bytecode/compiler/expression.rs`
+1. **`Rc::try_unwrap` fast paths in base functions**
+   - `base_map`: in-place array mutation when `Rc::strong_count == 1`
+   - `base_filter`: in-place filtering when uniquely owned
+   - Files: `src/runtime/base/higher_order_ops.rs`
 
-2. **Extend `Rc::try_unwrap` to more VM opcodes**
-   - `OpConsHead`: move head when cons cell is unique (currently clones)
-   - `OpConsTail`: move tail when cons cell is unique (currently clones)
-   - `OpTupleIndex`: move element when tuple is unique (currently clones)
-   - ~5 lines per opcode in `src/bytecode/vm/dispatch.rs`
+2. **`Rc::try_unwrap` in VM opcodes**
+   - `OpConsHead`: move head when cons cell is unique
+   - `OpConsTail`: move tail when cons cell is unique
+   - `OpTupleIndex`: move element when tuple is unique
+   - File: `src/bytecode/vm/dispatch.rs`
 
-3. **Add closure-capture awareness to use-count analysis**
-   - If variable appears in `collect_free_vars()` of any lambda → mark as Shared
-   - Prevents consuming a variable captured by a closure
-   - Files: `src/bytecode/compiler/expression.rs`
+### Phase 1: Cons list migration ✅ IMPLEMENTED
 
-4. **Base function Rc reuse fast paths**
-   - Add `Rc::strong_count == 1` → `Rc::try_unwrap` → in-place mutation to:
-     `base_map`, `base_filter`, `base_push`, `base_sort`, `base_sort_by`
-   - ~20 lines per function in `src/runtime/base/`
-   - All 3 backends benefit (shared runtime code)
+Migrated cons lists from `GcHeap` to `Rc<ConsCell>`:
 
-### Phase 1: Cons list migration
+1. `ConsCell` struct with iterative `Drop` (stack-overflow prevention)
+2. `Value::Cons(Rc<ConsCell>)` variant replaces `Value::Gc(HeapObject::Cons)`
+3. All VM opcodes, base functions, and JIT/LLVM helpers updated
+4. File: `src/runtime/cons_cell.rs`
 
-**Estimated effort: 2-3 weeks. Depends on Phase 0 measured.**
+### Phase 2: ADT unification ✅ IMPLEMENTED
 
-Migrate cons lists from `GcHeap` to `Rc`:
+Unified all ADTs under `Value::Adt(Rc<AdtValue>)`:
 
-1. Add `ConsList` struct and `Value::ConsList(Rc<ConsList>)` variant
-2. Implement iterative `Drop` for `ConsList` (stack-overflow prevention)
-3. Redirect `OpCons`, `base_list`, `base_to_list` to use `ConsList`
-4. Update `OpConsHead`, `OpConsTail`, `OpIsCons`, `OpIsEmptyList` for new variant
-5. Handle both `Value::Gc(Cons)` and `Value::ConsList` during migration
-6. After migration complete, remove `HeapObject::Cons` path
+1. `Value::GcAdt` variant removed
+2. `AdtRef` simplified to single-variant newtype
+3. `NanTag::GcAdt` freed (tag 0x7)
+4. All VM opcodes, base functions, and JIT/LLVM helpers updated
 
-### Phase 2: ADT unification
+### Phase 3: HAMT migration ✅ IMPLEMENTED
 
-**Estimated effort: 1-2 weeks. Independent of Phase 1.**
+Migrated HAMT maps from `GcHeap` to `Rc<HamtNode>`:
 
-Eliminate `Value::GcAdt` — unify all ADTs under `Value::Adt`:
+1. Complete Rc-based HAMT rewrite in `src/runtime/hamt.rs`
+2. `Value::HashMap(Rc<HamtNode>)` variant replaces `Value::Gc(HeapObject::HamtNode)`
+3. All 8 HAMT base functions, VM hash building, and JIT/LLVM helpers updated
+4. Self-contained module with no GcHeap dependency
 
-1. Change `OpMakeAdt` to allocate via `Rc` instead of `gc_heap.alloc(HeapObject::Adt)`
-2. Update JIT/LLVM `rt_*` helpers (`rt_make_adt` etc.) to allocate via `Rc`
-3. Remove `Value::GcAdt` variant
-4. Remove `HeapObject::Adt`
+### Phase 4: GcHeap elimination ✅ IMPLEMENTED
 
-### Phase 3: HAMT migration
+Removed the GC entirely:
 
-**Estimated effort: 3-4 weeks. Depends on Phase 1 (cons migration proves the pattern).**
+1. `Value::Gc(GcHandle)` variant removed
+2. `NanTag::GcHandle` freed (tag 0x6)
+3. All GC-related code paths deleted from VM dispatch, base functions, native helpers
+4. `GcHeap` struct retained as empty stub (pending cleanup)
 
-Migrate HAMT maps from `GcHeap` to `Rc`:
+### Phase 5: Compile-time dup/drop insertion
 
-1. Rewrite `src/runtime/gc/hamt.rs` to use `Rc<HamtNode>` (30+ function signatures change)
-2. Add `Value::HamtMap(Rc<HamtNode>)` variant
-3. Implement iterative drop for `HamtNode` (same pattern as cons)
-4. Update all HAMT base functions (`put`, `get`, `has_key`, `keys`, `values`, `merge`, `delete`)
-5. Update hash_ops tests
-
-### Phase 4: Delete GcHeap
-
-**Estimated effort: 1 week. Depends on Phases 1+2+3.**
-
-1. Remove `Value::Gc(GcHandle)` variant
-2. Delete `src/runtime/gc/gc_heap.rs`, `heap_object.rs`
-3. Remove `GcHeap` from VM struct
-4. Remove `gc_heap` parameter from all base function signatures
-5. Deprecate `--gc-threshold`, `--no-gc` flags (keep as no-ops with warning)
-6. Keep `gc/` directory for `hamt.rs` and `cons.rs` as Rc-based implementations,
-   or move them to `runtime/collections/`
-
-### Phase 5: Core IR ownership annotations (Aether evidence)
-
+**Goal:** Eliminate redundant `Rc::clone()` and `Rc::drop()` at compile time.
 **Estimated effort: 4-6 weeks. Depends on Phase 0-4 measured.**
 
-Only pursue if Phase 0-4 measurements show Rc overhead is still a bottleneck:
+This is the core Perceus algorithm adapted for Flux. For each variable in Core IR,
+analyze its usage pattern and insert explicit `Dup` (increment refcount) and `Drop`
+(decrement refcount) operations at precise points.
 
-1. Add `CoreExpr::Dup(binder)` and `CoreExpr::Drop(binder)` to Core IR
-2. New Core pass: insert dup/drop based on variable usage analysis
-3. Optimization pass: fuse dup/drop pairs, elide unnecessary operations
-4. Update all 7 existing Core passes to handle Dup/Drop nodes
-5. Expose ownership evidence to all 3 backends
+#### 5.1 New Core IR nodes
+
+```rust
+pub enum CoreExpr {
+    // ... existing variants ...
+    Dup {
+        var: CoreVarRef,
+        body: Box<CoreExpr>,  // dup var; body
+        span: Span,
+    },
+    Drop {
+        var: CoreVarRef,
+        body: Box<CoreExpr>,  // drop var; body
+        span: Span,
+    },
+}
+```
+
+#### 5.2 Dup/drop insertion rules (from Perceus)
+
+The algorithm walks Core IR after ANF normalization. For each `Let` binding:
+
+```text
+let x = e in body
+```
+
+1. Count occurrences of `x` in `body`:
+   - **0 uses**: insert `Drop(x)` immediately after binding
+   - **1 use**: no dup needed, no drop needed (ownership transferred)
+   - **N uses (N > 1)**: insert `Dup(x)` before each use except the last
+
+2. For `Case` expressions:
+   - Each alternative may use different variables
+   - Insert drops at the START of each alternative for variables NOT used in that arm
+   - Insert dups for variables used in MULTIPLE arms
+
+3. For `Lam` (closures):
+   - Captured variables need `Dup` at capture point
+   - The closure body owns its copy
+
+4. For `Con` (constructors):
+   - Fields consumed by the constructor — no dup needed if last use
+   - Otherwise dup before passing to constructor
+
+#### 5.3 Optimization passes on dup/drop
+
+After insertion, run optimization passes:
+
+- **Dup-drop fusion**: `dup x; ... drop x` where no intervening use → eliminate both
+- **Drop reorder**: move drops earlier to free memory sooner (reduce peak usage)
+- **Dup push-through**: delay dups until actual use point (reduce live references)
+
+#### 5.4 Lowering to backends
+
+Core IR `Dup`/`Drop` nodes lower through CFG IR to backend-specific operations:
+
+- **VM**: `OpDup(local)` → `Rc::clone()`, `OpDrop(local)` → replace slot with `Uninit`
+- **JIT**: Inline `Rc::clone`/drop or call `rt_dup`/`rt_drop` helpers
+- **LLVM**: LLVM intrinsics or `rt_dup`/`rt_drop` calls
+
+#### 5.5 Updating existing Core passes
+
+All 7 existing Core passes must be updated to handle `Dup`/`Drop` nodes:
+
+- **beta, inline, dead_let**: Treat `Dup`/`Drop` as transparent wrappers
+- **case_of_case, cokc**: Propagate dup/drop through case transformations
+- **evidence**: Effect handler rewriting must preserve dup/drop
+- **anf**: Dup/drop are already in A-normal form (no nested subexpressions)
+
+**Important**: The Aether pass runs AFTER all existing passes, so existing passes
+only need to handle dup/drop if they run in a second round of optimization. Initially,
+run Aether as the final Core pass with no re-optimization.
+
+#### 5.6 Expected impact
+
+- 40-60% fewer `Rc::clone()` calls in typical functional code
+- Measurable with `--stats` comparing before/after Rc operation counts
 
 ### Phase 6: Borrowing analysis
 
+**Goal:** Skip dup/drop entirely for values that are only read, not consumed.
 **Estimated effort: 3-4 weeks. Depends on Phase 5.**
 
-1. Skip dup/drop for values whose lifetime is contained within a function scope
-   and that do not escape (not stored in closures, ADTs, or returned)
-2. Integrate with effect handler boundaries — values captured by continuations
-   must not be borrowed across the capture point
-3. Inter-procedural borrowing for known call sites (deferred)
+A function parameter that is only read (not stored in a data structure, not returned,
+not captured by a closure) doesn't need its refcount touched at all.
 
-### Phase 7: Actor transfer (future)
+#### 6.1 Borrowed parameter detection
 
-Transfer semantics for uniquely owned actor messages. Only after copy/rebuild
-semantics are fully correct and observable.
+Analyze each function's parameters:
+
+```text
+fn f(x, y) =
+  let a = x + 1    -- x is READ (borrowed) — no dup needed
+  let b = Cons(y, Nil)  -- y is CONSUMED — dup if used again
+  a
+```
+
+A parameter is **borrowed** if all its uses are in "read" positions:
+- Operand of a `PrimOp` (arithmetic, comparison, string ops)
+- Scrutinee of a `Case` (pattern matching reads, doesn't consume)
+- Argument to a function known to borrow its parameter
+
+A parameter is **owned** if any use is in a "consume" position:
+- Field of a `Con` (stored in data structure)
+- Returned from the function
+- Captured by a `Lam`
+- Passed to a function that owns its parameter
+
+#### 6.2 Inter-procedural borrowing
+
+For known call sites (not higher-order), propagate borrowing info:
+
+```text
+fn g(x) = x + 1       -- g borrows x
+fn h(xs) = map(xs, g)  -- map owns xs (stores it), borrows g
+```
+
+Start with intra-procedural analysis (Phase 6a), extend to inter-procedural
+for known calls (Phase 6b).
+
+#### 6.3 Effect handler boundaries
+
+Values captured by continuations must NOT be borrowed across the capture point.
+A `Perform` expression is a reuse barrier — all live borrowed values must be
+dup'd before the perform.
+
+#### 6.4 Expected impact
+
+- Near-zero RC overhead for leaf functions (arithmetic, comparison, formatting)
+- 10-20% additional reduction on top of Phase 5
+
+### Phase 7: Reuse tokens
+
+**Goal:** When a drop makes refcount hit zero, reuse the freed memory for the
+next allocation of the same shape. Zero-allocation functional updates.
+**Estimated effort: 4-6 weeks. Depends on Phase 6.**
+
+This is the signature Perceus optimization. When you pattern match on a cons cell
+and immediately construct a new one, the old cell's memory is reused.
+
+#### 7.1 New Core IR node
+
+```rust
+pub enum CoreExpr {
+    // ... existing variants ...
+    Reuse {
+        token: CoreBinder,    // reuse token from a drop
+        tag: CoreTag,         // constructor to reuse for
+        fields: Vec<CoreExpr>,
+        span: Span,
+    },
+}
+```
+
+#### 7.2 Reuse analysis
+
+After dup/drop insertion, scan for `Drop` followed by `Con` of compatible shape:
+
+```text
+-- Before reuse analysis:
+case xs of
+  Cons(h, t) ->
+    drop xs            -- xs is dead after destructure
+    let h' = h + 1
+    Cons(h', t)        -- allocates fresh cons cell
+
+-- After reuse analysis:
+case xs of
+  Cons(h, t) ->
+    let token = drop_reuse xs   -- drop returns reuse token
+    let h' = h + 1
+    reuse token Cons(h', t)     -- reuse old cons cell's memory
+```
+
+#### 7.3 Shape compatibility
+
+A reuse token from type A can be used for type B if:
+- Same number of fields
+- Same or smaller total field size
+- Both are heap-allocated (Rc-wrapped)
+
+For Flux's Value representation:
+- `ConsCell` (2 fields) can reuse `ConsCell`
+- `AdtValue` with N fields can reuse `AdtValue` with ≤ N fields
+- Tuples of same arity can reuse each other
+
+#### 7.4 Runtime representation
+
+```rust
+pub struct ReuseToken {
+    ptr: *mut u8,        // raw pointer to freed allocation
+    capacity: usize,     // size of the allocation
+}
+```
+
+When `Rc::try_unwrap` succeeds in a `drop_reuse`:
+1. Move all fields out (they're owned by the match bindings)
+2. Keep the allocation alive as a `ReuseToken`
+3. `reuse token Con(...)` writes new fields into the existing allocation
+
+When `Rc::try_unwrap` fails (shared):
+1. Return a null token
+2. `reuse null_token Con(...)` falls back to `Rc::new()` (normal allocation)
+
+#### 7.5 Expected impact
+
+- Zero-allocation `map`, `filter` over lists when uniquely owned
+- Zero-allocation ADT updates (e.g., tree rotations, record updates)
+- Benchmarks should match Koka's performance for functional update patterns
+
+### Phase 8: Actor transfer (future)
+
+Transfer semantics for uniquely owned actor messages. Only after Phases 5-7
+are correct and measured.
+
+## Implementation status
+
+| Phase | Status | Key changes |
+|-------|--------|-------------|
+| Phase 0 | ✅ Implemented | `Rc::try_unwrap` fast paths in `base_map`, `base_filter`, `OpConsHead`, `OpConsTail`, `OpTupleIndex` |
+| Phase 1 | ✅ Implemented | `ConsCell` struct, `Value::Cons(Rc<ConsCell>)`, iterative `Drop` |
+| Phase 2 | ✅ Implemented | `Value::GcAdt` removed, all ADTs unified under `Value::Adt(Rc<AdtValue>)` |
+| Phase 3 | ✅ Implemented | Rc-based HAMT in `src/runtime/hamt.rs`, `Value::HashMap(Rc<HamtNode>)` |
+| Phase 4 | ✅ Implemented | `Value::Gc` removed, `NanTag::GcHandle` freed, GC code paths deleted |
+| Phase 5 | 📋 Planned | Core IR `Dup`/`Drop` insertion |
+| Phase 6 | 📋 Planned | Borrowing analysis (skip dup/drop for read-only params) |
+| Phase 7 | 📋 Planned | Reuse tokens (zero-alloc functional updates) |
+| Phase 8 | 📋 Future | Actor transfer semantics |
+
+### Remaining cleanup (Phase 4 completion)
+
+- Remove `GcHeap` stub struct and `RuntimeContext::gc_heap()`/`gc_heap_mut()` trait methods
+- Delete `src/runtime/gc/` directory entirely
+- Remove `gc-telemetry` feature flag
+- Update `hamt_bench.rs` to use Rc-based HAMT module
 
 ## Expected impact
 
 | Phase | What improves | Estimated gain |
 |-------|--------------|----------------|
-| Phase 0 | Array `map`/`filter`/`push` on unique inputs | 2-4× for these operations |
-| Phase 0 | Local variable clone/drop elimination | 10-30% fewer Rc operations |
-| Phase 1 | Cons list operations (no GC pauses) | Eliminates GC cycles for list-heavy code |
-| Phase 2 | ADT operations (unified path) | Simpler code, slight perf improvement |
-| Phase 3 | HAMT operations (no GC pauses) | Eliminates GC cycles for map-heavy code |
-| Phase 4 | Overall (no dual memory system) | Simpler runtime, predictable perf |
-| Phase 5 | All Rc operations (dup/drop elision) | 10-20% fewer Rc operations |
-| Phase 6 | Function-local values (zero Rc overhead) | Near-zero overhead for local computation |
+| Phase 0 ✅ | Array `map`/`filter` on unique inputs | 2-4× for these operations |
+| Phase 1 ✅ | Cons list operations (no GC pauses) | Eliminates GC cycles for list-heavy code |
+| Phase 2 ✅ | ADT operations (unified path) | Simpler code, slight perf improvement |
+| Phase 3 ✅ | HAMT operations (no GC pauses) | Eliminates GC cycles for map-heavy code |
+| Phase 4 ✅ | Overall (no dual memory system) | Simpler runtime, predictable perf |
+| Phase 5 | All Rc operations (compile-time dup/drop) | 40-60% fewer Rc::clone() calls |
+| Phase 6 | Function-local values (borrowing) | Near-zero RC overhead for leaf functions |
+| Phase 7 | Functional updates (reuse tokens) | Zero-allocation map/filter/tree operations |
 
 ## Drawbacks
 [drawbacks]: #drawbacks
 
-1. **Large scope** — 7 phases spanning months of work. Risk of stalling after early phases.
-   Mitigated by each phase delivering independent value.
-2. **Rc recursive drop** — cons lists and HAMT trees under Rc will stack-overflow without
-   iterative drop. Must implement before migration.
-3. **HAMT rewrite is high-risk** — 30+ call sites in hamt.rs, deeply interleaved with GcHeap.
-   Mitigated by doing cons list migration first (proves the pattern).
-4. **Core IR complexity** — Phase 5 adds Dup/Drop nodes to Core IR, complicating all 7
-   existing Core passes. Only pursue if Phase 0-4 prove insufficient.
-5. **Backend parity constraint** — limits how aggressively each backend can optimize
-   independently. This is intentional (correctness > performance).
+1. **Core IR complexity** — Phase 5 adds Dup/Drop nodes, Phase 7 adds Reuse nodes.
+   All 7 existing Core passes must be updated. Mitigated by running Aether as the
+   final pass (existing passes don't need to handle new nodes initially).
+2. **Three-backend constraint** — Dup/Drop/Reuse must lower correctly to VM, JIT,
+   and LLVM. Each backend has different optimization opportunities.
+3. **Effect handler interaction** — Perform/Handle create reuse barriers that limit
+   optimization. The analysis must be conservative at handler boundaries.
+4. **Incremental complexity** — Each phase adds optimization machinery. Risk of
+   the Core IR becoming hard to debug. Mitigated by `--dump-core` showing dup/drop.
 
 ## Rationale and alternatives
 [rationale-and-alternatives]: #rationale-and-alternatives
 
 ### Why not keep tracing GC as the main model?
 
-- Flux already uses `Rc` for most values
-- `GcHandle` cannot cross actor boundaries
-- Two memory systems is unnecessary complexity
-- Perceus-style reuse is a better fit for pure FP optimization
+Eliminated in Phases 0-4. Rc is simpler, has no pauses, and enables reuse analysis.
 
 ### Why not adopt Perceus verbatim?
 
@@ -467,11 +557,22 @@ Perceus is prior art and inspiration, not a drop-in plan.
 Flux should stay pure, approachable, and free of low-level ownership burden.
 Aether is a compiler/runtime optimization, not a language feature.
 
-### Why Phase 0 before Phase 5?
+### Why Phase 5 before Phase 7?
 
-Phase 0 (extend existing OpConsumeLocal + base function Rc reuse) gives 70-80% of
-the benefit of Phase 5 (full Core IR dup/drop) at 10% of the effort. Measure first,
-then invest in Core IR changes only if needed.
+Dup/drop insertion (Phase 5) is prerequisite for both borrowing (Phase 6) and
+reuse tokens (Phase 7). Borrowing elides dup/drop pairs. Reuse transforms
+specific drop+allocate patterns. Without explicit dup/drop in the IR, neither
+analysis has anything to optimize.
+
+### Why A→B→C ordering?
+
+- **A (dup/drop)**: Highest ROI — eliminates 40-60% of redundant RC operations
+  with no new runtime concepts. Pure compile-time optimization.
+- **B (borrowing)**: Builds on A — identifies dup/drop pairs that can be removed
+  entirely. Lower effort once A is in place.
+- **C (reuse tokens)**: Builds on A+B — requires new runtime representation
+  (ReuseToken) and careful interaction with all backends. Highest complexity,
+  but delivers the signature Perceus win (zero-alloc functional updates).
 
 ## Prior art
 [prior-art]: #prior-art
@@ -489,23 +590,25 @@ then invest in Core IR changes only if needed.
 
 | Proposal | Relationship to Aether |
 |----------|----------------------|
-| **0045** (GC) | Superseded as long-term model; GC remains during migration |
-| **0068** (uniqueness analysis) | Subsumed — Phase 0 extends existing infra, Phase 5 is full analysis |
-| **0069** (Rc::get_mut fast paths) | Subsumed — Phase 0 base function reuse, deferred opcode-level reuse |
-| **0070** (GcHandle elimination) | Subsumed — Phases 1-4 implement incrementally |
+| **0045** (GC) | Superseded — GC eliminated in Phase 4 |
+| **0068** (uniqueness analysis) | Subsumed — Phase 5 implements full analysis |
+| **0069** (Rc::get_mut fast paths) | Subsumed — Phase 0 (runtime), Phase 7 (compile-time reuse) |
+| **0070** (GcHandle elimination) | Subsumed — Phases 1-4 implemented |
 | **0109** (VM optimizations) | Complementary — dispatch optimizations independent of Aether |
-| **0110** (JIT optimizations) | Complementary — JIT Rc elimination benefits from Aether evidence |
-| **0111** (LLVM optimizations) | Complementary — LLVM Rc intrinsics benefit from Aether evidence |
-| **0112** (shared pipeline) | Complementary — Core IR caching, iterative passes independent |
+| **0110** (JIT optimizations) | Complementary — JIT benefits from Aether evidence |
+| **0111** (LLVM optimizations) | Complementary — LLVM benefits from Aether evidence |
+| **0112** (shared pipeline) | Complementary — Core IR caching independent |
 
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-1. Should GC be fully eliminated or kept as a fallback for edge cases?
-2. Should iterative drop for cons lists use a loop or trampoline pattern?
-3. What is the right representation for empty HAMT maps after migration?
+1. ~~Should GC be fully eliminated or kept as a fallback?~~ → Eliminated (Phase 4).
+2. ~~Should iterative drop use a loop or trampoline?~~ → Loop with `Rc::try_unwrap` (Phase 1).
+3. ~~What representation for empty HAMT maps?~~ → `Rc<HamtNode>` with empty bitmap (Phase 3).
 4. How should handler-aware uniqueness evidence be represented in Core IR?
 5. Should Aether diagnostics surface in `--dump-core` or a separate `--dump-aether` flag?
+6. What is the right granularity for reuse token shape compatibility?
+7. How should mutual recursion interact with dup/drop insertion?
 
 ## Future possibilities
 [future-possibilities]: #future-possibilities
