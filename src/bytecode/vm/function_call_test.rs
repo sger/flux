@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
 use crate::{
-    bytecode::bytecode::Bytecode,
+    bytecode::{bytecode::Bytecode, vm::VM},
     runtime::{
         base::get_base_function_index, closure::Closure, compiled_function::CompiledFunction,
-        value::Value, vm::VM,
+        value::Value,
     },
 };
 

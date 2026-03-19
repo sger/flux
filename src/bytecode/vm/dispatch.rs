@@ -1181,7 +1181,7 @@ impl VM {
                     let entry_sp = self.handler_stack[handler_pos].entry_sp;
 
                     // Capture frames above the handler boundary.
-                    let mut captured_frames: Vec<super::super::frame::Frame> =
+                    let mut captured_frames: Vec<crate::runtime::frame::Frame> =
                         self.frames[entry_frame_index + 1..=self.frame_index].to_vec();
                     if let Some(last) = captured_frames.last_mut() {
                         last.ip += 3;
