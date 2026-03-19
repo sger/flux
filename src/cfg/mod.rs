@@ -356,6 +356,14 @@ pub enum IrInstr {
         dest: IrVar,
         metadata: IrMetadata,
     },
+    /// Aether: early release of a variable — signals that this variable's
+    /// last use has passed and its Rc refcount can be decremented now rather
+    /// than waiting for scope exit. In the VM this is a no-op (Rc drop is
+    /// automatic), but it enables future backends to reclaim memory sooner.
+    AetherDrop {
+        var: IrVar,
+        metadata: IrMetadata,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -808,6 +816,9 @@ impl IrProgram {
                                 arm_s.join(", ")
                             ));
                         }
+                        IrInstr::AetherDrop { var, .. } => {
+                            out.push_str(&format!("    drop v{}\n", var.0));
+                        }
                     }
                 }
                 out.push_str(&format!("    {}\n", ir_fmt_terminator(&block.terminator)));
@@ -909,6 +920,9 @@ impl IrProgram {
                                 body_entry.0,
                                 arm_s.join(", ")
                             ));
+                        }
+                        IrInstr::AetherDrop { var, .. } => {
+                            out.push_str(&format!("    drop v{}\n", var.0));
                         }
                     }
                 }

@@ -1258,6 +1258,25 @@ impl JitCompiler {
                             module_env.remove(dest);
                             function_env.remove(dest);
                         }
+                        BackendIrInstr::AetherDrop { var, .. } => {
+                            // Aether early-release: overwrite the arena slot with
+                            // Value::None so the old Rc is decremented immediately.
+                            // Only act on boxed (heap-pointer) values; primitives
+                            // (Int/Float/Bool) have no Rc to drop.
+                            if let Some(binding) = env.get(var)
+                                && binding.kind == JitValueKind::Boxed
+                            {
+                                let drop_fn = get_helper_func_ref(
+                                    module,
+                                    helpers,
+                                    &mut builder,
+                                    "rt_aether_drop",
+                                );
+                                builder
+                                    .ins()
+                                    .call(drop_fn, &[ctx_val, binding.value]);
+                            }
+                        }
                         BackendIrInstr::HandleScope { effect, arms, .. } => {
                             let mut op_sym_vals = Vec::with_capacity(arms.len());
                             let mut closure_vals = Vec::with_capacity(arms.len());
@@ -1911,6 +1930,9 @@ fn backend_ir_jit_support_error(ir_program: &IrProgram, interner: &Interner) -> 
                                 );
                             }
                         }
+                    }
+                    BackendIrInstr::AetherDrop { .. } => {
+                        // Always supported — no-op hint.
                     }
                 }
             }
@@ -4236,6 +4258,14 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             HelperSig {
                 num_params: 11,
                 num_returns: 1,
+            },
+        ),
+        // Aether: rt_aether_drop(ctx, val_ptr) -> void
+        (
+            "rt_aether_drop",
+            HelperSig {
+                num_params: 2,
+                num_returns: 0,
             },
         ),
     ]

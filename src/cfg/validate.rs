@@ -56,6 +56,9 @@ pub fn validate_ir(program: &IrProgram) -> Result<(), Diagnostic> {
                         }
                         defined.insert(*dest);
                     }
+                    IrInstr::AetherDrop { var, .. } => {
+                        ensure_defined(*var, &defined)?;
+                    }
                 }
             }
             validate_terminator(&block.terminator, &defined, &block_ids, &function_ids)?;
@@ -134,6 +137,9 @@ fn compute_reachable_defs(
                     | IrInstr::Call { dest, .. }
                     | IrInstr::HandleScope { dest, .. } => {
                         defined.insert(*dest);
+                    }
+                    IrInstr::AetherDrop { .. } => {
+                        // Drop does not define a new variable.
                     }
                 }
             }

@@ -5,7 +5,9 @@ use crate::cfg::{
     IrTagTest, IrTerminator, IrVar,
 };
 use crate::{
-    bytecode::op_code::OpCode, diagnostics::Diagnostic, runtime::value::Value,
+    bytecode::op_code::OpCode,
+    diagnostics::{Diagnostic, DiagnosticBuilder},
+    runtime::value::Value,
     syntax::symbol::Symbol,
 };
 
@@ -90,6 +92,7 @@ impl Compiler {
                     )
                 }
                 IrInstr::HandleScope { .. } => false,
+                IrInstr::AetherDrop { .. } => true,
             }) {
                 return false;
             }
@@ -267,6 +270,16 @@ impl Compiler {
             IrInstr::HandleScope { .. } => Err(Self::boxed(Diagnostic::warning(
                 "unsupported HandleScope in bytecode CFG compatibility path",
             ))),
+            IrInstr::AetherDrop { var, .. } => {
+                // Aether early-release: overwrite the local slot with None to
+                // decrement the Rc refcount as soon as the value is no longer
+                // needed, rather than waiting for the scope to end.
+                if let Some(binding) = bindings.get(var) {
+                    self.emit(OpCode::OpNone, &[]);
+                    self.emit_store_binding(binding);
+                }
+                Ok(())
+            }
         }
     }
 
@@ -497,6 +510,42 @@ impl Compiler {
                 Ok(())
             }
             IrTerminator::TailCall { callee, args, .. } => {
+                // Effect checking for named tail calls.
+                if let IrCallTarget::Named(name) = callee {
+                    let name_str = self.sym(*name);
+                    if let Some(primop) =
+                        crate::primop::resolve_primop_call(name_str, args.len())
+                    {
+                        let required = match primop.effect_kind() {
+                            crate::primop::PrimEffect::Io => Some("IO"),
+                            crate::primop::PrimEffect::Time => Some("Time"),
+                            _ => None,
+                        };
+                        if let Some(required_name) = required
+                            && !self.is_effect_available_name(required_name)
+                        {
+                            return Err(Self::boxed(
+                                Diagnostic::make_error_dynamic(
+                                    "E400",
+                                    "MISSING EFFECT",
+                                    crate::diagnostics::ErrorType::Compiler,
+                                    format!(
+                                        "Call to `{}` requires effect `{}` in this function signature.",
+                                        name_str, required_name
+                                    ),
+                                    Some(format!(
+                                        "Add `with {}` to the enclosing function.",
+                                        required_name
+                                    )),
+                                    self.file_path.clone(),
+                                    crate::diagnostics::position::Span::default(),
+                                )
+                                .with_display_title("Missing Ambient Effect"),
+                            ));
+                        }
+                    }
+                }
+
                 let is_self = matches!(callee, IrCallTarget::Named(name) if *name == current_name);
                 if !is_self {
                     match callee {
@@ -561,6 +610,44 @@ impl Compiler {
         bindings: &HashMap<IrVar, crate::bytecode::binding::Binding>,
         current_name: Symbol,
     ) -> CompileResult<()> {
+        // Effect checking for named calls: verify that effectful base
+        // functions (e.g. print, read_file) have the required effect
+        // available in the surrounding scope.
+        if let IrCallTarget::Named(name) = target {
+            let name_str = self.sym(*name);
+            if let Some(primop) =
+                crate::primop::resolve_primop_call(name_str, args.len())
+            {
+                let required = match primop.effect_kind() {
+                    crate::primop::PrimEffect::Io => Some("IO"),
+                    crate::primop::PrimEffect::Time => Some("Time"),
+                    _ => None,
+                };
+                if let Some(required_name) = required
+                    && !self.is_effect_available_name(required_name)
+                {
+                    return Err(Self::boxed(
+                        Diagnostic::make_error_dynamic(
+                            "E400",
+                            "MISSING EFFECT",
+                            crate::diagnostics::ErrorType::Compiler,
+                            format!(
+                                "Call to `{}` requires effect `{}` in this function signature.",
+                                name_str, required_name
+                            ),
+                            Some(format!(
+                                "Add `with {}` to the enclosing function.",
+                                required_name
+                            )),
+                            self.file_path.clone(),
+                            crate::diagnostics::position::Span::default(),
+                        )
+                        .with_display_title("Missing Ambient Effect"),
+                    ));
+                }
+            }
+        }
+
         let is_self = matches!(target, IrCallTarget::Named(name) if *name == current_name);
         if !is_self {
             match target {
