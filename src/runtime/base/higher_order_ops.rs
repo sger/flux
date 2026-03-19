@@ -27,11 +27,13 @@ fn invoke_binary_callback(
 /// Callback signature: fn(element) - must accept exactly 1 argument
 /// Elements are processed in left-to-right order
 /// Works on Arrays (returns Array) and Lists (returns List)
-pub(super) fn base_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn base_map(
+    ctx: &mut dyn RuntimeContext,
+    mut args: Vec<Value>,
+) -> Result<Value, String> {
     check_arity(&args, 2, "map", "map(collection, fn)")?;
-    let func = &args[1];
 
-    match func {
+    match &args[1] {
         Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
@@ -44,6 +46,24 @@ pub(super) fn base_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result
         }
     }
 
+    // Aether fast path: if array is uniquely owned, mutate in-place (no new allocation).
+    if matches!(&args[0], Value::Array(arr) if Rc::strong_count(arr) == 1) {
+        let func = args.swap_remove(1);
+        let arr_rc = match args.swap_remove(0) {
+            Value::Array(a) => a,
+            _ => unreachable!(),
+        };
+        if let Ok(mut vec) = Rc::try_unwrap(arr_rc) {
+            for (idx, elem) in vec.iter_mut().enumerate() {
+                let old = std::mem::replace(elem, Value::None);
+                *elem = invoke_unary_callback(ctx, &func, old)
+                    .map_err(|e| format!("map: callback error at index {}: {}", idx, e))?;
+            }
+            return Ok(Value::Array(Rc::new(vec)));
+        }
+    }
+
+    let func = &args[1];
     match &args[0] {
         Value::Array(arr) => {
             let mut results = Vec::with_capacity(arr.len());
@@ -100,11 +120,13 @@ pub(super) fn base_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result
 /// Truthiness: Only `Boolean(false)` and `None` are falsy; all other values are truthy
 /// Elements are processed in left-to-right order
 /// Works on Arrays (returns Array) and Lists (returns List)
-pub(super) fn base_filter(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn base_filter(
+    ctx: &mut dyn RuntimeContext,
+    mut args: Vec<Value>,
+) -> Result<Value, String> {
     check_arity(&args, 2, "filter", "filter(collection, pred)")?;
-    let func = &args[1];
 
-    match func {
+    match &args[1] {
         Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
@@ -117,6 +139,32 @@ pub(super) fn base_filter(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
         }
     }
 
+    // Aether fast path: if array is uniquely owned, filter in-place (no new allocation).
+    if matches!(&args[0], Value::Array(arr) if Rc::strong_count(arr) == 1) {
+        let func = args.swap_remove(1);
+        let arr_rc = match args.swap_remove(0) {
+            Value::Array(a) => a,
+            _ => unreachable!(),
+        };
+        if let Ok(mut vec) = Rc::try_unwrap(arr_rc) {
+            let mut write = 0;
+            for read in 0..vec.len() {
+                let keep = invoke_unary_callback(ctx, &func, vec[read].clone())
+                    .map_err(|e| format!("filter: callback error at index {}: {}", read, e))?
+                    .is_truthy();
+                if keep {
+                    if write != read {
+                        vec.swap(write, read);
+                    }
+                    write += 1;
+                }
+            }
+            vec.truncate(write);
+            return Ok(Value::Array(Rc::new(vec)));
+        }
+    }
+
+    let func = &args[1];
     match &args[0] {
         Value::Array(arr) => {
             let mut results = Vec::new();
