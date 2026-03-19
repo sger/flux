@@ -7,6 +7,7 @@ use std::{
 };
 
 use flux::bytecode::bytecode::Bytecode;
+use flux::bytecode::vm::VM;
 #[cfg(feature = "jit")]
 use flux::jit::context::JitContext;
 use flux::runtime::RuntimeContext;
@@ -17,7 +18,6 @@ use flux::runtime::gc::GcHeap;
 use flux::runtime::gc::hamt::{hamt_empty, hamt_insert, hamt_len, hamt_lookup};
 use flux::runtime::hash_key::HashKey;
 use flux::runtime::value::Value;
-use flux::runtime::vm::VM;
 
 fn test_vm() -> VM {
     VM::new(Bytecode {

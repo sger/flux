@@ -32,7 +32,6 @@ pub mod leak_detector;
 pub mod perform_descriptor;
 pub mod runtime_type;
 pub mod value;
-pub mod vm;
 
 pub mod nanbox;
 pub mod native_context;

@@ -10,3 +10,4 @@ pub mod module_constants;
 pub mod op_code;
 pub mod symbol_scope;
 pub mod symbol_table;
+pub mod vm;
