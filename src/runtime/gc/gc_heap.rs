@@ -342,6 +342,12 @@ impl GcHeap {
                             }
                         }
                     }
+                    // Rc-based cons cells: trace head and tail for GC references
+                    // (during migration, inner values may still be Value::Gc).
+                    Value::Cons(cell) => {
+                        worklist.push(WorkItem::Value(cell.head.clone()));
+                        worklist.push(WorkItem::Value(cell.tail.clone()));
+                    }
                     // Internal constant-pool values: no GC references
                     Value::HandlerDescriptor(_) | Value::PerformDescriptor(_) => {}
                     // Leaf types: no GC references
