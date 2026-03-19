@@ -3,14 +3,8 @@ use std::rc::Rc;
 use crate::{
     bytecode::{bytecode::Bytecode, op_code::OpCode},
     runtime::{
-        closure::Closure,
-        compiled_function::CompiledFunction,
-        frame::Frame,
-        gc::{GcHandle, GcHeap, HeapObject},
-        hamt,
-        handler_frame::HandlerFrame,
-        leak_detector,
-        value::Value,
+        closure::Closure, compiled_function::CompiledFunction, frame::Frame, gc::GcHeap, hamt,
+        handler_frame::HandlerFrame, leak_detector, value::Value,
     },
 };
 
@@ -110,38 +104,18 @@ impl VM {
         self.trace = enabled;
     }
 
-    pub fn set_gc_enabled(&mut self, enabled: bool) {
-        self.gc_heap.set_enabled(enabled);
+    pub fn set_gc_enabled(&mut self, _enabled: bool) {
+        // No-op: GC heap removed in Aether Phase 4.
     }
 
-    pub fn set_gc_threshold(&mut self, threshold: usize) {
-        self.gc_heap.set_threshold(threshold);
+    pub fn set_gc_threshold(&mut self, _threshold: usize) {
+        // No-op: GC heap removed in Aether Phase 4.
     }
 
     /// Returns the GC telemetry report, if compiled with the `gc-telemetry` feature.
     #[cfg(feature = "gc-telemetry")]
     pub fn gc_telemetry_report(&self) -> String {
-        self.gc_heap.telemetry_report()
-    }
-
-    /// Allocates a heap object, triggering GC if the threshold is reached.
-    pub(crate) fn gc_alloc(&mut self, object: HeapObject) -> GcHandle {
-        if self.gc_heap.should_collect() {
-            self.collect_gc();
-        }
-        self.gc_heap.alloc(object)
-    }
-
-    fn collect_gc(&mut self) {
-        self.gc_heap.collect_nanboxed(
-            &self.stack,
-            self.sp,
-            &self.globals,
-            &self.constants,
-            &self.last_popped,
-            &self.frames,
-            self.frame_index,
-        );
+        String::from("GC heap removed in Aether Phase 4. No telemetry available.")
     }
 
     /// Create a closure that acts as the identity function: `fn(x) -> x`.

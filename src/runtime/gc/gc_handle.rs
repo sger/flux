@@ -2,7 +2,7 @@
 ///
 /// A `GcHandle` is a lightweight, copyable index that refers to a heap-allocated
 /// object managed by the garbage collector. It is the runtime representation
-/// used inside `Value::Gc`.
+/// Previously used inside `Value::Gc` (removed in Aether Phase 4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GcHandle(pub(crate) u32);
 

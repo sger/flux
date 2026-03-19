@@ -2,15 +2,7 @@ use std::{fs, rc::Rc, time::SystemTime};
 
 use crate::runtime::base::list_ops::format_value;
 
-use crate::runtime::{
-    RuntimeContext,
-    gc::{
-        GcHandle,
-        hamt::{hamt_insert, hamt_lookup, is_hamt},
-    },
-    hamt as rc_hamt,
-    value::Value,
-};
+use crate::runtime::{RuntimeContext, hamt as rc_hamt, value::Value};
 
 /// Primitive operations that can be invoked directly from VM bytecode.
 ///
@@ -476,7 +468,7 @@ fn execute_array_primop(op: PrimOp, args: Vec<Value>) -> Result<Value, String> {
 
 /// Executes map primops backed by HAMT runtime objects.
 fn execute_map_primop(
-    ctx: &mut dyn RuntimeContext,
+    _ctx: &mut dyn RuntimeContext,
     op: PrimOp,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -494,10 +486,7 @@ fn execute_map_primop(
             })?;
             let result = match &map {
                 Value::HashMap(node) => rc_hamt::hamt_lookup(node, &hash),
-                _ => {
-                    let handle = expect_hamt_handle(ctx, &map, op)?;
-                    hamt_lookup(ctx.gc_heap(), handle, &hash)
-                }
+                _ => return Err(type_error(op, "Map", &map)),
             };
             match result {
                 Some(value) => Ok(Value::Some(Rc::new(value))),
@@ -520,11 +509,7 @@ fn execute_map_primop(
                 Value::HashMap(node) => {
                     Ok(Value::HashMap(rc_hamt::hamt_insert(&node, hash, value)))
                 }
-                _ => {
-                    let handle = expect_hamt_handle(ctx, &map, op)?;
-                    let updated = hamt_insert(ctx.gc_heap_mut(), handle, hash, value);
-                    Ok(Value::Gc(updated))
-                }
+                _ => Err(type_error(op, "Map", &map)),
             }
         }
         PrimOp::MapHas => {
@@ -540,10 +525,7 @@ fn execute_map_primop(
             })?;
             let found = match &map {
                 Value::HashMap(node) => rc_hamt::hamt_lookup(node, &hash).is_some(),
-                _ => {
-                    let handle = expect_hamt_handle(ctx, &map, op)?;
-                    hamt_lookup(ctx.gc_heap(), handle, &hash).is_some()
-                }
+                _ => return Err(type_error(op, "Map", &map)),
             };
             Ok(Value::Boolean(found))
         }
@@ -723,21 +705,6 @@ fn expect_float(value: &Value, op: PrimOp) -> Result<f64, String> {
     }
 }
 
-/// Extracts a HAMT-backed map handle from a runtime value.
-///
-/// Returns a typed primop error when the value is not a map.
-fn expect_hamt_handle(
-    ctx: &dyn RuntimeContext,
-    value: &Value,
-    op: PrimOp,
-) -> Result<GcHandle, String> {
-    match value {
-        Value::Gc(h) if is_hamt(ctx.gc_heap(), *h) => Ok(*h),
-        Value::Gc(_) => Err(type_error(op, "Map", value)),
-        other => Err(type_error(op, "Map", other)),
-    }
-}
-
 /// Shared implementation for mixed numeric `min` and `max`.
 ///
 /// Preserves integer return type when both operands are integers; otherwise returns float.
@@ -797,10 +764,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::runtime::{
-        gc::{GcHeap, hamt::hamt_empty, hamt::hamt_insert},
-        hash_key::HashKey,
-    };
+    use crate::runtime::{gc::GcHeap, hamt as rc_hamt_mod, hash_key::HashKey};
 
     struct TestRuntimeContext {
         heap: GcHeap,
@@ -932,12 +896,12 @@ mod tests {
         assert!(err.contains("expected Map"));
     }
 
-    fn hamt_value(ctx: &mut TestRuntimeContext, entries: Vec<(HashKey, Value)>) -> Value {
-        let mut root = hamt_empty(ctx.gc_heap_mut());
+    fn hamt_value(_ctx: &mut TestRuntimeContext, entries: Vec<(HashKey, Value)>) -> Value {
+        let mut root = rc_hamt_mod::hamt_empty();
         for (k, v) in entries {
-            root = hamt_insert(ctx.gc_heap_mut(), root, k, v);
+            root = rc_hamt_mod::hamt_insert(&root, k, v);
         }
-        Value::Gc(root)
+        Value::HashMap(root)
     }
 
     #[test]

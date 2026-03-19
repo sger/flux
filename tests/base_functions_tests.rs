@@ -14,8 +14,7 @@ use flux::runtime::RuntimeContext;
 use flux::runtime::base::{
     get_base_function as get_base, get_base_function_index as get_base_index,
 };
-use flux::runtime::gc::GcHeap;
-use flux::runtime::gc::hamt::{hamt_empty, hamt_insert, hamt_len, hamt_lookup};
+use flux::runtime::hamt as rc_hamt;
 use flux::runtime::hash_key::HashKey;
 use flux::runtime::value::Value;
 
@@ -37,22 +36,20 @@ fn call_vm(vm: &mut VM, name: &str, args: Vec<Value>) -> Result<Value, String> {
     base.call_owned(vm, args)
 }
 
-fn make_test_hash(heap: &mut GcHeap) -> Value {
-    let mut root = hamt_empty(heap);
-    root = hamt_insert(
-        heap,
-        root,
+fn make_test_hash() -> Value {
+    let mut root = rc_hamt::hamt_empty();
+    root = rc_hamt::hamt_insert(
+        &root,
         HashKey::String("name".to_string()),
         Value::String("Alice".to_string().into()),
     );
-    root = hamt_insert(heap, root, HashKey::Integer(42), Value::Integer(100));
-    root = hamt_insert(
-        heap,
-        root,
+    root = rc_hamt::hamt_insert(&root, HashKey::Integer(42), Value::Integer(100));
+    root = rc_hamt::hamt_insert(
+        &root,
         HashKey::Boolean(true),
         Value::String("yes".to_string().into()),
     );
-    Value::Gc(root)
+    Value::HashMap(root)
 }
 
 fn temp_file_path(label: &str) -> PathBuf {
@@ -553,7 +550,7 @@ fn test_base_replace() {
 #[test]
 fn test_base_keys() {
     let mut vm = test_vm();
-    let hash = make_test_hash(vm.gc_heap_mut());
+    let hash = make_test_hash();
     let result = call_vm(&mut vm, "keys", vec![hash]).unwrap();
     match result {
         Value::Array(keys) => {
@@ -573,8 +570,7 @@ fn test_base_keys() {
 #[test]
 fn test_base_keys_empty() {
     let mut vm = test_vm();
-    let root = hamt_empty(vm.gc_heap_mut());
-    let hash = Value::Gc(root);
+    let hash = Value::HashMap(rc_hamt::hamt_empty());
     let result = call_vm(&mut vm, "keys", vec![hash]).unwrap();
     assert_eq!(result, Value::Array(vec![].into()));
 }
@@ -582,7 +578,7 @@ fn test_base_keys_empty() {
 #[test]
 fn test_base_values() {
     let mut vm = test_vm();
-    let hash = make_test_hash(vm.gc_heap_mut());
+    let hash = make_test_hash();
     let result = call_vm(&mut vm, "values", vec![hash]).unwrap();
     match result {
         Value::Array(values) => {
@@ -602,8 +598,7 @@ fn test_base_values() {
 #[test]
 fn test_base_values_empty() {
     let mut vm = test_vm();
-    let root = hamt_empty(vm.gc_heap_mut());
-    let hash = Value::Gc(root);
+    let hash = Value::HashMap(rc_hamt::hamt_empty());
     let result = call_vm(&mut vm, "values", vec![hash]).unwrap();
     assert_eq!(result, Value::Array(vec![].into()));
 }
@@ -611,7 +606,7 @@ fn test_base_values_empty() {
 #[test]
 fn test_base_has_key_found() {
     let mut vm = test_vm();
-    let hash = make_test_hash(vm.gc_heap_mut());
+    let hash = make_test_hash();
     let result = call_vm(
         &mut vm,
         "has_key",
@@ -624,7 +619,7 @@ fn test_base_has_key_found() {
 #[test]
 fn test_base_has_key_not_found() {
     let mut vm = test_vm();
-    let hash = make_test_hash(vm.gc_heap_mut());
+    let hash = make_test_hash();
     let result = call_vm(
         &mut vm,
         "has_key",
@@ -637,7 +632,7 @@ fn test_base_has_key_not_found() {
 #[test]
 fn test_base_has_key_integer_key() {
     let mut vm = test_vm();
-    let hash = make_test_hash(vm.gc_heap_mut());
+    let hash = make_test_hash();
     let result = call_vm(&mut vm, "has_key", vec![hash, Value::Integer(42)]).unwrap();
     assert_eq!(result, Value::Boolean(true));
 }
@@ -645,7 +640,7 @@ fn test_base_has_key_integer_key() {
 #[test]
 fn test_base_has_key_boolean_key() {
     let mut vm = test_vm();
-    let hash = make_test_hash(vm.gc_heap_mut());
+    let hash = make_test_hash();
     let result = call_vm(&mut vm, "has_key", vec![hash, Value::Boolean(true)]).unwrap();
     assert_eq!(result, Value::Boolean(true));
 }
@@ -653,7 +648,7 @@ fn test_base_has_key_boolean_key() {
 #[test]
 fn test_base_has_key_unhashable() {
     let mut vm = test_vm();
-    let hash = make_test_hash(vm.gc_heap_mut());
+    let hash = make_test_hash();
     let result = call_vm(&mut vm, "has_key", vec![hash, Value::Array(vec![].into())]);
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("must be hashable"));
@@ -662,51 +657,36 @@ fn test_base_has_key_unhashable() {
 #[test]
 fn test_base_merge() {
     let mut vm = test_vm();
-    let heap = vm.gc_heap_mut();
+    let _heap = vm.gc_heap_mut();
 
-    let mut h1 = hamt_empty(heap);
-    h1 = hamt_insert(
-        heap,
-        h1,
-        HashKey::String("a".to_string()),
-        Value::Integer(1),
-    );
-    h1 = hamt_insert(
-        heap,
-        h1,
-        HashKey::String("b".to_string()),
-        Value::Integer(2),
-    );
+    let mut h1 = rc_hamt::hamt_empty();
+    h1 = rc_hamt::hamt_insert(&h1, HashKey::String("a".to_string()), Value::Integer(1));
+    h1 = rc_hamt::hamt_insert(&h1, HashKey::String("b".to_string()), Value::Integer(2));
 
-    let mut h2 = hamt_empty(heap);
-    h2 = hamt_insert(
-        heap,
-        h2,
-        HashKey::String("b".to_string()),
-        Value::Integer(20),
-    ); // overwrites
-    h2 = hamt_insert(
-        heap,
-        h2,
-        HashKey::String("c".to_string()),
-        Value::Integer(3),
-    );
+    let mut h2 = rc_hamt::hamt_empty();
+    h2 = rc_hamt::hamt_insert(&h2, HashKey::String("b".to_string()), Value::Integer(20)); // overwrites
+    h2 = rc_hamt::hamt_insert(&h2, HashKey::String("c".to_string()), Value::Integer(3));
 
-    let result = call_vm(&mut vm, "merge", vec![Value::Gc(h1), Value::Gc(h2)]).unwrap();
+    let result = call_vm(
+        &mut vm,
+        "merge",
+        vec![Value::HashMap(h1), Value::HashMap(h2)],
+    )
+    .unwrap();
     match result {
-        Value::Gc(handle) => {
-            let heap = vm.gc_heap_mut();
-            assert_eq!(hamt_len(heap, handle), 3);
+        Value::HashMap(handle) => {
+            let _heap = vm.gc_heap_mut();
+            assert_eq!(rc_hamt::hamt_len(&handle), 3);
             assert_eq!(
-                hamt_lookup(heap, handle, &HashKey::String("a".to_string())),
+                rc_hamt::hamt_lookup(&handle, &HashKey::String("a".to_string())),
                 Some(Value::Integer(1))
             );
             assert_eq!(
-                hamt_lookup(heap, handle, &HashKey::String("b".to_string())),
+                rc_hamt::hamt_lookup(&handle, &HashKey::String("b".to_string())),
                 Some(Value::Integer(20))
             ); // overwritten
             assert_eq!(
-                hamt_lookup(heap, handle, &HashKey::String("c".to_string())),
+                rc_hamt::hamt_lookup(&handle, &HashKey::String("c".to_string())),
                 Some(Value::Integer(3))
             );
         }
@@ -717,28 +697,28 @@ fn test_base_merge() {
 #[test]
 fn test_base_delete() {
     let mut vm = test_vm();
-    let heap = vm.gc_heap_mut();
+    let _heap = vm.gc_heap_mut();
 
-    let mut h = hamt_empty(heap);
-    h = hamt_insert(heap, h, HashKey::String("a".to_string()), Value::Integer(1));
-    h = hamt_insert(heap, h, HashKey::String("b".to_string()), Value::Integer(2));
+    let mut h = rc_hamt::hamt_empty();
+    h = rc_hamt::hamt_insert(&h, HashKey::String("a".to_string()), Value::Integer(1));
+    h = rc_hamt::hamt_insert(&h, HashKey::String("b".to_string()), Value::Integer(2));
 
     let result = call_vm(
         &mut vm,
         "delete",
-        vec![Value::Gc(h), Value::String("a".to_string().into())],
+        vec![Value::HashMap(h), Value::String("a".to_string().into())],
     )
     .unwrap();
 
     match result {
-        Value::Gc(handle) => {
-            let heap = vm.gc_heap_mut();
+        Value::HashMap(handle) => {
+            let _heap = vm.gc_heap_mut();
             assert_eq!(
-                hamt_lookup(heap, handle, &HashKey::String("a".to_string())),
+                rc_hamt::hamt_lookup(&handle, &HashKey::String("a".to_string())),
                 None
             );
             assert_eq!(
-                hamt_lookup(heap, handle, &HashKey::String("b".to_string())),
+                rc_hamt::hamt_lookup(&handle, &HashKey::String("b".to_string())),
                 Some(Value::Integer(2))
             );
         }
@@ -749,25 +729,25 @@ fn test_base_delete() {
 #[test]
 fn test_base_merge_empty() {
     let mut vm = test_vm();
-    let heap = vm.gc_heap_mut();
+    let _heap = vm.gc_heap_mut();
 
-    let mut h1 = hamt_empty(heap);
-    h1 = hamt_insert(
-        heap,
-        h1,
-        HashKey::String("a".to_string()),
-        Value::Integer(1),
-    );
+    let mut h1 = rc_hamt::hamt_empty();
+    h1 = rc_hamt::hamt_insert(&h1, HashKey::String("a".to_string()), Value::Integer(1));
 
-    let h2 = hamt_empty(heap);
+    let h2 = rc_hamt::hamt_empty();
 
-    let result = call_vm(&mut vm, "merge", vec![Value::Gc(h1), Value::Gc(h2)]).unwrap();
+    let result = call_vm(
+        &mut vm,
+        "merge",
+        vec![Value::HashMap(h1), Value::HashMap(h2)],
+    )
+    .unwrap();
     match result {
-        Value::Gc(handle) => {
-            let heap = vm.gc_heap_mut();
-            assert_eq!(hamt_len(heap, handle), 1);
+        Value::HashMap(handle) => {
+            let _heap = vm.gc_heap_mut();
+            assert_eq!(rc_hamt::hamt_len(&handle), 1);
             assert_eq!(
-                hamt_lookup(heap, handle, &HashKey::String("a".to_string())),
+                rc_hamt::hamt_lookup(&handle, &HashKey::String("a".to_string())),
                 Some(Value::Integer(1))
             );
         }
@@ -778,25 +758,25 @@ fn test_base_merge_empty() {
 #[test]
 fn test_base_merge_into_empty() {
     let mut vm = test_vm();
-    let heap = vm.gc_heap_mut();
+    let _heap = vm.gc_heap_mut();
 
-    let h1 = hamt_empty(heap);
+    let h1 = rc_hamt::hamt_empty();
 
-    let mut h2 = hamt_empty(heap);
-    h2 = hamt_insert(
-        heap,
-        h2,
-        HashKey::String("a".to_string()),
-        Value::Integer(1),
-    );
+    let mut h2 = rc_hamt::hamt_empty();
+    h2 = rc_hamt::hamt_insert(&h2, HashKey::String("a".to_string()), Value::Integer(1));
 
-    let result = call_vm(&mut vm, "merge", vec![Value::Gc(h1), Value::Gc(h2)]).unwrap();
+    let result = call_vm(
+        &mut vm,
+        "merge",
+        vec![Value::HashMap(h1), Value::HashMap(h2)],
+    )
+    .unwrap();
     match result {
-        Value::Gc(handle) => {
-            let heap = vm.gc_heap_mut();
-            assert_eq!(hamt_len(heap, handle), 1);
+        Value::HashMap(handle) => {
+            let _heap = vm.gc_heap_mut();
+            assert_eq!(rc_hamt::hamt_len(&handle), 1);
             assert_eq!(
-                hamt_lookup(heap, handle, &HashKey::String("a".to_string())),
+                rc_hamt::hamt_lookup(&handle, &HashKey::String("a".to_string())),
                 Some(Value::Integer(1))
             );
         }
@@ -955,8 +935,8 @@ fn test_base_type_of_array() {
 #[test]
 fn test_base_type_of_hash() {
     let mut vm = test_vm();
-    let root = hamt_empty(vm.gc_heap_mut());
-    let result = call_vm(&mut vm, "type_of", vec![Value::Gc(root)]).unwrap();
+    let root = rc_hamt::hamt_empty();
+    let result = call_vm(&mut vm, "type_of", vec![Value::HashMap(root)]).unwrap();
     assert_eq!(result, Value::String("Map".to_string().into()));
 }
 
@@ -1039,8 +1019,8 @@ fn test_base_is_array_false() {
 #[test]
 fn test_base_is_hash_true() {
     let mut vm = test_vm();
-    let root = hamt_empty(vm.gc_heap_mut());
-    let result = call_vm(&mut vm, "is_hash", vec![Value::Gc(root)]).unwrap();
+    let root = rc_hamt::hamt_empty();
+    let result = call_vm(&mut vm, "is_hash", vec![Value::HashMap(root)]).unwrap();
     assert_eq!(result, Value::Boolean(true));
 }
 
@@ -1080,14 +1060,10 @@ fn test_base_is_some_false() {
 
 // ── List base tests ──────────────────────────────────────────────────
 
-fn make_test_list(vm: &mut VM, elems: &[Value]) -> Value {
+fn make_test_list(_vm: &mut VM, elems: &[Value]) -> Value {
     let mut list = Value::None;
     for elem in elems.iter().rev() {
-        let handle = vm.gc_heap_mut().alloc(flux::runtime::gc::HeapObject::Cons {
-            head: elem.clone(),
-            tail: list,
-        });
-        list = Value::Gc(handle);
+        list = flux::runtime::cons_cell::ConsCell::cons(elem.clone(), list);
     }
     list
 }
@@ -1136,7 +1112,7 @@ fn test_base_len_empty_list() {
 #[test]
 fn test_base_len_map() {
     let mut vm = test_vm();
-    let map = make_test_hash(vm.gc_heap_mut());
+    let map = make_test_hash();
     let result = call_vm(&mut vm, "len", vec![map]).unwrap();
     assert_eq!(result, Value::Integer(3));
 }
@@ -1238,7 +1214,7 @@ fn test_base_contains_empty_list() {
 #[test]
 fn test_base_put() {
     let mut vm = test_vm();
-    let map = make_test_hash(vm.gc_heap_mut());
+    let map = make_test_hash();
     let updated = call_vm(
         &mut vm,
         "put",
@@ -1260,7 +1236,7 @@ fn test_base_put() {
 #[test]
 fn test_base_get() {
     let mut vm = test_vm();
-    let map = make_test_hash(vm.gc_heap_mut());
+    let map = make_test_hash();
     let found = call_vm(
         &mut vm,
         "get",
@@ -1283,7 +1259,7 @@ fn test_base_get() {
 #[test]
 fn test_base_is_map() {
     let mut vm = test_vm();
-    let map = make_test_hash(vm.gc_heap_mut());
+    let map = make_test_hash();
     let result = call_vm(&mut vm, "is_map", vec![map]).unwrap();
     assert_eq!(result, Value::Boolean(true));
     let result2 = call_vm(&mut vm, "is_map", vec![Value::Integer(1)]).unwrap();
@@ -1293,26 +1269,26 @@ fn test_base_is_map() {
 #[test]
 fn test_hamt_structural_sharing() {
     let mut vm = test_vm();
-    let heap = vm.gc_heap_mut();
-    let root1 = hamt_empty(heap);
-    let root2 = hamt_insert(heap, root1, HashKey::String("a".into()), Value::Integer(1));
-    let root3 = hamt_insert(heap, root2, HashKey::String("b".into()), Value::Integer(2));
+    let _heap = vm.gc_heap_mut();
+    let root1 = rc_hamt::hamt_empty();
+    let root2 = rc_hamt::hamt_insert(&root1, HashKey::String("a".into()), Value::Integer(1));
+    let root3 = rc_hamt::hamt_insert(&root2, HashKey::String("b".into()), Value::Integer(2));
     // root2 still has only "a"
     assert_eq!(
-        hamt_lookup(vm.gc_heap(), root2, &HashKey::String("a".into())),
+        rc_hamt::hamt_lookup(&root2, &HashKey::String("a".into())),
         Some(Value::Integer(1))
     );
     assert_eq!(
-        hamt_lookup(vm.gc_heap(), root2, &HashKey::String("b".into())),
+        rc_hamt::hamt_lookup(&root2, &HashKey::String("b".into())),
         None
     );
     // root3 has both
     assert_eq!(
-        hamt_lookup(vm.gc_heap(), root3, &HashKey::String("a".into())),
+        rc_hamt::hamt_lookup(&root3, &HashKey::String("a".into())),
         Some(Value::Integer(1))
     );
     assert_eq!(
-        hamt_lookup(vm.gc_heap(), root3, &HashKey::String("b".into())),
+        rc_hamt::hamt_lookup(&root3, &HashKey::String("b".into())),
         Some(Value::Integer(2))
     );
 }
@@ -1320,23 +1296,23 @@ fn test_hamt_structural_sharing() {
 #[test]
 fn test_hamt_10k_sequential_inserts() {
     let mut vm = test_vm();
-    let heap = vm.gc_heap_mut();
-    let mut root = hamt_empty(heap);
+    let _heap = vm.gc_heap_mut();
+    let mut root = rc_hamt::hamt_empty();
     for i in 0..10_000i64 {
-        root = hamt_insert(heap, root, HashKey::Integer(i), Value::Integer(i * 2));
+        root = rc_hamt::hamt_insert(&root, HashKey::Integer(i), Value::Integer(i * 2));
     }
-    assert_eq!(hamt_len(vm.gc_heap(), root), 10_000);
+    assert_eq!(rc_hamt::hamt_len(&root), 10_000);
     // Spot check a few entries
     assert_eq!(
-        hamt_lookup(vm.gc_heap(), root, &HashKey::Integer(0)),
+        rc_hamt::hamt_lookup(&root, &HashKey::Integer(0)),
         Some(Value::Integer(0))
     );
     assert_eq!(
-        hamt_lookup(vm.gc_heap(), root, &HashKey::Integer(5000)),
+        rc_hamt::hamt_lookup(&root, &HashKey::Integer(5000)),
         Some(Value::Integer(10_000))
     );
     assert_eq!(
-        hamt_lookup(vm.gc_heap(), root, &HashKey::Integer(9999)),
+        rc_hamt::hamt_lookup(&root, &HashKey::Integer(9999)),
         Some(Value::Integer(19_998))
     );
 }
