@@ -1,10 +1,9 @@
 use crate::{
-    bytecode::bytecode::Bytecode,
+    bytecode::{bytecode::Bytecode, vm::VM},
     runtime::{
         gc::hamt::{hamt_empty, hamt_insert, hamt_len, hamt_lookup},
         hash_key::HashKey,
         value::Value,
-        vm::VM,
     },
 };
 

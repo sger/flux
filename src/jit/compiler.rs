@@ -18,12 +18,12 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::JITModule;
 use cranelift_module::{DataDescription, FuncId, Linkage, Module};
 
-use crate::backend_ir::{
+use crate::cfg::IrBinaryOp;
+use crate::cfg::{
     BlockId as BackendBlockId, FunctionId as BackendFunctionId, IrCallTarget, IrConst,
     IrExpr as BackendIrExpr, IrFunction as BackendIrFunction, IrInstr as BackendIrInstr, IrProgram,
     IrTerminator as BackendIrTerminator, IrVar as BackendIrVar,
 };
-use crate::cfg::IrBinaryOp;
 use crate::diagnostics::position::Span;
 use crate::primop::{PrimOp, resolve_primop_call};
 use crate::runtime::{function_contract::FunctionContract, runtime_type::RuntimeType};
@@ -847,7 +847,7 @@ impl JitCompiler {
             let mut builder = FunctionBuilder::new(&mut func, &mut self.builder_ctx);
             let prelude = builder.create_block();
             let mut block_map = HashMap::new();
-            let block_defs: HashMap<BackendBlockId, &crate::backend_ir::IrBlock> = function
+            let block_defs: HashMap<BackendBlockId, &crate::cfg::IrBlock> = function
                 .blocks
                 .iter()
                 .map(|block| (block.id, block))
@@ -1927,12 +1927,10 @@ fn backend_ir_jit_support_error(ir_program: &IrProgram, interner: &Interner) -> 
     None
 }
 
-fn backend_ir_top_level_support_error(
-    items: &[crate::backend_ir::IrTopLevelItem],
-) -> Option<String> {
+fn backend_ir_top_level_support_error(items: &[crate::cfg::IrTopLevelItem]) -> Option<String> {
     for item in items {
         match item {
-            crate::backend_ir::IrTopLevelItem::Function { function_id, .. } => {
+            crate::cfg::IrTopLevelItem::Function { function_id, .. } => {
                 if function_id.is_none() {
                     return Some(
                         "backend_ir JIT shape has a top-level function without a backend function id"
@@ -1940,19 +1938,19 @@ fn backend_ir_top_level_support_error(
                     );
                 }
             }
-            crate::backend_ir::IrTopLevelItem::Module { body, .. } => {
+            crate::cfg::IrTopLevelItem::Module { body, .. } => {
                 if let Some(reason) = backend_ir_top_level_support_error(body) {
                     return Some(reason);
                 }
             }
-            crate::backend_ir::IrTopLevelItem::Import { .. }
-            | crate::backend_ir::IrTopLevelItem::Data { .. }
-            | crate::backend_ir::IrTopLevelItem::EffectDecl { .. }
-            | crate::backend_ir::IrTopLevelItem::Let { .. }
-            | crate::backend_ir::IrTopLevelItem::LetDestructure { .. }
-            | crate::backend_ir::IrTopLevelItem::Return { .. }
-            | crate::backend_ir::IrTopLevelItem::Expression { .. }
-            | crate::backend_ir::IrTopLevelItem::Assign { .. } => {}
+            crate::cfg::IrTopLevelItem::Import { .. }
+            | crate::cfg::IrTopLevelItem::Data { .. }
+            | crate::cfg::IrTopLevelItem::EffectDecl { .. }
+            | crate::cfg::IrTopLevelItem::Let { .. }
+            | crate::cfg::IrTopLevelItem::LetDestructure { .. }
+            | crate::cfg::IrTopLevelItem::Return { .. }
+            | crate::cfg::IrTopLevelItem::Expression { .. }
+            | crate::cfg::IrTopLevelItem::Assign { .. } => {}
         }
     }
 
@@ -1974,8 +1972,8 @@ fn resolve_backend_module_name(
     })
 }
 
-fn ordered_backend_blocks(function: &BackendIrFunction) -> Vec<&crate::backend_ir::IrBlock> {
-    let block_defs: HashMap<BackendBlockId, &crate::backend_ir::IrBlock> = function
+fn ordered_backend_blocks(function: &BackendIrFunction) -> Vec<&crate::cfg::IrBlock> {
+    let block_defs: HashMap<BackendBlockId, &crate::cfg::IrBlock> = function
         .blocks
         .iter()
         .map(|block| (block.id, block))
@@ -2029,48 +2027,48 @@ fn backend_terminator_successors(terminator: &BackendIrTerminator) -> Vec<Backen
 }
 
 fn collect_backend_top_level_declaration_metadata(
-    items: &[crate::backend_ir::IrTopLevelItem],
+    items: &[crate::cfg::IrTopLevelItem],
     imported_modules: &mut HashSet<Identifier>,
     import_aliases: &mut HashMap<Identifier, Identifier>,
     adt_constructors: &mut HashMap<Identifier, usize>,
 ) {
     // ADT constructors and module metadata use shared utilities
-    crate::backend_ir::metadata::collect_adt_constructors(items, adt_constructors);
+    crate::cfg::metadata::collect_adt_constructors(items, adt_constructors);
     let mut module_names: Vec<Identifier> = Vec::new();
-    crate::backend_ir::metadata::collect_module_metadata(items, &mut module_names, import_aliases);
+    crate::cfg::metadata::collect_module_metadata(items, &mut module_names, import_aliases);
     for name in module_names {
         imported_modules.insert(name);
     }
 }
 
 fn register_backend_top_level_module_functions(
-    items: &[crate::backend_ir::IrTopLevelItem],
+    items: &[crate::cfg::IrTopLevelItem],
     backend_function_metas: &HashMap<BackendFunctionId, JitFunctionMeta>,
     import_aliases: &HashMap<Identifier, Identifier>,
     scope: &mut Scope,
 ) {
     // Use shared generic collection, parameterized on JitFunctionMeta
-    crate::backend_ir::metadata::collect_module_functions(
+    crate::cfg::metadata::collect_module_functions(
         items,
         None,
         &|fn_id| backend_function_metas.get(&fn_id).copied(),
         &mut scope.module_functions,
     );
-    crate::backend_ir::metadata::apply_import_aliases(&mut scope.module_functions, import_aliases);
+    crate::cfg::metadata::apply_import_aliases(&mut scope.module_functions, import_aliases);
 
     // JIT-specific: track which ADT constructor belongs to which data type
     collect_adt_constructor_owners(items, scope);
 }
 
-fn collect_adt_constructor_owners(items: &[crate::backend_ir::IrTopLevelItem], scope: &mut Scope) {
+fn collect_adt_constructor_owners(items: &[crate::cfg::IrTopLevelItem], scope: &mut Scope) {
     for item in items {
         match item {
-            crate::backend_ir::IrTopLevelItem::Data { name, variants, .. } => {
+            crate::cfg::IrTopLevelItem::Data { name, variants, .. } => {
                 for variant in variants {
                     scope.adt_constructor_owner.insert(variant.name, *name);
                 }
             }
-            crate::backend_ir::IrTopLevelItem::Module { body, .. } => {
+            crate::cfg::IrTopLevelItem::Module { body, .. } => {
                 collect_adt_constructor_owners(body, scope);
             }
             _ => {}
@@ -2079,19 +2077,19 @@ fn collect_adt_constructor_owners(items: &[crate::backend_ir::IrTopLevelItem], s
 }
 
 fn collect_backend_top_level_function_names(
-    items: &[crate::backend_ir::IrTopLevelItem],
+    items: &[crate::cfg::IrTopLevelItem],
     names: &mut HashSet<Identifier>,
 ) {
     for item in items {
         match item {
-            crate::backend_ir::IrTopLevelItem::Function {
+            crate::cfg::IrTopLevelItem::Function {
                 name,
                 function_id: Some(_),
                 ..
             } => {
                 names.insert(*name);
             }
-            crate::backend_ir::IrTopLevelItem::Module { body, .. } => {
+            crate::cfg::IrTopLevelItem::Module { body, .. } => {
                 collect_backend_top_level_function_names(body, names);
             }
             _ => {}
@@ -2100,13 +2098,13 @@ fn collect_backend_top_level_function_names(
 }
 
 fn register_backend_top_level_named_functions(
-    items: &[crate::backend_ir::IrTopLevelItem],
+    items: &[crate::cfg::IrTopLevelItem],
     backend_function_metas: &HashMap<BackendFunctionId, JitFunctionMeta>,
     scope: &mut Scope,
 ) {
     for item in items {
         match item {
-            crate::backend_ir::IrTopLevelItem::Function {
+            crate::cfg::IrTopLevelItem::Function {
                 name,
                 function_id: Some(function_id),
                 ..
@@ -2115,7 +2113,7 @@ fn register_backend_top_level_named_functions(
                     scope.functions.insert(*name, meta);
                 }
             }
-            crate::backend_ir::IrTopLevelItem::Module { body, .. } => {
+            crate::cfg::IrTopLevelItem::Module { body, .. } => {
                 register_backend_top_level_named_functions(body, backend_function_metas, scope);
             }
             _ => {}
@@ -2173,7 +2171,7 @@ fn compile_simple_backend_ir_expr(
             let mut acc: Option<CraneliftValue> = None;
             for part in parts {
                 let part_val = match part {
-                    crate::backend_ir::IrStringPart::Literal(s) => {
+                    crate::cfg::IrStringPart::Literal(s) => {
                         let bytes = s.as_bytes();
                         let data = module
                             .declare_anonymous_data(false, false)
@@ -2189,7 +2187,7 @@ fn compile_simple_backend_ir_expr(
                         let call = builder.ins().call(make_string, &[ctx_val, ptr, len]);
                         builder.inst_results(call)[0]
                     }
-                    crate::backend_ir::IrStringPart::Interpolation(var) => {
+                    crate::cfg::IrStringPart::Interpolation(var) => {
                         let val = env.get(var).copied().ok_or_else(|| {
                             format!("missing backend IR interpolation var {:?}", var)
                         })?;
@@ -2609,10 +2607,10 @@ fn compile_simple_backend_ir_expr(
                 .ok_or_else(|| format!("missing backend IR tag-test var {:?}", value))?;
             let boxed = box_jit_value(module, helpers, builder, ctx_val, value);
             let helper = match tag {
-                crate::backend_ir::IrTagTest::None => "rt_is_none",
-                crate::backend_ir::IrTagTest::Some => "rt_is_some",
-                crate::backend_ir::IrTagTest::Left => "rt_is_left",
-                crate::backend_ir::IrTagTest::Right => "rt_is_right",
+                crate::cfg::IrTagTest::None => "rt_is_none",
+                crate::cfg::IrTagTest::Some => "rt_is_some",
+                crate::cfg::IrTagTest::Left => "rt_is_left",
+                crate::cfg::IrTagTest::Right => "rt_is_right",
             };
             let helper_ref = get_helper_func_ref(module, helpers, builder, helper);
             let call = builder.ins().call(helper_ref, &[ctx_val, boxed]);
@@ -2625,12 +2623,12 @@ fn compile_simple_backend_ir_expr(
                 .ok_or_else(|| format!("missing backend IR tag-payload var {:?}", value))?;
             let boxed = box_jit_value(module, helpers, builder, ctx_val, value);
             let helper = match tag {
-                crate::backend_ir::IrTagTest::None => {
+                crate::cfg::IrTagTest::None => {
                     return Err("backend JIT path cannot extract payload from None".to_string());
                 }
-                crate::backend_ir::IrTagTest::Some => "rt_unwrap_some",
-                crate::backend_ir::IrTagTest::Left => "rt_unwrap_left",
-                crate::backend_ir::IrTagTest::Right => "rt_unwrap_right",
+                crate::cfg::IrTagTest::Some => "rt_unwrap_some",
+                crate::cfg::IrTagTest::Left => "rt_unwrap_left",
+                crate::cfg::IrTagTest::Right => "rt_unwrap_right",
             };
             let helper_ref = get_helper_func_ref(module, helpers, builder, helper);
             let call = builder.ins().call(helper_ref, &[ctx_val, boxed]);
@@ -2645,8 +2643,8 @@ fn compile_simple_backend_ir_expr(
                 .ok_or_else(|| format!("missing backend IR list-test var {:?}", value))?;
             let boxed = box_jit_value(module, helpers, builder, ctx_val, value);
             let helper = match tag {
-                crate::backend_ir::IrListTest::Empty => "rt_is_empty_list",
-                crate::backend_ir::IrListTest::Cons => "rt_is_cons",
+                crate::cfg::IrListTest::Empty => "rt_is_empty_list",
+                crate::cfg::IrListTest::Cons => "rt_is_cons",
             };
             let helper_ref = get_helper_func_ref(module, helpers, builder, helper);
             let call = builder.ins().call(helper_ref, &[ctx_val, boxed]);
@@ -4251,12 +4249,12 @@ fn default_libcall_names() -> Box<dyn Fn(cranelift_codegen::ir::LibCall) -> Stri
 mod tests {
     use super::backend_ir_jit_support_error;
     use crate::{
-        backend_ir::{
+        cfg::IrBinaryOp,
+        cfg::{
             BlockId, FunctionId, IrBlock, IrCallTarget, IrConst, IrExpr, IrFunction,
             IrFunctionOrigin, IrInstr, IrMetadata, IrProgram, IrTerminator, IrTopLevelItem, IrType,
             IrVar,
         },
-        cfg::IrBinaryOp,
         diagnostics::position::Span,
         syntax::interner::Interner,
     };
@@ -4815,7 +4813,7 @@ mod tests {
                 },
                 IrBlock {
                     id: BlockId(1),
-                    params: vec![crate::backend_ir::IrBlockParam {
+                    params: vec![crate::cfg::IrBlockParam {
                         var: result,
                         ty: IrType::Any,
                     }],
@@ -4936,7 +4934,7 @@ mod tests {
         let captured_value = IrVar(0);
         let closure_value = IrVar(1);
         let closure_ret = IrVar(2);
-        let captured_param = crate::backend_ir::IrParam {
+        let captured_param = crate::cfg::IrParam {
             name: captured_name,
             var: IrVar(10),
             ty: IrType::Any,
@@ -5095,7 +5093,7 @@ mod tests {
             functions: vec![entry, main],
             entry: entry_id,
             globals: vec![count_name],
-            global_bindings: vec![crate::backend_ir::IrGlobalBinding {
+            global_bindings: vec![crate::cfg::IrGlobalBinding {
                 name: count_name,
                 var: global_count,
             }],
@@ -5127,7 +5125,7 @@ mod tests {
         let arm_fn = IrFunction {
             id: arm_id,
             name: Some(interner.intern("demo_ping_arm")),
-            params: vec![crate::backend_ir::IrParam {
+            params: vec![crate::cfg::IrParam {
                 name: resume_name,
                 var: IrVar(10),
                 ty: IrType::Any,
@@ -5168,9 +5166,9 @@ mod tests {
                 IrBlock {
                     id: BlockId(1),
                     params: Vec::new(),
-                    instrs: vec![crate::backend_ir::IrInstr::HandleScope {
+                    instrs: vec![crate::cfg::IrInstr::HandleScope {
                         effect: effect_name,
-                        arms: vec![crate::backend_ir::HandleScopeArm {
+                        arms: vec![crate::cfg::HandleScopeArm {
                             operation_name: op_name,
                             function_id: arm_id,
                             capture_vars: Vec::new(),
@@ -5202,7 +5200,7 @@ mod tests {
                 },
                 IrBlock {
                     id: BlockId(3),
-                    params: vec![crate::backend_ir::IrBlockParam {
+                    params: vec![crate::cfg::IrBlockParam {
                         var: handle_result,
                         ty: IrType::Any,
                     }],
@@ -5279,12 +5277,12 @@ mod tests {
             id: arm_id,
             name: Some(interner.intern("demo_ping_arm_capture")),
             params: vec![
-                crate::backend_ir::IrParam {
+                crate::cfg::IrParam {
                     name: captured_name,
                     var: IrVar(10),
                     ty: IrType::Any,
                 },
-                crate::backend_ir::IrParam {
+                crate::cfg::IrParam {
                     name: resume_name,
                     var: IrVar(11),
                     ty: IrType::Any,
@@ -5328,9 +5326,9 @@ mod tests {
                             expr: IrExpr::Const(IrConst::Int(77)),
                             metadata: IrMetadata::empty(),
                         },
-                        crate::backend_ir::IrInstr::HandleScope {
+                        crate::cfg::IrInstr::HandleScope {
                             effect: effect_name,
-                            arms: vec![crate::backend_ir::HandleScopeArm {
+                            arms: vec![crate::cfg::HandleScopeArm {
                                 operation_name: op_name,
                                 function_id: arm_id,
                                 capture_vars: vec![captured_value],
@@ -5363,7 +5361,7 @@ mod tests {
                 },
                 IrBlock {
                     id: BlockId(3),
-                    params: vec![crate::backend_ir::IrBlockParam {
+                    params: vec![crate::cfg::IrBlockParam {
                         var: handle_result,
                         ty: IrType::Any,
                     }],

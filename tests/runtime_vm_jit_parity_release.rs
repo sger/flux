@@ -4,9 +4,10 @@ use std::path::Path;
 use std::process::Command;
 
 use flux::bytecode::compiler::Compiler;
+use flux::bytecode::vm::VM;
 use flux::diagnostics::render_diagnostics;
 use flux::jit::{JitOptions, jit_compile_and_run};
-use flux::runtime::{value::Value, vm::VM};
+use flux::runtime::value::Value;
 use flux::syntax::{lexer::Lexer, parser::Parser};
 
 fn run_vm_program(input: &str) -> Result<Value, String> {

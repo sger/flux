@@ -1,5 +1,5 @@
 use crate::{
-    backend_ir::{
+    cfg::{
         IrBinaryOp, IrBlockParam, IrConst, IrExpr, IrInstr, IrListTest, IrMetadata, IrTagTest,
         IrTerminator, IrType, IrVar,
     },

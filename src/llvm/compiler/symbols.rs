@@ -13,7 +13,7 @@ use super::super::wrapper::{
 };
 
 // ADT constructor and module function collection is shared with the JIT
-// backend via `crate::backend_ir::metadata`.
+// backend via `crate::cfg::metadata`.
 
 // ── Runtime helper declaration ───────────────────────────────────────────────
 

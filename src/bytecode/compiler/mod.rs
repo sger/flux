@@ -1,13 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::type_infer::InferProgramConfig;
-use crate::ast::type_informed_fold::type_informed_fold;
-use crate::backend_ir::{
-    FunctionId, IrFunction, IrInstr, IrPassContext, IrProgram, IrTerminator, lower_program_to_ir,
-    run_ir_pass_pipeline,
-};
 use crate::bytecode::compiler::effect_rows::EffectRow;
 use crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult;
+use crate::cfg::{FunctionId, IrFunction, IrInstr, IrProgram, IrTerminator};
 use crate::syntax::expression::ExprId;
 use crate::types::infer_effect_row::InferEffectRow;
 use crate::types::{TypeVarId, infer_type::InferType, scheme::Scheme};
@@ -41,7 +37,6 @@ use crate::{
         effect_expr::EffectExpr,
         expression::{Expression, StringPart},
         interner::Interner,
-        pattern_validate::validate_program_patterns,
         program::Program,
         statement::Statement,
         symbol::Symbol,
@@ -60,6 +55,8 @@ mod effect_rows;
 mod errors;
 mod expression;
 mod hm_expr_typer;
+mod passes;
+pub(crate) mod pipeline;
 mod statement;
 mod suggestions;
 pub(crate) mod tail_resumptive;
@@ -87,10 +84,10 @@ struct FunctionEffectSeed {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-struct MainValidationState {
-    has_main: bool,
-    is_unique_main: bool,
-    is_valid_signature: bool,
+pub(super) struct MainValidationState {
+    pub(super) has_main: bool,
+    pub(super) is_unique_main: bool,
+    pub(super) is_valid_signature: bool,
 }
 
 /// Compile-time handler scope entry for static handler resolution.
@@ -2094,225 +2091,7 @@ impl Compiler {
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
-        // Ensure per-file tracking is clean for each compile pass.
-        self.warnings.clear();
-        self.file_scope_symbols.clear();
-        self.imported_modules.clear();
-        self.import_aliases.clear();
-        self.imported_module_exclusions.clear();
-        self.current_module_prefix = None;
-        self.excluded_base_symbols.clear();
-        self.function_effects.clear();
-        self.handled_effects.clear();
-        self.effect_ops_registry.clear();
-        self.effect_op_signatures.clear();
-        self.static_type_scopes.clear();
-        self.static_type_scopes.push(HashMap::new());
-        self.effect_alias_scopes.clear();
-        self.effect_alias_scopes.push(HashMap::new());
-        self.process_base_directives(program);
-        self.collect_module_function_visibility(program);
-        self.collect_module_adt_constructors(program);
-        self.collect_module_contracts(program);
-        self.infer_unannotated_function_effects(program);
-        self.collect_adt_definitions(program);
-        self.collect_effect_declarations(program);
-        let main_state = self.validate_main_entrypoint(program);
-        self.validate_top_level_effectful_code(program, main_state.has_main);
-        self.validate_main_root_effect_discharge(program, main_state);
-        self.validate_strict_mode(program, main_state.has_main);
-
-        let main_symbol = self.interner.intern("main");
-
-        // PASS 1: Predeclare all module-level function names
-        // This enables forward references and mutual recursion
-        for statement in &program.statements {
-            if let Statement::Function { name, span, .. } = statement {
-                let name = *name;
-                // Check for duplicate declaration first (takes precedence)
-                if let Some(existing) = self.symbol_table.resolve(name)
-                    && self.symbol_table.exists_in_current_scope(name)
-                    && existing.symbol_scope != crate::bytecode::symbol_scope::SymbolScope::Base
-                {
-                    // Keep duplicate-main diagnostics canonical via E410 from
-                    // `validate_main_entrypoint`, avoid redundant E001 noise.
-                    if name == main_symbol {
-                        continue;
-                    }
-                    let name_str = self.sym(name);
-                    self.errors.push(self.make_redeclaration_error(
-                        name_str,
-                        *span,
-                        Some(existing.span),
-                        None,
-                    ));
-                    continue;
-                }
-                // Check for import collision
-                if self.scope_index == 0 && self.file_scope_symbols.contains(&name) {
-                    let name_str = self.sym(name);
-                    self.errors
-                        .push(self.make_import_collision_error(name_str, *span));
-                    continue;
-                }
-                // Predeclare the function name
-                self.symbol_table.define(name, *span);
-                self.file_scope_symbols.insert(name);
-            }
-        }
-
-        tag_diagnostics(&mut self.errors, DiagnosticPhase::Validation);
-
-        // HM type inference pass — runs after predeclaration, before code generation.
-        // The resulting TypeEnv is used by `runtime_boundary_expr_type` to enrich identifier
-        // type lookup for unannotated bindings.
-        //
-        // Two-phase model (when type_optimize=true, proposal 0077):
-        //   Phase 1: infer on the syntactically-optimized AST → TypeEnv for optimization
-        //   type_informed_fold: rewrite AST using TypeEnv (dead branch, const prop, inlining)
-        //   Phase 2: infer on the type-optimized AST → pointer-stable maps for PASS 2
-        //
-        // Single-phase model (when type_optimize=false):
-        //   Standard single inference pass.
-        //
-        // Invariant: PASS 2 must use the same Program allocation as the final
-        // inference pass so pointer-keyed expression IDs remain stable.
-        //
-        // Diagnostics from this pass are guarded by a concrete-types-only filter
-        // inside `unify_reporting`: only errors where *both* conflicting types are
-        // fully resolved (no free type variables) are emitted.
-        // When type_optimize is set, Phase 1 inference produces a TypeEnv used to
-        // guide type-informed AST optimization. Phase 2 then re-infers on the
-        // optimized AST to produce pointer-stable maps for PASS 2.
-        let type_optimized_program: Option<Program>;
-        let mut hm_diagnostics = {
-            let hm_config = self.build_infer_config(program);
-            let hm = infer_program(program, &self.interner, hm_config);
-
-            if self.type_optimize {
-                // Phase 1 complete: use TypeEnv for type-informed fold.
-                let optimized = type_informed_fold(program, &hm.type_env, &self.interner);
-
-                // Phase 2: re-infer on the optimized AST for stable expr-id maps.
-                let hm_config2 = self.build_infer_config(&optimized);
-                let hm2 = infer_program(&optimized, &self.interner, hm_config2);
-                self.type_env = hm2.type_env;
-                self.hm_expr_types = hm2.expr_types;
-                type_optimized_program = Some(optimized);
-
-                let mut diags = hm2.diagnostics;
-                tag_diagnostics(&mut diags, DiagnosticPhase::TypeInference);
-                diags
-            } else {
-                self.type_env = hm.type_env;
-                self.hm_expr_types = hm.expr_types;
-                type_optimized_program = None;
-
-                let mut diags = hm.diagnostics;
-                tag_diagnostics(&mut diags, DiagnosticPhase::TypeInference);
-                diags
-            }
-        };
-
-        // PASS 2 must use the same Program allocation as the final inference pass.
-        let program = type_optimized_program.as_ref().unwrap_or(program);
-        let mut ir_program = match lower_program_to_ir(program, &self.hm_expr_types) {
-            Ok(program) => program,
-            Err(diag) => {
-                self.errors.push(diag);
-                return Err(std::mem::take(&mut self.errors));
-            }
-        };
-        if let Err(diag) = run_ir_pass_pipeline(&mut ir_program, &IrPassContext) {
-            self.errors.push(diag);
-            return Err(std::mem::take(&mut self.errors));
-        }
-        if self.analyze_enabled {
-            self.tail_calls = collect_tail_calls_from_ir(&ir_program);
-        }
-        self.ir_function_symbols.clear();
-        self.register_ir_function_symbols_from_backend(ir_program.functions());
-        // PASS 2: Compile all statements
-        // Function bodies can now reference any function defined at module level
-        let mut pattern_diags = validate_program_patterns(program, &self.file_path, &self.interner);
-        tag_diagnostics(&mut pattern_diags, DiagnosticPhase::Validation);
-        self.errors.extend(pattern_diags);
-        for statement in &program.statements {
-            // Continue compilation even if there are errors
-            let compile_result = match statement {
-                Statement::Function {
-                    name,
-                    parameters,
-                    parameter_types,
-                    return_type,
-                    effects,
-                    body,
-                    span,
-                    ..
-                } => {
-                    let effective_effects: Vec<crate::syntax::effect_expr::EffectExpr> =
-                        if effects.is_empty() {
-                            self.lookup_unqualified_contract(*name, parameters.len())
-                                .map(|contract| contract.effects.clone())
-                                .unwrap_or_default()
-                        } else {
-                            effects.clone()
-                        };
-                    let ir_function = self.find_ir_function_by_symbol(&ir_program, *name);
-                    let result = self.compile_function_statement(
-                        *name,
-                        parameters,
-                        parameter_types,
-                        return_type,
-                        &effective_effects,
-                        body,
-                        ir_function,
-                        *span,
-                    );
-                    if self.scope_index == 0 {
-                        self.file_scope_symbols.insert(*name);
-                    }
-                    result
-                }
-                Statement::Module { name, body, span } => {
-                    self.compile_module_statement(*name, body, span.start, Some(&ir_program))
-                }
-                _ => self.compile_statement(statement),
-            };
-            if let Err(err) = compile_result {
-                let mut diag = *err;
-                if diag.phase().is_none() {
-                    diag.phase = Some(DiagnosticPhase::TypeCheck);
-                }
-                self.errors.push(diag);
-            }
-        }
-
-        if main_state.has_main && !self.has_explicit_top_level_main_call(program, main_symbol) {
-            self.emit_main_entry_call();
-        }
-
-        // HM no longer emits errors for annotated boundaries (return type,
-        // let annotation) — those use `unify_propagate` (silent).
-        //
-        // For call-site argument mismatches, HM's `infer_call` still reports
-        // (it's the only reporter for untyped functions).  When a typed function
-        // causes the compiler to emit a per-argument boundary error, the HM
-        // call-site error is redundant.  Drop any HM diagnostic that shares the
-        // same code + message as an existing compiler error on an overlapping span.
-        self.suppress_overlapping_hm_diagnostics(&mut hm_diagnostics);
-
-        // HM diagnostics appended after bytecode errors so that specific,
-        // actionable errors (e.g. E077 legacy list tail, E055 contract mismatch)
-        // surface first in the error list.
-        self.errors.extend(hm_diagnostics);
-
-        // Return all errors at the end
-        if !self.errors.is_empty() {
-            return Err(std::mem::take(&mut self.errors));
-        }
-
-        Ok(())
+        self.run_pipeline(program)
     }
 
     fn register_ir_function_symbols_from_backend(&mut self, functions: &[IrFunction]) {
@@ -2969,7 +2748,7 @@ impl Compiler {
     }
 }
 
-fn collect_tail_calls_from_ir(program: &IrProgram) -> Vec<TailCall> {
+pub(super) fn collect_tail_calls_from_ir(program: &IrProgram) -> Vec<TailCall> {
     let mut tail_calls = Vec::new();
     for function in program.functions() {
         // Build a map from BlockId to block for fast lookup.

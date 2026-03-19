@@ -1,5 +1,5 @@
 use crate::{
-    backend_ir::{IrBinaryOp, IrConst, IrExpr, IrInstr, IrMetadata, IrStringPart, IrVar},
+    cfg::{IrBinaryOp, IrConst, IrExpr, IrInstr, IrMetadata, IrStringPart, IrVar},
     core::{CoreExpr, CoreLit, CorePrimOp},
     diagnostics::position::Span,
 };
