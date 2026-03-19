@@ -4,7 +4,6 @@ use crate::diagnostics::NOT_A_FUNCTION;
 use crate::runtime::RuntimeContext;
 use crate::runtime::base::get_base_function_by_index;
 use crate::runtime::base::list_ops::format_value;
-use crate::runtime::gc::GcHeap;
 use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 
 use super::VM;
@@ -558,14 +557,6 @@ impl RuntimeContext for VM {
             Value::Closure(closure) => self.invoke_closure_arity2(closure.clone(), left, right),
             other => Err(format!("not callable: {}", other.type_name())),
         }
-    }
-
-    fn gc_heap(&self) -> &GcHeap {
-        &self.gc_heap
-    }
-
-    fn gc_heap_mut(&mut self) -> &mut GcHeap {
-        &mut self.gc_heap
     }
 
     fn callable_contract<'a>(

@@ -214,19 +214,15 @@ mod tests {
     use super::RuntimeType;
     use crate::runtime::{
         RuntimeContext, closure::Closure, compiled_function::CompiledFunction, cons_cell::ConsCell,
-        function_contract::FunctionContract, gc::GcHeap, value::Value,
+        function_contract::FunctionContract, value::Value,
     };
     use std::rc::Rc;
 
-    struct TestCtx {
-        heap: GcHeap,
-    }
+    struct TestCtx;
 
     impl TestCtx {
         fn new() -> Self {
-            Self {
-                heap: GcHeap::new(),
-            }
+            Self
         }
     }
 
@@ -241,14 +237,6 @@ mod tests {
             _args: &[&Value],
         ) -> Result<Value, String> {
             Err("not used in runtime_type tests".to_string())
-        }
-
-        fn gc_heap(&self) -> &GcHeap {
-            &self.heap
-        }
-
-        fn gc_heap_mut(&mut self) -> &mut GcHeap {
-            &mut self.heap
         }
 
         fn callable_contract<'a>(&'a self, callee: &'a Value) -> Option<&'a FunctionContract> {

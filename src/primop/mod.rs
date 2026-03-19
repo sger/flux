@@ -764,17 +764,13 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::runtime::{gc::GcHeap, hamt as rc_hamt_mod, hash_key::HashKey};
+    use crate::runtime::{hamt as rc_hamt_mod, hash_key::HashKey};
 
-    struct TestRuntimeContext {
-        heap: GcHeap,
-    }
+    struct TestRuntimeContext;
 
     impl TestRuntimeContext {
         fn new() -> Self {
-            Self {
-                heap: GcHeap::new(),
-            }
+            Self
         }
     }
 
@@ -789,14 +785,6 @@ mod tests {
             _args: &[&Value],
         ) -> Result<Value, String> {
             Err("borrowed base dispatch is not used by these primop tests".to_string())
-        }
-
-        fn gc_heap(&self) -> &GcHeap {
-            &self.heap
-        }
-
-        fn gc_heap_mut(&mut self) -> &mut GcHeap {
-            &mut self.heap
         }
     }
 

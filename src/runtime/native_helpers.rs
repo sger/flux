@@ -392,11 +392,6 @@ fn clone_values_from_tagged_ptrs(
     Some(values)
 }
 
-fn maybe_collect_gc(ctx: &mut JitContext) {
-    if ctx.gc_heap.should_collect() {
-        ctx.collect_gc();
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Error helpers
@@ -1994,7 +1989,7 @@ pub extern "C" fn rt_make_adt(
     arity: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    maybe_collect_gc(ctx);
+
     // ABI contract: constructor bytes are emitted by the compiler/JIT and must be valid UTF-8.
     let constructor: Rc<String> = {
         let s = unsafe {
@@ -2047,7 +2042,7 @@ pub extern "C" fn rt_make_adt1(
     f0: *mut Value,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    maybe_collect_gc(ctx);
+
     let constructor: Rc<String> = {
         let s = unsafe {
             from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
@@ -2071,7 +2066,7 @@ pub extern "C" fn rt_make_adt2(
     f1: *mut Value,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    maybe_collect_gc(ctx);
+
     let constructor: Rc<String> = {
         let s = unsafe {
             from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
@@ -2097,7 +2092,7 @@ pub extern "C" fn rt_make_adt3(
     f2: *mut Value,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    maybe_collect_gc(ctx);
+
     let constructor: Rc<String> = {
         let s = unsafe {
             from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
@@ -2125,7 +2120,7 @@ pub extern "C" fn rt_make_adt4(
     f3: *mut Value,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    maybe_collect_gc(ctx);
+
     let constructor: Rc<String> = {
         let s = unsafe {
             from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
@@ -2156,7 +2151,7 @@ pub extern "C" fn rt_make_adt5(
     f4: *mut Value,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    maybe_collect_gc(ctx);
+
     let constructor: Rc<String> = {
         let s = unsafe {
             from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
