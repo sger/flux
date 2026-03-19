@@ -54,6 +54,22 @@ impl Compiler {
             .any(|statement| matches!(statement, Statement::Module { .. }))
     }
 
+    /// Returns `true` when the block contains a typed `let` binding whose
+    /// type annotation the AST path must validate. The CFG path does not yet
+    /// perform strict annotation checking, so we fall back to AST when
+    /// strict mode is active and annotated let-bindings are present.
+    fn block_contains_typed_let_ast(body: &Block) -> bool {
+        body.statements.iter().any(|statement| {
+            matches!(
+                statement,
+                Statement::Let {
+                    type_annotation: Some(_),
+                    ..
+                }
+            )
+        })
+    }
+
     #[allow(dead_code)]
     pub(super) fn emit_store_binding(&mut self, binding: &crate::bytecode::binding::Binding) {
         match binding.symbol_scope {
@@ -618,9 +634,21 @@ impl Compiler {
             let param_effect_rows = self.build_param_effect_rows(parameters, parameter_types);
             if let Some(ir_function) = ir_function
                 && !Self::block_contains_cfg_incompatible_statements_ast(body)
-                && let Some(cfg_result) = self.try_compile_ir_cfg_function_body(ir_function, name)
+                && !(self.strict_mode && Self::block_contains_typed_let_ast(body))
             {
-                return cfg_result;
+                // Snapshot scope state so we can roll back if the CFG path
+                // fails partway through (some binding may be unresolvable).
+                let scope_snapshot = self.scopes[self.scope_index].clone();
+                let const_len = self.constants.len();
+                match self.try_compile_ir_cfg_function_body(ir_function, name) {
+                    Some(Ok(())) => return Ok(()),
+                    Some(Err(_)) => {
+                        // Roll back partial emission and fall through to AST.
+                        self.scopes[self.scope_index] = scope_snapshot;
+                        self.constants.truncate(const_len);
+                    }
+                    None => {}
+                }
             }
             let body_errors = self.with_function_context_with_param_effect_rows(
                 parameters.len(),

@@ -249,6 +249,9 @@ pub(super) fn compile_block(
                 IrInstr::HandleScope { .. } => {
                     eprintln!("[llvm]   instr {}: HandleScope", instr_idx)
                 }
+                IrInstr::AetherDrop { var, .. } => {
+                    eprintln!("[llvm]   instr {}: AetherDrop v{}", instr_idx, var.0)
+                }
             }
         }
         match instr {
@@ -477,6 +480,49 @@ pub(super) fn compile_block(
                 }
                 // Control flow continues into the body blocks (handled by the
                 // normal terminator — typically Jump to body_entry).
+            }
+            IrInstr::AetherDrop { var, .. } => {
+                // Aether early-release: overwrite the arena slot with Value::None
+                // so the old Rc is decremented immediately.  Only act when the
+                // tagged value has tag == JIT_TAG_PTR (heap pointer); primitives
+                // (Int/Float/Bool) carry no Rc and need no action.
+                if let Ok(tagged) = get_var(env, *var) {
+                    let tag = ctx.builder.build_extract_value(tagged, 0, "ad_tag");
+                    let ptr_tag = wrapper::const_i64(
+                        ctx.i64_type,
+                        crate::runtime::native_context::JIT_TAG_PTR,
+                    );
+                    let is_ptr = ctx.builder.build_icmp(
+                        LLVMIntPredicate::LLVMIntEQ,
+                        tag,
+                        ptr_tag,
+                        "ad_is_ptr",
+                    );
+                    let drop_bb =
+                        ctx.llvm_ctx.append_basic_block(func_ref, "aether_drop");
+                    let cont_bb =
+                        ctx.llvm_ctx.append_basic_block(func_ref, "aether_cont");
+                    ctx.builder.build_cond_br(is_ptr, drop_bb, cont_bb);
+
+                    ctx.builder.position_at_end(drop_bb);
+                    let payload =
+                        ctx.builder.build_extract_value(tagged, 1, "ad_payload");
+                    let ptr_val = ctx.builder.build_int_to_ptr(
+                        payload,
+                        ctx.ptr_type,
+                        "ad_ptr",
+                    );
+                    let (drop_fn, drop_ty) = get_helper(ctx, "rt_aether_drop")?;
+                    ctx.builder.build_call(
+                        drop_ty,
+                        drop_fn,
+                        &mut [ctx_val, ptr_val],
+                        "",
+                    );
+                    ctx.builder.build_br(cont_bb);
+
+                    ctx.builder.position_at_end(cont_bb);
+                }
             }
         }
     }

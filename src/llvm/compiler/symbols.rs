@@ -215,6 +215,8 @@ pub(super) fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
             void_ty,
             vec![ptr_ty, i64_ty, i64_ty, i64_ty, i64_ty],
         ),
+        // Aether: rt_aether_drop(ctx, val_ptr) -> void
+        ("rt_aether_drop", void_ty, vec![ptr_ty, ptr_ty]),
     ];
 
     // Read-only helpers: inspect values without modifying ctx or heap.
