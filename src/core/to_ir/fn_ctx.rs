@@ -385,26 +385,88 @@ impl<'a> FnCtx<'a> {
                 self.lower_expr(body)
             }
 
-            // Reuse — for now, lower as regular Con (ignore token).
-            // Proper IR lowering for in-place reuse will be added later.
+            // Reuse — emit DropReuse + Reuse* IR to enable in-place allocation reuse.
             CoreExpr::Reuse {
-                tag, fields, span, ..
+                token,
+                tag,
+                fields,
+                span,
             } => {
+                // Step 1: Resolve token variable. If not in scope, fall back to regular Con.
+                let token_var = if let Some(binder) = token.binder
+                    && let Some(&ir_var) = self.env.get(&binder)
+                {
+                    ir_var
+                } else {
+                    // Token not in scope — fall back to regular Con
+                    let field_vars: Vec<IrVar> =
+                        fields.iter().map(|f| self.lower_expr(f)).collect();
+                    let dest = self.ctx.alloc_var();
+                    let ir_expr = match tag {
+                        CoreTag::None => IrExpr::None,
+                        CoreTag::Some => {
+                            IrExpr::Some(*field_vars.first().expect("Some needs 1 field"))
+                        }
+                        CoreTag::Left => {
+                            IrExpr::Left(*field_vars.first().expect("Left needs 1 field"))
+                        }
+                        CoreTag::Right => {
+                            IrExpr::Right(*field_vars.first().expect("Right needs 1 field"))
+                        }
+                        CoreTag::Nil => IrExpr::EmptyList,
+                        CoreTag::Cons => IrExpr::Cons {
+                            head: field_vars[0],
+                            tail: field_vars[1],
+                        },
+                        CoreTag::Named(name) => IrExpr::MakeAdt(*name, field_vars),
+                    };
+                    self.emit(IrInstr::Assign {
+                        dest,
+                        expr: ir_expr,
+                        metadata: IrMetadata::from_span(*span),
+                    });
+                    return dest;
+                };
+
+                // Step 2: Lower fields
                 let field_vars: Vec<IrVar> = fields.iter().map(|f| self.lower_expr(f)).collect();
+
+                // Step 3: Emit DropReuse to get reuse token
+                let reuse_token = self.ctx.alloc_var();
+                self.emit(IrInstr::Assign {
+                    dest: reuse_token,
+                    expr: IrExpr::DropReuse(token_var),
+                    metadata: IrMetadata::from_span(*span),
+                });
+
+                // Step 4: Emit Reuse* variant with token
                 let dest = self.ctx.alloc_var();
                 let ir_expr = match tag {
-                    CoreTag::None => IrExpr::None,
-                    CoreTag::Some => IrExpr::Some(*field_vars.first().expect("Some needs 1 field")),
-                    CoreTag::Left => IrExpr::Left(*field_vars.first().expect("Left needs 1 field")),
-                    CoreTag::Right => {
-                        IrExpr::Right(*field_vars.first().expect("Right needs 1 field"))
-                    }
-                    CoreTag::Nil => IrExpr::EmptyList,
-                    CoreTag::Cons => IrExpr::Cons {
+                    CoreTag::Cons => IrExpr::ReuseCons {
+                        token: reuse_token,
                         head: field_vars[0],
                         tail: field_vars[1],
                     },
-                    CoreTag::Named(name) => IrExpr::MakeAdt(*name, field_vars),
+                    CoreTag::Some => IrExpr::ReuseSome {
+                        token: reuse_token,
+                        inner: field_vars[0],
+                    },
+                    CoreTag::Left => IrExpr::ReuseLeft {
+                        token: reuse_token,
+                        inner: field_vars[0],
+                    },
+                    CoreTag::Right => IrExpr::ReuseRight {
+                        token: reuse_token,
+                        inner: field_vars[0],
+                    },
+                    CoreTag::Named(name) => IrExpr::ReuseAdt {
+                        token: reuse_token,
+                        constructor: *name,
+                        fields: field_vars,
+                    },
+                    // Stack-allocated types can't be reused — fall back to regular Con
+                    CoreTag::Nil => IrExpr::EmptyList,
+                    CoreTag::None => IrExpr::None,
                 };
                 self.emit(IrInstr::Assign {
                     dest,

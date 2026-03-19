@@ -318,6 +318,36 @@ pub enum IrExpr {
         effect: Identifier,
         arms: Vec<IrHandleArm>,
     },
+    /// Aether Phase 7 (Perceus): try to reuse token's allocation.
+    /// Returns non-null if uniquely owned, null if shared.
+    DropReuse(IrVar),
+    /// Aether Phase 7 (Perceus): construct Cons, reusing token if non-null.
+    ReuseCons {
+        token: IrVar,
+        head: IrVar,
+        tail: IrVar,
+    },
+    /// Aether Phase 7 (Perceus): construct Some, reusing token if non-null.
+    ReuseSome {
+        token: IrVar,
+        inner: IrVar,
+    },
+    /// Aether Phase 7 (Perceus): construct Left, reusing token if non-null.
+    ReuseLeft {
+        token: IrVar,
+        inner: IrVar,
+    },
+    /// Aether Phase 7 (Perceus): construct Right, reusing token if non-null.
+    ReuseRight {
+        token: IrVar,
+        inner: IrVar,
+    },
+    /// Aether Phase 7 (Perceus): construct ADT, reusing token if non-null.
+    ReuseAdt {
+        token: IrVar,
+        constructor: Identifier,
+        fields: Vec<IrVar>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -360,10 +390,7 @@ pub enum IrInstr {
     /// last use has passed and its Rc refcount can be decremented now rather
     /// than waiting for scope exit. In the VM this is a no-op (Rc drop is
     /// automatic), but it enables future backends to reclaim memory sooner.
-    AetherDrop {
-        var: IrVar,
-        metadata: IrMetadata,
-    },
+    AetherDrop { var: IrVar, metadata: IrMetadata },
 }
 
 #[derive(Debug, Clone)]
@@ -738,6 +765,37 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
                 expr.0,
                 effect.as_u32(),
                 arms.len()
+            )
+        }
+        IrExpr::DropReuse(var) => format!("DropReuse({})", ir_fmt_var(*var)),
+        IrExpr::ReuseCons { token, head, tail } => {
+            format!(
+                "ReuseCons({}, {}, {})",
+                ir_fmt_var(*token),
+                ir_fmt_var(*head),
+                ir_fmt_var(*tail)
+            )
+        }
+        IrExpr::ReuseSome { token, inner } => {
+            format!("ReuseSome({}, {})", ir_fmt_var(*token), ir_fmt_var(*inner))
+        }
+        IrExpr::ReuseLeft { token, inner } => {
+            format!("ReuseLeft({}, {})", ir_fmt_var(*token), ir_fmt_var(*inner))
+        }
+        IrExpr::ReuseRight { token, inner } => {
+            format!("ReuseRight({}, {})", ir_fmt_var(*token), ir_fmt_var(*inner))
+        }
+        IrExpr::ReuseAdt {
+            token,
+            constructor,
+            fields,
+        } => {
+            let s: Vec<_> = fields.iter().map(|v| ir_fmt_var(*v)).collect();
+            format!(
+                "ReuseAdt({}, #{}, [{}])",
+                ir_fmt_var(*token),
+                constructor.as_u32(),
+                s.join(", ")
             )
         }
     }

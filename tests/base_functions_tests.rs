@@ -658,7 +658,6 @@ fn test_base_has_key_unhashable() {
 fn test_base_merge() {
     let mut vm = test_vm();
 
-
     let mut h1 = rc_hamt::hamt_empty();
     h1 = rc_hamt::hamt_insert(&h1, HashKey::String("a".to_string()), Value::Integer(1));
     h1 = rc_hamt::hamt_insert(&h1, HashKey::String("b".to_string()), Value::Integer(2));
@@ -675,7 +674,6 @@ fn test_base_merge() {
     .unwrap();
     match result {
         Value::HashMap(handle) => {
-        
             assert_eq!(rc_hamt::hamt_len(&handle), 3);
             assert_eq!(
                 rc_hamt::hamt_lookup(&handle, &HashKey::String("a".to_string())),
@@ -698,7 +696,6 @@ fn test_base_merge() {
 fn test_base_delete() {
     let mut vm = test_vm();
 
-
     let mut h = rc_hamt::hamt_empty();
     h = rc_hamt::hamt_insert(&h, HashKey::String("a".to_string()), Value::Integer(1));
     h = rc_hamt::hamt_insert(&h, HashKey::String("b".to_string()), Value::Integer(2));
@@ -712,7 +709,6 @@ fn test_base_delete() {
 
     match result {
         Value::HashMap(handle) => {
-        
             assert_eq!(
                 rc_hamt::hamt_lookup(&handle, &HashKey::String("a".to_string())),
                 None
@@ -730,7 +726,6 @@ fn test_base_delete() {
 fn test_base_merge_empty() {
     let mut vm = test_vm();
 
-
     let mut h1 = rc_hamt::hamt_empty();
     h1 = rc_hamt::hamt_insert(&h1, HashKey::String("a".to_string()), Value::Integer(1));
 
@@ -744,7 +739,6 @@ fn test_base_merge_empty() {
     .unwrap();
     match result {
         Value::HashMap(handle) => {
-        
             assert_eq!(rc_hamt::hamt_len(&handle), 1);
             assert_eq!(
                 rc_hamt::hamt_lookup(&handle, &HashKey::String("a".to_string())),
@@ -759,7 +753,6 @@ fn test_base_merge_empty() {
 fn test_base_merge_into_empty() {
     let mut vm = test_vm();
 
-
     let h1 = rc_hamt::hamt_empty();
 
     let mut h2 = rc_hamt::hamt_empty();
@@ -773,7 +766,6 @@ fn test_base_merge_into_empty() {
     .unwrap();
     match result {
         Value::HashMap(handle) => {
-        
             assert_eq!(rc_hamt::hamt_len(&handle), 1);
             assert_eq!(
                 rc_hamt::hamt_lookup(&handle, &HashKey::String("a".to_string())),

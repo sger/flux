@@ -153,7 +153,6 @@ fn main() {
                 enable_analyze,
                 max_errors,
                 &roots,
-
                 use_jit,
                 test_filter.as_deref(),
                 strict_mode,
@@ -172,8 +171,6 @@ fn main() {
                 enable_analyze,
                 max_errors,
                 &roots,
-
-
                 use_jit,
                 use_llvm,
                 show_stats,
@@ -211,7 +208,6 @@ fn main() {
                     enable_analyze,
                     max_errors,
                     &roots,
-
                     use_jit,
                     test_filter.as_deref(),
                     strict_mode,
@@ -230,8 +226,6 @@ fn main() {
                     enable_analyze,
                     max_errors,
                     &roots,
-
-    
                     use_jit,
                     use_llvm,
                     show_stats,
@@ -670,7 +664,6 @@ fn run_file(
                 }
 
                 let jit_options = flux::jit::JitOptions {
-
                     source_file: Some(path.to_string()),
                     source_text: Some(source.clone()),
                 };
@@ -752,7 +745,6 @@ fn run_file(
 
                 let llvm_opt_level = if enable_optimize { 2 } else { 0 };
                 let llvm_options = flux::llvm::LlvmOptions {
-
                     source_file: Some(path.to_string()),
                     source_text: Some(source.clone()),
                     opt_level: llvm_opt_level,
@@ -1090,7 +1082,6 @@ fn run_test_file(
         }
 
         let jit_options = flux::jit::JitOptions {
-
             source_file: Some(path.to_string()),
             source_text: Some(source.clone()),
         };

@@ -12,11 +12,7 @@ fn bench_hamt_insert(c: &mut Criterion) {
             b.iter(|| {
                 let mut root = hamt_empty();
                 for i in 0..n {
-                    root = hamt_insert(
-                        &root,
-                        HashKey::Integer(i as i64),
-                        Value::Integer(i as i64),
-                    );
+                    root = hamt_insert(&root, HashKey::Integer(i as i64), Value::Integer(i as i64));
                 }
                 black_box(root);
             });
@@ -33,11 +29,7 @@ fn bench_hamt_lookup(c: &mut Criterion) {
         // Pre-build the map
         let mut root = hamt_empty();
         for i in 0..size {
-            root = hamt_insert(
-                &root,
-                HashKey::Integer(i as i64),
-                Value::Integer(i as i64),
-            );
+            root = hamt_insert(&root, HashKey::Integer(i as i64), Value::Integer(i as i64));
         }
 
         group.throughput(Throughput::Elements(size as u64));
