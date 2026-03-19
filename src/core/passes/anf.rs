@@ -241,5 +241,17 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
                 .collect(),
             span,
         },
+
+        // Dup/Drop — recurse into body.
+        CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
+            var,
+            body: Box::new(anf_expr(*body, next_id)),
+            span,
+        },
+        CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
+            var,
+            body: Box::new(anf_expr(*body, next_id)),
+            span,
+        },
     }
 }

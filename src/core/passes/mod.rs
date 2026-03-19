@@ -56,6 +56,7 @@ pub fn run_core_passes(program: &mut CoreProgram) {
         let e = elim_dead_let(e);
         let e = evidence_pass(e, &mut next_id);
         let e = anf_normalize(e, &mut next_id);
+        let e = crate::aether::run_aether_pass(e);
         def.expr = e;
     }
 }
@@ -118,6 +119,9 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
                 }
                 collect_max_binder_id(&h.body, max);
             }
+        }
+        Dup { body, .. } | Drop { body, .. } => {
+            collect_max_binder_id(body, max);
         }
     }
 }

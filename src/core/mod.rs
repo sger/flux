@@ -333,6 +333,20 @@ pub enum CoreExpr {
         handlers: Vec<CoreHandler>,
         span: Span,
     },
+    /// Aether: explicitly duplicate (Rc::clone) a variable reference.
+    /// Inserted by the dup/drop pass for variables used more than once.
+    Dup {
+        var: CoreVarRef,
+        body: Box<CoreExpr>,
+        span: Span,
+    },
+    /// Aether: explicitly drop (early release) a variable reference.
+    /// Inserted by the dup/drop pass for unused variables.
+    Drop {
+        var: CoreVarRef,
+        body: Box<CoreExpr>,
+        span: Span,
+    },
 }
 
 // ── Top-level definitions ─────────────────────────────────────────────────────
@@ -420,7 +434,9 @@ impl CoreExpr {
             | CoreExpr::PrimOp { span, .. }
             | CoreExpr::Return { span, .. }
             | CoreExpr::Perform { span, .. }
-            | CoreExpr::Handle { span, .. } => *span,
+            | CoreExpr::Handle { span, .. }
+            | CoreExpr::Dup { span, .. }
+            | CoreExpr::Drop { span, .. } => *span,
         }
     }
 
