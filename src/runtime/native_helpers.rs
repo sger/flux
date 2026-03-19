@@ -22,10 +22,8 @@ use crate::runtime::{
     base::get_base_function_by_index,
     base::list_ops::format_value,
     cons_cell::ConsCell,
-    gc::{
-        hamt::{hamt_empty, hamt_insert, hamt_lookup},
-        heap_object::HeapObject,
-    },
+    gc::{hamt::hamt_lookup as gc_hamt_lookup, heap_object::HeapObject},
+    hamt as rc_hamt,
     jit_closure::JitClosure,
     value::{AdtFields, Value},
 };
@@ -1850,7 +1848,7 @@ pub extern "C" fn rt_make_hash(
     npairs: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    let mut root = hamt_empty(&mut ctx.gc_heap);
+    let mut root = rc_hamt::hamt_empty();
     for i in 0..npairs as usize {
         let Some(key) = clone_tagged_arg(
             ctx,
@@ -1875,9 +1873,9 @@ pub extern "C" fn rt_make_hash(
                 return ptr::null_mut();
             }
         };
-        root = hamt_insert(&mut ctx.gc_heap, root, hash_key, value);
+        root = rc_hamt::hamt_insert(&root, hash_key, value);
     }
-    ctx.alloc(Value::Gc(root))
+    ctx.alloc(Value::HashMap(root))
 }
 
 #[unsafe(no_mangle)]
@@ -1902,6 +1900,19 @@ pub extern "C" fn rt_index(
                 ctx.alloc(Value::None)
             } else {
                 ctx.alloc(Value::Some(Rc::new(elements[*idx as usize].clone())))
+            }
+        }
+        (Value::HashMap(node), _) => {
+            let hash_key = match index.to_hash_key() {
+                Some(k) => k,
+                None => {
+                    ctx.error = Some(format!("unusable as hash key: {}", index.type_name()));
+                    return ptr::null_mut();
+                }
+            };
+            match rc_hamt::hamt_lookup(node, &hash_key) {
+                Some(value) => ctx.alloc(Value::Some(Rc::new(value))),
+                None => ctx.alloc(Value::None),
             }
         }
         (Value::Gc(handle), _) => match index {
@@ -1937,7 +1948,7 @@ pub extern "C" fn rt_index(
                             return ptr::null_mut();
                         }
                     };
-                    match hamt_lookup(&ctx.gc_heap, *handle, &hash_key) {
+                    match gc_hamt_lookup(&ctx.gc_heap, *handle, &hash_key) {
                         Some(value) => ctx.alloc(Value::Some(Rc::new(value))),
                         None => ctx.alloc(Value::None),
                     }
@@ -1951,7 +1962,7 @@ pub extern "C" fn rt_index(
                         return ptr::null_mut();
                     }
                 };
-                match hamt_lookup(&ctx.gc_heap, *handle, &hash_key) {
+                match gc_hamt_lookup(&ctx.gc_heap, *handle, &hash_key) {
                     Some(value) => ctx.alloc(Value::Some(Rc::new(value))),
                     None => ctx.alloc(Value::None),
                 }
