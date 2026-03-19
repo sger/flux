@@ -83,6 +83,7 @@ Feature state is evidence-driven:
 | 0062 | [0062_performance_stabilization_program.md](0062_performance_stabilization_program.md) | Draft | gap | proposal-only | stabilization-first perf gates and evidence consolidation across compiler throughput, runtime parity, and cache/harness determinism |
 | 0063 | [0063_true_fp_completion_program.md](0063_true_fp_completion_program.md) | Draft | gap | proposal-only | true-FP feature closure program across principal effect rows, typed determinism/exhaustiveness, typed immutable records, and core FP abstractions (currying + traits) |
 | 0064 | [0064_effect_row_variables.md](implemented/0064_effect_row_variables.md) | Implemented | have | explicit `EffectExpr::RowVar`, parser-enforced `|e` tails, implicit-row rejection with migration diagnostics, HM open-row function-effect unification, runtime-enforced strict public function-typed boundaries (closure/jit closure + effect subset check), and effect-row fixture migration/test coverage | keep as baseline for explicit row-tail semantics and strict runtime function contracts |
+| 0086 | [0086_backend_neutral_core_ir.md](implemented/0086_backend_neutral_core_ir.md) | Implemented | have | `src/core/*`, `src/backend_ir/*`, `src/cfg/*`, Core IR lowering, validation, optimization passes (constant_fold, dead_block_elimination, local_cse, type_directed_unboxing), VM+JIT consume Core IR | keep as baseline — canonical backend-neutral IR layer |
 
 ### Backlog (Draft / Proposed)
 
@@ -122,6 +123,8 @@ Feature state is evidence-driven:
 | 0081 | [0081_diagnostic_taxonomy.md](implemented/0081_diagnostic_taxonomy.md) | Draft | gap | proposal-only | add an explicit semantic category layer for diagnostics on top of codes, severity, phase, and error-type metadata |
 | 0082 | [0082_effect_directed_pipelines.md](0082_effect_directed_pipelines.md) | Draft | gap | proposal-only | make typed effect handling compose as a first-class pipeline stage via `expr |> handle Effect { ... }` |
 | 0083 | [0083_typed_holes.md](0083_typed_holes.md) | Draft | gap | proposal-only | add expression-level typed holes like `?name` so the compiler can report expected types and candidate fits while code is incomplete |
+| 0105 | [0105_general_tail_call_elimination.md](0105_general_tail_call_elimination.md) | Draft | gap | proposal-only | general TCE for mutual recursion, indirect/closure tail calls, and CPS; extends 0016 self-recursive TCO to full proper tail calls |
+| 0106 | [0106_base_function_effect_audit.md](0106_base_function_effect_audit.md) | Draft | gap | proposal-only | systematic audit of all 77 base functions for effect annotation correctness; CI test suite to prevent regressions; prerequisite for 0099 IO migration |
 
 ### Superseded Historical Docs
 
