@@ -7,7 +7,6 @@ license = "MIT"
 default-run = "flux"
 
 [features]
-gc-telemetry = []
 jit = [
     "cranelift-codegen",
     "cranelift-frontend",

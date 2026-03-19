@@ -49,8 +49,6 @@ pub type LlvmResult<T> = Result<T, LlvmError>;
 /// Runtime options for LLVM execution.
 #[derive(Default)]
 pub struct LlvmOptions {
-    pub no_gc: bool,
-    pub gc_threshold: Option<usize>,
     pub source_file: Option<String>,
     pub source_text: Option<String>,
     /// LLVM optimization level: 0 (none), 1 (basic), 2 (default), 3 (aggressive).
@@ -140,13 +138,6 @@ pub fn llvm_compile(
     });
     jit_ctx.set_jit_functions(entries);
     jit_ctx.identity_fn_index = identity_fn_index;
-
-    if options.no_gc {
-        jit_ctx.gc_heap.set_enabled(false);
-    }
-    if let Some(threshold) = options.gc_threshold {
-        jit_ctx.gc_heap.set_threshold(threshold);
-    }
 
     Ok(LlvmCompiledProgram {
         _context: llvm_ctx,

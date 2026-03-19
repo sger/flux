@@ -134,7 +134,7 @@ impl PartialEq for BaseFunction {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use crate::runtime::{RuntimeContext, gc::GcHeap, value::Value};
+    use crate::runtime::{RuntimeContext, value::Value};
 
     use super::{BaseFunction, BaseFunctionArgMode};
 
@@ -151,15 +151,11 @@ mod tests {
         Ok(Value::Integer(2))
     }
 
-    struct TestContext {
-        heap: GcHeap,
-    }
+    struct TestContext;
 
     impl TestContext {
         fn new() -> Self {
-            Self {
-                heap: GcHeap::new(),
-            }
+            Self
         }
     }
 
@@ -174,14 +170,6 @@ mod tests {
             _args: &[&Value],
         ) -> Result<Value, String> {
             Err("unused".to_string())
-        }
-
-        fn gc_heap(&self) -> &GcHeap {
-            &self.heap
-        }
-
-        fn gc_heap_mut(&mut self) -> &mut GcHeap {
-            &mut self.heap
         }
     }
 

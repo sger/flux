@@ -657,7 +657,7 @@ fn test_base_has_key_unhashable() {
 #[test]
 fn test_base_merge() {
     let mut vm = test_vm();
-    let _heap = vm.gc_heap_mut();
+
 
     let mut h1 = rc_hamt::hamt_empty();
     h1 = rc_hamt::hamt_insert(&h1, HashKey::String("a".to_string()), Value::Integer(1));
@@ -675,7 +675,7 @@ fn test_base_merge() {
     .unwrap();
     match result {
         Value::HashMap(handle) => {
-            let _heap = vm.gc_heap_mut();
+        
             assert_eq!(rc_hamt::hamt_len(&handle), 3);
             assert_eq!(
                 rc_hamt::hamt_lookup(&handle, &HashKey::String("a".to_string())),
@@ -697,7 +697,7 @@ fn test_base_merge() {
 #[test]
 fn test_base_delete() {
     let mut vm = test_vm();
-    let _heap = vm.gc_heap_mut();
+
 
     let mut h = rc_hamt::hamt_empty();
     h = rc_hamt::hamt_insert(&h, HashKey::String("a".to_string()), Value::Integer(1));
@@ -712,7 +712,7 @@ fn test_base_delete() {
 
     match result {
         Value::HashMap(handle) => {
-            let _heap = vm.gc_heap_mut();
+        
             assert_eq!(
                 rc_hamt::hamt_lookup(&handle, &HashKey::String("a".to_string())),
                 None
@@ -729,7 +729,7 @@ fn test_base_delete() {
 #[test]
 fn test_base_merge_empty() {
     let mut vm = test_vm();
-    let _heap = vm.gc_heap_mut();
+
 
     let mut h1 = rc_hamt::hamt_empty();
     h1 = rc_hamt::hamt_insert(&h1, HashKey::String("a".to_string()), Value::Integer(1));
@@ -744,7 +744,7 @@ fn test_base_merge_empty() {
     .unwrap();
     match result {
         Value::HashMap(handle) => {
-            let _heap = vm.gc_heap_mut();
+        
             assert_eq!(rc_hamt::hamt_len(&handle), 1);
             assert_eq!(
                 rc_hamt::hamt_lookup(&handle, &HashKey::String("a".to_string())),
@@ -758,7 +758,7 @@ fn test_base_merge_empty() {
 #[test]
 fn test_base_merge_into_empty() {
     let mut vm = test_vm();
-    let _heap = vm.gc_heap_mut();
+
 
     let h1 = rc_hamt::hamt_empty();
 
@@ -773,7 +773,7 @@ fn test_base_merge_into_empty() {
     .unwrap();
     match result {
         Value::HashMap(handle) => {
-            let _heap = vm.gc_heap_mut();
+        
             assert_eq!(rc_hamt::hamt_len(&handle), 1);
             assert_eq!(
                 rc_hamt::hamt_lookup(&handle, &HashKey::String("a".to_string())),
@@ -1268,8 +1268,6 @@ fn test_base_is_map() {
 
 #[test]
 fn test_hamt_structural_sharing() {
-    let mut vm = test_vm();
-    let _heap = vm.gc_heap_mut();
     let root1 = rc_hamt::hamt_empty();
     let root2 = rc_hamt::hamt_insert(&root1, HashKey::String("a".into()), Value::Integer(1));
     let root3 = rc_hamt::hamt_insert(&root2, HashKey::String("b".into()), Value::Integer(2));
@@ -1295,8 +1293,6 @@ fn test_hamt_structural_sharing() {
 
 #[test]
 fn test_hamt_10k_sequential_inserts() {
-    let mut vm = test_vm();
-    let _heap = vm.gc_heap_mut();
     let mut root = rc_hamt::hamt_empty();
     for i in 0..10_000i64 {
         root = rc_hamt::hamt_insert(&root, HashKey::Integer(i), Value::Integer(i * 2));

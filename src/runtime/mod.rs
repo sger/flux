@@ -23,7 +23,6 @@ pub mod cons_cell;
 pub mod continuation;
 pub mod frame;
 pub mod function_contract;
-pub mod gc;
 pub mod hamt;
 pub mod handler_arm;
 pub mod handler_descriptor;
@@ -58,8 +57,6 @@ pub trait RuntimeContext {
     ) -> Result<Value, String> {
         self.invoke_value(callee.clone(), vec![left, right])
     }
-    fn gc_heap(&self) -> &gc::GcHeap;
-    fn gc_heap_mut(&mut self) -> &mut gc::GcHeap;
     fn callable_contract<'a>(
         &'a self,
         _callee: &'a Value,
