@@ -36,6 +36,49 @@ pub fn lower_program_to_ir(
 ) -> Result<IrProgram, Diagnostic> {
     let mut core = lower_program_ast(program, hm_expr_types);
     run_core_passes(&mut core);
+
+    // Aether diagnostics (works for all backends: VM, JIT, LLVM).
+    // Uses a static flag to print only once even if called multiple times.
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static PRINTED: AtomicBool = AtomicBool::new(false);
+
+        let aether_stats = std::env::var("FLUX_AETHER_STATS").is_ok_and(|v| v == "1");
+        let aether_verify = std::env::var("FLUX_AETHER_VERIFY").is_ok_and(|v| v == "1");
+
+        if (aether_stats || aether_verify) && !PRINTED.swap(true, Ordering::SeqCst) {
+            let mut total = crate::aether::AetherStats::default();
+            let mut all_diags = Vec::new();
+
+            for def in &core.defs {
+                let s = crate::aether::collect_stats(&def.expr);
+                total.dups += s.dups;
+                total.drops += s.drops;
+                total.reuses += s.reuses;
+
+                if aether_verify {
+                    all_diags.extend(crate::aether::verify::verify(&def.expr));
+                }
+            }
+
+            if aether_stats {
+                eprintln!("── Aether stats ──");
+                eprintln!("{total}");
+            }
+
+            if aether_verify {
+                if all_diags.is_empty() {
+                    eprintln!("── Aether verify ── OK (no issues found)");
+                } else {
+                    eprintln!("── Aether verify ── {} issue(s) found:", all_diags.len());
+                    for d in &all_diags {
+                        eprintln!("  {:?}: {}", d.kind, d.message);
+                    }
+                }
+            }
+        }
+    }
+
     let mut ir = lower_core_to_ir(&core);
     ir.hm_expr_types = hm_expr_types.clone();
     ir.core = Some(core);

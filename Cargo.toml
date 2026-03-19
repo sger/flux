@@ -88,6 +88,10 @@ harness = false
 name = "aoc_day1_bench"
 harness = false
 
+[[bench]]
+name = "aether_bench"
+harness = false
+
 [[bin]]
 name = "binarytrees_rust"
 path = "benchmarks/rust/binarytrees.rs"
