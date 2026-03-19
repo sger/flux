@@ -35,6 +35,10 @@ fn values_equal(ctx: &dyn RuntimeContext, a: &Value, b: &Value) -> bool {
                 _ => false,
             }
         }
+        (Value::Cons(a_cell), Value::Cons(b_cell)) => {
+            values_equal(ctx, &a_cell.head, &b_cell.head)
+                && values_equal(ctx, &a_cell.tail, &b_cell.tail)
+        }
         (Value::Gc(ha), Value::Gc(hb)) => {
             if ha == hb {
                 return true; // Same heap slot — trivially equal.

@@ -92,6 +92,12 @@ impl RuntimeType {
                 loop {
                     match current {
                         Value::None | Value::EmptyList => return true,
+                        Value::Cons(cell) => {
+                            if !inner.matches_value(&cell.head, ctx) {
+                                return false;
+                            }
+                            current = &cell.tail;
+                        }
                         Value::Gc(handle) => match ctx.gc_heap().get(*handle) {
                             HeapObject::Cons { head, tail } => {
                                 if !inner.matches_value(head, ctx) {

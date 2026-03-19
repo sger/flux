@@ -3,6 +3,7 @@ use std::{cell::RefCell, fmt, rc::Rc};
 use crate::runtime::{
     closure::Closure,
     compiled_function::CompiledFunction,
+    cons_cell::ConsCell,
     continuation::Continuation,
     gc::{gc_handle::GcHandle, gc_heap::GcHeap, heap_object::HeapObject},
     handler_descriptor::HandlerDescriptor,
@@ -305,6 +306,9 @@ pub enum Value {
     /// Internal: perform key stored in the constant pool by the compiler.
     /// Never exposed to user code.
     PerformDescriptor(Rc<PerformDescriptor>),
+    /// Rc-based cons cell for persistent linked lists (Aether Phase 1).
+    /// Replaces `Value::Gc(GcHandle)` pointing to `HeapObject::Cons`.
+    Cons(Rc<ConsCell>),
 }
 
 impl fmt::Display for Value {
@@ -336,6 +340,25 @@ impl fmt::Display for Value {
                     1 => write!(f, "({},)", items[0]),
                     _ => write!(f, "({})", items.join(", ")),
                 }
+            }
+            Value::Cons(_) => {
+                // Display cons list as [head, tail_elem, ...]
+                let mut items = Vec::new();
+                let mut cur: &Value = self;
+                loop {
+                    match cur {
+                        Value::Cons(c) => {
+                            items.push(c.head.to_string());
+                            cur = &c.tail;
+                        }
+                        Value::EmptyList | Value::None => break,
+                        other => {
+                            items.push(format!("| {}", other));
+                            break;
+                        }
+                    }
+                }
+                write!(f, "[{}]", items.join(", "))
             }
             Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
             Value::GcAdt(handle) => write!(f, "<gc-adt@{}>", handle.index()),
@@ -379,6 +402,7 @@ impl Value {
             Value::BaseFunction(_) => "BaseFunction",
             Value::Array(_) => "Array",
             Value::Tuple(_) => "Tuple",
+            Value::Cons(_) => "List",
             Value::Gc(_) => "Gc",
             Value::GcAdt(_) | Value::Adt(_) | Value::AdtUnit(_) => "Adt",
             Value::Continuation(_) => "Continuation",
@@ -454,6 +478,7 @@ impl Value {
                     _ => format!("({})", items.join(", ")),
                 }
             }
+            Value::Cons(_) => self.to_string(), // uses Display impl
             Value::Gc(handle) => format!("<gc@{}>", handle.index()),
             Value::GcAdt(handle) => format!("<gc-adt@{}>", handle.index()),
             Value::Adt(adt) => {
