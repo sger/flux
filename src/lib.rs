@@ -1,3 +1,4 @@
+pub mod aether;
 pub mod ast;
 pub mod bytecode;
 pub mod cfg;

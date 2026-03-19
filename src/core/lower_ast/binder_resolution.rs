@@ -107,6 +107,10 @@ fn resolve_expr_binders(expr: &mut CoreExpr, scopes: &mut Vec<BinderScope>) {
                 scopes.pop();
             }
         }
+        CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
+            var.binder = lookup_binder(scopes, var.name);
+            resolve_expr_binders(body, scopes);
+        }
     }
 }
 
@@ -181,6 +185,14 @@ fn validate_expr_binders(expr: &CoreExpr, scopes: &mut Vec<BinderScope>) -> bool
                 scopes.pop();
                 ok
             })
+        }
+        CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
+            let var_ok = match (var.binder, lookup_binder(scopes, var.name)) {
+                (Some(actual), Some(expected)) => actual == expected,
+                (None, None) => true,
+                _ => false,
+            };
+            var_ok && validate_expr_binders(body, scopes)
         }
     }
 }

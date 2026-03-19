@@ -153,6 +153,30 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
                 .collect(),
             span,
         },
+        CoreExpr::Dup {
+            var: dup_var,
+            body,
+            span,
+        } => CoreExpr::Dup {
+            var: if dup_var.binder == Some(var) {
+                // The var itself is being substituted — but Dup/Drop reference
+                // variables, not arbitrary expressions. Keep the ref as-is.
+                dup_var
+            } else {
+                dup_var
+            },
+            body: Box::new(subst(*body, var, replacement)),
+            span,
+        },
+        CoreExpr::Drop {
+            var: drop_var,
+            body,
+            span,
+        } => CoreExpr::Drop {
+            var: drop_var,
+            body: Box::new(subst(*body, var, replacement)),
+            span,
+        },
         other => other,
     }
 }
@@ -266,6 +290,16 @@ pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreE
                 .collect(),
             span,
         },
+        CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
+            var,
+            body: Box::new(f(*body)),
+            span,
+        },
+        CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
+            var,
+            body: Box::new(f(*body)),
+            span,
+        },
         other => other,
     }
 }
@@ -375,6 +409,12 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
                         && appears_free(var, &h.body)
                 })
         }
+        CoreExpr::Dup {
+            var: ref_var, body, ..
+        }
+        | CoreExpr::Drop {
+            var: ref_var, body, ..
+        } => ref_var.binder == Some(var) || appears_free(var, body),
     }
 }
 
@@ -405,6 +445,7 @@ pub(super) fn expr_size(expr: &CoreExpr) -> usize {
         CoreExpr::Handle { body, handlers, .. } => {
             1 + expr_size(body) + handlers.iter().map(|h| expr_size(&h.body)).sum::<usize>()
         }
+        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => 1 + expr_size(body),
     }
 }
 

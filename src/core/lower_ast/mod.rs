@@ -673,6 +673,10 @@ mod tests {
                 }
             }
             CoreExpr::Lit(_, _) => {}
+            CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
+                out.push(var);
+                collect_var_refs(body, out);
+            }
         }
     }
 

@@ -120,6 +120,9 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
             out.extend(collect_core_exprs(body));
         }
         CoreExpr::Var { .. } | CoreExpr::Lit(..) => {}
+        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
+            out.extend(collect_core_exprs(body));
+        }
     }
     out
 }
