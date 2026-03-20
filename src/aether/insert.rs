@@ -251,11 +251,26 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             token,
             tag,
             fields,
+            field_mask,
             span,
         } => CoreExpr::Reuse {
             token,
             tag,
             fields: fields.into_iter().map(transform).collect(),
+            field_mask,
+            span,
+        },
+
+        // DropSpecialized — pass-through, recurse both branches
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            span,
+        } => CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body: Box::new(transform(*unique_body)),
+            shared_body: Box::new(transform(*shared_body)),
             span,
         },
     }

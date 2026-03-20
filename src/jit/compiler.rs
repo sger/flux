@@ -2852,7 +2852,7 @@ fn compile_simple_backend_ir_expr(
                 Ok(JitValue::boxed(builder.ins().iconst(types::I64, 0)))
             }
         }
-        BackendIrExpr::ReuseCons { token, head, tail } => {
+        BackendIrExpr::ReuseCons { token, head, tail, field_mask } => {
             let token_boxed = if let Some(&token_val) = env.get(token) {
                 box_jit_value(module, helpers, builder, ctx_val, token_val)
             } else {
@@ -2869,10 +2869,20 @@ fn compile_simple_backend_ir_expr(
                 .ok_or_else(|| format!("missing backend IR reuse_cons tail {:?}", tail))?;
             let head_boxed = box_jit_value(module, helpers, builder, ctx_val, head_val);
             let tail_boxed = box_jit_value(module, helpers, builder, ctx_val, tail_val);
-            let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_cons");
-            let call = builder
-                .ins()
-                .call(helper, &[ctx_val, token_boxed, head_boxed, tail_boxed]);
+            let call = if let Some(mask) = field_mask {
+                let helper =
+                    get_helper_func_ref(module, helpers, builder, "rt_reuse_cons_masked");
+                let mask_val = builder.ins().iconst(types::I64, *mask as i64);
+                builder.ins().call(
+                    helper,
+                    &[ctx_val, token_boxed, head_boxed, tail_boxed, mask_val],
+                )
+            } else {
+                let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_cons");
+                builder
+                    .ins()
+                    .call(helper, &[ctx_val, token_boxed, head_boxed, tail_boxed])
+            };
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         BackendIrExpr::ReuseSome { token, inner } => {
@@ -2933,6 +2943,7 @@ fn compile_simple_backend_ir_expr(
             token,
             constructor,
             fields,
+            field_mask,
         } => {
             let token_boxed = if let Some(&token_val) = env.get(token) {
                 box_jit_value(module, helpers, builder, ctx_val, token_val)
@@ -2971,18 +2982,36 @@ fn compile_simple_backend_ir_expr(
             }
             let fields_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
             let nfields = builder.ins().iconst(PTR_TYPE, fields.len() as i64);
-            let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_adt");
-            let call = builder.ins().call(
-                helper,
-                &[
-                    ctx_val,
-                    token_boxed,
-                    name_ptr,
-                    name_len,
-                    fields_ptr,
-                    nfields,
-                ],
-            );
+            let call = if let Some(mask) = field_mask {
+                let helper =
+                    get_helper_func_ref(module, helpers, builder, "rt_reuse_adt_masked");
+                let mask_val = builder.ins().iconst(types::I64, *mask as i64);
+                builder.ins().call(
+                    helper,
+                    &[
+                        ctx_val,
+                        token_boxed,
+                        name_ptr,
+                        name_len,
+                        fields_ptr,
+                        nfields,
+                        mask_val,
+                    ],
+                )
+            } else {
+                let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_adt");
+                builder.ins().call(
+                    helper,
+                    &[
+                        ctx_val,
+                        token_boxed,
+                        name_ptr,
+                        name_len,
+                        fields_ptr,
+                        nfields,
+                    ],
+                )
+            };
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         _ => Err("unsupported backend IR expression in direct JIT path".to_string()),
@@ -4462,6 +4491,22 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_reuse_adt",
             HelperSig {
                 num_params: 6,
+                num_returns: 1,
+            },
+        ),
+        // rt_reuse_cons_masked(ctx, token, head, tail, field_mask) -> *mut Value
+        (
+            "rt_reuse_cons_masked",
+            HelperSig {
+                num_params: 5,
+                num_returns: 1,
+            },
+        ),
+        // rt_reuse_adt_masked(ctx, token, name_ptr, name_len, fields_ptr, nfields, field_mask) -> *mut Value
+        (
+            "rt_reuse_adt_masked",
+            HelperSig {
+                num_params: 7,
                 num_returns: 1,
             },
         ),

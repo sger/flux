@@ -181,6 +181,7 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
             token,
             tag,
             fields,
+            field_mask,
             span,
         } => CoreExpr::Reuse {
             token,
@@ -189,6 +190,7 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
                 .into_iter()
                 .map(|f| subst(f, var, replacement))
                 .collect(),
+            field_mask,
             span,
         },
         other => other,
@@ -318,11 +320,24 @@ pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreE
             token,
             tag,
             fields,
+            field_mask,
             span,
         } => CoreExpr::Reuse {
             token,
             tag,
             fields: fields.into_iter().map(f).collect(),
+            field_mask,
+            span,
+        },
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            span,
+        } => CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body: Box::new(f(*unique_body)),
+            shared_body: Box::new(f(*shared_body)),
             span,
         },
         other => other,
@@ -443,6 +458,16 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
         CoreExpr::Reuse { token, fields, .. } => {
             token.binder == Some(var) || fields.iter().any(|f| appears_free(var, f))
         }
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            scrutinee.binder == Some(var)
+                || appears_free(var, unique_body)
+                || appears_free(var, shared_body)
+        }
     }
 }
 
@@ -475,6 +500,11 @@ pub(super) fn expr_size(expr: &CoreExpr) -> usize {
         }
         CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => 1 + expr_size(body),
         CoreExpr::Reuse { fields, .. } => 1 + fields.iter().map(expr_size).sum::<usize>(),
+        CoreExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => 1 + expr_size(unique_body) + expr_size(shared_body),
     }
 }
 

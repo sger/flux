@@ -150,6 +150,29 @@ pub enum OpCode {
     /// `handler_depth` is the distance from the top of the handler stack
     /// (0 = innermost handler). `arm_index` is the index into the handler's arms.
     OpPerformDirectIndexed = 83,
+
+    // ── Aether reuse opcodes ────────────────────────────────────────────
+    /// Aether: test if a value is uniquely owned (Rc::strong_count == 1).
+    /// If unique, pushes the value as a reuse token. Otherwise pushes None.
+    /// Operand: none (value on TOS).
+    OpDropReuse = 84,
+    /// Aether: construct a Cons cell, reusing the token's allocation if non-null.
+    /// Pops token, head, tail from the stack. Operand: `[field_mask: u8]`.
+    /// field_mask 0xFF = write all fields.
+    OpReuseCons = 85,
+    /// Aether: construct an ADT, reusing the token's allocation if non-null.
+    /// Operands: `[const_idx: u16, arity: u8, field_mask: u8]`.
+    /// Pops token then `arity` fields from the stack.
+    OpReuseAdt = 86,
+    /// Aether: construct Some, reusing token if non-null.
+    /// Pops token and inner from the stack. No operands.
+    OpReuseSome = 87,
+    /// Aether: construct Left, reusing token if non-null.
+    /// Pops token and inner from the stack. No operands.
+    OpReuseLeft = 88,
+    /// Aether: construct Right, reusing token if non-null.
+    /// Pops token and inner from the stack. No operands.
+    OpReuseRight = 89,
 }
 
 impl From<u8> for OpCode {
@@ -239,6 +262,12 @@ impl From<u8> for OpCode {
             81 => OpCode::OpHandleDirect,
             82 => OpCode::OpPerformDirect,
             83 => OpCode::OpPerformDirectIndexed,
+            84 => OpCode::OpDropReuse,
+            85 => OpCode::OpReuseCons,
+            86 => OpCode::OpReuseAdt,
+            87 => OpCode::OpReuseSome,
+            88 => OpCode::OpReuseLeft,
+            89 => OpCode::OpReuseRight,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -295,6 +324,11 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpPerform | OpCode::OpPerformDirect => vec![1, 1], // const_idx: u8, arity: u8
         OpCode::OpPerformDirectIndexed => vec![1, 1, 1], // handler_depth: u8, arm_index: u8, arity: u8
         OpCode::OpConsumeLocal0 | OpCode::OpConsumeLocal1 => vec![],
+        // Aether reuse opcodes
+        OpCode::OpDropReuse => vec![],                  // TOS consumed
+        OpCode::OpReuseCons => vec![1],                 // field_mask: u8
+        OpCode::OpReuseAdt => vec![2, 1, 1],            // const_idx: u16, arity: u8, field_mask: u8
+        OpCode::OpReuseSome | OpCode::OpReuseLeft | OpCode::OpReuseRight => vec![],
         _ => vec![],
     }
 }

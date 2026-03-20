@@ -2676,6 +2676,105 @@ pub extern "C" fn rt_reuse_adt(
     }
 }
 
+/// Aether reuse specialization (Perceus Section 2.5): construct a Cons cell
+/// with selective field writes. Only fields whose bit is set in `field_mask`
+/// are written; others are left unchanged from the reused allocation.
+/// `field_mask` bit 0 = head, bit 1 = tail. -1 means write all.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_reuse_cons_masked(
+    ctx: *mut JitContext,
+    token: *mut Value,
+    head_ptr: *mut Value,
+    tail_ptr: *mut Value,
+    field_mask: i64,
+) -> *mut Value {
+    // If no mask optimization (all fields changed), delegate to the unmasked version
+    if field_mask < 0 {
+        return rt_reuse_cons(ctx, token, head_ptr, tail_ptr);
+    }
+    let mask = field_mask as u64;
+
+    if !token.is_null() {
+        let token_val = unsafe { &mut *token };
+        if let Value::Cons(rc) = token_val
+            && let Some(cell) = Rc::get_mut(rc)
+        {
+            // Selective field writes: only write changed fields
+            if mask & 1 != 0 {
+                cell.head = if head_ptr.is_null() {
+                    Value::None
+                } else {
+                    unsafe { (*head_ptr).clone() }
+                };
+            }
+            if mask & 2 != 0 {
+                cell.tail = if tail_ptr.is_null() {
+                    Value::None
+                } else {
+                    unsafe { (*tail_ptr).clone() }
+                };
+            }
+            return token;
+        }
+    }
+    // Fallback: not unique or no token — allocate fresh (write all fields)
+    rt_reuse_cons(ctx, token, head_ptr, tail_ptr)
+}
+
+/// Aether reuse specialization (Perceus Section 2.5): construct an ADT value
+/// with selective field writes. Only fields whose bit is set in `field_mask`
+/// are written; others are left unchanged from the reused allocation.
+/// `field_mask` -1 means write all fields.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_reuse_adt_masked(
+    ctx: *mut JitContext,
+    token: *mut Value,
+    name_ptr: *const u8,
+    name_len: i64,
+    fields_ptr: *const JitTaggedValue,
+    nfields: i64,
+    field_mask: i64,
+) -> *mut Value {
+    // If no mask optimization, delegate to unmasked
+    if field_mask < 0 {
+        return rt_reuse_adt(ctx, token, name_ptr, name_len, fields_ptr, nfields);
+    }
+    let mask = field_mask as u64;
+
+    if !token.is_null() {
+        let token_val = unsafe { &mut *token };
+        if let Value::Adt(rc) = token_val
+            && let Some(adt) = Rc::get_mut(rc)
+        {
+            let ctx_r = unsafe { ctx_ref(ctx) };
+            // Update constructor name if changed (rare but possible for same-size ADTs)
+            let new_name = unsafe {
+                from_utf8_unchecked(from_raw_parts(name_ptr, name_len as usize))
+            };
+            if adt.constructor.as_ref() != new_name {
+                adt.constructor = Rc::new(new_name.to_string());
+            }
+            // Selective field writes: only write fields whose bit is set
+            let Some(new_fields) = clone_values_from_tagged_ptrs(
+                ctx_r,
+                fields_ptr,
+                nfields as usize,
+                "reuse ADT masked",
+            ) else {
+                return ptr::null_mut();
+            };
+            for (i, val) in new_fields.into_iter().enumerate() {
+                if mask & (1u64 << i) != 0 {
+                    adt.fields.set_field(i, val);
+                }
+            }
+            return token;
+        }
+    }
+    // Fallback: not unique or no token — allocate fresh
+    rt_reuse_adt(ctx, token, name_ptr, name_len, fields_ptr, nfields)
+}
+
 /// Aether: drop a heap-allocated Value early by replacing it with None.
 /// The arena slot is overwritten so the old Value's Rc is decremented immediately.
 /// The caller guarantees the value will not be used after this call.
@@ -2823,5 +2922,8 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_reuse_left", rt_reuse_left as *const u8),
         ("rt_reuse_right", rt_reuse_right as *const u8),
         ("rt_reuse_adt", rt_reuse_adt as *const u8),
+        // Aether reuse specialization (Perceus Section 2.5): masked variants
+        ("rt_reuse_cons_masked", rt_reuse_cons_masked as *const u8),
+        ("rt_reuse_adt_masked", rt_reuse_adt_masked as *const u8),
     ]
 }

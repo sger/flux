@@ -9,6 +9,8 @@
 //! Existing passes (1-7) never see Dup/Drop nodes.
 
 pub mod analysis;
+pub mod drop_spec;
+pub mod fusion;
 pub mod insert;
 pub mod reuse;
 pub mod verify;
@@ -21,14 +23,15 @@ pub struct AetherStats {
     pub dups: usize,
     pub drops: usize,
     pub reuses: usize,
+    pub drop_specs: usize,
 }
 
 impl std::fmt::Display for AetherStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Dups: {}  Drops: {}  Reuses: {}",
-            self.dups, self.drops, self.reuses
+            "Dups: {}  Drops: {}  Reuses: {}  DropSpecs: {}",
+            self.dups, self.drops, self.reuses, self.drop_specs
         )
     }
 }
@@ -101,13 +104,30 @@ fn count_nodes(expr: &CoreExpr, stats: &mut AetherStats) {
                 count_nodes(&h.body, stats);
             }
         }
+        CoreExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            stats.drop_specs += 1;
+            count_nodes(unique_body, stats);
+            count_nodes(shared_body, stats);
+        }
     }
 }
 
-/// Run the Aether dup/drop insertion and reuse analysis passes on a Core IR expression.
+/// Run the full Aether optimization pipeline on a Core IR expression.
+///
+/// Pipeline order:
+/// 1. Dup/drop insertion (Phase 5) — insert explicit Rc operations
+/// 2. Drop specialization (Phase 8) — split into unique/shared paths
+/// 3. Dup/drop fusion (Phase 9) — cancel adjacent dup/drop pairs
+/// 4. Reuse token insertion (Phase 7) — reuse allocations on the fast path
 ///
 /// This is the public entry point called from `run_core_passes`.
 pub fn run_aether_pass(expr: CoreExpr) -> CoreExpr {
     let expr = insert::insert_dup_drop(expr);
+    let expr = drop_spec::specialize_drops(expr);
+    let expr = fusion::fuse_dup_drop(expr);
     reuse::insert_reuse(expr)
 }

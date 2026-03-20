@@ -129,6 +129,20 @@ pub(super) fn free_vars_rec(
                 free_vars_rec(f, bound, free);
             }
         }
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            if let Some(binder) = scrutinee.binder
+                && !bound.contains(&binder)
+            {
+                free.insert(binder);
+            }
+            free_vars_rec(unique_body, bound, free);
+            free_vars_rec(shared_body, bound, free);
+        }
     }
 }
 

@@ -117,6 +117,16 @@ fn resolve_expr_binders(expr: &mut CoreExpr, scopes: &mut Vec<BinderScope>) {
                 resolve_expr_binders(field, scopes);
             }
         }
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            scrutinee.binder = lookup_binder(scopes, scrutinee.name);
+            resolve_expr_binders(unique_body, scopes);
+            resolve_expr_binders(shared_body, scopes);
+        }
     }
 }
 
@@ -210,6 +220,21 @@ fn validate_expr_binders(expr: &CoreExpr, scopes: &mut Vec<BinderScope>) -> bool
                 && fields
                     .iter()
                     .all(|field| validate_expr_binders(field, scopes))
+        }
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            let var_ok = match (scrutinee.binder, lookup_binder(scopes, scrutinee.name)) {
+                (Some(actual), Some(expected)) => actual == expected,
+                (None, None) => true,
+                _ => false,
+            };
+            var_ok
+                && validate_expr_binders(unique_body, scopes)
+                && validate_expr_binders(shared_body, scopes)
         }
     }
 }

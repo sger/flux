@@ -123,6 +123,33 @@ fn count_uses(expr: &CoreExpr, counts: &mut HashMap<CoreBinderId, usize>) {
                 count_uses(f, counts);
             }
         }
+        // DropSpecialized: count scrutinee var + take max of both branches
+        // (like Case arms — only one branch executes at runtime).
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            if let Some(id) = scrutinee.binder {
+                *counts.entry(id).or_insert(0) += 1;
+            }
+            let mut unique_counts = HashMap::new();
+            count_uses(unique_body, &mut unique_counts);
+            let mut shared_counts = HashMap::new();
+            count_uses(shared_body, &mut shared_counts);
+            // Merge taking max (only one branch runs).
+            let all_keys: std::collections::HashSet<_> = unique_counts
+                .keys()
+                .chain(shared_counts.keys())
+                .copied()
+                .collect();
+            for id in all_keys {
+                let u = unique_counts.get(&id).copied().unwrap_or(0);
+                let s = shared_counts.get(&id).copied().unwrap_or(0);
+                *counts.entry(id).or_insert(0) += u.max(s);
+            }
+        }
     }
 }
 
@@ -310,6 +337,20 @@ fn count_owned(var: CoreBinderId, expr: &CoreExpr) -> usize {
             let token_use = if token.binder == Some(var) { 1 } else { 0 };
             token_use + fields.iter().map(|f| count_owned(var, f)).sum::<usize>()
         }
+        // DropSpecialized: scrutinee is borrowed (tested for uniqueness),
+        // branches are normal context — take max (only one runs).
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            let scrut = if scrutinee.binder == Some(var) { 0 } else { 0 }; // borrowed
+            let _ = scrut;
+            let u = count_owned(var, unique_body);
+            let s = count_owned(var, shared_body);
+            u.max(s)
+        }
     }
 }
 
@@ -414,6 +455,15 @@ fn total_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
                     .iter()
                     .map(|f| total_occurrences(var, f))
                     .sum::<usize>()
+        }
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            let scrut = if scrutinee.binder == Some(var) { 1 } else { 0 };
+            scrut + total_occurrences(var, unique_body) + total_occurrences(var, shared_body)
         }
     }
 }

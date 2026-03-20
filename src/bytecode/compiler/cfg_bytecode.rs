@@ -50,7 +50,22 @@ impl Compiler {
                 | IrExpr::AdtTagTest { .. }
                 | IrExpr::AdtField { .. }
                 | IrExpr::MakeClosure(_, _)
-                | IrExpr::Perform { .. } => true,
+                | IrExpr::Perform { .. }
+                // Construction expressions
+                | IrExpr::Cons { .. }
+                | IrExpr::Some(_)
+                | IrExpr::Left(_)
+                | IrExpr::Right(_)
+                | IrExpr::EmptyList
+                | IrExpr::MakeAdt(_, _)
+                | IrExpr::MakeTuple(_)
+                // Aether reuse expressions
+                | IrExpr::DropReuse(_)
+                | IrExpr::ReuseCons { .. }
+                | IrExpr::ReuseAdt { .. }
+                | IrExpr::ReuseSome { .. }
+                | IrExpr::ReuseLeft { .. }
+                | IrExpr::ReuseRight { .. } => true,
                 IrExpr::Binary(op, _, _) => matches!(
                     op,
                     IrBinaryOp::Add
@@ -589,6 +604,168 @@ impl Compiler {
                 self.emit(OpCode::OpPerform, &[const_idx, args.len()]);
                 Ok(())
             }
+            // ── Construction expressions ──────────────────────────────────
+            IrExpr::EmptyList => {
+                // Push empty list sentinel
+                self.emit_constant_value(Value::EmptyList);
+                Ok(())
+            }
+            IrExpr::Cons { head, tail } => {
+                self.load_symbol(bindings.get(head).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG bytecode cons head binding"))
+                })?);
+                self.load_symbol(bindings.get(tail).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG bytecode cons tail binding"))
+                })?);
+                self.emit(OpCode::OpCons, &[]);
+                Ok(())
+            }
+            IrExpr::Some(inner) => {
+                self.load_symbol(bindings.get(inner).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG bytecode Some binding"))
+                })?);
+                self.emit(OpCode::OpSome, &[]);
+                Ok(())
+            }
+            IrExpr::Left(inner) => {
+                self.load_symbol(bindings.get(inner).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG bytecode Left binding"))
+                })?);
+                self.emit(OpCode::OpLeft, &[]);
+                Ok(())
+            }
+            IrExpr::Right(inner) => {
+                self.load_symbol(bindings.get(inner).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG bytecode Right binding"))
+                })?);
+                self.emit(OpCode::OpRight, &[]);
+                Ok(())
+            }
+            IrExpr::MakeAdt(constructor, fields) => {
+                for field in fields {
+                    self.load_symbol(bindings.get(field).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning("missing CFG bytecode ADT field binding"))
+                    })?);
+                }
+                let const_idx =
+                    self.add_constant(Value::String(self.sym(*constructor).to_string().into()));
+                self.emit(OpCode::OpMakeAdt, &[const_idx, fields.len()]);
+                Ok(())
+            }
+            IrExpr::MakeTuple(fields) => {
+                for field in fields {
+                    self.load_symbol(bindings.get(field).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode tuple field binding",
+                        ))
+                    })?);
+                }
+                self.emit(OpCode::OpTuple, &[fields.len()]);
+                Ok(())
+            }
+
+            // ── Aether reuse expressions ─────────────────────────────────
+            IrExpr::DropReuse(var) => {
+                self.load_symbol(bindings.get(var).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG bytecode DropReuse binding"))
+                })?);
+                self.emit(OpCode::OpDropReuse, &[]);
+                Ok(())
+            }
+            IrExpr::ReuseCons {
+                token,
+                head,
+                tail,
+                field_mask,
+            } => {
+                // Push token, head, tail in order (token first = bottom of trio)
+                self.load_symbol(bindings.get(token).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseCons token binding",
+                    ))
+                })?);
+                self.load_symbol(bindings.get(head).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseCons head binding",
+                    ))
+                })?);
+                self.load_symbol(bindings.get(tail).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseCons tail binding",
+                    ))
+                })?);
+                let mask_byte = field_mask.unwrap_or(0xFF_u64) as usize;
+                self.emit(OpCode::OpReuseCons, &[mask_byte]);
+                Ok(())
+            }
+            IrExpr::ReuseAdt {
+                token,
+                constructor,
+                fields,
+                field_mask,
+            } => {
+                // Push token first, then fields
+                self.load_symbol(bindings.get(token).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseAdt token binding",
+                    ))
+                })?);
+                for field in fields {
+                    self.load_symbol(bindings.get(field).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode ReuseAdt field binding",
+                        ))
+                    })?);
+                }
+                let const_idx =
+                    self.add_constant(Value::String(self.sym(*constructor).to_string().into()));
+                let mask_byte = field_mask.unwrap_or(0xFF_u64) as usize;
+                self.emit(OpCode::OpReuseAdt, &[const_idx, fields.len(), mask_byte]);
+                Ok(())
+            }
+            IrExpr::ReuseSome { token, inner } => {
+                self.load_symbol(bindings.get(token).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseSome token binding",
+                    ))
+                })?);
+                self.load_symbol(bindings.get(inner).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseSome inner binding",
+                    ))
+                })?);
+                self.emit(OpCode::OpReuseSome, &[]);
+                Ok(())
+            }
+            IrExpr::ReuseLeft { token, inner } => {
+                self.load_symbol(bindings.get(token).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseLeft token binding",
+                    ))
+                })?);
+                self.load_symbol(bindings.get(inner).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseLeft inner binding",
+                    ))
+                })?);
+                self.emit(OpCode::OpReuseLeft, &[]);
+                Ok(())
+            }
+            IrExpr::ReuseRight { token, inner } => {
+                self.load_symbol(bindings.get(token).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseRight token binding",
+                    ))
+                })?);
+                self.load_symbol(bindings.get(inner).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseRight inner binding",
+                    ))
+                })?);
+                self.emit(OpCode::OpReuseRight, &[]);
+                Ok(())
+            }
+
             _ => Err(Self::boxed(Diagnostic::warning(
                 "unsupported CFG bytecode expression lowering",
             ))),
