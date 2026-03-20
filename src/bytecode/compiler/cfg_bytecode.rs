@@ -77,20 +77,8 @@ impl Compiler {
                 | IrExpr::MakeList(_)
                 | IrExpr::Index { .. }
                 | IrExpr::InterpolatedString(_)
-                | IrExpr::MemberAccess { .. } => true,
-                IrExpr::Binary(op, _, _) => matches!(
-                    op,
-                    IrBinaryOp::Add
-                        | IrBinaryOp::Sub
-                        | IrBinaryOp::Mul
-                        | IrBinaryOp::Div
-                        | IrBinaryOp::Eq
-                        | IrBinaryOp::NotEq
-                        | IrBinaryOp::Lt
-                        | IrBinaryOp::Gt
-                        | IrBinaryOp::Ge
-                        | IrBinaryOp::Le
-                ),
+                | IrExpr::MemberAccess { .. }
+                | IrExpr::Binary(_, _, _) => true,
                 _ => false,
             }
         }
@@ -539,6 +527,23 @@ impl Compiler {
                 let rhs_binding = bindings.get(rhs).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning("missing CFG bytecode rhs binding"))
                 })?;
+
+                // Short-circuit And/Or: load LHS, conditionally skip RHS
+                if matches!(op, IrBinaryOp::And) {
+                    self.load_symbol(lhs_binding);
+                    let jump_pos = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
+                    self.load_symbol(rhs_binding);
+                    self.change_operand(jump_pos, self.current_instructions().len());
+                    return Ok(());
+                }
+                if matches!(op, IrBinaryOp::Or) {
+                    self.load_symbol(lhs_binding);
+                    let jump_pos = self.emit(OpCode::OpJumpTruthy, &[9999]);
+                    self.load_symbol(rhs_binding);
+                    self.change_operand(jump_pos, self.current_instructions().len());
+                    return Ok(());
+                }
+
                 if matches!(op, IrBinaryOp::Lt) {
                     self.load_symbol(rhs_binding);
                     self.load_symbol(lhs_binding);
@@ -547,21 +552,26 @@ impl Compiler {
                     self.load_symbol(rhs_binding);
                 }
                 match op {
-                    IrBinaryOp::Add => self.emit(OpCode::OpAdd, &[]),
-                    IrBinaryOp::Sub => self.emit(OpCode::OpSub, &[]),
-                    IrBinaryOp::Mul => self.emit(OpCode::OpMul, &[]),
-                    IrBinaryOp::Div => self.emit(OpCode::OpDiv, &[]),
+                    IrBinaryOp::Add | IrBinaryOp::IAdd | IrBinaryOp::FAdd => {
+                        self.emit(OpCode::OpAdd, &[])
+                    }
+                    IrBinaryOp::Sub | IrBinaryOp::ISub | IrBinaryOp::FSub => {
+                        self.emit(OpCode::OpSub, &[])
+                    }
+                    IrBinaryOp::Mul | IrBinaryOp::IMul | IrBinaryOp::FMul => {
+                        self.emit(OpCode::OpMul, &[])
+                    }
+                    IrBinaryOp::Div | IrBinaryOp::IDiv | IrBinaryOp::FDiv => {
+                        self.emit(OpCode::OpDiv, &[])
+                    }
+                    IrBinaryOp::Mod | IrBinaryOp::IMod => self.emit(OpCode::OpMod, &[]),
                     IrBinaryOp::Eq => self.emit(OpCode::OpEqual, &[]),
                     IrBinaryOp::NotEq => self.emit(OpCode::OpNotEqual, &[]),
                     IrBinaryOp::Lt => self.emit(OpCode::OpGreaterThan, &[]),
                     IrBinaryOp::Gt => self.emit(OpCode::OpGreaterThan, &[]),
                     IrBinaryOp::Ge => self.emit(OpCode::OpGreaterThanOrEqual, &[]),
                     IrBinaryOp::Le => self.emit(OpCode::OpLessThanOrEqual, &[]),
-                    _ => {
-                        return Err(Self::boxed(Diagnostic::warning(
-                            "unsupported CFG bytecode binary op",
-                        )));
-                    }
+                    IrBinaryOp::And | IrBinaryOp::Or => unreachable!("handled above"),
                 };
                 Ok(())
             }

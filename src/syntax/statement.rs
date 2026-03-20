@@ -14,6 +14,17 @@ use crate::{
     },
 };
 
+/// FBIP annotation on a function (Perceus Section 2.6).
+///
+/// - `@fip` — the function performs zero heap allocations on the unique path
+///   (every constructor is reused in-place).
+/// - `@fbip` — the function performs a finite (bounded) number of allocations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FipAnnotation {
+    Fip,
+    Fbip,
+}
+
 #[derive(Debug, Clone)]
 pub enum Statement {
     Let {
@@ -38,6 +49,8 @@ pub enum Statement {
     },
     Function {
         is_public: bool,
+        /// FBIP annotation: `@fip` or `@fbip` before `fn`.
+        fip: Option<FipAnnotation>,
         name: Identifier,
         /// Explicit generic type parameters, e.g. `[T, U]` for `fn f<T, U>(...)`.
         /// Empty for non-generic functions.

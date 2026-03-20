@@ -3,17 +3,18 @@
 // Execute: cargo run -- examples/aether/verify_aether.flx
 //
 // Exercises Perceus optimizations: dup/drop, drop spec, fusion, reuse, borrowed params
+// FBIP annotations: @fip = zero allocation on unique path, @fbip = bounded allocations
 
-// ── 1. Cons list map: reuse Cons cells ──
-fn my_map(xs, f) {
+// ── 1. Cons list map: reuse Cons cells (@fip — zero allocs) ──
+@fip fn my_map(xs, f) {
     match xs {
         [h | t] -> [f(h) | my_map(t, f)],
         _ -> [],
     }
 }
 
-// ── 2. Option map: reuse Some wrapper ──
-fn option_map(opt, f) {
+// ── 2. Option map: reuse Some wrapper (@fip — zero allocs) ──
+@fip fn option_map(opt, f) {
     match opt {
         Some(x) -> Some(f(x)),
         _ -> None,
