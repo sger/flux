@@ -52,16 +52,18 @@ impl Compiler {
     /// path can't catch. Returns `true` if errors are present — caller should
     /// skip CFG and fall through to the AST path for proper error reporting.
     ///
-    /// Only checks for errors that the AST path catches inline during codegen
-    /// (E001 duplicate let, E002/E003 assignment). HM-detected errors (E056,
-    /// E419-E422) are surfaced by Phase 6 finalization regardless of path.
+    /// Checks: E001 duplicate let, E002/E003 assignment, E056 wrong arg count,
+    /// E400/E419-E422 effect row violations.
     fn quick_validate_function_body(
-        &self,
+        &mut self,
         body: &Block,
-        _parameters: &[crate::syntax::symbol::Symbol],
+        parameters: &[crate::syntax::symbol::Symbol],
+        declared_effects: &[EffectExpr],
+        param_effect_rows: &HashMap<Symbol, super::effect_rows::EffectRow>,
     ) -> bool {
-        Self::block_has_semantic_errors(body)
+        Self::block_has_semantic_errors(body, parameters)
             || self.block_has_call_arity_error(body)
+            || self.block_has_effect_row_error(body, declared_effects, param_effect_rows)
     }
 
     /// Check if any call expression has wrong argument count vs HM type (E056).
@@ -88,10 +90,9 @@ impl Compiler {
                     _,
                     _,
                 )) = self.hm_expr_type_strict_path(function)
+                    && params.len() != arguments.len()
                 {
-                    if params.len() != arguments.len() {
-                        return true;
-                    }
+                    return true;
                 }
                 // Recurse into subexpressions
                 self.expr_has_call_arity_error(function)
@@ -122,7 +123,7 @@ impl Compiler {
     /// Check if any statement in the block (recursively) contains errors
     /// that only the AST path catches: assignments (E002/E003) or duplicate
     /// let bindings in the same scope (E001).
-    fn block_has_semantic_errors(body: &Block) -> bool {
+    fn block_has_semantic_errors(body: &Block, parameters: &[Symbol]) -> bool {
         // Check for assignments (Flux is purely immutable)
         let has_assign = body
             .statements
@@ -131,20 +132,22 @@ impl Compiler {
         if has_assign {
             return true;
         }
-        // Check for duplicate let bindings in the same scope
-        let mut seen = std::collections::HashSet::new();
+        // Check for duplicate let bindings in the same scope (including params)
+        let mut seen: std::collections::HashSet<Symbol> =
+            parameters.iter().copied().collect();
         for stmt in &body.statements {
-            if let Statement::Let { name, .. } = stmt {
-                if !seen.insert(*name) {
-                    return true;
-                }
+            if let Statement::Let { name, .. } = stmt
+                && !seen.insert(*name)
+            {
+                return true;
             }
         }
-        // Recurse into nested blocks
+        // Recurse into nested blocks and let values
         body.statements.iter().any(|s| match s {
-            Statement::Expression { expression, .. } => {
-                Self::expr_has_semantic_errors(expression)
-            }
+            Statement::Expression { expression, .. }
+            | Statement::Let {
+                value: expression, ..
+            } => Self::expr_has_semantic_errors(expression),
             _ => false,
         })
     }
@@ -156,27 +159,180 @@ impl Compiler {
                 alternative,
                 ..
             } => {
-                Self::block_has_semantic_errors(consequence)
+                Self::block_has_semantic_errors(consequence, &[])
                     || alternative
                         .as_ref()
-                        .is_some_and(Self::block_has_semantic_errors)
+                        .is_some_and(|b| Self::block_has_semantic_errors(b, &[]))
             }
-            Expression::DoBlock { block, .. } => Self::block_has_semantic_errors(block),
+            Expression::DoBlock { block, .. } => Self::block_has_semantic_errors(block, &[]),
             Expression::Match { arms, .. } => arms.iter().any(|arm| {
-                if let Expression::DoBlock { block, .. } = &arm.body {
-                    Self::block_has_semantic_errors(block)
-                } else {
-                    false
-                }
+                Self::expr_has_semantic_errors(&arm.body)
             }),
+            Expression::Function {
+                body, parameters, ..
+            } => Self::block_has_semantic_errors(body, parameters),
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                Self::expr_has_semantic_errors(function)
+                    || arguments.iter().any(Self::expr_has_semantic_errors)
+            }
             _ => false,
         }
     }
 
-    fn block_contains_cfg_incompatible_statements_ast(body: &Block) -> bool {
-        body.statements
+    /// Check if any call in the block would trigger effect row errors
+    /// (E400, E419-E422). Uses explicit `declared_effects` and `param_effect_rows`
+    /// instead of reading from the function context stack (which hasn't been pushed yet).
+    fn block_has_effect_row_error(
+        &mut self,
+        body: &Block,
+        declared_effects: &[EffectExpr],
+        param_effect_rows: &HashMap<Symbol, super::effect_rows::EffectRow>,
+    ) -> bool {
+        body.statements.iter().any(|s| match s {
+            Statement::Expression { expression, .. }
+            | Statement::Let {
+                value: expression, ..
+            } => self.expr_has_effect_row_error(expression, declared_effects, param_effect_rows),
+            _ => false,
+        })
+    }
+
+    fn expr_has_effect_row_error(
+        &mut self,
+        expr: &Expression,
+        declared_effects: &[EffectExpr],
+        param_effect_rows: &HashMap<Symbol, super::effect_rows::EffectRow>,
+    ) -> bool {
+        match expr {
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                if self.call_has_effect_row_error(function, arguments, declared_effects, param_effect_rows) {
+                    return true;
+                }
+                // Recurse into subexpressions
+                self.expr_has_effect_row_error(function, declared_effects, param_effect_rows)
+                    || arguments
+                        .iter()
+                        .any(|a| self.expr_has_effect_row_error(a, declared_effects, param_effect_rows))
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expr_has_effect_row_error(condition, declared_effects, param_effect_rows)
+                    || self.block_has_effect_row_error(consequence, declared_effects, param_effect_rows)
+                    || alternative
+                        .as_ref()
+                        .is_some_and(|b| self.block_has_effect_row_error(b, declared_effects, param_effect_rows))
+            }
+            Expression::DoBlock { block, .. } => {
+                self.block_has_effect_row_error(block, declared_effects, param_effect_rows)
+            }
+            Expression::Match { arms, .. } => arms
+                .iter()
+                .any(|arm| self.expr_has_effect_row_error(&arm.body, declared_effects, param_effect_rows)),
+            // Check perform for unknown effects/operations (E404/E405)
+            Expression::Perform {
+                effect, operation, ..
+            } => {
+                // Check if the effect resolves
+                let resolved_effect = self
+                    .lookup_effect_alias(*effect)
+                    .unwrap_or(*effect);
+                self.effect_op_signature(resolved_effect, *operation).is_none()
+            }
+            // Don't recurse into nested function bodies — they have their own effect context
+            _ => false,
+        }
+    }
+
+    /// Check a single call expression for effect row errors.
+    /// Returns `true` if the call would trigger E400 or E419-E422.
+    fn call_has_effect_row_error(
+        &mut self,
+        function: &Expression,
+        arguments: &[Expression],
+        declared_effects: &[EffectExpr],
+        param_effect_rows: &HashMap<Symbol, super::effect_rows::EffectRow>,
+    ) -> bool {
+        use super::effect_rows::{EffectRow, solve_row_constraints};
+
+        // Check base function effect requirements (e.g., print requires IO)
+        if let Expression::Identifier { name, .. } = function {
+            let name_str = self.sym(*name);
+            if let Some(required_effect) = self.required_effect_for_base_name(name_str) {
+                let required_sym = self.interner.intern(required_effect);
+                if !Self::is_effect_in_declared(required_sym, declared_effects) {
+                    return true;
+                }
+            }
+        }
+
+        let Some(contract) = self.resolve_call_contract(function, arguments.len()).cloned() else {
+            return false;
+        };
+
+        if contract.effects.is_empty() {
+            return false;
+        }
+
+        let required_row = EffectRow::from_effect_exprs(&contract.effects);
+        let constraints =
+            self.collect_effect_row_constraints_with_rows(&contract, arguments, param_effect_rows);
+        let solution = solve_row_constraints(&constraints);
+
+        // Check for constraint violations (E421, E422)
+        if !solution.violations.is_empty() {
+            return true;
+        }
+
+        // Check for unresolved effect variables (E419, E420)
+        let unresolved: Vec<Symbol> = required_row
+            .unresolved_vars(&solution)
+            .into_iter()
+            .filter(|effect_var| !Self::is_effect_in_declared(*effect_var, declared_effects))
+            .collect();
+        if !unresolved.is_empty() {
+            return true;
+        }
+
+        // Check for missing concrete effects (E400)
+        let required_effects = required_row.concrete_effects(&solution);
+        for required_name in required_effects {
+            if !Self::is_effect_in_declared(required_name, declared_effects) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if an effect is available in the declared effects list.
+    /// When no effects are declared (empty slice), no effects are available —
+    /// matching the AST path's behavior where `current_function_effects()` returns
+    /// `Some(&[])` and `is_effect_available()` returns false.
+    fn is_effect_in_declared(effect: Symbol, declared_effects: &[EffectExpr]) -> bool {
+        declared_effects
             .iter()
-            .any(|statement| matches!(statement, Statement::Module { .. }))
+            .any(|e| e.normalized_names().contains(&effect))
+    }
+
+    fn block_contains_cfg_incompatible_statements_ast(body: &Block) -> bool {
+        body.statements.iter().any(|statement| {
+            matches!(
+                statement,
+                Statement::Module { .. } | Statement::Import { .. }
+            )
+        })
     }
 
     /// Returns `true` when the block contains a typed `let` binding whose
@@ -760,14 +916,16 @@ impl Compiler {
 
             // Check for semantic errors in the function body BEFORE attempting CFG
             // codegen. The CFG path doesn't validate semantics (E001 duplicate let,
-            // E002 reassignment, E056 wrong arg count, E419-E422 effect rows).
+            // E002 reassignment, E056 wrong arg count, E400/E419-E422 effect rows).
             // If errors exist, skip CFG and let the AST path report them.
-            let has_body_errors = self.quick_validate_function_body(body, parameters);
+            let has_body_errors =
+                self.quick_validate_function_body(body, parameters, effects, &param_effect_rows);
 
             if !has_body_errors
+                && !self.has_hm_diagnostics
                 && let Some(ir_function) = ir_function
                 && !Self::block_contains_cfg_incompatible_statements_ast(body)
-                && !(self.strict_mode && Self::block_contains_typed_let_ast(body))
+                && !Self::block_contains_typed_let_ast(body)
             {
                 let scope_snapshot = self.scopes[self.scope_index].clone();
                 let const_len = self.constants.len();

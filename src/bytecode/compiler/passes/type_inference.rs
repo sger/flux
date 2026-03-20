@@ -52,6 +52,8 @@ impl Compiler {
             }
         };
 
+        self.has_hm_diagnostics = !hm_diagnostics.is_empty();
+
         TypeInferenceResult {
             type_optimized_program,
             hm_diagnostics,

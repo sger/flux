@@ -2329,10 +2329,11 @@ fn compile_simple_backend_ir_expr(
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         BackendIrExpr::MakeList(vars) => {
-            let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
+            let make_empty =
+                get_helper_func_ref(module, helpers, builder, "rt_make_empty_list");
             let make_cons = get_helper_func_ref(module, helpers, builder, "rt_make_cons");
-            let none_call = builder.ins().call(make_none, &[ctx_val]);
-            let mut acc = builder.inst_results(none_call)[1];
+            let empty_call = builder.ins().call(make_empty, &[ctx_val]);
+            let mut acc = builder.inst_results(empty_call)[0];
             for var in vars.iter().rev() {
                 let val = env
                     .get(var)
@@ -2520,9 +2521,10 @@ fn compile_simple_backend_ir_expr(
             }
         }
         BackendIrExpr::EmptyList => {
-            let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
-            let call = builder.ins().call(make_none, &[ctx_val]);
-            Ok(JitValue::boxed(builder.inst_results(call)[1]))
+            let make_empty =
+                get_helper_func_ref(module, helpers, builder, "rt_make_empty_list");
+            let call = builder.ins().call(make_empty, &[ctx_val]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         BackendIrExpr::Index { left, index } => {
             let left_val = env

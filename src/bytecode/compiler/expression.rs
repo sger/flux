@@ -1508,7 +1508,7 @@ impl Compiler {
         ))
     }
 
-    fn required_effect_for_base_name(&self, base_name: &str) -> Option<&'static str> {
+    pub(super) fn required_effect_for_base_name(&self, base_name: &str) -> Option<&'static str> {
         match base_name {
             "print" | "read_file" | "read_lines" | "read_stdin" => Some("IO"),
             "now" | "clock_now" | "now_ms" | "time" => Some("Time"),
@@ -1584,6 +1584,75 @@ impl Compiler {
             Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
             Expression::Identifier { name, .. } => {
                 if let Some(local) = self.current_function_param_effect_row(*name) {
+                    return Some(local);
+                }
+                self.lookup_unqualified_contract(*name, expected_arity)
+                    .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                    .or_else(|| self.infer_argument_effect_row_from_hm(argument))
+            }
+            Expression::MemberAccess { object, member, .. } => {
+                let module_name = self.resolve_module_name_from_expr(object);
+                module_name
+                    .and_then(|module_name| {
+                        self.lookup_contract(Some(module_name), *member, expected_arity)
+                    })
+                    .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                    .or_else(|| self.infer_argument_effect_row_from_hm(argument))
+            }
+            _ => self.infer_argument_effect_row_from_hm(argument),
+        }
+    }
+
+    /// Like `collect_effect_row_constraints`, but uses explicit `param_effect_rows`
+    /// instead of reading from the function context stack. Used by pre-codegen
+    /// validation before the function context has been pushed.
+    pub(super) fn collect_effect_row_constraints_with_rows(
+        &mut self,
+        contract: &FnContract,
+        arguments: &[Expression],
+        param_effect_rows: &HashMap<Symbol, EffectRow>,
+    ) -> Vec<RowConstraint> {
+        let mut constraints = Vec::new();
+
+        for (idx, argument) in arguments.iter().enumerate() {
+            let Some(Some(TypeExpr::Function {
+                params,
+                effects: param_effects,
+                ..
+            })) = contract.params.get(idx)
+            else {
+                continue;
+            };
+
+            let expected = EffectRow::from_effect_exprs(param_effects);
+            let Some(actual) =
+                self.infer_argument_function_effect_row_with_rows(argument, params.len(), param_effect_rows)
+            else {
+                continue;
+            };
+
+            constraints.push(RowConstraint::Eq(expected.clone(), actual.clone()));
+            constraints.push(RowConstraint::Subset(expected, actual.clone()));
+            for effect in param_effects {
+                self.collect_effect_expr_absence_constraints(effect, &actual, &mut constraints);
+            }
+        }
+
+        constraints
+    }
+
+    /// Like `infer_argument_function_effect_row`, but uses explicit `param_effect_rows`
+    /// instead of reading from the function context stack.
+    fn infer_argument_function_effect_row_with_rows(
+        &mut self,
+        argument: &Expression,
+        expected_arity: usize,
+        param_effect_rows: &HashMap<Symbol, EffectRow>,
+    ) -> Option<EffectRow> {
+        match argument {
+            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Identifier { name, .. } => {
+                if let Some(local) = param_effect_rows.get(name).cloned() {
                     return Some(local);
                 }
                 self.lookup_unqualified_contract(*name, expected_arity)

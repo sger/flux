@@ -156,6 +156,9 @@ pub struct Compiler {
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     pub(super) hm_expr_types: HashMap<ExprId, InferType>,
+    /// True when HM type inference produced diagnostics. Used to block CFG path
+    /// for functions in files with type errors (the Core IR may be degenerate).
+    pub(super) has_hm_diagnostics: bool,
     pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
     strict_mode: bool,
     strict_require_main: bool,
@@ -223,6 +226,7 @@ impl Compiler {
             effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
+            has_hm_diagnostics: false,
             ir_function_symbols: HashMap::new(),
             strict_mode: false,
             strict_require_main: true,
