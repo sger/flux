@@ -1,19 +1,22 @@
 //! Aether Phase 9: Dup/Drop fusion (Perceus Section 2.3).
 //!
-//! After drop specialization creates unique/shared branches, adjacent
-//! `Dup(x); Drop(x)` and `Drop(x); Dup(x)` pairs can be cancelled.
-//! This is what eliminates RC operations on the unique (fast) path.
+//! After drop specialization creates unique/shared branches, matching
+//! `Dup(x)` / `Drop(x)` pairs can be cancelled — even when non-adjacent.
 //!
-//! Example transformation:
+//! The spine-based algorithm collects all leading Dup/Drop operations on
+//! a spine, cancels matching pairs regardless of order, then re-wraps
+//! the remaining operations. This handles patterns like:
+//!
 //! ```text
-//! -- Before fusion (unique branch after drop spec):
-//! Dup(x); Drop(x); free(xs); body     -- dup then drop cancel
+//! Dup(h); Dup(t); Drop(h); Drop(t); free(xs); body
+//!   → free(xs); body                    // all pairs cancelled
 //!
-//! -- After fusion:
-//! free(xs); body                       -- zero RC ops!
+//! Dup(h); Dup(f); Drop(h); body
+//!   → Dup(f); body                      // h cancelled, f kept
 //! ```
 
 use crate::core::{CoreExpr, CoreVarRef};
+use crate::diagnostics::position::Span;
 
 /// Run dup/drop fusion on a Core IR expression.
 pub fn fuse_dup_drop(expr: CoreExpr) -> CoreExpr {
@@ -28,47 +31,18 @@ pub fn fuse_dup_drop(expr: CoreExpr) -> CoreExpr {
     }
 }
 
+/// Represents a collected Dup or Drop on a spine.
+#[derive(Clone)]
+enum RcOp {
+    Dup(CoreVarRef, Span),
+    Drop(CoreVarRef, Span),
+}
+
 fn fuse(expr: CoreExpr) -> CoreExpr {
     match expr {
-        // Pattern 1: Dup(x, Drop(x, body)) → body
-        CoreExpr::Dup { var, body, span } => {
-            let body = fuse(*body);
-            if let CoreExpr::Drop {
-                var: drop_var,
-                body: inner,
-                ..
-            } = &body
-            {
-                if same_var(&var, drop_var) {
-                    return *inner.clone();
-                }
-            }
-            CoreExpr::Dup {
-                var,
-                body: Box::new(body),
-                span,
-            }
-        }
-
-        // Pattern 2: Drop(x, Dup(x, body)) → body
-        CoreExpr::Drop { var, body, span } => {
-            let body = fuse(*body);
-            if let CoreExpr::Dup {
-                var: dup_var,
-                body: inner,
-                ..
-            } = &body
-            {
-                if same_var(&var, dup_var) {
-                    return *inner.clone();
-                }
-            }
-            CoreExpr::Drop {
-                var,
-                body: Box::new(body),
-                span,
-            }
-        }
+        // When we hit a Dup or Drop, collect the entire spine of RC ops
+        // and fuse matching pairs before re-wrapping.
+        CoreExpr::Dup { .. } | CoreExpr::Drop { .. } => fuse_spine(expr),
 
         // Recurse into all other forms
         CoreExpr::Let {
@@ -187,6 +161,106 @@ fn fuse(expr: CoreExpr) -> CoreExpr {
         },
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
     }
+}
+
+/// Collect all consecutive Dup/Drop operations on a spine, cancel matching
+/// pairs, then re-wrap the remaining operations around the fused body.
+///
+/// This handles non-adjacent pairs like:
+///   `Dup(a); Dup(b); Drop(a); Drop(c); body`
+///   → `Dup(b); Drop(c); body`     (a cancelled)
+fn fuse_spine(expr: CoreExpr) -> CoreExpr {
+    let mut ops: Vec<RcOp> = Vec::new();
+    let mut cursor = expr;
+
+    // Collect all leading Dup/Drop nodes
+    loop {
+        match cursor {
+            CoreExpr::Dup { var, body, span } => {
+                ops.push(RcOp::Dup(var, span));
+                cursor = *body;
+            }
+            CoreExpr::Drop { var, body, span } => {
+                ops.push(RcOp::Drop(var, span));
+                cursor = *body;
+            }
+            _ => break,
+        }
+    }
+
+    // Cancel matching Dup/Drop pairs.
+    // For each Drop, find a matching Dup and remove both.
+    let mut cancelled = vec![false; ops.len()];
+    for i in 0..ops.len() {
+        if cancelled[i] {
+            continue;
+        }
+        if let RcOp::Drop(ref drop_var, _) = ops[i] {
+            // Find a matching Dup earlier in the spine
+            for j in 0..i {
+                if cancelled[j] {
+                    continue;
+                }
+                if let RcOp::Dup(ref dup_var, _) = ops[j] {
+                    if same_var(dup_var, drop_var) {
+                        cancelled[i] = true;
+                        cancelled[j] = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Also cancel Drop then Dup (reverse order)
+    for i in 0..ops.len() {
+        if cancelled[i] {
+            continue;
+        }
+        if let RcOp::Dup(ref dup_var, _) = ops[i] {
+            for j in 0..i {
+                if cancelled[j] {
+                    continue;
+                }
+                if let RcOp::Drop(ref drop_var, _) = ops[j] {
+                    if same_var(dup_var, drop_var) {
+                        cancelled[i] = true;
+                        cancelled[j] = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Recurse into the remaining body
+    let body = fuse(cursor);
+
+    // Re-wrap surviving operations around the body (preserve original order)
+    let mut result = body;
+    for (idx, op) in ops.into_iter().enumerate().rev() {
+        if cancelled[idx] {
+            continue;
+        }
+        match op {
+            RcOp::Dup(var, span) => {
+                result = CoreExpr::Dup {
+                    var,
+                    body: Box::new(result),
+                    span,
+                };
+            }
+            RcOp::Drop(var, span) => {
+                result = CoreExpr::Drop {
+                    var,
+                    body: Box::new(result),
+                    span,
+                };
+            }
+        }
+    }
+
+    result
 }
 
 fn same_var(a: &CoreVarRef, b: &CoreVarRef) -> bool {
