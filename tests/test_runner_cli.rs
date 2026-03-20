@@ -490,6 +490,29 @@ fn dump_core_debug_preserves_raw_identity_details() {
 }
 
 #[test]
+fn dump_core_reports_drop_specialized_stats() {
+    let file = example_path("aether/verify_aether.flx");
+    let output = run_flux(&["--dump-core=debug", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected dump-core debug success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("drop_spec xs#18"),
+        "expected debug Core dump to include DropSpecialized, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("DropSpecs: 1"),
+        "expected Aether stats to count DropSpecialized nodes, output:\n{}",
+        text
+    );
+}
+
+#[test]
 fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
     let file = example_path("type_system/failing/210_stage_all_errors_flag.flx");
 

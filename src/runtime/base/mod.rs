@@ -2,7 +2,8 @@ use crate::runtime::{RuntimeContext, base_function::BaseFunction, value::Value};
 
 mod registry;
 pub use registry::{
-    BaseModule, get_base_function, get_base_function_by_index, get_base_function_index,
+    BaseBorrowMetadata, BaseModule, base_borrow_entries, get_base_borrow_metadata,
+    get_base_function, get_base_function_by_index, get_base_function_index,
     is_base_fastcall_allowlisted,
 };
 

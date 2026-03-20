@@ -1,4 +1,4 @@
-use crate::cfg::{IrPassContext, IrProgram, lower_program_to_ir, run_ir_pass_pipeline};
+use crate::cfg::{IrPassContext, IrProgram, lower_program_to_ir_with_interner, run_ir_pass_pipeline};
 use crate::diagnostics::Diagnostic;
 use crate::syntax::program::Program;
 
@@ -12,7 +12,11 @@ impl Compiler {
         &mut self,
         program: &Program,
     ) -> Result<IrProgram, Vec<Diagnostic>> {
-        let mut ir_program = match lower_program_to_ir(program, &self.hm_expr_types) {
+        let mut ir_program = match lower_program_to_ir_with_interner(
+            program,
+            &self.hm_expr_types,
+            Some(&self.interner),
+        ) {
             Ok(program) => program,
             Err(diag) => {
                 self.errors.push(diag);

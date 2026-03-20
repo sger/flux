@@ -9,12 +9,11 @@
 
 use std::collections::HashMap;
 
-use flux::ast::type_infer::{InferProgramConfig, infer_program};
 use flux::bytecode::compiler::Compiler;
 use flux::bytecode::vm::VM;
 use flux::cfg::{IrBinaryOp, IrExpr, IrInstr, IrTerminator, lower_program_to_ir};
 use flux::core::{
-    CoreExpr, CorePrimOp, lower_ast::lower_program_ast, passes::run_core_passes,
+    CoreExpr, CorePrimOp, lower_ast::lower_program_ast, passes::run_core_passes_with_interner,
     to_ir::lower_core_to_ir,
 };
 use flux::diagnostics::render_diagnostics;
@@ -33,21 +32,10 @@ fn parse_and_infer(
 ) {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
-    let mut interner = parser.take_interner();
-    let base_sym = interner.intern("base");
-    let hm = infer_program(
-        &program,
-        &interner,
-        InferProgramConfig {
-            file_path: None,
-            preloaded_base_schemes: HashMap::new(),
-            preloaded_module_member_schemes: HashMap::new(),
-            known_base_names: std::collections::HashSet::new(),
-            base_module_symbol: base_sym,
-            preloaded_effect_op_signatures: HashMap::new(),
-        },
-    );
-    (program, hm.expr_types, interner)
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<test>", interner.clone());
+    let hm_expr_types = compiler.infer_expr_types_for_program(&program);
+    (program, hm_expr_types, interner)
 }
 
 fn run(input: &str) -> Value {
@@ -157,7 +145,7 @@ fn main() {
 }
 "#;
     // Core IR: nested fn should be skipped (not lowered to LetRec+Lam)
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let core = lower_program_ast(&program, &types);
     // The main def should exist
     assert!(
@@ -183,9 +171,9 @@ fn main() {
 }
 "#;
     // Core IR: after passes, guard should still reference x correctly
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes(&mut core);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
 
     // The Case should still have a guard expression after passes
     let main_def = &core.defs[0];
@@ -206,7 +194,7 @@ fn backend_ir_lowering_is_core_backed() {
 fn add(a: Int, b: Int) -> Int { a + b }
 fn main() { add(3, 4) }
 "#;
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let ir = lower_program_to_ir(&program, &types).expect("backend lowering should succeed");
 
     let core = ir
@@ -231,9 +219,9 @@ fn main() {
 }
 "#;
     // Core IR passes may inline `let n = 5` — guard must still work
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes(&mut core);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
 
     assert_eq!(run(src), Value::String("small".to_string().into()));
 }
@@ -246,7 +234,7 @@ fn pipeline_typed_arithmetic_emits_iadd() {
 fn add(a: Int, b: Int) -> Int { a + b }
 fn main() { add(3, 4) }
 "#;
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let core = lower_program_ast(&program, &types);
 
     // The add function's Core IR should use IAdd (typed) not Add (generic)
@@ -269,7 +257,7 @@ fn choose(x: Int) -> Int {
 }
 fn main() { choose(5) }
 "#;
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let core = lower_program_ast(&program, &types);
     let ir = lower_core_to_ir(&core);
 
@@ -295,7 +283,7 @@ fn pipeline_modulo_operator_in_cfg() {
 fn is_even(n: Int) -> Bool { n % 2 == 0 }
 fn main() { is_even(4) }
 "#;
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let core = lower_program_ast(&program, &types);
     let ir = lower_core_to_ir(&core);
 
@@ -331,9 +319,9 @@ fn main() {
     f(5)
 }
 "#;
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes(&mut core);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
 
     // After beta reduction, the application f(5) may be reduced
     // The final result should still be 6
@@ -350,7 +338,7 @@ fn main() {
     42
 }
 "#;
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
 
     // Before passes: should have a Let for `unused`
@@ -359,7 +347,7 @@ fn main() {
         .filter(|e| matches!(e, CoreExpr::Let { .. }))
         .count();
 
-    run_core_passes(&mut core);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
 
     // After passes: dead let should be eliminated
     let after_lets = collect_core_exprs(&core.defs[0].expr)
@@ -429,7 +417,7 @@ fn main() {
     f(5)
 }
 "#;
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let core = lower_program_ast(&program, &types);
     let ir = lower_core_to_ir(&core);
 
@@ -492,9 +480,9 @@ fn main() {
     }
 }
 "#;
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes(&mut core);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
 
     // After COKC, the Case(Con(Some, [42]), ...) should reduce to just 42
     let main_exprs = collect_core_exprs(&core.defs[0].expr);
@@ -505,6 +493,343 @@ fn main() {
     let _ = still_has_case; // diagnostic only, not a hard assertion
 
     assert_eq!(run(src), Value::Integer(42));
+}
+
+#[test]
+fn pipeline_aether_emits_reuse_for_list_rebuild() {
+    let src = r#"
+fn rebuild(xs) {
+    match xs {
+        [h | t] -> [h | t],
+        _ -> [],
+    }
+}
+
+fn main() {
+    rebuild([1, 2, 3])
+}
+"#;
+    let (program, types, interner) = parse_and_infer(src);
+    let mut core = lower_program_ast(&program, &types);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+
+    let has_reuse = core.defs.iter().any(|def| {
+        collect_core_exprs(&def.expr)
+            .iter()
+            .any(|expr| matches!(expr, CoreExpr::Reuse { .. }))
+    });
+    assert!(
+        has_reuse,
+        "expected Aether to emit Reuse for list rebuild"
+    );
+
+    assert_eq!(run(src).to_string(), "[1, 2, 3]");
+}
+
+#[test]
+fn pipeline_aether_emits_reuse_for_named_adt_update() {
+    let src = r#"
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Tree)
+
+fn set_black(t) {
+    match t {
+        Node(_, left, key, right) -> Node(Black, left, key, right),
+        _ -> t,
+    }
+}
+
+fn main() {
+    set_black(Node(Red, Leaf, 5, Leaf))
+}
+"#;
+    let (program, types, interner) = parse_and_infer(src);
+    let mut core = lower_program_ast(&program, &types);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+
+    let has_reuse = core.defs.iter().any(|def| {
+        collect_core_exprs(&def.expr)
+            .iter()
+            .any(|expr| matches!(expr, CoreExpr::Reuse { .. }))
+    });
+    assert!(
+        has_reuse,
+        "expected Aether to emit Reuse for named ADT update"
+    );
+
+    assert_eq!(run(src).to_string(), "Node(Black, Leaf, 5, Leaf)");
+}
+
+#[test]
+fn pipeline_aether_emits_reuse_for_branchy_filter() {
+    let src = r#"
+fn my_filter(xs, f) {
+    match xs {
+        [h | t] -> if f(h) { [h | my_filter(t, f)] } else { my_filter(t, f) },
+        _ -> [],
+    }
+}
+
+fn main() {
+    my_filter([1, 2, 3, 4, 5, 6], \x -> x % 2 == 0)
+}
+"#;
+    let (program, types, interner) = parse_and_infer(src);
+    let mut core = lower_program_ast(&program, &types);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+
+    let has_reuse = core.defs.iter().any(|def| {
+        collect_core_exprs(&def.expr)
+            .iter()
+            .any(|expr| matches!(expr, CoreExpr::Reuse { .. }))
+    });
+    assert!(
+        has_reuse,
+        "expected Aether to emit Reuse for branchy filter"
+    );
+
+    assert_eq!(run(src).to_string(), "[2, 4, 6]");
+}
+
+#[test]
+fn pipeline_aether_elides_dup_for_borrowed_call_chain() {
+    let src = r#"
+fn my_len(xs) {
+    match xs {
+        [_ | t] -> 1 + my_len(t),
+        _ -> 0,
+    }
+}
+
+fn len_twice(xs) {
+    my_len(xs) + my_len(xs)
+}
+
+fn main() {
+    len_twice([1, 2, 3])
+}
+"#;
+    let (program, types, interner) = parse_and_infer(src);
+    let mut core = lower_program_ast(&program, &types);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+
+    let has_dup = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .any(|expr| matches!(expr, CoreExpr::Dup { .. }));
+    assert!(
+        !has_dup,
+        "expected borrowed call chain to avoid Dup in len_twice"
+    );
+
+    assert_eq!(run(src), Value::Integer(6));
+}
+
+#[test]
+fn pipeline_aether_elides_dup_for_base_borrowed_preferred_call() {
+    let src = r#"
+fn len_twice(xs) {
+    len(xs) + len(xs)
+}
+
+fn main() {
+    len_twice([1, 2, 3])
+}
+"#;
+    let (program, types, interner) = parse_and_infer(src);
+    let mut core = lower_program_ast(&program, &types);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+
+    let has_dup = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .any(|expr| matches!(expr, CoreExpr::Dup { .. }));
+    assert!(
+        !has_dup,
+        "expected borrowed-preferred base call to avoid Dup for len(xs)"
+    );
+
+    assert_eq!(run(src), Value::Integer(6));
+}
+
+#[test]
+fn pipeline_aether_registers_base_owned_call_metadata() {
+    let src = r#"
+fn duplicate_concat(xs) {
+    concat(xs, xs)
+}
+
+fn main() {
+    duplicate_concat("ab")
+}
+"#;
+    let (program, types, mut interner) = parse_and_infer(src);
+    let mut core = lower_program_ast(&program, &types);
+    let registry = flux::aether::borrow_infer::infer_borrow_modes(&mut core, Some(&interner));
+    let concat = interner.intern("concat");
+    assert!(
+        !registry.is_borrowed(flux::aether::borrow_infer::BorrowCallee::BaseRuntime(concat), 0),
+        "expected concat first parameter to remain owned"
+    );
+    assert!(
+        !registry.is_borrowed(flux::aether::borrow_infer::BorrowCallee::BaseRuntime(concat), 1),
+        "expected concat second parameter to remain owned"
+    );
+    assert_eq!(
+        registry.lookup_name(concat).map(|sig| sig.provenance),
+        Some(flux::aether::borrow_infer::BorrowProvenance::BaseRuntime),
+        "expected concat to be registered as explicit base metadata"
+    );
+}
+
+#[test]
+fn pipeline_aether_emits_dup_for_multiuse_pattern_field() {
+    let src = r#"
+fn copy_head(xs) {
+    match xs {
+        [h | t] -> [h | [h | t]],
+        _ -> [],
+    }
+}
+
+fn main() {
+    copy_head([1, 2, 3])
+}
+"#;
+    let (program, types, interner) = parse_and_infer(src);
+    let mut core = lower_program_ast(&program, &types);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+
+    let has_dup = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .any(|expr| matches!(expr, CoreExpr::Dup { .. }));
+    assert!(
+        has_dup,
+        "expected Aether to emit Dup for a pattern field used multiple times"
+    );
+
+    assert_eq!(run(src).to_string(), "[1, 1, 2, 3]");
+}
+
+#[test]
+fn pipeline_aether_emits_drop_specialized_for_multiuse_pattern_field() {
+    let src = r#"
+fn copy_head(xs) {
+    match xs {
+        [h | t] -> [h | [h | t]],
+        _ -> [],
+    }
+}
+
+fn main() {
+    copy_head([1, 2, 3])
+}
+"#;
+    let (program, types, interner) = parse_and_infer(src);
+    let mut core = lower_program_ast(&program, &types);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+
+    let has_drop_specialized = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. }));
+    assert!(
+        has_drop_specialized,
+        "expected Aether to emit DropSpecialized for multi-use pattern field"
+    );
+
+    assert_eq!(run(src).to_string(), "[1, 1, 2, 3]");
+}
+
+#[test]
+fn pipeline_drop_spec_shared_branch_does_not_reuse_outer_pattern_context() {
+    let src = r#"
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Tree)
+
+fn dup_left(t) {
+    match t {
+        Node(color, left, key, right) -> Node(color, left, key, left),
+        _ -> t,
+    }
+}
+
+fn main() {
+    dup_left(Node(Red, Leaf, 5, Leaf))
+}
+"#;
+    let (program, types, interner) = parse_and_infer(src);
+    let mut core = lower_program_ast(&program, &types);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+
+    let has_bad_shared_reuse = core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(
+        |expr| match expr {
+            CoreExpr::DropSpecialized { shared_body, .. } => collect_core_exprs(shared_body)
+                .into_iter()
+                .any(|inner| matches!(inner, CoreExpr::Reuse { .. })),
+            _ => false,
+        },
+    );
+    assert!(
+        !has_bad_shared_reuse,
+        "expected DropSpecialized shared branch to avoid outer-pattern reuse rewrites"
+    );
+
+    assert_eq!(run(src).to_string(), "Node(Red, Leaf, 5, Leaf)");
+}
+
+#[test]
+fn pipeline_drop_spec_emits_branchy_named_adt_reuse_only_on_unique_path() {
+    let src = r#"
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Tree)
+
+fn keep_or_dup_left(t, keep) {
+    match t {
+        Node(color, left, key, right) -> if keep { Node(color, left, key, right) } else { Node(color, left, key, left) },
+        _ -> t,
+    }
+}
+
+fn main() {
+    keep_or_dup_left(Node(Red, Leaf, 5, Leaf), false)
+}
+"#;
+    let (program, types, interner) = parse_and_infer(src);
+    let mut core = lower_program_ast(&program, &types);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+
+    let found_expected_shape = core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(
+        |expr| match expr {
+            CoreExpr::DropSpecialized {
+                unique_body,
+                shared_body,
+                ..
+            } => {
+                let unique_reuses = collect_core_exprs(unique_body)
+                    .into_iter()
+                    .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
+                    .count();
+                let shared_reuses = collect_core_exprs(shared_body)
+                    .into_iter()
+                    .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
+                    .count();
+                unique_reuses >= 2 && shared_reuses == 0
+            }
+            _ => false,
+        },
+    );
+    assert!(
+        found_expected_shape,
+        "expected branchy named ADT DropSpecialized to reuse only on the unique path"
+    );
+
+    assert_eq!(run(src).to_string(), "Node(Red, Leaf, 5, Leaf)");
 }
 
 // ── Test 15: Recursive function (tail call) ─────────────────────────────────
