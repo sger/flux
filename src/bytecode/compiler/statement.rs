@@ -66,6 +66,141 @@ impl Compiler {
             || self.block_has_effect_row_error(body, declared_effects, param_effect_rows)
             || self.block_has_typed_let_error(body)
             || self.block_has_prefix_type_error(body)
+            || self.block_has_effectful_base_ref(body, declared_effects)
+            || self.block_has_index_type_error(body)
+            || self.block_has_undefined_identifier(body, parameters)
+    }
+
+    /// Check if any index expression uses a non-Int index (E300).
+    fn block_has_index_type_error(&self, body: &Block) -> bool {
+        body.statements.iter().any(|s| match s {
+            Statement::Expression { expression, .. }
+            | Statement::Let {
+                value: expression, ..
+            } => self.expr_has_index_type_error(expression),
+            _ => false,
+        })
+    }
+
+    fn expr_has_index_type_error(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::Index { left, index, .. } => {
+                use crate::types::type_constructor::TypeConstructor;
+                // Check index type is Int
+                if let super::hm_expr_typer::HmExprTypeResult::Known(idx_ty) =
+                    self.hm_expr_type_strict_path(index)
+                {
+                    if !matches!(idx_ty, InferType::Con(TypeConstructor::Int)) {
+                        return true;
+                    }
+                }
+                // Check left type is indexable
+                if let super::hm_expr_typer::HmExprTypeResult::Known(left_ty) =
+                    self.hm_expr_type_strict_path(left)
+                {
+                    !matches!(
+                        left_ty,
+                        InferType::App(
+                            TypeConstructor::Array
+                                | TypeConstructor::List
+                                | TypeConstructor::Map,
+                            _,
+                        ) | InferType::Tuple(_)
+                            | InferType::Con(TypeConstructor::String)
+                    )
+                } else {
+                    false
+                }
+            }
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                self.expr_has_index_type_error(function)
+                    || arguments.iter().any(|a| self.expr_has_index_type_error(a))
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expr_has_index_type_error(condition)
+                    || self.block_has_index_type_error(consequence)
+                    || alternative
+                        .as_ref()
+                        .is_some_and(|b| self.block_has_index_type_error(b))
+            }
+            Expression::DoBlock { block, .. } => self.block_has_index_type_error(block),
+            Expression::Match { arms, .. } => {
+                arms.iter().any(|arm| self.expr_has_index_type_error(&arm.body))
+            }
+            _ => false,
+        }
+    }
+
+    /// Check if any identifier in the body references a base function with
+    /// effects not declared by this function. Catches aliased effectful calls
+    /// like `let p = print; p("hi")` in a pure function.
+    fn block_has_effectful_base_ref(&mut self, body: &Block, declared_effects: &[EffectExpr]) -> bool {
+        body.statements.iter().any(|s| match s {
+            Statement::Let { value, .. }
+            | Statement::Expression {
+                expression: value, ..
+            } => self.expr_has_effectful_base_ref(value, declared_effects),
+            _ => false,
+        })
+    }
+
+    fn expr_has_effectful_base_ref(
+        &mut self,
+        expr: &Expression,
+        declared_effects: &[EffectExpr],
+    ) -> bool {
+        match expr {
+            Expression::Identifier { name, .. } => {
+                let name_str = self.sym(*name);
+                if let Some(required_effect) = self.required_effect_for_base_name(name_str) {
+                    let required_sym = self.interner.intern(required_effect);
+                    !Self::is_effect_in_declared(required_sym, declared_effects)
+                } else {
+                    false
+                }
+            }
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                self.expr_has_effectful_base_ref(function, declared_effects)
+                    || arguments
+                        .iter()
+                        .any(|a| self.expr_has_effectful_base_ref(a, declared_effects))
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expr_has_effectful_base_ref(condition, declared_effects)
+                    || self.block_has_effectful_base_ref(consequence, declared_effects)
+                    || alternative
+                        .as_ref()
+                        .is_some_and(|b| self.block_has_effectful_base_ref(b, declared_effects))
+            }
+            Expression::DoBlock { block, .. } => {
+                self.block_has_effectful_base_ref(block, declared_effects)
+            }
+            Expression::Match { scrutinee, arms, .. } => {
+                self.expr_has_effectful_base_ref(scrutinee, declared_effects)
+                    || arms
+                        .iter()
+                        .any(|arm| self.expr_has_effectful_base_ref(&arm.body, declared_effects))
+            }
+            _ => false,
+        }
     }
 
     /// Check if any prefix `-` expression has a non-numeric operand (E300).
@@ -438,21 +573,89 @@ impl Compiler {
         })
     }
 
-    /// Returns `true` when the IR function contains `LoadName` expressions,
-    /// indicating unresolved names (e.g. `mystery_value`). These must go
-    /// through the AST path for proper E004 error reporting.
-    fn ir_function_has_unresolved_names(func: &crate::cfg::IrFunction) -> bool {
-        func.blocks.iter().any(|block| {
-            block.instrs.iter().any(|instr| {
-                matches!(
-                    instr,
-                    crate::cfg::IrInstr::Assign {
-                        expr: crate::cfg::IrExpr::LoadName(_),
-                        ..
-                    }
-                )
-            })
-        })
+    /// Returns `true` when the IR function contains `LoadName` for names that
+    /// can't be resolved against the symbol table or base function registry.
+    /// These are truly undefined variables (e.g. `mystery_value`) that need
+    /// AST-path E004 reporting. Legitimate free references (top-level functions,
+    /// base functions) resolve fine and don't trigger this.
+
+    /// Check if the function body references identifiers that can't be resolved
+    /// against the symbol table, base functions, or local scope. These are truly
+    /// undefined variables (e.g. `mystery_value`) whose Core IR degenerates to
+    /// `()`, making the CFG path compile without error. The AST path must handle
+    /// these for proper E004 reporting.
+    fn block_has_undefined_identifier(
+        &mut self,
+        body: &Block,
+        parameters: &[Symbol],
+    ) -> bool {
+        let mut local_names: Vec<Symbol> = parameters.to_vec();
+        for stmt in &body.statements {
+            if let Statement::Let { name, .. } = stmt {
+                local_names.push(*name);
+            }
+            if self.stmt_has_undefined_ident(stmt, &local_names) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn stmt_has_undefined_ident(
+        &mut self,
+        stmt: &Statement,
+        locals: &[Symbol],
+    ) -> bool {
+        match stmt {
+            Statement::Expression { expression, .. } => {
+                self.expr_has_undefined_ident(expression, locals)
+            }
+            Statement::Let { value, .. } => self.expr_has_undefined_ident(value, locals),
+            _ => false,
+        }
+    }
+
+    fn expr_has_undefined_ident(
+        &mut self,
+        expr: &Expression,
+        locals: &[Symbol],
+    ) -> bool {
+        match expr {
+            Expression::Identifier { name, .. } => {
+                // Check: local binding, symbol table, or base function
+                !locals.contains(name)
+                    && self.symbol_table.resolve(*name).is_none()
+                    && crate::runtime::base::get_base_function_index(self.sym(*name)).is_none()
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expr_has_undefined_ident(condition, locals)
+                    || consequence.statements.iter().any(|s| self.stmt_has_undefined_ident(s, locals))
+                    || alternative.as_ref().is_some_and(|b| {
+                        b.statements.iter().any(|s| self.stmt_has_undefined_ident(s, locals))
+                    })
+            }
+            Expression::Match { scrutinee, arms, .. } => {
+                self.expr_has_undefined_ident(scrutinee, locals)
+                    || arms.iter().any(|arm| self.expr_has_undefined_ident(&arm.body, locals))
+            }
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                self.expr_has_undefined_ident(function, locals)
+                    || arguments.iter().any(|a| self.expr_has_undefined_ident(a, locals))
+            }
+            Expression::DoBlock { block, .. } => {
+                block.statements.iter().any(|s| self.stmt_has_undefined_ident(s, locals))
+            }
+            _ => false,
+        }
     }
 
     #[allow(dead_code)]
@@ -1026,17 +1229,13 @@ impl Compiler {
                 self.quick_validate_function_body(body, parameters, effects, &param_effect_rows);
 
             // CFG handles all well-typed functions. AST fallback is used only
-            // for: (a) functions with semantic/HM errors, (b) module/import
-            // statements, (c) strict-mode typed-let, (d) Handle expressions
-            // (the only unsupported IrExpr variant).
+            // for: (a) functions with pre-validation errors, (b) HM type errors,
+            // (c) module/import statements, (d) strict-mode typed-let.
             let use_ast_path = has_body_errors
                 || self.has_hm_diagnostics
                 || ir_function.is_none()
                 || Self::block_contains_cfg_incompatible_statements_ast(body)
-                || (self.strict_mode && Self::block_contains_typed_let_ast(body))
-                || ir_function
-                    .as_ref()
-                    .is_some_and(|f| Self::ir_function_has_unresolved_names(f));
+                || (self.strict_mode && Self::block_contains_typed_let_ast(body));
 
             if !use_ast_path {
                 let ir_function = ir_function.unwrap();
@@ -1045,12 +1244,21 @@ impl Compiler {
                 match self.try_compile_ir_cfg_function_body(ir_function, name) {
                     Some(Ok(())) => return Ok(()),
                     Some(Err(_)) => {
-                        // CFG compilation error — roll back and fall through to AST
+                        // CFG compilation error (e.g. unresolved name) — roll
+                        // back and fall through to AST for proper diagnostics.
                         self.scopes[self.scope_index] = scope_snapshot;
                         self.constants.truncate(const_len);
                     }
                     None => {
-                        // Unsupported expression (Handle) — fall through to AST
+                        // Unsupported expression — should be unreachable now
+                        // that all IrExpr variants are in supported_expr().
+                        // Fall through to AST as a safety net.
+                        debug_assert!(
+                            false,
+                            "CFG returned None for well-typed function '{}' — \
+                             all IrExpr variants should be supported",
+                            self.sym(name),
+                        );
                     }
                 }
             }

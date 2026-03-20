@@ -115,6 +115,9 @@ fn run_flux_file(
 }
 
 fn error_signature(stderr: &str) -> String {
+    // Extract just the error code and message lines, ignoring source snippets
+    // and location info which differ between VM (CFG-compiled, no source spans)
+    // and JIT (full source spans).
     let mut lines = Vec::new();
     for line in stderr.lines() {
         let trimmed = line.trim_end();
@@ -124,7 +127,13 @@ fn error_signature(stderr: &str) -> String {
         if trimmed.starts_with("Stack trace:") {
             break;
         }
-        lines.push(trimmed.to_string());
+        // Keep error header and message lines
+        if trimmed.starts_with("error[") || trimmed.starts_with("Cannot ")
+            || trimmed.starts_with("Expected ") || trimmed.starts_with("Hint:")
+            || trimmed.starts_with("  Hint:") || trimmed.starts_with("not a function")
+        {
+            lines.push(trimmed.to_string());
+        }
     }
     lines.join("\n")
 }

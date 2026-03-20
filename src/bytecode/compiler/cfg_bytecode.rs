@@ -842,11 +842,11 @@ impl Compiler {
                         ))
                     })?);
                 }
-                let len = pairs.len();
-                if u16::try_from(len).is_ok() {
-                    self.emit(OpCode::OpHash, &[len]);
+                let num_elements = pairs.len() * 2;
+                if u16::try_from(num_elements).is_ok() {
+                    self.emit(OpCode::OpHash, &[num_elements]);
                 } else {
-                    self.emit(OpCode::OpHashLong, &[len]);
+                    self.emit(OpCode::OpHashLong, &[num_elements]);
                 }
                 Ok(())
             }
