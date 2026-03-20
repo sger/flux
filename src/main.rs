@@ -638,8 +638,22 @@ fn run_file(
             }
 
             if dump_aether {
-                let report = compiler.dump_aether_report(&program, enable_optimize);
-                println!("{report}");
+                match compiler.dump_aether_report(&program, enable_optimize) {
+                    Ok(report) => println!("{report}"),
+                    Err(diag) => {
+                        emit_diagnostics(
+                            &[diag],
+                            Some(path),
+                            Some(source.as_str()),
+                            is_multimodule,
+                            max_errors,
+                            diagnostics_format,
+                            all_errors,
+                            true,
+                        );
+                        std::process::exit(1);
+                    }
+                }
                 return;
             }
 
@@ -653,7 +667,22 @@ fn run_file(
                         CoreDumpMode::None => unreachable!("checked above"),
                     },
                 );
-                println!("{dumped}");
+                match dumped {
+                    Ok(dumped) => println!("{dumped}"),
+                    Err(diag) => {
+                        emit_diagnostics(
+                            &[diag],
+                            Some(path),
+                            Some(source.as_str()),
+                            is_multimodule,
+                            max_errors,
+                            diagnostics_format,
+                            all_errors,
+                            true,
+                        );
+                        std::process::exit(1);
+                    }
+                }
                 return;
             }
 

@@ -2071,7 +2071,7 @@ impl Compiler {
         program: &Program,
         optimize: bool,
         mode: crate::core::display::CoreDisplayMode,
-    ) -> String {
+    ) -> Result<String, Diagnostic> {
         let program_to_lower = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
@@ -2083,7 +2083,7 @@ impl Compiler {
 
         let mut core =
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
-        crate::core::passes::run_core_passes(&mut core);
+        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner)?;
 
         // Collect Aether stats across all definitions
         let mut total_stats = crate::aether::AetherStats::default();
@@ -2092,6 +2092,8 @@ impl Compiler {
             total_stats.dups += s.dups;
             total_stats.drops += s.drops;
             total_stats.reuses += s.reuses;
+            total_stats.drop_specs += s.drop_specs;
+            total_stats.allocs += s.allocs;
         }
 
         let ir_text = match mode {
@@ -2104,14 +2106,14 @@ impl Compiler {
         };
 
         if total_stats.dups > 0 || total_stats.drops > 0 || total_stats.reuses > 0 {
-            format!("{}\n── Aether stats ──\n{}", ir_text, total_stats)
+            Ok(format!("{}\n── Aether stats ──\n{}", ir_text, total_stats))
         } else {
-            ir_text
+            Ok(ir_text)
         }
     }
 
     /// Dump an Aether memory model report showing per-function optimization decisions.
-    pub fn dump_aether_report(&self, program: &Program, optimize: bool) -> String {
+    pub fn dump_aether_report(&self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
         let program_to_lower = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
@@ -2123,7 +2125,7 @@ impl Compiler {
 
         let mut core =
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
-        crate::core::passes::run_core_passes(&mut core);
+        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner)?;
 
         let mut out = String::new();
         out.push_str("Aether Memory Model Report\n");
@@ -2167,7 +2169,7 @@ impl Compiler {
         }
 
         out.push_str(&format!("\n── Total ──\n  {}\n", total));
-        out
+        Ok(out)
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {

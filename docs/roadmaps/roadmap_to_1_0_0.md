@@ -186,6 +186,7 @@ Core blockers:
 Optional:
 
 - [0077_type_informed_optimization.md](../proposals/0077_type_informed_optimization.md)
+- [0114_aether_perceus_completion_plan.md](../proposals/0114_aether_perceus_completion_plan.md)
 
 Exit criteria:
 
