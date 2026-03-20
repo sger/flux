@@ -65,7 +65,8 @@ impl Compiler {
                 | IrExpr::ReuseAdt { .. }
                 | IrExpr::ReuseSome { .. }
                 | IrExpr::ReuseLeft { .. }
-                | IrExpr::ReuseRight { .. } => true,
+                | IrExpr::ReuseRight { .. }
+                | IrExpr::IsUnique(_) => true,
                 IrExpr::Binary(op, _, _) => matches!(
                     op,
                     IrBinaryOp::Add
@@ -763,6 +764,16 @@ impl Compiler {
                     ))
                 })?);
                 self.emit(OpCode::OpReuseRight, &[]);
+                Ok(())
+            }
+
+            IrExpr::IsUnique(var) => {
+                self.load_symbol(bindings.get(var).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode IsUnique binding",
+                    ))
+                })?);
+                self.emit(OpCode::OpIsUnique, &[]);
                 Ok(())
             }
 

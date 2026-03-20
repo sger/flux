@@ -173,6 +173,9 @@ pub enum OpCode {
     /// Aether: construct Right, reusing token if non-null.
     /// Pops token and inner from the stack. No operands.
     OpReuseRight = 89,
+    /// Aether: test if TOS value's Rc is uniquely owned (strong_count == 1).
+    /// Pushes boolean result. No operands.
+    OpIsUnique = 90,
 }
 
 impl From<u8> for OpCode {
@@ -268,6 +271,7 @@ impl From<u8> for OpCode {
             87 => OpCode::OpReuseSome,
             88 => OpCode::OpReuseLeft,
             89 => OpCode::OpReuseRight,
+            90 => OpCode::OpIsUnique,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -329,6 +333,7 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpReuseCons => vec![1],                 // field_mask: u8
         OpCode::OpReuseAdt => vec![2, 1, 1],            // const_idx: u16, arity: u8, field_mask: u8
         OpCode::OpReuseSome | OpCode::OpReuseLeft | OpCode::OpReuseRight => vec![],
+        OpCode::OpIsUnique => vec![],
         _ => vec![],
     }
 }
