@@ -16,16 +16,23 @@
 use crate::core::{CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreVarRef};
 use crate::diagnostics::position::Span;
 
-use super::analysis::{owned_use_count, pat_binders, use_counts};
+use super::analysis::{owned_use_count, owned_use_count_with_registry, pat_binders, use_counts};
+use super::borrow_infer::BorrowRegistry;
 
 /// Insert Dup/Drop annotations into a Core IR expression.
 ///
 /// This is the main entry point for Aether Phase 5.
 pub fn insert_dup_drop(expr: CoreExpr) -> CoreExpr {
-    transform(expr)
+    transform(expr, None)
 }
 
-fn transform(expr: CoreExpr) -> CoreExpr {
+/// Insert Dup/Drop annotations, consulting the borrow registry to skip
+/// Rc::clone for arguments passed to borrowed parameters.
+pub fn insert_dup_drop_with_registry(expr: CoreExpr, registry: &BorrowRegistry) -> CoreExpr {
+    transform(expr, Some(registry))
+}
+
+fn transform(expr: CoreExpr, registry: Option<&BorrowRegistry>) -> CoreExpr {
     match expr {
         CoreExpr::Let {
             var,
@@ -33,8 +40,8 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             body,
             span,
         } => {
-            let rhs = Box::new(transform(*rhs));
-            let body = transform(*body);
+            let rhs = Box::new(transform(*rhs, registry));
+            let body = transform(*body, registry);
 
             // Count total and owned uses of `var` in body.
             // Owned uses are positions that consume the value (Con fields,
@@ -42,7 +49,10 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             // Case scrutinee, App func) don't need Rc::clone.
             let body_counts = use_counts(&body);
             let total = body_counts.get(&var.id).copied().unwrap_or(0);
-            let owned = owned_use_count(var.id, &body);
+            let owned = match registry {
+                Some(reg) => owned_use_count_with_registry(var.id, &body, reg),
+                None => owned_use_count(var.id, &body),
+            };
 
             let body = if total == 0 {
                 // Variable unused — drop immediately
@@ -73,12 +83,15 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             body,
             span,
         } => {
-            let rhs = Box::new(transform(*rhs));
-            let body = transform(*body);
+            let rhs = Box::new(transform(*rhs, registry));
+            let body = transform(*body, registry);
 
             let body_counts = use_counts(&body);
             let total = body_counts.get(&var.id).copied().unwrap_or(0);
-            let owned = owned_use_count(var.id, &body);
+            let owned = match registry {
+                Some(reg) => owned_use_count_with_registry(var.id, &body, reg),
+                None => owned_use_count(var.id, &body),
+            };
 
             let body = if total == 0 {
                 wrap_drop(var, body, span)
@@ -101,7 +114,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             alts,
             span,
         } => {
-            let scrutinee = Box::new(transform(*scrutinee));
+            let scrutinee = Box::new(transform(*scrutinee, registry));
 
             // Extract scrutinee variable for drop-after-destructure.
             // After ANF, the scrutinee is always a Var.
@@ -115,7 +128,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             let alts = alts
                 .into_iter()
                 .map(|alt| {
-                    let rhs = transform(alt.rhs);
+                    let rhs = transform(alt.rhs, registry);
                     // Drop unused pattern-bound variables at start of RHS
                     let rhs = drop_unused_pat_vars(&alt.pat, rhs, span);
 
@@ -145,7 +158,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
 
                     CoreAlt {
                         pat: alt.pat,
-                        guard: alt.guard.map(transform),
+                        guard: alt.guard.map(|e| transform(e, registry)),
                         rhs,
                         span: alt.span,
                     }
@@ -160,7 +173,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
         }
 
         CoreExpr::Lam { params, body, span } => {
-            let body = Box::new(transform(*body));
+            let body = Box::new(transform(*body, registry));
 
             // Drop unused parameters at start of body
             let mut result_body = *body;
@@ -181,22 +194,22 @@ fn transform(expr: CoreExpr) -> CoreExpr {
 
         // Transparent recursion for other forms
         CoreExpr::App { func, args, span } => CoreExpr::App {
-            func: Box::new(transform(*func)),
-            args: args.into_iter().map(transform).collect(),
+            func: Box::new(transform(*func, registry)),
+            args: args.into_iter().map(|e| transform(e, registry)).collect(),
             span,
         },
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
             tag,
-            fields: fields.into_iter().map(transform).collect(),
+            fields: fields.into_iter().map(|e| transform(e, registry)).collect(),
             span,
         },
         CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
             op,
-            args: args.into_iter().map(transform).collect(),
+            args: args.into_iter().map(|e| transform(e, registry)).collect(),
             span,
         },
         CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(transform(*value)),
+            value: Box::new(transform(*value, registry)),
             span,
         },
         CoreExpr::Perform {
@@ -207,7 +220,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
         } => CoreExpr::Perform {
             effect,
             operation,
-            args: args.into_iter().map(transform).collect(),
+            args: args.into_iter().map(|e| transform(e, registry)).collect(),
             span,
         },
         CoreExpr::Handle {
@@ -216,7 +229,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             handlers,
             span,
         } => CoreExpr::Handle {
-            body: Box::new(transform(*body)),
+            body: Box::new(transform(*body, registry)),
             effect,
             handlers: handlers
                 .into_iter()
@@ -224,7 +237,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
                     operation: h.operation,
                     params: h.params,
                     resume: h.resume,
-                    body: transform(h.body),
+                    body: transform(h.body, registry),
                     span: h.span,
                 })
                 .collect(),
@@ -237,12 +250,12 @@ fn transform(expr: CoreExpr) -> CoreExpr {
         // Dup/Drop already present (idempotent)
         CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
             var,
-            body: Box::new(transform(*body)),
+            body: Box::new(transform(*body, registry)),
             span,
         },
         CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
             var,
-            body: Box::new(transform(*body)),
+            body: Box::new(transform(*body, registry)),
             span,
         },
 
@@ -256,7 +269,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
         } => CoreExpr::Reuse {
             token,
             tag,
-            fields: fields.into_iter().map(transform).collect(),
+            fields: fields.into_iter().map(|e| transform(e, registry)).collect(),
             field_mask,
             span,
         },
@@ -269,8 +282,8 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             span,
         } => CoreExpr::DropSpecialized {
             scrutinee,
-            unique_body: Box::new(transform(*unique_body)),
-            shared_body: Box::new(transform(*shared_body)),
+            unique_body: Box::new(transform(*unique_body, registry)),
+            shared_body: Box::new(transform(*shared_body, registry)),
             span,
         },
     }

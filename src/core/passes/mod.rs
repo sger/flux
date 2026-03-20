@@ -47,6 +47,8 @@ pub fn run_core_passes(program: &mut CoreProgram) {
     let mut next_id = max_binder_id + 1;
 
     let sentinel = CoreExpr::Lit(CoreLit::Unit, Default::default());
+
+    // Run standard Core passes first (before Aether).
     for def in &mut program.defs {
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
         let e = beta_reduce(e);
@@ -56,7 +58,15 @@ pub fn run_core_passes(program: &mut CoreProgram) {
         let e = elim_dead_let(e);
         let e = evidence_pass(e, &mut next_id);
         let e = anf_normalize(e, &mut next_id);
-        let e = crate::aether::run_aether_pass(e);
+        def.expr = e;
+    }
+
+    // Infer cross-function borrow modes from the ANF-normalized program,
+    // then run the Aether pass with the registry.
+    let borrow_registry = crate::aether::borrow_infer::infer_borrow_modes(program);
+    for def in &mut program.defs {
+        let e = std::mem::replace(&mut def.expr, sentinel.clone());
+        let e = crate::aether::run_aether_pass_with_registry(e, &borrow_registry);
         def.expr = e;
     }
 }

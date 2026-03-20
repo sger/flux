@@ -9,6 +9,7 @@
 //! Existing passes (1-7) never see Dup/Drop nodes.
 
 pub mod analysis;
+pub mod borrow_infer;
 pub mod drop_spec;
 pub mod fusion;
 pub mod insert;
@@ -127,6 +128,18 @@ fn count_nodes(expr: &CoreExpr, stats: &mut AetherStats) {
 /// This is the public entry point called from `run_core_passes`.
 pub fn run_aether_pass(expr: CoreExpr) -> CoreExpr {
     let expr = insert::insert_dup_drop(expr);
+    let expr = drop_spec::specialize_drops(expr);
+    let expr = fusion::fuse_dup_drop(expr);
+    reuse::insert_reuse(expr)
+}
+
+/// Run the Aether pipeline with a borrow registry for cross-function optimization.
+/// Arguments to borrowed parameters will skip Rc::clone.
+pub fn run_aether_pass_with_registry(
+    expr: CoreExpr,
+    registry: &borrow_infer::BorrowRegistry,
+) -> CoreExpr {
+    let expr = insert::insert_dup_drop_with_registry(expr, registry);
     let expr = drop_spec::specialize_drops(expr);
     let expr = fusion::fuse_dup_drop(expr);
     reuse::insert_reuse(expr)
