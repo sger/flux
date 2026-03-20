@@ -778,6 +778,161 @@ impl Compiler {
                 Ok(())
             }
 
+            // ── General expressions ────────────────────────────────────────
+            IrExpr::Prefix { operator, right } => {
+                self.load_symbol(bindings.get(right).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG bytecode prefix binding"))
+                })?);
+                match operator.as_str() {
+                    "-" => self.emit(OpCode::OpMinus, &[]),
+                    "!" => self.emit(OpCode::OpBang, &[]),
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::warning(
+                            "unsupported CFG bytecode prefix operator",
+                        )));
+                    }
+                };
+                Ok(())
+            }
+            IrExpr::MakeArray(elements) => {
+                for el in elements {
+                    self.load_symbol(bindings.get(el).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode array element binding",
+                        ))
+                    })?);
+                }
+                let len = elements.len();
+                if u16::try_from(len).is_ok() {
+                    self.emit(OpCode::OpArray, &[len]);
+                } else {
+                    self.emit(OpCode::OpArrayLong, &[len]);
+                }
+                Ok(())
+            }
+            IrExpr::MakeHash(pairs) => {
+                for (k, v) in pairs {
+                    self.load_symbol(bindings.get(k).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode hash key binding",
+                        ))
+                    })?);
+                    self.load_symbol(bindings.get(v).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode hash value binding",
+                        ))
+                    })?);
+                }
+                let len = pairs.len();
+                if u16::try_from(len).is_ok() {
+                    self.emit(OpCode::OpHash, &[len]);
+                } else {
+                    self.emit(OpCode::OpHashLong, &[len]);
+                }
+                Ok(())
+            }
+            IrExpr::MakeList(elements) => {
+                // Build cons list: emit EmptyList, then Cons for each element in reverse
+                self.emit_constant_value(Value::EmptyList);
+                for el in elements.iter().rev() {
+                    // Swap: push element, then the partial list is below it
+                    // Actually: stack has [..., partial_list]. Push element on top,
+                    // then OpCons pops (head, tail) = (top, below).
+                    // But OpCons expects head on top, tail below.
+                    // So we need: push element, then swap... or use a different approach.
+                    //
+                    // Simpler: for each element, load it, then OpCons.
+                    // Stack: [..., tail] → push head → [..., tail, head] → but OpCons
+                    // pops (head, tail) from top = (head first, tail second).
+                    // Our OpCons pops pair: let (head, tail) = self.pop_pair().
+                    // pop_pair returns (top, below) = (head, partial_list). Correct!
+                    self.load_symbol(bindings.get(el).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode list element binding",
+                        ))
+                    })?);
+                    self.emit(OpCode::OpCons, &[]);
+                }
+                Ok(())
+            }
+            IrExpr::Index { left, index } => {
+                self.load_symbol(bindings.get(left).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG bytecode index left binding"))
+                })?);
+                self.load_symbol(bindings.get(index).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode index right binding",
+                    ))
+                })?);
+                self.emit(OpCode::OpIndex, &[]);
+                Ok(())
+            }
+            IrExpr::LoadName(name) => {
+                // Try to resolve as a known symbol (global, base function, or ADT constructor)
+                if let Some(binding) = self.symbol_table.resolve(*name) {
+                    self.load_symbol(&binding);
+                    Ok(())
+                } else if let Some(idx) =
+                    crate::runtime::base::get_base_function_index(self.sym(*name))
+                {
+                    self.emit(OpCode::OpGetBase, &[idx]);
+                    Ok(())
+                } else {
+                    Err(Self::boxed(Diagnostic::warning(
+                        "unresolved CFG bytecode LoadName",
+                    )))
+                }
+            }
+            IrExpr::InterpolatedString(parts) => {
+                // Emit each part as a string and concatenate
+                let mut first = true;
+                for part in parts {
+                    match part {
+                        crate::cfg::IrStringPart::Literal(s) => {
+                            self.emit_constant_value(Value::String(
+                                std::rc::Rc::new(s.clone()),
+                            ));
+                        }
+                        crate::cfg::IrStringPart::Interpolation(var) => {
+                            self.load_symbol(bindings.get(var).ok_or_else(|| {
+                                Self::boxed(Diagnostic::warning(
+                                    "missing CFG bytecode interpolation binding",
+                                ))
+                            })?);
+                            self.emit(OpCode::OpToString, &[]);
+                        }
+                    }
+                    if !first {
+                        self.emit(OpCode::OpAdd, &[]);
+                    }
+                    first = false;
+                }
+                if first {
+                    self.emit_constant_value(Value::String(
+                        std::rc::Rc::new(String::new()),
+                    ));
+                }
+                Ok(())
+            }
+            IrExpr::MemberAccess {
+                object,
+                member,
+                ..
+            } => {
+                // Load object, emit member name as string, use OpIndex for runtime access
+                self.load_symbol(bindings.get(object).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode member access binding",
+                    ))
+                })?);
+                let member_str = self.sym(*member).to_string();
+                self.emit_constant_value(Value::String(
+                    std::rc::Rc::new(member_str),
+                ));
+                self.emit(OpCode::OpIndex, &[]);
+                Ok(())
+            }
+
             _ => Err(Self::boxed(Diagnostic::warning(
                 "unsupported CFG bytecode expression lowering",
             ))),

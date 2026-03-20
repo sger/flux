@@ -40,14 +40,3 @@ fn is_resume_var(resume_id: CoreBinderId, expr: &CoreExpr) -> bool {
     matches!(expr, CoreExpr::Var { var, .. } if var.binder == Some(resume_id))
 }
 
-/// Returns `true` if **all** arms of a handler are "discard" — they never use `resume`.
-///
-/// Discard handlers don't need continuation capture at runtime. The handler
-/// simply evaluates the arm body and returns, discarding the suspended computation.
-/// This eliminates the memory leak risk (Perceus Section 2.7.1) and avoids the
-/// overhead of cloning the entire stack slice.
-pub fn is_core_handler_discard(handlers: &[CoreHandler]) -> bool {
-    handlers
-        .iter()
-        .all(|h| !super::helpers::appears_free(h.resume.id, &h.body))
-}

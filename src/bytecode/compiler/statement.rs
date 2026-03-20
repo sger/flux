@@ -22,7 +22,7 @@ use crate::{
         block::Block,
         data_variant::DataVariant,
         effect_expr::EffectExpr,
-        expression::Pattern,
+        expression::{Expression, Pattern},
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
         statement::Statement,
         symbol::Symbol,
@@ -46,6 +46,131 @@ impl Compiler {
                 .get(&function.id)
                 .is_some_and(|mapped| *mapped == symbol)
         })
+    }
+
+    /// Quick pre-codegen validation to detect semantic errors that the CFG
+    /// path can't catch. Returns `true` if errors are present — caller should
+    /// skip CFG and fall through to the AST path for proper error reporting.
+    ///
+    /// Only checks for errors that the AST path catches inline during codegen
+    /// (E001 duplicate let, E002/E003 assignment). HM-detected errors (E056,
+    /// E419-E422) are surfaced by Phase 6 finalization regardless of path.
+    fn quick_validate_function_body(
+        &self,
+        body: &Block,
+        _parameters: &[crate::syntax::symbol::Symbol],
+    ) -> bool {
+        Self::block_has_semantic_errors(body)
+            || self.block_has_call_arity_error(body)
+    }
+
+    /// Check if any call expression has wrong argument count vs HM type (E056).
+    fn block_has_call_arity_error(&self, body: &Block) -> bool {
+        body.statements.iter().any(|s| match s {
+            Statement::Expression { expression, .. }
+            | Statement::Let {
+                value: expression, ..
+            } => self.expr_has_call_arity_error(expression),
+            _ => false,
+        })
+    }
+
+    fn expr_has_call_arity_error(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                // Use HM type to check expected arity
+                if let super::hm_expr_typer::HmExprTypeResult::Known(InferType::Fun(
+                    params,
+                    _,
+                    _,
+                )) = self.hm_expr_type_strict_path(function)
+                {
+                    if params.len() != arguments.len() {
+                        return true;
+                    }
+                }
+                // Recurse into subexpressions
+                self.expr_has_call_arity_error(function)
+                    || arguments
+                        .iter()
+                        .any(|a| self.expr_has_call_arity_error(a))
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expr_has_call_arity_error(condition)
+                    || self.block_has_call_arity_error(consequence)
+                    || alternative
+                        .as_ref()
+                        .is_some_and(|b| self.block_has_call_arity_error(b))
+            }
+            Expression::DoBlock { block, .. } => self.block_has_call_arity_error(block),
+            Expression::Match { arms, .. } => arms
+                .iter()
+                .any(|arm| self.expr_has_call_arity_error(&arm.body)),
+            _ => false,
+        }
+    }
+
+    /// Check if any statement in the block (recursively) contains errors
+    /// that only the AST path catches: assignments (E002/E003) or duplicate
+    /// let bindings in the same scope (E001).
+    fn block_has_semantic_errors(body: &Block) -> bool {
+        // Check for assignments (Flux is purely immutable)
+        let has_assign = body
+            .statements
+            .iter()
+            .any(|s| matches!(s, Statement::Assign { .. }));
+        if has_assign {
+            return true;
+        }
+        // Check for duplicate let bindings in the same scope
+        let mut seen = std::collections::HashSet::new();
+        for stmt in &body.statements {
+            if let Statement::Let { name, .. } = stmt {
+                if !seen.insert(*name) {
+                    return true;
+                }
+            }
+        }
+        // Recurse into nested blocks
+        body.statements.iter().any(|s| match s {
+            Statement::Expression { expression, .. } => {
+                Self::expr_has_semantic_errors(expression)
+            }
+            _ => false,
+        })
+    }
+
+    fn expr_has_semantic_errors(expr: &Expression) -> bool {
+        match expr {
+            Expression::If {
+                consequence,
+                alternative,
+                ..
+            } => {
+                Self::block_has_semantic_errors(consequence)
+                    || alternative
+                        .as_ref()
+                        .is_some_and(Self::block_has_semantic_errors)
+            }
+            Expression::DoBlock { block, .. } => Self::block_has_semantic_errors(block),
+            Expression::Match { arms, .. } => arms.iter().any(|arm| {
+                if let Expression::DoBlock { block, .. } = &arm.body {
+                    Self::block_has_semantic_errors(block)
+                } else {
+                    false
+                }
+            }),
+            _ => false,
+        }
     }
 
     fn block_contains_cfg_incompatible_statements_ast(body: &Block) -> bool {
@@ -632,18 +757,23 @@ impl Compiler {
             }
 
             let param_effect_rows = self.build_param_effect_rows(parameters, parameter_types);
-            if let Some(ir_function) = ir_function
+
+            // Check for semantic errors in the function body BEFORE attempting CFG
+            // codegen. The CFG path doesn't validate semantics (E001 duplicate let,
+            // E002 reassignment, E056 wrong arg count, E419-E422 effect rows).
+            // If errors exist, skip CFG and let the AST path report them.
+            let has_body_errors = self.quick_validate_function_body(body, parameters);
+
+            if !has_body_errors
+                && let Some(ir_function) = ir_function
                 && !Self::block_contains_cfg_incompatible_statements_ast(body)
                 && !(self.strict_mode && Self::block_contains_typed_let_ast(body))
             {
-                // Snapshot scope state so we can roll back if the CFG path
-                // fails partway through (some binding may be unresolvable).
                 let scope_snapshot = self.scopes[self.scope_index].clone();
                 let const_len = self.constants.len();
                 match self.try_compile_ir_cfg_function_body(ir_function, name) {
                     Some(Ok(())) => return Ok(()),
                     Some(Err(_)) => {
-                        // Roll back partial emission and fall through to AST.
                         self.scopes[self.scope_index] = scope_snapshot;
                         self.constants.truncate(const_len);
                     }

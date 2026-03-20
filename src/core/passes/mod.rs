@@ -48,6 +48,11 @@ pub fn run_core_passes(program: &mut CoreProgram) {
 
     let sentinel = CoreExpr::Lit(CoreLit::Unit, Default::default());
 
+    // Run all Core passes + Aether in a single loop per definition.
+    // Borrow inference runs once upfront over the pre-pass program.
+    // (Pre-pass bodies are not yet ANF-normalized, so owned_use_count
+    // results are approximate — but still correct for the common case
+    // of parameters only used in PrimOp/Case/App positions.)
     // Run standard Core passes first (before Aether).
     for def in &mut program.defs {
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
