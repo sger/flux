@@ -397,6 +397,9 @@ pub enum IrExpr {
         /// `None` = write all fields.
         field_mask: Option<u64>,
     },
+    /// Aether: test if a value's Rc is uniquely owned (strong_count == 1).
+    /// Returns a boolean (true = unique, false = shared).
+    IsUnique(IrVar),
 }
 
 #[derive(Debug, Clone)]
@@ -858,6 +861,7 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
                 base
             }
         }
+        IrExpr::IsUnique(var) => format!("IsUnique({})", ir_fmt_var(*var)),
     }
 }
 

@@ -273,6 +273,7 @@ fn ensure_expr_vars_defined(expr: &IrExpr, defined: &HashSet<IrVar>) -> Result<(
             Ok(())
         }
         IrExpr::Const(_) | IrExpr::LoadName(_) | IrExpr::EmptyList | IrExpr::None => Ok(()),
+        IrExpr::IsUnique(var) => ensure_defined(*var, defined),
     }
 }
 

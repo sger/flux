@@ -2790,6 +2790,26 @@ pub extern "C" fn rt_aether_drop(_ctx: *mut JitContext, val_ptr: *mut Value) {
     }
 }
 
+/// Aether drop specialization (Perceus Section 2.3): test if a value's Rc
+/// is uniquely owned (strong_count == 1). Returns 1 if unique, 0 if shared.
+/// Used by DropSpecialized to branch between zero-RC-op and dup+decref paths.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_is_unique(_ctx: *mut JitContext, val_ptr: *mut Value) -> i64 {
+    if val_ptr.is_null() {
+        return 0;
+    }
+    let val = unsafe { &*val_ptr };
+    let unique = match val {
+        Value::Cons(rc) => Rc::strong_count(rc) == 1,
+        Value::Adt(rc) => Rc::strong_count(rc) == 1,
+        Value::Some(rc) | Value::Left(rc) | Value::Right(rc) => Rc::strong_count(rc) == 1,
+        Value::HashMap(rc) => Rc::strong_count(rc) == 1,
+        // Non-heap values are always "unique" (no sharing possible)
+        _ => true,
+    };
+    unique as i64
+}
+
 // Lookup table for registering helpers with Cranelift JITModule
 // ---------------------------------------------------------------------------
 
@@ -2925,5 +2945,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         // Aether reuse specialization (Perceus Section 2.5): masked variants
         ("rt_reuse_cons_masked", rt_reuse_cons_masked as *const u8),
         ("rt_reuse_adt_masked", rt_reuse_adt_masked as *const u8),
+        // Aether drop specialization (Perceus Section 2.3): uniqueness test
+        ("rt_is_unique", rt_is_unique as *const u8),
     ]
 }

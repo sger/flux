@@ -480,8 +480,85 @@ impl<'a> FnCtx<'a> {
             }
 
             // DropSpecialized — branch on uniqueness of scrutinee at runtime.
-            CoreExpr::DropSpecialized { .. } => {
-                todo!("DropSpecialized CFG lowering")
+            // Emits: is_unique = IsUnique(scrutinee)
+            //        if is_unique → unique_block (lower unique_body)
+            //        else         → shared_block (lower shared_body)
+            //        both jump to join_block with result
+            CoreExpr::DropSpecialized {
+                scrutinee,
+                unique_body,
+                shared_body,
+                span,
+            } => {
+                let meta = IrMetadata::from_span(*span);
+                let scrut_ir = self.bound_var(
+                    scrutinee.binder.expect("DropSpecialized scrutinee must be resolved"),
+                    scrutinee.name,
+                );
+
+                // Emit IsUnique test
+                let is_unique_var = self.ctx.alloc_var();
+                self.emit(IrInstr::Assign {
+                    dest: is_unique_var,
+                    expr: IrExpr::IsUnique(scrut_ir),
+                    metadata: meta.clone(),
+                });
+
+                // Create blocks for unique path, shared path, and join
+                let saved_env = self.env.clone();
+                let saved_binder_names = self.binder_names.clone();
+
+                let unique_block_idx = self.new_block();
+                let unique_block_id = self.blocks[unique_block_idx].id;
+                let shared_block_idx = self.new_block();
+                let shared_block_id = self.blocks[shared_block_idx].id;
+                let join_block_idx = self.new_block();
+                let join_block_id = self.blocks[join_block_idx].id;
+                let result_var = self.ctx.alloc_var();
+                self.blocks[join_block_idx]
+                    .params
+                    .push(crate::cfg::IrBlockParam {
+                        var: result_var,
+                        ty: IrType::Any,
+                    });
+
+                // Branch on uniqueness
+                self.set_terminator(IrTerminator::Branch {
+                    cond: is_unique_var,
+                    then_block: unique_block_id,
+                    else_block: shared_block_id,
+                    metadata: meta.clone(),
+                });
+
+                // Lower unique body
+                self.current_block = unique_block_idx;
+                self.env = saved_env.clone();
+                self.binder_names = saved_binder_names.clone();
+                let unique_result = self.lower_expr(unique_body);
+                if self.current_block_is_open() {
+                    self.set_terminator(IrTerminator::Jump(
+                        join_block_id,
+                        vec![unique_result],
+                        meta.clone(),
+                    ));
+                }
+
+                // Lower shared body
+                self.current_block = shared_block_idx;
+                self.env = saved_env;
+                self.binder_names = saved_binder_names;
+                let shared_result = self.lower_expr(shared_body);
+                if self.current_block_is_open() {
+                    self.set_terminator(IrTerminator::Jump(
+                        join_block_id,
+                        vec![shared_result],
+                        meta,
+                    ));
+                }
+
+                // Continue in join block
+                self.current_block = join_block_idx;
+                result_var
             }
         }
     }
