@@ -1011,8 +1011,10 @@ impl VM {
                 // Side effect: HandlerFrame pushed onto handler_stack
                 let const_idx = Self::read_u8_fast(instructions, ip + 1);
                 let const_val = self.const_get(const_idx);
-                let (effect, ops) = match &const_val {
-                    Value::HandlerDescriptor(desc) => (desc.effect, desc.ops.clone()),
+                let (effect, ops, desc_is_discard) = match &const_val {
+                    Value::HandlerDescriptor(desc) => {
+                        (desc.effect, desc.ops.clone(), desc.is_discard)
+                    }
                     other => {
                         return Err(format!(
                             "OpHandle: expected HandlerDescriptor constant, got {}",
@@ -1049,6 +1051,7 @@ impl VM {
                     entry_sp: self.sp,
                     entry_handler_stack_len: self.handler_stack.len(),
                     is_direct: false,
+                    is_discard: desc_is_discard,
                 });
                 Ok(2)
             }
@@ -1092,6 +1095,7 @@ impl VM {
                     entry_sp: self.sp,
                     entry_handler_stack_len: self.handler_stack.len(),
                     is_direct: true,
+                    is_discard: false,
                 });
                 Ok(2)
             }
@@ -1154,6 +1158,8 @@ impl VM {
                     arm.closure.clone()
                 };
 
+                let is_discard = self.handler_stack[handler_pos].is_discard;
+
                 if is_direct {
                     // Tail-resumptive fast path: call the arm directly
                     // without capturing a continuation. resume(v) returns v
@@ -1167,6 +1173,29 @@ impl VM {
                     self.push(Value::Closure(arm_closure))?;
                     let identity_fn = self.make_identity_closure();
                     self.push(identity_fn)?;
+                    for arg in perform_args {
+                        self.push(arg)?;
+                    }
+                    self.execute_call(1 + arity)?;
+                    Ok(0)
+                } else if is_discard {
+                    // Discard handler: never resumes. Skip continuation capture
+                    // entirely — just unwind to handler entry and call the arm.
+                    // (Perceus Section 2.7.1: non-linear control flow safety.)
+                    let entry_frame_index = self.handler_stack[handler_pos].entry_frame_index;
+                    let entry_sp = self.handler_stack[handler_pos].entry_sp;
+
+                    // Unwind: drop all values between handler entry and perform site.
+                    // This is safe because the handler never resumes — those values
+                    // are dead after the arm returns.
+                    self.frame_index = entry_frame_index;
+                    self.handler_stack.truncate(handler_pos + 1);
+                    self.reset_sp(entry_sp)?;
+
+                    // Call the arm with Value::None as the resume parameter
+                    // (handler won't use it since it never resumes).
+                    self.push(Value::Closure(arm_closure))?;
+                    self.push(Value::None)?; // dummy resume
                     for arg in perform_args {
                         self.push(arg)?;
                     }

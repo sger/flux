@@ -64,6 +64,7 @@ fn main() {
     let test_mode = args.iter().any(|arg| arg == "--test");
     let strict_mode = args.iter().any(|arg| arg == "--strict");
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
+    let dump_aether = args.iter().any(|arg| arg == "--dump-aether");
     #[cfg(feature = "jit")]
     let use_jit = args.iter().any(|arg| arg == "--jit");
     #[cfg(not(feature = "jit"))]
@@ -118,6 +119,9 @@ fn main() {
     }
     if all_errors {
         args.retain(|arg| arg != "--all-errors");
+    }
+    if dump_aether {
+        args.retain(|arg| arg != "--dump-aether");
     }
     let dump_core = match extract_dump_core_mode(&mut args) {
         Some(value) => value,
@@ -178,6 +182,7 @@ fn main() {
                 diagnostics_format,
                 all_errors,
                 dump_core,
+                dump_aether,
             );
         }
         return;
@@ -233,6 +238,7 @@ fn main() {
                     diagnostics_format,
                     all_errors,
                     dump_core,
+                    dump_aether,
                 );
             }
         }
@@ -404,6 +410,7 @@ Flags:
   --all-errors       Show diagnostics from all phases (disable stage-aware filtering)
   --dump-core        Lower to Flux Core IR, print a readable dump, and exit
   --dump-core=debug  Lower to Flux Core IR, print a raw debug dump, and exit
+  --dump-aether      Show Aether memory model report (per-function reuse/drop stats)
   -h, --help         Show this help message
 
 Optimization & Analysis:
@@ -434,6 +441,7 @@ fn run_file(
     diagnostics_format: DiagnosticOutputFormat,
     all_errors: bool,
     dump_core: CoreDumpMode,
+    dump_aether: bool,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -449,7 +457,7 @@ fn run_file(
             });
             let cache_key = hash_cache_key(&base_cache_key, &strict_hash);
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
-            if !no_cache && !use_jit && !use_llvm && matches!(dump_core, CoreDumpMode::None) {
+            if !no_cache && !use_jit && !use_llvm && matches!(dump_core, CoreDumpMode::None) && !dump_aether {
                 if let Some(bytecode) =
                     cache.load(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
                 {
@@ -627,6 +635,12 @@ fn run_file(
                     all_errors,
                     true,
                 );
+            }
+
+            if dump_aether {
+                let report = compiler.dump_aether_report(&program, enable_optimize);
+                println!("{report}");
+                return;
             }
 
             if !matches!(dump_core, CoreDumpMode::None) {

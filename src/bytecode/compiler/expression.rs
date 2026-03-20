@@ -3324,9 +3324,13 @@ impl Compiler {
             None
         };
 
+        let is_discard = !is_direct
+            && crate::bytecode::compiler::tail_resumptive::is_handler_discard(arms);
+
         let desc = Value::HandlerDescriptor(Rc::new(HandlerDescriptor {
             effect,
             ops: operations,
+            is_discard,
         }));
 
         let desc_idx = self.add_constant(desc);

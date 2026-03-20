@@ -344,6 +344,7 @@ impl Compiler {
                 let descriptor = HandlerDescriptor {
                     effect: *effect,
                     ops,
+                    is_discard: false, // TODO: detect from evidence pass
                 };
                 let const_idx = self.add_constant(Value::HandlerDescriptor(Rc::new(descriptor)));
                 self.emit(OpCode::OpHandle, &[const_idx]);

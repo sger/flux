@@ -2106,6 +2106,54 @@ impl Compiler {
         }
     }
 
+    /// Dump an Aether memory model report showing per-function optimization decisions.
+    pub fn dump_aether_report(&self, program: &Program, optimize: bool) -> String {
+        let program_to_lower = if optimize {
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
+            rename(optimized, HashMap::new())
+        } else {
+            program.clone()
+        };
+
+        let mut core =
+            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        crate::core::passes::run_core_passes(&mut core);
+
+        let mut out = String::new();
+        out.push_str("Aether Memory Model Report\n");
+        out.push_str("==========================\n\n");
+
+        let mut total = crate::aether::AetherStats::default();
+
+        for def in &core.defs {
+            let stats = crate::aether::collect_stats(&def.expr);
+            if stats.dups == 0
+                && stats.drops == 0
+                && stats.reuses == 0
+                && stats.drop_specs == 0
+            {
+                continue;
+            }
+            let name = self.interner.resolve(def.name);
+            out.push_str(&format!("── fn {} ──\n", name));
+            out.push_str(&format!("  {}\n", stats));
+
+            let displayed = crate::core::display::display_expr_readable(&def.expr, &self.interner);
+            out.push_str(&displayed);
+            out.push('\n');
+
+            total.dups += stats.dups;
+            total.drops += stats.drops;
+            total.reuses += stats.reuses;
+            total.drop_specs += stats.drop_specs;
+        }
+
+        out.push_str(&format!("\n── Total ──\n  {}\n", total));
+        out
+    }
+
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
         self.run_pipeline(program)
     }

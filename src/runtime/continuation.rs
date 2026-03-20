@@ -38,3 +38,20 @@ pub struct Continuation {
     /// One-shot enforcement: set to `true` after the first resume.
     pub used: bool,
 }
+
+/// Safety net for non-linear control flow (Perceus Section 2.7.1).
+///
+/// If a continuation is dropped without being resumed (`used == false`),
+/// explicitly clear all captured values. Without this, Rc-wrapped values
+/// in the captured stack would leak — their refcounts would never reach
+/// zero because the continuation holds extra strong references.
+impl Drop for Continuation {
+    fn drop(&mut self) {
+        if !self.used {
+            // Drop all captured stack values — decrements their Rc counts.
+            self.stack.clear();
+            self.frames.clear();
+            self.inner_handlers.clear();
+        }
+    }
+}
