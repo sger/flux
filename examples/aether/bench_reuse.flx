@@ -1,0 +1,105 @@
+// Aether Reuse Benchmark
+// Run:   cargo run -- examples/aether/bench_reuse.flx
+// JIT:   cargo run -- --jit examples/aether/bench_reuse.flx
+// Stats: cargo run -- --dump-aether examples/aether/bench_reuse.flx
+
+fn build_list(n) {
+    fn build_go(i, acc) {
+        if i <= 0 { acc }
+        else { build_go(i - 1, [i | acc]) }
+    }
+    build_go(n, [])
+}
+
+// Map: with Aether reuse, Cons cells are reused in-place
+fn my_map(xs, f) {
+    match xs {
+        [h | t] -> [f(h) | my_map(t, f)],
+        _ -> [],
+    }
+}
+
+// Length: borrowed parameter — no Rc::clone for xs
+fn my_len(xs) {
+    match xs {
+        [_ | t] -> 1 + my_len(t),
+        _ -> 0,
+    }
+}
+
+// Fold: accumulation pattern
+fn fold_left(xs, acc, f) {
+    match xs {
+        [h | t] -> fold_left(t, f(acc, h), f),
+        _ -> acc,
+    }
+}
+
+// Repeated map to stress reuse
+fn bench_map(xs, iterations) {
+    fn map_go(i, current) {
+        if i <= 0 { current }
+        else { map_go(i - 1, my_map(current, \x -> x + 1)) }
+    }
+    map_go(iterations, xs)
+}
+
+// Repeated len to stress borrowed params
+fn bench_len(xs, iterations) {
+    fn len_go(i, total) {
+        if i <= 0 { total }
+        else { len_go(i - 1, total + my_len(xs)) }
+    }
+    len_go(iterations, 0)
+}
+
+// Repeated fold to stress accumulation
+fn bench_fold(xs, iterations) {
+    fn fold_go(i, total) {
+        if i <= 0 { total }
+        else {
+            let sum = fold_left(xs, 0, \(acc, x) -> acc + x)
+            fold_go(i - 1, total + sum)
+        }
+    }
+    fold_go(iterations, 0)
+}
+
+fn main() with IO, Time {
+    let size = 5000
+    let iterations = 100
+
+    print("Aether Reuse Benchmark")
+    print("======================")
+    print("List size: #{size}, Iterations: #{iterations}")
+    print("")
+
+    let xs = build_list(size)
+
+    // Benchmark 1: map (reuse fires on every Cons cell)
+    let t0 = now_ms()
+    let mapped = bench_map(xs, iterations)
+    let t1 = now_ms()
+    print("map (#{iterations}x over #{size} elements):")
+    print("  #{t1 - t0} ms")
+    print("  result head: #{hd(mapped)}")
+
+    // Benchmark 2: len (borrowed params — no Rc::clone)
+    let t2 = now_ms()
+    let total_len = bench_len(xs, iterations)
+    let t3 = now_ms()
+    print("len (#{iterations}x over #{size} elements, borrowed):")
+    print("  #{t3 - t2} ms")
+    print("  total: #{total_len}")
+
+    // Benchmark 3: fold (accumulation, no reuse)
+    let t4 = now_ms()
+    let total_sum = bench_fold(xs, iterations)
+    let t5 = now_ms()
+    print("fold (#{iterations}x over #{size} elements):")
+    print("  #{t5 - t4} ms")
+    print("  total: #{total_sum}")
+
+    print("")
+    print("Done.")
+}
