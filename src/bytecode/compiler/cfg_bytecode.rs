@@ -68,10 +68,8 @@ impl Compiler {
                 | IrExpr::ReuseRight { .. }
                 | IrExpr::IsUnique(_)
                 // General expressions (emission handlers in compile_ir_cfg_expr).
-                // Note: Prefix and LoadName are excluded because:
-                //   - Prefix needs type validation (E300 for non-numeric operands)
-                //   - LoadName can reference undefined names (Core IR may be degenerate)
-                // These handlers exist in compile_ir_cfg_expr but are gated here.
+                | IrExpr::Prefix { .. }
+                | IrExpr::LoadName(_)
                 | IrExpr::MakeArray(_)
                 | IrExpr::MakeHash(_)
                 | IrExpr::MakeList(_)
@@ -853,25 +851,20 @@ impl Compiler {
                 Ok(())
             }
             IrExpr::MakeList(elements) => {
-                // Build cons list: emit EmptyList, then Cons for each element in reverse
-                self.emit_constant_value(Value::EmptyList);
-                for el in elements.iter().rev() {
-                    // Swap: push element, then the partial list is below it
-                    // Actually: stack has [..., partial_list]. Push element on top,
-                    // then OpCons pops (head, tail) = (top, below).
-                    // But OpCons expects head on top, tail below.
-                    // So we need: push element, then swap... or use a different approach.
-                    //
-                    // Simpler: for each element, load it, then OpCons.
-                    // Stack: [..., tail] → push head → [..., tail, head] → but OpCons
-                    // pops (head, tail) from top = (head first, tail second).
-                    // Our OpCons pops pair: let (head, tail) = self.pop_pair().
-                    // pop_pair returns (top, below) = (head, partial_list). Correct!
+                // Load all elements forward, push EmptyList last, then OpCons N times.
+                // OpCons pops (head=sp-2, tail=sp-1):
+                //   stack [e_1, ..., e_n, EmptyList] → Cons(e_n, EmptyList)
+                //   stack [e_1, ..., e_{n-1}, result] → Cons(e_{n-1}, result)
+                //   ... → [e_1, e_2, ..., e_n]
+                for el in elements.iter() {
                     self.load_symbol(bindings.get(el).ok_or_else(|| {
                         Self::boxed(Diagnostic::warning(
                             "missing CFG bytecode list element binding",
                         ))
                     })?);
+                }
+                self.emit_constant_value(Value::EmptyList);
+                for _ in 0..elements.len() {
                     self.emit(OpCode::OpCons, &[]);
                 }
                 Ok(())

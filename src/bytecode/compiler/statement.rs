@@ -65,6 +65,67 @@ impl Compiler {
             || self.block_has_call_arity_error(body)
             || self.block_has_effect_row_error(body, declared_effects, param_effect_rows)
             || self.block_has_typed_let_error(body)
+            || self.block_has_prefix_type_error(body)
+    }
+
+    /// Check if any prefix `-` expression has a non-numeric operand (E300).
+    fn block_has_prefix_type_error(&self, body: &Block) -> bool {
+        body.statements.iter().any(|s| match s {
+            Statement::Expression { expression, .. }
+            | Statement::Let {
+                value: expression, ..
+            } => self.expr_has_prefix_type_error(expression),
+            _ => false,
+        })
+    }
+
+    fn expr_has_prefix_type_error(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::Prefix {
+                operator, right, ..
+            } if operator == "-" => {
+                if let super::hm_expr_typer::HmExprTypeResult::Known(ty) =
+                    self.hm_expr_type_strict_path(right)
+                {
+                    !matches!(
+                        ty,
+                        InferType::Con(
+                            crate::types::type_constructor::TypeConstructor::Int
+                                | crate::types::type_constructor::TypeConstructor::Float
+                        )
+                    )
+                } else {
+                    false
+                }
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expr_has_prefix_type_error(condition)
+                    || self.block_has_prefix_type_error(consequence)
+                    || alternative
+                        .as_ref()
+                        .is_some_and(|b| self.block_has_prefix_type_error(b))
+            }
+            Expression::DoBlock { block, .. } => self.block_has_prefix_type_error(block),
+            Expression::Match { arms, .. } => arms
+                .iter()
+                .any(|arm| self.expr_has_prefix_type_error(&arm.body)),
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                self.expr_has_prefix_type_error(function)
+                    || arguments
+                        .iter()
+                        .any(|a| self.expr_has_prefix_type_error(a))
+            }
+            _ => false,
+        }
     }
 
     /// Check if any typed let binding has a type annotation mismatch (E300).
@@ -374,6 +435,23 @@ impl Compiler {
                     ..
                 }
             )
+        })
+    }
+
+    /// Returns `true` when the IR function contains `LoadName` expressions,
+    /// indicating unresolved names (e.g. `mystery_value`). These must go
+    /// through the AST path for proper E004 error reporting.
+    fn ir_function_has_unresolved_names(func: &crate::cfg::IrFunction) -> bool {
+        func.blocks.iter().any(|block| {
+            block.instrs.iter().any(|instr| {
+                matches!(
+                    instr,
+                    crate::cfg::IrInstr::Assign {
+                        expr: crate::cfg::IrExpr::LoadName(_),
+                        ..
+                    }
+                )
+            })
         })
     }
 
@@ -940,30 +1018,44 @@ impl Compiler {
 
             let param_effect_rows = self.build_param_effect_rows(parameters, parameter_types);
 
-            // Check for semantic errors in the function body BEFORE attempting CFG
-            // codegen. The CFG path doesn't validate semantics (E001 duplicate let,
-            // E002 reassignment, E056 wrong arg count, E400/E419-E422 effect rows).
-            // If errors exist, skip CFG and let the AST path report them.
+            // ── CFG primary path ─────────────────────────────────────────
+            // Pre-validate semantic errors that CFG can't catch (E001, E002,
+            // E056, E300, E400/E419-E422). If errors exist, fall through to
+            // AST for proper diagnostic reporting.
             let has_body_errors =
                 self.quick_validate_function_body(body, parameters, effects, &param_effect_rows);
 
-            if !has_body_errors
-                && !self.has_hm_diagnostics
-                && let Some(ir_function) = ir_function
-                && !Self::block_contains_cfg_incompatible_statements_ast(body)
-                && !Self::block_contains_typed_let_ast(body)
-            {
+            // CFG handles all well-typed functions. AST fallback is used only
+            // for: (a) functions with semantic/HM errors, (b) module/import
+            // statements, (c) strict-mode typed-let, (d) Handle expressions
+            // (the only unsupported IrExpr variant).
+            let use_ast_path = has_body_errors
+                || self.has_hm_diagnostics
+                || ir_function.is_none()
+                || Self::block_contains_cfg_incompatible_statements_ast(body)
+                || (self.strict_mode && Self::block_contains_typed_let_ast(body))
+                || ir_function
+                    .as_ref()
+                    .is_some_and(|f| Self::ir_function_has_unresolved_names(f));
+
+            if !use_ast_path {
+                let ir_function = ir_function.unwrap();
                 let scope_snapshot = self.scopes[self.scope_index].clone();
                 let const_len = self.constants.len();
                 match self.try_compile_ir_cfg_function_body(ir_function, name) {
                     Some(Ok(())) => return Ok(()),
                     Some(Err(_)) => {
+                        // CFG compilation error — roll back and fall through to AST
                         self.scopes[self.scope_index] = scope_snapshot;
                         self.constants.truncate(const_len);
                     }
-                    None => {}
+                    None => {
+                        // Unsupported expression (Handle) — fall through to AST
+                    }
                 }
             }
+
+            // ── AST fallback path ──────────────────────────────────────────
             let body_errors = self.with_function_context_with_param_effect_rows(
                 parameters.len(),
                 effects,
