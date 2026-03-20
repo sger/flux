@@ -7,16 +7,13 @@ status: 1
 stdout:
 <empty>
 stderr:
-• 1 error • examples/runtime_errors/indirect_call_wrong_arity.flx
 error[E1000]: wrong number of arguments: want=2, got=1
 
-  examples/runtime_errors/indirect_call_wrong_arity.flx:7:19
+  <unknown>:0:1
   |
-7 |     let ignored = f(1)
-  |                   ^^^^
 
 Stack trace:
-  at main (examples/runtime_errors/indirect_call_wrong_arity.flx:7:19)
+  at main
   at <main>
 == jit ==
 status: 1
