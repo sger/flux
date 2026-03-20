@@ -1882,6 +1882,35 @@ pub extern "C" fn rt_index(
                 None => ctx.alloc(Value::None),
             }
         }
+        (Value::Cons(_), Value::Integer(idx)) => {
+            if *idx < 0 {
+                return ctx.alloc(Value::None);
+            }
+            let mut current = left.clone();
+            let mut remaining = *idx as usize;
+            loop {
+                match &current {
+                    Value::Cons(cell) => {
+                        if remaining == 0 {
+                            return ctx.alloc(Value::Some(Rc::new(cell.head.clone())));
+                        }
+                        remaining -= 1;
+                        current = cell.tail.clone();
+                    }
+                    _ => return ctx.alloc(Value::None),
+                }
+            }
+        }
+        (Value::String(s), Value::Integer(idx)) => {
+            let chars: Vec<char> = s.chars().collect();
+            if *idx < 0 || *idx as usize >= chars.len() {
+                ctx.alloc(Value::None)
+            } else {
+                ctx.alloc(Value::Some(Rc::new(Value::String(Rc::new(
+                    chars[*idx as usize].to_string(),
+                )))))
+            }
+        }
         _ => {
             ctx.error = Some(format!(
                 "index operator not supported: {}",
