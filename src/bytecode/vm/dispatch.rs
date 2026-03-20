@@ -11,7 +11,7 @@ use crate::{
         handler_arm::HandlerArm,
         handler_frame::HandlerFrame,
         leak_detector,
-        value::{AdtFields, Value},
+        value::{AdtFields, AdtValue, Value},
     },
 };
 
@@ -1314,6 +1314,154 @@ impl VM {
                 self.execute_call(1 + arity)?;
 
                 Ok(0)
+            }
+
+            // ── Aether reuse opcodes ────────────────────────────────────
+            OpCode::OpDropReuse => {
+                // Test if TOS value is uniquely owned. If so, push it as a
+                // reuse token; otherwise push None (= allocate fresh).
+                let val = self.pop()?;
+                let is_unique = match &val {
+                    Value::Cons(rc) => Rc::strong_count(rc) == 1,
+                    Value::Adt(rc) => Rc::strong_count(rc) == 1,
+                    Value::Some(rc) | Value::Left(rc) | Value::Right(rc) => {
+                        Rc::strong_count(rc) == 1
+                    }
+                    _ => false,
+                };
+                if is_unique {
+                    self.push(val)?;
+                } else {
+                    self.push(Value::None)?;
+                }
+                Ok(1)
+            }
+
+            OpCode::OpReuseCons => {
+                let field_mask = Self::read_u8_fast(instructions, ip + 1) as u8;
+                // Stack order: token was pushed first, then head, then tail (TOS)
+                let tail = self.pop()?;
+                let head = self.pop()?;
+                let token = self.pop()?;
+                let result = match token {
+                    Value::Cons(rc) => {
+                        match Rc::try_unwrap(rc) {
+                            Ok(mut cell) => {
+                                // Unique — reuse allocation, only write changed fields
+                                if field_mask == 0xFF || field_mask & 1 != 0 {
+                                    cell.head = head;
+                                }
+                                if field_mask == 0xFF || field_mask & 2 != 0 {
+                                    cell.tail = tail;
+                                }
+                                Value::Cons(Rc::new(cell))
+                            }
+                            Err(_) => {
+                                // Shared — allocate fresh
+                                ConsCell::cons(head, tail)
+                            }
+                        }
+                    }
+                    _ => ConsCell::cons(head, tail),
+                };
+                self.push(result)?;
+                Ok(2) // 1 opcode + 1 byte field_mask
+            }
+
+            OpCode::OpReuseAdt => {
+                let const_idx = Self::read_u16_fast(instructions, ip + 1);
+                let arity = Self::read_u8_fast(instructions, ip + 3);
+                let field_mask = Self::read_u8_fast(instructions, ip + 4) as u8;
+
+                let const_val = self.const_get(const_idx);
+                let constructor_name = match const_val {
+                    Value::String(s) => s,
+                    other => {
+                        return Err(format!(
+                            "OpReuseAdt: expected string constant, got {}",
+                            other
+                        ));
+                    }
+                };
+
+                // Pop fields from stack (same order as OpMakeAdt)
+                let mut fields = Vec::with_capacity(arity);
+                for i in 0..arity {
+                    let val = self.stack_take(self.sp - arity + i);
+                    fields.push(val);
+                }
+                self.reset_sp(self.sp - arity)?;
+                let token = self.pop()?;
+
+                let result = match token {
+                    Value::Adt(rc) => {
+                        match Rc::try_unwrap(rc) {
+                            Ok(mut adt) => {
+                                adt.constructor = constructor_name;
+                                if field_mask == 0xFF {
+                                    adt.fields = AdtFields::from_vec(fields);
+                                } else {
+                                    for (i, val) in fields.into_iter().enumerate() {
+                                        if field_mask as u64 & (1u64 << i) != 0 {
+                                            adt.fields.set_field(i, val);
+                                        }
+                                    }
+                                }
+                                Value::Adt(Rc::new(adt))
+                            }
+                            Err(_) => Value::Adt(Rc::new(AdtValue {
+                                constructor: constructor_name,
+                                fields: AdtFields::from_vec(fields),
+                            })),
+                        }
+                    }
+                    _ => Value::Adt(Rc::new(AdtValue {
+                        constructor: constructor_name,
+                        fields: AdtFields::from_vec(fields),
+                    })),
+                };
+                self.push(result)?;
+                Ok(5) // 1 opcode + 2 const_idx + 1 arity + 1 field_mask
+            }
+
+            OpCode::OpReuseSome => {
+                let inner = self.pop()?;
+                let token = self.pop()?;
+                let result = match token {
+                    Value::Some(rc) if Rc::strong_count(&rc) == 1 => {
+                        // Reuse — but Some only has one field, always write it
+                        Value::Some(Rc::new(inner))
+                    }
+                    _ => Value::Some(Rc::new(inner)),
+                };
+                self.push(result)?;
+                Ok(1)
+            }
+
+            OpCode::OpReuseLeft => {
+                let inner = self.pop()?;
+                let token = self.pop()?;
+                let result = match token {
+                    Value::Left(rc) if Rc::strong_count(&rc) == 1 => {
+                        Value::Left(Rc::new(inner))
+                    }
+                    _ => Value::Left(Rc::new(inner)),
+                };
+                self.push(result)?;
+                Ok(1)
+            }
+
+            OpCode::OpReuseRight => {
+                let inner = self.pop()?;
+                let token = self.pop()?;
+                let result = match token {
+                    Value::Right(rc) if Rc::strong_count(&rc) == 1 => {
+                        Value::Right(Rc::new(inner))
+                    }
+                    _ => Value::Right(Rc::new(inner)),
+                };
+                self.push(result)?;
+                Ok(1)
             }
         }
     }

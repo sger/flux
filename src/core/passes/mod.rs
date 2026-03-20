@@ -128,6 +128,14 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
                 collect_max_binder_id(f, max);
             }
         }
+        DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            collect_max_binder_id(unique_body, max);
+            collect_max_binder_id(shared_body, max);
+        }
     }
 }
 

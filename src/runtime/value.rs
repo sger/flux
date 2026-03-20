@@ -72,6 +72,25 @@ impl AdtFields {
         }
     }
 
+    /// Set a single field in-place by index. Used by Aether reuse
+    /// specialization to write only changed fields during in-place reuse.
+    pub fn set_field(&mut self, idx: usize, value: Value) {
+        match (self, idx) {
+            (AdtFields::One(a), 0) => *a = value,
+            (AdtFields::Two(a, _), 0) => *a = value,
+            (AdtFields::Two(_, b), 1) => *b = value,
+            (AdtFields::Three(a, _, _), 0) => *a = value,
+            (AdtFields::Three(_, b, _), 1) => *b = value,
+            (AdtFields::Three(_, _, c), 2) => *c = value,
+            (AdtFields::Many(v), i) => {
+                if i < v.len() {
+                    v[i] = value;
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub fn iter(&self) -> AdtFieldsIter<'_> {
         AdtFieldsIter {
             fields: self,

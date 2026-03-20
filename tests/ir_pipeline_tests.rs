@@ -128,6 +128,14 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
                 out.extend(collect_core_exprs(f));
             }
         }
+        CoreExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            out.extend(collect_core_exprs(unique_body));
+            out.extend(collect_core_exprs(shared_body));
+        }
     }
     out
 }

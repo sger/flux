@@ -806,17 +806,28 @@ pub(super) fn compile_expr(
                 .build_call(fn_ty, func, &mut [ctx_val, val_ptr], "drop_reuse");
             Ok(build_ptr_tagged(ctx, result))
         }
-        IrExpr::ReuseCons { token, head, tail } => {
-            let (func, fn_ty) = get_helper(ctx, "rt_reuse_cons")?;
+        IrExpr::ReuseCons { token, head, tail, field_mask } => {
             let token_ptr = force_box_to_ptr(ctx, env, *token, ctx_val)?;
             let head_ptr = force_box_to_ptr(ctx, env, *head, ctx_val)?;
             let tail_ptr = force_box_to_ptr(ctx, env, *tail, ctx_val)?;
-            let result = ctx.builder.build_call(
-                fn_ty,
-                func,
-                &mut [ctx_val, token_ptr, head_ptr, tail_ptr],
-                "reuse_cons",
-            );
+            let result = if let Some(mask) = field_mask {
+                let (func, fn_ty) = get_helper(ctx, "rt_reuse_cons_masked")?;
+                let mask_val = wrapper::const_i64(ctx.i64_type, *mask as i64);
+                ctx.builder.build_call(
+                    fn_ty,
+                    func,
+                    &mut [ctx_val, token_ptr, head_ptr, tail_ptr, mask_val],
+                    "reuse_cons_masked",
+                )
+            } else {
+                let (func, fn_ty) = get_helper(ctx, "rt_reuse_cons")?;
+                ctx.builder.build_call(
+                    fn_ty,
+                    func,
+                    &mut [ctx_val, token_ptr, head_ptr, tail_ptr],
+                    "reuse_cons",
+                )
+            };
             Ok(build_ptr_tagged(ctx, result))
         }
         IrExpr::ReuseSome { token, inner } => {
@@ -859,8 +870,8 @@ pub(super) fn compile_expr(
             token,
             constructor,
             fields,
+            field_mask,
         } => {
-            let (func, fn_ty) = get_helper(ctx, "rt_reuse_adt")?;
             let token_ptr = force_box_to_ptr(ctx, env, *token, ctx_val)?;
             let name_str = interner.resolve(*constructor);
             let name_bytes = name_str.as_bytes();
@@ -873,12 +884,26 @@ pub(super) fn compile_expr(
             let name_len = wrapper::const_i64(ctx.i64_type, name_bytes.len() as i64);
             let fields_buf = build_tagged_args_array(ctx, fields, env)?;
             let nfields = wrapper::const_i64(ctx.i64_type, fields.len() as i64);
-            let result = ctx.builder.build_call(
-                fn_ty,
-                func,
-                &mut [ctx_val, token_ptr, global, name_len, fields_buf, nfields],
-                "reuse_adt",
-            );
+            let result = if let Some(mask) = field_mask {
+                let (func, fn_ty) = get_helper(ctx, "rt_reuse_adt_masked")?;
+                let mask_val = wrapper::const_i64(ctx.i64_type, *mask as i64);
+                ctx.builder.build_call(
+                    fn_ty,
+                    func,
+                    &mut [
+                        ctx_val, token_ptr, global, name_len, fields_buf, nfields, mask_val,
+                    ],
+                    "reuse_adt_masked",
+                )
+            } else {
+                let (func, fn_ty) = get_helper(ctx, "rt_reuse_adt")?;
+                ctx.builder.build_call(
+                    fn_ty,
+                    func,
+                    &mut [ctx_val, token_ptr, global, name_len, fields_buf, nfields],
+                    "reuse_adt",
+                )
+            };
             Ok(build_ptr_tagged(ctx, result))
         }
     }

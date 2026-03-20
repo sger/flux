@@ -683,6 +683,16 @@ mod tests {
                     collect_var_refs(field, out);
                 }
             }
+            CoreExpr::DropSpecialized {
+                scrutinee,
+                unique_body,
+                shared_body,
+                ..
+            } => {
+                out.push(scrutinee);
+                collect_var_refs(unique_body, out);
+                collect_var_refs(shared_body, out);
+            }
         }
     }
 

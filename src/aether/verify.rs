@@ -108,6 +108,14 @@ fn check(expr: &CoreExpr, diags: &mut Vec<AetherDiagnostic>) {
                 check(&h.body, diags);
             }
         }
+        CoreExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            check(unique_body, diags);
+            check(shared_body, diags);
+        }
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
     }
 }
