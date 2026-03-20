@@ -226,18 +226,28 @@ fn rewrite_with_pat_ctx(
             field_mask,
             span,
         },
-        // DropSpecialized — pass-through, recurse both branches
+        // DropSpecialized — Perceus drop-reuse specialization (Section 2.4).
+        // On the unique path, the scrutinee is guaranteed uniquely owned.
+        // Insert Reuse nodes for compatible Con expressions — reuse always succeeds.
         CoreExpr::DropSpecialized {
             scrutinee,
             unique_body,
             shared_body,
             span,
-        } => CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body: Box::new(rewrite_with_pat_ctx(*unique_body, pat_binders)),
-            shared_body: Box::new(rewrite_with_pat_ctx(*shared_body, pat_binders)),
-            span,
-        },
+        } => {
+            let shared_body = rewrite_with_pat_ctx(*shared_body, pat_binders);
+            let unique_body = insert_reuse_in_unique(
+                &scrutinee,
+                *unique_body,
+                pat_binders,
+            );
+            CoreExpr::DropSpecialized {
+                scrutinee,
+                unique_body: Box::new(unique_body),
+                shared_body: Box::new(shared_body),
+                span,
+            }
+        }
         // Atoms — no children
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
     }
@@ -410,5 +420,65 @@ fn try_reuse_in_spine(
             }
         }
         _ => None,
+    }
+}
+
+/// Perceus drop-reuse specialization (Section 2.4, Fig 1e-1g).
+///
+/// On the unique path of a `DropSpecialized`, the scrutinee is guaranteed
+/// uniquely owned. Walk the body spine looking for a `Con` of compatible
+/// shape and convert it to `Reuse` — the reuse always succeeds since
+/// the uniqueness check already passed.
+fn insert_reuse_in_unique(
+    scrutinee: &CoreVarRef,
+    body: CoreExpr,
+    pat_binders: Option<&[Option<CoreBinderId>]>,
+) -> CoreExpr {
+    match body {
+        // Direct Con — convert to Reuse
+        CoreExpr::Con { tag, fields, span } if is_heap_tag(&tag) => {
+            let field_mask = pat_binders.and_then(|pb| compute_field_mask(&fields, pb));
+            CoreExpr::Reuse {
+                token: *scrutinee,
+                tag,
+                fields,
+                field_mask,
+                span,
+            }
+        }
+        // Walk through Let spine
+        CoreExpr::Let {
+            var,
+            rhs,
+            body: let_body,
+            span,
+        } => CoreExpr::Let {
+            var,
+            rhs,
+            body: Box::new(insert_reuse_in_unique(scrutinee, *let_body, pat_binders)),
+            span,
+        },
+        // Walk through Dup spine
+        CoreExpr::Dup {
+            var,
+            body: dup_body,
+            span,
+        } => CoreExpr::Dup {
+            var,
+            body: Box::new(insert_reuse_in_unique(scrutinee, *dup_body, pat_binders)),
+            span,
+        },
+        // Walk through Drop spine
+        CoreExpr::Drop {
+            var,
+            body: drop_body,
+            span,
+        } => CoreExpr::Drop {
+            var,
+            body: Box::new(insert_reuse_in_unique(scrutinee, *drop_body, pat_binders)),
+            span,
+        },
+        // No compatible Con found — return body unchanged, recurse normally
+        other => rewrite_with_pat_ctx(other, pat_binders),
     }
 }
