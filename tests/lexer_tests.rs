@@ -820,7 +820,7 @@ fn fib(n) {
 
     #[test]
     fn illegal_character_emits_lexer_diagnostic() {
-        let mut lexer = Lexer::new("@");
+        let mut lexer = Lexer::new("~");
 
         let tok = lexer.next_token();
         assert_eq!(tok.token_type, TokenType::Illegal);

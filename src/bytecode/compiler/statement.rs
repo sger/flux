@@ -64,6 +64,32 @@ impl Compiler {
         Self::block_has_semantic_errors(body, parameters)
             || self.block_has_call_arity_error(body)
             || self.block_has_effect_row_error(body, declared_effects, param_effect_rows)
+            || self.block_has_typed_let_error(body)
+    }
+
+    /// Check if any typed let binding has a type annotation mismatch (E300).
+    fn block_has_typed_let_error(&self, body: &Block) -> bool {
+        body.statements.iter().any(|s| {
+            if let Statement::Let {
+                type_annotation: Some(annotation),
+                value,
+                ..
+            } = s
+            {
+                if let Some(expected) = crate::types::type_env::TypeEnv::infer_type_from_type_expr(
+                    annotation,
+                    &Default::default(),
+                    &self.interner,
+                ) {
+                    self.known_concrete_expr_type_mismatch(&expected, value)
+                        .is_some()
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        })
     }
 
     /// Check if any call expression has wrong argument count vs HM type (E056).

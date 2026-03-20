@@ -385,6 +385,8 @@ pub struct CoreDef {
     pub result_ty: Option<CoreType>,
     pub is_anonymous: bool,
     pub is_recursive: bool,
+    /// FBIP annotation from source: `@fip` or `@fbip` (Perceus Section 2.6).
+    pub fip: Option<crate::syntax::statement::FipAnnotation>,
     pub span: Span,
 }
 
@@ -532,6 +534,7 @@ impl CoreDef {
             result_ty: None,
             is_anonymous,
             is_recursive,
+            fip: None,
             span,
         }
     }
