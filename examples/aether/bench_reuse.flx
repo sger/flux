@@ -65,7 +65,7 @@ fn bench_fold(xs, iterations) {
     fold_go(iterations, 0)
 }
 
-fn main() with IO, Time {
+fn main() with IO {
     let size = 5000
     let iterations = 100
 
@@ -77,28 +77,16 @@ fn main() with IO, Time {
     let xs = build_list(size)
 
     // Benchmark 1: map (reuse fires on every Cons cell)
-    let t0 = now_ms()
     let mapped = bench_map(xs, iterations)
-    let t1 = now_ms()
-    print("map (#{iterations}x over #{size} elements):")
-    print("  #{t1 - t0} ms")
-    print("  result head: #{hd(mapped)}")
+    print("map: result head = #{hd(mapped)}")
 
     // Benchmark 2: len (borrowed params — no Rc::clone)
-    let t2 = now_ms()
     let total_len = bench_len(xs, iterations)
-    let t3 = now_ms()
-    print("len (#{iterations}x over #{size} elements, borrowed):")
-    print("  #{t3 - t2} ms")
-    print("  total: #{total_len}")
+    print("len: total = #{total_len}")
 
     // Benchmark 3: fold (accumulation, no reuse)
-    let t4 = now_ms()
     let total_sum = bench_fold(xs, iterations)
-    let t5 = now_ms()
-    print("fold (#{iterations}x over #{size} elements):")
-    print("  #{t5 - t4} ms")
-    print("  total: #{total_sum}")
+    print("fold: total = #{total_sum}")
 
     print("")
     print("Done.")
