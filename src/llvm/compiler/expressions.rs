@@ -906,5 +906,16 @@ pub(super) fn compile_expr(
             };
             Ok(build_ptr_tagged(ctx, result))
         }
+        IrExpr::IsUnique(var) => {
+            let val_ptr = force_box_to_ptr(ctx, env, *var, ctx_val)?;
+            let (func, fn_ty) = get_helper(ctx, "rt_is_unique")?;
+            let result = ctx.builder.build_call(
+                fn_ty,
+                func,
+                &mut [ctx_val, val_ptr],
+                "is_unique",
+            );
+            Ok(result)
+        }
     }
 }

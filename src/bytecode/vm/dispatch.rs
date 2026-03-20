@@ -1463,6 +1463,23 @@ impl VM {
                 self.push(result)?;
                 Ok(1)
             }
+
+            OpCode::OpIsUnique => {
+                let val = self.pop()?;
+                let unique = match &val {
+                    Value::Cons(rc) => Rc::strong_count(rc) == 1,
+                    Value::Adt(rc) => Rc::strong_count(rc) == 1,
+                    Value::Some(rc) | Value::Left(rc) | Value::Right(rc) => {
+                        Rc::strong_count(rc) == 1
+                    }
+                    Value::HashMap(rc) => Rc::strong_count(rc) == 1,
+                    _ => true,
+                };
+                // Push the value back (IsUnique is non-destructive)
+                self.push(val)?;
+                self.push(Value::Boolean(unique))?;
+                Ok(1)
+            }
         }
     }
 }

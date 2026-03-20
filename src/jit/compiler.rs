@@ -1823,7 +1823,8 @@ fn backend_ir_jit_support_error(ir_program: &IrProgram, interner: &Interner) -> 
                             | BackendIrExpr::ReuseSome { .. }
                             | BackendIrExpr::ReuseLeft { .. }
                             | BackendIrExpr::ReuseRight { .. }
-                            | BackendIrExpr::ReuseAdt { .. } => {}
+                            | BackendIrExpr::ReuseAdt { .. }
+                            | BackendIrExpr::IsUnique(_) => {}
                             BackendIrExpr::LoadName(name) => {
                                 let is_supported_load = named_functions.contains(name)
                                     || global_names.contains(name)
@@ -3013,6 +3014,16 @@ fn compile_simple_backend_ir_expr(
                 )
             };
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
+        BackendIrExpr::IsUnique(var) => {
+            let val = env
+                .get(var)
+                .ok_or_else(|| format!("missing JIT binding for IsUnique var {:?}", var))?;
+            let boxed = box_jit_value(module, helpers, builder, ctx_val, *val);
+            let helper = get_helper_func_ref(module, helpers, builder, "rt_is_unique");
+            let call = builder.ins().call(helper, &[ctx_val, boxed]);
+            let result = builder.inst_results(call)[0];
+            Ok(JitValue::int(result))
         }
         _ => Err("unsupported backend IR expression in direct JIT path".to_string()),
     }
@@ -4507,6 +4518,14 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_reuse_adt_masked",
             HelperSig {
                 num_params: 7,
+                num_returns: 1,
+            },
+        ),
+        // rt_is_unique(ctx, val) -> i64
+        (
+            "rt_is_unique",
+            HelperSig {
+                num_params: 2,
                 num_returns: 1,
             },
         ),
