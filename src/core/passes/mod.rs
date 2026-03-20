@@ -23,6 +23,10 @@ pub use inline::inline_trivial_lets;
 pub use inliner::inline_lets;
 
 use crate::core::{CoreExpr, CoreLit, CoreProgram};
+use crate::diagnostics::{
+    Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, ErrorType,
+};
+use crate::syntax::interner::Interner;
 
 // ── Pass pipeline ─────────────────────────────────────────────────────────────
 
@@ -37,7 +41,21 @@ use crate::core::{CoreExpr, CoreLit, CoreProgram};
 /// 5. `elim_dead_let`            — drop unused pure bindings left over
 /// 6. `evidence_pass`            — rewrite TR Handle/Perform into evidence passing
 /// 7. `anf_normalize`            — flatten nested subexpressions into let-chains
-pub fn run_core_passes(program: &mut CoreProgram) {
+pub fn run_core_passes(program: &mut CoreProgram) -> Result<(), Diagnostic> {
+    run_core_passes_with_optional_interner(program, None)
+}
+
+pub fn run_core_passes_with_interner(
+    program: &mut CoreProgram,
+    interner: &Interner,
+) -> Result<(), Diagnostic> {
+    run_core_passes_with_optional_interner(program, Some(interner))
+}
+
+fn run_core_passes_with_optional_interner(
+    program: &mut CoreProgram,
+    interner: Option<&Interner>,
+) -> Result<(), Diagnostic> {
     // Find the maximum binder ID so passes can allocate fresh IDs above it.
     let mut max_binder_id: u32 = 0;
     for def in &program.defs {
@@ -68,12 +86,17 @@ pub fn run_core_passes(program: &mut CoreProgram) {
 
     // Infer cross-function borrow modes from the ANF-normalized program,
     // then run the Aether pass with the registry.
-    let borrow_registry = crate::aether::borrow_infer::infer_borrow_modes(program);
+    let borrow_registry = crate::aether::borrow_infer::infer_borrow_modes(program, interner);
     for def in &mut program.defs {
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
         let e = crate::aether::run_aether_pass_with_registry(e, &borrow_registry);
         def.expr = e;
+
+        if let Err(errors) = crate::aether::verify::verify_contract(&def.expr) {
+            return Err(aether_contract_error(def, &errors));
+        }
     }
+    Ok(())
 }
 
 /// Run FBIP checking on annotated functions after Aether passes.
@@ -164,6 +187,40 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
             collect_max_binder_id(shared_body, max);
         }
     }
+}
+
+fn aether_contract_error(
+    def: &crate::core::CoreDef,
+    errors: &[crate::aether::verify::AetherError],
+) -> Diagnostic {
+    let bullet_lines = errors
+        .iter()
+        .map(|error| format!("- {:?}", error.kind))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let details = errors
+        .iter()
+        .map(|error| format!("- {}", error.message))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Diagnostic::make_error_dynamic(
+        "E999",
+        "AETHER VERIFICATION FAILED",
+        ErrorType::Compiler,
+        format!(
+            "definition `{}` emitted malformed Aether and cannot be lowered:\n{}\n\n{}",
+            def.name.as_u32(),
+            bullet_lines,
+            details
+        ),
+        Some("Fix the Aether transform in src/aether/ before lowering to CFG.".to_string()),
+        "",
+        def.span,
+    )
+    .with_display_title("Aether Verification Failed")
+    .with_category(DiagnosticCategory::Internal)
+    .with_phase(DiagnosticPhase::Validation)
+    .with_primary_label(def.span, "malformed Aether emitted here")
 }
 
 #[cfg(test)]

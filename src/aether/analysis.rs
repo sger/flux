@@ -6,9 +6,92 @@
 //! - 1 use  → ownership transfer (no dup/drop)
 //! - N uses → insert (N-1) Dups
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::core::{CoreBinderId, CoreExpr, CorePat};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueDemand {
+    Ignore,
+    Borrowed,
+    Owned,
+}
+
+/// Environment tracked by the reverse Aether planner.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AetherEnv {
+    pub live: HashSet<CoreBinderId>,
+    pub owned: HashSet<CoreBinderId>,
+    pub borrowed: HashSet<CoreBinderId>,
+}
+
+impl AetherEnv {
+    pub fn mark_owned(&mut self, binder: CoreBinderId) {
+        self.live.insert(binder);
+        self.owned.insert(binder);
+        self.borrowed.remove(&binder);
+    }
+
+    pub fn mark_borrowed(&mut self, binder: CoreBinderId) {
+        self.live.insert(binder);
+        if !self.owned.contains(&binder) {
+            self.borrowed.insert(binder);
+        }
+    }
+
+    pub fn remove(&mut self, binder: CoreBinderId) {
+        self.live.remove(&binder);
+        self.owned.remove(&binder);
+        self.borrowed.remove(&binder);
+    }
+
+    pub fn remove_all<I>(&mut self, binders: I)
+    where
+        I: IntoIterator<Item = CoreBinderId>,
+    {
+        for binder in binders {
+            self.remove(binder);
+        }
+    }
+
+    pub fn is_live(&self, binder: CoreBinderId) -> bool {
+        self.live.contains(&binder)
+    }
+
+    pub fn is_owned(&self, binder: CoreBinderId) -> bool {
+        self.owned.contains(&binder)
+    }
+
+    pub fn is_borrowed(&self, binder: CoreBinderId) -> bool {
+        self.borrowed.contains(&binder) && !self.owned.contains(&binder)
+    }
+
+    pub fn union_from(&mut self, other: &Self) {
+        self.live.extend(other.live.iter().copied());
+        self.owned.extend(other.owned.iter().copied());
+        for binder in other.borrowed.iter().copied() {
+            self.live.insert(binder);
+            if !self.owned.contains(&binder) {
+                self.borrowed.insert(binder);
+            }
+        }
+        self.borrowed.retain(|binder| !self.owned.contains(binder));
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AetherPlan {
+    pub expr: CoreExpr,
+    pub env_before: AetherEnv,
+}
+
+pub fn join_branch_envs(branches: &[AetherEnv]) -> AetherEnv {
+    let mut joined = AetherEnv::default();
+    for branch in branches {
+        joined.union_from(branch);
+    }
+    joined
+}
 
 /// Count free-variable occurrences in `expr`, respecting scoping.
 ///
@@ -274,23 +357,18 @@ fn count_owned_inner(
         CoreExpr::App { func, args, .. } => {
             let func_owned = count_owned_skip_direct(var, func, registry);
 
-            // Try to resolve callee name for borrow mode lookup
-            let callee_modes = registry.and_then(|reg| {
-                if let CoreExpr::Var { var: callee_var, .. } = func.as_ref() {
-                    reg.get(callee_var.name)
-                } else {
-                    None
-                }
+            let resolved_callee = registry.and_then(|reg| match func.as_ref() {
+                CoreExpr::Var { var: callee_var, .. } => Some(reg.resolve_var_ref(callee_var)),
+                _ => None,
             });
 
             let args_owned: usize = args
                 .iter()
                 .enumerate()
                 .map(|(i, a)| {
-                    let param_borrowed = callee_modes
-                        .and_then(|modes| modes.get(i))
-                        .copied()
-                        == Some(super::borrow_infer::BorrowMode::Borrowed);
+                    let param_borrowed = resolved_callee
+                        .zip(registry)
+                        .is_some_and(|(callee, reg)| reg.is_borrowed(callee, i));
 
                     if param_borrowed {
                         // Callee borrows this param — skip as borrowed use

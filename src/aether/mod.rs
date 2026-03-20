@@ -5,6 +5,14 @@
 //! - Phase 6: borrowing analysis to elide dup/drop for read-only params
 //! - Phase 7: reuse tokens for zero-allocation functional updates
 //!
+//! Aether contract:
+//! - `Dup` / `Drop` operate only on resolved Core binders.
+//! - `Reuse` may target only heap-allocating constructor tags and the reuse
+//!   token must not appear free in any field expression.
+//! - `DropSpecialized` must use a resolved scrutinee and both branches must
+//!   remain valid Aether expressions that do not use the scrutinee value after
+//!   specialization.
+//!
 //! The pass runs as the final Core IR transformation (after ANF normalization).
 //! Existing passes (1-7) never see Dup/Drop nodes.
 
@@ -17,7 +25,8 @@ pub mod insert;
 pub mod reuse;
 pub mod verify;
 
-use crate::core::{CoreExpr, CoreTag};
+use crate::core::{CoreExpr, CoreTag, CoreVarRef};
+use crate::diagnostics::position::Span;
 
 /// Statistics collected from an Aether-transformed Core IR expression.
 #[derive(Debug, Clone, Default)]
@@ -163,10 +172,81 @@ fn count_nodes(expr: &CoreExpr, stats: &mut AetherStats) {
 
 /// Returns true for constructor tags that allocate on the heap.
 /// Nil and None are value types (no heap allocation).
-fn is_heap_tag(tag: &CoreTag) -> bool {
+pub(crate) fn is_heap_tag(tag: &CoreTag) -> bool {
     match tag {
         CoreTag::Cons | CoreTag::Some | CoreTag::Left | CoreTag::Right | CoreTag::Named(_) => true,
         CoreTag::Nil | CoreTag::None => false,
+    }
+}
+
+/// View an expression as a constructor allocation shape for Aether passes.
+///
+/// Named ADT constructors can still appear as external constructor applications
+/// in Core; those require an expected tag from the enclosing pattern to
+/// disambiguate them from ordinary external calls.
+pub fn constructor_shape_for_tag<'a>(
+    expr: &'a CoreExpr,
+    expected_tag: Option<&CoreTag>,
+) -> Option<(CoreTag, &'a [CoreExpr], Span)> {
+    match expr {
+        CoreExpr::Con { tag, fields, span } => Some((tag.clone(), fields.as_slice(), *span)),
+        CoreExpr::App { func, args, span } => {
+            constructor_app_shape_for_tag(func.as_ref(), args, *span, expected_tag)
+        }
+        _ => None,
+    }
+}
+
+/// Consume an expression if it is constructor-shaped.
+pub fn into_constructor_shape_for_tag(
+    expr: CoreExpr,
+    expected_tag: Option<&CoreTag>,
+) -> Option<(CoreTag, Vec<CoreExpr>, Span)> {
+    match expr {
+        CoreExpr::Con { tag, fields, span } => Some((tag, fields, span)),
+        CoreExpr::App { func, args, span } => {
+            into_constructor_app_shape_for_tag(*func, args, span, expected_tag)
+        }
+        _ => None,
+    }
+}
+
+fn constructor_app_shape_for_tag<'a>(
+    func: &'a CoreExpr,
+    args: &'a [CoreExpr],
+    span: Span,
+    expected_tag: Option<&CoreTag>,
+) -> Option<(CoreTag, &'a [CoreExpr], Span)> {
+    let CoreExpr::Var { var, .. } = func else {
+        return None;
+    };
+    let tag = core_tag_from_constructor_var(var, expected_tag)?;
+    Some((tag, args, span))
+}
+
+fn into_constructor_app_shape_for_tag(
+    func: CoreExpr,
+    args: Vec<CoreExpr>,
+    span: Span,
+    expected_tag: Option<&CoreTag>,
+) -> Option<(CoreTag, Vec<CoreExpr>, Span)> {
+    let CoreExpr::Var { var, .. } = func else {
+        return None;
+    };
+    let tag = core_tag_from_constructor_var(&var, expected_tag)?;
+    Some((tag, args, span))
+}
+
+fn core_tag_from_constructor_var(
+    var: &CoreVarRef,
+    expected_tag: Option<&CoreTag>,
+) -> Option<CoreTag> {
+    if var.binder.is_some() {
+        return None;
+    }
+    match expected_tag {
+        Some(CoreTag::Named(name)) if var.name == *name => Some(CoreTag::Named(*name)),
+        _ => None,
     }
 }
 

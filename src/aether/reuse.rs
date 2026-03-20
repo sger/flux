@@ -7,6 +7,7 @@
 use crate::core::{CoreBinderId, CoreExpr, CorePat, CoreTag, CoreVarRef};
 
 use super::analysis::use_counts;
+use super::into_constructor_shape_for_tag;
 
 /// Insert reuse tokens into a Core IR expression.
 ///
@@ -73,23 +74,37 @@ fn compute_field_mask(
 }
 
 fn rewrite(expr: CoreExpr) -> CoreExpr {
-    rewrite_with_pat_ctx(expr, None)
+    rewrite_with_pat_ctx(expr, None, None)
 }
 
 fn rewrite_with_pat_ctx(
     expr: CoreExpr,
     pat_binders: Option<&[Option<CoreBinderId>]>,
+    pat_tag: Option<&CoreTag>,
 ) -> CoreExpr {
     match expr {
         CoreExpr::Drop { var, body, span } => {
-            let body = rewrite_with_pat_ctx(*body, pat_binders);
+            let body = rewrite_with_pat_ctx(*body, pat_binders, pat_tag);
+            if matches!(
+                &body,
+                CoreExpr::Reuse { token, .. } if token.binder == var.binder
+            ) {
+                return body;
+            }
             // Try the direct pattern: Drop { var, Con { .. } }
-            if let Some(result) = try_reuse_direct(&var, body.clone(), span, pat_binders) {
+            if let Some(result) = try_reuse_direct(&var, body.clone(), span, pat_binders, pat_tag)
+            {
                 return result;
             }
             // Try the spine pattern: Drop { var, Let/Drop chain ending in Con { .. } }
+            if let Some(result) = try_reuse_in_spine(&var, body.clone(), span, pat_binders, pat_tag)
+            {
+                return result;
+            }
+            // Try a branch-sensitive pattern: Drop { var, Let* / Case { ... } }
+            // where only some branches rebuild a compatible constructor.
             if let Some(result) =
-                try_reuse_in_spine(&var, body.clone(), span, pat_binders)
+                try_reuse_in_branching_case(&var, body.clone(), span, pat_binders, pat_tag)
             {
                 return result;
             }
@@ -107,8 +122,8 @@ fn rewrite_with_pat_ctx(
             span,
         } => CoreExpr::Let {
             var,
-            rhs: Box::new(rewrite_with_pat_ctx(*rhs, pat_binders)),
-            body: Box::new(rewrite_with_pat_ctx(*body, pat_binders)),
+            rhs: Box::new(rewrite_with_pat_ctx(*rhs, pat_binders, pat_tag)),
+            body: Box::new(rewrite_with_pat_ctx(*body, pat_binders, pat_tag)),
             span,
         },
         CoreExpr::LetRec {
@@ -118,20 +133,20 @@ fn rewrite_with_pat_ctx(
             span,
         } => CoreExpr::LetRec {
             var,
-            rhs: Box::new(rewrite_with_pat_ctx(*rhs, pat_binders)),
-            body: Box::new(rewrite_with_pat_ctx(*body, pat_binders)),
+            rhs: Box::new(rewrite_with_pat_ctx(*rhs, pat_binders, pat_tag)),
+            body: Box::new(rewrite_with_pat_ctx(*body, pat_binders, pat_tag)),
             span,
         },
         CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
             params,
-            body: Box::new(rewrite_with_pat_ctx(*body, None)),
+            body: Box::new(rewrite_with_pat_ctx(*body, None, None)),
             span,
         },
         CoreExpr::App { func, args, span } => CoreExpr::App {
-            func: Box::new(rewrite_with_pat_ctx(*func, pat_binders)),
+            func: Box::new(rewrite_with_pat_ctx(*func, pat_binders, pat_tag)),
             args: args
                 .into_iter()
-                .map(|a| rewrite_with_pat_ctx(a, pat_binders))
+                .map(|a| rewrite_with_pat_ctx(a, pat_binders, pat_tag))
                 .collect(),
             span,
         },
@@ -140,15 +155,18 @@ fn rewrite_with_pat_ctx(
             alts,
             span,
         } => CoreExpr::Case {
-            scrutinee: Box::new(rewrite_with_pat_ctx(*scrutinee, None)),
+            scrutinee: Box::new(rewrite_with_pat_ctx(*scrutinee, None, None)),
             alts: alts
                 .into_iter()
                 .map(|mut alt| {
                     // Extract pattern field binder IDs for reuse specialization
                     let alt_pat_binders = pat_field_binder_ids(&alt.pat);
-                    let ctx = alt_pat_binders.as_deref();
-                    alt.rhs = rewrite_with_pat_ctx(alt.rhs, ctx);
-                    alt.guard = alt.guard.map(|g| rewrite_with_pat_ctx(g, None));
+                    let alt_pat_tag = match &alt.pat {
+                        CorePat::Con { tag, .. } => Some(tag),
+                        _ => None,
+                    };
+                    alt.rhs = rewrite_with_pat_ctx(alt.rhs, alt_pat_binders.as_deref(), alt_pat_tag);
+                    alt.guard = alt.guard.map(|g| rewrite_with_pat_ctx(g, None, None));
                     alt
                 })
                 .collect(),
@@ -158,7 +176,7 @@ fn rewrite_with_pat_ctx(
             tag,
             fields: fields
                 .into_iter()
-                .map(|f| rewrite_with_pat_ctx(f, pat_binders))
+                .map(|f| rewrite_with_pat_ctx(f, pat_binders, pat_tag))
                 .collect(),
             span,
         },
@@ -166,12 +184,12 @@ fn rewrite_with_pat_ctx(
             op,
             args: args
                 .into_iter()
-                .map(|a| rewrite_with_pat_ctx(a, pat_binders))
+                .map(|a| rewrite_with_pat_ctx(a, pat_binders, pat_tag))
                 .collect(),
             span,
         },
         CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(rewrite_with_pat_ctx(*value, pat_binders)),
+            value: Box::new(rewrite_with_pat_ctx(*value, pat_binders, pat_tag)),
             span,
         },
         CoreExpr::Perform {
@@ -184,7 +202,7 @@ fn rewrite_with_pat_ctx(
             operation,
             args: args
                 .into_iter()
-                .map(|a| rewrite_with_pat_ctx(a, pat_binders))
+                .map(|a| rewrite_with_pat_ctx(a, pat_binders, pat_tag))
                 .collect(),
             span,
         },
@@ -194,12 +212,12 @@ fn rewrite_with_pat_ctx(
             handlers,
             span,
         } => CoreExpr::Handle {
-            body: Box::new(rewrite_with_pat_ctx(*body, pat_binders)),
+            body: Box::new(rewrite_with_pat_ctx(*body, pat_binders, pat_tag)),
             effect,
             handlers: handlers
                 .into_iter()
                 .map(|mut h| {
-                    h.body = rewrite_with_pat_ctx(h.body, None);
+                    h.body = rewrite_with_pat_ctx(h.body, None, None);
                     h
                 })
                 .collect(),
@@ -207,7 +225,7 @@ fn rewrite_with_pat_ctx(
         },
         CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
             var,
-            body: Box::new(rewrite_with_pat_ctx(*body, pat_binders)),
+            body: Box::new(rewrite_with_pat_ctx(*body, pat_binders, pat_tag)),
             span,
         },
         CoreExpr::Reuse {
@@ -221,7 +239,7 @@ fn rewrite_with_pat_ctx(
             tag,
             fields: fields
                 .into_iter()
-                .map(|f| rewrite_with_pat_ctx(f, pat_binders))
+                .map(|f| rewrite_with_pat_ctx(f, pat_binders, pat_tag))
                 .collect(),
             field_mask,
             span,
@@ -235,12 +253,13 @@ fn rewrite_with_pat_ctx(
             shared_body,
             span,
         } => {
-            let shared_body = rewrite_with_pat_ctx(*shared_body, pat_binders);
-            let unique_body = insert_reuse_in_unique(
-                &scrutinee,
-                *unique_body,
-                pat_binders,
-            );
+            // The shared branch no longer owns the outer scrutinee token. Reusing
+            // an unrelated inner drop under the outer pattern context can produce
+            // invalid field-mask assumptions for masked ADT/list updates, so keep
+            // this branch conservative and only apply context-free rewrites there.
+            let shared_body = rewrite_with_pat_ctx(*shared_body, None, None);
+            let unique_body =
+                insert_reuse_in_unique(&scrutinee, *unique_body, pat_binders, pat_tag);
             CoreExpr::DropSpecialized {
                 scrutinee,
                 unique_body: Box::new(unique_body),
@@ -285,24 +304,20 @@ fn try_reuse_direct(
     body: CoreExpr,
     _drop_span: crate::diagnostics::position::Span,
     pat_binders: Option<&[Option<CoreBinderId>]>,
+    pat_tag: Option<&CoreTag>,
 ) -> Option<CoreExpr> {
-    match body {
-        CoreExpr::Con { tag, fields, span } => {
-            if is_heap_tag(&tag) && var_not_free_in_fields(var, &fields) {
-                let field_mask =
-                    pat_binders.and_then(|pb| compute_field_mask(&fields, pb));
-                Some(CoreExpr::Reuse {
-                    token: *var,
-                    tag,
-                    fields,
-                    field_mask,
-                    span,
-                })
-            } else {
-                None
-            }
-        }
-        _ => None,
+    let (tag, fields, span) = into_constructor_shape_for_tag(body, pat_tag)?;
+    if is_heap_tag(&tag) && var_not_free_in_fields(var, &fields) {
+        let field_mask = pat_binders.and_then(|pb| compute_field_mask(&fields, pb));
+        Some(CoreExpr::Reuse {
+            token: *var,
+            tag,
+            fields,
+            field_mask,
+            span,
+        })
+    } else {
+        None
     }
 }
 
@@ -320,6 +335,7 @@ fn try_reuse_in_spine(
     body: CoreExpr,
     _drop_span: crate::diagnostics::position::Span,
     pat_binders: Option<&[Option<CoreBinderId>]>,
+    pat_tag: Option<&CoreTag>,
 ) -> Option<CoreExpr> {
     let binder_id = var.binder?;
 
@@ -338,42 +354,48 @@ fn try_reuse_in_spine(
 
             // Try to find a Con at the end of the chain
             match *let_body {
-                CoreExpr::Con { tag, fields, span } => {
-                    if is_heap_tag(&tag) && var_not_free_in_fields(var, &fields) {
-                        let field_mask =
-                            pat_binders.and_then(|pb| compute_field_mask(&fields, pb));
-                        Some(CoreExpr::Let {
-                            var: let_var,
-                            rhs,
-                            body: Box::new(CoreExpr::Reuse {
-                                token: *var,
-                                tag,
-                                fields,
-                                field_mask,
-                                span,
-                            }),
-                            span: let_span,
-                        })
-                    } else {
-                        None
+                ctor_like => {
+                    if let Some((tag, fields, span)) =
+                        into_constructor_shape_for_tag(ctor_like.clone(), pat_tag)
+                    {
+                        if is_heap_tag(&tag) && var_not_free_in_fields(var, &fields) {
+                            let field_mask =
+                                pat_binders.and_then(|pb| compute_field_mask(&fields, pb));
+                            return Some(CoreExpr::Let {
+                                var: let_var,
+                                rhs,
+                                body: Box::new(CoreExpr::Reuse {
+                                    token: *var,
+                                    tag,
+                                    fields,
+                                    field_mask,
+                                    span,
+                                }),
+                                span: let_span,
+                            });
+                        }
+                    }
+
+                    match ctor_like {
+                        // Recurse into nested lets or drops
+                        CoreExpr::Let { .. } | CoreExpr::Drop { .. } => {
+                            let inner = try_reuse_in_spine(
+                                var,
+                                ctor_like,
+                                _drop_span,
+                                pat_binders,
+                                pat_tag,
+                            )?;
+                            Some(CoreExpr::Let {
+                                var: let_var,
+                                rhs,
+                                body: Box::new(inner),
+                                span: let_span,
+                            })
+                        }
+                        _ => None,
                     }
                 }
-                // Recurse into nested lets or drops
-                CoreExpr::Let { .. } | CoreExpr::Drop { .. } => {
-                    let inner = try_reuse_in_spine(
-                        var,
-                        *let_body.clone(),
-                        _drop_span,
-                        pat_binders,
-                    )?;
-                    Some(CoreExpr::Let {
-                        var: let_var,
-                        rhs,
-                        body: Box::new(inner),
-                        span: let_span,
-                    })
-                }
-                _ => None,
             }
         }
         CoreExpr::Drop {
@@ -383,41 +405,125 @@ fn try_reuse_in_spine(
         } => {
             // Keep the inner Drop, try reuse in its body
             match *inner_body {
-                CoreExpr::Con { tag, fields, span } => {
-                    if is_heap_tag(&tag) && var_not_free_in_fields(var, &fields) {
-                        let field_mask =
-                            pat_binders.and_then(|pb| compute_field_mask(&fields, pb));
-                        Some(CoreExpr::Drop {
-                            var: inner_var,
-                            body: Box::new(CoreExpr::Reuse {
-                                token: *var,
-                                tag,
-                                fields,
-                                field_mask,
-                                span,
-                            }),
-                            span: drop_span,
-                        })
-                    } else {
-                        None
+                ctor_like => {
+                    if let Some((tag, fields, span)) =
+                        into_constructor_shape_for_tag(ctor_like.clone(), pat_tag)
+                    {
+                        if is_heap_tag(&tag) && var_not_free_in_fields(var, &fields) {
+                            let field_mask =
+                                pat_binders.and_then(|pb| compute_field_mask(&fields, pb));
+                            return Some(CoreExpr::Drop {
+                                var: inner_var,
+                                body: Box::new(CoreExpr::Reuse {
+                                    token: *var,
+                                    tag,
+                                    fields,
+                                    field_mask,
+                                    span,
+                                }),
+                                span: drop_span,
+                            });
+                        }
+                    }
+
+                    match ctor_like {
+                        // Recurse into nested lets or drops
+                        CoreExpr::Let { .. } | CoreExpr::Drop { .. } => {
+                            let result = try_reuse_in_spine(
+                                var,
+                                ctor_like,
+                                _drop_span,
+                                pat_binders,
+                                pat_tag,
+                            )?;
+                            Some(CoreExpr::Drop {
+                                var: inner_var,
+                                body: Box::new(result),
+                                span: drop_span,
+                            })
+                        }
+                        _ => None,
                     }
                 }
-                // Recurse into nested lets or drops
-                CoreExpr::Let { .. } | CoreExpr::Drop { .. } => {
-                    let result = try_reuse_in_spine(
-                        var,
-                        *inner_body.clone(),
-                        _drop_span,
-                        pat_binders,
-                    )?;
-                    Some(CoreExpr::Drop {
-                        var: inner_var,
-                        body: Box::new(result),
-                        span: drop_span,
-                    })
-                }
-                _ => None,
             }
+        }
+        _ => None,
+    }
+}
+
+/// Branch-sensitive reuse: push `Drop(var)` through a let spine into a `Case`
+/// when the dropped token is dead before the branch. Each branch then gets its
+/// own `Drop(var, rhs)` wrapper, allowing rebuilding branches to become `Reuse`
+/// while non-rebuilding branches keep the explicit drop.
+fn try_reuse_in_branching_case(
+    var: &CoreVarRef,
+    body: CoreExpr,
+    drop_span: crate::diagnostics::position::Span,
+    pat_binders: Option<&[Option<CoreBinderId>]>,
+    pat_tag: Option<&CoreTag>,
+) -> Option<CoreExpr> {
+    let binder_id = var.binder?;
+
+    match body {
+        CoreExpr::Let {
+            var: let_var,
+            rhs,
+            body: let_body,
+            span: let_span,
+        } => {
+            if use_counts(&rhs).contains_key(&binder_id) {
+                return None;
+            }
+            let inner = try_reuse_in_branching_case(
+                var,
+                *let_body,
+                drop_span,
+                pat_binders,
+                pat_tag,
+            )?;
+            Some(CoreExpr::Let {
+                var: let_var,
+                rhs,
+                body: Box::new(inner),
+                span: let_span,
+            })
+        }
+        CoreExpr::Case {
+            scrutinee,
+            alts,
+            span,
+        } => {
+            if use_counts(&scrutinee).contains_key(&binder_id)
+                || alts.iter().any(|alt| {
+                    alt.guard
+                        .as_ref()
+                        .is_some_and(|guard| use_counts(guard).contains_key(&binder_id))
+                })
+            {
+                return None;
+            }
+
+            let alts = alts
+                .into_iter()
+                .map(|mut alt| {
+                    alt.rhs = rewrite_with_pat_ctx(
+                        CoreExpr::Drop {
+                            var: *var,
+                            body: Box::new(alt.rhs),
+                            span: drop_span,
+                        },
+                        pat_binders,
+                        pat_tag,
+                    );
+                    alt
+                })
+                .collect();
+
+            Some(CoreExpr::Case {
+                scrutinee,
+                alts,
+                span,
+            })
         }
         _ => None,
     }
@@ -433,19 +539,25 @@ fn insert_reuse_in_unique(
     scrutinee: &CoreVarRef,
     body: CoreExpr,
     pat_binders: Option<&[Option<CoreBinderId>]>,
+    pat_tag: Option<&CoreTag>,
 ) -> CoreExpr {
     match body {
-        // Direct Con — convert to Reuse
-        CoreExpr::Con { tag, fields, span } if is_heap_tag(&tag) => {
-            let field_mask = pat_binders.and_then(|pb| compute_field_mask(&fields, pb));
-            CoreExpr::Reuse {
-                token: *scrutinee,
-                tag,
-                fields,
-                field_mask,
-                span,
+        // Direct constructor shape — convert to Reuse
+        ctor_like => {
+            if let Some((tag, fields, span)) =
+                into_constructor_shape_for_tag(ctor_like.clone(), pat_tag)
+                && is_heap_tag(&tag)
+            {
+                let field_mask = pat_binders.and_then(|pb| compute_field_mask(&fields, pb));
+                return CoreExpr::Reuse {
+                    token: *scrutinee,
+                    tag,
+                    fields,
+                    field_mask,
+                    span,
+                };
             }
-        }
+            match ctor_like {
         // Walk through Let spine
         CoreExpr::Let {
             var,
@@ -455,7 +567,7 @@ fn insert_reuse_in_unique(
         } => CoreExpr::Let {
             var,
             rhs,
-            body: Box::new(insert_reuse_in_unique(scrutinee, *let_body, pat_binders)),
+            body: Box::new(insert_reuse_in_unique(scrutinee, *let_body, pat_binders, pat_tag)),
             span,
         },
         // Walk through Dup spine
@@ -465,7 +577,7 @@ fn insert_reuse_in_unique(
             span,
         } => CoreExpr::Dup {
             var,
-            body: Box::new(insert_reuse_in_unique(scrutinee, *dup_body, pat_binders)),
+            body: Box::new(insert_reuse_in_unique(scrutinee, *dup_body, pat_binders, pat_tag)),
             span,
         },
         // Walk through Drop spine
@@ -473,12 +585,39 @@ fn insert_reuse_in_unique(
             var,
             body: drop_body,
             span,
-        } => CoreExpr::Drop {
-            var,
-            body: Box::new(insert_reuse_in_unique(scrutinee, *drop_body, pat_binders)),
+        } => {
+            let body = insert_reuse_in_unique(scrutinee, *drop_body, pat_binders, pat_tag);
+            if var.binder == scrutinee.binder {
+                body
+            } else {
+                CoreExpr::Drop {
+                    var,
+                    body: Box::new(body),
+                    span,
+                }
+            }
+        }
+        // Recurse into branchy bodies while preserving the outer reuse token.
+        CoreExpr::Case {
+            scrutinee: case_scrutinee,
+            alts,
+            span,
+        } => CoreExpr::Case {
+            scrutinee: Box::new(rewrite_with_pat_ctx(*case_scrutinee, None, None)),
+            alts: alts
+                .into_iter()
+                .map(|mut alt| {
+                    alt.rhs =
+                        insert_reuse_in_unique(scrutinee, alt.rhs, pat_binders, pat_tag);
+                    alt.guard = alt.guard.map(|g| rewrite_with_pat_ctx(g, None, None));
+                    alt
+                })
+                .collect(),
             span,
         },
         // No compatible Con found — return body unchanged, recurse normally
-        other => rewrite_with_pat_ctx(other, pat_binders),
+        other => rewrite_with_pat_ctx(other, pat_binders, pat_tag),
+            }
+        }
     }
 }

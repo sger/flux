@@ -10,7 +10,7 @@ pub mod context;
 pub mod wrapper;
 
 use crate::bytecode::compiler::Compiler;
-use crate::cfg::{IrPassContext, lower_program_to_ir, run_ir_pass_pipeline};
+use crate::cfg::{IrPassContext, lower_program_to_ir_with_interner, run_ir_pass_pipeline};
 use crate::diagnostics::Diagnostic;
 use crate::runtime::native_context::{JIT_TAG_PTR, JIT_TAG_THUNK, JitContext, JitTaggedValue};
 use crate::runtime::value::Value;
@@ -78,7 +78,7 @@ pub fn llvm_compile(
         interner.clone(),
     );
     let hm_expr_types = hm_compiler.infer_expr_types_for_program(program);
-    let mut ir_program = lower_program_to_ir(program, &hm_expr_types)
+    let mut ir_program = lower_program_to_ir_with_interner(program, &hm_expr_types, Some(interner))
         .map_err(|diag| LlvmError::Compile(Box::new(diag)))?;
     run_ir_pass_pipeline(&mut ir_program, &IrPassContext)
         .map_err(|diag| LlvmError::Compile(Box::new(diag)))?;
@@ -214,7 +214,7 @@ pub fn llvm_emit_object(
         interner.clone(),
     );
     let hm_expr_types = hm_compiler.infer_expr_types_for_program(program);
-    let mut ir_program = lower_program_to_ir(program, &hm_expr_types)
+    let mut ir_program = lower_program_to_ir_with_interner(program, &hm_expr_types, Some(interner))
         .map_err(|diag| LlvmError::Compile(Box::new(diag)))?;
     run_ir_pass_pipeline(&mut ir_program, &IrPassContext)
         .map_err(|diag| LlvmError::Compile(Box::new(diag)))?;
@@ -244,7 +244,7 @@ pub fn llvm_emit_asm(
         interner.clone(),
     );
     let hm_expr_types = hm_compiler.infer_expr_types_for_program(program);
-    let mut ir_program = lower_program_to_ir(program, &hm_expr_types)
+    let mut ir_program = lower_program_to_ir_with_interner(program, &hm_expr_types, Some(interner))
         .map_err(|diag| LlvmError::Compile(Box::new(diag)))?;
     run_ir_pass_pipeline(&mut ir_program, &IrPassContext)
         .map_err(|diag| LlvmError::Compile(Box::new(diag)))?;

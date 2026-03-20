@@ -2972,18 +2972,9 @@ fn compile_simple_backend_ir_expr(
                     env.get(var)
                         .copied()
                         .ok_or_else(|| format!("missing backend IR reuse_adt field {:?}", var))
-                        .map(|v| box_and_guard_jit_value(module, helpers, builder, ctx_val, v))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            let slot = builder.create_sized_stack_slot(StackSlotData::new(
-                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                (field_vals.len().max(1) as u32) * 16,
-                3,
-            ));
-            for (i, val) in field_vals.iter().enumerate() {
-                builder.ins().stack_store(*val, slot, (i * 16) as i32);
-            }
-            let fields_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+            let (_slot, fields_ptr) = emit_tagged_stack_array(builder, &field_vals);
             let nfields = builder.ins().iconst(PTR_TYPE, fields.len() as i64);
             let call = if let Some(mask) = field_mask {
                 let helper =
