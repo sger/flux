@@ -207,10 +207,25 @@ fn collect_pat_binders(pat: &CorePat, out: &mut Vec<CoreBinderId>) {
 /// Returns the number of owned uses. If 0, all uses are borrowed and no
 /// Dup is needed regardless of total use count.
 pub fn owned_use_count(var: CoreBinderId, expr: &CoreExpr) -> usize {
-    count_owned(var, expr)
+    count_owned_inner(var, expr, None)
 }
 
-fn count_owned(var: CoreBinderId, expr: &CoreExpr) -> usize {
+/// Like `owned_use_count`, but consults a `BorrowRegistry` to determine
+/// if App arguments at borrowed parameter positions should be counted as
+/// borrowed (not owned). This eliminates unnecessary Rc::clone at call sites.
+pub fn owned_use_count_with_registry(
+    var: CoreBinderId,
+    expr: &CoreExpr,
+    registry: &super::borrow_infer::BorrowRegistry,
+) -> usize {
+    count_owned_inner(var, expr, Some(registry))
+}
+
+fn count_owned_inner(
+    var: CoreBinderId,
+    expr: &CoreExpr,
+    registry: Option<&super::borrow_infer::BorrowRegistry>,
+) -> usize {
     match expr {
         // Atoms: a bare Var reference is not in any specific position.
         // It only appears as a subexpression of something else after ANF.
@@ -230,7 +245,7 @@ fn count_owned(var: CoreBinderId, expr: &CoreExpr) -> usize {
             // Args are trivial after ANF (Var or Lit).
             // Each arg that matches var is a borrowed use → not counted.
             args.iter()
-                .map(|a| count_owned_skip_direct(var, a))
+                .map(|a| count_owned_skip_direct(var, a, registry))
                 .sum::<usize>()
         }
 
@@ -238,15 +253,15 @@ fn count_owned(var: CoreBinderId, expr: &CoreExpr) -> usize {
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
-            let scrut = count_owned_skip_direct(var, scrutinee);
+            let scrut = count_owned_skip_direct(var, scrutinee, registry);
             let alts_owned: usize = alts
                 .iter()
                 .map(|alt| {
                     if pat_binds(var, &alt.pat) {
                         0 // shadowed by pattern
                     } else {
-                        let rhs = count_owned(var, &alt.rhs);
-                        let guard = alt.guard.as_ref().map_or(0, |g| count_owned(var, g));
+                        let rhs = count_owned_inner(var, &alt.rhs, registry);
+                        let guard = alt.guard.as_ref().map_or(0, |g| count_owned_inner(var, g, registry));
                         rhs + guard
                     }
                 })
@@ -254,18 +269,46 @@ fn count_owned(var: CoreBinderId, expr: &CoreExpr) -> usize {
             scrut + alts_owned
         }
 
-        // App: function position is borrowed, arguments are OWNED (conservative).
+        // App: function position is borrowed. Arguments are owned UNLESS the
+        // callee declares the corresponding parameter as Borrowed (via registry).
         CoreExpr::App { func, args, .. } => {
-            let func_owned = count_owned_skip_direct(var, func);
-            let args_owned: usize = args.iter().map(|a| count_owned(var, a)).sum();
+            let func_owned = count_owned_skip_direct(var, func, registry);
+
+            // Try to resolve callee name for borrow mode lookup
+            let callee_modes = registry.and_then(|reg| {
+                if let CoreExpr::Var { var: callee_var, .. } = func.as_ref() {
+                    reg.get(callee_var.name)
+                } else {
+                    None
+                }
+            });
+
+            let args_owned: usize = args
+                .iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    let param_borrowed = callee_modes
+                        .and_then(|modes| modes.get(i))
+                        .copied()
+                        == Some(super::borrow_infer::BorrowMode::Borrowed);
+
+                    if param_borrowed {
+                        // Callee borrows this param — skip as borrowed use
+                        count_owned_skip_direct(var, a, registry)
+                    } else {
+                        // Callee owns this param — count as owned
+                        count_owned_inner(var, a, registry)
+                    }
+                })
+                .sum();
             func_owned + args_owned
         }
 
         // Con fields are OWNED (stored in data structure).
-        CoreExpr::Con { fields, .. } => fields.iter().map(|f| count_owned(var, f)).sum(),
+        CoreExpr::Con { fields, .. } => fields.iter().map(|f| count_owned_inner(var, f, registry)).sum(),
 
         // Return value is OWNED (escapes scope).
-        CoreExpr::Return { value, .. } => count_owned(var, value),
+        CoreExpr::Return { value, .. } => count_owned_inner(var, value, registry),
 
         // Lam: if var is captured (free in body), it's OWNED.
         CoreExpr::Lam { params, body, .. } => {
@@ -284,11 +327,11 @@ fn count_owned(var: CoreBinderId, expr: &CoreExpr) -> usize {
             body,
             ..
         } => {
-            let rhs_owned = count_owned(var, rhs);
+            let rhs_owned = count_owned_inner(var, rhs, registry);
             if binding.id == var {
                 rhs_owned // shadowed in body
             } else {
-                rhs_owned + count_owned(var, body)
+                rhs_owned + count_owned_inner(var, body, registry)
             }
         }
 
@@ -301,23 +344,23 @@ fn count_owned(var: CoreBinderId, expr: &CoreExpr) -> usize {
             if binding.id == var {
                 0 // shadowed in both
             } else {
-                count_owned(var, rhs) + count_owned(var, body)
+                count_owned_inner(var, rhs, registry) + count_owned_inner(var, body, registry)
             }
         }
 
         // Perform args are OWNED (continuation capture boundary).
-        CoreExpr::Perform { args, .. } => args.iter().map(|a| count_owned(var, a)).sum(),
+        CoreExpr::Perform { args, .. } => args.iter().map(|a| count_owned_inner(var, a, registry)).sum(),
 
         // Handle: body is normal context, handler bodies have their own scope.
         CoreExpr::Handle { body, handlers, .. } => {
-            let body_owned = count_owned(var, body);
+            let body_owned = count_owned_inner(var, body, registry);
             let handlers_owned: usize = handlers
                 .iter()
                 .map(|h| {
                     if h.resume.id == var || h.params.iter().any(|p| p.id == var) {
                         0
                     } else {
-                        count_owned(var, &h.body)
+                        count_owned_inner(var, &h.body, registry)
                     }
                 })
                 .sum();
@@ -329,13 +372,13 @@ fn count_owned(var: CoreBinderId, expr: &CoreExpr) -> usize {
             var: dup_var, body, ..
         } => {
             let dup_use = if dup_var.binder == Some(var) { 1 } else { 0 };
-            dup_use + count_owned(var, body)
+            dup_use + count_owned_inner(var, body, registry)
         }
-        CoreExpr::Drop { body, .. } => count_owned(var, body),
+        CoreExpr::Drop { body, .. } => count_owned_inner(var, body, registry),
         // Reuse: token is owned (reuse consumes the token), fields are owned (stored).
         CoreExpr::Reuse { token, fields, .. } => {
             let token_use = if token.binder == Some(var) { 1 } else { 0 };
-            token_use + fields.iter().map(|f| count_owned(var, f)).sum::<usize>()
+            token_use + fields.iter().map(|f| count_owned_inner(var, f, registry)).sum::<usize>()
         }
         // DropSpecialized: scrutinee is borrowed (tested for uniqueness),
         // branches are normal context — take max (only one runs).
@@ -347,8 +390,8 @@ fn count_owned(var: CoreBinderId, expr: &CoreExpr) -> usize {
         } => {
             let scrut = if scrutinee.binder == Some(var) { 0 } else { 0 }; // borrowed
             let _ = scrut;
-            let u = count_owned(var, unique_body);
-            let s = count_owned(var, shared_body);
+            let u = count_owned_inner(var, unique_body, registry);
+            let s = count_owned_inner(var, shared_body, registry);
             u.max(s)
         }
     }
@@ -356,10 +399,14 @@ fn count_owned(var: CoreBinderId, expr: &CoreExpr) -> usize {
 
 /// Count owned uses, but if the expression is a direct Var reference to `var`,
 /// return 0 (the variable is in a borrowed position — the caller handles this).
-fn count_owned_skip_direct(var: CoreBinderId, expr: &CoreExpr) -> usize {
+fn count_owned_skip_direct(
+    var: CoreBinderId,
+    expr: &CoreExpr,
+    registry: Option<&super::borrow_infer::BorrowRegistry>,
+) -> usize {
     match expr {
         CoreExpr::Var { .. } => 0, // Direct reference in borrowed position — skip
-        _ => count_owned(var, expr),
+        _ => count_owned_inner(var, expr, registry),
     }
 }
 
