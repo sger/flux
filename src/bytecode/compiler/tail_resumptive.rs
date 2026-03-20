@@ -77,6 +77,92 @@ fn is_resume_call(resume: Identifier, expr: &Expression) -> bool {
     matches!(expr, Expression::Identifier { name, .. } if *name == resume)
 }
 
+/// Returns `true` if **all** arms of a handler are "discard" — they never
+/// reference `resume`. These handlers can skip continuation capture entirely.
+/// (Perceus Section 2.7.1: non-linear control flow safety.)
+pub fn is_handler_discard(arms: &[HandleArm]) -> bool {
+    arms.iter()
+        .all(|arm| !identifier_appears_in_expr(arm.resume_param, &arm.body))
+}
+
+/// Check whether an identifier appears anywhere in an expression tree.
+/// Conservative: returns `true` (appears) for unrecognized expression forms.
+fn identifier_appears_in_expr(name: Identifier, expr: &Expression) -> bool {
+    match expr {
+        Expression::Identifier { name: n, .. } => *n == name,
+        Expression::Call {
+            function,
+            arguments,
+            ..
+        } => {
+            identifier_appears_in_expr(name, function)
+                || arguments
+                    .iter()
+                    .any(|a| identifier_appears_in_expr(name, a))
+        }
+        Expression::DoBlock { block, .. } => block.statements.iter().any(|s| match s {
+            crate::syntax::statement::Statement::Expression { expression, .. } => {
+                identifier_appears_in_expr(name, expression)
+            }
+            crate::syntax::statement::Statement::Let { value, .. } => {
+                identifier_appears_in_expr(name, value)
+            }
+            _ => false,
+        }),
+        Expression::If {
+            condition,
+            consequence,
+            alternative,
+            ..
+        } => {
+            identifier_appears_in_expr(name, condition)
+                || consequence.statements.iter().any(|s| match s {
+                    crate::syntax::statement::Statement::Expression { expression, .. } => {
+                        identifier_appears_in_expr(name, expression)
+                    }
+                    _ => false,
+                })
+                || alternative.as_ref().is_some_and(|alt| {
+                    alt.statements.iter().any(|s| match s {
+                        crate::syntax::statement::Statement::Expression {
+                            expression, ..
+                        } => identifier_appears_in_expr(name, expression),
+                        _ => false,
+                    })
+                })
+        }
+        Expression::Match { arms, .. } => arms
+            .iter()
+            .any(|arm| identifier_appears_in_expr(name, &arm.body)),
+        Expression::Infix { left, right, .. } => {
+            identifier_appears_in_expr(name, left)
+                || identifier_appears_in_expr(name, right)
+        }
+        Expression::Prefix { right, .. } => identifier_appears_in_expr(name, right),
+        Expression::Index { left, index, .. } => {
+            identifier_appears_in_expr(name, left)
+                || identifier_appears_in_expr(name, index)
+        }
+        Expression::MemberAccess { object, .. } => {
+            identifier_appears_in_expr(name, object)
+        }
+        Expression::ArrayLiteral { elements, .. }
+        | Expression::TupleLiteral { elements, .. } => {
+            elements.iter().any(|e| identifier_appears_in_expr(name, e))
+        }
+        // Conservative default: for any unhandled expression form,
+        // check all child expressions via the Expression::children() method
+        // if available, or assume resume might appear.
+        _ => {
+            // For literals and other leaf nodes, resume can't appear.
+            // For complex forms we don't handle, conservatively say true.
+            // This is safe — it just prevents the discard optimization for
+            // handler arms with unusual expression forms.
+            true
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

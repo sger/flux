@@ -11,4 +11,8 @@ pub struct HandlerDescriptor {
     pub effect: Identifier,
     /// Op names in the same order as the closures left on the stack.
     pub ops: Vec<Identifier>,
+    /// When `true`, all handler arms never use `resume`. `OpPerform` can skip
+    /// continuation capture entirely — just unwind and call the arm directly.
+    /// (Perceus Section 2.7.1: non-linear control flow safety.)
+    pub is_discard: bool,
 }
