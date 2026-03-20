@@ -259,6 +259,7 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
             token,
             tag,
             fields,
+            field_mask,
             span,
         } => {
             let mut bindings = Vec::new();
@@ -273,9 +274,23 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
                 token,
                 tag,
                 fields,
+                field_mask,
                 span,
             };
             wrap_lets(bindings, reuse, span)
         }
+
+        // DropSpecialized — pass-through, recurse both branches.
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            span,
+        } => CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body: Box::new(anf_expr(*unique_body, next_id)),
+            shared_body: Box::new(anf_expr(*shared_body, next_id)),
+            span,
+        },
     }
 }

@@ -354,6 +354,22 @@ pub enum CoreExpr {
         token: CoreVarRef,
         tag: CoreTag,
         fields: Vec<CoreExpr>,
+        /// Perceus reuse specialization (Section 2.5): bitmask of fields that
+        /// actually changed. Bit `i` set means field `i` must be written; clear
+        /// means it is unchanged from the destructured original and can be
+        /// skipped on the fast (unique-reuse) path. `None` = write all fields.
+        field_mask: Option<u64>,
+        span: Span,
+    },
+    /// Aether: Perceus drop specialization (Section 2.3).
+    /// Tests if a scrutinee's Rc is uniquely owned (strong_count == 1).
+    /// - unique_body: extracted fields are already owned, no dups needed, free shell only.
+    /// - shared_body: dup fields, decrement scrutinee refcount (don't free recursively).
+    /// After dup/drop fusion, the unique path has zero RC operations.
+    DropSpecialized {
+        scrutinee: CoreVarRef,
+        unique_body: Box<CoreExpr>,
+        shared_body: Box<CoreExpr>,
         span: Span,
     },
 }
@@ -446,7 +462,8 @@ impl CoreExpr {
             | CoreExpr::Handle { span, .. }
             | CoreExpr::Dup { span, .. }
             | CoreExpr::Drop { span, .. }
-            | CoreExpr::Reuse { span, .. } => *span,
+            | CoreExpr::Reuse { span, .. }
+            | CoreExpr::DropSpecialized { span, .. } => *span,
         }
     }
 

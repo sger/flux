@@ -238,6 +238,18 @@ pub(super) fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
             ptr_ty,
             vec![ptr_ty, ptr_ty, ptr_ty, i64_ty, ptr_ty, i64_ty],
         ),
+        // rt_reuse_cons_masked(ctx, token, head, tail, field_mask) -> ptr
+        (
+            "rt_reuse_cons_masked",
+            ptr_ty,
+            vec![ptr_ty, ptr_ty, ptr_ty, ptr_ty, i64_ty],
+        ),
+        // rt_reuse_adt_masked(ctx, token, name_ptr, name_len, fields_ptr, nfields, field_mask) -> ptr
+        (
+            "rt_reuse_adt_masked",
+            ptr_ty,
+            vec![ptr_ty, ptr_ty, ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty],
+        ),
     ];
 
     // Read-only helpers: inspect values without modifying ctx or heap.
@@ -282,6 +294,8 @@ pub(super) fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
         "rt_reuse_left",
         "rt_reuse_right",
         "rt_reuse_adt",
+        "rt_reuse_cons_masked",
+        "rt_reuse_adt_masked",
     ];
 
     for (name, ret_ty, param_tys) in helpers {

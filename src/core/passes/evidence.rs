@@ -271,6 +271,7 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
             token,
             tag,
             fields,
+            field_mask,
             span,
         } => CoreExpr::Reuse {
             token,
@@ -279,6 +280,19 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
                 .into_iter()
                 .map(|f| evidence_transform(f, next_id, evidence))
                 .collect(),
+            field_mask,
+            span,
+        },
+
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            span,
+        } => CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body: Box::new(evidence_transform(*unique_body, next_id, evidence)),
+            shared_body: Box::new(evidence_transform(*shared_body, next_id, evidence)),
             span,
         },
     }

@@ -369,6 +369,9 @@ pub enum IrExpr {
         token: IrVar,
         head: IrVar,
         tail: IrVar,
+        /// Reuse specialization: bit 0 = head changed, bit 1 = tail changed.
+        /// `None` = write all fields.
+        field_mask: Option<u64>,
     },
     /// Aether Phase 7 (Perceus): construct Some, reusing token if non-null.
     ReuseSome {
@@ -390,6 +393,9 @@ pub enum IrExpr {
         token: IrVar,
         constructor: Identifier,
         fields: Vec<IrVar>,
+        /// Reuse specialization: bit `i` set = field `i` changed.
+        /// `None` = write all fields.
+        field_mask: Option<u64>,
     },
 }
 
@@ -811,13 +817,18 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
             )
         }
         IrExpr::DropReuse(var) => format!("DropReuse({})", ir_fmt_var(*var)),
-        IrExpr::ReuseCons { token, head, tail } => {
-            format!(
+        IrExpr::ReuseCons { token, head, tail, field_mask } => {
+            let base = format!(
                 "ReuseCons({}, {}, {})",
                 ir_fmt_var(*token),
                 ir_fmt_var(*head),
                 ir_fmt_var(*tail)
-            )
+            );
+            if let Some(mask) = field_mask {
+                format!("{} @mask=0b{:b}", base, mask)
+            } else {
+                base
+            }
         }
         IrExpr::ReuseSome { token, inner } => {
             format!("ReuseSome({}, {})", ir_fmt_var(*token), ir_fmt_var(*inner))
@@ -832,14 +843,20 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
             token,
             constructor,
             fields,
+            field_mask,
         } => {
             let s: Vec<_> = fields.iter().map(|v| ir_fmt_var(*v)).collect();
-            format!(
+            let base = format!(
                 "ReuseAdt({}, #{}, [{}])",
                 ir_fmt_var(*token),
                 constructor.as_u32(),
                 s.join(", ")
-            )
+            );
+            if let Some(mask) = field_mask {
+                format!("{} @mask=0b{:b}", base, mask)
+            } else {
+                base
+            }
         }
     }
 }

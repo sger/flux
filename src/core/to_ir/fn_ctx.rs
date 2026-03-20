@@ -390,6 +390,7 @@ impl<'a> FnCtx<'a> {
                 token,
                 tag,
                 fields,
+                field_mask,
                 span,
             } => {
                 // Step 1: Resolve token variable. If not in scope, fall back to regular Con.
@@ -446,6 +447,7 @@ impl<'a> FnCtx<'a> {
                         token: reuse_token,
                         head: field_vars[0],
                         tail: field_vars[1],
+                        field_mask: *field_mask,
                     },
                     CoreTag::Some => IrExpr::ReuseSome {
                         token: reuse_token,
@@ -463,6 +465,7 @@ impl<'a> FnCtx<'a> {
                         token: reuse_token,
                         constructor: *name,
                         fields: field_vars,
+                        field_mask: *field_mask,
                     },
                     // Stack-allocated types can't be reused — fall back to regular Con
                     CoreTag::Nil => IrExpr::EmptyList,
@@ -474,6 +477,11 @@ impl<'a> FnCtx<'a> {
                     metadata: IrMetadata::from_span(*span),
                 });
                 dest
+            }
+
+            // DropSpecialized — branch on uniqueness of scrutinee at runtime.
+            CoreExpr::DropSpecialized { .. } => {
+                todo!("DropSpecialized CFG lowering")
             }
         }
     }

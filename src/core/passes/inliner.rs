@@ -70,7 +70,8 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
         | CoreExpr::Handle { .. }
         | CoreExpr::Dup { .. }
         | CoreExpr::Drop { .. }
-        | CoreExpr::Reuse { .. } => map_children(expr, inline_lets),
+        | CoreExpr::Reuse { .. }
+        | CoreExpr::DropSpecialized { .. } => map_children(expr, inline_lets),
         other => other,
     }
 }
@@ -177,6 +178,15 @@ fn count_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
                     .map(|f| count_occurrences(var, f))
                     .sum::<usize>()
         }
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            let scrut = if scrutinee.binder == Some(var) { 1 } else { 0 };
+            scrut + count_occurrences(var, unique_body) + count_occurrences(var, shared_body)
+        }
     }
 }
 
@@ -237,6 +247,11 @@ fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
         }
         CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => occurs_under_lambda(var, body),
         CoreExpr::Reuse { fields, .. } => fields.iter().any(|f| occurs_under_lambda(var, f)),
+        CoreExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => occurs_under_lambda(var, unique_body) || occurs_under_lambda(var, shared_body),
     }
 }
 

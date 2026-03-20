@@ -235,7 +235,11 @@ impl<'a> Formatter<'a> {
                 self.write_expr(out, body, indent);
             }
             CoreExpr::Reuse {
-                token, tag, fields, ..
+                token,
+                tag,
+                fields,
+                field_mask,
+                ..
             } => {
                 write!(out, "reuse {} ", self.resolve_var(token)).unwrap();
                 self.write_tag(out, tag);
@@ -249,6 +253,28 @@ impl<'a> Formatter<'a> {
                     }
                     out.push(')');
                 }
+                if let Some(mask) = field_mask {
+                    write!(out, " @mask={:#b}", mask).unwrap();
+                }
+            }
+            CoreExpr::DropSpecialized {
+                scrutinee,
+                unique_body,
+                shared_body,
+                ..
+            } => {
+                write!(out, "drop_spec {} {{", self.resolve_var(scrutinee)).unwrap();
+                out.push('\n');
+                push_indent(out, indent + 2);
+                out.push_str("unique -> ");
+                self.write_expr(out, unique_body, indent + 4);
+                out.push('\n');
+                push_indent(out, indent + 2);
+                out.push_str("shared -> ");
+                self.write_expr(out, shared_body, indent + 4);
+                out.push('\n');
+                push_indent(out, indent);
+                out.push('}');
             }
         }
     }
