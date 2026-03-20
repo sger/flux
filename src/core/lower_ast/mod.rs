@@ -128,6 +128,7 @@ impl<'a> AstLowerer<'a> {
                 name,
                 parameters,
                 body,
+                fip,
                 span,
                 ..
             } => {
@@ -146,6 +147,7 @@ impl<'a> AstLowerer<'a> {
                 // For functions, build a Function CoreType from body's last expression type.
                 // The function itself doesn't have a single ExprId, but the body block does.
                 let mut def = CoreDef::new(binder, expr, true, *span);
+                def.fip = *fip;
                 // Try to get the type from the last expression in the block.
                 if let Some(
                     Statement::Expression { expression, .. }
@@ -270,6 +272,7 @@ impl<'a> AstLowerer<'a> {
                 effects,
                 body: _,
                 span,
+                fip: _,
             } => Some(CoreTopLevelItem::Function {
                 is_public: *is_public,
                 name: *name,

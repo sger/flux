@@ -2141,7 +2141,12 @@ impl Compiler {
                 continue;
             }
             let name = self.interner.resolve(def.name);
-            out.push_str(&format!("── fn {} ──\n", name));
+            let fip_label = match def.fip {
+                Some(crate::syntax::statement::FipAnnotation::Fip) => " @fip",
+                Some(crate::syntax::statement::FipAnnotation::Fbip) => " @fbip",
+                None => "",
+            };
+            out.push_str(&format!("── fn {}{} ──\n", name, fip_label));
             out.push_str(&format!("  {}\n", stats));
 
             let displayed = crate::core::display::display_expr_readable(&def.expr, &self.interner);
@@ -2152,6 +2157,13 @@ impl Compiler {
             total.drops += stats.drops;
             total.reuses += stats.reuses;
             total.drop_specs += stats.drop_specs;
+            total.allocs += stats.allocs;
+        }
+
+        // Run FBIP checking on annotated functions
+        let fbip_diags = crate::aether::check_fbip::check_fbip(&core, &self.interner);
+        for diag in &fbip_diags {
+            out.push_str(&format!("\nwarning: {}\n", diag));
         }
 
         out.push_str(&format!("\n── Total ──\n  {}\n", total));

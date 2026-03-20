@@ -10,13 +10,14 @@
 
 pub mod analysis;
 pub mod borrow_infer;
+pub mod check_fbip;
 pub mod drop_spec;
 pub mod fusion;
 pub mod insert;
 pub mod reuse;
 pub mod verify;
 
-use crate::core::CoreExpr;
+use crate::core::{CoreExpr, CoreTag};
 
 /// Statistics collected from an Aether-transformed Core IR expression.
 #[derive(Debug, Clone, Default)]
@@ -25,6 +26,40 @@ pub struct AetherStats {
     pub drops: usize,
     pub reuses: usize,
     pub drop_specs: usize,
+    /// Number of heap constructor allocations (Con nodes with heap tags).
+    pub allocs: usize,
+}
+
+/// FBIP status auto-detected from Aether stats (Perceus Section 2.6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FbipStatus {
+    /// Zero unreused allocations — functional but fully in-place on the unique path.
+    Fip,
+    /// N unreused allocations — functional but partially in-place.
+    Fbip(usize),
+    /// No constructors in the function — FBIP classification not applicable.
+    NotApplicable,
+}
+
+impl AetherStats {
+    /// Total constructor sites (both fresh allocations and reused ones).
+    pub fn total_constructors(&self) -> usize {
+        self.allocs + self.reuses
+    }
+
+    /// Auto-detect FBIP status from allocation and reuse counts.
+    /// - `fip`: all constructor sites are reused (zero fresh allocations)
+    /// - `fbip(N)`: N fresh allocations (not reused)
+    /// - `NotApplicable`: no constructor sites at all
+    pub fn fbip_status(&self) -> FbipStatus {
+        if self.total_constructors() == 0 {
+            FbipStatus::NotApplicable
+        } else if self.allocs == 0 {
+            FbipStatus::Fip
+        } else {
+            FbipStatus::Fbip(self.allocs)
+        }
+    }
 }
 
 impl std::fmt::Display for AetherStats {
@@ -33,7 +68,12 @@ impl std::fmt::Display for AetherStats {
             f,
             "Dups: {}  Drops: {}  Reuses: {}  DropSpecs: {}",
             self.dups, self.drops, self.reuses, self.drop_specs
-        )
+        )?;
+        match self.fbip_status() {
+            FbipStatus::Fip => write!(f, "  FBIP: fip"),
+            FbipStatus::Fbip(n) => write!(f, "  FBIP: fbip({})", n),
+            FbipStatus::NotApplicable => Ok(()),
+        }
     }
 }
 
@@ -83,7 +123,11 @@ fn count_nodes(expr: &CoreExpr, stats: &mut AetherStats) {
                 }
             }
         }
-        CoreExpr::Con { fields, .. } => {
+        CoreExpr::Con { tag, fields, .. } => {
+            // Count heap-allocating constructors (not Nil/None which are value types)
+            if is_heap_tag(tag) {
+                stats.allocs += 1;
+            }
             for f in fields {
                 count_nodes(f, stats);
             }
@@ -114,6 +158,15 @@ fn count_nodes(expr: &CoreExpr, stats: &mut AetherStats) {
             count_nodes(unique_body, stats);
             count_nodes(shared_body, stats);
         }
+    }
+}
+
+/// Returns true for constructor tags that allocate on the heap.
+/// Nil and None are value types (no heap allocation).
+fn is_heap_tag(tag: &CoreTag) -> bool {
+    match tag {
+        CoreTag::Cons | CoreTag::Some | CoreTag::Left | CoreTag::Right | CoreTag::Named(_) => true,
+        CoreTag::Nil | CoreTag::None => false,
     }
 }
 

@@ -60,11 +60,14 @@ impl Parser {
             TokenType::Data => self.parse_data_statement(),
             TokenType::Effect => self.parse_effect_statement(),
             TokenType::Fn if self.is_peek_token(TokenType::Ident) => {
-                self.parse_function_statement(false)
+                self.parse_function_statement(false, None)
             }
             TokenType::Public if self.is_peek_token(TokenType::Fn) => {
                 self.next_token(); // fn
-                self.parse_function_statement(true)
+                self.parse_function_statement(true, None)
+            }
+            TokenType::At => {
+                self.parse_annotated_function()
             }
             TokenType::Ident if self.current_token.literal == "fn" => {
                 // Defensive path: `fn` should lex as TokenType::Fn.
@@ -269,7 +272,32 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_function_statement(&mut self, is_public: bool) -> Option<Statement> {
+    /// Parse `@fip fn ...` or `@fbip fn ...`.
+    fn parse_annotated_function(&mut self) -> Option<Statement> {
+        use crate::syntax::statement::FipAnnotation;
+        // Current token is '@'. Next should be 'fip' or 'fbip' (as an identifier).
+        self.next_token();
+        let annotation = match self.current_token.literal.as_ref() {
+            "fip" => Some(FipAnnotation::Fip),
+            "fbip" => Some(FipAnnotation::Fbip),
+            _ => {
+                // Unknown annotation — skip and return None
+                return None;
+            }
+        };
+        // Next token must be 'fn'
+        self.next_token();
+        if self.current_token.token_type != TokenType::Fn {
+            return None;
+        }
+        self.parse_function_statement(false, annotation)
+    }
+
+    pub(super) fn parse_function_statement(
+        &mut self,
+        is_public: bool,
+        fip: Option<crate::syntax::statement::FipAnnotation>,
+    ) -> Option<Statement> {
         let context_name = if self.is_peek_token(TokenType::Ident) {
             Some(self.peek_token.literal.to_string())
         } else {
@@ -428,6 +456,7 @@ impl Parser {
             effects,
             body,
             span: self.span_from(start),
+            fip,
         })
     }
 

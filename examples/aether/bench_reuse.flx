@@ -12,7 +12,7 @@ fn build_list(n) {
 }
 
 // Map: with Aether reuse, Cons cells are reused in-place
-fn my_map(xs, f) {
+@fip fn my_map(xs, f) {
     match xs {
         [h | t] -> [f(h) | my_map(t, f)],
         _ -> [],

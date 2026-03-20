@@ -76,6 +76,18 @@ pub fn run_core_passes(program: &mut CoreProgram) {
     }
 }
 
+/// Run FBIP checking on annotated functions after Aether passes.
+/// Reports violations as warnings to stderr.
+pub fn check_fbip_annotations(
+    program: &CoreProgram,
+    interner: &crate::syntax::interner::Interner,
+) {
+    let diags = crate::aether::check_fbip::check_fbip(program, interner);
+    for diag in &diags {
+        eprintln!("warning: {}", diag);
+    }
+}
+
 /// Walk an expression tree to find the maximum `CoreBinderId` in use.
 fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
     use crate::core::CoreExpr::*;
