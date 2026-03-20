@@ -66,7 +66,18 @@ impl Compiler {
                 | IrExpr::ReuseSome { .. }
                 | IrExpr::ReuseLeft { .. }
                 | IrExpr::ReuseRight { .. }
-                | IrExpr::IsUnique(_) => true,
+                | IrExpr::IsUnique(_)
+                // General expressions (emission handlers in compile_ir_cfg_expr).
+                // Note: Prefix and LoadName are excluded because:
+                //   - Prefix needs type validation (E300 for non-numeric operands)
+                //   - LoadName can reference undefined names (Core IR may be degenerate)
+                // These handlers exist in compile_ir_cfg_expr but are gated here.
+                | IrExpr::MakeArray(_)
+                | IrExpr::MakeHash(_)
+                | IrExpr::MakeList(_)
+                | IrExpr::Index { .. }
+                | IrExpr::InterpolatedString(_)
+                | IrExpr::MemberAccess { .. } => true,
                 IrExpr::Binary(op, _, _) => matches!(
                     op,
                     IrBinaryOp::Add
@@ -1009,6 +1020,27 @@ impl Compiler {
                     }
                 }
 
+                // Try PrimOp emission for named tail calls.
+                if let IrCallTarget::Named(name) = callee {
+                    let name_str = self.sym(*name);
+                    if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len())
+                    {
+                        for arg in args {
+                            self.load_symbol(bindings.get(arg).ok_or_else(|| {
+                                Self::boxed(Diagnostic::warning(
+                                    "missing CFG tail-call arg binding",
+                                ))
+                            })?);
+                        }
+                        self.emit(
+                            OpCode::OpPrimOp,
+                            &[primop.id() as usize, args.len()],
+                        );
+                        self.emit(OpCode::OpReturnValue, &[]);
+                        return Ok(());
+                    }
+                }
+
                 let is_self = matches!(callee, IrCallTarget::Named(name) if *name == current_name);
                 if !is_self {
                     match callee {
@@ -1106,6 +1138,23 @@ impl Compiler {
                         .with_display_title("Missing Ambient Effect"),
                     ));
                 }
+            }
+        }
+
+        // Try PrimOp emission for named base function calls.
+        if let IrCallTarget::Named(name) = target {
+            let name_str = self.sym(*name);
+            if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
+                for arg in args {
+                    self.load_symbol(bindings.get(arg).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning("missing CFG call arg binding"))
+                    })?);
+                }
+                self.emit(
+                    OpCode::OpPrimOp,
+                    &[primop.id() as usize, args.len()],
+                );
+                return Ok(());
             }
         }
 
