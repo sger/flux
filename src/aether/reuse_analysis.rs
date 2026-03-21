@@ -162,7 +162,7 @@ impl ReuseEnv {
                 .binder
                 .and_then(|binder_id| self.origins.get(&binder_id).cloned()),
             CoreExpr::Let { var, rhs, body, .. } => {
-                if !is_admin_rhs(rhs) {
+                if !is_alias_preserving_rhs(rhs) {
                     return None;
                 }
                 let child = self.with_alias(var.id, rhs);
@@ -338,7 +338,7 @@ fn rewrite_drop_body_with_env(
             body,
             span,
         } => {
-            if use_counts(&rhs).contains_key(&token_binder) {
+            if token_appears_in_expr(token_binder, &rhs) {
                 return no_rewrite(
                     CoreExpr::Let {
                         var,
@@ -349,7 +349,7 @@ fn rewrite_drop_body_with_env(
                     ReuseFailureReason::TokenEscapesIntoFields,
                 );
             }
-            if !is_admin_rhs(&rhs) {
+            if !is_safe_precompute_rhs(token_binder, &rhs) {
                 return no_rewrite(
                     CoreExpr::Let {
                         var,
@@ -423,11 +423,11 @@ fn rewrite_drop_body_with_env(
                 },
                 _ => false,
             };
-            if (!scrutinee_is_plain_token && use_counts(&scrutinee).contains_key(&token_binder))
+            if (!scrutinee_is_plain_token && token_appears_in_expr(token_binder, &scrutinee))
                 || alts.iter().any(|alt| {
                     alt.guard
                         .as_ref()
-                        .is_some_and(|guard| use_counts(guard).contains_key(&token_binder))
+                        .is_some_and(|guard| token_appears_in_expr(token_binder, guard))
                 })
             {
                 return no_rewrite(
@@ -456,7 +456,7 @@ fn rewrite_drop_body_with_env(
                             env.with_pattern_origin(origin, alt_pat_binders.as_deref(), alt_pat_tag)
                         })
                         .unwrap_or_else(|| env.clone());
-                    if use_counts(&alt.rhs).contains_key(&token_binder) {
+                    if token_appears_in_expr(token_binder, &alt.rhs) {
                         reasons.push(ReuseFailureReason::BranchAmbiguity);
                         return alt;
                     }
@@ -536,10 +536,7 @@ fn build_reuse_expr(
     if !is_heap_tag(&tag) {
         return Err(ReuseFailureReason::ShapeMismatch);
     }
-    if fields
-        .iter()
-        .any(|field| use_counts(field).contains_key(&token_binder))
-    {
+    if fields.iter().any(|field| token_appears_in_expr(token_binder, field)) {
         return Err(ReuseFailureReason::TokenEscapesIntoFields);
     }
     if blocked_outer_token == Some(token_binder) {
@@ -572,11 +569,15 @@ fn choose_reason(reasons: &[ReuseFailureReason]) -> ReuseFailureReason {
         .unwrap_or(ReuseFailureReason::ProvenanceLost)
 }
 
-fn is_admin_rhs(expr: &CoreExpr) -> bool {
+fn token_appears_in_expr(token_binder: CoreBinderId, expr: &CoreExpr) -> bool {
+    use_counts(expr).contains_key(&token_binder)
+}
+
+fn is_alias_preserving_rhs(expr: &CoreExpr) -> bool {
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
         CoreExpr::Con { fields, .. } | CoreExpr::Reuse { fields, .. } => {
-            fields.iter().all(is_admin_rhs)
+            fields.iter().all(is_alias_preserving_rhs)
         }
         CoreExpr::App { .. }
         | CoreExpr::AetherCall { .. }
@@ -590,6 +591,50 @@ fn is_admin_rhs(expr: &CoreExpr) -> bool {
         | CoreExpr::Case { .. }
         | CoreExpr::Dup { .. }
         | CoreExpr::Drop { .. }
+        | CoreExpr::DropSpecialized { .. } => false,
+    }
+}
+
+fn is_safe_precompute_rhs(token_binder: CoreBinderId, expr: &CoreExpr) -> bool {
+    if token_appears_in_expr(token_binder, expr) {
+        return false;
+    }
+
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
+        CoreExpr::Con { fields, .. } | CoreExpr::Reuse { fields, .. } => {
+            fields
+                .iter()
+                .all(|field| is_safe_precompute_rhs(token_binder, field))
+        }
+        CoreExpr::PrimOp { args, .. } => args
+            .iter()
+            .all(|arg| is_safe_precompute_rhs(token_binder, arg)),
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+            is_safe_precompute_rhs(token_binder, func)
+                && args
+                    .iter()
+                    .all(|arg| is_safe_precompute_rhs(token_binder, arg))
+        }
+        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } | CoreExpr::Return { value: body, .. } => {
+            is_safe_precompute_rhs(token_binder, body)
+        }
+        CoreExpr::Let { rhs, body, .. } => {
+            is_safe_precompute_rhs(token_binder, rhs) && is_safe_precompute_rhs(token_binder, body)
+        }
+        CoreExpr::Case { scrutinee, alts, .. } => {
+            is_safe_precompute_rhs(token_binder, scrutinee)
+                && alts.iter().all(|alt| {
+                    alt.guard
+                        .as_ref()
+                        .is_none_or(|guard| is_safe_precompute_rhs(token_binder, guard))
+                        && is_safe_precompute_rhs(token_binder, &alt.rhs)
+                })
+        }
+        CoreExpr::Perform { .. }
+        | CoreExpr::Handle { .. }
+        | CoreExpr::Lam { .. }
+        | CoreExpr::LetRec { .. }
         | CoreExpr::DropSpecialized { .. } => false,
     }
 }
@@ -758,7 +803,8 @@ mod tests {
     fn effectful_intermediate_binding_blocks_reuse() {
         let mut interner = Interner::new();
         let node_name = interner.intern("Node");
-        let escape_name = interner.intern("escape");
+        let io = interner.intern("IO");
+        let print = interner.intern("print");
         let t = binder(1, interner.intern("t"));
         let color = binder(2, interner.intern("color"));
         let left = binder(3, interner.intern("left"));
@@ -770,11 +816,9 @@ mod tests {
         let pat_binders = vec![Some(color.id), Some(left.id), Some(key.id), Some(right.id)];
         let body = CoreExpr::Let {
             var: saved,
-            rhs: Box::new(CoreExpr::App {
-                func: Box::new(CoreExpr::Var {
-                    var: CoreVarRef::unresolved(escape_name),
-                    span: s(),
-                }),
+            rhs: Box::new(CoreExpr::Perform {
+                effect: io,
+                operation: print,
                 args: vec![v(key)],
                 span: s(),
             }),
@@ -795,5 +839,142 @@ mod tests {
         );
 
         assert_eq!(reason, Some(ReuseFailureReason::EffectfulBoundary));
+    }
+
+    #[test]
+    fn aether_call_precompute_let_can_still_reuse() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let h = binder(2, interner.intern("h"));
+        let t = binder(3, interner.intern("t"));
+        let f = binder(4, interner.intern("f"));
+        let y = binder(5, interner.intern("y"));
+        let ys = binder(6, interner.intern("ys"));
+        let map = binder(7, interner.intern("my_map"));
+
+        let pat_binders = vec![Some(h.id), Some(t.id)];
+        let body = CoreExpr::Let {
+            var: y,
+            rhs: Box::new(CoreExpr::AetherCall {
+                func: Box::new(v(f)),
+                args: vec![v(h)],
+                arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
+                span: s(),
+            }),
+            body: Box::new(CoreExpr::Let {
+                var: ys,
+                rhs: Box::new(CoreExpr::AetherCall {
+                    func: Box::new(v(map)),
+                    args: vec![v(t), v(f)],
+                    arg_modes: vec![
+                        crate::aether::borrow_infer::BorrowMode::Borrowed,
+                        crate::aether::borrow_infer::BorrowMode::Borrowed,
+                    ],
+                    span: s(),
+                }),
+                body: Box::new(CoreExpr::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![v(y), v(ys)],
+                    span: s(),
+                }),
+                span: s(),
+            }),
+            span: s(),
+        };
+
+        let rewritten = rewrite_drop_body(
+            &CoreVarRef::resolved(xs),
+            body,
+            s(),
+            Some(&pat_binders),
+            Some(&CoreTag::Cons),
+            None,
+        );
+
+        assert!(rewritten.reused);
+        match rewritten.expr {
+            CoreExpr::Let { body, .. } => match *body {
+                CoreExpr::Let { body, .. } => match *body {
+                    CoreExpr::Reuse { token, tag, .. } => {
+                        assert_eq!(token.binder, Some(xs.id));
+                        assert_eq!(tag, CoreTag::Cons);
+                    }
+                    other => panic!("expected reuse after safe precompute lets, got {other:?}"),
+                },
+                other => panic!("expected nested let spine, got {other:?}"),
+            },
+            other => panic!("expected let spine, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn token_use_in_precompute_let_blocks_reuse() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let h = binder(2, interner.intern("h"));
+        let t = binder(3, interner.intern("t"));
+        let y = binder(4, interner.intern("y"));
+
+        let pat_binders = vec![Some(h.id), Some(t.id)];
+        let body = CoreExpr::Let {
+            var: y,
+            rhs: Box::new(CoreExpr::AetherCall {
+                func: Box::new(v(h)),
+                args: vec![v(xs)],
+                arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
+                span: s(),
+            }),
+            body: Box::new(CoreExpr::Con {
+                tag: CoreTag::Cons,
+                fields: vec![v(y), v(t)],
+                span: s(),
+            }),
+            span: s(),
+        };
+
+        let reason = diagnose_drop_body(
+            &CoreVarRef::resolved(xs),
+            &body,
+            Some(&pat_binders),
+            Some(&CoreTag::Cons),
+            None,
+        );
+
+        assert_eq!(reason, Some(ReuseFailureReason::TokenEscapesIntoFields));
+    }
+
+    #[test]
+    fn primop_precompute_let_can_still_reuse() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let h = binder(2, interner.intern("h"));
+        let t = binder(3, interner.intern("t"));
+        let inc = binder(4, interner.intern("inc"));
+
+        let pat_binders = vec![Some(h.id), Some(t.id)];
+        let body = CoreExpr::Let {
+            var: inc,
+            rhs: Box::new(CoreExpr::PrimOp {
+                op: crate::core::CorePrimOp::Add,
+                args: vec![v(h), CoreExpr::Lit(crate::core::CoreLit::Int(1), s())],
+                span: s(),
+            }),
+            body: Box::new(CoreExpr::Con {
+                tag: CoreTag::Cons,
+                fields: vec![v(inc), v(t)],
+                span: s(),
+            }),
+            span: s(),
+        };
+
+        let rewritten = rewrite_drop_body(
+            &CoreVarRef::resolved(xs),
+            body,
+            s(),
+            Some(&pat_binders),
+            Some(&CoreTag::Cons),
+            None,
+        );
+        assert!(rewritten.reused);
     }
 }
