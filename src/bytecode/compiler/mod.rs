@@ -2158,7 +2158,11 @@ impl Compiler {
     }
 
     /// Dump an Aether memory model report showing per-function optimization decisions.
-    pub fn dump_aether_report(&self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
+    pub fn dump_aether_report(
+        &self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<String, Diagnostic> {
         let program_to_lower = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
@@ -2180,11 +2184,7 @@ impl Compiler {
 
         for def in &core.defs {
             let stats = crate::aether::collect_stats(&def.expr);
-            if stats.dups == 0
-                && stats.drops == 0
-                && stats.reuses == 0
-                && stats.drop_specs == 0
-            {
+            if stats.dups == 0 && stats.drops == 0 && stats.reuses == 0 && stats.drop_specs == 0 {
                 continue;
             }
             let name = self.interner.resolve(def.name);

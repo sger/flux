@@ -13,7 +13,10 @@ pub struct ReuseSpecCandidate {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReuseSpecDecision {
     PlainReuse,
-    SelectiveWrite { field_mask: u64, saved_writes: usize },
+    SelectiveWrite {
+        field_mask: u64,
+        saved_writes: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,7 +42,10 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
         },
         CoreExpr::App { func, args, span } => CoreExpr::App {
             func: Box::new(specialize_with_env(*func, env)),
-            args: args.into_iter().map(|arg| specialize_with_env(arg, env)).collect(),
+            args: args
+                .into_iter()
+                .map(|arg| specialize_with_env(arg, env))
+                .collect(),
             span,
         },
         CoreExpr::AetherCall {
@@ -49,7 +55,10 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
             span,
         } => CoreExpr::AetherCall {
             func: Box::new(specialize_with_env(*func, env)),
-            args: args.into_iter().map(|arg| specialize_with_env(arg, env)).collect(),
+            args: args
+                .into_iter()
+                .map(|arg| specialize_with_env(arg, env))
+                .collect(),
             arg_modes,
             span,
         },
@@ -128,7 +137,10 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
         },
         CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
             op,
-            args: args.into_iter().map(|arg| specialize_with_env(arg, env)).collect(),
+            args: args
+                .into_iter()
+                .map(|arg| specialize_with_env(arg, env))
+                .collect(),
             span,
         },
         CoreExpr::Return { value, span } => CoreExpr::Return {
@@ -143,7 +155,10 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
         } => CoreExpr::Perform {
             effect,
             operation,
-            args: args.into_iter().map(|arg| specialize_with_env(arg, env)).collect(),
+            args: args
+                .into_iter()
+                .map(|arg| specialize_with_env(arg, env))
+                .collect(),
             span,
         },
         CoreExpr::Handle {
@@ -316,7 +331,7 @@ mod tests {
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 
-    use super::{specialize_reuse, ReuseSpecDecision};
+    use super::{ReuseSpecDecision, specialize_reuse};
 
     fn s() -> Span {
         Span::default()

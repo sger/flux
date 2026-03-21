@@ -496,7 +496,8 @@ fn main() -> Unit {
     let rendered = render_diagnostics(&err, None, None);
     assert!(
         rendered.contains("error[E418]: Strict Effect Annotation Required")
-            && rendered.contains("Effectful function `main` must declare `with IO` in strict mode."),
+            && rendered
+                .contains("Effectful function `main` must declare `with IO` in strict mode."),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -519,7 +520,8 @@ fn main() -> Unit {
     let rendered = render_diagnostics(&err, None, None);
     assert!(
         rendered.contains("error[E418]: Strict Effect Annotation Required")
-            && rendered.contains("Effectful function `main` must declare `with Time` in strict mode."),
+            && rendered
+                .contains("Effectful function `main` must declare `with Time` in strict mode."),
         "unexpected diagnostics:\n{}",
         rendered
     );

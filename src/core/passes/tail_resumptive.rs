@@ -39,4 +39,3 @@ fn is_arm_tail_resumptive(resume_id: CoreBinderId, body: &CoreExpr) -> bool {
 fn is_resume_var(resume_id: CoreBinderId, expr: &CoreExpr) -> bool {
     matches!(expr, CoreExpr::Var { var, .. } if var.binder == Some(resume_id))
 }
-

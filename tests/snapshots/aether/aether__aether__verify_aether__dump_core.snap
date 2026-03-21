@@ -113,7 +113,6 @@ Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:
 - fresh heap allocation remains on at least one path
-- calls known function `my_map` whose FBIP behavior is not yet provable
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - constructor rebuild could not reuse an available token
 - control-flow join loses a precise allocation bound across paths

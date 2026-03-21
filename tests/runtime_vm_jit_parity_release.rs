@@ -128,9 +128,12 @@ fn error_signature(stderr: &str) -> String {
             break;
         }
         // Keep error header and message lines
-        if trimmed.starts_with("error[") || trimmed.starts_with("Cannot ")
-            || trimmed.starts_with("Expected ") || trimmed.starts_with("Hint:")
-            || trimmed.starts_with("  Hint:") || trimmed.starts_with("not a function")
+        if trimmed.starts_with("error[")
+            || trimmed.starts_with("Cannot ")
+            || trimmed.starts_with("Expected ")
+            || trimmed.starts_with("Hint:")
+            || trimmed.starts_with("  Hint:")
+            || trimmed.starts_with("not a function")
         {
             lines.push(trimmed.to_string());
         }

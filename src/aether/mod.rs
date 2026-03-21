@@ -19,12 +19,12 @@
 pub mod analysis;
 pub mod borrow_infer;
 pub mod check_fbip;
-pub mod fbip_analysis;
 pub mod drop_spec;
+pub mod fbip_analysis;
 pub mod fusion;
 pub mod insert;
-pub mod reuse_analysis;
 pub mod reuse;
+pub mod reuse_analysis;
 pub mod reuse_spec;
 pub mod verify;
 
@@ -210,9 +210,9 @@ pub fn constructor_shape_for_tag<'a>(
         CoreExpr::App { func, args, span } => {
             constructor_app_shape_for_tag(func.as_ref(), args, *span, expected_tag)
         }
-        CoreExpr::AetherCall { func, args, span, .. } => {
-            constructor_app_shape_for_tag(func.as_ref(), args, *span, expected_tag)
-        }
+        CoreExpr::AetherCall {
+            func, args, span, ..
+        } => constructor_app_shape_for_tag(func.as_ref(), args, *span, expected_tag),
         _ => None,
     }
 }
@@ -227,9 +227,9 @@ pub fn into_constructor_shape_for_tag(
         CoreExpr::App { func, args, span } => {
             into_constructor_app_shape_for_tag(*func, args, span, expected_tag)
         }
-        CoreExpr::AetherCall { func, args, span, .. } => {
-            into_constructor_app_shape_for_tag(*func, args, span, expected_tag)
-        }
+        CoreExpr::AetherCall {
+            func, args, span, ..
+        } => into_constructor_app_shape_for_tag(*func, args, span, expected_tag),
         _ => None,
     }
 }

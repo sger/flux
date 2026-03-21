@@ -124,9 +124,9 @@ fn identifier_appears_in_expr(name: Identifier, expr: &Expression) -> bool {
                 })
                 || alternative.as_ref().is_some_and(|alt| {
                     alt.statements.iter().any(|s| match s {
-                        crate::syntax::statement::Statement::Expression {
-                            expression, ..
-                        } => identifier_appears_in_expr(name, expression),
+                        crate::syntax::statement::Statement::Expression { expression, .. } => {
+                            identifier_appears_in_expr(name, expression)
+                        }
                         _ => false,
                     })
                 })
@@ -135,19 +135,14 @@ fn identifier_appears_in_expr(name: Identifier, expr: &Expression) -> bool {
             .iter()
             .any(|arm| identifier_appears_in_expr(name, &arm.body)),
         Expression::Infix { left, right, .. } => {
-            identifier_appears_in_expr(name, left)
-                || identifier_appears_in_expr(name, right)
+            identifier_appears_in_expr(name, left) || identifier_appears_in_expr(name, right)
         }
         Expression::Prefix { right, .. } => identifier_appears_in_expr(name, right),
         Expression::Index { left, index, .. } => {
-            identifier_appears_in_expr(name, left)
-                || identifier_appears_in_expr(name, index)
+            identifier_appears_in_expr(name, left) || identifier_appears_in_expr(name, index)
         }
-        Expression::MemberAccess { object, .. } => {
-            identifier_appears_in_expr(name, object)
-        }
-        Expression::ArrayLiteral { elements, .. }
-        | Expression::TupleLiteral { elements, .. } => {
+        Expression::MemberAccess { object, .. } => identifier_appears_in_expr(name, object),
+        Expression::ArrayLiteral { elements, .. } | Expression::TupleLiteral { elements, .. } => {
             elements.iter().any(|e| identifier_appears_in_expr(name, e))
         }
         // Conservative default: for any unhandled expression form,

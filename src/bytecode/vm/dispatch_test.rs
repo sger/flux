@@ -321,7 +321,11 @@ fn dispatch_op_reuse_adt_reuses_unique_allocation() {
     vm.push(Value::Integer(20)).unwrap();
 
     let advance = vm
-        .dispatch_instruction(&[OpCode::OpReuseAdt as u8, 0, 0, 2, 0xFF], 0, OpCode::OpReuseAdt)
+        .dispatch_instruction(
+            &[OpCode::OpReuseAdt as u8, 0, 0, 2, 0xFF],
+            0,
+            OpCode::OpReuseAdt,
+        )
         .unwrap();
 
     assert_eq!(advance, 5);
@@ -392,7 +396,11 @@ fn dispatch_op_reuse_adt_mask_preserves_unchanged_fields() {
 
     // Update fields 0 and 2 only; field 1 should remain unchanged.
     let advance = vm
-        .dispatch_instruction(&[OpCode::OpReuseAdt as u8, 0, 0, 3, 0b101], 0, OpCode::OpReuseAdt)
+        .dispatch_instruction(
+            &[OpCode::OpReuseAdt as u8, 0, 0, 3, 0b101],
+            0,
+            OpCode::OpReuseAdt,
+        )
         .unwrap();
 
     assert_eq!(advance, 5);

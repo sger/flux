@@ -6,7 +6,11 @@ fn compile_ok_with_warnings(input: &str) -> Vec<Diagnostic> {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<aether-fbip>", interner);
     compiler.compile(&program).expect("expected compile ok");
@@ -17,10 +21,16 @@ fn compile_err_diagnostics(input: &str) -> Vec<Diagnostic> {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<aether-fbip>", interner);
-    compiler.compile(&program).expect_err("expected compile error")
+    compiler
+        .compile(&program)
+        .expect_err("expected compile error")
 }
 
 #[test]
@@ -48,11 +58,29 @@ fn fbip_failure_is_hard_error() {
 
 #[test]
 fn vacuous_annotation_is_advisory_warning() {
-    let src = std::fs::read_to_string("examples/aether/fbip_vacuous.flx")
-        .expect("fixture should exist");
+    let src =
+        std::fs::read_to_string("examples/aether/fbip_vacuous.flx").expect("fixture should exist");
     let warnings = compile_ok_with_warnings(&src);
     assert!(warnings.iter().any(|d| {
         d.title() == "FBIP Annotation Has No Effect"
-            && d.message().is_some_and(|m| m.contains("no heap constructor sites"))
+            && d.message()
+                .is_some_and(|m| m.contains("no heap constructor sites"))
     }));
+}
+
+#[test]
+fn verify_aether_my_map_reports_higher_order_blocker_not_self_recursion_noise() {
+    let src =
+        std::fs::read_to_string("examples/aether/verify_aether.flx").expect("fixture should exist");
+    let warnings = compile_ok_with_warnings(&src);
+    let my_map_warning = warnings
+        .iter()
+        .find(|d| d.message().is_some_and(|m| m.contains("@fip on `my_map`")))
+        .expect("my_map warning should exist");
+    let message = my_map_warning.message().expect("warning message");
+    assert!(message.contains("indirect or opaque callee `f`"));
+    assert!(
+        !message.contains("calls known function `my_map` whose FBIP behavior is not yet provable"),
+        "self-recursive higher-order fixtures should not report recursive non-provable noise when stronger blockers already exist"
+    );
 }

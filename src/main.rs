@@ -462,7 +462,12 @@ fn run_file(
             });
             let cache_key = hash_cache_key(&base_cache_key, &strict_hash);
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
-            if !no_cache && !use_jit && !use_llvm && matches!(dump_core, CoreDumpMode::None) && !dump_aether {
+            if !no_cache
+                && !use_jit
+                && !use_llvm
+                && matches!(dump_core, CoreDumpMode::None)
+                && !dump_aether
+            {
                 if let Some(bytecode) =
                     cache.load(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
                 {

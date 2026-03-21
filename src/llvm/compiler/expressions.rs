@@ -806,7 +806,12 @@ pub(super) fn compile_expr(
                 .build_call(fn_ty, func, &mut [ctx_val, val_ptr], "drop_reuse");
             Ok(build_ptr_tagged(ctx, result))
         }
-        IrExpr::ReuseCons { token, head, tail, field_mask } => {
+        IrExpr::ReuseCons {
+            token,
+            head,
+            tail,
+            field_mask,
+        } => {
             let token_ptr = force_box_to_ptr(ctx, env, *token, ctx_val)?;
             let head_ptr = force_box_to_ptr(ctx, env, *head, ctx_val)?;
             let tail_ptr = force_box_to_ptr(ctx, env, *tail, ctx_val)?;
@@ -909,12 +914,9 @@ pub(super) fn compile_expr(
         IrExpr::IsUnique(var) => {
             let val_ptr = force_box_to_ptr(ctx, env, *var, ctx_val)?;
             let (func, fn_ty) = get_helper(ctx, "rt_is_unique")?;
-            let result = ctx.builder.build_call(
-                fn_ty,
-                func,
-                &mut [ctx_val, val_ptr],
-                "is_unique",
-            );
+            let result = ctx
+                .builder
+                .build_call(fn_ty, func, &mut [ctx_val, val_ptr], "is_unique");
             Ok(build_bool_tagged(ctx, result))
         }
     }

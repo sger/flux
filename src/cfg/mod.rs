@@ -44,7 +44,8 @@ pub fn lower_program_to_ir_with_interner(
     hm_expr_types: &HashMap<ExprId, InferType>,
     interner: Option<&Interner>,
 ) -> Result<IrProgram, Diagnostic> {
-    lower_program_to_ir_with_interner_and_warnings(program, hm_expr_types, interner).map(|(ir, _)| ir)
+    lower_program_to_ir_with_interner_and_warnings(program, hm_expr_types, interner)
+        .map(|(ir, _)| ir)
 }
 
 #[allow(clippy::result_large_err)]
@@ -846,7 +847,12 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
             )
         }
         IrExpr::DropReuse(var) => format!("DropReuse({})", ir_fmt_var(*var)),
-        IrExpr::ReuseCons { token, head, tail, field_mask } => {
+        IrExpr::ReuseCons {
+            token,
+            head,
+            tail,
+            field_mask,
+        } => {
             let base = format!(
                 "ReuseCons({}, {}, {})",
                 ir_fmt_var(*token),

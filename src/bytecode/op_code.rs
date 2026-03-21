@@ -329,9 +329,9 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpPerformDirectIndexed => vec![1, 1, 1], // handler_depth: u8, arm_index: u8, arity: u8
         OpCode::OpConsumeLocal0 | OpCode::OpConsumeLocal1 => vec![],
         // Aether reuse opcodes
-        OpCode::OpDropReuse => vec![],                  // TOS consumed
-        OpCode::OpReuseCons => vec![1],                 // field_mask: u8
-        OpCode::OpReuseAdt => vec![2, 1, 1],            // const_idx: u16, arity: u8, field_mask: u8
+        OpCode::OpDropReuse => vec![],       // TOS consumed
+        OpCode::OpReuseCons => vec![1],      // field_mask: u8
+        OpCode::OpReuseAdt => vec![2, 1, 1], // const_idx: u16, arity: u8, field_mask: u8
         OpCode::OpReuseSome | OpCode::OpReuseLeft | OpCode::OpReuseRight => vec![],
         OpCode::OpIsUnique => vec![],
         _ => vec![],

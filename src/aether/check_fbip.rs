@@ -58,7 +58,9 @@ pub fn check_fbip(program: &CoreProgram, interner: &Interner) -> FbipCheckResult
                 FbipOutcome::Fbip { bound } => {
                     format!("provably bounded fresh allocations with upper bound {bound}")
                 }
-                FbipOutcome::NotProvable => "could not prove the requested FBIP contract".to_string(),
+                FbipOutcome::NotProvable => {
+                    "could not prove the requested FBIP contract".to_string()
+                }
             });
         }
 
@@ -95,7 +97,10 @@ pub fn check_fbip(program: &CoreProgram, interner: &Interner) -> FbipCheckResult
                 title,
                 ErrorType::Compiler,
                 message.clone(),
-                Some("Annotate only functions whose fresh allocations remain provably bounded.".to_string()),
+                Some(
+                    "Annotate only functions whose fresh allocations remain provably bounded."
+                        .to_string(),
+                ),
                 "",
                 def.span,
             )
@@ -166,53 +171,52 @@ fn detail_for_reason(reason: FbipFailureReason, call_details: &[FbipCallDetail])
         FbipFailureReason::FreshAllocation => {
             "fresh heap allocation remains on at least one path".to_string()
         }
-        FbipFailureReason::NonFipCall => {
-            call_details
-                .iter()
-                .find(|detail| matches!(detail.outcome, FbipCallOutcome::KnownNotProvable))
-                .map(|detail| match detail.kind {
-                    FbipCallKind::DirectInternal | FbipCallKind::DirectNamed => {
-                        format!("calls known function `{}` whose FBIP behavior is not yet provable", detail.callee)
-                    }
-                    FbipCallKind::Builtin(effect) => format!(
-                        "calls Flux builtin `{}` ({}) at a proof boundary",
-                        detail.callee,
-                        builtin_effect_label(effect)
-                    ),
-                    FbipCallKind::Indirect => {
-                        "calls a known function whose FBIP contract could not be proved".to_string()
-                    }
-                })
-                .unwrap_or_else(|| {
-                    "calls a known function whose FBIP contract could not be proved".to_string()
-                })
-        }
-        FbipFailureReason::UnknownCall => {
-            call_details
-                .iter()
-                .find(|detail| matches!(detail.outcome, FbipCallOutcome::UnknownIndirect))
-                .map(|detail| {
+        FbipFailureReason::NonFipCall => call_details
+            .iter()
+            .find(|detail| matches!(detail.outcome, FbipCallOutcome::KnownNotProvable))
+            .map(|detail| match detail.kind {
+                FbipCallKind::DirectInternal | FbipCallKind::DirectNamed => {
                     format!(
-                        "calls indirect or opaque callee `{}` whose FBIP behavior is unknown",
+                        "calls known function `{}` whose FBIP behavior is not yet provable",
                         detail.callee
                     )
-                })
-                .unwrap_or_else(|| "calls an indirect, unknown, or unannotated function".to_string())
-        }
-        FbipFailureReason::BuiltinBoundary => {
-            call_details
-                .iter()
-                .find(|detail| matches!(detail.kind, FbipCallKind::Builtin(_)))
-                .map(|detail| match detail.kind {
-                    FbipCallKind::Builtin(effect) => format!(
-                        "calls Flux builtin `{}` ({}) at a conservative proof boundary",
-                        detail.callee,
-                        builtin_effect_label(effect)
-                    ),
-                    _ => unreachable!(),
-                })
-                .unwrap_or_else(|| "crosses a Flux builtin boundary that remains conservative".to_string())
-        }
+                }
+                FbipCallKind::Builtin(effect) => format!(
+                    "calls Flux builtin `{}` ({}) at a proof boundary",
+                    detail.callee,
+                    builtin_effect_label(effect)
+                ),
+                FbipCallKind::Indirect => {
+                    "calls a known function whose FBIP contract could not be proved".to_string()
+                }
+            })
+            .unwrap_or_else(|| {
+                "calls a known function whose FBIP contract could not be proved".to_string()
+            }),
+        FbipFailureReason::UnknownCall => call_details
+            .iter()
+            .find(|detail| matches!(detail.outcome, FbipCallOutcome::UnknownIndirect))
+            .map(|detail| {
+                format!(
+                    "calls indirect or opaque callee `{}` whose FBIP behavior is unknown",
+                    detail.callee
+                )
+            })
+            .unwrap_or_else(|| "calls an indirect, unknown, or unannotated function".to_string()),
+        FbipFailureReason::BuiltinBoundary => call_details
+            .iter()
+            .find(|detail| matches!(detail.kind, FbipCallKind::Builtin(_)))
+            .map(|detail| match detail.kind {
+                FbipCallKind::Builtin(effect) => format!(
+                    "calls Flux builtin `{}` ({}) at a conservative proof boundary",
+                    detail.callee,
+                    builtin_effect_label(effect)
+                ),
+                _ => unreachable!(),
+            })
+            .unwrap_or_else(|| {
+                "crosses a Flux builtin boundary that remains conservative".to_string()
+            }),
         FbipFailureReason::EffectBoundary => {
             "crosses an effect or handler boundary that prevents proof".to_string()
         }
@@ -295,10 +299,12 @@ mod tests {
         };
         let result = check_fbip(&program, &interner);
         assert_eq!(result.warnings.len(), 1);
-        assert!(result.warnings[0]
-            .message()
-            .unwrap()
-            .contains("fresh heap allocation"));
+        assert!(
+            result.warnings[0]
+                .message()
+                .unwrap()
+                .contains("fresh heap allocation")
+        );
     }
 
     #[test]
@@ -322,12 +328,14 @@ mod tests {
         };
         let result = check_fbip(&program, &interner);
         assert!(result.error.is_some());
-        assert!(result
-            .error
-            .unwrap()
-            .message()
-            .unwrap()
-            .contains("indirect or opaque"));
+        assert!(
+            result
+                .error
+                .unwrap()
+                .message()
+                .unwrap()
+                .contains("indirect or opaque")
+        );
     }
 
     #[test]

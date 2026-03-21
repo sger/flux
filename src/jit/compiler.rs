@@ -2329,8 +2329,7 @@ fn compile_simple_backend_ir_expr(
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         BackendIrExpr::MakeList(vars) => {
-            let make_empty =
-                get_helper_func_ref(module, helpers, builder, "rt_make_empty_list");
+            let make_empty = get_helper_func_ref(module, helpers, builder, "rt_make_empty_list");
             let make_cons = get_helper_func_ref(module, helpers, builder, "rt_make_cons");
             let empty_call = builder.ins().call(make_empty, &[ctx_val]);
             let mut acc = builder.inst_results(empty_call)[0];
@@ -2521,8 +2520,7 @@ fn compile_simple_backend_ir_expr(
             }
         }
         BackendIrExpr::EmptyList => {
-            let make_empty =
-                get_helper_func_ref(module, helpers, builder, "rt_make_empty_list");
+            let make_empty = get_helper_func_ref(module, helpers, builder, "rt_make_empty_list");
             let call = builder.ins().call(make_empty, &[ctx_val]);
             Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
@@ -2855,7 +2853,12 @@ fn compile_simple_backend_ir_expr(
                 Ok(JitValue::boxed(builder.ins().iconst(types::I64, 0)))
             }
         }
-        BackendIrExpr::ReuseCons { token, head, tail, field_mask } => {
+        BackendIrExpr::ReuseCons {
+            token,
+            head,
+            tail,
+            field_mask,
+        } => {
             let token_boxed = if let Some(&token_val) = env.get(token) {
                 box_jit_value(module, helpers, builder, ctx_val, token_val)
             } else {
@@ -2873,8 +2876,7 @@ fn compile_simple_backend_ir_expr(
             let head_boxed = box_jit_value(module, helpers, builder, ctx_val, head_val);
             let tail_boxed = box_jit_value(module, helpers, builder, ctx_val, tail_val);
             let call = if let Some(mask) = field_mask {
-                let helper =
-                    get_helper_func_ref(module, helpers, builder, "rt_reuse_cons_masked");
+                let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_cons_masked");
                 let mask_val = builder.ins().iconst(types::I64, *mask as i64);
                 builder.ins().call(
                     helper,
@@ -2977,8 +2979,7 @@ fn compile_simple_backend_ir_expr(
             let (_slot, fields_ptr) = emit_tagged_stack_array(builder, &field_vals);
             let nfields = builder.ins().iconst(PTR_TYPE, fields.len() as i64);
             let call = if let Some(mask) = field_mask {
-                let helper =
-                    get_helper_func_ref(module, helpers, builder, "rt_reuse_adt_masked");
+                let helper = get_helper_func_ref(module, helpers, builder, "rt_reuse_adt_masked");
                 let mask_val = builder.ins().iconst(types::I64, *mask as i64);
                 builder.ins().call(
                     helper,
