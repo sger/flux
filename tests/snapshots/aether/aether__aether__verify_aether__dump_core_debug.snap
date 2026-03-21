@@ -1,6 +1,6 @@
 ---
 source: tests/aether_cli_snapshots.rs
-assertion_line: 47
+assertion_line: 75
 ---
 letrec my_map : List<Any> =
 λxs#1, f#2.
@@ -8,10 +8,9 @@ letrec my_map : List<Any> =
       ::(h#3, t#4) →
         drop xs#1
         let #4000043[synthetic]#43 = aether_call[owned] f#2(h#3)
-        let #4000044[synthetic]#44 = aether_call[borrowed, owned] my_map#0(t#4, f#2)
+        let #4000044[synthetic]#44 = aether_call[borrowed, borrowed] my_map#0(t#4, f#2)
         ::(#4000043[synthetic]#43, #4000044[synthetic]#44)
       _ →
-        drop f#2
         []
 
 letrec option_map : Option<Any> =
@@ -22,7 +21,6 @@ letrec option_map : Option<Any> =
         let #4000045[synthetic]#45 = aether_call[owned] f#7(x#8)
         Some(#4000045[synthetic]#45)
       _ →
-        drop f#7
         None
 
 letrec set_black : Tree =
@@ -50,23 +48,22 @@ letrec my_filter : List<Any> =
           unique -> let #4000047[synthetic]#47 = aether_call[owned] f#19(h#20)
             case #4000047[synthetic]#47 of
               true →
-                let #4000048[synthetic]#48 = aether_call[borrowed, owned] my_filter#17(t#21, f#19)
+                let #4000048[synthetic]#48 = aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
                 reuse xs#18 ::(h#20, #4000048[synthetic]#48) @mask=0b10
               _ →
                 drop h#20
-                aether_call[borrowed, owned] my_filter#17(t#21, f#19)
+                aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
           shared -> let #4000047[synthetic]#47 = aether_call[owned] f#19(dup h#20
             h#20)
             case #4000047[synthetic]#47 of
               true →
-                let #4000048[synthetic]#48 = aether_call[borrowed, owned] my_filter#17(t#21, f#19)
+                let #4000048[synthetic]#48 = aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
                 ::(h#20, #4000048[synthetic]#48)
               _ →
                 drop h#20
-                aether_call[borrowed, owned] my_filter#17(t#21, f#19)
+                aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
         }
       _ →
-        drop f#19
         []
 
 letrec my_sum : Any =
@@ -83,7 +80,7 @@ letrec main : Unit =
     let #2000004[synthetic]#40 = (let #4000052[synthetic]#52 = (let #4000050[synthetic]#50 = MakeList(1, 2, 3)
     let #4000051[synthetic]#51 = (λx#42.
       Mul(x#42, 2))
-    aether_call[borrowed, owned] my_map#0(#4000050[synthetic]#50, #4000051[synthetic]#51))
+    aether_call[borrowed, borrowed] my_map#0(#4000050[synthetic]#50, #4000051[synthetic]#51))
     aether_call[borrowed] print#?[external](#4000052[synthetic]#52))
     drop #2000004[synthetic]#40
     let #2000003[synthetic]#37 = (let #4000055[synthetic]#55 = (let #4000053[synthetic]#53 = Some(42)
@@ -104,7 +101,7 @@ letrec main : Unit =
     let #4000062[synthetic]#62 = (λx#30.
       let #4000061[synthetic]#61 = Mod(x#30, 2)
       Eq(#4000061[synthetic]#61, 0))
-    aether_call[borrowed, owned] my_filter#17(#4000060[synthetic]#60, #4000062[synthetic]#62))
+    aether_call[borrowed, borrowed] my_filter#17(#4000060[synthetic]#60, #4000062[synthetic]#62))
     aether_call[borrowed] print#?[external](#4000063[synthetic]#63))
     drop #2000000[synthetic]#28
     let #4000065[synthetic]#65 = (let #4000064[synthetic]#64 = MakeList(1, 2, 3, 4, 5)
@@ -112,7 +109,7 @@ letrec main : Unit =
     aether_call[borrowed] print#?[external](#4000065[synthetic]#65)
 
 ── Aether stats ──
-Dups: 1  Drops: 12  Reuses: 2  DropSpecs: 1  FBIP: fbip(4)
+Dups: 1  Drops: 9  Reuses: 2  DropSpecs: 1  FBIP: fbip(4)
 Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:

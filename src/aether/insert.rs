@@ -135,7 +135,11 @@ fn plan_expr(
             env_before.union_from(&tail_env);
             for capture in body_plan.env_before.live.iter().copied() {
                 if !param_ids.contains(&capture) {
-                    env_before.mark_owned(capture);
+                    if body_plan.env_before.is_owned(capture) {
+                        env_before.mark_owned(capture);
+                    } else if body_plan.env_before.is_borrowed(capture) {
+                        env_before.mark_borrowed(capture);
+                    }
                 }
             }
 
@@ -288,7 +292,7 @@ fn plan_expr(
                 .into_iter()
                 .map(|(pat, guard, rhs, alt_span, _branch_env, env_without_pats)| {
                     let compensation: Vec<_> = joined
-                        .live
+                        .owned
                         .iter()
                         .copied()
                         .filter(|binder_id| !env_without_pats.is_live(*binder_id) && !tail_env.is_live(*binder_id))
@@ -376,7 +380,7 @@ fn plan_expr(
             span,
         } => {
             let body_plan = plan_expr(*body, tail_env.clone(), demand, registry, scope);
-            let mut joined = body_plan.env_before.clone();
+            let mut incoming_envs = vec![body_plan.env_before.clone()];
             let mut planned_handlers = Vec::with_capacity(handlers.len());
 
             for handler in handlers {
@@ -395,7 +399,7 @@ fn plan_expr(
 
                 let mut env_before = handler_plan.env_before.clone();
                 env_before.remove_all(shadow_ids);
-                joined.union_from(&env_before);
+                incoming_envs.push(env_before);
 
                 planned_handlers.push(crate::core::CoreHandler {
                     operation: handler.operation,
@@ -405,6 +409,8 @@ fn plan_expr(
                     span: handler.span,
                 });
             }
+
+            let joined = join_branch_envs(&incoming_envs);
 
             AetherPlan {
                 expr: CoreExpr::Handle {
@@ -726,7 +732,7 @@ fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::aether::borrow_infer::{BorrowMode, BorrowRegistry};
-    use crate::core::{CoreBinder, CoreBinderId, CoreExpr};
+    use crate::core::{CoreBinder, CoreBinderId, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreVarRef};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 
@@ -738,9 +744,69 @@ mod tests {
 
     fn var(binder: CoreBinder) -> CoreExpr {
         CoreExpr::Var {
-            var: crate::core::CoreVarRef::resolved(binder),
+            var: CoreVarRef::resolved(binder),
             span: Span::default(),
         }
+    }
+
+    fn count_binder_nodes<F>(expr: &CoreExpr, binder: CoreBinderId, predicate: &F) -> usize
+    where
+        F: Fn(&CoreExpr, CoreBinderId) -> bool,
+    {
+        let self_count = usize::from(predicate(expr, binder));
+        let children = match expr {
+            CoreExpr::Lam { body, .. } => count_binder_nodes(body, binder, predicate),
+            CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+                count_binder_nodes(func, binder, predicate)
+                    + args
+                        .iter()
+                        .map(|arg| count_binder_nodes(arg, binder, predicate))
+                        .sum::<usize>()
+            }
+            CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+                count_binder_nodes(rhs, binder, predicate) + count_binder_nodes(body, binder, predicate)
+            }
+            CoreExpr::Case { scrutinee, alts, .. } => {
+                count_binder_nodes(scrutinee, binder, predicate)
+                    + alts
+                        .iter()
+                        .map(|alt| {
+                            alt.guard
+                                .as_ref()
+                                .map_or(0, |guard| count_binder_nodes(guard, binder, predicate))
+                                + count_binder_nodes(&alt.rhs, binder, predicate)
+                        })
+                        .sum::<usize>()
+            }
+            CoreExpr::Con { fields, .. }
+            | CoreExpr::PrimOp { args: fields, .. }
+            | CoreExpr::Reuse { fields, .. }
+            | CoreExpr::Perform { args: fields, .. } => fields
+                .iter()
+                .map(|field| count_binder_nodes(field, binder, predicate))
+                .sum(),
+            CoreExpr::Return { value, .. }
+            | CoreExpr::Dup { body: value, .. }
+            | CoreExpr::Drop { body: value, .. } => count_binder_nodes(value, binder, predicate),
+            CoreExpr::Handle { body, handlers, .. } => {
+                count_binder_nodes(body, binder, predicate)
+                    + handlers
+                        .iter()
+                        .map(|handler| count_binder_nodes(&handler.body, binder, predicate))
+                        .sum::<usize>()
+            }
+            CoreExpr::DropSpecialized {
+                unique_body,
+                shared_body,
+                ..
+            } => {
+                count_binder_nodes(unique_body, binder, predicate)
+                    + count_binder_nodes(shared_body, binder, predicate)
+            }
+            CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => 0,
+        };
+
+        self_count + children
     }
 
     #[test]
@@ -769,5 +835,154 @@ mod tests {
             }
             other => panic!("expected AetherCall, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn read_only_closure_capture_does_not_dup_capture() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let f = binder(&mut interner, 2, "f");
+        let len_name = interner.intern("len");
+        let mut registry = BorrowRegistry::default();
+        registry.by_name.insert(
+            len_name,
+            crate::aether::borrow_infer::BorrowSignature::new(
+                vec![BorrowMode::Borrowed],
+                crate::aether::borrow_infer::BorrowProvenance::BaseRuntime,
+            ),
+        );
+
+        let expr = CoreExpr::Lam {
+            params: vec![xs],
+            body: Box::new(CoreExpr::Let {
+                var: f,
+                rhs: Box::new(CoreExpr::Lam {
+                    params: vec![],
+                    body: Box::new(CoreExpr::App {
+                        func: Box::new(CoreExpr::Var {
+                            var: CoreVarRef::unresolved(len_name),
+                            span: Span::default(),
+                        }),
+                        args: vec![var(xs)],
+                        span: Span::default(),
+                    }),
+                    span: Span::default(),
+                }),
+                body: Box::new(CoreExpr::PrimOp {
+                    op: CorePrimOp::Add,
+                    args: vec![
+                        CoreExpr::App {
+                            func: Box::new(var(f)),
+                            args: vec![],
+                            span: Span::default(),
+                        },
+                        CoreExpr::App {
+                            func: Box::new(var(f)),
+                            args: vec![],
+                            span: Span::default(),
+                        },
+                    ],
+                    span: Span::default(),
+                }),
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        let dups_for_xs = count_binder_nodes(&rewritten, xs.id, &|expr, binder| {
+            matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(binder))
+        });
+        assert_eq!(dups_for_xs, 0, "read-only closure capture should not duplicate the captured binder");
+    }
+
+    #[test]
+    fn handler_shadowing_does_not_keep_outer_binder_live() {
+        let mut interner = Interner::new();
+        let outer = binder(&mut interner, 1, "x");
+        let resume = binder(&mut interner, 2, "resume");
+        let shadow = binder(&mut interner, 3, "x");
+        let effect = interner.intern("IO");
+        let op = interner.intern("read");
+
+        let expr = CoreExpr::Lam {
+            params: vec![outer],
+            body: Box::new(CoreExpr::Handle {
+                body: Box::new(CoreExpr::Lit(CoreLit::Unit, Span::default())),
+                effect,
+                handlers: vec![CoreHandler {
+                    operation: op,
+                    params: vec![shadow],
+                    resume,
+                    body: var(shadow),
+                    span: Span::default(),
+                }],
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+
+        let rewritten = insert_dup_drop_with_registry(expr, &BorrowRegistry::default());
+        let drops_for_outer = count_binder_nodes(&rewritten, outer.id, &|expr, binder| {
+            matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(binder))
+        });
+        assert!(
+            drops_for_outer >= 1,
+            "unused outer binder should still be dropped when handler params shadow it"
+        );
+    }
+
+    #[test]
+    fn branch_borrow_only_path_does_not_force_dead_path_drop() {
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 1, "x");
+        let len_name = interner.intern("len");
+        let mut registry = BorrowRegistry::default();
+        registry.by_name.insert(
+            len_name,
+            crate::aether::borrow_infer::BorrowSignature::new(
+                vec![BorrowMode::Borrowed],
+                crate::aether::borrow_infer::BorrowProvenance::BaseRuntime,
+            ),
+        );
+
+        let expr = CoreExpr::Lam {
+            params: vec![x],
+            body: Box::new(CoreExpr::Case {
+                scrutinee: Box::new(CoreExpr::Lit(CoreLit::Bool(true), Span::default())),
+                alts: vec![
+                    crate::core::CoreAlt {
+                        pat: CorePat::Lit(CoreLit::Bool(true)),
+                        guard: None,
+                        rhs: CoreExpr::App {
+                            func: Box::new(CoreExpr::Var {
+                                var: CoreVarRef::unresolved(len_name),
+                                span: Span::default(),
+                            }),
+                            args: vec![var(x)],
+                            span: Span::default(),
+                        },
+                        span: Span::default(),
+                    },
+                    crate::core::CoreAlt {
+                        pat: CorePat::Wildcard,
+                        guard: None,
+                        rhs: CoreExpr::Lit(CoreLit::Int(0), Span::default()),
+                        span: Span::default(),
+                    },
+                ],
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        let drops_for_x = count_binder_nodes(&rewritten, x.id, &|expr, binder| {
+            matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(binder))
+        });
+        assert_eq!(
+            drops_for_x, 0,
+            "borrow-only branch joins should not synthesize dead-path drops for the binder"
+        );
     }
 }
