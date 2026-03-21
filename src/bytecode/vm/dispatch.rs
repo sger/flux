@@ -275,6 +275,19 @@ impl VM {
                 self.stack_set(bp + idx, val);
                 Ok(2)
             }
+            OpCode::OpAetherDropLocal => {
+                let idx = Self::read_u8_fast(instructions, ip + 1);
+                let bp = self.current_frame().base_pointer;
+                let slot_idx = bp + idx;
+                let should_clear = !matches!(
+                    self.stack_get(slot_idx),
+                    Value::Integer(_) | Value::Float(_) | Value::Boolean(_)
+                );
+                if should_clear {
+                    self.stack_set(slot_idx, Value::None);
+                }
+                Ok(2)
+            }
             OpCode::OpConsumeLocal => {
                 let idx = Self::read_u8_fast(instructions, ip + 1);
                 let bp = self.current_frame().base_pointer;

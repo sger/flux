@@ -176,6 +176,10 @@ pub enum OpCode {
     /// Aether: test if TOS value's Rc is uniquely owned (strong_count == 1).
     /// Pushes boolean result. No operands.
     OpIsUnique = 90,
+    /// Aether: drop a local slot early if it currently holds a boxed value.
+    /// Operand: `[local_idx: u8]`.
+    /// Immediate `Int`/`Float`/`Bool` locals are left unchanged.
+    OpAetherDropLocal = 91,
 }
 
 impl From<u8> for OpCode {
@@ -272,6 +276,7 @@ impl From<u8> for OpCode {
             88 => OpCode::OpReuseLeft,
             89 => OpCode::OpReuseRight,
             90 => OpCode::OpIsUnique,
+            91 => OpCode::OpAetherDropLocal,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -311,7 +316,8 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpGetFree
         | OpCode::OpGetBase
         | OpCode::OpReturnLocal
-        | OpCode::OpTupleIndex => vec![1],
+        | OpCode::OpTupleIndex
+        | OpCode::OpAetherDropLocal => vec![1],
         OpCode::OpPrimOp | OpCode::OpCallBase => vec![1, 1],
         OpCode::OpClosure => vec![2, 1],
         OpCode::OpClosureLong => vec![4, 1],
