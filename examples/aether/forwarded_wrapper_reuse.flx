@@ -1,0 +1,28 @@
+// Maintained Aether forwarding/wrapper fixture.
+// Transformed-Core assertions cover:
+// - a fresh outer `Pair2` wrapper with one inner forwarded-child `Reuse`
+// - a near-miss twin that stays fresh because two wrapper fields compete for
+//   the same forwarded child token
+
+type Pair2<T> = Pair2(T, T)
+
+fn forwarded_child(xs, acc) {
+    match xs {
+        [y | ys] -> Pair2([y | acc], ys),
+        _ -> Pair2(xs, acc),
+    }
+}
+
+fn forwarded_child_near_miss(xs, acc) {
+    match xs {
+        [y | ys] -> Pair2([y | acc], [y | acc]),
+        _ -> Pair2(xs, acc),
+    }
+}
+
+fn main() with IO {
+    let xs = [1, 2, 3]
+    let acc = [10, 20]
+    print(forwarded_child(xs, acc))
+    print(forwarded_child_near_miss(xs, acc))
+}
