@@ -3,7 +3,10 @@ use std::collections::{BTreeSet, HashMap};
 use crate::core::{CoreBinderId, CoreDef, CoreExpr, CoreProgram};
 use crate::syntax::{Identifier, interner::Interner, statement::FipAnnotation};
 
-use super::{AetherBuiltinEffect, builtin_effect_for_name, is_heap_tag};
+use super::{
+    AetherBuiltinEffect, builtin_effect_for_name, callee::AetherCalleeKind, is_heap_tag,
+};
+use super::{borrow_infer::BorrowProvenance, callee::classify_direct_var_ref};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FbipCapability {
@@ -61,7 +64,8 @@ impl Default for FbipFact {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FbipCallKind {
     DirectInternal,
-    DirectNamed,
+    DirectInferredGlobal,
+    DirectImported,
     Builtin(AetherBuiltinEffect),
     Indirect,
 }
@@ -112,9 +116,15 @@ impl FbipSummary {
 #[derive(Debug, Clone)]
 struct FbipContext<'a> {
     summaries: &'a HashMap<CoreBinderId, FbipSummary>,
-    summaries_by_name: &'a HashMap<Identifier, FbipSummary>,
+    summaries_by_name: &'a HashMap<Identifier, NamedFbipSummary>,
     interner: &'a Interner,
     current_def: Option<CoreBinderId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NamedFbipSummary {
+    summary: FbipSummary,
+    provenance: BorrowProvenance,
 }
 
 pub fn analyze_program(
@@ -122,12 +132,30 @@ pub fn analyze_program(
     interner: &Interner,
 ) -> HashMap<CoreBinderId, FbipSummary> {
     let mut summaries = HashMap::new();
-    let mut summaries_by_name = HashMap::new();
+    let mut summaries_by_name = HashMap::<Identifier, NamedFbipSummary>::new();
 
     for def in &program.defs {
         let summary = initial_summary(def);
         summaries.insert(def.binder.id, summary.clone());
-        summaries_by_name.insert(def.name, summary);
+        summaries_by_name.insert(
+            def.name,
+            NamedFbipSummary {
+                summary,
+                provenance: BorrowProvenance::Inferred,
+            },
+        );
+    }
+
+    register_explicit_imported_fallbacks(program, &mut summaries_by_name, interner);
+
+    for def in &program.defs {
+        if let Some(entry) = summaries_by_name.get_mut(&def.name) {
+            entry.summary = summaries
+                .get(&def.binder.id)
+                .cloned()
+                .expect("definition summary should exist");
+            entry.provenance = BorrowProvenance::Inferred;
+        }
     }
 
     for _ in 0..program.defs.len().max(1) * 8 {
@@ -145,7 +173,13 @@ pub fn analyze_program(
             let prev = summaries.get(&def.binder.id);
             if prev != Some(&next) {
                 summaries.insert(def.binder.id, next.clone());
-                summaries_by_name.insert(def.name, next);
+                summaries_by_name.insert(
+                    def.name,
+                    NamedFbipSummary {
+                        summary: next,
+                        provenance: BorrowProvenance::Inferred,
+                    },
+                );
                 changed = true;
             }
         }
@@ -200,6 +234,43 @@ fn summarize_definition(def: &CoreDef, ctx: &FbipContext<'_>) -> FbipSummary {
         reasons,
         call_details: fact.call_details,
         trusted: true,
+    }
+}
+
+fn register_explicit_imported_fallbacks(
+    program: &CoreProgram,
+    summaries_by_name: &mut HashMap<Identifier, NamedFbipSummary>,
+    interner: &Interner,
+) {
+    let mut unresolved = HashMap::<Identifier, usize>::new();
+    for def in &program.defs {
+        collect_unresolved_callees(&def.expr, &mut unresolved);
+    }
+
+    for (name, _) in unresolved {
+        if summaries_by_name.contains_key(&name) {
+            continue;
+        }
+        let resolved = interner.resolve(name);
+        if builtin_effect_for_name(resolved).is_some() {
+            continue;
+        }
+        summaries_by_name.insert(
+            name,
+            NamedFbipSummary {
+                summary: FbipSummary {
+                    annotation: None,
+                    outcome: FbipOutcome::NotProvable,
+                    bound: None,
+                    has_constructors: false,
+                    capabilities: BTreeSet::new(),
+                    reasons: BTreeSet::new(),
+                    call_details: Vec::new(),
+                    trusted: false,
+                },
+                provenance: BorrowProvenance::Imported,
+            },
+        );
     }
 }
 
@@ -332,41 +403,66 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
     let (summary, detail) = match func {
         CoreExpr::Var { var, .. } => {
             let callee_name = safe_symbol_name(ctx.interner, var.name);
-            let self_recursive = var.binder == ctx.current_def;
-            if let Some(binder) = var.binder
-                && let Some(summary) = ctx.summaries.get(&binder)
-            {
-                (
-                    Some(summary),
+            let classified = classify_direct_var_ref(
+                var,
+                |binder| ctx.summaries.contains_key(&binder),
+                |name| {
+                    if ctx
+                        .interner
+                        .try_resolve(name)
+                        .is_some_and(|symbol| builtin_effect_for_name(symbol).is_some())
+                    {
+                        Some(BorrowProvenance::BaseRuntime)
+                    } else {
+                        ctx.summaries_by_name.get(&name).map(|entry| entry.provenance)
+                    }
+                },
+            );
+            let self_recursive = classified.binder == ctx.current_def;
+            match classified.kind {
+                AetherCalleeKind::DirectLocal => (
+                    classified
+                        .binder
+                        .and_then(|binder| ctx.summaries.get(&binder)),
                     Some(FbipCallDetail {
-                        callee: callee_name.clone(),
+                        callee: callee_name,
                         kind: FbipCallKind::DirectInternal,
                         outcome: FbipCallOutcome::KnownNotProvable,
                         self_recursive,
                     }),
-                )
-            } else if let Some(effect) = builtin_effect_for_name(&callee_name) {
-                (
-                    None,
+                ),
+                AetherCalleeKind::DirectInferredGlobal => (
+                    ctx.summaries_by_name
+                        .get(&var.name)
+                        .map(|entry| &entry.summary),
                     Some(FbipCallDetail {
-                        callee: callee_name.clone(),
+                        callee: callee_name,
+                        kind: FbipCallKind::DirectInferredGlobal,
+                        outcome: FbipCallOutcome::KnownNotProvable,
+                        self_recursive: false,
+                    }),
+                ),
+                AetherCalleeKind::BaseRuntime => (
+                    None,
+                    builtin_effect_for_name(&callee_name).map(|effect| FbipCallDetail {
+                        callee: callee_name,
                         kind: FbipCallKind::Builtin(effect),
                         outcome: FbipCallOutcome::KnownBuiltin,
                         self_recursive: false,
                     }),
-                )
-            } else if let Some(summary) = ctx.summaries_by_name.get(&var.name) {
-                (
-                    Some(summary),
+                ),
+                AetherCalleeKind::Imported => (
+                    ctx.summaries_by_name
+                        .get(&var.name)
+                        .map(|entry| &entry.summary),
                     Some(FbipCallDetail {
-                        callee: callee_name.clone(),
-                        kind: FbipCallKind::DirectNamed,
+                        callee: callee_name,
+                        kind: FbipCallKind::DirectImported,
                         outcome: FbipCallOutcome::KnownNotProvable,
                         self_recursive: false,
                     }),
-                )
-            } else {
-                (
+                ),
+                AetherCalleeKind::Unknown => (
                     None,
                     Some(FbipCallDetail {
                         callee: callee_name,
@@ -374,7 +470,7 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
                         outcome: FbipCallOutcome::UnknownIndirect,
                         self_recursive: false,
                     }),
-                )
+                ),
             }
         }
         _ => (None, None),
@@ -489,6 +585,73 @@ fn dropped_constructor_rebuild_needs_token(expr: &CoreExpr) -> bool {
             .any(|alt| dropped_constructor_rebuild_needs_token(&alt.rhs)),
         CoreExpr::Reuse { .. } | CoreExpr::DropSpecialized { .. } => false,
         _ => false,
+    }
+}
+
+fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifier, usize>) {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
+        CoreExpr::Lam { body, .. } => collect_unresolved_callees(body, unresolved),
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+            if let CoreExpr::Var { var, .. } = func.as_ref()
+                && var.binder.is_none()
+            {
+                unresolved
+                    .entry(var.name)
+                    .and_modify(|arity| *arity = (*arity).max(args.len()))
+                    .or_insert(args.len());
+            }
+            collect_unresolved_callees(func, unresolved);
+            for arg in args {
+                collect_unresolved_callees(arg, unresolved);
+            }
+        }
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            collect_unresolved_callees(rhs, unresolved);
+            collect_unresolved_callees(body, unresolved);
+        }
+        CoreExpr::Case { scrutinee, alts, .. } => {
+            collect_unresolved_callees(scrutinee, unresolved);
+            for alt in alts {
+                if let Some(guard) = &alt.guard {
+                    collect_unresolved_callees(guard, unresolved);
+                }
+                collect_unresolved_callees(&alt.rhs, unresolved);
+            }
+        }
+        CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
+            for field in fields {
+                collect_unresolved_callees(field, unresolved);
+            }
+        }
+        CoreExpr::Return { value, .. } => collect_unresolved_callees(value, unresolved),
+        CoreExpr::Perform { args, .. } => {
+            for arg in args {
+                collect_unresolved_callees(arg, unresolved);
+            }
+        }
+        CoreExpr::Handle { body, handlers, .. } => {
+            collect_unresolved_callees(body, unresolved);
+            for handler in handlers {
+                collect_unresolved_callees(&handler.body, unresolved);
+            }
+        }
+        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
+            collect_unresolved_callees(body, unresolved)
+        }
+        CoreExpr::Reuse { fields, .. } => {
+            for field in fields {
+                collect_unresolved_callees(field, unresolved);
+            }
+        }
+        CoreExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            collect_unresolved_callees(unique_body, unresolved);
+            collect_unresolved_callees(shared_body, unresolved);
+        }
     }
 }
 
@@ -892,6 +1055,83 @@ mod tests {
                 .iter()
                 .any(|detail| matches!(detail.kind, FbipCallKind::Builtin(_)))
         );
+    }
+
+    #[test]
+    fn imported_name_only_fallback_is_not_indirect() {
+        let mut interner = Interner::new();
+        let foreign = interner.intern("foreign_fn");
+        let x = binder(&mut interner, 2, "x");
+        let program = CoreProgram {
+            defs: vec![def(
+                &mut interner,
+                1,
+                "caller",
+                CoreExpr::App {
+                    func: Box::new(CoreExpr::Var {
+                        var: CoreVarRef::unresolved(foreign),
+                        span: Span::default(),
+                    }),
+                    args: vec![var(x)],
+                    span: Span::default(),
+                },
+                Some(FipAnnotation::Fip),
+            )],
+            top_level_items: Vec::new(),
+        };
+        let summaries = analyze_program(&program, &interner);
+        let summary = summaries.values().next().unwrap();
+        assert_eq!(summary.outcome, FbipOutcome::NotProvable);
+        assert!(summary.reasons.contains(&FbipFailureReason::NonFipCall));
+        assert!(!summary.reasons.contains(&FbipFailureReason::UnknownCall));
+        assert!(summary.call_details.iter().any(|detail| {
+            matches!(detail.kind, FbipCallKind::DirectImported)
+                && matches!(detail.outcome, FbipCallOutcome::KnownNotProvable)
+        }));
+    }
+
+    #[test]
+    fn unresolved_same_name_internal_uses_inferred_global_category() {
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 2, "x");
+        let callee = def(
+            &mut interner,
+            1,
+            "callee",
+            CoreExpr::Reuse {
+                token: CoreVarRef::resolved(x),
+                tag: CoreTag::Some,
+                fields: vec![var(x)],
+                field_mask: None,
+                span: Span::default(),
+            },
+            None,
+        );
+        let caller = def(
+            &mut interner,
+            3,
+            "caller",
+            CoreExpr::App {
+                func: Box::new(CoreExpr::Var {
+                    var: CoreVarRef::unresolved(callee.name),
+                    span: Span::default(),
+                }),
+                args: vec![var(x)],
+                span: Span::default(),
+            },
+            Some(FipAnnotation::Fip),
+        );
+        let program = CoreProgram {
+            defs: vec![callee, caller],
+            top_level_items: Vec::new(),
+        };
+        let summaries = analyze_program(&program, &interner);
+        let summary = summaries.get(&CoreBinderId(3)).unwrap();
+        assert_eq!(summary.outcome, FbipOutcome::Fip);
+        assert!(summary.call_details.iter().any(|detail| {
+            matches!(detail.kind, FbipCallKind::DirectInferredGlobal)
+                && matches!(detail.outcome, FbipCallOutcome::KnownFip)
+        }));
     }
 
     #[test]

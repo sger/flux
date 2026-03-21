@@ -363,7 +363,7 @@ fn count_owned_inner(
             let resolved_callee = registry.and_then(|reg| match func.as_ref() {
                 CoreExpr::Var {
                     var: callee_var, ..
-                } => Some(reg.resolve_var_ref(callee_var)),
+                } => Some(reg.classify_var_ref(callee_var).borrow_callee),
                 _ => None,
             });
 

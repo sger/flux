@@ -1,6 +1,6 @@
 - Feature Name: Replace GcHandle with Perceus-managed Persistent Structures
 - Start Date: 2026-03-01
-- Status: Not Implemented
+- Status: Implemented (subsumed by 0084 Phase 4)
 - Proposal PR: pending
 - Flux Issue: pending
 
@@ -8,6 +8,10 @@
 
 ## Summary
 [summary]: #summary
+
+Status note:
+This migration landed as part of the Aether memory-model work in proposal 0084.
+The document remains as the historical design for the GC-heap elimination step.
 
 Eliminate `Value::Gc(GcHandle)` and the global `GcHeap` by replacing cons lists and HAMT
 maps with `Rc`-based persistent data structures that participate in the Perceus uniqueness
