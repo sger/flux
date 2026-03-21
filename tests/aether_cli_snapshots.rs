@@ -128,6 +128,15 @@ fn snapshot_drop_spec_branchy_dump_core_debug() {
 }
 
 #[test]
+fn snapshot_drop_spec_recursive_dump_core_debug() {
+    assert_cli_snapshot(
+        "aether/drop_spec_recursive.flx",
+        &["--dump-core=debug"],
+        "dump_core_debug",
+    );
+}
+
+#[test]
 fn snapshot_fbip_failure_dump_aether() {
     assert_cli_snapshot(
         "aether/fbip_fail_nonfip_call.flx",
