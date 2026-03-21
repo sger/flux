@@ -83,12 +83,19 @@ fn run_core_passes_with_optional_interner(
     for def in &mut program.defs {
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
         let e = beta_reduce(e);
+        verify_aether_contract_stage(def, &e, "beta_reduce")?;
         let e = case_of_case(e);
+        verify_aether_contract_stage(def, &e, "case_of_case")?;
         let e = case_of_known_constructor(e);
+        verify_aether_contract_stage(def, &e, "case_of_known_constructor")?;
         let e = inline_lets(e);
+        verify_aether_contract_stage(def, &e, "inline_lets")?;
         let e = elim_dead_let(e);
+        verify_aether_contract_stage(def, &e, "elim_dead_let")?;
         let e = evidence_pass(e, &mut next_id);
+        verify_aether_contract_stage(def, &e, "evidence_pass")?;
         let e = anf_normalize(e, &mut next_id);
+        verify_aether_contract_stage(def, &e, "anf_normalize")?;
         def.expr = e;
     }
 
@@ -98,11 +105,8 @@ fn run_core_passes_with_optional_interner(
     for def in &mut program.defs {
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
         let e = crate::aether::run_aether_pass_with_registry(e, &borrow_registry);
+        verify_aether_contract_stage(def, &e, "run_aether_pass")?;
         def.expr = e;
-
-        if let Err(errors) = crate::aether::verify::verify_contract(&def.expr) {
-            return Err(aether_contract_error(def, &errors));
-        }
     }
 
     if let Some(interner) = interner {
@@ -202,8 +206,20 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
     }
 }
 
+fn verify_aether_contract_stage(
+    def: &crate::core::CoreDef,
+    expr: &CoreExpr,
+    stage: &'static str,
+) -> Result<(), Diagnostic> {
+    if let Err(errors) = crate::aether::verify::verify_contract(expr) {
+        return Err(aether_contract_error(def, stage, &errors));
+    }
+    Ok(())
+}
+
 fn aether_contract_error(
     def: &crate::core::CoreDef,
+    stage: &'static str,
     errors: &[crate::aether::verify::AetherError],
 ) -> Diagnostic {
     let bullet_lines = errors
@@ -221,8 +237,9 @@ fn aether_contract_error(
         "AETHER VERIFICATION FAILED",
         ErrorType::Compiler,
         format!(
-            "definition `{}` emitted malformed Aether and cannot be lowered:\n{}\n\n{}",
+            "definition `{}` emitted malformed Aether after `{}` and cannot be lowered:\n{}\n\n{}",
             def.name.as_u32(),
+            stage,
             bullet_lines,
             details
         ),

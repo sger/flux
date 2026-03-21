@@ -7,20 +7,23 @@ status: 1
 stdout:
 <empty>
 stderr:
+• 1 error • examples/runtime_errors/base_fold_callback_arity.flx
 error[E1000]: fold: callback error at index 0: wrong number of arguments
 
 function: len/1
   expected: 1
   got: 2
 
-  <unknown>:0:1
+  examples/runtime_errors/base_fold_callback_arity.flx:2:19
   |
+2 |     let ignored = fold(#[1], 0, len)
+  |                   ^^^^^^^^^^^^^^^^^^
 
 Hint:
   len(value)
 
 Stack trace:
-  at main
+  at main (examples/runtime_errors/base_fold_callback_arity.flx:2:19)
   at <main>
 == jit ==
 status: 1
