@@ -637,7 +637,7 @@ mod tests {
         match expr {
             CoreExpr::Var { var, .. } => out.push(var),
             CoreExpr::Lam { body, .. } => collect_var_refs(body, out),
-            CoreExpr::App { func, args, .. } => {
+            CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
                 collect_var_refs(func, out);
                 for arg in args {
                     collect_var_refs(arg, out);

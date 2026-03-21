@@ -10,7 +10,7 @@ pub mod runtime_helpers;
 pub mod value_arena;
 
 use crate::bytecode::compiler::Compiler;
-use crate::cfg::{IrPassContext, lower_program_to_ir, run_ir_pass_pipeline};
+use crate::cfg::{IrPassContext, lower_program_to_ir_with_interner, run_ir_pass_pipeline};
 use crate::diagnostics::Diagnostic;
 use crate::runtime::value::Value;
 use crate::syntax::{interner::Interner, program::Program};
@@ -77,7 +77,7 @@ pub fn jit_compile(
         interner.clone(),
     );
     let hm_expr_types = hm_compiler.infer_expr_types_for_program(program);
-    let mut ir_program = lower_program_to_ir(program, &hm_expr_types)
+    let mut ir_program = lower_program_to_ir_with_interner(program, &hm_expr_types, Some(interner))
         .map_err(|diag| JitError::Compile(Box::new(diag)))?;
     run_ir_pass_pipeline(&mut ir_program, &IrPassContext)
         .map_err(|diag| JitError::Compile(Box::new(diag)))?;

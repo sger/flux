@@ -1,0 +1,9 @@
+// Aether FBIP vacuous-annotation regression fixture.
+
+@fip fn no_alloc(x) {
+    x
+}
+
+fn main() {
+    no_alloc(1)
+}

@@ -1,8 +1,12 @@
-use crate::runtime::{base::base_hm_signature_id::BaseHmSignatureId, base_function::BaseFunction};
+use crate::runtime::{
+    base::base_hm_signature_id::BaseHmSignatureId,
+    base_function::{BaseFunction, BaseFunctionArgMode},
+};
 #[cfg(test)]
 use crate::{runtime::base::scheme_for_signature_id, syntax::interner::Interner};
 
 use super::BASE_FUNCTIONS;
+use super::helpers::signature_for_id;
 
 /// Canonical Base fastcall allowlist used by VM/JIT lowering (`OpCallBase`).
 pub const BASE_FASTCALL_ALLOWLIST: &[&str] = &[
@@ -60,6 +64,12 @@ pub const BASE_FASTCALL_ALLOWLIST: &[&str] = &[
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BaseModule;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BaseBorrowMetadata {
+    pub arity: usize,
+    pub arg_mode: BaseFunctionArgMode,
+}
+
 impl BaseModule {
     /// Creates a Base registry view.
     pub fn new() -> Self {
@@ -109,6 +119,23 @@ pub fn get_base_function_index(name: &str) -> Option<usize> {
 /// Looks up a Base function by index.
 pub fn get_base_function_by_index(index: usize) -> Option<&'static BaseFunction> {
     BASE_FUNCTIONS.get(index)
+}
+
+pub fn get_base_borrow_metadata(name: &str) -> Option<BaseBorrowMetadata> {
+    get_base_function(name).map(base_function_borrow_metadata)
+}
+
+pub fn base_borrow_entries() -> impl Iterator<Item = (&'static str, BaseBorrowMetadata)> {
+    BASE_FUNCTIONS
+        .iter()
+        .map(|base_fn| (base_fn.name, base_function_borrow_metadata(base_fn)))
+}
+
+fn base_function_borrow_metadata(base_fn: &BaseFunction) -> BaseBorrowMetadata {
+    BaseBorrowMetadata {
+        arity: signature_for_id(base_fn.hm_signature).params.len(),
+        arg_mode: base_fn.arg_mode,
+    }
 }
 
 /// Returns true when a Base function name is allowlisted for `OpCallBase` fastcall lowering.

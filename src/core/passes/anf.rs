@@ -107,6 +107,30 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
             };
             wrap_lets(bindings, app, span)
         }
+        CoreExpr::AetherCall {
+            func,
+            args,
+            arg_modes,
+            span,
+        } => {
+            let mut bindings = Vec::new();
+            let func = anf_expr(*func, next_id);
+            let func = anf_atom(func, next_id, &mut bindings);
+            let args: Vec<CoreExpr> = args
+                .into_iter()
+                .map(|a| {
+                    let a = anf_expr(a, next_id);
+                    anf_atom(a, next_id, &mut bindings)
+                })
+                .collect();
+            let app = CoreExpr::AetherCall {
+                func: Box::new(func),
+                args,
+                arg_modes,
+                span,
+            };
+            wrap_lets(bindings, app, span)
+        }
 
         // Let — normalize RHS and body.
         CoreExpr::Let {

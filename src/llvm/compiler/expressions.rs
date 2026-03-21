@@ -915,7 +915,7 @@ pub(super) fn compile_expr(
                 &mut [ctx_val, val_ptr],
                 "is_unique",
             );
-            Ok(result)
+            Ok(build_bool_tagged(ctx, result))
         }
     }
 }

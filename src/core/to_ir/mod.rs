@@ -390,7 +390,9 @@ mod tests {
     use super::*;
     use crate::core::{
         CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreLit, CorePrimOp, CoreProgram,
+        CoreVarRef,
     };
+    use crate::cfg::{IrExpr, IrTerminator};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 
@@ -604,5 +606,59 @@ mod tests {
             ir.top_level_items.get(2),
             Some(IrTopLevelItem::EffectDecl { .. })
         ));
+    }
+
+    #[test]
+    fn lower_drop_specialized_emits_is_unique_and_branch() {
+        let mut interner = make_interner();
+        let f_name = interner.intern("spec");
+        let xs_name = interner.intern("xs");
+        let f_binder = binder(0, f_name);
+        let xs_binder = binder(1, xs_name);
+
+        let prog = CoreProgram {
+            defs: vec![CoreDef::new(
+                f_binder,
+                CoreExpr::Lam {
+                    params: vec![xs_binder],
+                    body: Box::new(CoreExpr::DropSpecialized {
+                        scrutinee: CoreVarRef::resolved(xs_binder),
+                        unique_body: Box::new(CoreExpr::Lit(CoreLit::Int(1), Span::default())),
+                        shared_body: Box::new(CoreExpr::Lit(CoreLit::Int(2), Span::default())),
+                        span: Span::default(),
+                    }),
+                    span: Span::default(),
+                },
+                false,
+                Span::default(),
+            )],
+            top_level_items: Vec::new(),
+        };
+
+        let ir = lower_core_to_ir(&prog);
+        let spec_fn = ir
+            .functions
+            .iter()
+            .find(|f| f.params.len() == 1 && f.params[0].name == xs_name)
+            .expect("expected lowered function for drop-specialized test");
+
+        let has_is_unique = spec_fn.blocks.iter().any(|b| {
+            b.instrs.iter().any(|instr| {
+                matches!(
+                    instr,
+                    crate::cfg::IrInstr::Assign {
+                        expr: IrExpr::IsUnique(_),
+                        ..
+                    }
+                )
+            })
+        });
+        assert!(has_is_unique, "DropSpecialized should lower to IrExpr::IsUnique");
+
+        let has_branch = spec_fn
+            .blocks
+            .iter()
+            .any(|b| matches!(b.terminator, IrTerminator::Branch { .. }));
+        assert!(has_branch, "DropSpecialized should lower to a Branch terminator");
     }
 }

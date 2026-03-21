@@ -77,6 +77,17 @@ fn fuse(expr: CoreExpr) -> CoreExpr {
             args: args.into_iter().map(fuse).collect(),
             span,
         },
+        CoreExpr::AetherCall {
+            func,
+            args,
+            arg_modes,
+            span,
+        } => CoreExpr::AetherCall {
+            func: Box::new(fuse(*func)),
+            args: args.into_iter().map(fuse).collect(),
+            arg_modes,
+            span,
+        },
         CoreExpr::Case {
             scrutinee,
             alts,
