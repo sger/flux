@@ -2157,12 +2157,11 @@ impl Compiler {
         }
     }
 
-    /// Dump an Aether memory model report showing per-function optimization decisions.
-    pub fn dump_aether_report(
+    fn lower_aether_report_program(
         &self,
         program: &Program,
         optimize: bool,
-    ) -> Result<String, Diagnostic> {
+    ) -> Result<crate::core::CoreProgram, Diagnostic> {
         let program_to_lower = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
@@ -2175,6 +2174,22 @@ impl Compiler {
         let mut core =
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
         crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner)?;
+        Ok(core)
+    }
+
+    /// Render an Aether memory model report showing per-function optimization decisions.
+    pub fn render_aether_report(
+        &self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<String, Diagnostic> {
+        let core = self.lower_aether_report_program(program, optimize)?;
+        let fbip_diags = crate::aether::check_fbip::check_fbip(&core, &self.interner);
+        let fbip_by_name = fbip_diags
+            .diagnostics
+            .iter()
+            .map(|diag| (diag.function_name.as_str(), diag))
+            .collect::<HashMap<_, _>>();
 
         let mut out = String::new();
         out.push_str("Aether Memory Model Report\n");
@@ -2184,7 +2199,12 @@ impl Compiler {
 
         for def in &core.defs {
             let stats = crate::aether::collect_stats(&def.expr);
-            if stats.dups == 0 && stats.drops == 0 && stats.reuses == 0 && stats.drop_specs == 0 {
+            if stats.dups == 0
+                && stats.drops == 0
+                && stats.reuses == 0
+                && stats.drop_specs == 0
+                && def.fip.is_none()
+            {
                 continue;
             }
             let name = self.interner.resolve(def.name);
@@ -2195,6 +2215,48 @@ impl Compiler {
             };
             out.push_str(&format!("── fn {}{} ──\n", name, fip_label));
             out.push_str(&format!("  {}\n", stats));
+            out.push_str(&format!("  FreshAllocs: {}\n", stats.allocs));
+
+            let verify_errors =
+                crate::aether::verify::verify_contract(&def.expr).err().unwrap_or_default();
+            let verify_diags = crate::aether::verify::verify_diagnostics(&def.expr);
+            if verify_errors.is_empty() && verify_diags.is_empty() {
+                out.push_str("  verifier: ok\n");
+            } else {
+                out.push_str("  verifier:\n");
+                for err in verify_errors {
+                    out.push_str(&format!("    - {:?}: {}\n", err.kind, err.message));
+                }
+                for diag in verify_diags {
+                    out.push_str(&format!("    - {:?}: {}\n", diag.kind, diag.message));
+                }
+            }
+
+            if let Some(fbip_diag) = fbip_by_name.get(name) {
+                let fbip_status = if fbip_diag
+                    .reasons
+                    .contains(&crate::aether::fbip_analysis::FbipFailureReason::NoConstructors)
+                    && !matches!(
+                        fbip_diag.outcome,
+                        crate::aether::fbip_analysis::FbipOutcome::NotProvable
+                    ) {
+                    "vacuous".to_string()
+                } else {
+                    match &fbip_diag.outcome {
+                        crate::aether::fbip_analysis::FbipOutcome::Fip => "proved (fip)".into(),
+                        crate::aether::fbip_analysis::FbipOutcome::Fbip { bound } => {
+                            format!("proved (fbip({bound}))")
+                        }
+                        crate::aether::fbip_analysis::FbipOutcome::NotProvable => {
+                            "NotProvable".into()
+                        }
+                    }
+                };
+                out.push_str(&format!("  fbip: {}\n", fbip_status));
+                for detail in &fbip_diag.details {
+                    out.push_str(&format!("    - {}\n", detail));
+                }
+            }
 
             let displayed = crate::core::display::display_expr_readable(&def.expr, &self.interner);
             out.push_str(&displayed);
@@ -2207,16 +2269,17 @@ impl Compiler {
             total.allocs += stats.allocs;
         }
 
-        // Run FBIP checking on annotated functions
-        let fbip_diags = crate::aether::check_fbip::check_fbip(&core, &self.interner);
-        for diag in &fbip_diags.diagnostics {
-            if let Some(message) = diag.diagnostic.message() {
-                out.push_str(&format!("\nwarning: {}\n", message));
-            }
-        }
-
-        out.push_str(&format!("\n── Total ──\n  {}\n", total));
+        out.push_str(&format!("\n── Total ──\n  {}\n  FreshAllocs: {}\n", total, total.allocs));
         Ok(out)
+    }
+
+    /// Dump an Aether memory model report showing per-function optimization decisions.
+    pub fn dump_aether_report(
+        &self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<String, Diagnostic> {
+        self.render_aether_report(program, optimize)
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {

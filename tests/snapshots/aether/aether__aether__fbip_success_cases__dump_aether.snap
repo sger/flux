@@ -1,12 +1,15 @@
 ---
 source: tests/aether_cli_snapshots.rs
-assertion_line: 75
 ---
 Aether Memory Model Report
 ==========================
 
 ── fn rebuild_list @fip ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+  fbip: proved (fip)
+    - provably zero fresh allocations after Aether
 λxs.
   case xs of
     ::(h, t) →
@@ -15,6 +18,10 @@ Aether Memory Model Report
       []
 ── fn rebuild_some @fip ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+  fbip: proved (fip)
+    - provably zero fresh allocations after Aether
 λopt.
   case opt of
     Some(x) →
@@ -23,6 +30,10 @@ Aether Memory Model Report
       None
 ── fn set_black @fip ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+  fbip: proved (fip)
+    - provably zero fresh allocations after Aether
 λt.
   case t of
     Node(_, left, key, right) →
@@ -31,6 +42,8 @@ Aether Memory Model Report
       t
 ── fn main ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+  verifier: ok
 λ.
   let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
   aether_call[borrowed] rebuild_list(%t3))
@@ -44,14 +57,6 @@ Aether Memory Model Report
   aether_call[owned] set_black(%t8))
   aether_call[borrowed] print(%t7)
 
-warning: @fip on `rebuild_list` analysis result Fip:
-- provably zero fresh allocations after Aether
-
-warning: @fip on `rebuild_some` analysis result Fip:
-- provably zero fresh allocations after Aether
-
-warning: @fip on `set_black` analysis result Fip:
-- provably zero fresh allocations after Aether
-
 ── Total ──
   Dups: 0  Drops: 2  Reuses: 3  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1

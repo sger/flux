@@ -1,6 +1,61 @@
 ---
 source: tests/aether_cli_snapshots.rs
 ---
+Warning: FBIP Contract Not Proven
+
+@fip on `my_map` analysis result NotProvable:
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+- control-flow join loses a precise allocation bound across paths
+
+  examples/aether/verify_aether.flx:9:6
+   |
+ 9 | @fip fn my_map(xs, f) {
+   |      ^^^^^^^^^^^^^^^^^^
+10 |     match xs {
+   | ^^^^^^^^^^^^^^
+11 |         [h | t] -> [f(h) | my_map(t, f)],
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+12 |         _ -> [],
+   | ^^^^^^^^^^^^^^^^
+13 |     }
+   | ^^^^^
+14 | }
+   | ^
+
+
+Warning: FBIP Contract Not Proven
+
+@fip on `option_map` analysis result NotProvable:
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+- control-flow join loses a precise allocation bound across paths
+
+  examples/aether/verify_aether.flx:17:6
+   |
+17 | @fip fn option_map(opt, f) {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^
+18 |     match opt {
+   | ^^^^^^^^^^^^^^^
+19 |         Some(x) -> Some(f(x)),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+20 |         _ -> None,
+   | ^^^^^^^^^^^^^^^^^^
+21 |     }
+   | ^^^^^
+22 | }
+   | ^
+
+Found 2 warnings.
+
+
+── Aether Trace ──
+file: /Users/s.gerokostas/Downloads/Github/flux/examples/aether/verify_aether.flx
+backend: llvm
+pipeline: AST -> Core -> CFG -> LLVM
+optimize: off
+analyze: off
+strict: on
+modules: 1
+────────────────────────
 Aether Memory Model Report
 ==========================
 
@@ -111,47 +166,9 @@ Aether Memory Model Report
   Dups: 1  Drops: 7  Reuses: 4  DropSpecs: 1  FBIP: fbip(2)
   FreshAllocs: 2
 
-Warning: FBIP Contract Not Proven
-
-@fip on `my_map` analysis result NotProvable:
-- calls indirect or opaque callee `f` whose FBIP behavior is unknown
-- control-flow join loses a precise allocation bound across paths
-
-  examples/aether/verify_aether.flx:9:6
-   |
- 9 | @fip fn my_map(xs, f) {
-   |      ^^^^^^^^^^^^^^^^^^
-10 |     match xs {
-   | ^^^^^^^^^^^^^^
-11 |         [h | t] -> [f(h) | my_map(t, f)],
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-12 |         _ -> [],
-   | ^^^^^^^^^^^^^^^^
-13 |     }
-   | ^^^^^
-14 | }
-   | ^
-
-
-Warning: FBIP Contract Not Proven
-
-@fip on `option_map` analysis result NotProvable:
-- calls indirect or opaque callee `f` whose FBIP behavior is unknown
-- control-flow join loses a precise allocation bound across paths
-
-  examples/aether/verify_aether.flx:17:6
-   |
-17 | @fip fn option_map(opt, f) {
-   |      ^^^^^^^^^^^^^^^^^^^^^^^
-18 |     match opt {
-   | ^^^^^^^^^^^^^^^
-19 |         Some(x) -> Some(f(x)),
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-20 |         _ -> None,
-   | ^^^^^^^^^^^^^^^^^^
-21 |     }
-   | ^^^^^
-22 | }
-   | ^
-
-Found 2 warnings.
+[2, 4, 6]
+Some(43)
+Node(Black, Leaf, 5, Leaf)
+5
+[2, 4, 6]
+15
