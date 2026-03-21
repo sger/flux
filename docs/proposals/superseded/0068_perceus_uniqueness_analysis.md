@@ -1,6 +1,6 @@
 - Feature Name: Perceus Uniqueness Analysis in the Compiler
 - Start Date: 2026-03-01
-- Status: Not Implemented
+- Status: Superseded by 0084 and 0114
 - Proposal PR: pending
 - Flux Issue: pending
 
@@ -8,6 +8,11 @@
 
 ## Summary
 [summary]: #summary
+
+Status note:
+This proposal was not implemented as written. Its goals were absorbed into the
+Core/Aether pipeline in proposal 0084, with remaining maturity work tracked in
+proposal 0114.
 
 Add a uniqueness analysis pass to the Flux compiler that determines, at each `match` site
 and each function call site, whether a value is *uniquely owned* — meaning its `Rc`

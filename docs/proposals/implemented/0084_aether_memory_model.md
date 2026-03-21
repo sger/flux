@@ -1,6 +1,6 @@
 - Feature Name: Aether Memory Model
 - Start Date: 2026-03-08
-- Status: Partially Implemented (Phases 0-4 complete)
+- Status: Implemented (foundation landed; ongoing maturity work tracked in 0114)
 - Proposal PR:
 - Flux Issue:
 
@@ -8,6 +8,10 @@
 
 ## Summary
 [summary]: #summary
+
+Status note:
+The Aether architecture described here is the landed memory-model foundation.
+Follow-on precision, coverage, and maturity work now lives in proposal 0114.
 
 **Aether** is Flux's memory model. It replaces the legacy mark-and-sweep GC with
 pure reference counting (`Rc`) and progressively adds compile-time optimizations

@@ -18,6 +18,7 @@
 
 pub mod analysis;
 pub mod borrow_infer;
+pub mod callee;
 pub mod check_fbip;
 pub mod drop_spec;
 pub mod fbip_analysis;

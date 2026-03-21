@@ -53,12 +53,12 @@ Without a clear policy, growth becomes unstable:
 
 This problem becomes sharper as Flux moves toward:
 
-- Aether ([0084](0084_aether_memory_model.md))
+- Aether ([0084](implemented/0084_aether_memory_model.md))
 - actor concurrency ([0065](0065_actor_effect_stdlib.md),
   [0066](0066_thread_per_actor_handler.md))
-- persistent collection migration ([0070](0070_perceus_gc_heap_replacement.md))
-- reuse optimizations ([0068](0068_perceus_uniqueness_analysis.md),
-  [0069](0069_rcget_mut_fast_path.md))
+- persistent collection migration ([0070](implemented/0070_perceus_gc_heap_replacement.md))
+- reuse optimizations ([0068](superseded/0068_perceus_uniqueness_analysis.md),
+  [0069](superseded/0069_rcget_mut_fast_path.md))
 
 Those features need a small, disciplined runtime substrate, not an ever-growing set of
 special cases.
