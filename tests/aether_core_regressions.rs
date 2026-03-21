@@ -143,7 +143,8 @@ fn compile_fixture_warnings(rel: &str) -> Vec<Diagnostic> {
         roots.push(src_root);
     }
 
-    let graph = ModuleGraph::build_with_entry_and_roots(&fixture, &program, parser.take_interner(), &roots);
+    let graph =
+        ModuleGraph::build_with_entry_and_roots(&fixture, &program, parser.take_interner(), &roots);
     assert!(
         graph.diagnostics.is_empty(),
         "module diagnostics: {:?}",
@@ -799,6 +800,39 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
 }
 
 #[test]
+fn bench_reuse_ab_control_fixtures_differ_only_in_intended_reuse_profile() {
+    let enabled_src = std::fs::read_to_string("examples/aether/bench_reuse_enabled.flx")
+        .expect("enabled fixture should exist");
+    let blocked_src = std::fs::read_to_string("examples/aether/bench_reuse_blocked.flx")
+        .expect("blocked fixture should exist");
+
+    let enabled_core = lowered_core(&enabled_src);
+    let blocked_core = lowered_core(&blocked_src);
+
+    let enabled_reuses = enabled_core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .filter(|expr| matches!(expr, CoreExpr::Reuse { .. }))
+        .count();
+    let blocked_reuses = blocked_core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .filter(|expr| matches!(expr, CoreExpr::Reuse { .. }))
+        .count();
+
+    assert!(
+        enabled_reuses >= 1,
+        "reuse-enabled benchmark should currently emit plain Reuse"
+    );
+    assert_eq!(
+        blocked_reuses, 0,
+        "reuse-blocked benchmark should keep plain Reuse disabled"
+    );
+}
+
+#[test]
 fn higher_order_recursive_rebuild_with_precompute_let_emits_reuse() {
     let src = r#"
 fn map_like(xs, f) {
@@ -824,7 +858,10 @@ fn main() { map_like([1, 2, 3], \x -> x + 1) }
                 ]
         )
     });
-    assert!(has_reuse, "higher-order recursive rebuild should now emit plain Reuse");
+    assert!(
+        has_reuse,
+        "higher-order recursive rebuild should now emit plain Reuse"
+    );
     assert!(
         borrowed_self_call,
         "higher-order recursive rebuild should preserve borrowed recursive tail traversal"
@@ -1001,7 +1038,9 @@ fn hof_recursive_suite_fixture_claims_match_current_core_shape() {
         .iter()
         .find(|def| {
             let exprs = collect_core_exprs(&def.expr);
-            exprs.iter().any(|expr| matches!(expr, CoreExpr::Reuse { .. }))
+            exprs
+                .iter()
+                .any(|expr| matches!(expr, CoreExpr::Reuse { .. }))
                 && exprs.iter().any(|expr| {
                     matches!(
                         expr,
@@ -1035,7 +1074,9 @@ fn hof_recursive_suite_fixture_claims_match_current_core_shape() {
                             flux::aether::borrow_infer::BorrowMode::Borrowed,
                         ]
                 )
-            }) && !exprs.iter().any(|expr| matches!(expr, CoreExpr::Reuse { .. }))
+            }) && !exprs
+                .iter()
+                .any(|expr| matches!(expr, CoreExpr::Reuse { .. }))
         })
         .expect("count_if-like def");
     assert!(
@@ -1047,15 +1088,16 @@ fn hof_recursive_suite_fixture_claims_match_current_core_shape() {
 
     let warnings = compile_fixture_warnings("examples/aether/hof_recursive_suite.flx");
     assert!(warnings.iter().any(|d| {
-        d.message()
-            .is_some_and(|m| m.contains("@fip on `option_chain`") && m.contains("indirect or opaque callee `f`"))
+        d.message().is_some_and(|m| {
+            m.contains("@fip on `option_chain`") && m.contains("indirect or opaque callee `f`")
+        })
     }));
 }
 
 #[test]
 fn tree_updates_fixture_claims_match_current_core_shape() {
-    let src = std::fs::read_to_string("examples/aether/tree_updates.flx")
-        .expect("fixture should exist");
+    let src =
+        std::fs::read_to_string("examples/aether/tree_updates.flx").expect("fixture should exist");
     let core = lowered_core(&src);
     let exprs = core
         .defs
@@ -1126,6 +1168,41 @@ fn tree_updates_fixture_claims_match_current_core_shape() {
 }
 
 #[test]
+fn queue_workload_fixture_claims_match_current_core_shape() {
+    let src = std::fs::read_to_string("examples/aether/queue_workload.flx")
+        .expect("fixture should exist");
+    let core = lowered_core(&src);
+    let exprs = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .collect::<Vec<_>>();
+
+    assert!(
+        exprs
+            .iter()
+            .filter(|expr| matches!(expr, CoreExpr::Reuse { .. }))
+            .count()
+            >= 2,
+        "queue workload should currently emit two wrapper reuse sites"
+    );
+    assert!(
+        exprs.into_iter().any(|expr| {
+            matches!(
+                expr,
+                CoreExpr::AetherCall { arg_modes, .. }
+                    if arg_modes == &[
+                        flux::aether::borrow_infer::BorrowMode::Owned,
+                        flux::aether::borrow_infer::BorrowMode::Borrowed,
+                        flux::aether::borrow_infer::BorrowMode::Owned,
+                    ]
+            )
+        }),
+        "queue rotate_sum should keep the iteration count borrowed through recursion"
+    );
+}
+
+#[test]
 fn fbip_success_cases_fixture_stays_provable() {
     let warnings = compile_fixture_warnings("examples/aether/fbip_success_cases.flx");
     assert!(
@@ -1138,8 +1215,9 @@ fn fbip_success_cases_fixture_stays_provable() {
 fn fbip_failure_cases_fixture_reports_expected_warning_mix() {
     let warnings = compile_fixture_warnings("examples/aether/fbip_failure_cases.flx");
     assert!(warnings.iter().any(|d| {
-        d.message()
-            .is_some_and(|m| m.contains("@fip on `fail_indirect`") && m.contains("indirect or opaque callee `f`"))
+        d.message().is_some_and(|m| {
+            m.contains("@fip on `fail_indirect`") && m.contains("indirect or opaque callee `f`")
+        })
     }));
     assert!(warnings.iter().any(|d| {
         d.message().is_some_and(|m| {
@@ -1150,7 +1228,8 @@ fn fbip_failure_cases_fixture_reports_expected_warning_mix() {
         })
     }));
     assert!(warnings.iter().any(|d| {
-        d.message()
-            .is_some_and(|m| m.contains("@fip on `fail_fresh`") && m.contains("fresh heap allocation remains"))
+        d.message().is_some_and(|m| {
+            m.contains("@fip on `fail_fresh`") && m.contains("fresh heap allocation remains")
+        })
     }));
 }

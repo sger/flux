@@ -40,7 +40,8 @@ fn compile_fixture_warnings(rel: &str) -> Vec<Diagnostic> {
         roots.push(src_root);
     }
 
-    let graph = ModuleGraph::build_with_entry_and_roots(&fixture, &program, parser.take_interner(), &roots);
+    let graph =
+        ModuleGraph::build_with_entry_and_roots(&fixture, &program, parser.take_interner(), &roots);
     assert!(
         graph.diagnostics.is_empty(),
         "module diagnostics: {:?}",
@@ -50,7 +51,9 @@ fn compile_fixture_warnings(rel: &str) -> Vec<Diagnostic> {
     let mut compiler = Compiler::new_with_interner(rel, graph.interner);
     for node in graph.graph.topo_order() {
         compiler.set_file_path(node.path.to_string_lossy().to_string());
-        compiler.compile(&node.program).expect("expected compile ok");
+        compiler
+            .compile(&node.program)
+            .expect("expected compile ok");
     }
     compiler.take_warnings()
 }

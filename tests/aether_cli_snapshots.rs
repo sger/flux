@@ -38,8 +38,10 @@ fn run_flux_trace(args: &[&str]) -> (String, String) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    let stdout = normalize_transcript(&String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"));
-    let stderr = normalize_transcript(&String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"));
+    let stdout =
+        normalize_transcript(&String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"));
+    let stderr =
+        normalize_transcript(&String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"));
     (stdout, stderr)
 }
 
@@ -152,6 +154,24 @@ fn snapshot_bench_reuse_dump_aether() {
 }
 
 #[test]
+fn snapshot_bench_reuse_enabled_dump_aether() {
+    assert_cli_snapshot(
+        "aether/bench_reuse_enabled.flx",
+        &["--dump-aether"],
+        "dump_aether",
+    );
+}
+
+#[test]
+fn snapshot_bench_reuse_blocked_dump_aether() {
+    assert_cli_snapshot(
+        "aether/bench_reuse_blocked.flx",
+        &["--dump-aether"],
+        "dump_aether",
+    );
+}
+
+#[test]
 fn snapshot_hof_recursive_suite_dump_aether() {
     assert_cli_snapshot(
         "aether/hof_recursive_suite.flx",
@@ -164,6 +184,15 @@ fn snapshot_hof_recursive_suite_dump_aether() {
 fn snapshot_tree_updates_dump_core_debug() {
     assert_cli_snapshot(
         "aether/tree_updates.flx",
+        &["--dump-core=debug"],
+        "dump_core_debug",
+    );
+}
+
+#[test]
+fn snapshot_queue_workload_dump_core_debug() {
+    assert_cli_snapshot(
+        "aether/queue_workload.flx",
         &["--dump-core=debug"],
         "dump_core_debug",
     );
@@ -261,7 +290,10 @@ fn snapshot_verify_aether_trace_aether_llvm() {
 fn trace_aether_emits_report_on_stderr_and_program_output_on_stdout() {
     let file = example_path("aether/verify_aether.flx");
     let (stdout, stderr) = run_flux_trace(&["--trace-aether", file.to_str().unwrap()]);
-    assert!(stderr.contains("── Aether Trace ──"), "stderr was:\n{stderr}");
+    assert!(
+        stderr.contains("── Aether Trace ──"),
+        "stderr was:\n{stderr}"
+    );
     assert!(
         stderr.contains("Aether Memory Model Report"),
         "stderr was:\n{stderr}"

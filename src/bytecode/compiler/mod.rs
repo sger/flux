@@ -2217,8 +2217,9 @@ impl Compiler {
             out.push_str(&format!("  {}\n", stats));
             out.push_str(&format!("  FreshAllocs: {}\n", stats.allocs));
 
-            let verify_errors =
-                crate::aether::verify::verify_contract(&def.expr).err().unwrap_or_default();
+            let verify_errors = crate::aether::verify::verify_contract(&def.expr)
+                .err()
+                .unwrap_or_default();
             let verify_diags = crate::aether::verify::verify_diagnostics(&def.expr);
             if verify_errors.is_empty() && verify_diags.is_empty() {
                 out.push_str("  verifier: ok\n");
@@ -2269,7 +2270,10 @@ impl Compiler {
             total.allocs += stats.allocs;
         }
 
-        out.push_str(&format!("\n── Total ──\n  {}\n  FreshAllocs: {}\n", total, total.allocs));
+        out.push_str(&format!(
+            "\n── Total ──\n  {}\n  FreshAllocs: {}\n",
+            total, total.allocs
+        ));
         Ok(out)
     }
 
