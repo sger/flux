@@ -41,6 +41,10 @@ Koka sources, the remaining gap is now narrower and more concrete:
 This proposal does **not** replace 0084. It is the execution plan for finishing
 0084 to a level that is comparable in spirit and behavior to Koka's Perceus.
 
+For the actor/concurrency roadmap and the merged local-vs-shared runtime split
+that follows after 0114's local single-threaded Aether completion work, see:
+- `docs/proposals/0115_actor_concurrency_roadmap.md`
+
 All new compiler-side ownership, reuse, specialization, verification, and FBIP
 logic introduced by this proposal should live in `src/aether/` unless there is
 a clear cross-cutting reason it belongs elsewhere. Backend-specific lowering and
