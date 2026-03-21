@@ -1,11 +1,11 @@
 ---
 source: tests/aether_cli_snapshots.rs
-assertion_line: 47
+assertion_line: 75
 ---
 error[E999]: FBIP Contract Failed
 
 @fbip on `bounded` analysis result NotProvable:
-- calls an indirect, unknown, or unannotated function
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
 
   examples/aether/fbip_fail_nonfip_call.flx:7:7
   |

@@ -8,7 +8,7 @@ failed (compile)
 error[E999]: FBIP Contract Failed
 
 @fbip on `bounded` analysis result NotProvable:
-- calls an indirect, unknown, or unannotated function
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
 
   examples/aether/fbip_fail_nonfip_call.flx:7:7
   |

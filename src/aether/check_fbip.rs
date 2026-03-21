@@ -9,7 +9,9 @@ use crate::diagnostics::{
 };
 use crate::syntax::{interner::Interner, statement::FipAnnotation};
 
-use super::fbip_analysis::{FbipFailureReason, FbipOutcome, analyze_program};
+use super::fbip_analysis::{
+    FbipCallDetail, FbipCallKind, FbipCallOutcome, FbipFailureReason, FbipOutcome, analyze_program,
+};
 
 #[derive(Debug, Clone)]
 pub struct FbipDiagnostic {
@@ -18,6 +20,7 @@ pub struct FbipDiagnostic {
     pub outcome: FbipOutcome,
     pub reasons: Vec<FbipFailureReason>,
     pub details: Vec<String>,
+    pub call_details: Vec<FbipCallDetail>,
     pub diagnostic: Diagnostic,
 }
 
@@ -29,7 +32,7 @@ pub struct FbipCheckResult {
 }
 
 pub fn check_fbip(program: &CoreProgram, interner: &Interner) -> FbipCheckResult {
-    let summaries = analyze_program(program);
+    let summaries = analyze_program(program, interner);
     let mut result = FbipCheckResult::default();
 
     for def in &program.defs {
@@ -44,7 +47,7 @@ pub fn check_fbip(program: &CoreProgram, interner: &Interner) -> FbipCheckResult
         let mut details = reasons
             .iter()
             .filter(|reason| **reason != FbipFailureReason::NoConstructors)
-            .map(|reason| detail_for_reason(*reason))
+            .map(|reason| detail_for_reason(*reason, &summary.call_details))
             .collect::<Vec<_>>();
         if summary.has_constructors {
             details.retain(|detail| !detail.contains("no heap constructor sites"));
@@ -106,6 +109,7 @@ pub fn check_fbip(program: &CoreProgram, interner: &Interner) -> FbipCheckResult
             outcome: summary.outcome.clone(),
             reasons: reasons.clone(),
             details: details.clone(),
+            call_details: summary.call_details.clone(),
             diagnostic: diagnostic.clone(),
         };
 
@@ -157,27 +161,75 @@ pub fn check_fbip(program: &CoreProgram, interner: &Interner) -> FbipCheckResult
     result
 }
 
-fn detail_for_reason(reason: FbipFailureReason) -> String {
+fn detail_for_reason(reason: FbipFailureReason, call_details: &[FbipCallDetail]) -> String {
     match reason {
         FbipFailureReason::FreshAllocation => {
             "fresh heap allocation remains on at least one path".to_string()
         }
         FbipFailureReason::NonFipCall => {
-            "calls a known function whose FBIP contract could not be proved".to_string()
+            call_details
+                .iter()
+                .find(|detail| matches!(detail.outcome, FbipCallOutcome::KnownNotProvable))
+                .map(|detail| match detail.kind {
+                    FbipCallKind::DirectInternal | FbipCallKind::DirectNamed => {
+                        format!("calls known function `{}` whose FBIP behavior is not yet provable", detail.callee)
+                    }
+                    FbipCallKind::Builtin(effect) => format!(
+                        "calls Flux builtin `{}` ({}) at a proof boundary",
+                        detail.callee,
+                        builtin_effect_label(effect)
+                    ),
+                    FbipCallKind::Indirect => {
+                        "calls a known function whose FBIP contract could not be proved".to_string()
+                    }
+                })
+                .unwrap_or_else(|| {
+                    "calls a known function whose FBIP contract could not be proved".to_string()
+                })
         }
         FbipFailureReason::UnknownCall => {
-            "calls an indirect, unknown, or unannotated function".to_string()
+            call_details
+                .iter()
+                .find(|detail| matches!(detail.outcome, FbipCallOutcome::UnknownIndirect))
+                .map(|detail| {
+                    format!(
+                        "calls indirect or opaque callee `{}` whose FBIP behavior is unknown",
+                        detail.callee
+                    )
+                })
+                .unwrap_or_else(|| "calls an indirect, unknown, or unannotated function".to_string())
+        }
+        FbipFailureReason::BuiltinBoundary => {
+            call_details
+                .iter()
+                .find(|detail| matches!(detail.kind, FbipCallKind::Builtin(_)))
+                .map(|detail| match detail.kind {
+                    FbipCallKind::Builtin(effect) => format!(
+                        "calls Flux builtin `{}` ({}) at a conservative proof boundary",
+                        detail.callee,
+                        builtin_effect_label(effect)
+                    ),
+                    _ => unreachable!(),
+                })
+                .unwrap_or_else(|| "crosses a Flux builtin boundary that remains conservative".to_string())
         }
         FbipFailureReason::EffectBoundary => {
             "crosses an effect or handler boundary that prevents proof".to_string()
         }
         FbipFailureReason::TokenUnavailable => {
-            "constructor rebuild needs a fresh token instead of guaranteed reuse".to_string()
+            "constructor rebuild could not reuse an available token".to_string()
         }
         FbipFailureReason::ControlFlowJoin => {
-            "control-flow join loses a precise bound on all paths".to_string()
+            "control-flow join loses a precise allocation bound across paths".to_string()
         }
         FbipFailureReason::NoConstructors => "no heap constructor sites were found".to_string(),
+    }
+}
+
+fn builtin_effect_label(effect: crate::aether::AetherBuiltinEffect) -> &'static str {
+    match effect {
+        crate::aether::AetherBuiltinEffect::Io => "IO",
+        crate::aether::AetherBuiltinEffect::Time => "Time",
     }
 }
 
@@ -270,6 +322,87 @@ mod tests {
         };
         let result = check_fbip(&program, &interner);
         assert!(result.error.is_some());
-        assert!(result.error.unwrap().message().unwrap().contains("unknown"));
+        assert!(result
+            .error
+            .unwrap()
+            .message()
+            .unwrap()
+            .contains("indirect or opaque"));
+    }
+
+    #[test]
+    fn semantic_checker_names_known_nonprovable_callee() {
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 2, "x");
+        let caller = binder(&mut interner, 3, "caller");
+        let callee = mk_def(
+            &mut interner,
+            4,
+            "callee",
+            CoreExpr::App {
+                func: Box::new(var(x)),
+                args: vec![var(x)],
+                span: Span::default(),
+            },
+            Some(FipAnnotation::Fip),
+        );
+        let program = CoreProgram {
+            defs: vec![
+                callee.clone(),
+                CoreDef {
+                    name: caller.name,
+                    binder: caller,
+                    expr: CoreExpr::App {
+                        func: Box::new(CoreExpr::Var {
+                            var: CoreVarRef::resolved(callee.binder),
+                            span: Span::default(),
+                        }),
+                        args: vec![var(x)],
+                        span: Span::default(),
+                    },
+                    borrow_signature: None,
+                    result_ty: None,
+                    is_anonymous: false,
+                    is_recursive: false,
+                    fip: Some(FipAnnotation::Fbip),
+                    span: Span::default(),
+                },
+            ],
+            top_level_items: Vec::new(),
+        };
+        let result = check_fbip(&program, &interner);
+        let error = result.error.expect("expected hard error");
+        let message = error.message().unwrap();
+        assert!(message.contains("`callee`"));
+        assert!(message.contains("not yet provable"));
+    }
+
+    #[test]
+    fn semantic_checker_does_not_report_builtin_as_unknown() {
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 2, "x");
+        let print = interner.intern("print");
+        let program = CoreProgram {
+            defs: vec![mk_def(
+                &mut interner,
+                1,
+                "log_only",
+                CoreExpr::App {
+                    func: Box::new(CoreExpr::Var {
+                        var: CoreVarRef::unresolved(print),
+                        span: Span::default(),
+                    }),
+                    args: vec![var(x)],
+                    span: Span::default(),
+                },
+                Some(FipAnnotation::Fip),
+            )],
+            top_level_items: Vec::new(),
+        };
+        let result = check_fbip(&program, &interner);
+        assert!(
+            result.error.is_none(),
+            "known Flux builtins should not fail FBIP as opaque unknown calls"
+        );
     }
 }
