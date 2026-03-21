@@ -182,6 +182,16 @@ fn aether_queue_workload_fixture_matches_vm_cranelift_and_llvm() {
 }
 
 #[test]
+fn aether_opt_corpus_positive_fixture_matches_vm_cranelift_and_llvm() {
+    assert_backend_parity("examples/aether/opt_corpus_positive.flx");
+}
+
+#[test]
+fn aether_opt_corpus_negative_fixture_matches_vm_cranelift_and_llvm() {
+    assert_backend_parity("examples/aether/opt_corpus_negative.flx");
+}
+
+#[test]
 fn aether_fbip_success_cases_fixture_matches_vm_cranelift_and_llvm() {
     assert_backend_parity("examples/aether/fbip_success_cases.flx");
 }

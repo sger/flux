@@ -1203,6 +1203,71 @@ fn queue_workload_fixture_claims_match_current_core_shape() {
 }
 
 #[test]
+fn opt_corpus_positive_fixture_claims_match_current_core_shape() {
+    let src = std::fs::read_to_string("examples/aether/opt_corpus_positive.flx")
+        .expect("fixture should exist");
+    let core = lowered_core(&src);
+    let exprs = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .collect::<Vec<_>>();
+
+    assert!(
+        exprs
+            .iter()
+            .any(|expr| matches!(expr, CoreExpr::Reuse { .. })),
+        "positive corpus should include at least one Reuse site"
+    );
+    assert!(
+        exprs.iter().any(|expr| {
+            matches!(
+                expr,
+                CoreExpr::Reuse {
+                    tag: flux::core::CoreTag::Named(_),
+                    field_mask: Some(_),
+                    ..
+                }
+            )
+        }),
+        "positive corpus should include masked named-ADT reuse"
+    );
+    assert!(
+        exprs
+            .iter()
+            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
+        "positive corpus should include DropSpecialized"
+    );
+}
+
+#[test]
+fn opt_corpus_negative_fixture_stays_conservative_on_intended_shapes() {
+    let src = std::fs::read_to_string("examples/aether/opt_corpus_negative.flx")
+        .expect("fixture should exist");
+    let core = lowered_core(&src);
+    let exprs = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .collect::<Vec<_>>();
+
+    assert!(
+        exprs
+            .iter()
+            .filter(|expr| matches!(expr, CoreExpr::Reuse { .. }))
+            .count()
+            == 1,
+        "negative corpus should keep reuse limited to the single exact fresh_tree path"
+    );
+    assert!(
+        !exprs
+            .iter()
+            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
+        "negative corpus should not emit DropSpecialized"
+    );
+}
+
+#[test]
 fn fbip_success_cases_fixture_stays_provable() {
     let warnings = compile_fixture_warnings("examples/aether/fbip_success_cases.flx");
     assert!(

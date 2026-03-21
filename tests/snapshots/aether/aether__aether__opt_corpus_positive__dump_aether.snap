@@ -1,0 +1,70 @@
+---
+source: tests/aether_cli_snapshots.rs
+---
+Aether Memory Model Report
+==========================
+
+── fn list_rebuild ──
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+λxs.
+  case xs of
+    ::(h, t) →
+      reuse xs ::(h, t) @mask=0b0
+    _ →
+      []
+── fn set_black ──
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+λt.
+  case t of
+    Node(_, left, key, right) →
+      reuse t Node(Black, left, key, right) @mask=0b1
+    _ →
+      t
+── fn keep_or_dup_left ──
+  Dups: 1  Drops: 2  Reuses: 2  DropSpecs: 1  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+λt, keep.
+  case t of
+    Node(color, left, key, right) →
+      drop_spec t {
+        unique -> case keep of
+            true →
+              reuse t Node(color, left, key, right) @mask=0b0
+            _ →
+              drop right
+              reuse t Node(color, left, key, left) @mask=0b1000
+        shared -> case keep of
+            true →
+              aether_call[owned, owned, owned, owned] Node(color, left, key, right)
+            _ →
+              drop right
+              aether_call[owned, owned, owned, owned] Node(color, dup left
+              left, key, left)
+      }
+    _ →
+      t
+── fn main ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ.
+  let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
+  aether_call[borrowed] list_rebuild(%t3))
+  aether_call[borrowed] print(%t2))
+  drop %t1
+  let %t4 = (let %t5 = (let %t6 = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
+  aether_call[owned] set_black(%t6))
+  aether_call[borrowed] print(%t5))
+  drop %t4
+  let %t7 = (let %t8 = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
+  aether_call[owned, borrowed] keep_or_dup_left(%t8, false))
+  aether_call[borrowed] print(%t7)
+
+── Total ──
+  Dups: 1  Drops: 4  Reuses: 4  DropSpecs: 1  FBIP: fip
+  FreshAllocs: 0

@@ -7,15 +7,18 @@ status: 1
 stdout:
 <empty>
 stderr:
+• 1 error • examples/runtime_errors/indirect_call_not_callable.flx
 error[E1001]: Not A Function
 
 Cannot call non-function value (got Int).
 
-  <unknown>:0:1
+  examples/runtime_errors/indirect_call_not_callable.flx:3:19
   |
+3 |     let ignored = f(2)
+  |                   ^^^^
 
 Stack trace:
-  at main
+  at main (examples/runtime_errors/indirect_call_not_callable.flx:3:19)
   at <main>
 == jit ==
 status: 1
