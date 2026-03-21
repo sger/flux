@@ -1,0 +1,24 @@
+// Aether reuse regression fixture that relies on administrative let spines
+// introduced during lowering rather than source-level let expressions.
+
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Tree)
+
+fn rebuild(xs) {
+    match xs {
+        [h | t] -> [h | t],
+        _ -> [],
+    }
+}
+
+fn set_black_alias(t) {
+    match t {
+        Node(_, left, key, right) -> Node(Black, left, key, right),
+        _ -> t,
+    }
+}
+
+fn main() with IO {
+    print(rebuild([1, 2, 3]))
+    print(set_black_alias(Node(Red, Leaf, 5, Leaf)))
+}

@@ -122,7 +122,7 @@ fn count_uses(expr: &CoreExpr, counts: &mut HashMap<CoreBinderId, usize>) {
             }
             merge_counts(counts, &inner);
         }
-        CoreExpr::App { func, args, .. } => {
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             count_uses(func, counts);
             for a in args {
                 count_uses(a, counts);
@@ -381,6 +381,25 @@ fn count_owned_inner(
                 .sum();
             func_owned + args_owned
         }
+        CoreExpr::AetherCall {
+            func,
+            args,
+            arg_modes,
+            ..
+        } => {
+            let func_owned = count_owned_skip_direct(var, func, registry);
+            let args_owned: usize = args
+                .iter()
+                .zip(arg_modes.iter())
+                .map(|(arg, mode)| match mode {
+                    super::borrow_infer::BorrowMode::Borrowed => {
+                        count_owned_skip_direct(var, arg, registry)
+                    }
+                    super::borrow_infer::BorrowMode::Owned => count_owned_inner(var, arg, registry),
+                })
+                .sum();
+            func_owned + args_owned
+        }
 
         // Con fields are OWNED (stored in data structure).
         CoreExpr::Con { fields, .. } => fields.iter().map(|f| count_owned_inner(var, f, registry)).sum(),
@@ -511,7 +530,7 @@ fn total_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
                 total_occurrences(var, body)
             }
         }
-        CoreExpr::App { func, args, .. } => {
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             total_occurrences(var, func)
                 + args
                     .iter()

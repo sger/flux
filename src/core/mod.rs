@@ -290,6 +290,15 @@ pub enum CoreExpr {
         args: Vec<CoreExpr>,
         span: Span,
     },
+    /// Aether: explicit call-site ownership contract.
+    /// Each argument position is marked as borrowed or owned after Aether
+    /// insertion so later passes do not need to rediscover call semantics.
+    AetherCall {
+        func: Box<CoreExpr>,
+        args: Vec<CoreExpr>,
+        arg_modes: Vec<crate::aether::borrow_infer::BorrowMode>,
+        span: Span,
+    },
     Let {
         var: CoreBinder,
         rhs: Box<CoreExpr>,
@@ -456,6 +465,7 @@ impl CoreExpr {
             CoreExpr::Var { span, .. } | CoreExpr::Lit(_, span) => *span,
             CoreExpr::Lam { span, .. }
             | CoreExpr::App { span, .. }
+            | CoreExpr::AetherCall { span, .. }
             | CoreExpr::Let { span, .. }
             | CoreExpr::LetRec { span, .. }
             | CoreExpr::Case { span, .. }

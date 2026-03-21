@@ -193,7 +193,10 @@ impl<'a> FnCtx<'a> {
 
             CoreExpr::Lam { .. } => self.lower_lam_as_closure(None, None, expr),
 
-            CoreExpr::App { func, args, span } => {
+            CoreExpr::App { func, args, span }
+            | CoreExpr::AetherCall {
+                func, args, span, ..
+            } => {
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 let dest = self.ctx.alloc_var();
                 let meta = IrMetadata::from_span(*span);

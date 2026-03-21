@@ -157,6 +157,26 @@ fn aether_bench_fixture_matches_vm_cranelift_and_llvm() {
 }
 
 #[test]
+fn aether_borrow_calls_fixture_matches_vm_cranelift_and_llvm() {
+    assert_backend_parity("examples/aether/borrow_calls.flx");
+}
+
+#[test]
+fn aether_reuse_alias_spines_fixture_matches_vm_cranelift_and_llvm() {
+    assert_backend_parity("examples/aether/reuse_alias_spines.flx");
+}
+
+#[test]
+fn aether_reuse_specialization_fixture_matches_vm_cranelift_and_llvm() {
+    assert_backend_parity("examples/aether/reuse_specialization.flx");
+}
+
+#[test]
+fn aether_drop_spec_branchy_fixture_matches_vm_cranelift_and_llvm() {
+    assert_backend_parity("examples/aether/drop_spec_branchy.flx");
+}
+
+#[test]
 fn aether_list_rebuild_reuse_matches_vm_cranelift_and_llvm() {
     let input = r#"
 fn rebuild(xs) {

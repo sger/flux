@@ -61,6 +61,18 @@ jobs:
       - name: Tests
         run: cargo test --all --all-features
 
+      - name: Aether core regressions
+        run: cargo test --test aether_core_regressions
+
+      - name: Aether CLI snapshots
+        run: cargo test --test aether_cli_snapshots
+
+      - name: Aether FBIP diagnostics
+        run: cargo test --test aether_fbip_diagnostics
+
+      - name: Aether backend parity
+        run: cargo test --features 'jit llvm' --test aether_backend_parity
+
       - name: Purity VM/JIT parity snapshots
         run: cargo test --all --all-features purity_vm_jit_parity_snapshots
 

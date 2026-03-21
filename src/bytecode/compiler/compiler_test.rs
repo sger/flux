@@ -480,6 +480,144 @@ fn main() -> Unit {
 }
 
 #[test]
+fn strict_mode_requires_effect_annotation_for_non_public_effectful_function() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit {
+    print("x")
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected missing strict effect annotation");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("error[E418]: Strict Effect Annotation Required")
+            && rendered.contains("Effectful function `main` must declare `with IO` in strict mode."),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn strict_mode_requires_time_annotation_for_non_public_effectful_function() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit {
+    let _t = now_ms()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected missing strict time annotation");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("error[E418]: Strict Effect Annotation Required")
+            && rendered.contains("Effectful function `main` must declare `with Time` in strict mode."),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn strict_mode_reports_missing_time_when_only_io_is_declared() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit with IO {
+    let _t = now_ms()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected missing Time annotation");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("Effectful function `main` must declare `with Time` in strict mode."),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn strict_mode_reports_missing_io_when_only_time_is_declared() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit with Time {
+    print("x")
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected missing IO annotation");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("Effectful function `main` must declare `with IO` in strict mode."),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn strict_mode_accepts_io_annotation_when_io_is_declared() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit with IO {
+    print("x")
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    compiler
+        .compile(&program)
+        .expect("strict mode should accept with IO for print");
+}
+
+#[test]
+fn strict_mode_accepts_time_annotation_when_time_is_declared() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit with Time {
+    let _t = now_ms()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    compiler
+        .compile(&program)
+        .expect("strict mode should accept with Time for now_ms");
+}
+
+#[test]
+fn strict_mode_accepts_io_and_time_when_both_are_declared() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit with IO, Time {
+    print(now_ms())
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    compiler
+        .compile(&program)
+        .expect("strict mode should accept with IO, Time when both are required");
+}
+
+#[test]
 fn function_compile_error_does_not_leak_scope() {
     let (program, interner) = parse_program(
         r#"
