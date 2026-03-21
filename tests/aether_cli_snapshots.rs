@@ -105,6 +105,42 @@ fn snapshot_bench_reuse_dump_aether() {
 }
 
 #[test]
+fn snapshot_hof_recursive_suite_dump_aether() {
+    assert_cli_snapshot(
+        "aether/hof_recursive_suite.flx",
+        &["--dump-aether"],
+        "dump_aether",
+    );
+}
+
+#[test]
+fn snapshot_tree_updates_dump_core_debug() {
+    assert_cli_snapshot(
+        "aether/tree_updates.flx",
+        &["--dump-core=debug"],
+        "dump_core_debug",
+    );
+}
+
+#[test]
+fn snapshot_fbip_success_cases_dump_aether() {
+    assert_cli_snapshot(
+        "aether/fbip_success_cases.flx",
+        &["--dump-aether"],
+        "dump_aether",
+    );
+}
+
+#[test]
+fn snapshot_fbip_failure_cases_dump_aether() {
+    assert_cli_snapshot(
+        "aether/fbip_failure_cases.flx",
+        &["--dump-aether"],
+        "dump_aether",
+    );
+}
+
+#[test]
 fn snapshot_borrow_calls_dump_core() {
     assert_cli_snapshot("aether/borrow_calls.flx", &["--dump-core"], "dump_core");
 }

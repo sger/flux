@@ -1,0 +1,27 @@
+import Aether.FbipImportedSupport as Imported
+
+// Aether FBIP warning regression fixture.
+// Each annotation in this file is expected to stay non-provable for one
+// dominant current reason:
+// - indirect higher-order call
+// - module-qualified imported call that still remains conservative on the
+//   current source path
+// - fresh allocation without reuse
+
+@fip fn fail_indirect(f, x) {
+    f(x)
+}
+
+@fip fn fail_imported(x: Int) -> Int {
+    Imported.imported_inc(x)
+}
+
+@fip fn fail_fresh(x: Int) {
+    Some(x)
+}
+
+fn main() with IO {
+    print(fail_indirect(\y -> y + 1, 1))
+    print(fail_imported(2))
+    print(fail_fresh(4))
+}

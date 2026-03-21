@@ -1,0 +1,47 @@
+// Aether tree-update regression fixture.
+// This fixture currently demonstrates:
+// - masked named-ADT reuse on field-preserving updates
+// - zero-mask named-ADT reuse on exact rebuilds
+// - plain named-ADT reuse on wider rewrites
+// - asymmetric DropSpecialized behavior on branch-sensitive updates
+
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Tree)
+
+fn set_black(t) {
+    match t {
+        Node(_, left, key, right) -> Node(Black, left, key, right),
+        _ -> t,
+    }
+}
+
+fn rebuild_same(t) {
+    match t {
+        Node(color, left, key, right) -> Node(color, left, key, right),
+        _ -> t,
+    }
+}
+
+fn rewrite_many(t) {
+    match t {
+        Node(_, left, _, _) -> Node(Black, left, 0, left),
+        _ -> t,
+    }
+}
+
+fn keep_or_dup_left(t, keep) {
+    match t {
+        Node(color, left, key, right) ->
+            if keep { Node(color, left, key, right) }
+            else { Node(color, left, key, left) },
+        _ -> t,
+    }
+}
+
+fn main() with IO {
+    let tree = Node(Red, Leaf, 5, Leaf)
+    print(set_black(tree))
+    print(rebuild_same(Node(Black, Leaf, 9, Leaf)))
+    print(rewrite_many(Node(Red, Leaf, 5, Leaf)))
+    print(keep_or_dup_left(Node(Red, Leaf, 5, Leaf), false))
+}
