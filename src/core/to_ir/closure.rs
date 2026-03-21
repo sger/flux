@@ -279,7 +279,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             params
                 .iter()
                 .map(|param| param.id)
-                .chain(recursive_binder.into_iter()),
+                .chain(recursive_binder),
             &free,
         );
         let mut captures: Vec<CoreBinder> = free
