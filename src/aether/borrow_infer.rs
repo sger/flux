@@ -7,13 +7,11 @@
 //! - explicit Base/runtime metadata
 //! - conservative imported/unknown fallbacks
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::core::{CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreProgram, CoreVarRef};
 use crate::syntax::interner::Interner;
 use crate::syntax::Identifier;
-
-use super::analysis::owned_use_count_with_registry;
 
 /// How a function parameter is used — does it need ownership or just a reference?
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,17 +151,41 @@ pub fn infer_borrow_modes(program: &mut CoreProgram, interner: Option<&Interner>
         }
     }
 
+    let defs_by_binder: HashMap<CoreBinderId, &CoreDef> =
+        program.defs.iter().map(|def| (def.binder.id, def)).collect();
+    let recursive_groups = compute_recursive_groups(program);
+
     loop {
-        let mut changed = false;
-        for def in &program.defs {
-            let Some(signature) = infer_def_signature(def, &registry) else {
-                continue;
-            };
-            if registry.upsert_user_signature(def.binder, signature) {
-                changed = true;
+        let mut changed_any = false;
+        for group in &recursive_groups {
+            let group_set: HashSet<_> = group.iter().copied().collect();
+            let constraints = infer_group_constraints(group, &defs_by_binder, &registry, &group_set);
+            let solved = solve_group_modes(group, &constraints);
+
+            let mut group_changed = false;
+            for binder in group {
+                let Some(def) = defs_by_binder.get(binder) else {
+                    continue;
+                };
+                let Some((params, _)) = extract_lam(&def.expr) else {
+                    continue;
+                };
+                let params = solved
+                    .get(binder)
+                    .cloned()
+                    .unwrap_or_else(|| vec![BorrowMode::Owned; params.len()]);
+                let signature = BorrowSignature::new(params, BorrowProvenance::Inferred);
+                if registry.upsert_user_signature(def.binder, signature) {
+                    group_changed = true;
+                }
+            }
+
+            if group_changed {
+                changed_any = true;
             }
         }
-        if !changed {
+
+        if !changed_any {
             break;
         }
     }
@@ -173,21 +195,6 @@ pub fn infer_borrow_modes(program: &mut CoreProgram, interner: Option<&Interner>
     }
 
     registry
-}
-
-fn infer_def_signature(def: &CoreDef, registry: &BorrowRegistry) -> Option<BorrowSignature> {
-    let (params, body) = extract_lam(&def.expr)?;
-    let params = params
-        .iter()
-        .map(|param| {
-            if owned_use_count_with_registry(param.id, body, registry) == 0 {
-                BorrowMode::Borrowed
-            } else {
-                BorrowMode::Owned
-            }
-        })
-        .collect();
-    Some(BorrowSignature::new(params, BorrowProvenance::Inferred))
 }
 
 fn extract_lam(expr: &CoreExpr) -> Option<(&[CoreBinder], &CoreExpr)> {
@@ -227,6 +234,422 @@ fn register_explicit_named_fallbacks(
             name,
             BorrowSignature::all(BorrowMode::Owned, arity, BorrowProvenance::Imported),
         );
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct ParamConstraint {
+    force_owned: bool,
+    deps: Vec<(CoreBinderId, usize)>,
+}
+
+fn compute_recursive_groups(program: &CoreProgram) -> Vec<Vec<CoreBinderId>> {
+    let def_ids: HashSet<_> = program.defs.iter().map(|def| def.binder.id).collect();
+    let adjacency: HashMap<CoreBinderId, Vec<CoreBinderId>> = program
+        .defs
+        .iter()
+        .map(|def| {
+            let mut callees = HashSet::new();
+            collect_local_callees(&def.expr, &def_ids, &mut callees);
+            (def.binder.id, callees.into_iter().collect())
+        })
+        .collect();
+
+    let mut index = 0usize;
+    let mut stack = Vec::new();
+    let mut on_stack = HashSet::new();
+    let mut indices = HashMap::<CoreBinderId, usize>::new();
+    let mut lowlinks = HashMap::<CoreBinderId, usize>::new();
+    let mut components = Vec::new();
+
+    fn strongconnect(
+        v: CoreBinderId,
+        adjacency: &HashMap<CoreBinderId, Vec<CoreBinderId>>,
+        index: &mut usize,
+        stack: &mut Vec<CoreBinderId>,
+        on_stack: &mut HashSet<CoreBinderId>,
+        indices: &mut HashMap<CoreBinderId, usize>,
+        lowlinks: &mut HashMap<CoreBinderId, usize>,
+        components: &mut Vec<Vec<CoreBinderId>>,
+    ) {
+        indices.insert(v, *index);
+        lowlinks.insert(v, *index);
+        *index += 1;
+        stack.push(v);
+        on_stack.insert(v);
+
+        for w in adjacency.get(&v).into_iter().flatten().copied() {
+            if !indices.contains_key(&w) {
+                strongconnect(
+                    w,
+                    adjacency,
+                    index,
+                    stack,
+                    on_stack,
+                    indices,
+                    lowlinks,
+                    components,
+                );
+                let low_v = *lowlinks.get(&v).expect("lowlink for current node");
+                let low_w = *lowlinks.get(&w).expect("lowlink for child");
+                lowlinks.insert(v, low_v.min(low_w));
+            } else if on_stack.contains(&w) {
+                let low_v = *lowlinks.get(&v).expect("lowlink for current node");
+                let idx_w = *indices.get(&w).expect("index for child");
+                lowlinks.insert(v, low_v.min(idx_w));
+            }
+        }
+
+        if indices.get(&v) == lowlinks.get(&v) {
+            let mut component = Vec::new();
+            while let Some(w) = stack.pop() {
+                on_stack.remove(&w);
+                component.push(w);
+                if w == v {
+                    break;
+                }
+            }
+            components.push(component);
+        }
+    }
+
+    for def in &program.defs {
+        if !indices.contains_key(&def.binder.id) {
+            strongconnect(
+                def.binder.id,
+                &adjacency,
+                &mut index,
+                &mut stack,
+                &mut on_stack,
+                &mut indices,
+                &mut lowlinks,
+                &mut components,
+            );
+        }
+    }
+
+    components
+}
+
+fn collect_local_callees(
+    expr: &CoreExpr,
+    def_ids: &HashSet<CoreBinderId>,
+    out: &mut HashSet<CoreBinderId>,
+) {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
+        CoreExpr::Lam { body, .. } => collect_local_callees(body, def_ids, out),
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+            if let CoreExpr::Var { var, .. } = func.as_ref()
+                && let Some(binder) = var.binder
+                && def_ids.contains(&binder)
+            {
+                out.insert(binder);
+            }
+            collect_local_callees(func, def_ids, out);
+            for arg in args {
+                collect_local_callees(arg, def_ids, out);
+            }
+        }
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            collect_local_callees(rhs, def_ids, out);
+            collect_local_callees(body, def_ids, out);
+        }
+        CoreExpr::Case { scrutinee, alts, .. } => {
+            collect_local_callees(scrutinee, def_ids, out);
+            for alt in alts {
+                if let Some(guard) = &alt.guard {
+                    collect_local_callees(guard, def_ids, out);
+                }
+                collect_local_callees(&alt.rhs, def_ids, out);
+            }
+        }
+        CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
+            for field in fields {
+                collect_local_callees(field, def_ids, out);
+            }
+        }
+        CoreExpr::Return { value, .. } => collect_local_callees(value, def_ids, out),
+        CoreExpr::Perform { args, .. } => {
+            for arg in args {
+                collect_local_callees(arg, def_ids, out);
+            }
+        }
+        CoreExpr::Handle { body, handlers, .. } => {
+            collect_local_callees(body, def_ids, out);
+            for handler in handlers {
+                collect_local_callees(&handler.body, def_ids, out);
+            }
+        }
+        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
+            collect_local_callees(body, def_ids, out)
+        }
+        CoreExpr::Reuse { fields, .. } => {
+            for field in fields {
+                collect_local_callees(field, def_ids, out);
+            }
+        }
+        CoreExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            collect_local_callees(unique_body, def_ids, out);
+            collect_local_callees(shared_body, def_ids, out);
+        }
+    }
+}
+
+fn infer_group_constraints(
+    group: &[CoreBinderId],
+    defs_by_binder: &HashMap<CoreBinderId, &CoreDef>,
+    registry: &BorrowRegistry,
+    group_set: &HashSet<CoreBinderId>,
+) -> HashMap<(CoreBinderId, usize), ParamConstraint> {
+    let mut constraints = HashMap::new();
+
+    for binder in group {
+        let Some(def) = defs_by_binder.get(binder) else {
+            continue;
+        };
+        let Some((params, body)) = extract_lam(&def.expr) else {
+            continue;
+        };
+        for (param_index, param) in params.iter().enumerate() {
+            let mut constraint = ParamConstraint::default();
+            collect_param_constraints(param.id, body, registry, group_set, &mut constraint);
+            constraints.insert((*binder, param_index), constraint);
+        }
+    }
+
+    constraints
+}
+
+fn solve_group_modes(
+    group: &[CoreBinderId],
+    constraints: &HashMap<(CoreBinderId, usize), ParamConstraint>,
+) -> HashMap<CoreBinderId, Vec<BorrowMode>> {
+    let mut solved = HashMap::<CoreBinderId, Vec<BorrowMode>>::new();
+    for binder in group {
+        let mut arity = 0usize;
+        while constraints.contains_key(&(*binder, arity)) {
+            arity += 1;
+        }
+        solved.insert(*binder, vec![BorrowMode::Borrowed; arity]);
+    }
+
+    loop {
+        let mut changed = false;
+        for binder in group {
+            let Some(current_modes) = solved.get(binder).cloned() else {
+                continue;
+            };
+            let mut next_modes = current_modes.clone();
+            for (param_index, mode) in next_modes.iter_mut().enumerate() {
+                let Some(constraint) = constraints.get(&(*binder, param_index)) else {
+                    continue;
+                };
+                let next = if constraint.force_owned
+                    || constraint.deps.iter().any(|(callee, arg_index)| {
+                        solved
+                            .get(callee)
+                            .and_then(|callee_modes| callee_modes.get(*arg_index))
+                            .copied()
+                            .unwrap_or(BorrowMode::Owned)
+                            == BorrowMode::Owned
+                    }) {
+                    BorrowMode::Owned
+                } else {
+                    BorrowMode::Borrowed
+                };
+                if *mode != next {
+                    *mode = next;
+                    changed = true;
+                }
+            }
+            solved.insert(*binder, next_modes);
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    solved
+}
+
+fn collect_param_constraints(
+    target: CoreBinderId,
+    expr: &CoreExpr,
+    registry: &BorrowRegistry,
+    group_set: &HashSet<CoreBinderId>,
+    constraint: &mut ParamConstraint,
+) {
+    if constraint.force_owned {
+        return;
+    }
+
+    match expr {
+        CoreExpr::Var { var, .. } => {
+            if var.binder == Some(target) {
+                constraint.force_owned = true;
+            }
+        }
+        CoreExpr::Lit(_, _) => {}
+        CoreExpr::PrimOp { args, .. } => {
+            for arg in args {
+                collect_param_constraints_skip_direct(target, arg, registry, group_set, constraint);
+            }
+        }
+        CoreExpr::Case { scrutinee, alts, .. } => {
+            collect_param_constraints_skip_direct(target, scrutinee, registry, group_set, constraint);
+            for alt in alts {
+                if !pat_binds(target, &alt.pat) {
+                    if let Some(guard) = &alt.guard {
+                        collect_param_constraints(target, guard, registry, group_set, constraint);
+                    }
+                    collect_param_constraints(target, &alt.rhs, registry, group_set, constraint);
+                }
+            }
+        }
+        CoreExpr::App { func, args, .. } => {
+            collect_call_param_constraints(target, func, args, None, registry, group_set, constraint);
+        }
+        CoreExpr::AetherCall {
+            func,
+            args,
+            arg_modes,
+            ..
+        } => {
+            collect_call_param_constraints(
+                target,
+                func,
+                args,
+                Some(arg_modes),
+                registry,
+                group_set,
+                constraint,
+            );
+        }
+        CoreExpr::Con { fields, .. }
+        | CoreExpr::Reuse { fields, .. }
+        | CoreExpr::Perform { args: fields, .. } => {
+            for field in fields {
+                collect_param_constraints(target, field, registry, group_set, constraint);
+            }
+        }
+        CoreExpr::Return { value, .. } => {
+            collect_param_constraints(target, value, registry, group_set, constraint);
+        }
+        CoreExpr::Lam { params, body, .. } => {
+            if !params.iter().any(|p| p.id == target)
+                && super::analysis::use_counts(body).contains_key(&target)
+            {
+                constraint.force_owned = true;
+            }
+        }
+        CoreExpr::Let { var, rhs, body, .. } => {
+            collect_param_constraints(target, rhs, registry, group_set, constraint);
+            if var.id != target {
+                collect_param_constraints(target, body, registry, group_set, constraint);
+            }
+        }
+        CoreExpr::LetRec { var, rhs, body, .. } => {
+            if var.id != target {
+                collect_param_constraints(target, rhs, registry, group_set, constraint);
+                collect_param_constraints(target, body, registry, group_set, constraint);
+            }
+        }
+        CoreExpr::Handle { body, handlers, .. } => {
+            collect_param_constraints(target, body, registry, group_set, constraint);
+            for handler in handlers {
+                if handler.resume.id == target || handler.params.iter().any(|p| p.id == target) {
+                    continue;
+                }
+                collect_param_constraints(target, &handler.body, registry, group_set, constraint);
+            }
+        }
+        CoreExpr::Dup { var, body, .. } => {
+            if var.binder == Some(target) {
+                constraint.force_owned = true;
+            }
+            collect_param_constraints(target, body, registry, group_set, constraint);
+        }
+        CoreExpr::Drop { body, .. } => {
+            collect_param_constraints(target, body, registry, group_set, constraint);
+        }
+        CoreExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            collect_param_constraints(target, unique_body, registry, group_set, constraint);
+            collect_param_constraints(target, shared_body, registry, group_set, constraint);
+        }
+    }
+}
+
+fn collect_call_param_constraints(
+    target: CoreBinderId,
+    func: &CoreExpr,
+    args: &[CoreExpr],
+    explicit_modes: Option<&[BorrowMode]>,
+    registry: &BorrowRegistry,
+    group_set: &HashSet<CoreBinderId>,
+    constraint: &mut ParamConstraint,
+) {
+    collect_param_constraints_skip_direct(target, func, registry, group_set, constraint);
+
+    let local_callee = match func {
+        CoreExpr::Var { var, .. } => var.binder.filter(|binder| group_set.contains(binder)),
+        _ => None,
+    };
+
+    for (index, arg) in args.iter().enumerate() {
+        if let Some(callee) = local_callee
+            && matches!(arg, CoreExpr::Var { var, .. } if var.binder == Some(target))
+        {
+            constraint.deps.push((callee, index));
+            continue;
+        }
+
+        let borrowed = if let Some(modes) = explicit_modes {
+            modes.get(index).copied() == Some(BorrowMode::Borrowed)
+        } else if let CoreExpr::Var { var: callee_var, .. } = func {
+            registry.is_borrowed(registry.resolve_var_ref(callee_var), index)
+        } else {
+            false
+        };
+
+        if borrowed {
+            collect_param_constraints_skip_direct(target, arg, registry, group_set, constraint);
+        } else {
+            collect_param_constraints(target, arg, registry, group_set, constraint);
+        }
+    }
+}
+
+fn collect_param_constraints_skip_direct(
+    target: CoreBinderId,
+    expr: &CoreExpr,
+    registry: &BorrowRegistry,
+    group_set: &HashSet<CoreBinderId>,
+    constraint: &mut ParamConstraint,
+) {
+    if matches!(expr, CoreExpr::Var { var, .. } if var.binder == Some(target)) {
+        return;
+    }
+    collect_param_constraints(target, expr, registry, group_set, constraint);
+}
+
+fn pat_binds(var: CoreBinderId, pat: &crate::core::CorePat) -> bool {
+    match pat {
+        crate::core::CorePat::Var(binder) => binder.id == var,
+        crate::core::CorePat::Con { fields, .. } | crate::core::CorePat::Tuple(fields) => {
+            fields.iter().any(|field| pat_binds(var, field))
+        }
+        crate::core::CorePat::Lit(_)
+        | crate::core::CorePat::Wildcard
+        | crate::core::CorePat::EmptyList => false,
     }
 }
 
@@ -405,7 +828,182 @@ mod tests {
         let registry = infer_borrow_modes(&mut program, Some(&interner));
         assert_eq!(
             registry.lookup_binder(loop_binder.id).expect("loop signature").params,
-            vec![BorrowMode::Owned]
+            vec![BorrowMode::Borrowed]
+        );
+    }
+
+    #[test]
+    fn self_recursive_borrowed_parameter_stays_borrowed() {
+        let mut interner = Interner::new();
+        let loop_name = interner.intern("loop");
+        let loop_binder = binder(1, loop_name);
+        let xs = binder(2, interner.intern("xs"));
+        let n = binder(3, interner.intern("n"));
+        let len = interner.intern("len");
+
+        let loop_def = def(
+            loop_binder,
+            vec![xs, n],
+            CoreExpr::Case {
+                scrutinee: Box::new(CoreExpr::PrimOp {
+                    op: crate::core::CorePrimOp::Eq,
+                    args: vec![var_ref(n), CoreExpr::Lit(crate::core::CoreLit::Int(0), span())],
+                    span: span(),
+                }),
+                alts: vec![
+                    crate::core::CoreAlt {
+                        pat: crate::core::CorePat::Lit(crate::core::CoreLit::Bool(true)),
+                        guard: None,
+                        rhs: CoreExpr::App {
+                            func: Box::new(ext_var(len)),
+                            args: vec![var_ref(xs)],
+                            span: span(),
+                        },
+                        span: span(),
+                    },
+                    crate::core::CoreAlt {
+                        pat: crate::core::CorePat::Wildcard,
+                        guard: None,
+                        rhs: CoreExpr::App {
+                            func: Box::new(var_ref(loop_binder)),
+                            args: vec![
+                                var_ref(xs),
+                                CoreExpr::PrimOp {
+                                    op: crate::core::CorePrimOp::Sub,
+                                    args: vec![var_ref(n), CoreExpr::Lit(crate::core::CoreLit::Int(1), span())],
+                                    span: span(),
+                                },
+                            ],
+                            span: span(),
+                        },
+                        span: span(),
+                    },
+                ],
+                span: span(),
+            },
+            true,
+        );
+
+        let mut program = CoreProgram {
+            defs: vec![loop_def],
+            top_level_items: Vec::new(),
+        };
+        let registry = infer_borrow_modes(&mut program, Some(&interner));
+        assert_eq!(
+            registry.lookup_binder(loop_binder.id).expect("loop signature").params,
+            vec![BorrowMode::Borrowed, BorrowMode::Borrowed]
+        );
+    }
+
+    #[test]
+    fn mutually_recursive_borrowed_parameter_converges() {
+        let mut interner = Interner::new();
+        let even_binder = binder(1, interner.intern("even"));
+        let odd_binder = binder(2, interner.intern("odd"));
+        let xs_even = binder(3, interner.intern("xs"));
+        let n_even = binder(4, interner.intern("n"));
+        let xs_odd = binder(5, interner.intern("ys"));
+        let n_odd = binder(6, interner.intern("m"));
+        let len = interner.intern("len");
+
+        let even_def = def(
+            even_binder,
+            vec![xs_even, n_even],
+            CoreExpr::Case {
+                scrutinee: Box::new(CoreExpr::PrimOp {
+                    op: crate::core::CorePrimOp::Eq,
+                    args: vec![var_ref(n_even), CoreExpr::Lit(crate::core::CoreLit::Int(0), span())],
+                    span: span(),
+                }),
+                alts: vec![
+                    crate::core::CoreAlt {
+                        pat: crate::core::CorePat::Lit(crate::core::CoreLit::Bool(true)),
+                        guard: None,
+                        rhs: CoreExpr::App {
+                            func: Box::new(ext_var(len)),
+                            args: vec![var_ref(xs_even)],
+                            span: span(),
+                        },
+                        span: span(),
+                    },
+                    crate::core::CoreAlt {
+                        pat: crate::core::CorePat::Wildcard,
+                        guard: None,
+                        rhs: CoreExpr::App {
+                            func: Box::new(var_ref(odd_binder)),
+                            args: vec![
+                                var_ref(xs_even),
+                                CoreExpr::PrimOp {
+                                    op: crate::core::CorePrimOp::Sub,
+                                    args: vec![var_ref(n_even), CoreExpr::Lit(crate::core::CoreLit::Int(1), span())],
+                                    span: span(),
+                                },
+                            ],
+                            span: span(),
+                        },
+                        span: span(),
+                    },
+                ],
+                span: span(),
+            },
+            true,
+        );
+
+        let odd_def = def(
+            odd_binder,
+            vec![xs_odd, n_odd],
+            CoreExpr::Case {
+                scrutinee: Box::new(CoreExpr::PrimOp {
+                    op: crate::core::CorePrimOp::Eq,
+                    args: vec![var_ref(n_odd), CoreExpr::Lit(crate::core::CoreLit::Int(0), span())],
+                    span: span(),
+                }),
+                alts: vec![
+                    crate::core::CoreAlt {
+                        pat: crate::core::CorePat::Lit(crate::core::CoreLit::Bool(true)),
+                        guard: None,
+                        rhs: CoreExpr::App {
+                            func: Box::new(ext_var(len)),
+                            args: vec![var_ref(xs_odd)],
+                            span: span(),
+                        },
+                        span: span(),
+                    },
+                    crate::core::CoreAlt {
+                        pat: crate::core::CorePat::Wildcard,
+                        guard: None,
+                        rhs: CoreExpr::App {
+                            func: Box::new(var_ref(even_binder)),
+                            args: vec![
+                                var_ref(xs_odd),
+                                CoreExpr::PrimOp {
+                                    op: crate::core::CorePrimOp::Sub,
+                                    args: vec![var_ref(n_odd), CoreExpr::Lit(crate::core::CoreLit::Int(1), span())],
+                                    span: span(),
+                                },
+                            ],
+                            span: span(),
+                        },
+                        span: span(),
+                    },
+                ],
+                span: span(),
+            },
+            true,
+        );
+
+        let mut program = CoreProgram {
+            defs: vec![even_def, odd_def],
+            top_level_items: Vec::new(),
+        };
+        let registry = infer_borrow_modes(&mut program, Some(&interner));
+        assert_eq!(
+            registry.lookup_binder(even_binder.id).expect("even signature").params,
+            vec![BorrowMode::Borrowed, BorrowMode::Borrowed]
+        );
+        assert_eq!(
+            registry.lookup_binder(odd_binder.id).expect("odd signature").params,
+            vec![BorrowMode::Borrowed, BorrowMode::Borrowed]
         );
     }
 

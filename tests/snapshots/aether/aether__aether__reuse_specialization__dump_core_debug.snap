@@ -1,5 +1,6 @@
 ---
 source: tests/aether_cli_snapshots.rs
+assertion_line: 75
 ---
 letrec set_black : Tree =
 λt#1.
@@ -28,7 +29,6 @@ letrec option_map : Option<Any> =
         let #4000019[synthetic]#19 = aether_call[owned] f#13(x#14)
         Some(#4000019[synthetic]#19)
       _ →
-        drop f#13
         None
 
 letrec main : Unit =
@@ -48,4 +48,4 @@ letrec main : Unit =
     aether_call[borrowed] print#?[external](#4000026[synthetic]#26)
 
 ── Aether stats ──
-Dups: 0  Drops: 7  Reuses: 2  DropSpecs: 0  FBIP: fbip(2)
+Dups: 0  Drops: 6  Reuses: 2  DropSpecs: 0  FBIP: fbip(2)
