@@ -221,15 +221,7 @@ fn try_specialize(
 struct DropSpecCandidate {
     scrutinee: CoreBinder,
     duped_fields: Vec<CoreBinderId>,
-    wrappers: Vec<DropSpecWrapper>,
     expr: CoreExpr,
-}
-
-#[derive(Debug, Clone)]
-enum DropSpecWrapper {
-    Let,
-    Dup,
-    Drop,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -257,7 +249,6 @@ enum DropSpecMode {
 #[derive(Debug, Default)]
 struct CandidateAccumulator {
     duped_fields: BTreeSet<CoreBinderId>,
-    wrappers: Vec<DropSpecWrapper>,
 }
 
 fn extract_candidate(
@@ -282,7 +273,6 @@ fn extract_candidate(
     Ok(DropSpecCandidate {
         scrutinee,
         duped_fields: acc.duped_fields.into_iter().collect(),
-        wrappers: acc.wrappers,
         expr: rhs,
     })
 }
@@ -301,13 +291,12 @@ fn validate_skeleton(
 
     match expr {
         CoreExpr::Let { rhs, body, .. } => {
-            if !is_supported_wrapper_rhs(rhs) {
+            if !is_safe_wrapper_rhs(rhs) {
                 return Err(DropSpecFailureReason::EffectfulBoundary);
             }
             if uses_binder(rhs, scrutinee_id) {
                 return Err(DropSpecFailureReason::ScrutineeEscapes);
             }
-            acc.wrappers.push(DropSpecWrapper::Let);
             validate_skeleton(
                 body,
                 scrutinee_id,
@@ -328,7 +317,6 @@ fn validate_skeleton(
             {
                 acc.duped_fields.insert(binder_id);
             }
-            acc.wrappers.push(DropSpecWrapper::Dup);
             validate_skeleton(
                 body,
                 scrutinee_id,
@@ -338,7 +326,6 @@ fn validate_skeleton(
             )
         }
         CoreExpr::Drop { var, body, .. } => {
-            acc.wrappers.push(DropSpecWrapper::Drop);
             if var.binder == Some(scrutinee_id) {
                 if state == DropScanState::AfterDrop {
                     return Err(DropSpecFailureReason::AlreadySpecialized);
@@ -376,8 +363,15 @@ fn validate_skeleton(
                 {
                     return Err(DropSpecFailureReason::UnsupportedBranchShape);
                 }
-                let branch_has_drop =
-                    validate_skeleton(&alt.rhs, scrutinee_id, field_binders, state, acc)?;
+                let mut branch_acc = CandidateAccumulator::default();
+                let branch_has_drop = validate_skeleton(
+                    &alt.rhs,
+                    scrutinee_id,
+                    field_binders,
+                    state,
+                    &mut branch_acc,
+                )?;
+                merge_candidate_acc(acc, branch_acc);
                 any_branch_has_drop |= branch_has_drop;
             }
             Ok(any_branch_has_drop)
@@ -425,7 +419,7 @@ fn validate_after_drop_body(
             validate_after_drop_body(body, scrutinee_id, field_binders, acc)
         }
         CoreExpr::Let { rhs, body, .. } => {
-            if !is_supported_wrapper_rhs(rhs) {
+            if !is_safe_wrapper_rhs(rhs) {
                 return Err(DropSpecFailureReason::EffectfulBoundary);
             }
             if uses_binder(rhs, scrutinee_id) {
@@ -451,7 +445,9 @@ fn validate_after_drop_body(
                 {
                     return Err(DropSpecFailureReason::UnsupportedBranchShape);
                 }
-                validate_after_drop_body(&alt.rhs, scrutinee_id, field_binders, acc)?;
+                let mut branch_acc = CandidateAccumulator::default();
+                validate_after_drop_body(&alt.rhs, scrutinee_id, field_binders, &mut branch_acc)?;
+                merge_candidate_acc(acc, branch_acc);
             }
             Ok(())
         }
@@ -484,7 +480,6 @@ fn validate_after_drop_body(
 }
 
 fn rebuild_candidate(candidate: &DropSpecCandidate, mode: DropSpecMode) -> CoreExpr {
-    let _ = &candidate.wrappers;
     rewrite_mode(
         &candidate.expr,
         mode,
@@ -679,7 +674,11 @@ fn uses_binder(expr: &CoreExpr, binder_id: CoreBinderId) -> bool {
     use_counts(expr).contains_key(&binder_id)
 }
 
-fn is_supported_wrapper_rhs(expr: &CoreExpr) -> bool {
+fn merge_candidate_acc(acc: &mut CandidateAccumulator, branch_acc: CandidateAccumulator) {
+    acc.duped_fields.extend(branch_acc.duped_fields);
+}
+
+fn is_safe_wrapper_rhs(expr: &CoreExpr) -> bool {
     match expr {
         CoreExpr::Perform { .. }
         | CoreExpr::Handle { .. }
@@ -1024,6 +1023,158 @@ mod tests {
                     );
                     assert_eq!(unique_drops, 0);
                     assert_eq!(shared_drops, 0);
+                }
+                other => panic!("expected DropSpecialized, got {other:?}"),
+            },
+            other => panic!("expected case, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn specializes_through_nested_let_after_drop() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let h = binder(&mut interner, 2, "h");
+        let t = binder(&mut interner, 3, "t");
+        let tmp = binder(&mut interner, 4, "tmp");
+
+        let expr = CoreExpr::Case {
+            scrutinee: Box::new(var(xs)),
+            alts: vec![CoreAlt {
+                pat: CorePat::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![CorePat::Var(h), CorePat::Var(t)],
+                },
+                guard: None,
+                rhs: CoreExpr::Drop {
+                    var: crate::core::CoreVarRef::resolved(xs),
+                    body: Box::new(CoreExpr::Let {
+                        var: tmp,
+                        rhs: Box::new(CoreExpr::Con {
+                            tag: CoreTag::Cons,
+                            fields: vec![var(h), var(t)],
+                            span: Span::default(),
+                        }),
+                        body: Box::new(CoreExpr::Con {
+                            tag: CoreTag::Cons,
+                            fields: vec![
+                                CoreExpr::Dup {
+                                    var: crate::core::CoreVarRef::resolved(h),
+                                    body: Box::new(var(h)),
+                                    span: Span::default(),
+                                },
+                                var(tmp),
+                            ],
+                            span: Span::default(),
+                        }),
+                        span: Span::default(),
+                    }),
+                    span: Span::default(),
+                },
+                span: Span::default(),
+            }],
+            span: Span::default(),
+        };
+
+        let specialized = specialize_drops(expr);
+        assert!(matches!(
+            specialized,
+            CoreExpr::Case { ref alts, .. }
+                if matches!(alts[0].rhs, CoreExpr::DropSpecialized { .. })
+        ));
+    }
+
+    #[test]
+    fn branch_local_dups_are_tracked_per_branch() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let choose = binder(&mut interner, 2, "choose");
+        let h = binder(&mut interner, 3, "h");
+        let t = binder(&mut interner, 4, "t");
+
+        let expr = CoreExpr::Case {
+            scrutinee: Box::new(var(xs)),
+            alts: vec![CoreAlt {
+                pat: CorePat::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![CorePat::Var(h), CorePat::Var(t)],
+                },
+                guard: None,
+                rhs: CoreExpr::Case {
+                    scrutinee: Box::new(var(choose)),
+                    alts: vec![
+                        CoreAlt {
+                            pat: CorePat::Lit(CoreLit::Bool(true)),
+                            guard: None,
+                            rhs: CoreExpr::Dup {
+                                var: crate::core::CoreVarRef::resolved(h),
+                                body: Box::new(CoreExpr::Drop {
+                                    var: crate::core::CoreVarRef::resolved(xs),
+                                    body: Box::new(CoreExpr::Con {
+                                        tag: CoreTag::Cons,
+                                        fields: vec![var(h), var(t)],
+                                        span: Span::default(),
+                                    }),
+                                    span: Span::default(),
+                                }),
+                                span: Span::default(),
+                            },
+                            span: Span::default(),
+                        },
+                        CoreAlt {
+                            pat: CorePat::Wildcard,
+                            guard: None,
+                            rhs: CoreExpr::Dup {
+                                var: crate::core::CoreVarRef::resolved(t),
+                                body: Box::new(CoreExpr::Drop {
+                                    var: crate::core::CoreVarRef::resolved(xs),
+                                    body: Box::new(CoreExpr::Con {
+                                        tag: CoreTag::Cons,
+                                        fields: vec![var(h), var(t)],
+                                        span: Span::default(),
+                                    }),
+                                    span: Span::default(),
+                                }),
+                                span: Span::default(),
+                            },
+                            span: Span::default(),
+                        },
+                    ],
+                    span: Span::default(),
+                },
+                span: Span::default(),
+            }],
+            span: Span::default(),
+        };
+
+        let specialized = specialize_drops(expr);
+        match specialized {
+            CoreExpr::Case { alts, .. } => match &alts[0].rhs {
+                CoreExpr::DropSpecialized {
+                    unique_body,
+                    shared_body,
+                    ..
+                } => {
+                    let unique_h_dups = count_matching(
+                        unique_body,
+                        &|expr| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(h.id)),
+                    );
+                    let unique_t_dups = count_matching(
+                        unique_body,
+                        &|expr| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(t.id)),
+                    );
+                    let shared_h_dups = count_matching(
+                        shared_body,
+                        &|expr| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(h.id)),
+                    );
+                    let shared_t_dups = count_matching(
+                        shared_body,
+                        &|expr| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(t.id)),
+                    );
+                    assert_eq!(unique_h_dups, 0);
+                    assert_eq!(unique_t_dups, 0);
+                    assert_eq!(shared_h_dups, 1);
+                    assert_eq!(shared_t_dups, 1);
                 }
                 other => panic!("expected DropSpecialized, got {other:?}"),
             },

@@ -177,6 +177,11 @@ fn aether_drop_spec_branchy_fixture_matches_vm_cranelift_and_llvm() {
 }
 
 #[test]
+fn aether_drop_spec_recursive_fixture_matches_vm_cranelift_and_llvm() {
+    assert_backend_parity("examples/aether/drop_spec_recursive.flx");
+}
+
+#[test]
 fn aether_list_rebuild_reuse_matches_vm_cranelift_and_llvm() {
     let input = r#"
 fn rebuild(xs) {
