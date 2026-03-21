@@ -222,7 +222,7 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
                 return;
             };
 
-            let unique_count = invalid_drop_specialized_uses(unique_body, scrutinee_id);
+            let unique_count = invalid_drop_specialized_uses(unique_body, scrutinee_id, false);
             if unique_count > 0 {
                 errors.push(AetherError {
                     kind: AetherErrorKind::InvalidDropSpecializedUse,
@@ -233,7 +233,7 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
                     ),
                 });
             }
-            let shared_count = invalid_drop_specialized_uses(shared_body, scrutinee_id);
+            let shared_count = invalid_drop_specialized_uses(shared_body, scrutinee_id, true);
             if shared_count > 0 {
                 errors.push(AetherError {
                     kind: AetherErrorKind::InvalidDropSpecializedUse,
@@ -354,69 +354,71 @@ fn field_mask_fits(mask: u64, arity: usize) -> bool {
 fn invalid_drop_specialized_uses(
     expr: &CoreExpr,
     scrutinee_id: crate::core::CoreBinderId,
+    count_reuse_token: bool,
 ) -> usize {
     match expr {
         CoreExpr::Var { var, .. } => usize::from(var.binder == Some(scrutinee_id)),
         CoreExpr::Lit(_, _) => 0,
         CoreExpr::Lam { body, .. } | CoreExpr::Return { value: body, .. } => {
-            invalid_drop_specialized_uses(body, scrutinee_id)
+            invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
         }
         CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
-            invalid_drop_specialized_uses(func, scrutinee_id)
+            invalid_drop_specialized_uses(func, scrutinee_id, count_reuse_token)
                 + args
                     .iter()
-                    .map(|arg| invalid_drop_specialized_uses(arg, scrutinee_id))
+                    .map(|arg| invalid_drop_specialized_uses(arg, scrutinee_id, count_reuse_token))
                     .sum::<usize>()
         }
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
-            invalid_drop_specialized_uses(rhs, scrutinee_id)
-                + invalid_drop_specialized_uses(body, scrutinee_id)
+            invalid_drop_specialized_uses(rhs, scrutinee_id, count_reuse_token)
+                + invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
         }
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
-            invalid_drop_specialized_uses(scrutinee, scrutinee_id)
+            invalid_drop_specialized_uses(scrutinee, scrutinee_id, count_reuse_token)
                 + alts
                     .iter()
                     .map(|alt| {
-                        invalid_drop_specialized_uses(&alt.rhs, scrutinee_id)
+                        invalid_drop_specialized_uses(&alt.rhs, scrutinee_id, count_reuse_token)
                             + alt
                                 .guard
                                 .as_ref()
-                                .map(|g| invalid_drop_specialized_uses(g, scrutinee_id))
+                                .map(|g| invalid_drop_specialized_uses(g, scrutinee_id, count_reuse_token))
                                 .unwrap_or(0)
                     })
                     .sum::<usize>()
         }
         CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => fields
             .iter()
-            .map(|field| invalid_drop_specialized_uses(field, scrutinee_id))
+            .map(|field| invalid_drop_specialized_uses(field, scrutinee_id, count_reuse_token))
             .sum(),
         CoreExpr::Perform { args, .. } => args
             .iter()
-            .map(|arg| invalid_drop_specialized_uses(arg, scrutinee_id))
+            .map(|arg| invalid_drop_specialized_uses(arg, scrutinee_id, count_reuse_token))
             .sum(),
         CoreExpr::Handle { body, handlers, .. } => {
-            invalid_drop_specialized_uses(body, scrutinee_id)
+            invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
                 + handlers
                     .iter()
-                    .map(|h| invalid_drop_specialized_uses(&h.body, scrutinee_id))
+                    .map(|h| invalid_drop_specialized_uses(&h.body, scrutinee_id, count_reuse_token))
                     .sum::<usize>()
         }
         CoreExpr::Dup { var, body, .. } => {
             usize::from(var.binder == Some(scrutinee_id))
-                + invalid_drop_specialized_uses(body, scrutinee_id)
+                + invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
         }
         CoreExpr::Drop { var, body, .. } => {
             usize::from(var.binder == Some(scrutinee_id))
-                + invalid_drop_specialized_uses(body, scrutinee_id)
+                + invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
         }
         CoreExpr::Reuse { token, fields, .. } => {
-            let token_uses = usize::from(token.binder == Some(scrutinee_id)) * 0;
+            let token_uses =
+                usize::from(count_reuse_token && token.binder == Some(scrutinee_id));
             token_uses
                 + fields
                     .iter()
-                    .map(|field| invalid_drop_specialized_uses(field, scrutinee_id))
+                    .map(|field| invalid_drop_specialized_uses(field, scrutinee_id, count_reuse_token))
                     .sum::<usize>()
         }
         CoreExpr::DropSpecialized {
@@ -426,8 +428,8 @@ fn invalid_drop_specialized_uses(
             ..
         } => {
             usize::from(scrutinee.binder == Some(scrutinee_id))
-                + invalid_drop_specialized_uses(unique_body, scrutinee_id)
-                + invalid_drop_specialized_uses(shared_body, scrutinee_id)
+                + invalid_drop_specialized_uses(unique_body, scrutinee_id, count_reuse_token)
+                + invalid_drop_specialized_uses(shared_body, scrutinee_id, count_reuse_token)
         }
     }
 }
@@ -591,6 +593,38 @@ mod tests {
         assert!(
             err.iter()
                 .any(|e| e.kind == AetherErrorKind::InvalidDropSpecializedScrutinee)
+        );
+    }
+
+    #[test]
+    fn contract_rejects_shared_branch_reusing_drop_specialized_scrutinee() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let h = binder(2, interner.intern("h"));
+        let t = binder(3, interner.intern("t"));
+
+        let expr = CoreExpr::DropSpecialized {
+            scrutinee: crate::core::CoreVarRef::resolved(xs),
+            unique_body: Box::new(CoreExpr::Con {
+                tag: CoreTag::Cons,
+                fields: vec![v(h), v(t)],
+                span: s(),
+            }),
+            shared_body: Box::new(CoreExpr::Reuse {
+                token: crate::core::CoreVarRef::resolved(xs),
+                tag: CoreTag::Cons,
+                fields: vec![v(h), v(t)],
+                field_mask: None,
+                span: s(),
+            }),
+            span: s(),
+        };
+
+        let err = verify_contract(&expr).expect_err("expected invalid shared drop_spec reuse");
+        assert!(
+            err.iter()
+                .any(|e| e.kind == AetherErrorKind::InvalidDropSpecializedUse),
+            "shared branch must not reuse the drop-specialized scrutinee"
         );
     }
 

@@ -1203,6 +1203,43 @@ fn queue_workload_fixture_claims_match_current_core_shape() {
 }
 
 #[test]
+fn forwarded_wrapper_fixture_rewrites_only_the_inner_child() {
+    let src = std::fs::read_to_string("examples/aether/forwarded_wrapper_reuse.flx")
+        .expect("fixture should exist");
+    let core = lowered_core(&src);
+    let exprs = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .collect::<Vec<_>>();
+
+    assert!(
+        exprs.iter().any(|expr| {
+            matches!(
+                expr,
+                CoreExpr::App { args: fields, .. } | CoreExpr::AetherCall { args: fields, .. }
+                    if fields
+                        .iter()
+                        .any(|field| matches!(field, CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. }))
+            )
+        }),
+        "forwarded wrapper fixture should keep the outer wrapper fresh and recover inner cons reuse"
+    );
+    assert!(
+        !exprs.iter().any(|expr| {
+            matches!(
+                expr,
+                CoreExpr::Reuse {
+                    tag: flux::core::CoreTag::Named(_),
+                    ..
+                }
+            )
+        }),
+        "forwarded wrapper fixture should not speculate into outer wrapper reuse"
+    );
+}
+
+#[test]
 fn opt_corpus_positive_fixture_claims_match_current_core_shape() {
     let src = std::fs::read_to_string("examples/aether/opt_corpus_positive.flx")
         .expect("fixture should exist");
@@ -1238,6 +1275,32 @@ fn opt_corpus_positive_fixture_claims_match_current_core_shape() {
             .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
         "positive corpus should include DropSpecialized"
     );
+    assert!(
+        exprs.iter().any(|expr| {
+            matches!(
+                expr,
+                CoreExpr::App { args: fields, .. } | CoreExpr::AetherCall { args: fields, .. }
+                    if fields
+                        .iter()
+                        .any(|field| matches!(field, CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. }))
+            )
+        }),
+        "positive corpus should include forwarded-child reuse inside a fresh wrapper"
+    );
+    assert!(
+        exprs.iter().any(|expr| {
+            matches!(
+                expr,
+                CoreExpr::AetherCall { arg_modes, .. }
+                    if arg_modes
+                        == &[
+                            flux::aether::borrow_infer::BorrowMode::Borrowed,
+                            flux::aether::borrow_infer::BorrowMode::Borrowed,
+                        ]
+            )
+        }),
+        "positive corpus should include a borrowed-only higher-order recursive call"
+    );
 }
 
 #[test]
@@ -1260,10 +1323,22 @@ fn opt_corpus_negative_fixture_stays_conservative_on_intended_shapes() {
         "negative corpus should keep reuse limited to the single exact fresh_tree path"
     );
     assert!(
-        !exprs
+        !exprs.iter().any(|expr| {
+            matches!(
+                expr,
+                CoreExpr::App { args: fields, .. } | CoreExpr::AetherCall { args: fields, .. }
+                    if fields
+                        .iter()
+                        .any(|field| matches!(field, CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. }))
+            )
+        }),
+        "negative corpus should keep the forwarding near-miss fresh"
+    );
+    assert!(
+        exprs
             .iter()
             .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
-        "negative corpus should not emit DropSpecialized"
+        "negative corpus should still allow branch-local DropSpecialized on the forwarding near-miss"
     );
 }
 
