@@ -103,8 +103,10 @@ impl ReuseEnv {
                         }
                     }
                 }
-                next.origins
-                    .insert(*token_binder, ReuseOrigin::Scrutinee(*token_binder, tag.clone()));
+                next.origins.insert(
+                    *token_binder,
+                    ReuseOrigin::Scrutinee(*token_binder, tag.clone()),
+                );
             }
             ReuseOrigin::Field {
                 binder_id: field_token_binder,
@@ -670,7 +672,14 @@ fn rewrite_nested_drop_sites(
                 .binder
                 .and_then(|binder_id| env.origins.get(&binder_id))
                 .and_then(origin_tag);
-            rewrite_drop_body_with_env(&var, *body, span, pat_tag.as_ref(), blocked_outer_token, env)
+            rewrite_drop_body_with_env(
+                &var,
+                *body,
+                span,
+                pat_tag.as_ref(),
+                blocked_outer_token,
+                env,
+            )
         }
         CoreExpr::Let {
             var,
@@ -763,30 +772,26 @@ fn rewrite_nested_drop_sites(
                 )
             }
         }
-        CoreExpr::Con { tag, fields, span } => rewrite_nested_children(
-            fields,
-            env,
-            blocked_outer_token,
-            |fields| CoreExpr::Con { tag, fields, span },
-        ),
+        CoreExpr::Con { tag, fields, span } => {
+            rewrite_nested_children(fields, env, blocked_outer_token, |fields| CoreExpr::Con {
+                tag,
+                fields,
+                span,
+            })
+        }
         CoreExpr::Reuse {
             token,
             tag,
             fields,
             field_mask,
             span,
-        } => rewrite_nested_children(
+        } => rewrite_nested_children(fields, env, blocked_outer_token, |fields| CoreExpr::Reuse {
+            token,
+            tag,
             fields,
-            env,
-            blocked_outer_token,
-            |fields| CoreExpr::Reuse {
-                token,
-                tag,
-                fields,
-                field_mask,
-                span,
-            },
-        ),
+            field_mask,
+            span,
+        }),
         CoreExpr::App { func, args, span } => {
             let func_inner = rewrite_nested_drop_sites(*func, env, blocked_outer_token);
             let args_inner = args
@@ -807,7 +812,12 @@ fn rewrite_nested_drop_sites(
                     reason: None,
                 }
             } else {
-                no_rewrite(expr, func_inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch))
+                no_rewrite(
+                    expr,
+                    func_inner
+                        .reason
+                        .unwrap_or(ReuseFailureReason::ShapeMismatch),
+                )
             }
         }
         CoreExpr::AetherCall {
@@ -836,15 +846,21 @@ fn rewrite_nested_drop_sites(
                     reason: None,
                 }
             } else {
-                no_rewrite(expr, func_inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch))
+                no_rewrite(
+                    expr,
+                    func_inner
+                        .reason
+                        .unwrap_or(ReuseFailureReason::ShapeMismatch),
+                )
             }
         }
-        CoreExpr::PrimOp { op, args, span } => rewrite_nested_children(
-            args,
-            env,
-            blocked_outer_token,
-            |args| CoreExpr::PrimOp { op, args, span },
-        ),
+        CoreExpr::PrimOp { op, args, span } => {
+            rewrite_nested_children(args, env, blocked_outer_token, |args| CoreExpr::PrimOp {
+                op,
+                args,
+                span,
+            })
+        }
         CoreExpr::Return { value, span } => {
             let inner = rewrite_nested_drop_sites(*value, env, blocked_outer_token);
             let expr = CoreExpr::Return {
@@ -858,7 +874,10 @@ fn rewrite_nested_drop_sites(
                     reason: None,
                 }
             } else {
-                no_rewrite(expr, inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch))
+                no_rewrite(
+                    expr,
+                    inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch),
+                )
             }
         }
         CoreExpr::Perform {
@@ -866,17 +885,12 @@ fn rewrite_nested_drop_sites(
             operation,
             args,
             span,
-        } => rewrite_nested_children(
+        } => rewrite_nested_children(args, env, blocked_outer_token, |args| CoreExpr::Perform {
+            effect,
+            operation,
             args,
-            env,
-            blocked_outer_token,
-            |args| CoreExpr::Perform {
-                effect,
-                operation,
-                args,
-                span,
-            },
-        ),
+            span,
+        }),
         CoreExpr::Handle {
             body,
             effect,
@@ -887,8 +901,12 @@ fn rewrite_nested_drop_sites(
             let handlers = handlers
                 .into_iter()
                 .map(|mut handler| {
-                    handler.body =
-                        rewrite_nested_drop_sites(handler.body, &ReuseEnv::default(), blocked_outer_token).expr;
+                    handler.body = rewrite_nested_drop_sites(
+                        handler.body,
+                        &ReuseEnv::default(),
+                        blocked_outer_token,
+                    )
+                    .expr;
                     handler
                 })
                 .collect();
@@ -905,7 +923,12 @@ fn rewrite_nested_drop_sites(
                     reason: None,
                 }
             } else {
-                no_rewrite(expr, body_inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch))
+                no_rewrite(
+                    expr,
+                    body_inner
+                        .reason
+                        .unwrap_or(ReuseFailureReason::ShapeMismatch),
+                )
             }
         }
         CoreExpr::DropSpecialized {
@@ -952,7 +975,10 @@ fn rewrite_nested_drop_sites(
                     reason: None,
                 }
             } else {
-                no_rewrite(expr, inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch))
+                no_rewrite(
+                    expr,
+                    inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch),
+                )
             }
         }
         other => no_rewrite(other, ReuseFailureReason::ShapeMismatch),
@@ -1005,7 +1031,10 @@ fn build_reuse_expr(
     if !is_heap_tag(&tag) {
         return Err(ReuseFailureReason::ShapeMismatch);
     }
-    if fields.iter().any(|field| token_appears_in_expr(token_binder, field)) {
+    if fields
+        .iter()
+        .any(|field| token_appears_in_expr(token_binder, field))
+    {
         return Err(ReuseFailureReason::TokenEscapesIntoFields);
     }
     if blocked_outer_token == Some(token_binder) {
@@ -1060,8 +1089,13 @@ fn rewrite_forwarded_wrapper_body(
             }
             let rhs = *rhs;
             let child_env = env.with_alias(var.id, &rhs);
-            let body_inner =
-                rewrite_forwarded_wrapper_body(outer_token, *body, pat_tag, &child_env, blocked_outer_token);
+            let body_inner = rewrite_forwarded_wrapper_body(
+                outer_token,
+                *body,
+                pat_tag,
+                &child_env,
+                blocked_outer_token,
+            );
             if body_inner.reused {
                 ReuseRewrite {
                     expr: CoreExpr::Let {
@@ -1081,7 +1115,9 @@ fn rewrite_forwarded_wrapper_body(
                         body: Box::new(body_inner.expr),
                         span,
                     },
-                    body_inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch),
+                    body_inner
+                        .reason
+                        .unwrap_or(ReuseFailureReason::ShapeMismatch),
                 )
             }
         }
@@ -1178,7 +1214,9 @@ fn build_child_reuse_expr(
             span,
         } => {
             let token_binder = token.binder?;
-            if token_appears_in_expr(token_binder, &rhs) || !is_safe_precompute_rhs(token_binder, &rhs) {
+            if token_appears_in_expr(token_binder, &rhs)
+                || !is_safe_precompute_rhs(token_binder, &rhs)
+            {
                 return None;
             }
             Some(CoreExpr::Let {
@@ -1227,7 +1265,10 @@ fn constructor_shape_for_expr(
     expected_tag: Option<&CoreTag>,
 ) -> Option<(CoreTag, Vec<CoreExpr>, Span)> {
     into_constructor_shape_for_tag(expr.clone(), expected_tag).or_else(|| match expr {
-        CoreExpr::App { func, args, span } | CoreExpr::AetherCall { func, args, span, .. } => {
+        CoreExpr::App { func, args, span }
+        | CoreExpr::AetherCall {
+            func, args, span, ..
+        } => {
             let CoreExpr::Var { var, .. } = func.as_ref() else {
                 return None;
             };
@@ -1264,11 +1305,7 @@ fn rebuild_constructor_shape(
 }
 
 #[allow(dead_code)]
-fn field_has_token_provenance(
-    env: &ReuseEnv,
-    token_binder: CoreBinderId,
-    expr: &CoreExpr,
-) -> bool {
+fn field_has_token_provenance(env: &ReuseEnv, token_binder: CoreBinderId, expr: &CoreExpr) -> bool {
     env.origin_of_expr(expr)
         .as_ref()
         .is_some_and(|origin| origin_mentions_token(origin, token_binder))
@@ -1278,9 +1315,13 @@ fn field_has_token_provenance(
 fn origin_mentions_token(origin: &ReuseOrigin, token_binder: CoreBinderId) -> bool {
     match origin {
         ReuseOrigin::Scrutinee(origin_token, _) => *origin_token == token_binder,
-        ReuseOrigin::Field { token_binder: origin_token, .. } => *origin_token == token_binder,
+        ReuseOrigin::Field {
+            token_binder: origin_token,
+            ..
+        } => *origin_token == token_binder,
         ReuseOrigin::Forwarded { fields, .. } => fields.iter().any(|field| {
-            field.exact()
+            field
+                .exact()
                 .is_some_and(|origin| origin_mentions_token(origin, token_binder))
         }),
         ReuseOrigin::Unknown => false,
@@ -1363,11 +1404,9 @@ fn is_safe_precompute_rhs(token_binder: CoreBinderId, expr: &CoreExpr) -> bool {
 
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
-        CoreExpr::Con { fields, .. } | CoreExpr::Reuse { fields, .. } => {
-            fields
-                .iter()
-                .all(|field| is_safe_precompute_rhs(token_binder, field))
-        }
+        CoreExpr::Con { fields, .. } | CoreExpr::Reuse { fields, .. } => fields
+            .iter()
+            .all(|field| is_safe_precompute_rhs(token_binder, field)),
         CoreExpr::PrimOp { args, .. } => args
             .iter()
             .all(|arg| is_safe_precompute_rhs(token_binder, arg)),
@@ -1377,13 +1416,15 @@ fn is_safe_precompute_rhs(token_binder: CoreBinderId, expr: &CoreExpr) -> bool {
                     .iter()
                     .all(|arg| is_safe_precompute_rhs(token_binder, arg))
         }
-        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } | CoreExpr::Return { value: body, .. } => {
-            is_safe_precompute_rhs(token_binder, body)
-        }
+        CoreExpr::Dup { body, .. }
+        | CoreExpr::Drop { body, .. }
+        | CoreExpr::Return { value: body, .. } => is_safe_precompute_rhs(token_binder, body),
         CoreExpr::Let { rhs, body, .. } => {
             is_safe_precompute_rhs(token_binder, rhs) && is_safe_precompute_rhs(token_binder, body)
         }
-        CoreExpr::Case { scrutinee, alts, .. } => {
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
             is_safe_precompute_rhs(token_binder, scrutinee)
                 && alts.iter().all(|alt| {
                     alt.guard
@@ -1860,7 +1901,9 @@ mod tests {
             Some(&CoreTag::Named(pair2)),
         );
         let child_env = env.with_pattern_origin(
-            env.origin_of_expr(&v(xs)).as_ref().expect("xs field origin"),
+            env.origin_of_expr(&v(xs))
+                .as_ref()
+                .expect("xs field origin"),
             Some(&[Some(y.id), Some(ys.id)]),
             Some(&CoreTag::Cons),
         );

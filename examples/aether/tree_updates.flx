@@ -1,4 +1,4 @@
-// Aether tree-update regression fixture.
+// Aether tree/ADT workload fixture.
 // This fixture currently demonstrates:
 // - masked named-ADT reuse on field-preserving updates
 // - zero-mask named-ADT reuse on exact rebuilds
@@ -38,10 +38,28 @@ fn keep_or_dup_left(t, keep) {
     }
 }
 
+fn churn_tree(t, iterations) {
+    fn go(i, current) {
+        if i <= 0 { current }
+        else {
+            let t1 = set_black(current)
+            let t2 = rebuild_same(t1)
+            let t3 = rewrite_many(t2)
+            let t4 = keep_or_dup_left(t3, false)
+            go(i - 1, t4)
+        }
+    }
+    go(iterations, t)
+}
+
 fn main() with IO {
     let tree = Node(Red, Leaf, 5, Leaf)
+    let updated = churn_tree(tree, 500)
+    print("Tree workload")
+    print("=============")
     print(set_black(tree))
     print(rebuild_same(Node(Black, Leaf, 9, Leaf)))
-    print(rewrite_many(Node(Red, Leaf, 5, Leaf)))
-    print(keep_or_dup_left(Node(Red, Leaf, 5, Leaf), false))
+    print(rewrite_many(tree))
+    print(keep_or_dup_left(tree, false))
+    print(updated)
 }

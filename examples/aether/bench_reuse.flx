@@ -1,4 +1,4 @@
-// Aether Reuse Benchmark
+// Aether list workload fixture.
 // Run:   cargo run -- examples/aether/bench_reuse.flx
 // JIT:   cargo run -- --jit examples/aether/bench_reuse.flx
 // Stats: cargo run -- --dump-aether examples/aether/bench_reuse.flx
@@ -36,7 +36,8 @@ fn fold_left(xs, acc, f) {
     }
 }
 
-// Repeated map to stress recursive borrow/ownership behavior
+// Repeated map to stress recursive borrow/ownership behavior in a workload,
+// not just a one-off micro fixture.
 fn bench_map(xs, iterations) {
     fn map_go(i, current) {
         if i <= 0 { current }
@@ -45,7 +46,7 @@ fn bench_map(xs, iterations) {
     map_go(iterations, xs)
 }
 
-// Repeated len to stress borrowed params
+// Repeated len to stress borrowed params in a maintained workload.
 fn bench_len(xs, iterations) {
     fn len_go(i, total) {
         if i <= 0 { total }
@@ -54,7 +55,7 @@ fn bench_len(xs, iterations) {
     len_go(iterations, 0)
 }
 
-// Repeated fold to stress accumulation
+// Repeated fold to stress accumulation on the same list workload.
 fn bench_fold(xs, iterations) {
     fn fold_go(i, total) {
         if i <= 0 { total }

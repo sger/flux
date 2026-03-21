@@ -157,6 +157,16 @@ fn aether_bench_fixture_matches_vm_cranelift_and_llvm() {
 }
 
 #[test]
+fn aether_bench_reuse_enabled_fixture_matches_vm_cranelift_and_llvm() {
+    assert_backend_parity("examples/aether/bench_reuse_enabled.flx");
+}
+
+#[test]
+fn aether_bench_reuse_blocked_fixture_matches_vm_cranelift_and_llvm() {
+    assert_backend_parity("examples/aether/bench_reuse_blocked.flx");
+}
+
+#[test]
 fn aether_hof_recursive_suite_matches_vm_cranelift_and_llvm() {
     assert_backend_parity("examples/aether/hof_recursive_suite.flx");
 }
@@ -164,6 +174,11 @@ fn aether_hof_recursive_suite_matches_vm_cranelift_and_llvm() {
 #[test]
 fn aether_tree_updates_fixture_matches_vm_cranelift_and_llvm() {
     assert_backend_parity("examples/aether/tree_updates.flx");
+}
+
+#[test]
+fn aether_queue_workload_fixture_matches_vm_cranelift_and_llvm() {
+    assert_backend_parity("examples/aether/queue_workload.flx");
 }
 
 #[test]

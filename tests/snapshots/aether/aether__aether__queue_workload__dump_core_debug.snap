@@ -1,0 +1,104 @@
+---
+source: tests/aether_cli_snapshots.rs
+---
+letrec rev_append : List<Any> =
+λxs#1, acc#2.
+    case xs#1 of
+      ::(h#3, t#4) →
+        let #4000043[synthetic]#43 = ::(h#3, acc#2)
+        aether_call[borrowed, owned] rev_append#0(t#4, #4000043[synthetic]#43)
+      _ →
+        acc#2
+
+letrec normalize : Queue =
+λq#6.
+    case q#6 of
+      Queue([], back#7) →
+        let #4000045[synthetic]#45 = (let #4000044[synthetic]#44 = []
+        aether_call[borrowed, owned] rev_append#0(back#7, #4000044[synthetic]#44))
+        let #4000046[synthetic]#46 = []
+        reuse q#6 Queue(#4000045[synthetic]#45, #4000046[synthetic]#46)
+      _ →
+        q#6
+
+letrec push : Queue =
+λq#9, value#10.
+    case q#9 of
+      Queue(front#11, back#12) →
+        let #4000047[synthetic]#47 = ::(value#10, back#12)
+        reuse q#9 Queue(front#11, #4000047[synthetic]#47)
+
+letrec pop : Pop =
+λq#14.
+    let #4000048[synthetic]#48 = aether_call[owned] normalize#5(q#14)
+    case #4000048[synthetic]#48 of
+      Queue(::(h#15, t#16), back#17) →
+        let #4000049[synthetic]#49 = aether_call[owned, owned] Queue#?[external](t#16, back#17)
+        aether_call[owned, owned] Popped#?[external](h#15, #4000049[synthetic]#49)
+      _ →
+        EmptyQ#?[external]
+
+letrec build_queue : Queue =
+λn#19.
+    letrec go#20 = (λi#21, q#22.
+      let #4000050[synthetic]#50 = Le(i#21, 0)
+      case #4000050[synthetic]#50 of
+        true →
+          drop i#21
+          q#22
+        _ →
+          let #4000051[synthetic]#51 = ISub(i#21, 1)
+          let #4000052[synthetic]#52 = aether_call[borrowed, owned] push#8(q#22, i#21)
+          aether_call[owned, owned] go#20(#4000051[synthetic]#51, #4000052[synthetic]#52))
+    let #4000055[synthetic]#55 = (let #4000053[synthetic]#53 = []
+    let #4000054[synthetic]#54 = []
+    aether_call[owned, owned] Queue#?[external](#4000053[synthetic]#53, #4000054[synthetic]#54))
+    aether_call[owned, owned] go#20(n#19, #4000055[synthetic]#55)
+
+letrec rotate_sum : Int =
+λq#24, rounds#25, total#26.
+    let #4000056[synthetic]#56 = Le(rounds#25, 0)
+    case #4000056[synthetic]#56 of
+      true →
+        drop q#24
+        total#26
+      _ →
+        let #4000057[synthetic]#57 = aether_call[owned] pop#13(q#24)
+        case #4000057[synthetic]#57 of
+          Popped(value#27, rest#28) →
+            let #4000059[synthetic]#59 = (let #4000058[synthetic]#58 = IAdd(value#27, 1)
+            aether_call[borrowed, owned] push#8(rest#28, #4000058[synthetic]#58))
+            let #4000060[synthetic]#60 = ISub(rounds#25, 1)
+            let #4000061[synthetic]#61 = IAdd(total#26, value#27)
+            aether_call[owned, borrowed, owned] rotate_sum#23(#4000059[synthetic]#59, #4000060[synthetic]#60, #4000061[synthetic]#61)
+          _ →
+            total#26
+
+letrec drain_sum : Int =
+λq#30, total#31.
+    let #4000062[synthetic]#62 = aether_call[owned] pop#13(q#30)
+    case #4000062[synthetic]#62 of
+      Popped(value#32, rest#33) →
+        let #4000063[synthetic]#63 = IAdd(total#31, value#32)
+        aether_call[owned, owned] drain_sum#29(rest#33, #4000063[synthetic]#63)
+      _ →
+        total#31
+
+letrec main : Unit =
+λ.
+    let #2000002[synthetic]#37 = aether_call[borrowed] print#?[external]("Queue workload")
+    drop #2000002[synthetic]#37
+    let #2000001[synthetic]#36 = aether_call[borrowed] print#?[external]("==============")
+    drop #2000001[synthetic]#36
+    let #2000000[synthetic]#35 = (let #4000066[synthetic]#66 = (let #4000065[synthetic]#65 = (let #4000064[synthetic]#64 = aether_call[owned] build_queue#18(2000)
+    aether_call[owned, borrowed, owned] rotate_sum#23(#4000064[synthetic]#64, 3000, 0))
+    Interpolate("rotated total = ", #4000065[synthetic]#65))
+    aether_call[borrowed] print#?[external](#4000066[synthetic]#66))
+    drop #2000000[synthetic]#35
+    let #4000069[synthetic]#69 = (let #4000068[synthetic]#68 = (let #4000067[synthetic]#67 = aether_call[owned] build_queue#18(2000)
+    aether_call[owned, owned] drain_sum#29(#4000067[synthetic]#67, 0))
+    Interpolate("drained total = ", #4000068[synthetic]#68))
+    aether_call[borrowed] print#?[external](#4000069[synthetic]#69)
+
+── Aether stats ──
+Dups: 0  Drops: 5  Reuses: 2  DropSpecs: 0  FBIP: fbip(2)
