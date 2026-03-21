@@ -15,6 +15,18 @@ use crate::{
 use super::{CompileResult, Compiler};
 
 impl Compiler {
+    fn with_ir_span<T>(
+        &mut self,
+        metadata: &crate::cfg::IrMetadata,
+        f: impl FnOnce(&mut Self) -> CompileResult<T>,
+    ) -> CompileResult<T> {
+        let previous_span = self.current_span;
+        self.current_span = metadata.span;
+        let result = f(self);
+        self.current_span = previous_span;
+        result
+    }
+
     #[allow(dead_code)]
     pub(super) fn collect_tail_call_spans_for_ir_function(
         function: &IrFunction,
@@ -286,27 +298,33 @@ impl Compiler {
         bindings: &HashMap<IrVar, crate::bytecode::binding::Binding>,
         current_name: Symbol,
     ) -> CompileResult<()> {
-        match instr {
+        let metadata = match instr {
+            IrInstr::Assign { metadata, .. }
+            | IrInstr::Call { metadata, .. }
+            | IrInstr::HandleScope { metadata, .. }
+            | IrInstr::AetherDrop { metadata, .. } => metadata,
+        };
+        self.with_ir_span(metadata, |this| match instr {
             IrInstr::Assign { dest, expr, .. } => {
-                self.compile_ir_cfg_expr(expr, bindings)?;
+                this.compile_ir_cfg_expr(expr, bindings)?;
                 let binding = bindings.get(dest).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning(
                         "missing CFG bytecode binding for IR var",
                     ))
                 })?;
-                self.emit_store_binding(binding);
+                this.emit_store_binding(binding);
                 Ok(())
             }
             IrInstr::Call {
                 dest, target, args, ..
             } => {
-                self.compile_ir_cfg_call(target, args, bindings, current_name)?;
+                this.compile_ir_cfg_call(target, args, bindings, current_name)?;
                 let binding = bindings.get(dest).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning(
                         "missing CFG bytecode binding for IR call dest",
                     ))
                 })?;
-                self.emit_store_binding(binding);
+                this.emit_store_binding(binding);
                 Ok(())
             }
             IrInstr::HandleScope {
@@ -315,25 +333,25 @@ impl Compiler {
                 // 1. Emit arm closures (each arm is a MakeClosure)
                 for arm in arms {
                     for cap in &arm.capture_vars {
-                        self.load_symbol(bindings.get(cap).ok_or_else(|| {
+                        this.load_symbol(bindings.get(cap).ok_or_else(|| {
                             Self::boxed(Diagnostic::warning(
                                 "missing CFG bytecode handle capture binding",
                             ))
                         })?);
                     }
-                    let fn_symbol = self
+                    let fn_symbol = this
                         .lookup_ir_function_symbol_by_raw_id(arm.function_id.0)
                         .ok_or_else(|| {
                             Self::boxed(Diagnostic::warning(
                                 "missing CFG bytecode handle arm function symbol",
                             ))
                         })?;
-                    let fn_binding = self.symbol_table.resolve(fn_symbol).ok_or_else(|| {
+                    let fn_binding = this.symbol_table.resolve(fn_symbol).ok_or_else(|| {
                         Self::boxed(Diagnostic::warning(
                             "missing CFG bytecode handle arm function binding",
                         ))
                     })?;
-                    self.emit_closure_index(fn_binding.index, arm.capture_vars.len());
+                    this.emit_closure_index(fn_binding.index, arm.capture_vars.len());
                 }
 
                 // 2. Create HandlerDescriptor constant and emit OpHandle
@@ -343,8 +361,8 @@ impl Compiler {
                     ops,
                     is_discard: false, // TODO: detect from evidence pass
                 };
-                let const_idx = self.add_constant(Value::HandlerDescriptor(Rc::new(descriptor)));
-                self.emit(OpCode::OpHandle, &[const_idx]);
+                let const_idx = this.add_constant(Value::HandlerDescriptor(Rc::new(descriptor)));
+                this.emit(OpCode::OpHandle, &[const_idx]);
 
                 // 3. Body blocks follow inline; OpEndHandle will be emitted at
                 //    the start of the continuation block (tracked by end_handle_blocks).
@@ -354,16 +372,24 @@ impl Compiler {
                 Ok(())
             }
             IrInstr::AetherDrop { var, .. } => {
-                // Aether early-release: overwrite the local slot with None to
-                // decrement the Rc refcount as soon as the value is no longer
-                // needed, rather than waiting for the scope to end.
+                // Aether early-release on the VM: boxed locals can be cleared
+                // eagerly, but immediate Int/Float/Bool locals must be left
+                // unchanged to match the JIT/LLVM behavior.
                 if let Some(binding) = bindings.get(var) {
-                    self.emit(OpCode::OpNone, &[]);
-                    self.emit_store_binding(binding);
+                    match binding.symbol_scope {
+                        crate::bytecode::symbol_scope::SymbolScope::Local => {
+                            this.emit(OpCode::OpAetherDropLocal, &[binding.index]);
+                        }
+                        crate::bytecode::symbol_scope::SymbolScope::Global => {
+                            this.emit(OpCode::OpNone, &[]);
+                            this.emit_store_binding(binding);
+                        }
+                        _ => {}
+                    }
                 }
                 Ok(())
             }
-        }
+        })
     }
 
     #[allow(dead_code)]
@@ -976,18 +1002,25 @@ impl Compiler {
         bindings: &HashMap<IrVar, crate::bytecode::binding::Binding>,
         current_name: Symbol,
     ) -> CompileResult<()> {
-        match terminator {
+        let metadata = match terminator {
+            IrTerminator::Jump(_, _, metadata)
+            | IrTerminator::Return(_, metadata)
+            | IrTerminator::TailCall { metadata, .. }
+            | IrTerminator::Unreachable(metadata)
+            | IrTerminator::Branch { metadata, .. } => metadata,
+        };
+        self.with_ir_span(metadata, |this| match terminator {
             IrTerminator::Return(var, _) => {
-                self.load_symbol(bindings.get(var).ok_or_else(|| {
+                this.load_symbol(bindings.get(var).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning("missing CFG bytecode return binding"))
                 })?);
-                self.emit(OpCode::OpReturnValue, &[]);
+                this.emit(OpCode::OpReturnValue, &[]);
                 Ok(())
             }
             IrTerminator::TailCall { callee, args, .. } => {
                 // Effect checking for named tail calls.
                 if let IrCallTarget::Named(name) = callee {
-                    let name_str = self.sym(*name);
+                    let name_str = this.sym(*name);
                     if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
                         let required = match primop.effect_kind() {
                             crate::primop::PrimEffect::Io => Some("IO"),
@@ -995,7 +1028,7 @@ impl Compiler {
                             _ => None,
                         };
                         if let Some(required_name) = required
-                            && !self.is_effect_available_name(required_name)
+                            && !this.is_effect_available_name(required_name)
                         {
                             return Err(Self::boxed(
                                 Diagnostic::make_error_dynamic(
@@ -1010,7 +1043,7 @@ impl Compiler {
                                         "Add `with {}` to the enclosing function.",
                                         required_name
                                     )),
-                                    self.file_path.clone(),
+                                    this.file_path.clone(),
                                     crate::diagnostics::position::Span::default(),
                                 )
                                 .with_display_title("Missing Ambient Effect"),
@@ -1021,17 +1054,17 @@ impl Compiler {
 
                 // Try PrimOp emission for named tail calls.
                 if let IrCallTarget::Named(name) = callee {
-                    let name_str = self.sym(*name);
+                    let name_str = this.sym(*name);
                     if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
                         for arg in args {
-                            self.load_symbol(bindings.get(arg).ok_or_else(|| {
+                            this.load_symbol(bindings.get(arg).ok_or_else(|| {
                                 Self::boxed(Diagnostic::warning(
                                     "missing CFG tail-call arg binding",
                                 ))
                             })?);
                         }
-                        self.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
-                        self.emit(OpCode::OpReturnValue, &[]);
+                        this.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
+                        this.emit(OpCode::OpReturnValue, &[]);
                         return Ok(());
                     }
                 }
@@ -1040,15 +1073,15 @@ impl Compiler {
                 if !is_self {
                     match callee {
                         IrCallTarget::Named(name) => {
-                            let symbol = self.symbol_table.resolve(*name).ok_or_else(|| {
+                            let symbol = this.symbol_table.resolve(*name).ok_or_else(|| {
                                 Self::boxed(Diagnostic::warning(
                                     "missing CFG bytecode tail-call target binding",
                                 ))
                             })?;
-                            self.load_symbol(&symbol);
+                            this.load_symbol(&symbol);
                         }
                         IrCallTarget::Var(var) => {
-                            self.load_symbol(bindings.get(var).ok_or_else(|| {
+                            this.load_symbol(bindings.get(var).ok_or_else(|| {
                                 Self::boxed(Diagnostic::warning(
                                     "missing CFG bytecode tail-call callee binding",
                                 ))
@@ -1059,37 +1092,37 @@ impl Compiler {
                                 IrCallTarget::Direct(id) => id,
                                 _ => unreachable!(),
                             };
-                            let symbol = self
+                            let symbol = this
                                 .lookup_ir_function_symbol_by_raw_id(function_id.0)
-                                .and_then(|symbol| self.symbol_table.resolve(symbol))
+                                .and_then(|symbol| this.symbol_table.resolve(symbol))
                                 .ok_or_else(|| {
                                     Self::boxed(Diagnostic::warning(
                                         "missing direct CFG bytecode tail-call target binding",
                                     ))
                                 })?;
-                            self.load_symbol(&symbol);
+                            this.load_symbol(&symbol);
                         }
                     }
                 }
                 for arg in args {
-                    self.load_symbol(bindings.get(arg).ok_or_else(|| {
+                    this.load_symbol(bindings.get(arg).ok_or_else(|| {
                         Self::boxed(Diagnostic::warning(
                             "missing CFG bytecode tail-call arg binding",
                         ))
                     })?);
                 }
                 if is_self {
-                    self.emit(OpCode::OpTailCall, &[args.len()]);
+                    this.emit(OpCode::OpTailCall, &[args.len()]);
                 } else {
-                    self.emit(OpCode::OpCall, &[args.len()]);
-                    self.emit(OpCode::OpReturnValue, &[]);
+                    this.emit(OpCode::OpCall, &[args.len()]);
+                    this.emit(OpCode::OpReturnValue, &[]);
                 }
                 Ok(())
             }
             _ => Err(Self::boxed(Diagnostic::warning(
                 "unsupported CFG bytecode terminator lowering",
             ))),
-        }
+        })
     }
 
     #[allow(dead_code)]

@@ -627,13 +627,65 @@ preserving Flux's Core/Aether/CFG architecture.
 
 ### Phase S: Bounded FBIP forms, deferred until after N-R
 
-**Goal:** revisit `fip(n)` / `fbip(n)` only after precision, coverage, and corpus maturity justify it.
+**Goal:** keep `fip(n)` / `fbip(n)` explicitly deferred until post-N-R evidence shows that bounded forms are semantically justified and worth a separate proposal.
 
 #### Scope
 
-- proposal-level evaluation first
-- no syntax commitment until N-R materially reduce conservative gaps
+- proposal-level evaluation only
+- no syntax commitment until N-R materially reduce conservative gaps on maintained fixtures
 - if pursued later, bounded forms must be grounded in the semantic FBIP checker, not a count-based shortcut
+
+#### Evaluation gates
+
+Bounded forms are not eligible for reconsideration until all of the following are true:
+
+- Phases N-R have reduced higher-order and imported-call conservatism materially on maintained fixtures
+- the maintained Aether corpus added through Phase R shows stable, representative FBIP success and failure categories
+- the remaining false negatives are understood as semantic limits of the current model, not analysis or corpus immaturity
+- `@fip` / `@fbip` remain the only supported surface until those gates are met
+
+Bounded forms are therefore not the “next syntax”. They are a later optional reconsideration once the post-M maturity work has settled.
+
+#### Decision checklist
+
+Before any future bounded-FBIP syntax proposal is written, it must answer:
+
+- Semantics:
+  - what `fip(n)` / `fbip(n)` mean in Flux's semantic FBIP model
+  - whether `n` counts fresh allocations, upper bounds, constructor sites, or another semantic quantity
+- Soundness:
+  - whether the semantic checker can justify numeric bounds compositionally
+  - whether imported/runtime/effect boundaries can participate without collapsing the model into conservative fallback
+- Diagnostics:
+  - how a failed bounded proof would be explained without regressing to vague count-based messages
+- Value:
+  - which real maintained examples become meaningfully more expressible than today's `@fip` / `@fbip`
+
+If those questions cannot be answered cleanly, bounded forms remain deferred.
+
+#### Reconsideration inputs
+
+Any future Phase S reconsideration must be grounded in the post-M maturity evidence from:
+
+- Phase N:
+  - higher-order and recursive precision
+- Phase O/P:
+  - broader reuse and drop-specialization coverage
+- Phase Q:
+  - stronger interprocedural summaries
+- Phase R:
+  - larger maintained FIP/FBIP corpus
+
+The evaluation trigger is therefore concrete: revisit bounded forms only after those phases provide stable evidence that the remaining FBIP gaps are principled and measurable.
+
+#### Not part of this tranche
+
+Phase S does **not** authorize:
+
+- parser support for `fip(n)` / `fbip(n)`
+- AST/Core annotation changes
+- numeric-bound implementation in the FBIP checker
+- new diagnostics, snapshots, or syntax fixtures for bounded forms
 
 #### Primary files
 
@@ -642,7 +694,7 @@ preserving Flux's Core/Aether/CFG architecture.
 #### Acceptance criteria
 
 - bounded syntax remains explicitly deferred in the current proposal
-- proposal text states that this phase is contingent on N-R success
+- proposal text states that this phase is contingent on N-R success and the evaluation gates above
 - no implementation work on `fip(n)` / `fbip(n)` is part of the current execution tranche
 
 ## Recommended implementation order
@@ -800,8 +852,8 @@ Includes:
 
 Exit criteria:
 
-- the proposal explicitly determines whether bounded FBIP forms are now justified
-- no bounded surface is added unless N-R materially reduced conservative gaps
+- the proposal explicitly defines when bounded FBIP forms may be reconsidered
+- no bounded surface is added unless N-R materially reduced conservative gaps and the Phase S checklist can be answered cleanly
 
 ## Testing strategy
 
@@ -867,8 +919,8 @@ stable target.
 
 4. **Bounded source forms are deferred**
    - `@fip` and `@fbip` remain the only source-level FBIP forms for now
-   - future work may revisit numeric bounded forms like `fip(n)` / `fbip(n)` once semantic FBIP is materially less conservative
-   - this proposal makes no syntax commitment for bounded forms
+   - numeric bounded forms like `fip(n)` / `fbip(n)` may only be reconsidered after the post-N-R gates and checklist in Phase S are satisfied
+   - this proposal makes no syntax commitment for bounded forms and authorizes no implementation work for them
 
 ## Success metrics
 
