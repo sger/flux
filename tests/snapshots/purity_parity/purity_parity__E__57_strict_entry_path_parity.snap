@@ -7,11 +7,11 @@ Strict: true
 Expect compile error: true
 
 == vm command ==
-$ flux --no-cache --strict examples/type_system/failing/57_strict_entry_path_parity.flx
+$ flux --no-cache examples/type_system/failing/57_strict_entry_path_parity.flx
 exit_code: 1
 
 == jit command ==
-$ flux --no-cache --strict examples/type_system/failing/57_strict_entry_path_parity.flx --jit
+$ flux --no-cache examples/type_system/failing/57_strict_entry_path_parity.flx --jit
 exit_code: 1
 
 == vm tuples ==

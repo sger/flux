@@ -7,11 +7,11 @@ Strict: false
 Expect compile error: true
 
 == vm command ==
-$ flux --no-cache examples/type_system/failing/18_handle_incomplete_operation_set.flx
+$ flux --no-cache --no-strict examples/type_system/failing/18_handle_incomplete_operation_set.flx
 exit_code: 1
 
 == jit command ==
-$ flux --no-cache examples/type_system/failing/18_handle_incomplete_operation_set.flx --jit
+$ flux --no-cache --no-strict examples/type_system/failing/18_handle_incomplete_operation_set.flx --jit
 exit_code: 1
 
 == vm tuples ==

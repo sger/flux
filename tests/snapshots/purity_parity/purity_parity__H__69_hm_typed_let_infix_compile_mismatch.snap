@@ -7,11 +7,11 @@ Strict: false
 Expect compile error: true
 
 == vm command ==
-$ flux --no-cache examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx
+$ flux --no-cache --no-strict examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx
 exit_code: 1
 
 == jit command ==
-$ flux --no-cache examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx --jit
+$ flux --no-cache --no-strict examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx --jit
 exit_code: 1
 
 == vm tuples ==

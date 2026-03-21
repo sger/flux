@@ -91,7 +91,7 @@ fn run_flux_file(
     roots: &[&str],
     jit: bool,
 ) -> (i32, String, String) {
-    let mut args = vec!["--no-cache".to_string()];
+    let mut args = vec!["--no-cache".to_string(), "--no-strict".to_string()];
     for root in roots {
         args.push("--root".to_string());
         args.push((*root).to_string());

@@ -59,7 +59,11 @@ fn run_flux_file(
     file: &str,
     jit: bool,
 ) -> (i32, String, String) {
-    let mut args = vec!["--no-cache".to_string(), file.to_string()];
+    let mut args = vec![
+        "--no-cache".to_string(),
+        "--no-strict".to_string(),
+        file.to_string(),
+    ];
     if jit {
         args.push("--jit".to_string());
     }

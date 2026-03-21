@@ -7,11 +7,11 @@ Strict: true
 Expect compile error: true
 
 == vm command ==
-$ flux --no-cache --strict examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx
+$ flux --no-cache examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx
 exit_code: 1
 
 == jit command ==
-$ flux --no-cache --strict examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx --jit
+$ flux --no-cache examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx --jit
 exit_code: 1
 
 == vm tuples ==

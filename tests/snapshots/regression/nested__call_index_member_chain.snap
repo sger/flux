@@ -15,3 +15,18 @@ I can't find a value named `foo`.
 
 Hint:
   Define it first: let foo = ...;
+
+
+error[E415]: Missing Main Function (strict)
+
+Strict mode requires `fn main()` for all programs.
+
+  tests/fixtures/nested/call_index_member_chain.flx:1:1
+  |
+1 | foo(1, bar(2, baz(3)))[0].qux(4);
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Add `fn main() { ... }` as the program entrypoint.
+
+Found 2 errors.

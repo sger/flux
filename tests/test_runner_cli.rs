@@ -14,8 +14,10 @@ fn example_path(rel: &str) -> PathBuf {
 }
 
 fn run_flux(args: &[&str]) -> Output {
+    let mut full_args = vec!["--no-strict"];
+    full_args.extend_from_slice(args);
     Command::new(env!("CARGO_BIN_EXE_flux"))
-        .args(args)
+        .args(&full_args)
         .env("NO_COLOR", "1")
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux with args {:?}: {e}", args))

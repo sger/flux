@@ -4,6 +4,25 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/collections/empty_and_singleton.flx
 exit_code: 1
 
+error[E415]: Missing Main Function (strict)
+
+Strict mode requires `fn main()` for all programs.
+
+  tests/fixtures/collections/empty_and_singleton.flx:1:1
+  |
+1 | [];
+  | ^^^
+2 | [1];
+  | ^^^^
+3 | f();
+  | ^^^^
+4 | f(1);
+  | ^^^^^
+
+Hint:
+  Add `fn main() { ... }` as the program entrypoint.
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `f`.
@@ -35,4 +54,4 @@ Hint:
 Help:
   Did you mean one of: `find`, `fold`, `first`?
 
-Found 2 errors.
+Found 3 errors.
