@@ -1,6 +1,6 @@
 - Feature Name: Aether Perceus Completion Plan
 - Start Date: 2026-03-20
-- Status: Draft
+- Status: Draft, Extended
 - Proposal PR:
 - Flux Issue:
 - Depends on: 0084 (Aether memory model), 0086 (backend-neutral core IR)
@@ -18,12 +18,19 @@ support for Flux's three maintained execution backends:
 AST -> Core -> cfg -> VM / Cranelift JIT / LLVM
 ```
 
-The plan is organized around four gaps:
+The original plan was organized around four gaps:
 
 1. **Backend parity** — Aether semantics must be identical across VM, Cranelift JIT, and LLVM.
 2. **Ownership analysis quality** — dup/drop insertion and borrowing must be driven by explicit ownership and liveness reasoning, not only local heuristics.
 3. **Reuse sophistication** — reuse and drop specialization must be generalized and profitability-aware.
 4. **FBIP rigor** — `@fip` / `@fbip` checking must become semantic rather than count-based.
+
+Phases A-J established that base. This extension adds a second tranche focused on
+the remaining gap between "working Aether" and "Koka-grade maturity":
+
+5. **Ownership precision** — borrow/liveness reasoning must become less conservative across recursive, higher-order, imported, and effect-sensitive cases.
+6. **Reuse/drop-spec coverage** — more realistic transformed Core shapes must trigger profitable reuse and drop specialization.
+7. **FBIP maturity** — semantic FBIP must become less conservative and more Flux-native without expanding the public annotation surface yet.
 
 This proposal does **not** replace 0084. It is the execution plan for finishing
 0084 to a level that is comparable in spirit and behavior to Koka's Perceus.
@@ -49,23 +56,23 @@ that Flux matches Koka's Perceus implementation.
 
 ### Why Flux still falls short of Koka
 
-Compared to Koka, Flux currently has these weaknesses:
+Compared to Koka, Flux still has these weaknesses:
 
-1. **Borrowing is too heuristic**
-   - Current borrow inference is mostly per-function body scanning.
-   - Call-site ownership decisions only handle limited direct-callee cases.
+1. **Borrow precision still trails Koka**
+   - Borrow metadata exists, but recursive, imported, and higher-order cases remain conservative.
+   - Call-site ownership decisions are explicit now, but still miss some interprocedural precision.
 
-2. **Dup/drop insertion is too local**
-   - Current insertion relies heavily on use counting and owned-position checks.
-   - This is weaker than Koka's environment-driven reverse-liveness approach.
+2. **Ownership flow is not yet Koka-grade**
+   - Env-based insertion exists, but closure capture, branch joins, and older interprocedural paths still have rough edges.
+   - Flux still emits avoidable `Dup`/`Drop` pairs in some recursive and higher-order examples.
 
-3. **Reuse is narrower than Koka**
-   - Flux mostly recognizes syntactic `Drop -> Con` patterns.
-   - Koka has a richer reuse token discipline and a separate reuse specialization pass.
+3. **Reuse coverage is still narrower than Koka**
+   - Provenance-driven reuse and reuse specialization now exist, but more transformed Core shapes should still be recognized.
+   - `DropSpecialized` works on realistic cases, but not yet on all useful branchy/admin shapes.
 
-4. **FBIP checking is underpowered**
-   - Flux mostly checks constructor/reuse counts.
-   - Koka's checker reasons about calls, borrowing, capabilities, and control flow.
+4. **FBIP remains conservative**
+   - Semantic FBIP checking exists, but still falls back to conservative unknown/non-provable outcomes too often.
+   - Flux-specific effects/runtime calls should participate more precisely in proof summaries.
 
 5. **Backend parity is not complete**
    - Some reuse paths differ across backends today.
@@ -86,6 +93,22 @@ With this work complete:
 - reuse legality is compiler-guided, not mostly pattern-driven
 - backend-neutral Core retains the main architectural advantage over Koka
 - Flux gets much closer to zero-allocation purely functional updates on unique paths
+
+## Current status after Phases A-J
+
+The first tranche of 0114 has established the Aether base:
+
+- Aether is real and backend-shared across `Core -> cfg -> VM / Cranelift JIT / LLVM`
+- the verifier rejects malformed Aether before lowering
+- explicit borrowed/owned call sites, reuse specialization, stronger drop specialization, and semantic FBIP exist
+- dedicated Aether core/snapshot/parity/diagnostic suites exist
+
+The remaining work is no longer architectural bootstrapping. It is primarily
+about precision, coverage, and maturity:
+
+- fewer conservative ownership decisions
+- broader reuse and `DropSpecialized` coverage on transformed Core
+- more credible interprocedural FBIP summaries and diagnostics
 
 ## Non-goals
 
@@ -388,6 +411,90 @@ backends: VM, Cranelift JIT, and LLVM.
 - representative fixtures assert transformed Core structure, not only runtime output
 - parity slices run in CI for maintained backends
 
+### Phase K: Ownership precision
+
+**Goal:** improve borrow/liveness precision toward Koka-style behavior across recursive, higher-order, and imported/base-call cases.
+
+#### Scope
+
+- strengthen borrow metadata propagation and fixpoint behavior for recursive groups
+- improve environment/liveness precision in:
+  - closures and captures
+  - branch joins
+  - handler scopes
+  - imported/direct-call boundaries
+- tighten interprocedural ownership/effect reasoning where older compiler subsystems still fall back to conservative behavior
+- keep all logic in `src/aether/` and existing Core metadata surfaces
+
+#### Primary files
+
+- `src/aether/borrow_infer.rs`
+- `src/aether/analysis.rs`
+- `src/aether/insert.rs`
+- small supporting touches in `src/core/` only where metadata plumbing requires it
+
+#### Acceptance criteria
+
+- fewer spurious `Dup`/`Drop` insertions on recursive and higher-order examples
+- borrowed call behavior is stable across direct local, imported, and known base/runtime calls
+- closure capture and branch joins produce more precise ownership flow than current conservative cases
+- no new CFG/backend ownership logic is introduced
+
+### Phase L: Reuse and drop-specialization expansion
+
+**Goal:** broaden the set of realistic transformed Core shapes that trigger profitable reuse and drop specialization.
+
+#### Scope
+
+- extend provenance-driven reuse through more administrative Core rewrites, branch joins, and alias-preserving lets
+- broaden `DropSpecialized` candidate recognition to additional safe branchy/admin shapes without complicating lowering
+- keep specialization profitability explicit and deterministic
+- improve maintained examples so reuse/drop-spec show up on more realistic Aether fixtures
+
+#### Primary files
+
+- `src/aether/reuse_analysis.rs`
+- `src/aether/reuse.rs`
+- `src/aether/reuse_spec.rs`
+- `src/aether/drop_spec.rs`
+
+#### Acceptance criteria
+
+- more maintained fixtures emit `Reuse` and `DropSpecialized`
+- masked/selective-write reuse appears only when profitable and exact
+- shared-path conservatism remains intact
+- backend lowering remains unchanged and parity stays green
+
+### Phase M: FBIP and interprocedural maturity
+
+**Goal:** make semantic FBIP less conservative and more Flux-native without expanding source syntax.
+
+#### Scope
+
+- strengthen interprocedural summaries used by `fbip_analysis`
+- model Flux-native call/effect/runtime causes more precisely
+- reduce unknown/non-provable outcomes caused only by incomplete ownership/effect summary plumbing
+- improve diagnostics to distinguish:
+  - unknown/indirect call
+  - known but non-provable callee
+  - effect boundary
+  - token unavailability
+  - control-flow precision loss
+- explicitly keep `@fip` / `@fbip` surface unchanged in this phase
+
+#### Primary files
+
+- `src/aether/fbip_analysis.rs`
+- `src/aether/check_fbip.rs`
+- supporting call/effect metadata plumbing only where needed
+
+#### Acceptance criteria
+
+- fewer false-negative `@fip` / `@fbip` failures on maintained examples
+- diagnostics are more actionable and less generic conservative fallback
+- Flux builtins/effects are treated as Flux-native proof inputs, not opaque unknowns
+- no `fip(n)` / `fbip(n)` syntax is added
+
 ## Recommended implementation order
 
 The phases should land in this order:
@@ -402,6 +509,9 @@ The phases should land in this order:
 8. Phase H — Stronger drop specialization
 9. Phase I — Semantic FBIP checker
 10. Phase J — Aether regression suite
+11. Phase K — Ownership precision
+12. Phase L — Reuse and drop-specialization expansion
+13. Phase M — FBIP and interprocedural maturity
 
 ## Milestones
 
@@ -458,6 +568,39 @@ Exit criteria:
 - `@fip` / `@fbip` diagnostics are semantically meaningful
 - Aether behavior is regression-tested at IR and backend levels
 
+### Milestone 5: Ownership maturity
+
+Includes:
+
+- Phase K
+
+Exit criteria:
+
+- borrow/liveness precision is noticeably less conservative on recursive and higher-order examples
+- imported/base/runtime call ownership behavior is stable and metadata-driven
+
+### Milestone 6: Reuse coverage maturity
+
+Includes:
+
+- Phase L
+
+Exit criteria:
+
+- maintained fixtures show more `Reuse` and `DropSpecialized` sites on realistic transformed Core
+- reuse/drop-spec coverage expands without changing backend lowering contracts
+
+### Milestone 7: FBIP maturity
+
+Includes:
+
+- Phase M
+
+Exit criteria:
+
+- semantic FBIP is materially less conservative on maintained examples
+- diagnostics distinguish Flux-native causes instead of collapsing into generic conservative failure
+
 ## Testing strategy
 
 Every phase must add both:
@@ -480,6 +623,10 @@ Recommended test categories:
 - ADT partial update reuse
 - drop specialization on constructor patterns
 - FBIP success and failure diagnostics
+- recursive and mutually recursive borrowed-call cases
+- higher-order borrowed argument propagation
+- imported/base/runtime callee summary composition
+- maintained examples must not regress into `E999` internal Aether failures
 
 ## Alternatives considered
 
@@ -499,12 +646,23 @@ Partially rejected. A fully semantic checker can wait until later phases, but
 parity and verifier hardening must come first so the optimization work has a
 stable target.
 
-## Unresolved questions
+## Resolved design decisions
 
-1. Should borrow metadata become explicit syntax/IR metadata on functions, or remain compiler-internal only?
-2. Should reuse specialization stay purely in Core, or should CFG gain a richer notion of reusable constructor layout?
-3. How much of Koka's FBIP surface should Flux mirror directly versus adapting to Flux-specific effects/runtime structure?
-4. Should `@fip` eventually support bounded forms like `fip(n)` / `fbip(n)`?
+1. **Borrow metadata remains compiler-internal**
+   - borrow facts should stay as explicit compiler/Core metadata
+   - Flux does not expose borrow annotations in source syntax at this stage
+
+2. **Reuse specialization remains in Core/Aether**
+   - CFG/backends lower `Reuse` decisions but should not gain a second reuse-semantics layer
+
+3. **FBIP should mirror Koka semantically, but adapt architecturally**
+   - Flux should preserve Koka's semantic intent around fresh allocation, reuse, calls, and joins
+   - the checker should adapt to Flux-specific effects, runtime builtins, and backend-neutral lowering structure
+
+4. **Bounded source forms are deferred**
+   - `@fip` and `@fbip` remain the only source-level FBIP forms for now
+   - future work may revisit numeric bounded forms like `fip(n)` / `fbip(n)` once semantic FBIP is materially less conservative
+   - this proposal makes no syntax commitment for bounded forms
 
 ## Success metrics
 
@@ -514,4 +672,6 @@ This proposal is succeeding if:
 - maintained Aether examples show more `Reuse` and `DropSpecialized` nodes
 - `Dup`/`Drop` counts on representative examples go down after analysis improvements
 - FBIP diagnostics explain optimization blockers in actionable terms
+- false-negative `@fip` / `@fbip` failures on known-good examples go down as ownership/reuse precision improves
+- precision improvements do not reintroduce backend parity regressions
 - proposal 0084 can be updated from "partially implemented" to a status that accurately reflects Koka-comparable Aether maturity

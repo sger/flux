@@ -591,6 +591,82 @@ fn parses_non_generic_function_has_empty_type_params() {
 }
 
 #[test]
+fn parses_fip_annotated_function() {
+    let (program, _) = parse_ok("@fip fn alloc(x) { Some(x) }");
+    match &program.statements[0] {
+        Statement::Function { fip, .. } => {
+            assert_eq!(*fip, Some(crate::syntax::statement::FipAnnotation::Fip));
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn parses_fbip_annotated_function() {
+    let (program, _) = parse_ok("@fbip fn bounded(x) { x }");
+    match &program.statements[0] {
+        Statement::Function { fip, .. } => {
+            assert_eq!(*fip, Some(crate::syntax::statement::FipAnnotation::Fbip));
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn rejects_unknown_function_annotation() {
+    let (program, parser) = parse_with_errors("@fi fn bad() { 1 }\nlet ok = 1;");
+    assert!(
+        parser
+            .errors
+            .iter()
+            .any(|d| d.message().unwrap_or("").contains("Unknown annotation `@fi`")),
+        "expected unknown function annotation diagnostic, got: {:?}",
+        parser.errors
+    );
+    assert!(
+        parser
+            .errors
+            .iter()
+            .any(|d| d.display_title() == Some("Unknown Function Annotation")),
+        "expected Unknown Function Annotation title, got: {:?}",
+        parser.errors
+    );
+    assert!(
+        program
+            .statements
+            .iter()
+            .any(|stmt| matches!(stmt, Statement::Let { .. })),
+        "expected recovery to keep parsing follow-up statements"
+    );
+}
+
+#[test]
+fn rejects_unknown_function_annotation_generically() {
+    let (_program, parser) = parse_with_errors("@foo fn bad() { 1 }");
+    assert!(
+        parser
+            .errors
+            .iter()
+            .any(|d| d.message().unwrap_or("").contains("Unknown annotation `@foo`")),
+        "expected unknown function annotation diagnostic, got: {:?}",
+        parser.errors
+    );
+}
+
+#[test]
+fn rejects_malformed_annotated_function_declaration() {
+    let (_program, parser) = parse_with_errors("@fip let x = 1");
+    assert!(
+        parser.errors.iter().any(|d| {
+            d.display_title() == Some("Malformed Annotated Function")
+                && d.message().unwrap_or("").contains("must be followed by `fn`")
+        }),
+        "expected malformed annotated function diagnostic, got: {:?}",
+        parser.errors
+    );
+}
+
+#[test]
 fn parses_type_adt_sugar_simple() {
     let (program, interner) = parse_ok("type Shape = Circle(Float) | Rect(Float, Float)");
     assert_eq!(program.statements.len(), 1);

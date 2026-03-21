@@ -11,7 +11,8 @@ fn build_list(n) {
     build_go(n, [])
 }
 
-// Map: with Aether reuse, Cons cells are reused in-place
+// Map: current Aether shape demonstrates early scrutinee drop plus borrowed
+// recursive traversal. This is the main future reuse target for cons cells.
 @fip fn my_map(xs, f) {
     match xs {
         [h | t] -> [f(h) | my_map(t, f)],
@@ -35,7 +36,7 @@ fn fold_left(xs, acc, f) {
     }
 }
 
-// Repeated map to stress reuse
+// Repeated map to stress recursive borrow/ownership behavior
 fn bench_map(xs, iterations) {
     fn map_go(i, current) {
         if i <= 0 { current }
@@ -76,7 +77,7 @@ fn main() with IO {
 
     let xs = build_list(size)
 
-    // Benchmark 1: map (reuse fires on every Cons cell)
+    // Benchmark 1: map (recursive borrow path; no plain Reuse on this fixture yet)
     let mapped = bench_map(xs, iterations)
     print("map: result head = #{hd(mapped)}")
 

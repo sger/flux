@@ -446,3 +446,120 @@ fn fbip_failure_fixture_stays_non_provable() {
     let mut core = lower_program_ast(&program, &types);
     run_core_passes_with_interner(&mut core, &interner).expect_err("fbip failure fixture should error during core passes");
 }
+
+#[test]
+fn bench_reuse_fixture_my_map_shows_borrowed_recursion_not_plain_reuse() {
+    let src = std::fs::read_to_string("examples/aether/bench_reuse.flx").expect("fixture should exist");
+    let core = lowered_core(&src);
+    let my_map = core
+        .defs
+        .iter()
+        .find(|def| format!("{:?}", def.name).contains("my_map") || collect_core_exprs(&def.expr).iter().any(|expr| {
+            matches!(
+                expr,
+                CoreExpr::AetherCall { arg_modes, .. }
+                    if arg_modes == &[
+                        flux::aether::borrow_infer::BorrowMode::Borrowed,
+                        flux::aether::borrow_infer::BorrowMode::Borrowed,
+                    ]
+            )
+        }))
+        .expect("my_map def");
+    let borrowed_self_call = collect_core_exprs(&my_map.expr).into_iter().any(|expr| {
+        matches!(
+            expr,
+            CoreExpr::AetherCall { arg_modes, .. }
+                if arg_modes == &[
+                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                ]
+        )
+    });
+    let has_reuse = collect_core_exprs(&my_map.expr)
+        .into_iter()
+        .any(|expr| matches!(expr, CoreExpr::Reuse { .. }));
+    assert!(borrowed_self_call, "bench_reuse my_map should preserve borrowed recursive traversal");
+    assert!(!has_reuse, "bench_reuse my_map does not currently emit plain Reuse and the fixture should not claim that it does");
+}
+
+#[test]
+fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
+    let src = std::fs::read_to_string("examples/aether/verify_aether.flx").expect("fixture should exist");
+    let core = lowered_core(&src);
+
+    let set_black = core
+        .defs
+        .iter()
+        .find(|def| collect_core_exprs(&def.expr).into_iter().any(|expr| {
+            matches!(
+                expr,
+                CoreExpr::Reuse {
+                    tag: flux::core::CoreTag::Named(_),
+                    field_mask: Some(_),
+                    ..
+                }
+            )
+        }))
+        .expect("set_black-like def");
+    assert!(collect_core_exprs(&set_black.expr).into_iter().any(|expr| {
+        matches!(
+            expr,
+            CoreExpr::Reuse {
+                tag: flux::core::CoreTag::Named(_),
+                field_mask: Some(_),
+                ..
+            }
+        )
+    }));
+
+    let my_filter = core
+        .defs
+        .iter()
+        .find(|def| collect_core_exprs(&def.expr).into_iter().any(|expr| {
+            matches!(expr, CoreExpr::DropSpecialized { .. })
+        }))
+        .expect("my_filter-like def");
+    assert!(collect_core_exprs(&my_filter.expr).into_iter().any(|expr| match expr {
+        CoreExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            let unique_reuses = collect_core_exprs(unique_body)
+                .into_iter()
+                .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
+                .count();
+            let shared_reuses = collect_core_exprs(shared_body)
+                .into_iter()
+                .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
+                .count();
+            unique_reuses >= 1 && shared_reuses == 0
+        }
+        _ => false,
+    }));
+
+    let my_map = core
+        .defs
+        .iter()
+        .find(|def| collect_core_exprs(&def.expr).into_iter().any(|expr| {
+            matches!(
+                expr,
+                CoreExpr::AetherCall { arg_modes, .. }
+                    if arg_modes == &[
+                        flux::aether::borrow_infer::BorrowMode::Borrowed,
+                        flux::aether::borrow_infer::BorrowMode::Borrowed,
+                    ]
+            )
+        }))
+        .expect("my_map-like def");
+    assert!(collect_core_exprs(&my_map.expr).into_iter().any(|expr| {
+        matches!(
+            expr,
+            CoreExpr::AetherCall { arg_modes, .. }
+                if arg_modes == &[
+                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                ]
+        )
+    }));
+}

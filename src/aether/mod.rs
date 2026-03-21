@@ -31,6 +31,20 @@ pub mod verify;
 use crate::core::{CoreExpr, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AetherBuiltinEffect {
+    Io,
+    Time,
+}
+
+pub fn builtin_effect_for_name(name: &str) -> Option<AetherBuiltinEffect> {
+    match name {
+        "print" | "read_file" | "read_lines" | "read_stdin" => Some(AetherBuiltinEffect::Io),
+        "now" | "clock_now" | "now_ms" | "time" => Some(AetherBuiltinEffect::Time),
+        _ => None,
+    }
+}
+
 /// Statistics collected from an Aether-transformed Core IR expression.
 #[derive(Debug, Clone, Default)]
 pub struct AetherStats {
