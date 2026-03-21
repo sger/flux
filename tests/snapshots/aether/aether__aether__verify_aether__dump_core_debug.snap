@@ -6,10 +6,9 @@ letrec my_map : List<Any> =
 λxs#1, f#2.
     case xs#1 of
       ::(h#3, t#4) →
-        drop xs#1
         let #4000043[synthetic]#43 = aether_call[owned] f#2(h#3)
         let #4000044[synthetic]#44 = aether_call[borrowed, borrowed] my_map#0(t#4, f#2)
-        ::(#4000043[synthetic]#43, #4000044[synthetic]#44)
+        reuse xs#1 ::(#4000043[synthetic]#43, #4000044[synthetic]#44)
       _ →
         []
 
@@ -17,9 +16,8 @@ letrec option_map : Option<Any> =
 λopt#6, f#7.
     case opt#6 of
       Some(x#8) →
-        drop opt#6
         let #4000045[synthetic]#45 = aether_call[owned] f#7(x#8)
-        Some(#4000045[synthetic]#45)
+        reuse opt#6 Some(#4000045[synthetic]#45)
       _ →
         None
 
@@ -109,13 +107,11 @@ letrec main : Unit =
     aether_call[borrowed] print#?[external](#4000065[synthetic]#65)
 
 ── Aether stats ──
-Dups: 1  Drops: 9  Reuses: 2  DropSpecs: 1  FBIP: fbip(4)
+Dups: 1  Drops: 7  Reuses: 4  DropSpecs: 1  FBIP: fbip(2)
 Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:
-- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
-- constructor rebuild could not reuse an available token
 - control-flow join loses a precise allocation bound across paths
 
   examples/aether/verify_aether.flx:9:6
@@ -137,9 +133,7 @@ Warning: FBIP Contract Not Proven
 Warning: FBIP Contract Not Proven
 
 @fip on `option_map` analysis result NotProvable:
-- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
-- constructor rebuild could not reuse an available token
 - control-flow join loses a precise allocation bound across paths
 
   examples/aether/verify_aether.flx:17:6

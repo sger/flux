@@ -11,8 +11,8 @@ fn build_list(n) {
     build_go(n, [])
 }
 
-// Map: current Aether shape demonstrates early scrutinee drop plus borrowed
-// recursive traversal. This is the main future reuse target for cons cells.
+// Map: current Aether shape demonstrates early scrutinee drop, borrowed
+// recursive traversal, and plain cons-cell reuse through precomputed field lets.
 @fip fn my_map(xs, f) {
     match xs {
         [h | t] -> [f(h) | my_map(t, f)],
@@ -77,7 +77,7 @@ fn main() with IO {
 
     let xs = build_list(size)
 
-    // Benchmark 1: map (recursive borrow path; no plain Reuse on this fixture yet)
+    // Benchmark 1: map (recursive borrow path with plain Reuse)
     let mapped = bench_map(xs, iterations)
     print("map: result head = #{hd(mapped)}")
 
