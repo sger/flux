@@ -82,6 +82,13 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
     out
 }
 
+fn count_matching(expr: &CoreExpr, predicate: &impl Fn(&CoreExpr) -> bool) -> usize {
+    collect_core_exprs(expr)
+        .into_iter()
+        .filter(|expr| predicate(expr))
+        .count()
+}
+
 fn lowered_core(src: &str) -> flux::core::CoreProgram {
     let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
@@ -131,6 +138,73 @@ fn main() { borrow_then_return([1, 2, 3], 42) }
                 flux::aether::borrow_infer::BorrowMode::Owned,
             ]
     )));
+}
+
+#[test]
+fn recursive_borrow_signature_stays_precise() {
+    let src = r#"
+fn loop(xs, n) {
+    if n == 0 { len(xs) } else { loop(xs, n - 1) }
+}
+fn main() { loop([1, 2, 3], 3) }
+"#;
+    let core = lowered_core(src);
+    let loop_def = core
+        .defs
+        .iter()
+        .find(|def| def.name == core.defs[0].name)
+        .expect("loop def");
+    let sig = loop_def.borrow_signature.as_ref().expect("borrow signature");
+    assert_eq!(
+        sig.params,
+        vec![
+            flux::aether::borrow_infer::BorrowMode::Borrowed,
+            flux::aether::borrow_infer::BorrowMode::Borrowed,
+        ]
+    );
+}
+
+#[test]
+fn mutually_recursive_borrow_signatures_stay_precise() {
+    let src = r#"
+fn even(xs, n) {
+    if n == 0 { len(xs) } else { odd(xs, n - 1) }
+}
+fn odd(xs, n) {
+    if n == 0 { len(xs) } else { even(xs, n - 1) }
+}
+fn main() { even([1, 2, 3], 4) }
+"#;
+    let core = lowered_core(src);
+    for def in core.defs.iter().take(2) {
+        let sig = def.borrow_signature.as_ref().expect("borrow signature");
+        assert_eq!(
+            sig.params,
+            vec![
+                flux::aether::borrow_infer::BorrowMode::Borrowed,
+                flux::aether::borrow_infer::BorrowMode::Borrowed,
+            ]
+        );
+    }
+}
+
+#[test]
+fn closure_read_only_capture_avoids_dup() {
+    let src = r#"
+fn use_closure(xs) {
+    let f = fn() { len(xs) };
+    f() + f()
+}
+fn main() { use_closure([1, 2, 3]) }
+"#;
+    let core = lowered_core(src);
+    let dups = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .filter(|expr| matches!(expr, CoreExpr::Dup { .. }))
+        .count();
+    assert_eq!(dups, 0, "read-only closure capture should not introduce dups");
 }
 
 #[test]
@@ -213,6 +287,43 @@ fn main() { copy_head([1, 2, 3]) }
 "#;
     let core = lowered_core(src);
     assert!(core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })));
+}
+
+#[test]
+fn branch_join_borrow_only_path_avoids_extra_drop() {
+    let src = r#"
+fn branch_read(xs, choose) {
+    if choose { len(xs) } else { 0 }
+}
+fn main() { branch_read([1, 2, 3], true) }
+"#;
+    let core = lowered_core(src);
+    let drops = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .filter(|expr| matches!(expr, CoreExpr::Drop { .. }))
+        .count();
+    assert_eq!(drops, 0, "borrow-only branch joins should not need explicit drops");
+}
+
+#[test]
+fn handler_shadowing_does_not_keep_outer_binder_live() {
+    let src = r#"
+fn shadow_in_handler(x) {
+    1 handle IO {
+        print(resume, x) -> x
+    }
+}
+fn main() with IO { shadow_in_handler(41) }
+"#;
+    let core = lowered_core(src);
+    let shadow_def = &core.defs[0];
+    let drop_count = count_matching(&shadow_def.expr, &|expr| matches!(expr, CoreExpr::Drop { .. }));
+    assert!(
+        drop_count >= 1,
+        "unused outer binder should still be discharged even when handler params shadow it"
+    );
 }
 
 #[test]

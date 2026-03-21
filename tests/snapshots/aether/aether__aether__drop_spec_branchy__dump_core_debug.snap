@@ -1,6 +1,6 @@
 ---
 source: tests/aether_cli_snapshots.rs
-assertion_line: 47
+assertion_line: 75
 ---
 letrec copy_or_keep_head : List<Any> =
 λxs#1, copy#2.
@@ -22,7 +22,6 @@ letrec copy_or_keep_head : List<Any> =
                 ::(h#3, t#4)
         }
       _ →
-        drop copy#2
         []
 
 letrec keep_or_dup_left : Tree =
@@ -45,7 +44,6 @@ letrec keep_or_dup_left : Tree =
                 left#9, key#10, left#9)
         }
       _ →
-        drop keep#7
         t#6
 
 letrec main : Unit =
@@ -59,4 +57,4 @@ letrec main : Unit =
     aether_call[borrowed] print#?[external](#4000018[synthetic]#18)
 
 ── Aether stats ──
-Dups: 2  Drops: 5  Reuses: 4  DropSpecs: 2  FBIP: fbip(4)
+Dups: 2  Drops: 3  Reuses: 4  DropSpecs: 2  FBIP: fbip(4)

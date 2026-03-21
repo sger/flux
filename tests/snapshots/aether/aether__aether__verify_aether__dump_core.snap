@@ -1,6 +1,6 @@
 ---
 source: tests/aether_cli_snapshots.rs
-assertion_line: 47
+assertion_line: 75
 ---
 letrec my_map =
 λxs, f.
@@ -8,10 +8,9 @@ letrec my_map =
       ::(h, t) →
         drop xs
         let %t1 = aether_call[owned] f(h)
-        let %t2 = aether_call[borrowed, owned] my_map(t, f)
+        let %t2 = aether_call[borrowed, borrowed] my_map(t, f)
         ::(%t1, %t2)
       _ →
-        drop f
         []
 
 letrec option_map =
@@ -22,7 +21,6 @@ letrec option_map =
         let %t3 = aether_call[owned] f(x)
         Some(%t3)
       _ →
-        drop f
         None
 
 letrec set_black =
@@ -50,23 +48,22 @@ letrec my_filter =
           unique -> let %t5 = aether_call[owned] f(h)
             case %t5 of
               true →
-                let %t6 = aether_call[borrowed, owned] my_filter(t, f)
+                let %t6 = aether_call[borrowed, borrowed] my_filter(t, f)
                 reuse xs ::(h, %t6) @mask=0b10
               _ →
                 drop h
-                aether_call[borrowed, owned] my_filter(t, f)
+                aether_call[borrowed, borrowed] my_filter(t, f)
           shared -> let %t5 = aether_call[owned] f(dup h
             h)
             case %t5 of
               true →
-                let %t6 = aether_call[borrowed, owned] my_filter(t, f)
+                let %t6 = aether_call[borrowed, borrowed] my_filter(t, f)
                 ::(h, %t6)
               _ →
                 drop h
-                aether_call[borrowed, owned] my_filter(t, f)
+                aether_call[borrowed, borrowed] my_filter(t, f)
         }
       _ →
-        drop f
         []
 
 letrec my_sum =
@@ -82,7 +79,7 @@ def main =
 let %t8 = (let %t9 = (let %t10 = MakeList(1, 2, 3)
   let %t11 = (λx.
     Mul(x, 2))
-  aether_call[borrowed, owned] my_map(%t10, %t11))
+  aether_call[borrowed, borrowed] my_map(%t10, %t11))
   aether_call[borrowed] print(%t9))
   drop %t8
   let %t12 = (let %t13 = (let %t14 = Some(42)
@@ -103,7 +100,7 @@ let %t8 = (let %t9 = (let %t10 = MakeList(1, 2, 3)
   let %t25 = (λx.
     let %t26 = Mod(x, 2)
     Eq(%t26, 0))
-  aether_call[borrowed, owned] my_filter(%t24, %t25))
+  aether_call[borrowed, borrowed] my_filter(%t24, %t25))
   aether_call[borrowed] print(%t23))
   drop %t22
   let %t27 = (let %t28 = MakeList(1, 2, 3, 4, 5)
@@ -111,7 +108,7 @@ let %t8 = (let %t9 = (let %t10 = MakeList(1, 2, 3)
   aether_call[borrowed] print(%t27)
 
 ── Aether stats ──
-Dups: 1  Drops: 12  Reuses: 2  DropSpecs: 1  FBIP: fbip(4)
+Dups: 1  Drops: 9  Reuses: 2  DropSpecs: 1  FBIP: fbip(4)
 Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:
