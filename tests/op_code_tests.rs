@@ -53,6 +53,9 @@ mod tests {
 
         let ins = make(OpCode::OpCallSelf, &[2]);
         assert_eq!(ins, vec![OpCode::OpCallSelf as u8, 2]);
+
+        let ins = make(OpCode::OpAetherDropLocal, &[7]);
+        assert_eq!(ins, vec![OpCode::OpAetherDropLocal as u8, 7]);
     }
 
     #[test]
@@ -151,6 +154,7 @@ mod tests {
         assert_eq!(operand_widths(OpCode::OpTuple), vec![2]);
         assert_eq!(operand_widths(OpCode::OpTupleLong), vec![4]);
         assert_eq!(operand_widths(OpCode::OpTupleIndex), vec![1]);
+        assert_eq!(operand_widths(OpCode::OpAetherDropLocal), vec![1]);
         assert_eq!(operand_widths(OpCode::OpConsumeLocal0), Vec::<usize>::new());
         assert_eq!(operand_widths(OpCode::OpConsumeLocal1), Vec::<usize>::new());
         assert_eq!(operand_widths(OpCode::OpIsAdtJumpLocal), vec![1, 2, 2]);

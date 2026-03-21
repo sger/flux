@@ -119,6 +119,44 @@ fn dispatch_op_consume_local1_moves_from_second_local_slot() {
 }
 
 #[test]
+fn dispatch_op_aether_drop_local_preserves_immediate_values() {
+    let mut vm = new_vm();
+    vm.frames[0] = Frame::new(vm.frames[0].closure.clone(), 0);
+    vm.stack_set(0, Value::Integer(20));
+    vm.sp = 1;
+
+    let advance = vm
+        .dispatch_instruction(
+            &[OpCode::OpAetherDropLocal as u8, 0],
+            0,
+            OpCode::OpAetherDropLocal,
+        )
+        .unwrap();
+
+    assert_eq!(advance, 2);
+    assert_eq!(vm.stack_get(0), Value::Integer(20));
+}
+
+#[test]
+fn dispatch_op_aether_drop_local_clears_boxed_values() {
+    let mut vm = new_vm();
+    vm.frames[0] = Frame::new(vm.frames[0].closure.clone(), 0);
+    vm.stack_set(0, Value::String(Rc::new("boxed".to_string())));
+    vm.sp = 1;
+
+    let advance = vm
+        .dispatch_instruction(
+            &[OpCode::OpAetherDropLocal as u8, 0],
+            0,
+            OpCode::OpAetherDropLocal,
+        )
+        .unwrap();
+
+    assert_eq!(advance, 2);
+    assert_eq!(vm.stack_get(0), Value::None);
+}
+
+#[test]
 fn dispatch_op_return_local_moves_value_out_of_frame_slot() {
     let mut vm = new_vm();
     let function = CompiledFunction::new(vec![], 1, 0, None);

@@ -71,6 +71,8 @@ fail=0
 skip=0
 llvm_pass=0
 llvm_fail=0
+jit_llvm_pass=0
+jit_llvm_fail=0
 failures=""
 
 for dir in ${dirs[@]}; do
@@ -205,6 +207,37 @@ for dir in ${dirs[@]}; do
       fi
     fi
 
+    # Check JIT vs LLVM parity directly (if LLVM available)
+    jit_llvm_ok=true
+    if [[ "$has_llvm" == true && "$jit_rc" -eq 0 ]]; then
+      if [[ "$jit_rc" -ne "$llvm_rc" ]]; then
+        jit_llvm_fail=$((jit_llvm_fail + 1))
+        jit_llvm_ok=false
+        failures="${failures}\n  \033[31m✗\033[0m $f  exit: jit=$jit_rc llvm=$llvm_rc"
+        failures="${failures}\n      VM run:   $vm_cargo_cmd"
+        failures="${failures}\n      JIT run:  $jit_cargo_cmd"
+        failures="${failures}\n      LLVM run: $llvm_cargo_cmd"
+        failures="${failures}\n    ── JIT output ──"
+        failures="${failures}\n$(echo "$jit_out" | sed 's/^/      /')"
+        failures="${failures}\n    ── LLVM output ──"
+        failures="${failures}\n$(echo "$llvm_out" | sed 's/^/      /')"
+      elif [[ "$jit_cmp" != "$llvm_cmp" ]]; then
+        jit_llvm_fail=$((jit_llvm_fail + 1))
+        jit_llvm_ok=false
+        failures="${failures}\n  \033[31m✗\033[0m $f  output differs (JIT vs LLVM)"
+        failures="${failures}\n      Compare mode: ${mode/exact/exact raw output}"
+        failures="${failures}\n      VM run:   $vm_cargo_cmd"
+        failures="${failures}\n      JIT run:  $jit_cargo_cmd"
+        failures="${failures}\n      LLVM run: $llvm_cargo_cmd"
+        failures="${failures}\n    ── JIT output ──"
+        failures="${failures}\n$(echo "$jit_out" | sed 's/^/      /')"
+        failures="${failures}\n    ── LLVM output ──"
+        failures="${failures}\n$(echo "$llvm_out" | sed 's/^/      /')"
+      else
+        jit_llvm_pass=$((jit_llvm_pass + 1))
+      fi
+    fi
+
     if [[ "$jit_ok" == true ]]; then
       pass=$((pass + 1))
       label=""
@@ -222,6 +255,7 @@ done
 
 total=$((pass + fail))
 llvm_total=$((llvm_pass + llvm_fail))
+jit_llvm_total=$((jit_llvm_pass + jit_llvm_fail))
 echo ""
 if [[ "$fail" -eq 0 ]]; then
   if [[ "$skip" -eq 0 ]]; then
@@ -240,6 +274,12 @@ if [[ "$has_llvm" == true ]]; then
   else
     echo -e "\033[31m✗ $llvm_fail/$llvm_total VM/LLVM parity failures\033[0m"
   fi
+
+  if [[ "$jit_llvm_fail" -eq 0 ]]; then
+    echo -e "\033[32m✓ All $jit_llvm_total examples match between JIT and LLVM\033[0m"
+  else
+    echo -e "\033[31m✗ $jit_llvm_fail/$jit_llvm_total JIT/LLVM parity failures\033[0m"
+  fi
 else
   echo -e "\033[33m- LLVM parity skipped (not compiled with --features llvm)\033[0m"
 fi
@@ -250,7 +290,7 @@ if [[ -n "$failures" ]]; then
   echo -e "$failures"
 fi
 
-if [[ "$fail" -ne 0 || "$llvm_fail" -ne 0 ]]; then
+if [[ "$fail" -ne 0 || "$llvm_fail" -ne 0 || "$jit_llvm_fail" -ne 0 ]]; then
   echo ""
   exit 1
 fi
