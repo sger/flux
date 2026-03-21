@@ -205,7 +205,7 @@ backends: VM, Cranelift JIT, and LLVM.
 - `src/aether/mod.rs`
 - `src/aether/verify.rs`
 - `src/core/mod.rs`
-- `docs/proposals/0084_aether_memory_model.md`
+- `docs/proposals/implemented/0084_aether_memory_model.md`
 
 #### Acceptance criteria
 
@@ -495,6 +495,156 @@ backends: VM, Cranelift JIT, and LLVM.
 - Flux builtins/effects are treated as Flux-native proof inputs, not opaque unknowns
 - no `fip(n)` / `fbip(n)` syntax is added
 
+## Post-M maturity track
+
+Phases K-M establish the broad maturity categories for the current Aether
+implementation: ownership precision, reuse/drop-spec coverage, and FBIP
+maturity. The next tranche should turn those broad categories into a concrete
+execution order for closing the remaining gap with Koka/Perceus.
+
+Phases N-S therefore define the practical post-M implementation sequence. The
+goal is not to clone Koka mechanically, but to close the remaining precision,
+coverage, and benchmark-corpus gaps while keeping Aether Flux-native and
+preserving Flux's Core/Aether/CFG architecture.
+
+### Phase N: Higher-order and recursive borrow/FBIP precision
+
+**Goal:** reduce conservative outcomes that still appear in recursive and higher-order functions.
+
+#### Scope
+
+- improve recursive and mutually recursive borrow precision
+- improve higher-order borrowed-call precision
+- reduce higher-order FBIP false negatives like `my_map` and `option_map`
+- tighten the interaction between borrow summaries and FBIP summaries
+
+#### Primary files
+
+- `src/aether/borrow_infer.rs`
+- `src/aether/analysis.rs`
+- `src/aether/fbip_analysis.rs`
+- `src/aether/insert.rs`
+
+#### Acceptance criteria
+
+- fewer spurious `Dup` / `Drop` operations in recursive higher-order cases
+- fewer `@fip` / `@fbip` false negatives caused only by higher-order conservatism
+- maintained higher-order fixtures show more precise Aether shape without backend changes
+
+### Phase O: Missed reuse coverage
+
+**Goal:** recover more profitable `Reuse` sites that are still being missed in realistic transformed Core.
+
+#### Scope
+
+- higher-order recursive rebuilds
+- more branch-sensitive list and ADT rebuilds
+- more transformed/Core-admin shapes where provenance is exact but current coverage still misses reuse
+
+#### Primary files
+
+- `src/aether/reuse_analysis.rs`
+- `src/aether/reuse.rs`
+- `src/aether/reuse_spec.rs`
+
+#### Acceptance criteria
+
+- more maintained fixtures emit plain `Reuse`
+- examples like `bench_reuse` become explicit targets for closing the current reuse gap
+- no new ambiguous or speculative reuse is introduced
+
+### Phase P: Missed drop-specialization coverage
+
+**Goal:** increase `DropSpecialized` coverage on structurally safe cases that still stay conservative today.
+
+#### Scope
+
+- deeper branch/admin-let cases
+- recursive update patterns where unique/shared separation is still safe
+- more mixed-path cases where unique-path optimization is possible while shared-path conservatism remains intact
+
+#### Primary files
+
+- `src/aether/drop_spec.rs`
+- `src/aether/insert.rs`
+- `src/aether/reuse_analysis.rs`
+
+#### Acceptance criteria
+
+- more maintained fixtures emit `DropSpecialized`
+- shared-path behavior remains conservative
+- backend lowering remains unchanged
+
+### Phase Q: Stronger interprocedural summaries
+
+**Goal:** strengthen interprocedural ownership and FBIP summaries so more direct/internal/imported cases compose precisely.
+
+#### Scope
+
+- direct internal callee summaries
+- imported/base/runtime summary plumbing
+- ownership/effect summary cleanup in older compiler subsystems
+- fewer “known but still conservatively flattened” cases
+
+#### Primary files
+
+- `src/aether/borrow_infer.rs`
+- `src/aether/fbip_analysis.rs`
+- `src/aether/check_fbip.rs`
+
+#### Acceptance criteria
+
+- direct known callees compose more reliably in ownership and FBIP analysis
+- imported/base/runtime metadata is used consistently across Aether analyses
+- summary quality improves without adding new source syntax
+
+### Phase R: Larger FIP/FBIP benchmark corpus
+
+**Goal:** make Aether maturity measurable on a broader workload closer to Koka’s benchmark/test style.
+
+#### Scope
+
+- add more maintained Aether fixtures for:
+  - higher-order recursion
+  - tree/list rebuilds
+  - reuse-heavy ADT updates
+  - FBIP-annotated success/failure cases
+- expand parity and snapshot coverage around those fixtures
+- explicitly test claimed optimizations against transformed Core
+
+#### Primary files
+
+- `examples/aether/`
+- `tests/aether_core_regressions.rs`
+- `tests/aether_cli_snapshots.rs`
+- `tests/aether_backend_parity.rs`
+
+#### Acceptance criteria
+
+- every maintained Aether optimization claim is backed by a transformed-Core assertion
+- a larger corpus exists for FIP/FBIP and reuse-heavy cases
+- no maintained benchmark/fixture comment overstates what actually fires
+
+### Phase S: Bounded FBIP forms, deferred until after N-R
+
+**Goal:** revisit `fip(n)` / `fbip(n)` only after precision, coverage, and corpus maturity justify it.
+
+#### Scope
+
+- proposal-level evaluation first
+- no syntax commitment until N-R materially reduce conservative gaps
+- if pursued later, bounded forms must be grounded in the semantic FBIP checker, not a count-based shortcut
+
+#### Primary files
+
+- proposal/docs only for this phase
+
+#### Acceptance criteria
+
+- bounded syntax remains explicitly deferred in the current proposal
+- proposal text states that this phase is contingent on N-R success
+- no implementation work on `fip(n)` / `fbip(n)` is part of the current execution tranche
+
 ## Recommended implementation order
 
 The phases should land in this order:
@@ -512,6 +662,12 @@ The phases should land in this order:
 11. Phase K — Ownership precision
 12. Phase L — Reuse and drop-specialization expansion
 13. Phase M — FBIP and interprocedural maturity
+14. Phase N — Higher-order and recursive borrow/FBIP precision
+15. Phase O — Missed reuse coverage
+16. Phase P — Missed drop-specialization coverage
+17. Phase Q — Stronger interprocedural summaries
+18. Phase R — Larger FIP/FBIP benchmark corpus
+19. Phase S — Bounded FBIP evaluation
 
 ## Milestones
 
@@ -601,6 +757,52 @@ Exit criteria:
 - semantic FBIP is materially less conservative on maintained examples
 - diagnostics distinguish Flux-native causes instead of collapsing into generic conservative failure
 
+### Milestone 8: Higher-order and recursive precision
+
+Includes:
+
+- Phase N
+
+Exit criteria:
+
+- recursive and higher-order ownership/FBIP behavior is materially less conservative on maintained examples
+- higher-order false negatives drop without changing backend lowering
+
+### Milestone 9: Reuse and drop-specialization closure
+
+Includes:
+
+- Phase O
+- Phase P
+
+Exit criteria:
+
+- additional maintained fixtures emit real `Reuse` and `DropSpecialized`
+- missed optimization sites drop on realistic transformed Core shapes without losing shared-path conservatism
+
+### Milestone 10: Interprocedural and corpus maturity
+
+Includes:
+
+- Phase Q
+- Phase R
+
+Exit criteria:
+
+- direct/internal/imported summaries compose reliably across Aether analyses
+- maintained Aether fixtures form a broader FIP/FBIP and reuse benchmark corpus with explicit shape assertions
+
+### Milestone 11: Bounded FBIP evaluation
+
+Includes:
+
+- Phase S
+
+Exit criteria:
+
+- the proposal explicitly determines whether bounded FBIP forms are now justified
+- no bounded surface is added unless N-R materially reduced conservative gaps
+
 ## Testing strategy
 
 Every phase must add both:
@@ -626,6 +828,10 @@ Recommended test categories:
 - recursive and mutually recursive borrowed-call cases
 - higher-order borrowed argument propagation
 - imported/base/runtime callee summary composition
+- recursive higher-order map/filter/fold cases
+- currently non-reusing recursive rebuild fixtures
+- deeper branch/admin-let drop-specialization fixtures
+- expanded maintained FIP/FBIP benchmark corpus
 - maintained examples must not regress into `E999` internal Aether failures
 
 ## Alternatives considered
@@ -673,5 +879,8 @@ This proposal is succeeding if:
 - `Dup`/`Drop` counts on representative examples go down after analysis improvements
 - FBIP diagnostics explain optimization blockers in actionable terms
 - false-negative `@fip` / `@fbip` failures on known-good examples go down as ownership/reuse precision improves
+- higher-order recursive false negatives continue to fall after post-M precision work
+- maintained fixtures with actual `Reuse` / `DropSpecialized` coverage continue to grow
+- the Aether benchmark corpus grows toward Koka-style FIP/FBIP coverage with explicit Core-shape assertions
 - precision improvements do not reintroduce backend parity regressions
 - proposal 0084 can be updated from "partially implemented" to a status that accurately reflects Koka-comparable Aether maturity

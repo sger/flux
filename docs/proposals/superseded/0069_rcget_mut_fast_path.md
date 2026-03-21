@@ -1,6 +1,6 @@
 - Feature Name: Emit Rc::get_mut Fast Path for Unique Match Sites
 - Start Date: 2026-03-01
-- Status: Not Implemented
+- Status: Superseded by 0084 and 0114
 - Proposal PR: pending
 - Flux Issue: pending
 
@@ -8,6 +8,11 @@
 
 ## Summary
 [summary]: #summary
+
+Status note:
+This proposal was not implemented as written. The current compiler uses Aether
+Core reuse nodes, verifier checks, runtime helpers, and backend lowering from
+proposal 0084 instead of the specific opcode and token design described here.
 
 Use the ownership annotations from proposal 0068 to emit `Rc::get_mut()` in-place reuse
 at match and reconstruction sites where the input value is annotated as `Unique` or

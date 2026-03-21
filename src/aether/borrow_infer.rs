@@ -13,6 +13,8 @@ use crate::core::{CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreProgram, Core
 use crate::syntax::Identifier;
 use crate::syntax::interner::Interner;
 
+use super::callee::{AetherCalleeClassification, classify_direct_var_ref};
+
 /// How a function parameter is used — does it need ownership or just a reference?
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BorrowMode {
@@ -112,16 +114,15 @@ impl BorrowRegistry {
     }
 
     pub fn resolve_var_ref(&self, var: &CoreVarRef) -> BorrowCallee {
-        if let Some(binder) = var.binder {
-            return BorrowCallee::Local(binder);
-        }
+        self.classify_var_ref(var).borrow_callee
+    }
 
-        match self.lookup_name(var.name).map(|sig| sig.provenance) {
-            Some(BorrowProvenance::BaseRuntime) => BorrowCallee::BaseRuntime(var.name),
-            Some(BorrowProvenance::Imported) => BorrowCallee::Imported(var.name),
-            Some(BorrowProvenance::Inferred) => BorrowCallee::Global(var.name),
-            Some(BorrowProvenance::Unknown) | None => BorrowCallee::Imported(var.name),
-        }
+    pub fn classify_var_ref(&self, var: &CoreVarRef) -> AetherCalleeClassification {
+        classify_direct_var_ref(
+            var,
+            |binder| self.by_binder.contains_key(&binder),
+            |name| self.lookup_name(name).map(|sig| sig.provenance),
+        )
     }
 
     fn insert_named_if_absent(&mut self, name: Identifier, signature: BorrowSignature) {
@@ -1284,10 +1285,14 @@ mod tests {
             .expect("explicit imported fallback should be recorded");
         assert_eq!(sig.provenance, BorrowProvenance::Imported);
         assert_eq!(sig.params, vec![BorrowMode::Owned]);
+        let classified = registry.classify_var_ref(&CoreVarRef::unresolved(ext_name));
+        assert_eq!(classified.provenance, BorrowProvenance::Imported);
+        assert_eq!(classified.borrow_callee, BorrowCallee::Imported(ext_name));
     }
 
     #[test]
     fn indirect_calls_use_unknown_owned_fallback() {
+        let mut interner = Interner::new();
         let registry = BorrowRegistry::default();
         assert!(
             !registry.is_borrowed(BorrowCallee::Unknown, 0),
@@ -1299,5 +1304,9 @@ mod tests {
                 .provenance,
             BorrowProvenance::Unknown
         );
+        let unknown_name = interner.intern("totally_unknown");
+        let classified = registry.classify_var_ref(&CoreVarRef::unresolved(unknown_name));
+        assert_eq!(classified.provenance, BorrowProvenance::Unknown);
+        assert_eq!(classified.borrow_callee, BorrowCallee::Unknown);
     }
 }

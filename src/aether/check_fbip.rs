@@ -175,9 +175,15 @@ fn detail_for_reason(reason: FbipFailureReason, call_details: &[FbipCallDetail])
             .iter()
             .find(|detail| matches!(detail.outcome, FbipCallOutcome::KnownNotProvable))
             .map(|detail| match detail.kind {
-                FbipCallKind::DirectInternal | FbipCallKind::DirectNamed => {
+                FbipCallKind::DirectInternal | FbipCallKind::DirectInferredGlobal => {
                     format!(
                         "calls known function `{}` whose FBIP behavior is not yet provable",
+                        detail.callee
+                    )
+                }
+                FbipCallKind::DirectImported => {
+                    format!(
+                        "calls imported or name-only function `{}` whose FBIP behavior is conservative",
                         detail.callee
                     )
                 }
@@ -412,5 +418,33 @@ mod tests {
             result.error.is_none(),
             "known Flux builtins should not fail FBIP as opaque unknown calls"
         );
+    }
+
+    #[test]
+    fn semantic_checker_reports_imported_name_only_fallback_specifically() {
+        let mut interner = Interner::new();
+        let foreign = interner.intern("foreign_fn");
+        let x = binder(&mut interner, 2, "x");
+        let program = CoreProgram {
+            defs: vec![mk_def(
+                &mut interner,
+                1,
+                "caller",
+                CoreExpr::App {
+                    func: Box::new(CoreExpr::Var {
+                        var: CoreVarRef::unresolved(foreign),
+                        span: Span::default(),
+                    }),
+                    args: vec![var(x)],
+                    span: Span::default(),
+                },
+                Some(FipAnnotation::Fip),
+            )],
+            top_level_items: Vec::new(),
+        };
+        let result = check_fbip(&program, &interner);
+        assert_eq!(result.warnings.len(), 1);
+        let message = result.warnings[0].message().unwrap();
+        assert!(message.contains("imported or name-only function `foreign_fn`"));
     }
 }
