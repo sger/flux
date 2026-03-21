@@ -1,12 +1,16 @@
 ---
 source: tests/aether_cli_snapshots.rs
-assertion_line: 75
 ---
 Aether Memory Model Report
 ==========================
 
 ── fn map_reuse @fip ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+  fbip: NotProvable
+    - calls indirect or opaque callee `f` whose FBIP behavior is unknown
+    - control-flow join loses a precise allocation bound across paths
 λxs, f.
   case xs of
     ::(h, t) →
@@ -17,6 +21,11 @@ Aether Memory Model Report
       []
 ── fn option_chain @fip ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+  fbip: NotProvable
+    - calls indirect or opaque callee `f` whose FBIP behavior is unknown
+    - control-flow join loses a precise allocation bound across paths
 λopt, f.
   case opt of
     Some(x) →
@@ -26,6 +35,8 @@ Aether Memory Model Report
       None
 ── fn main ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+  verifier: ok
 λ.
   let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
   let %t4 = (λx.
@@ -46,16 +57,9 @@ Aether Memory Model Report
   aether_call[borrowed, borrowed] option_chain(%t11, %t12))
   aether_call[borrowed] print(%t10)
 
-warning: @fip on `map_reuse` analysis result NotProvable:
-- calls indirect or opaque callee `f` whose FBIP behavior is unknown
-- control-flow join loses a precise allocation bound across paths
-
-warning: @fip on `option_chain` analysis result NotProvable:
-- calls indirect or opaque callee `f` whose FBIP behavior is unknown
-- control-flow join loses a precise allocation bound across paths
-
 ── Total ──
   Dups: 0  Drops: 2  Reuses: 2  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
 
 Warning: FBIP Contract Not Proven
 

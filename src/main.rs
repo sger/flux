@@ -51,11 +51,20 @@ enum CoreDumpMode {
     Debug,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TraceBackend {
+    Vm,
+    Jit,
+    Llvm,
+}
+
 fn main() {
     let mut args: Vec<String> = env::args().collect();
     let verbose = args.iter().any(|arg| arg == "--verbose");
     let leak_detector = args.iter().any(|arg| arg == "--leak-detector");
     let trace = args.iter().any(|arg| arg == "--trace");
+    let trace_aether = args.iter().any(|arg| arg == "--trace-aether");
     let no_cache = args.iter().any(|arg| arg == "--no-cache");
     let roots_only = args.iter().any(|arg| arg == "--roots-only");
     let enable_optimize = args.iter().any(|arg| arg == "--optimize" || arg == "-O");
@@ -87,6 +96,9 @@ fn main() {
     }
     if trace {
         args.retain(|arg| arg != "--trace");
+    }
+    if trace_aether {
+        args.retain(|arg| arg != "--trace-aether");
     }
     if no_cache {
         args.retain(|arg| arg != "--no-cache");
@@ -147,6 +159,13 @@ fn main() {
         return;
     }
 
+    if trace_aether && (!matches!(dump_core, CoreDumpMode::None) || dump_aether || test_mode) {
+        eprintln!(
+            "Error: --trace-aether only supports normal program execution. Use --dump-aether for report-only output."
+        );
+        return;
+    }
+
     if args.len() < 2 {
         print_help();
         return;
@@ -182,6 +201,7 @@ fn main() {
                 use_jit,
                 use_llvm,
                 show_stats,
+                trace_aether,
                 strict_mode,
                 diagnostics_format,
                 all_errors,
@@ -238,6 +258,7 @@ fn main() {
                     use_jit,
                     use_llvm,
                     show_stats,
+                    trace_aether,
                     strict_mode,
                     diagnostics_format,
                     all_errors,
@@ -399,6 +420,7 @@ Usage:
 Flags:
   --verbose          Show cache status (hit/miss/store)
   --trace            Print VM instruction trace
+  --trace-aether     Print Aether report plus backend/execution path, then run
   --test             Run test_* functions and report results
   --test-filter <s>  Only run tests whose names contain <s>
   --leak-detector    Print approximate allocation stats after run
@@ -442,6 +464,7 @@ fn run_file(
     #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
     #[cfg_attr(not(feature = "llvm"), allow(unused))] use_llvm: bool,
     show_stats: bool,
+    trace_aether: bool,
     strict_mode: bool,
     diagnostics_format: DiagnosticOutputFormat,
     all_errors: bool,
@@ -467,6 +490,7 @@ fn run_file(
                 && !use_llvm
                 && matches!(dump_core, CoreDumpMode::None)
                 && !dump_aether
+                && !trace_aether
             {
                 if let Some(bytecode) =
                     cache.load(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
@@ -720,6 +744,34 @@ fn run_file(
                     source_file: Some(path.to_string()),
                     source_text: Some(source.clone()),
                 };
+                if trace_aether {
+                    match compiler.render_aether_report(&program, enable_optimize) {
+                        Ok(report) => print_aether_trace(
+                            path,
+                            TraceBackend::Jit,
+                            "AST -> Core -> CFG -> Cranelift JIT",
+                            None,
+                            enable_optimize,
+                            enable_analyze,
+                            strict_mode,
+                            Some(module_count),
+                            &report,
+                        ),
+                        Err(diag) => {
+                            emit_diagnostics(
+                                &[diag],
+                                Some(path),
+                                Some(source.as_str()),
+                                is_multimodule,
+                                max_errors,
+                                diagnostics_format,
+                                all_errors,
+                                true,
+                            );
+                            std::process::exit(1);
+                        }
+                    }
+                }
 
                 let jit_compile_start = Instant::now();
                 let prev_hook = std::panic::take_hook();
@@ -802,6 +854,34 @@ fn run_file(
                     source_text: Some(source.clone()),
                     opt_level: llvm_opt_level,
                 };
+                if trace_aether {
+                    match compiler.render_aether_report(&program, enable_optimize) {
+                        Ok(report) => print_aether_trace(
+                            path,
+                            TraceBackend::Llvm,
+                            "AST -> Core -> CFG -> LLVM",
+                            None,
+                            enable_optimize,
+                            enable_analyze,
+                            strict_mode,
+                            Some(module_count),
+                            &report,
+                        ),
+                        Err(diag) => {
+                            emit_diagnostics(
+                                &[diag],
+                                Some(path),
+                                Some(source.as_str()),
+                                is_multimodule,
+                                max_errors,
+                                diagnostics_format,
+                                all_errors,
+                                true,
+                            );
+                            std::process::exit(1);
+                        }
+                    }
+                }
 
                 // AOT: emit object file instead of JIT execution
                 let emit_obj = std::env::args().any(|a| a == "--emit-obj");
@@ -899,6 +979,34 @@ fn run_file(
             let globals_count = compiler.symbol_table.num_definitions;
             let functions_count = count_bytecode_functions(&bytecode.constants);
             let instruction_bytes = bytecode.instructions.len();
+            if trace_aether {
+                match compiler.render_aether_report(&program, enable_optimize) {
+                    Ok(report) => print_aether_trace(
+                        path,
+                        TraceBackend::Vm,
+                        "AST -> Core -> CFG -> bytecode -> VM",
+                        Some("disabled"),
+                        enable_optimize,
+                        enable_analyze,
+                        strict_mode,
+                        Some(module_count),
+                        &report,
+                    ),
+                    Err(diag) => {
+                        emit_diagnostics(
+                            &[diag],
+                            Some(path),
+                            Some(source.as_str()),
+                            is_multimodule,
+                            max_errors,
+                            diagnostics_format,
+                            all_errors,
+                            true,
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            }
 
             let mut deps = Vec::new();
             for dep in graph.imported_files() {
@@ -1218,6 +1326,42 @@ struct RunStats {
     globals_count: Option<usize>,
     functions_count: Option<usize>,
     instruction_bytes: Option<usize>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn print_aether_trace(
+    path: &str,
+    backend: TraceBackend,
+    pipeline: &str,
+    cache: Option<&str>,
+    optimize: bool,
+    analyze: bool,
+    strict: bool,
+    module_count: Option<usize>,
+    report: &str,
+) {
+    let backend_name = match backend {
+        TraceBackend::Vm => "vm",
+        TraceBackend::Jit => "jit",
+        TraceBackend::Llvm => "llvm",
+    };
+
+    eprintln!();
+    eprintln!("── Aether Trace ──");
+    eprintln!("file: {}", path);
+    eprintln!("backend: {}", backend_name);
+    eprintln!("pipeline: {}", pipeline);
+    if let Some(cache_mode) = cache {
+        eprintln!("cache: {}", cache_mode);
+    }
+    eprintln!("optimize: {}", if optimize { "on" } else { "off" });
+    eprintln!("analyze: {}", if analyze { "on" } else { "off" });
+    eprintln!("strict: {}", if strict { "on" } else { "off" });
+    if let Some(count) = module_count {
+        eprintln!("modules: {}", count);
+    }
+    eprintln!("────────────────────────");
+    eprintln!("{report}");
 }
 
 fn count_bytecode_functions(constants: &[flux::runtime::value::Value]) -> usize {
