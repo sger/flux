@@ -1,0 +1,53 @@
+---
+source: tests/aether_cli_snapshots.rs
+assertion_line: 75
+---
+letrec set_black : Tree =
+λt#1.
+    case t#1 of
+      Node(_, left#2, key#3, right#4) →
+        reuse t#1 Node(Black#?[external], left#2, key#3, right#4) @mask=0b1
+      _ →
+        t#1
+
+letrec keep_right_only : Tree =
+λt#6.
+    case t#6 of
+      Node(color#7, left#8, key#9, right#10) →
+        drop color#7
+        drop left#8
+        drop t#6
+        drop t#6
+        reuse key#9 Node(Black#?[external], Leaf#?[external], 0, right#10)
+      _ →
+        t#6
+
+letrec option_map : Option<Any> =
+λopt#12, f#13.
+    case opt#12 of
+      Some(x#14) →
+        drop opt#12
+        let #4000019[synthetic]#19 = aether_call[owned] f#13(x#14)
+        Some(#4000019[synthetic]#19)
+      _ →
+        drop f#13
+        None
+
+letrec main : Unit =
+λ.
+    let #2000001[synthetic]#18 = (let #4000021[synthetic]#21 = (let #4000020[synthetic]#20 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+    aether_call[owned] set_black#0(#4000020[synthetic]#20))
+    aether_call[borrowed] print#?[external](#4000021[synthetic]#21))
+    drop #2000001[synthetic]#18
+    let #2000000[synthetic]#17 = (let #4000023[synthetic]#23 = (let #4000022[synthetic]#22 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+    aether_call[owned] keep_right_only#5(#4000022[synthetic]#22))
+    aether_call[borrowed] print#?[external](#4000023[synthetic]#23))
+    drop #2000000[synthetic]#17
+    let #4000026[synthetic]#26 = (let #4000024[synthetic]#24 = Some(41)
+    let #4000025[synthetic]#25 = (λx#16.
+      Add(x#16, 1))
+    aether_call[borrowed, borrowed] option_map#11(#4000024[synthetic]#24, #4000025[synthetic]#25))
+    aether_call[borrowed] print#?[external](#4000026[synthetic]#26)
+
+── Aether stats ──
+Dups: 0  Drops: 8  Reuses: 2  DropSpecs: 0  FBIP: fbip(2)

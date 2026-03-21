@@ -34,7 +34,7 @@ pub(super) fn free_vars_rec(
                 bound.remove(&p.id);
             }
         }
-        CoreExpr::App { func, args, .. } => {
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             free_vars_rec(func, bound, free);
             for a in args {
                 free_vars_rec(a, bound, free);

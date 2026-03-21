@@ -234,7 +234,7 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
         CoreExpr::Lam { body, .. } => collect_unresolved_callees(body, unresolved),
-        CoreExpr::App { func, args, .. } => {
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             if let CoreExpr::Var { var, .. } = func.as_ref() {
                 if var.binder.is_none() {
                     unresolved

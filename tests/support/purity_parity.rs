@@ -356,6 +356,8 @@ pub fn run_case(
     let mut args: Vec<String> = vec!["--no-cache".to_string()];
     if case.strict {
         args.push("--strict".to_string());
+    } else {
+        args.push("--no-strict".to_string());
     }
     for root in case.roots {
         args.push("--root".to_string());
