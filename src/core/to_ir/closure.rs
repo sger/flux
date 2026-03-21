@@ -11,6 +11,156 @@ use crate::{
 
 use super::free_vars::{collect_free_vars_core, free_vars_rec};
 
+fn collect_used_candidate_binders(
+    expr: &CoreExpr,
+    bound: &mut HashSet<CoreBinderId>,
+    candidates: &HashSet<CoreBinderId>,
+    used: &mut HashSet<CoreBinderId>,
+) {
+    match expr {
+        CoreExpr::Var { var, .. } => {
+            if let Some(binder) = var.binder
+                && candidates.contains(&binder)
+                && !bound.contains(&binder)
+            {
+                used.insert(binder);
+            }
+        }
+        CoreExpr::Lit(_, _) => {}
+        CoreExpr::Lam { params, body, .. } => {
+            let new_params: Vec<_> = params
+                .iter()
+                .filter(|p| bound.insert(p.id))
+                .copied()
+                .collect();
+            collect_used_candidate_binders(body, bound, candidates, used);
+            for p in new_params {
+                bound.remove(&p.id);
+            }
+        }
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+            collect_used_candidate_binders(func, bound, candidates, used);
+            for arg in args {
+                collect_used_candidate_binders(arg, bound, candidates, used);
+            }
+        }
+        CoreExpr::Let { var, rhs, body, .. } => {
+            collect_used_candidate_binders(rhs, bound, candidates, used);
+            let is_new = bound.insert(var.id);
+            collect_used_candidate_binders(body, bound, candidates, used);
+            if is_new {
+                bound.remove(&var.id);
+            }
+        }
+        CoreExpr::LetRec { var, rhs, body, .. } => {
+            let is_new = bound.insert(var.id);
+            collect_used_candidate_binders(rhs, bound, candidates, used);
+            collect_used_candidate_binders(body, bound, candidates, used);
+            if is_new {
+                bound.remove(&var.id);
+            }
+        }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            collect_used_candidate_binders(scrutinee, bound, candidates, used);
+            for alt in alts {
+                let mut alt_bound = HashSet::new();
+                super::free_vars::collect_pat_binders(&alt.pat, &mut alt_bound);
+                let new_binders: Vec<_> = alt_bound
+                    .iter()
+                    .filter(|binder| bound.insert(**binder))
+                    .copied()
+                    .collect();
+                if let Some(guard) = &alt.guard {
+                    collect_used_candidate_binders(guard, bound, candidates, used);
+                }
+                collect_used_candidate_binders(&alt.rhs, bound, candidates, used);
+                for binder in new_binders {
+                    bound.remove(&binder);
+                }
+            }
+        }
+        CoreExpr::Con { fields, .. } => {
+            for field in fields {
+                collect_used_candidate_binders(field, bound, candidates, used);
+            }
+        }
+        CoreExpr::Return { value, .. } => {
+            collect_used_candidate_binders(value, bound, candidates, used);
+        }
+        CoreExpr::PrimOp { args, .. } | CoreExpr::Perform { args, .. } => {
+            for arg in args {
+                collect_used_candidate_binders(arg, bound, candidates, used);
+            }
+        }
+        CoreExpr::Handle { body, handlers, .. } => {
+            collect_used_candidate_binders(body, bound, candidates, used);
+            for handler in handlers {
+                let mut new_binders = Vec::new();
+                if bound.insert(handler.resume.id) {
+                    new_binders.push(handler.resume.id);
+                }
+                for param in &handler.params {
+                    if bound.insert(param.id) {
+                        new_binders.push(param.id);
+                    }
+                }
+                collect_used_candidate_binders(&handler.body, bound, candidates, used);
+                for binder in new_binders {
+                    bound.remove(&binder);
+                }
+            }
+        }
+        CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
+            if let Some(binder) = var.binder
+                && candidates.contains(&binder)
+                && !bound.contains(&binder)
+            {
+                used.insert(binder);
+            }
+            collect_used_candidate_binders(body, bound, candidates, used);
+        }
+        CoreExpr::Reuse { token, fields, .. } => {
+            if let Some(binder) = token.binder
+                && candidates.contains(&binder)
+                && !bound.contains(&binder)
+            {
+                used.insert(binder);
+            }
+            for field in fields {
+                collect_used_candidate_binders(field, bound, candidates, used);
+            }
+        }
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            if let Some(binder) = scrutinee.binder
+                && candidates.contains(&binder)
+                && !bound.contains(&binder)
+            {
+                used.insert(binder);
+            }
+            collect_used_candidate_binders(unique_body, bound, candidates, used);
+            collect_used_candidate_binders(shared_body, bound, candidates, used);
+        }
+    }
+}
+
+fn used_outer_binders(
+    expr: &CoreExpr,
+    initially_bound: impl IntoIterator<Item = CoreBinderId>,
+    candidates: &HashSet<CoreBinderId>,
+) -> HashSet<CoreBinderId> {
+    let mut bound: HashSet<_> = initially_bound.into_iter().collect();
+    let mut used = HashSet::new();
+    collect_used_candidate_binders(expr, &mut bound, candidates, &mut used);
+    used
+}
+
 impl<'a> super::fn_ctx::FnCtx<'a> {
     /// Lower a handler arm as a separate closure function.
     /// Parameters: [resume, param0, param1, ...] -- matches the VM calling convention.
@@ -18,13 +168,14 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         // Collect free variables in the arm body that are bound in the enclosing scope.
         let mut free = HashSet::new();
         free_vars_rec(&handler.body, &mut HashSet::new(), &mut free);
-        // Remove the arm's own parameters from the free set.
-        free.remove(&handler.resume.id);
-        for p in &handler.params {
-            free.remove(&p.id);
-        }
+        let used = used_outer_binders(
+            &handler.body,
+            std::iter::once(handler.resume.id).chain(handler.params.iter().map(|p| p.id)),
+            &free,
+        );
         let mut captures: Vec<CoreBinder> = free
             .into_iter()
+            .filter(|binder| used.contains(binder))
             .filter_map(|binder| {
                 self.env.get(&binder).map(|_| CoreBinder {
                     id: binder,
@@ -123,9 +274,18 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
 
         // Compute free variables that need to be captured.
         let free = collect_free_vars_core(expr);
+        let used = used_outer_binders(
+            body,
+            params
+                .iter()
+                .map(|param| param.id)
+                .chain(recursive_binder.into_iter()),
+            &free,
+        );
         let mut captures: Vec<CoreBinder> = free
             .into_iter()
             .filter(|binder| Some(*binder) != recursive_binder)
+            .filter(|binder| used.contains(binder))
             .filter_map(|binder| {
                 self.env.get(&binder).map(|_| CoreBinder {
                     id: binder,

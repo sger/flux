@@ -527,6 +527,72 @@ fn maintained_drop_spec_recursive_fixture_emits_drop_specialized() {
 }
 
 #[test]
+fn maintained_drop_spec_branchy_fixture_keeps_unique_path_dup_free() {
+    let src = std::fs::read_to_string("examples/aether/drop_spec_branchy.flx")
+        .expect("fixture should exist");
+    let core = lowered_core(src);
+    let found = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .any(|expr| match expr {
+            CoreExpr::DropSpecialized {
+                unique_body,
+                shared_body,
+                ..
+            } => {
+                let unique_dups = collect_core_exprs(unique_body)
+                    .into_iter()
+                    .filter(|inner| matches!(inner, CoreExpr::Dup { .. }))
+                    .count();
+                let shared_dups = collect_core_exprs(shared_body)
+                    .into_iter()
+                    .filter(|inner| matches!(inner, CoreExpr::Dup { .. }))
+                    .count();
+                unique_dups == 0 && shared_dups >= 1
+            }
+            _ => false,
+        });
+    assert!(
+        found,
+        "expected maintained branchy drop-spec fixture to leave the unique path dup-free while preserving shared-path dups"
+    );
+}
+
+#[test]
+fn maintained_drop_spec_recursive_fixture_keeps_unique_path_dup_lighter_than_shared() {
+    let src = std::fs::read_to_string("examples/aether/drop_spec_recursive.flx")
+        .expect("fixture should exist");
+    let core = lowered_core(src);
+    let found = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .any(|expr| match expr {
+            CoreExpr::DropSpecialized {
+                unique_body,
+                shared_body,
+                ..
+            } => {
+                let unique_dups = collect_core_exprs(unique_body)
+                    .into_iter()
+                    .filter(|inner| matches!(inner, CoreExpr::Dup { .. }))
+                    .count();
+                let shared_dups = collect_core_exprs(shared_body)
+                    .into_iter()
+                    .filter(|inner| matches!(inner, CoreExpr::Dup { .. }))
+                    .count();
+                unique_dups < shared_dups
+            }
+            _ => false,
+        });
+    assert!(
+        found,
+        "expected maintained recursive drop-spec fixture to keep fewer dups on the unique path than on the shared path"
+    );
+}
+
+#[test]
 fn reuse_specialization_unprofitable_case_stays_plain() {
     let src = r#"
 type Color = Red | Black
@@ -930,6 +996,112 @@ fn main() { bad_rebuild([1, 2, 3]) }
     assert!(
         !has_reuse,
         "token-dependent precompute lets must keep plain Reuse disabled"
+    );
+}
+
+#[test]
+fn branch_joined_list_rebuilds_emit_reuse_in_each_exact_branch() {
+    let src = r#"
+fn rebuild(xs, flag) {
+    match xs {
+        [h | t] -> if flag { [h | t] } else { [h | t] },
+        _ -> None,
+    }
+}
+fn main() { rebuild([1, 2, 3], true) }
+"#;
+    let core = lowered_core(src);
+    let reuse_count = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .filter(|expr| {
+            matches!(
+                expr,
+                CoreExpr::Reuse {
+                    tag: flux::core::CoreTag::Cons,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert!(
+        reuse_count >= 2,
+        "branch-joined exact list rebuild should emit reuse in both branches"
+    );
+}
+
+#[test]
+fn branch_joined_wrapper_rebuilds_emit_reuse_in_each_exact_branch() {
+    let src = r#"
+fn rebuild(opt, flag) {
+    match opt {
+        Some(x) -> if flag { Some(x) } else { Some(x) },
+        _ -> None,
+    }
+}
+fn main() { rebuild(Some(1), true) }
+"#;
+    let core = lowered_core(src);
+    let reuse_count = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .filter(|expr| {
+            matches!(
+                expr,
+                CoreExpr::Reuse {
+                    tag: flux::core::CoreTag::Some,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert!(
+        reuse_count >= 2,
+        "branch-joined exact wrapper rebuild should emit reuse in both branches"
+    );
+}
+
+#[test]
+fn maintained_either_match_fixture_still_emits_reuse_sites() {
+    let src = std::fs::read_to_string("examples/patterns/either_match.flx")
+        .expect("either_match fixture should exist");
+    let core = lowered_core(src);
+    assert!(
+        core.defs
+            .iter()
+            .flat_map(|def| collect_core_exprs(&def.expr))
+            .any(|expr| matches!(expr, CoreExpr::Reuse { .. })),
+        "either_match should still lower to at least one Reuse site"
+    );
+}
+
+#[test]
+fn maintained_list_map_filter_fixture_still_emits_reuse_sites() {
+    let src = std::fs::read_to_string("examples/advanced/list_map_filter.flx")
+        .expect("list_map_filter fixture should exist");
+    let core = lowered_core(src);
+    assert!(
+        core.defs
+            .iter()
+            .flat_map(|def| collect_core_exprs(&def.expr))
+            .any(|expr| matches!(expr, CoreExpr::Reuse { .. })),
+        "list_map_filter should still lower to at least one Reuse site"
+    );
+}
+
+#[test]
+fn maintained_using_list_module_fixture_still_emits_reuse_sites() {
+    let src = std::fs::read_to_string("examples/advanced/using_list_module.flx")
+        .expect("using_list_module fixture should exist");
+    let core = lowered_core(src);
+    assert!(
+        core.defs
+            .iter()
+            .flat_map(|def| collect_core_exprs(&def.expr))
+            .any(|expr| matches!(expr, CoreExpr::Reuse { .. })),
+        "using_list_module should still lower to at least one Reuse site"
     );
 }
 
