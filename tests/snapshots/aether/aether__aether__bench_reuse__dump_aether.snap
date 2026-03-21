@@ -1,12 +1,13 @@
 ---
 source: tests/aether_cli_snapshots.rs
-assertion_line: 75
 ---
 Aether Memory Model Report
 ==========================
 
 ── fn build_list ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+  verifier: ok
 λn.
   letrec build_go = (λi, acc.
     let %t1 = Le(i, 0)
@@ -22,6 +23,11 @@ Aether Memory Model Report
   aether_call[owned, owned] build_go(n, %t4)
 ── fn my_map @fip ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+  fbip: NotProvable
+    - calls indirect or opaque callee `f` whose FBIP behavior is unknown
+    - control-flow join loses a precise allocation bound across paths
 λxs, f.
   case xs of
     ::(h, t) →
@@ -32,6 +38,8 @@ Aether Memory Model Report
       []
 ── fn main ──
   Dups: 0  Drops: 8  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
 λ.
   let %t1 = aether_call[borrowed] print("Aether Reuse Benchmark")
   drop %t1
@@ -62,12 +70,9 @@ Aether Memory Model Report
   drop %t19
   aether_call[borrowed] print("Done.")
 
-warning: @fip on `my_map` analysis result NotProvable:
-- calls indirect or opaque callee `f` whose FBIP behavior is unknown
-- control-flow join loses a precise allocation bound across paths
-
 ── Total ──
   Dups: 0  Drops: 9  Reuses: 1  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
 
 Warning: FBIP Contract Not Proven
 

@@ -11,7 +11,39 @@ fn example_path(rel: &str) -> PathBuf {
     workspace_root().join("examples").join(rel)
 }
 
+fn run_flux_output(args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args(args)
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run flux with args {:?}: {e}", args))
+}
+
 fn run_flux(args: &[&str]) -> String {
+    let output = run_flux_output(args);
+    let mut text = String::new();
+    text.push_str(&String::from_utf8_lossy(&output.stdout));
+    text.push_str(&String::from_utf8_lossy(&output.stderr));
+    normalize_transcript(&text.replace("\r\n", "\n"))
+}
+
+fn run_flux_trace(args: &[&str]) -> (String, String) {
+    let output = run_flux_output(args);
+    assert!(
+        output.status.success(),
+        "expected flux {:?} to succeed, status={:?}\nstdout:\n{}\nstderr:\n{}",
+        args,
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = normalize_transcript(&String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"));
+    let stderr = normalize_transcript(&String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"));
+    (stdout, stderr)
+}
+
+fn run_flux_trace_snapshot(args: &[&str]) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(args)
@@ -20,8 +52,8 @@ fn run_flux(args: &[&str]) -> String {
         .unwrap_or_else(|e| panic!("failed to run flux with args {:?}: {e}", args));
 
     let mut text = String::new();
-    text.push_str(&String::from_utf8_lossy(&output.stdout));
     text.push_str(&String::from_utf8_lossy(&output.stderr));
+    text.push_str(&String::from_utf8_lossy(&output.stdout));
     normalize_transcript(&text.replace("\r\n", "\n"))
 }
 
@@ -67,6 +99,21 @@ fn assert_cli_snapshot(rel: &str, args: &[&str], mode: &str) {
     let mut cmd = args.to_vec();
     cmd.push(file.to_str().unwrap());
     let transcript = run_flux(&cmd);
+    insta::with_settings!({
+        snapshot_path => "snapshots/aether",
+        prepend_module_to_snapshot => false,
+        omit_expression => true,
+    }, {
+        insta::assert_snapshot!(snapshot_name(rel, mode), transcript);
+    });
+}
+
+fn assert_trace_snapshot(rel: &str, args: &[&str], mode: &str) {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let file = example_path(rel);
+    let mut cmd = args.to_vec();
+    cmd.push(file.to_str().unwrap());
+    let transcript = run_flux_trace_snapshot(&cmd);
     insta::with_settings!({
         snapshot_path => "snapshots/aether",
         prepend_module_to_snapshot => false,
@@ -178,5 +225,77 @@ fn snapshot_fbip_failure_dump_aether() {
         "aether/fbip_fail_nonfip_call.flx",
         &["--dump-aether"],
         "dump_aether",
+    );
+}
+
+#[test]
+fn snapshot_verify_aether_trace_aether_vm() {
+    assert_trace_snapshot(
+        "aether/verify_aether.flx",
+        &["--trace-aether"],
+        "trace_aether_vm",
+    );
+}
+
+#[cfg(feature = "jit")]
+#[test]
+fn snapshot_verify_aether_trace_aether_jit() {
+    assert_trace_snapshot(
+        "aether/verify_aether.flx",
+        &["--trace-aether", "--jit"],
+        "trace_aether_jit",
+    );
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn snapshot_verify_aether_trace_aether_llvm() {
+    assert_trace_snapshot(
+        "aether/verify_aether.flx",
+        &["--trace-aether", "--llvm"],
+        "trace_aether_llvm",
+    );
+}
+
+#[test]
+fn trace_aether_emits_report_on_stderr_and_program_output_on_stdout() {
+    let file = example_path("aether/verify_aether.flx");
+    let (stdout, stderr) = run_flux_trace(&["--trace-aether", file.to_str().unwrap()]);
+    assert!(stderr.contains("── Aether Trace ──"), "stderr was:\n{stderr}");
+    assert!(
+        stderr.contains("Aether Memory Model Report"),
+        "stderr was:\n{stderr}"
+    );
+    assert!(stderr.contains("backend: vm"), "stderr was:\n{stderr}");
+    assert!(
+        stderr.contains("pipeline: AST -> Core -> CFG -> bytecode -> VM"),
+        "stderr was:\n{stderr}"
+    );
+    assert!(!stdout.trim().is_empty(), "stdout was empty");
+    assert!(
+        stdout.contains("[2, 4, 6]"),
+        "stdout should contain the program output; stdout was:\n{stdout}"
+    );
+}
+
+#[test]
+fn dump_aether_and_trace_aether_share_report_content() {
+    let file = example_path("aether/verify_aether.flx");
+
+    let dump = run_flux(&["--dump-aether", file.to_str().unwrap()]);
+    let (_stdout, stderr) = run_flux_trace(&["--trace-aether", file.to_str().unwrap()]);
+    let report = dump
+        .split_once("Aether Memory Model Report")
+        .map(|(_, rest)| format!("Aether Memory Model Report{rest}"))
+        .unwrap_or(dump);
+    let report_only = report
+        .split("\nWarning:")
+        .next()
+        .unwrap_or(report.as_str())
+        .trim_end();
+
+    assert!(
+        stderr.contains(report_only),
+        "trace stderr should include the dump-aether report body\n== report ==\n{report_only}\n== stderr ==\n{stderr}"
     );
 }

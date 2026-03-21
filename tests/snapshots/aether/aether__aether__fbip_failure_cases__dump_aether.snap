@@ -1,12 +1,38 @@
 ---
 source: tests/aether_cli_snapshots.rs
-assertion_line: 75
 ---
 Aether Memory Model Report
 ==========================
 
+── fn fail_indirect @fip ──
+  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+  fbip: NotProvable
+    - calls indirect or opaque callee `f` whose FBIP behavior is unknown
+λf, x.
+  aether_call[owned] f(x)
+── fn fail_imported @fip ──
+  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+  fbip: NotProvable
+    - calls indirect or opaque callee `Symbol(4000011)` whose FBIP behavior is unknown
+λx.
+  let %t1 = MemberAccess(10)(Imported)
+  aether_call[owned] %t1(x)
+── fn fail_fresh @fip ──
+  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+  verifier: ok
+  fbip: proved (fbip(1))
+    - fresh heap allocation remains on at least one path
+λx.
+  Some(x)
 ── fn main ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
 λ.
   let %t1 = (let %t2 = (let %t3 = (λy.
     Add(y, 1))
@@ -19,17 +45,9 @@ Aether Memory Model Report
   let %t6 = aether_call[owned] fail_fresh(4)
   aether_call[borrowed] print(%t6)
 
-warning: @fip on `fail_indirect` analysis result NotProvable:
-- calls indirect or opaque callee `f` whose FBIP behavior is unknown
-
-warning: @fip on `fail_imported` analysis result NotProvable:
-- calls indirect or opaque callee `Symbol(4000011)` whose FBIP behavior is unknown
-
-warning: @fip on `fail_fresh` analysis result Fbip { bound: 1 }:
-- fresh heap allocation remains on at least one path
-
 ── Total ──
-  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
 
 • 3 warnings • examples/aether/fbip_failure_cases.flx
 Warning: FBIP Contract Not Proven
