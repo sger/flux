@@ -1,0 +1,163 @@
+---
+source: tests/aether_cli_snapshots.rs
+assertion_line: 75
+---
+Aether Memory Model Report
+==========================
+
+── fn build_list ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+λn.
+  letrec build_go = (λi, acc.
+    let %t1 = Le(i, 0)
+    case %t1 of
+      true →
+        drop build_go
+        drop i
+        acc
+      _ →
+        let %t2 = ISub(i, 1)
+        let %t3 = ::(i, acc)
+        aether_call[owned, owned] build_go(%t2, %t3))
+  let %t4 = []
+  aether_call[owned, owned] build_go(n, %t4)
+── fn my_map @fip ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+λxs, f.
+  case xs of
+    ::(h, t) →
+      drop xs
+      let %t1 = aether_call[owned] f(h)
+      let %t2 = aether_call[borrowed, owned] my_map(t, f)
+      ::(%t1, %t2)
+    _ →
+      drop f
+      []
+── fn fold_left ──
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
+λxs, acc, f.
+  case xs of
+    ::(h, t) →
+      let %t1 = aether_call[owned, owned] f(acc, h)
+      aether_call[borrowed, owned, owned] fold_left(t, %t1, f)
+    _ →
+      drop f
+      acc
+── fn bench_map ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+λxs, iterations.
+  letrec map_go = (λi, current.
+    let %t1 = Le(i, 0)
+    case %t1 of
+      true →
+        drop i
+        drop map_go
+        current
+      _ →
+        let %t2 = ISub(i, 1)
+        let %t3 = (let %t4 = (λx.
+          Add(x, 1))
+        aether_call[borrowed, owned] my_map(current, %t4))
+        aether_call[owned, owned] map_go(%t2, %t3))
+  aether_call[owned, owned] map_go(iterations, xs)
+── fn bench_len ──
+  Dups: 0  Drops: 3  Reuses: 0  DropSpecs: 0
+λxs, iterations.
+  letrec len_go = (λi, total.
+    let %t1 = Le(i, 0)
+    case %t1 of
+      true →
+        drop i
+        drop len_go
+        drop xs
+        total
+      _ →
+        let %t2 = ISub(i, 1)
+        let %t3 = (let %t4 = aether_call[borrowed] my_len(xs)
+        IAdd(total, %t4))
+        aether_call[owned, owned] len_go(%t2, %t3))
+  aether_call[owned, owned] len_go(iterations, 0)
+── fn bench_fold ──
+  Dups: 0  Drops: 3  Reuses: 0  DropSpecs: 0
+λxs, iterations.
+  letrec fold_go = (λi, total.
+    let %t1 = Le(i, 0)
+    case %t1 of
+      true →
+        drop fold_go
+        drop i
+        drop xs
+        total
+      _ →
+        let %t2 = ISub(i, 1)
+        let %t3 = (let %t4 = (let %t5 = (λacc, x.
+          Add(acc, x))
+        aether_call[borrowed, owned, owned] fold_left(xs, 0, %t5))
+        IAdd(total, %t4))
+        aether_call[owned, owned] fold_go(%t2, %t3))
+  aether_call[owned, owned] fold_go(iterations, 0)
+── fn main ──
+  Dups: 0  Drops: 8  Reuses: 0  DropSpecs: 0
+λ.
+  let %t1 = aether_call[borrowed] print("Aether Reuse Benchmark")
+  drop %t1
+  let %t2 = aether_call[borrowed] print("======================")
+  drop %t2
+  let %t3 = (let %t4 = Interpolate("List size: ", 5000, ", Iterations: ", 100)
+  aether_call[borrowed] print(%t4))
+  drop %t3
+  let %t5 = aether_call[borrowed] print("")
+  drop %t5
+  let %t6 = (let %t7 = (let %t8 = (let %t9 = (let %t10 = aether_call[owned] build_list(5000)
+  aether_call[owned, owned] bench_map(%t10, 100))
+  aether_call[borrowed] hd(%t9))
+  Interpolate("map: result head = ", %t8))
+  aether_call[borrowed] print(%t7))
+  drop %t6
+  let %t11 = (let %t12 = (let %t13 = (let %t14 = aether_call[owned] build_list(5000)
+  aether_call[owned, owned] bench_len(%t14, 100))
+  Interpolate("len: total = ", %t13))
+  aether_call[borrowed] print(%t12))
+  drop %t11
+  let %t15 = (let %t16 = (let %t17 = (let %t18 = aether_call[owned] build_list(5000)
+  aether_call[owned, owned] bench_fold(%t18, 100))
+  Interpolate("fold: total = ", %t17))
+  aether_call[borrowed] print(%t16))
+  drop %t15
+  let %t19 = aether_call[borrowed] print("")
+  drop %t19
+  aether_call[borrowed] print("Done.")
+
+warning: @fip on `my_map` analysis result NotProvable:
+- fresh heap allocation remains on at least one path
+- calls a known function whose FBIP contract could not be proved
+- calls an indirect, unknown, or unannotated function
+- constructor rebuild needs a fresh token instead of guaranteed reuse
+- control-flow join loses a precise bound on all paths
+
+── Total ──
+  Dups: 0  Drops: 21  Reuses: 0  DropSpecs: 0  FBIP: fbip(2)
+
+Warning: FBIP Contract Not Proven
+
+@fip on `my_map` analysis result NotProvable:
+- fresh heap allocation remains on at least one path
+- calls a known function whose FBIP contract could not be proved
+- calls an indirect, unknown, or unannotated function
+- constructor rebuild needs a fresh token instead of guaranteed reuse
+- control-flow join loses a precise bound on all paths
+
+  examples/aether/bench_reuse.flx:15:6
+   |
+15 | @fip fn my_map(xs, f) {
+   |      ^^^^^^^^^^^^^^^^^^
+16 |     match xs {
+   | ^^^^^^^^^^^^^^
+17 |         [h | t] -> [f(h) | my_map(t, f)],
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+18 |         _ -> [],
+   | ^^^^^^^^^^^^^^^^
+19 |     }
+   | ^^^^^
+20 | }
+   | ^

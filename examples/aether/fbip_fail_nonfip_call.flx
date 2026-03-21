@@ -1,0 +1,13 @@
+// Aether FBIP failure regression fixture.
+
+fn alloc(x) {
+    Some(x)
+}
+
+@fbip fn bounded(f, x) {
+    f(x)
+}
+
+fn main() {
+    bounded(alloc, 1)
+}

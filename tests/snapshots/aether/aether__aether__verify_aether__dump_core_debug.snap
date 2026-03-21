@@ -1,0 +1,164 @@
+---
+source: tests/aether_cli_snapshots.rs
+assertion_line: 47
+---
+letrec my_map : List<Any> =
+λxs#1, f#2.
+    case xs#1 of
+      ::(h#3, t#4) →
+        drop xs#1
+        let #4000043[synthetic]#43 = aether_call[owned] f#2(h#3)
+        let #4000044[synthetic]#44 = aether_call[borrowed, owned] my_map#0(t#4, f#2)
+        ::(#4000043[synthetic]#43, #4000044[synthetic]#44)
+      _ →
+        drop f#2
+        []
+
+letrec option_map : Option<Any> =
+λopt#6, f#7.
+    case opt#6 of
+      Some(x#8) →
+        drop opt#6
+        let #4000045[synthetic]#45 = aether_call[owned] f#7(x#8)
+        Some(#4000045[synthetic]#45)
+      _ →
+        drop f#7
+        None
+
+letrec set_black : Tree =
+λt#10.
+    case t#10 of
+      Node(_, left#11, key#12, right#13) →
+        reuse t#10 Node(Black#?[external], left#11, key#12, right#13) @mask=0b1
+      _ →
+        t#10
+
+letrec my_len : Int =
+λxs#15.
+    case xs#15 of
+      ::(_, t#16) →
+        let #4000046[synthetic]#46 = aether_call[borrowed] my_len#14(t#16)
+        Add(1, #4000046[synthetic]#46)
+      _ →
+        0
+
+letrec my_filter : List<Any> =
+λxs#18, f#19.
+    case xs#18 of
+      ::(h#20, t#21) →
+        drop_spec xs#18 {
+          unique -> let #4000047[synthetic]#47 = aether_call[owned] f#19(h#20)
+            case #4000047[synthetic]#47 of
+              true →
+                let #4000048[synthetic]#48 = aether_call[borrowed, owned] my_filter#17(t#21, f#19)
+                reuse xs#18 ::(h#20, #4000048[synthetic]#48) @mask=0b10
+              _ →
+                drop h#20
+                aether_call[borrowed, owned] my_filter#17(t#21, f#19)
+          shared -> let #4000047[synthetic]#47 = aether_call[owned] f#19(dup h#20
+            h#20)
+            case #4000047[synthetic]#47 of
+              true →
+                let #4000048[synthetic]#48 = aether_call[borrowed, owned] my_filter#17(t#21, f#19)
+                ::(h#20, #4000048[synthetic]#48)
+              _ →
+                drop h#20
+                aether_call[borrowed, owned] my_filter#17(t#21, f#19)
+        }
+      _ →
+        drop f#19
+        []
+
+letrec my_sum : Any =
+λxs#23.
+    case xs#23 of
+      ::(h#24, t#25) →
+        let #4000049[synthetic]#49 = aether_call[borrowed] my_sum#22(t#25)
+        Add(h#24, #4000049[synthetic]#49)
+      _ →
+        0
+
+letrec main : Unit =
+λ.
+    let #2000004[synthetic]#40 = (let #4000052[synthetic]#52 = (let #4000050[synthetic]#50 = MakeList(1, 2, 3)
+    let #4000051[synthetic]#51 = (λx#42.
+      Mul(x#42, 2))
+    aether_call[borrowed, owned] my_map#0(#4000050[synthetic]#50, #4000051[synthetic]#51))
+    aether_call[borrowed] print#?[external](#4000052[synthetic]#52))
+    drop #2000004[synthetic]#40
+    let #2000003[synthetic]#37 = (let #4000055[synthetic]#55 = (let #4000053[synthetic]#53 = Some(42)
+    let #4000054[synthetic]#54 = (λx#39.
+      Add(x#39, 1))
+    aether_call[borrowed, borrowed] option_map#5(#4000053[synthetic]#53, #4000054[synthetic]#54))
+    aether_call[borrowed] print#?[external](#4000055[synthetic]#55))
+    drop #2000003[synthetic]#37
+    let #2000002[synthetic]#34 = (let #4000057[synthetic]#57 = (let #4000056[synthetic]#56 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+    aether_call[owned] set_black#9(#4000056[synthetic]#56))
+    aether_call[borrowed] print#?[external](#4000057[synthetic]#57))
+    drop #2000002[synthetic]#34
+    let #2000001[synthetic]#31 = (let #4000059[synthetic]#59 = (let #4000058[synthetic]#58 = MakeList(1, 2, 3, 4, 5)
+    aether_call[borrowed] my_len#14(#4000058[synthetic]#58))
+    aether_call[borrowed] print#?[external](#4000059[synthetic]#59))
+    drop #2000001[synthetic]#31
+    let #2000000[synthetic]#28 = (let #4000063[synthetic]#63 = (let #4000060[synthetic]#60 = MakeList(1, 2, 3, 4, 5, 6)
+    let #4000062[synthetic]#62 = (λx#30.
+      let #4000061[synthetic]#61 = Mod(x#30, 2)
+      Eq(#4000061[synthetic]#61, 0))
+    aether_call[borrowed, owned] my_filter#17(#4000060[synthetic]#60, #4000062[synthetic]#62))
+    aether_call[borrowed] print#?[external](#4000063[synthetic]#63))
+    drop #2000000[synthetic]#28
+    let #4000065[synthetic]#65 = (let #4000064[synthetic]#64 = MakeList(1, 2, 3, 4, 5)
+    aether_call[borrowed] my_sum#22(#4000064[synthetic]#64))
+    aether_call[borrowed] print#?[external](#4000065[synthetic]#65)
+
+── Aether stats ──
+Dups: 1  Drops: 12  Reuses: 2  DropSpecs: 1  FBIP: fbip(4)
+Warning: FBIP Contract Not Proven
+
+@fip on `my_map` analysis result NotProvable:
+- fresh heap allocation remains on at least one path
+- calls a known function whose FBIP contract could not be proved
+- calls an indirect, unknown, or unannotated function
+- constructor rebuild needs a fresh token instead of guaranteed reuse
+- control-flow join loses a precise bound on all paths
+
+  examples/aether/verify_aether.flx:9:6
+   |
+ 9 | @fip fn my_map(xs, f) {
+   |      ^^^^^^^^^^^^^^^^^^
+10 |     match xs {
+   | ^^^^^^^^^^^^^^
+11 |         [h | t] -> [f(h) | my_map(t, f)],
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+12 |         _ -> [],
+   | ^^^^^^^^^^^^^^^^
+13 |     }
+   | ^^^^^
+14 | }
+   | ^
+
+
+Warning: FBIP Contract Not Proven
+
+@fip on `option_map` analysis result NotProvable:
+- fresh heap allocation remains on at least one path
+- calls an indirect, unknown, or unannotated function
+- constructor rebuild needs a fresh token instead of guaranteed reuse
+- control-flow join loses a precise bound on all paths
+
+  examples/aether/verify_aether.flx:17:6
+   |
+17 | @fip fn option_map(opt, f) {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^
+18 |     match opt {
+   | ^^^^^^^^^^^^^^^
+19 |         Some(x) -> Some(f(x)),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+20 |         _ -> None,
+   | ^^^^^^^^^^^^^^^^^^
+21 |     }
+   | ^^^^^
+22 | }
+   | ^
+
+Found 2 warnings.

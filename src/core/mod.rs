@@ -290,6 +290,15 @@ pub enum CoreExpr {
         args: Vec<CoreExpr>,
         span: Span,
     },
+    /// Aether: explicit call-site ownership contract.
+    /// Each argument position is marked as borrowed or owned after Aether
+    /// insertion so later passes do not need to rediscover call semantics.
+    AetherCall {
+        func: Box<CoreExpr>,
+        args: Vec<CoreExpr>,
+        arg_modes: Vec<crate::aether::borrow_infer::BorrowMode>,
+        span: Span,
+    },
     Let {
         var: CoreBinder,
         rhs: Box<CoreExpr>,
@@ -381,6 +390,8 @@ pub struct CoreDef {
     pub name: Identifier,
     pub binder: CoreBinder,
     pub expr: CoreExpr,
+    /// Compiler-owned borrow metadata inferred/registered for this definition.
+    pub borrow_signature: Option<crate::aether::borrow_infer::BorrowSignature>,
     /// HM-inferred result type for this definition, if available.
     pub result_ty: Option<CoreType>,
     pub is_anonymous: bool,
@@ -454,6 +465,7 @@ impl CoreExpr {
             CoreExpr::Var { span, .. } | CoreExpr::Lit(_, span) => *span,
             CoreExpr::Lam { span, .. }
             | CoreExpr::App { span, .. }
+            | CoreExpr::AetherCall { span, .. }
             | CoreExpr::Let { span, .. }
             | CoreExpr::LetRec { span, .. }
             | CoreExpr::Case { span, .. }
@@ -531,6 +543,7 @@ impl CoreDef {
             name: binder.name,
             binder,
             expr,
+            borrow_signature: None,
             result_ty: None,
             is_anonymous,
             is_recursive,
@@ -583,7 +596,7 @@ fn main() { inc(41) }
         );
 
         let mut core = super::lower_ast::lower_program_ast(&program, &HashMap::new());
-        super::passes::run_core_passes(&mut core);
+        super::passes::run_core_passes(&mut core).expect("core passes should succeed");
         let ir = super::to_ir::lower_core_to_ir(&core);
 
         assert!(!ir.functions.is_empty(), "expected backend IR functions");

@@ -412,7 +412,7 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
         CoreExpr::Lam { params, body, .. } => {
             !params.iter().any(|p| p.id == var) && appears_free(var, body)
         }
-        CoreExpr::App { func, args, .. } => {
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             appears_free(var, func) || args.iter().any(|a| appears_free(var, a))
         }
         CoreExpr::Let {
@@ -476,7 +476,7 @@ pub(super) fn expr_size(expr: &CoreExpr) -> usize {
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => 1,
         CoreExpr::Lam { body, .. } => 1 + expr_size(body),
-        CoreExpr::App { func, args, .. } => {
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             1 + expr_size(func) + args.iter().map(expr_size).sum::<usize>()
         }
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {

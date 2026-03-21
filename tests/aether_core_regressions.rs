@@ -1,0 +1,276 @@
+use std::collections::HashMap;
+
+use flux::core::{CoreExpr, lower_ast::lower_program_ast, passes::run_core_passes_with_interner};
+use flux::runtime::value::Value;
+use flux::syntax::{lexer::Lexer, parser::Parser};
+use flux::types::infer_type::InferType;
+
+fn parse_and_infer(src: &str) -> (flux::syntax::program::Program, HashMap<flux::syntax::expression::ExprId, InferType>, flux::syntax::interner::Interner) {
+    let lexer = Lexer::new(src);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+    let interner = parser.take_interner();
+
+    let mut compiler = flux::bytecode::compiler::Compiler::new_with_interner("<test>", interner.clone());
+    let types = compiler.infer_expr_types_for_program(&program);
+    (program, types, interner)
+}
+
+fn run(src: &str) -> Value {
+    let lexer = Lexer::new(src);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+    let interner = parser.take_interner();
+    let mut compiler = flux::bytecode::compiler::Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("compile ok");
+    let mut vm = flux::bytecode::vm::VM::new(compiler.bytecode());
+    vm.run().expect("vm run ok");
+    vm.last_popped_stack_elem().clone()
+}
+
+fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
+    let mut out = vec![expr];
+    match expr {
+        CoreExpr::Lam { body, .. } => out.extend(collect_core_exprs(body)),
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+            out.extend(collect_core_exprs(func));
+            for a in args {
+                out.extend(collect_core_exprs(a));
+            }
+        }
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            out.extend(collect_core_exprs(rhs));
+            out.extend(collect_core_exprs(body));
+        }
+        CoreExpr::Case { scrutinee, alts, .. } => {
+            out.extend(collect_core_exprs(scrutinee));
+            for alt in alts {
+                out.extend(collect_core_exprs(&alt.rhs));
+                if let Some(guard) = &alt.guard {
+                    out.extend(collect_core_exprs(guard));
+                }
+            }
+        }
+        CoreExpr::Con { fields, .. } | CoreExpr::Reuse { fields, .. } => {
+            for f in fields {
+                out.extend(collect_core_exprs(f));
+            }
+        }
+        CoreExpr::PrimOp { args, .. } | CoreExpr::Perform { args, .. } => {
+            for a in args {
+                out.extend(collect_core_exprs(a));
+            }
+        }
+        CoreExpr::Return { value, .. } => out.extend(collect_core_exprs(value)),
+        CoreExpr::Handle { body, handlers, .. } => {
+            out.extend(collect_core_exprs(body));
+            for handler in handlers {
+                out.extend(collect_core_exprs(&handler.body));
+            }
+        }
+        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
+            out.extend(collect_core_exprs(body));
+        }
+        CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
+            out.extend(collect_core_exprs(unique_body));
+            out.extend(collect_core_exprs(shared_body));
+        }
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
+    }
+    out
+}
+
+fn lowered_core(src: &str) -> flux::core::CoreProgram {
+    let (program, types, interner) = parse_and_infer(src);
+    let mut core = lower_program_ast(&program, &types);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+    core
+}
+
+#[test]
+fn borrow_local_call_emits_aether_call() {
+    let src = r#"
+fn my_len(xs) { len(xs) }
+fn len_twice(xs) { my_len(xs) + my_len(xs) }
+fn main() { len_twice([1, 2, 3]) }
+"#;
+    let core = lowered_core(&src);
+    assert!(core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| matches!(
+        expr,
+        CoreExpr::AetherCall { arg_modes, .. }
+            if arg_modes == &[flux::aether::borrow_infer::BorrowMode::Borrowed]
+    )));
+    assert_eq!(run(src), Value::Integer(6));
+}
+
+#[test]
+fn borrow_base_call_stays_dup_free() {
+    let src = r#"
+fn len_twice(xs) { len(xs) + len(xs) }
+fn main() { len_twice([1, 2, 3]) }
+"#;
+    let core = lowered_core(&src);
+    assert!(!core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| matches!(expr, CoreExpr::Dup { .. })));
+    assert_eq!(run(src), Value::Integer(6));
+}
+
+#[test]
+fn borrow_mixed_arg_modes_are_explicit() {
+    let src = r#"
+fn borrow_then_return(xs, y) { if len(xs) > 0 { y } else { y } }
+fn main() { borrow_then_return([1, 2, 3], 42) }
+"#;
+    let core = lowered_core(&src);
+    assert!(core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| matches!(
+        expr,
+        CoreExpr::AetherCall { arg_modes, .. }
+            if arg_modes == &[
+                flux::aether::borrow_infer::BorrowMode::Borrowed,
+                flux::aether::borrow_infer::BorrowMode::Owned,
+            ]
+    )));
+}
+
+#[test]
+fn reuse_list_rebuild_emits_reuse() {
+    let src = r#"
+fn rebuild(xs) {
+    match xs {
+        [h | t] -> [h | t],
+        _ -> [],
+    }
+}
+fn main() { rebuild([1, 2, 3]) }
+"#;
+    let core = lowered_core(&src);
+    assert!(core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| matches!(expr, CoreExpr::Reuse { .. })));
+}
+
+#[test]
+fn reuse_named_adt_alias_spine_emits_reuse() {
+    let src = std::fs::read_to_string("examples/aether/reuse_alias_spines.flx").expect("fixture should exist");
+    let core = lowered_core(&src);
+    assert!(core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| matches!(expr, CoreExpr::Reuse { .. })));
+}
+
+#[test]
+fn reuse_branchy_filter_emits_reuse() {
+    let src = r#"
+fn my_filter(xs, f) {
+    match xs {
+        [h | t] -> if f(h) { [h | my_filter(t, f)] } else { my_filter(t, f) },
+        _ -> [],
+    }
+}
+fn main() { my_filter([1, 2, 3, 4, 5, 6], \x -> x % 2 == 0) }
+"#;
+    let core = lowered_core(&src);
+    assert!(core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| matches!(expr, CoreExpr::Reuse { .. })));
+}
+
+#[test]
+fn reuse_specialization_profitable_case_is_masked() {
+    let src = std::fs::read_to_string("examples/aether/reuse_specialization.flx").expect("fixture should exist");
+    let core = lowered_core(&src);
+    assert!(core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| matches!(
+        expr,
+        CoreExpr::Reuse { tag: flux::core::CoreTag::Named(_), field_mask: Some(_), .. }
+    )));
+}
+
+#[test]
+fn reuse_specialization_unprofitable_case_stays_plain() {
+    let src = r#"
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Tree)
+fn keep_right_only(t) {
+    match t {
+        Node(color, left, key, right) -> Node(Black, Leaf, 0, right),
+        _ -> t,
+    }
+}
+fn main() { keep_right_only(Node(Red, Leaf, 5, Leaf)) }
+"#;
+    let core = lowered_core(src);
+    assert!(core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| matches!(
+        expr,
+        CoreExpr::Reuse { tag: flux::core::CoreTag::Named(_), field_mask: None, .. }
+    )));
+}
+
+#[test]
+fn drop_spec_list_multiuse_field_emits_drop_specialized() {
+    let src = r#"
+fn copy_head(xs) {
+    match xs {
+        [h | t] -> [h | [h | t]],
+        _ -> [],
+    }
+}
+fn main() { copy_head([1, 2, 3]) }
+"#;
+    let core = lowered_core(src);
+    assert!(core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })));
+}
+
+#[test]
+fn drop_spec_branchy_list_update_emits_drop_specialized() {
+    let src = r#"
+fn copy_or_keep_head(xs, copy) {
+    match xs {
+        [h | t] -> if copy { [h | [h | t]] } else { [h | t] },
+        _ -> [],
+    }
+}
+fn main() { copy_or_keep_head([1, 2, 3], true) }
+"#;
+    let core = lowered_core(src);
+    assert!(core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })));
+}
+
+#[test]
+fn drop_spec_branchy_named_adt_unique_shared_split_is_preserved() {
+    let src = r#"
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Tree)
+fn keep_or_dup_left(t, keep) {
+    match t {
+        Node(color, left, key, right) ->
+            if keep { Node(color, left, key, right) }
+            else { Node(color, left, key, left) },
+        _ -> t,
+    }
+}
+fn main() { keep_or_dup_left(Node(Red, Leaf, 5, Leaf), false) }
+"#;
+    let core = lowered_core(src);
+    let found = core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| match expr {
+        CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
+            let unique_reuses = collect_core_exprs(unique_body).into_iter().filter(|inner| matches!(inner, CoreExpr::Reuse { .. })).count();
+            let shared_reuses = collect_core_exprs(shared_body).into_iter().filter(|inner| matches!(inner, CoreExpr::Reuse { .. })).count();
+            unique_reuses >= 2 && shared_reuses == 0
+        }
+        _ => false,
+    });
+    assert!(found, "expected branchy named ADT DropSpecialized to reuse only on the unique path");
+}
+
+#[test]
+fn fbip_clean_fixture_keeps_annotations_provable() {
+    let src = std::fs::read_to_string("examples/aether/verify_aether.flx").expect("fixture should exist");
+    let (program, types, interner) = parse_and_infer(&src);
+    let mut core = lower_program_ast(&program, &types);
+    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+    let fbip = flux::aether::check_fbip::check_fbip(&core, &interner);
+    assert!(fbip.error.is_none(), "verify_aether should not hard-fail FBIP");
+}
+
+#[test]
+fn fbip_failure_fixture_stays_non_provable() {
+    let src = std::fs::read_to_string("examples/aether/fbip_fail_nonfip_call.flx").expect("fixture should exist");
+    let (program, types, interner) = parse_and_infer(&src);
+    let mut core = lower_program_ast(&program, &types);
+    run_core_passes_with_interner(&mut core, &interner).expect_err("fbip failure fixture should error during core passes");
+}

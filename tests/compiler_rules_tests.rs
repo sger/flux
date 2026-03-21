@@ -275,6 +275,64 @@ fn module_adt_constructor_access_non_strict_emits_w201_warning() {
 }
 
 #[test]
+fn fip_annotation_emits_semantic_warning_for_fresh_allocation() {
+    let warnings = compile_ok_with_warnings_in(
+        "examples/test.flx",
+        "@fip fn alloc(x) { Some(x) } fn main() { alloc(1) }",
+        false,
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|d| d.message().is_some_and(|m| m.contains("fresh heap allocation"))),
+        "expected semantic @fip warning, got: {:?}",
+        warnings
+            .iter()
+            .map(|d| (d.title().to_string(), d.message().unwrap_or("").to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn fbip_annotation_is_hard_error_when_proof_fails() {
+    let diagnostics = compile_err_diagnostics(
+        "@fbip fn bounded(f, x) { f(x) } fn main() { bounded(\\y -> y, 1) }",
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.message().is_some_and(|m| m.contains("indirect, unknown, or unannotated function"))),
+        "expected semantic @fbip error, got: {:?}",
+        diagnostics
+            .iter()
+            .map(|d| (d.title().to_string(), d.message().unwrap_or("").to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn fbip_annotation_without_constructors_emits_advisory_warning() {
+    let warnings = compile_ok_with_warnings_in(
+        "examples/test.flx",
+        "@fip fn no_alloc(x) { x } fn main() { no_alloc(1) }",
+        false,
+    );
+    assert!(
+        warnings.iter().any(|d| {
+            d.title() == "FBIP Annotation Has No Effect"
+                && d
+                    .message()
+                    .is_some_and(|m| m.contains("no heap constructor sites"))
+        }),
+        "expected no-constructors advisory warning, got: {:?}",
+        warnings
+            .iter()
+            .map(|d| (d.title().to_string(), d.message().unwrap_or("").to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn constructor_pattern_arity_mismatch_uses_e085() {
     let code = compile_err(
         "type BoxI = BoxI(Int) | EmptyI fn main() -> Unit { let _x = match BoxI(1) { BoxI(a, b) -> a, EmptyI -> 0 } }",

@@ -12,6 +12,7 @@ use crate::{
         effect_expr::EffectExpr,
         effect_ops::EffectOp,
         expression::{ExprId, Expression, Pattern},
+        interner::Interner,
         program::Program,
         type_expr::TypeExpr,
     },
@@ -34,8 +35,31 @@ pub fn lower_program_to_ir(
     program: &Program,
     hm_expr_types: &HashMap<ExprId, InferType>,
 ) -> Result<IrProgram, Diagnostic> {
+    lower_program_to_ir_with_interner(program, hm_expr_types, None)
+}
+
+#[allow(clippy::result_large_err)]
+pub fn lower_program_to_ir_with_interner(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&Interner>,
+) -> Result<IrProgram, Diagnostic> {
+    lower_program_to_ir_with_interner_and_warnings(program, hm_expr_types, interner).map(|(ir, _)| ir)
+}
+
+#[allow(clippy::result_large_err)]
+pub fn lower_program_to_ir_with_interner_and_warnings(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&Interner>,
+) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
     let mut core = lower_program_ast(program, hm_expr_types);
-    run_core_passes(&mut core);
+    let warnings = if let Some(interner) = interner {
+        crate::core::passes::run_core_passes_with_interner_and_warnings(&mut core, interner)?
+    } else {
+        run_core_passes(&mut core)?;
+        Vec::new()
+    };
 
     // Aether diagnostics (works for all backends: VM, JIT, LLVM).
     // Uses a static flag to print only once even if called multiple times.
@@ -55,9 +79,11 @@ pub fn lower_program_to_ir(
                 total.dups += s.dups;
                 total.drops += s.drops;
                 total.reuses += s.reuses;
+                total.drop_specs += s.drop_specs;
+                total.allocs += s.allocs;
 
                 if aether_verify {
-                    all_diags.extend(crate::aether::verify::verify(&def.expr));
+                    all_diags.extend(crate::aether::verify::verify_diagnostics(&def.expr));
                 }
             }
 
@@ -82,7 +108,7 @@ pub fn lower_program_to_ir(
     let mut ir = lower_core_to_ir(&core);
     ir.hm_expr_types = hm_expr_types.clone();
     ir.core = Some(core);
-    Ok(ir)
+    Ok((ir, warnings))
 }
 
 /// Update `function_id` in each `IrTopLevelItem::Function` of `items` to
