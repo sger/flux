@@ -1,20 +1,42 @@
 ---
 source: tests/aether_cli_snapshots.rs
 ---
-error[E018]: Import Not Found
+• 2 errors • examples/aether/Aether/FbipImportedSupport.flx
+error[E416]: Strict Function Annotation Required
 
-Cannot find module `Aether.FbipImportedSupport` to import.
+Public function `imported_inc` must annotate all parameters in strict mode.
 
-  examples/aether/fbip_failure_cases.flx:1:1
+  examples/aether/Aether/FbipImportedSupport.flx:3:12
   |
-1 | import Aether.FbipImportedSupport as Imported
-  | ^
+3 |     public fn imported_inc(x) {
+  |            ^^^^^^^^^^^^^^^^^^^^
+4 |         x + 1
+  | ^^^^^^^^^^^^^
+5 |     }
+  | ^^^^^
 
 Hint:
-  Check that: 1) The module file exists (e.g., `Aether.FbipImportedSupport.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Aether.FbipImportedSupport` under roots: /home/sger/Code/Rust/flux/examples/aether, /home/sger/Code/Rust/flux/src (imported from /home/sger/Code/Rust/flux/examples/aether/fbip_failure_cases.flx).
+  Add explicit parameter types to the function signature.
 
 
+error[E417]: Strict Return Annotation Required
+
+Public function `imported_inc` must declare a return type in strict mode.
+
+  examples/aether/Aether/FbipImportedSupport.flx:3:12
+  |
+3 |     public fn imported_inc(x) {
+  |            ^^^^^^^^^^^^^^^^^^^^
+4 |         x + 1
+  | ^^^^^^^^^^^^^
+5 |     }
+  | ^^^^^
+
+Hint:
+  Add `-> Type` to the function signature.
+
+
+• 1 error, 3 warnings • examples/aether/fbip_failure_cases.flx
 Warning: FBIP Contract Not Proven
 
 @fip on `fail_indirect` analysis result NotProvable:
@@ -73,4 +95,4 @@ Warning: FBIP Contract Not Proven
 21 | }
    | ^
 
-Found 2 errors and 3 warnings.
+Found 3 errors and 3 warnings across 2 modules.

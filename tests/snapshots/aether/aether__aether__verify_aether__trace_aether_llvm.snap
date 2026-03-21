@@ -48,7 +48,7 @@ Found 2 warnings.
 
 
 ── Aether Trace ──
-file: /Users/s.gerokostas/Downloads/Github/flux/examples/aether/verify_aether.flx
+file: /home/sger/Code/Rust/flux/examples/aether/verify_aether.flx
 backend: llvm
 pipeline: AST -> Core -> CFG -> LLVM
 optimize: off
