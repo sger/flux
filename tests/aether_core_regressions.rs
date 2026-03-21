@@ -450,6 +450,39 @@ fn maintained_drop_spec_branchy_fixture_emits_reuse_inside_drop_specialized() {
 }
 
 #[test]
+fn maintained_drop_spec_recursive_fixture_emits_drop_specialized() {
+    let src = std::fs::read_to_string("examples/aether/drop_spec_recursive.flx")
+        .expect("fixture should exist");
+    let core = lowered_core(&src);
+    let found = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .any(|expr| match expr {
+            CoreExpr::DropSpecialized {
+                unique_body,
+                shared_body,
+                ..
+            } => {
+                let unique_reuses = collect_core_exprs(unique_body)
+                    .into_iter()
+                    .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
+                    .count();
+                let shared_reuses = collect_core_exprs(shared_body)
+                    .into_iter()
+                    .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
+                    .count();
+                unique_reuses >= 1 && shared_reuses == 0
+            }
+            _ => false,
+        });
+    assert!(
+        found,
+        "expected maintained recursive drop-spec fixture to preserve unique-path-only reuse"
+    );
+}
+
+#[test]
 fn reuse_specialization_unprofitable_case_stays_plain() {
     let src = r#"
 type Color = Red | Black
@@ -601,6 +634,26 @@ fn main() { keep_or_dup_left(Node(Red, Leaf, 5, Leaf), false) }
     assert!(
         found,
         "expected branchy named ADT DropSpecialized to reuse only on the unique path"
+    );
+}
+
+#[test]
+fn drop_spec_recursive_update_emits_drop_specialized() {
+    let src = r#"
+fn rec_copy_or_keep(xs, choose) {
+    match xs {
+        [h | t] -> if choose { [h | rec_copy_or_keep(t, choose)] } else { [h | [h | rec_copy_or_keep(t, choose)]] },
+        _ -> [],
+    }
+}
+fn main() { rec_copy_or_keep([1, 2, 3], false) }
+"#;
+    let core = lowered_core(src);
+    assert!(
+        core.defs
+            .iter()
+            .flat_map(|def| collect_core_exprs(&def.expr))
+            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. }))
     );
 }
 
