@@ -374,7 +374,7 @@ pub enum CoreExpr {
     /// Tests if a scrutinee's Rc is uniquely owned (strong_count == 1).
     /// - unique_body: extracted fields are already owned, no dups needed, free shell only.
     /// - shared_body: dup fields, decrement scrutinee refcount (don't free recursively).
-    /// After dup/drop fusion, the unique path has zero RC operations.
+    ///   After dup/drop fusion, the unique path has zero RC operations.
     DropSpecialized {
         scrutinee: CoreVarRef,
         unique_body: Box<CoreExpr>,

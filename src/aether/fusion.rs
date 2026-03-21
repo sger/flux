@@ -212,12 +212,12 @@ fn fuse_spine(expr: CoreExpr) -> CoreExpr {
                 if cancelled[j] {
                     continue;
                 }
-                if let RcOp::Dup(ref dup_var, _) = ops[j] {
-                    if same_var(dup_var, drop_var) {
-                        cancelled[i] = true;
-                        cancelled[j] = true;
-                        break;
-                    }
+                if let RcOp::Dup(ref dup_var, _) = ops[j]
+                    && same_var(dup_var, drop_var)
+                {
+                    cancelled[i] = true;
+                    cancelled[j] = true;
+                    break;
                 }
             }
         }
@@ -233,12 +233,12 @@ fn fuse_spine(expr: CoreExpr) -> CoreExpr {
                 if cancelled[j] {
                     continue;
                 }
-                if let RcOp::Drop(ref drop_var, _) = ops[j] {
-                    if same_var(dup_var, drop_var) {
-                        cancelled[i] = true;
-                        cancelled[j] = true;
-                        break;
-                    }
+                if let RcOp::Drop(ref drop_var, _) = ops[j]
+                    && same_var(dup_var, drop_var)
+                {
+                    cancelled[i] = true;
+                    cancelled[j] = true;
+                    break;
                 }
             }
         }

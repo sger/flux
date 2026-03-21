@@ -89,10 +89,9 @@ impl Compiler {
                 // Check index type is Int
                 if let super::hm_expr_typer::HmExprTypeResult::Known(idx_ty) =
                     self.hm_expr_type_strict_path(index)
+                    && !matches!(idx_ty, InferType::Con(TypeConstructor::Int))
                 {
-                    if !matches!(idx_ty, InferType::Con(TypeConstructor::Int)) {
-                        return true;
-                    }
+                    return true;
                 }
                 // Check left type is indexable
                 if let super::hm_expr_typer::HmExprTypeResult::Known(left_ty) =
@@ -579,12 +578,6 @@ impl Compiler {
             )
         })
     }
-
-    /// Returns `true` when the IR function contains `LoadName` for names that
-    /// can't be resolved against the symbol table or base function registry.
-    /// These are truly undefined variables (e.g. `mystery_value`) that need
-    /// AST-path E004 reporting. Legitimate free references (top-level functions,
-    /// base functions) resolve fine and don't trigger this.
 
     /// Check if the function body references identifiers that can't be resolved
     /// against the symbol table, base functions, or local scope. These are truly

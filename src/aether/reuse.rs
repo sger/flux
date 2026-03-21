@@ -315,81 +315,76 @@ fn insert_reuse_in_unique(
     body: CoreExpr,
     pat_tag: Option<&CoreTag>,
 ) -> CoreExpr {
+    // Direct constructor shape — convert to Reuse
+    if let Some((tag, fields, span)) = into_constructor_shape_for_tag(body.clone(), pat_tag)
+        && is_heap_tag(&tag)
+    {
+        return CoreExpr::Reuse {
+            token: *scrutinee,
+            tag,
+            fields,
+            field_mask: None,
+            span,
+        };
+    }
     match body {
-        // Direct constructor shape — convert to Reuse
-        ctor_like => {
-            if let Some((tag, fields, span)) =
-                into_constructor_shape_for_tag(ctor_like.clone(), pat_tag)
-                && is_heap_tag(&tag)
-            {
-                return CoreExpr::Reuse {
-                    token: *scrutinee,
-                    tag,
-                    fields,
-                    field_mask: None,
-                    span,
-                };
-            }
-            match ctor_like {
-                // Walk through Let spine
-                CoreExpr::Let {
-                    var,
-                    rhs,
-                    body: let_body,
-                    span,
-                } => CoreExpr::Let {
-                    var,
-                    rhs,
-                    body: Box::new(insert_reuse_in_unique(scrutinee, *let_body, pat_tag)),
-                    span,
-                },
-                // Walk through Dup spine
-                CoreExpr::Dup {
-                    var,
-                    body: dup_body,
-                    span,
-                } => CoreExpr::Dup {
-                    var,
-                    body: Box::new(insert_reuse_in_unique(scrutinee, *dup_body, pat_tag)),
-                    span,
-                },
-                // Walk through Drop spine
+        // Walk through Let spine
+        CoreExpr::Let {
+            var,
+            rhs,
+            body: let_body,
+            span,
+        } => CoreExpr::Let {
+            var,
+            rhs,
+            body: Box::new(insert_reuse_in_unique(scrutinee, *let_body, pat_tag)),
+            span,
+        },
+        // Walk through Dup spine
+        CoreExpr::Dup {
+            var,
+            body: dup_body,
+            span,
+        } => CoreExpr::Dup {
+            var,
+            body: Box::new(insert_reuse_in_unique(scrutinee, *dup_body, pat_tag)),
+            span,
+        },
+        // Walk through Drop spine
+        CoreExpr::Drop {
+            var,
+            body: drop_body,
+            span,
+        } => {
+            let body = insert_reuse_in_unique(scrutinee, *drop_body, pat_tag);
+            if var.binder == scrutinee.binder {
+                body
+            } else {
                 CoreExpr::Drop {
                     var,
-                    body: drop_body,
+                    body: Box::new(body),
                     span,
-                } => {
-                    let body = insert_reuse_in_unique(scrutinee, *drop_body, pat_tag);
-                    if var.binder == scrutinee.binder {
-                        body
-                    } else {
-                        CoreExpr::Drop {
-                            var,
-                            body: Box::new(body),
-                            span,
-                        }
-                    }
                 }
-                // Recurse into branchy bodies while preserving the outer reuse token.
-                CoreExpr::Case {
-                    scrutinee: case_scrutinee,
-                    alts,
-                    span,
-                } => CoreExpr::Case {
-                    scrutinee: Box::new(rewrite_with_pat_ctx(*case_scrutinee, None, None)),
-                    alts: alts
-                        .into_iter()
-                        .map(|mut alt| {
-                            alt.rhs = insert_reuse_in_unique(scrutinee, alt.rhs, pat_tag);
-                            alt.guard = alt.guard.map(|g| rewrite_with_pat_ctx(g, None, None));
-                            alt
-                        })
-                        .collect(),
-                    span,
-                },
-                // No compatible Con found — return body unchanged, recurse normally
-                other => rewrite_with_pat_ctx(other, None, pat_tag),
             }
         }
+        // Recurse into branchy bodies while preserving the outer reuse token.
+        CoreExpr::Case {
+            scrutinee: case_scrutinee,
+            alts,
+            span,
+        } => CoreExpr::Case {
+            scrutinee: Box::new(rewrite_with_pat_ctx(*case_scrutinee, None, None)),
+            alts: alts
+                .into_iter()
+                .map(|mut alt| {
+                    alt.rhs = insert_reuse_in_unique(scrutinee, alt.rhs, pat_tag);
+                    alt.guard = alt.guard.map(|g| rewrite_with_pat_ctx(g, None, None));
+                    alt
+                })
+                .collect(),
+            span,
+        },
+        // No compatible Con found — return body unchanged, recurse normally
+        other => rewrite_with_pat_ctx(other, None, pat_tag),
     }
 }
