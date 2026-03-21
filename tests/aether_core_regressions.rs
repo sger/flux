@@ -113,8 +113,8 @@ fn count_matching(expr: &CoreExpr, predicate: &impl Fn(&CoreExpr) -> bool) -> us
         .count()
 }
 
-fn lowered_core(src: &str) -> flux::core::CoreProgram {
-    let (program, types, interner) = parse_and_infer(src);
+fn lowered_core(src: impl AsRef<str>) -> flux::core::CoreProgram {
+    let (program, types, interner) = parse_and_infer(src.as_ref());
     let mut core = lower_program_ast(&program, &types);
     run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
     core
@@ -168,7 +168,7 @@ fn my_len(xs) { len(xs) }
 fn len_twice(xs) { my_len(xs) + my_len(xs) }
 fn main() { len_twice([1, 2, 3]) }
 "#;
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     assert!(
         core.defs
             .iter()
@@ -188,7 +188,7 @@ fn borrow_base_call_stays_dup_free() {
 fn len_twice(xs) { len(xs) + len(xs) }
 fn main() { len_twice([1, 2, 3]) }
 "#;
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     assert!(
         !core
             .defs
@@ -205,7 +205,7 @@ fn borrow_mixed_arg_modes_are_explicit() {
 fn borrow_then_return(xs, y) { if len(xs) > 0 { y } else { y } }
 fn main() { borrow_then_return([1, 2, 3], 42) }
 "#;
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     assert!(
         core.defs
             .iter()
@@ -373,7 +373,7 @@ fn rebuild(xs) {
 }
 fn main() { rebuild([1, 2, 3]) }
 "#;
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     assert!(
         core.defs
             .iter()
@@ -386,7 +386,7 @@ fn main() { rebuild([1, 2, 3]) }
 fn reuse_named_adt_alias_spine_emits_reuse() {
     let src = std::fs::read_to_string("examples/aether/reuse_alias_spines.flx")
         .expect("fixture should exist");
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     assert!(
         core.defs
             .iter()
@@ -399,7 +399,7 @@ fn reuse_named_adt_alias_spine_emits_reuse() {
 fn maintained_reuse_alias_spines_fixture_emits_masked_reuse() {
     let src = std::fs::read_to_string("examples/aether/reuse_alias_spines.flx")
         .expect("fixture should exist");
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     let masked = core
         .defs
         .iter()
@@ -431,7 +431,7 @@ fn my_filter(xs, f) {
 }
 fn main() { my_filter([1, 2, 3, 4, 5, 6], \x -> x % 2 == 0) }
 "#;
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     assert!(
         core.defs
             .iter()
@@ -444,7 +444,7 @@ fn main() { my_filter([1, 2, 3, 4, 5, 6], \x -> x % 2 == 0) }
 fn reuse_specialization_profitable_case_is_masked() {
     let src = std::fs::read_to_string("examples/aether/reuse_specialization.flx")
         .expect("fixture should exist");
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     assert!(
         core.defs
             .iter()
@@ -464,7 +464,7 @@ fn reuse_specialization_profitable_case_is_masked() {
 fn maintained_drop_spec_branchy_fixture_emits_reuse_inside_drop_specialized() {
     let src = std::fs::read_to_string("examples/aether/drop_spec_branchy.flx")
         .expect("fixture should exist");
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     let found = core
         .defs
         .iter()
@@ -497,7 +497,7 @@ fn maintained_drop_spec_branchy_fixture_emits_reuse_inside_drop_specialized() {
 fn maintained_drop_spec_recursive_fixture_emits_drop_specialized() {
     let src = std::fs::read_to_string("examples/aether/drop_spec_recursive.flx")
         .expect("fixture should exist");
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     let found = core
         .defs
         .iter()
@@ -705,7 +705,7 @@ fn main() { rec_copy_or_keep([1, 2, 3], false) }
 fn maintained_either_match_fixture_survives_aether_passes() {
     let src = std::fs::read_to_string("examples/patterns/either_match.flx")
         .expect("fixture should exist");
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     assert!(
         !core.defs.is_empty(),
         "expected maintained either_match fixture to lower through Aether"
@@ -740,7 +740,7 @@ fn fbip_failure_fixture_stays_non_provable() {
 fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
     let src =
         std::fs::read_to_string("examples/aether/bench_reuse.flx").expect("fixture should exist");
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     let my_map = core
         .defs
         .iter()
@@ -895,8 +895,7 @@ fn main() { keep_or_inc([1, 2, 3], true) }
                             .count()
                     })
                     .collect::<Vec<_>>();
-                branch_reuses.iter().any(|count| *count >= 1)
-                    && branch_reuses.iter().any(|count| *count == 0)
+                branch_reuses.iter().any(|count| *count >= 1) && branch_reuses.contains(&0)
             }
             _ => false,
         });
@@ -938,7 +937,7 @@ fn main() { bad_rebuild([1, 2, 3]) }
 fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
     let src =
         std::fs::read_to_string("examples/aether/verify_aether.flx").expect("fixture should exist");
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
 
     let set_black = core
         .defs
@@ -1031,7 +1030,7 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
 fn hof_recursive_suite_fixture_claims_match_current_core_shape() {
     let src = std::fs::read_to_string("examples/aether/hof_recursive_suite.flx")
         .expect("fixture should exist");
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
 
     let map_reuse = core
         .defs
@@ -1098,7 +1097,7 @@ fn hof_recursive_suite_fixture_claims_match_current_core_shape() {
 fn tree_updates_fixture_claims_match_current_core_shape() {
     let src =
         std::fs::read_to_string("examples/aether/tree_updates.flx").expect("fixture should exist");
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     let exprs = core
         .defs
         .iter()
@@ -1171,7 +1170,7 @@ fn tree_updates_fixture_claims_match_current_core_shape() {
 fn queue_workload_fixture_claims_match_current_core_shape() {
     let src = std::fs::read_to_string("examples/aether/queue_workload.flx")
         .expect("fixture should exist");
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     let exprs = core
         .defs
         .iter()
@@ -1206,7 +1205,7 @@ fn queue_workload_fixture_claims_match_current_core_shape() {
 fn forwarded_wrapper_fixture_rewrites_only_the_inner_child() {
     let src = std::fs::read_to_string("examples/aether/forwarded_wrapper_reuse.flx")
         .expect("fixture should exist");
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     let exprs = core
         .defs
         .iter()
@@ -1243,7 +1242,7 @@ fn forwarded_wrapper_fixture_rewrites_only_the_inner_child() {
 fn opt_corpus_positive_fixture_claims_match_current_core_shape() {
     let src = std::fs::read_to_string("examples/aether/opt_corpus_positive.flx")
         .expect("fixture should exist");
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     let exprs = core
         .defs
         .iter()
@@ -1307,7 +1306,7 @@ fn opt_corpus_positive_fixture_claims_match_current_core_shape() {
 fn opt_corpus_negative_fixture_stays_conservative_on_intended_shapes() {
     let src = std::fs::read_to_string("examples/aether/opt_corpus_negative.flx")
         .expect("fixture should exist");
-    let core = lowered_core(&src);
+    let core = lowered_core(src);
     let exprs = core
         .defs
         .iter()

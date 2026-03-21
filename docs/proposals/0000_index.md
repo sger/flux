@@ -105,7 +105,7 @@ Feature state is evidence-driven:
 | 0023 | [0023_bytecode_decode_passes.md](0023_bytecode_decode_passes.md) | Proposed | gap | proposal-only | keep as compiler tooling backlog |
 | 0024 | [0024_runtime_instrumentation_and_value_tracer.md](0024_runtime_instrumentation_and_value_tracer.md) | Proposed | gap | proposal-only | keep as observability backlog |
 | 0025 | [0025_pure_fp_language_vision.md](0025_pure_fp_language_vision.md) | Proposed | partial | vision reflected by 032/042/043 completion | keep as vision, not delivery plan |
-| 0026 | [0026_concurrency_model.md](0026_concurrency_model.md) | Proposed | gap | proposal-only | next-phase research |
+| 0026 | [0026_concurrency_model.md](0026_concurrency_model.md) | Proposed | gap | proposal-only | historical umbrella; supersede active planning with 0115 |
 | 0027 | [0027_language_syntax_specification.md](0027_language_syntax_specification.md) | Proposed | partial | syntax implemented across `src/syntax/*`; spec not fully synchronized | convert to living spec |
 | 0028 | [0028_base.md](implemented/0028_base.md) | Proposed | partial | Base APIs + docs exist (`docs/internals/base_api.md`, runtime/base tests) | mark implemented subset |
 | 0030 | [0030_flow.md](0030_flow.md) | Proposed | partial | Flow module usage/examples exist (`examples/type_system/TypeSystem/*`) | mark implemented subset |
@@ -125,6 +125,7 @@ Feature state is evidence-driven:
 | 0083 | [0083_typed_holes.md](0083_typed_holes.md) | Draft | gap | proposal-only | add expression-level typed holes like `?name` so the compiler can report expected types and candidate fits while code is incomplete |
 | 0105 | [0105_general_tail_call_elimination.md](0105_general_tail_call_elimination.md) | Draft | gap | proposal-only | general TCE for mutual recursion, indirect/closure tail calls, and CPS; extends 0016 self-recursive TCO to full proper tail calls |
 | 0106 | [0106_base_function_effect_audit.md](0106_base_function_effect_audit.md) | Draft | gap | proposal-only | systematic audit of all 77 base functions for effect annotation correctness; CI test suite to prevent regressions; prerequisite for 0099 IO migration |
+| 0115 | [0115_actor_concurrency_roadmap.md](0115_actor_concurrency_roadmap.md) | Draft | gap | proposal-only | canonical Aether-aware actor concurrency roadmap; use to supersede stale 0026/0066/0071 planning split |
 
 ### Superseded Historical Docs
 

@@ -271,6 +271,7 @@ fn compute_recursive_groups(program: &CoreProgram) -> Vec<Vec<CoreBinderId>> {
     let mut lowlinks = HashMap::<CoreBinderId, usize>::new();
     let mut components = Vec::new();
 
+    #[allow(clippy::too_many_arguments)]
     fn strongconnect(
         v: CoreBinderId,
         adjacency: &HashMap<CoreBinderId, Vec<CoreBinderId>>,
@@ -671,13 +672,13 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
         CoreExpr::Lam { body, .. } => collect_unresolved_callees(body, unresolved),
         CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
-            if let CoreExpr::Var { var, .. } = func.as_ref() {
-                if var.binder.is_none() {
-                    unresolved
-                        .entry(var.name)
-                        .and_modify(|arity| *arity = (*arity).max(args.len()))
-                        .or_insert(args.len());
-                }
+            if let CoreExpr::Var { var, .. } = func.as_ref()
+                && var.binder.is_none()
+            {
+                unresolved
+                    .entry(var.name)
+                    .and_modify(|arity| *arity = (*arity).max(args.len()))
+                    .or_insert(args.len());
             }
             collect_unresolved_callees(func, unresolved);
             for arg in args {

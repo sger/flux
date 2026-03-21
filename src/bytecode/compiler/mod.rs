@@ -2111,6 +2111,7 @@ impl Compiler {
 
     /// Render the Core IR for the same AST shape consumed by the current
     /// compile configuration. Call this after a successful `compile_with_opts`.
+    #[allow(clippy::result_large_err)]
     pub fn dump_core_with_opts(
         &self,
         program: &Program,
@@ -2157,6 +2158,7 @@ impl Compiler {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     fn lower_aether_report_program(
         &self,
         program: &Program,
@@ -2178,6 +2180,7 @@ impl Compiler {
     }
 
     /// Render an Aether memory model report showing per-function optimization decisions.
+    #[allow(clippy::result_large_err)]
     pub fn render_aether_report(
         &self,
         program: &Program,
@@ -2278,6 +2281,7 @@ impl Compiler {
     }
 
     /// Dump an Aether memory model report showing per-function optimization decisions.
+    #[allow(clippy::result_large_err)]
     pub fn dump_aether_report(
         &self,
         program: &Program,

@@ -145,7 +145,7 @@ fn main() {
 }
 "#;
     // Core IR: nested fn should be skipped (not lowered to LetRec+Lam)
-    let (program, types, interner) = parse_and_infer(src);
+    let (program, types, _interner) = parse_and_infer(src);
     let core = lower_program_ast(&program, &types);
     // The main def should exist
     assert!(
@@ -194,7 +194,7 @@ fn backend_ir_lowering_is_core_backed() {
 fn add(a: Int, b: Int) -> Int { a + b }
 fn main() { add(3, 4) }
 "#;
-    let (program, types, interner) = parse_and_infer(src);
+    let (program, types, _interner) = parse_and_infer(src);
     let ir = lower_program_to_ir(&program, &types).expect("backend lowering should succeed");
 
     let core = ir
@@ -234,7 +234,7 @@ fn pipeline_typed_arithmetic_emits_iadd() {
 fn add(a: Int, b: Int) -> Int { a + b }
 fn main() { add(3, 4) }
 "#;
-    let (program, types, interner) = parse_and_infer(src);
+    let (program, types, _interner) = parse_and_infer(src);
     let core = lower_program_ast(&program, &types);
 
     // The add function's Core IR should use IAdd (typed) not Add (generic)
@@ -257,7 +257,7 @@ fn choose(x: Int) -> Int {
 }
 fn main() { choose(5) }
 "#;
-    let (program, types, interner) = parse_and_infer(src);
+    let (program, types, _interner) = parse_and_infer(src);
     let core = lower_program_ast(&program, &types);
     let ir = lower_core_to_ir(&core);
 
@@ -283,7 +283,7 @@ fn pipeline_modulo_operator_in_cfg() {
 fn is_even(n: Int) -> Bool { n % 2 == 0 }
 fn main() { is_even(4) }
 "#;
-    let (program, types, interner) = parse_and_infer(src);
+    let (program, types, _interner) = parse_and_infer(src);
     let core = lower_program_ast(&program, &types);
     let ir = lower_core_to_ir(&core);
 
@@ -417,7 +417,7 @@ fn main() {
     f(5)
 }
 "#;
-    let (program, types, interner) = parse_and_infer(src);
+    let (program, types, _interner) = parse_and_infer(src);
     let core = lower_program_ast(&program, &types);
     let ir = lower_core_to_ir(&core);
 

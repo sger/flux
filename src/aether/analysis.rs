@@ -495,13 +495,12 @@ fn count_owned_inner(
         // DropSpecialized: scrutinee is borrowed (tested for uniqueness),
         // branches are normal context — take max (only one runs).
         CoreExpr::DropSpecialized {
-            scrutinee,
+            scrutinee: _,
             unique_body,
             shared_body,
             ..
         } => {
-            let scrut = if scrutinee.binder == Some(var) { 0 } else { 0 }; // borrowed
-            let _ = scrut;
+            // scrutinee is always borrowed (tested for uniqueness, not consumed)
             let u = count_owned_inner(var, unique_body, registry);
             let s = count_owned_inner(var, shared_body, registry);
             u.max(s)

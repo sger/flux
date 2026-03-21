@@ -180,7 +180,11 @@ fn generate_case(seed: u32) -> (String, bool, bool, bool) {
         _ => CaseKind::BaseLenTraversal,
     };
     let n = 2 + (seed % 4);
-    let choose = if seed % 2 == 0 { "true" } else { "false" };
+    let choose = if seed.is_multiple_of(2) {
+        "true"
+    } else {
+        "false"
+    };
 
     let src = match case_kind {
         CaseKind::ExactListReuse => format!(
@@ -310,19 +314,18 @@ fn main() {{
 }}
 "#
         ),
-        CaseKind::BaseLenTraversal => format!(
-            r#"
-fn walk(xs) {{
-    match xs {{
+        CaseKind::BaseLenTraversal => r#"
+fn walk(xs) {
+    match xs {
         [_ | t] -> len(t) + walk(t),
         _ -> 0,
-    }}
-}}
-fn main() {{
+    }
+}
+fn main() {
     walk([1, 2, 3, 4])
-}}
+}
 "#
-        ),
+        .to_string(),
     };
 
     let expect_reuse = matches!(
@@ -335,8 +338,10 @@ fn main() {{
             | CaseKind::ForwardedWrapperReuse
     );
     let expect_dropspec = matches!(case_kind, CaseKind::BranchyTreeDropSpec);
-    let expect_borrowed_call =
-        matches!(case_kind, CaseKind::HigherOrderBorrowed | CaseKind::QueueReuse);
+    let expect_borrowed_call = matches!(
+        case_kind,
+        CaseKind::HigherOrderBorrowed | CaseKind::QueueReuse
+    );
     (src, expect_reuse, expect_dropspec, expect_borrowed_call)
 }
 
@@ -365,9 +370,7 @@ fn generated_aether_heavy_programs_keep_vm_jit_llvm_in_parity() {
                 matches!(
                     expr,
                     CoreExpr::AetherCall { arg_modes, .. }
-                        if arg_modes
-                            .iter()
-                            .any(|mode| *mode == flux::aether::borrow_infer::BorrowMode::Borrowed)
+                        if arg_modes.contains(&flux::aether::borrow_infer::BorrowMode::Borrowed)
                 )
             })
             .count();

@@ -1,11 +1,21 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
-assertion_line: 27
 ---
 Fixture: examples/aether/fbip_failure_cases.flx
 == compile ==
-ok
+failed (module)
 == diagnostics ==
-<none>
+error[E018]: Import Not Found
+
+Cannot find module `Aether.FbipImportedSupport` to import.
+
+  examples/aether/fbip_failure_cases.flx:1:1
+  |
+1 | import Aether.FbipImportedSupport as Imported
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Aether.FbipImportedSupport.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Aether.FbipImportedSupport` under roots: examples/aether, src (imported from examples/aether/fbip_failure_cases.flx).
 == stdout ==
 <not executed>
