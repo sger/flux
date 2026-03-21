@@ -69,7 +69,8 @@ Compared to Koka, Flux still has these weaknesses:
    - Call-site ownership decisions are explicit now, but still miss some interprocedural precision.
 
 2. **Ownership flow is not yet Koka-grade**
-   - Env-based insertion exists, but closure capture, branch joins, and older interprocedural paths still have rough edges.
+   - Env-based insertion exists, but branch joins and older interprocedural paths still have rough edges.
+   - Borrow-aware closure capture has landed, and unused closure captures are now pruned during IR lowering.
    - Flux still emits avoidable `Dup`/`Drop` pairs in some recursive and higher-order examples.
 
 3. **Reuse coverage is still narrower than Koka**
@@ -207,6 +208,9 @@ backends: VM, Cranelift JIT, and LLVM.
   - `DropSpecialized`
   - `field_mask`
 - strengthen verifier checks to reject malformed Aether shapes before lowering
+- define a reduced formal single-threaded Aether semantics as the proof target
+- map verifier checks to explicit proof obligations without claiming theorem
+  completion yet
 
 #### Primary files
 
@@ -215,12 +219,15 @@ backends: VM, Cranelift JIT, and LLVM.
 - `src/aether/verify.rs`
 - `src/core/mod.rs`
 - `docs/proposals/implemented/0084_aether_memory_model.md`
+- `docs/internals/aether_formal_semantics.md`
 
 #### Acceptance criteria
 
 - each Aether node has a stable lowering contract
 - verifier catches unsafe drop/token patterns
 - 0084 documentation reflects actual implementation status
+- reduced formal semantics exists for the current single-threaded Aether nodes
+- proof obligations are stated explicitly and aligned with verifier checks
 
 ### Phase C: Borrow metadata infrastructure
 
@@ -549,6 +556,7 @@ Flux-native and preserving Flux's Core/Aether/CFG architecture.
 - higher-order recursive rebuilds
 - more branch-sensitive list and ADT rebuilds
 - more transformed/Core-admin shapes where provenance is exact but current coverage still misses reuse
+- join-aware provenance and cross-arm token-forwarding reuse where exact branch results can be normalized without speculation
 
 #### Primary files
 
@@ -568,9 +576,10 @@ Flux-native and preserving Flux's Core/Aether/CFG architecture.
 
 #### Scope
 
-- deeper branch/admin-let cases
+- deeper admin-let and branch-normalized cases
 - recursive update patterns where unique/shared separation is still safe
 - more mixed-path cases where unique-path optimization is possible while shared-path conservatism remains intact
+- stronger unique-path dup/drop cleanup after specialization
 
 #### Primary files
 
@@ -643,6 +652,7 @@ Flux-native and preserving Flux's Core/Aether/CFG architecture.
 - wrapper-like constructor rebuilds where the outer shape is preserved through forwarding
 - transparent/named-ADT update paths where exact field provenance survives but current Core-level reuse still misses the opportunity
 - more identity-like rebuilds through admin lets and forwarding bindings
+- branch-joined forwarded shapes where exact child provenance survives control-flow merges and should still enable wrapper/child reuse
 - preserve exactness: no speculative reuse, no ambiguous provenance joins, no new shared-path reuse
 
 #### Primary files
@@ -1022,7 +1032,7 @@ Potential next optimization-coverage work:
 - broader `DropSpecialized` candidate extraction on deeper admin-let shapes
 - more selective-write reuse on named ADTs and tree updates
 - better reuse through forwarding wrappers and exact field passthrough
-- more profitable fusion around borrowed recursive traversals
+- more profitable fusion around borrowed recursive traversals and post-specialization unique paths
 
 Why this matters:
 
@@ -1101,6 +1111,11 @@ Why this matters:
 5. **Concurrency remains outside 0114**
    - the Perceus paper and Koka runtime both include thread-shared/atomic RC concerns, but Flux Aether remains intentionally single-threaded today
    - actor transfer semantics and any future `Arc`/thread-shared RC design should be handled in a separate proposal once Aether's single-threaded maturity work has settled
+
+6. **Proof work should target Flux as implemented**
+   - the Perceus paper is the semantic reference point, but Flux does not share Koka's exact pass ordering in every detail
+   - in particular, Flux reuse recognition/specialization should be proved in the order it actually runs today rather than by assuming the paper's exact pre-insertion reuse pipeline
+   - Flux already includes semantic `@fip` / `@fbip` checking and `field_mask` reuse specialization, so those differences must be documented rather than erased
 
 ## Success metrics
 

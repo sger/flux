@@ -414,7 +414,7 @@ fn validate_after_drop_body(
         }
         CoreExpr::Drop { var, body, .. } => {
             if var.binder == Some(scrutinee_id) {
-                return validate_after_drop_body(body, scrutinee_id, field_binders, acc);
+                return Err(DropSpecFailureReason::AlreadySpecialized);
             }
             validate_after_drop_body(body, scrutinee_id, field_binders, acc)
         }
@@ -1265,6 +1265,45 @@ mod tests {
         assert_eq!(result.err(), Some(DropSpecFailureReason::NoFieldDup));
         let specialized = specialize_drops(rhs.clone());
         assert_eq!(format!("{specialized:?}"), format!("{rhs:?}"));
+    }
+
+    #[test]
+    fn rejects_duplicate_scrutinee_drop_after_specialization_point() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let h = binder(&mut interner, 2, "h");
+        let t = binder(&mut interner, 3, "t");
+
+        let rhs = CoreExpr::Drop {
+            var: crate::core::CoreVarRef::resolved(xs),
+            body: Box::new(CoreExpr::Drop {
+                var: crate::core::CoreVarRef::resolved(xs),
+                body: Box::new(CoreExpr::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![
+                        CoreExpr::Dup {
+                            var: crate::core::CoreVarRef::resolved(h),
+                            body: Box::new(var(h)),
+                            span: Span::default(),
+                        },
+                        var(t),
+                    ],
+                    span: Span::default(),
+                }),
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+
+        let mut acc = super::CandidateAccumulator::default();
+        let result = super::validate_skeleton(
+            &rhs,
+            xs.id,
+            &[h.id, t.id],
+            super::DropScanState::BeforeDrop,
+            &mut acc,
+        );
+        assert_eq!(result, Err(DropSpecFailureReason::AlreadySpecialized));
     }
 
     #[test]

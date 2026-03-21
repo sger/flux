@@ -9,6 +9,9 @@ For the landed architecture foundation, see:
 For the remaining maturity roadmap, see:
 - `docs/proposals/0114_aether_perceus_completion_plan.md`
 
+For the reduced formal proof target, see:
+- `docs/internals/aether_formal_semantics.md`
+
 ---
 
 ## What Aether is
@@ -243,6 +246,10 @@ Examples of checks:
 This is why malformed Aether fails before backend lowering with:
 - `E999 Aether Verification Failed`
 
+The verifier should be understood as an executable contract checker. The
+reduced formal target for future proof work is documented separately in:
+- `docs/internals/aether_formal_semantics.md`
+
 ---
 
 ## FBIP
@@ -319,6 +326,50 @@ Current limitation:
 - Flux Aether is intentionally single-threaded today and uses `Rc`, not `Arc`
 - actor transfer semantics and concurrent RC design are future work outside the
   current Aether maturity plan
+
+---
+
+## Proof Status
+
+Flux Aether currently has:
+
+- implemented Aether transformations on Core
+- verifier-enforced local invariants
+- test-backed regression and backend-parity evidence
+
+Flux Aether does **not** currently have:
+
+- a mechanized proof artifact
+- theorem-level proof matching the Perceus paper
+- concurrency/thread-shared RC formalization
+
+The planned formal target is:
+
+- reduced single-threaded Aether only
+- paper-aligned two-layer structure:
+  - reference-counted semantics for reduced Aether Core
+  - syntax-directed Aether transformation obligations
+- explicit mapping from verifier checks to future theorem/lemma targets
+
+Deferred proof areas include:
+
+- actor/concurrency semantics
+- atomic/thread-shared RC
+- full FBIP completeness proofs
+- backend equivalence proofs
+
+This means Flux can claim executable verification and a planned proof scaffold,
+but not formal proof completion.
+
+For FBIP/proof comparison language, keep these distinct:
+
+- semantic `@fip` / `@fbip` checking exists
+- proof coverage is still partial in higher-order and join-heavy cases
+- formal theorem proof is not implemented
+
+In particular, `NotProvable` means the checker could not prove the requested
+contract under current precision; it should not be read as a proof that the
+program is semantically non-FIP.
 
 ---
 
