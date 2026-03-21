@@ -1,0 +1,32 @@
+// Aether FBIP success regression fixture.
+// Every annotation in this file is expected to remain provable today.
+
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Tree)
+
+@fip fn rebuild_list(xs) {
+    match xs {
+        [h | t] -> [h | t],
+        _ -> [],
+    }
+}
+
+@fip fn rebuild_some(opt) {
+    match opt {
+        Some(x) -> Some(x),
+        _ -> None,
+    }
+}
+
+@fip fn set_black(t) {
+    match t {
+        Node(_, left, key, right) -> Node(Black, left, key, right),
+        _ -> t,
+    }
+}
+
+fn main() with IO {
+    print(rebuild_list([1, 2, 3]))
+    print(rebuild_some(Some(41)))
+    print(set_black(Node(Red, Leaf, 5, Leaf)))
+}
