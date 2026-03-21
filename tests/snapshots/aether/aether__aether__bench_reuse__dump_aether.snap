@@ -50,12 +50,12 @@ Aether Memory Model Report
   aether_call[borrowed] print(%t7))
   drop %t6
   let %t11 = (let %t12 = (let %t13 = (let %t14 = aether_call[owned] build_list(5000)
-  aether_call[owned, owned] bench_len(%t14, 100))
+  aether_call[borrowed, owned] bench_len(%t14, 100))
   Interpolate("len: total = ", %t13))
   aether_call[borrowed] print(%t12))
   drop %t11
   let %t15 = (let %t16 = (let %t17 = (let %t18 = aether_call[owned] build_list(5000)
-  aether_call[owned, owned] bench_fold(%t18, 100))
+  aether_call[borrowed, owned] bench_fold(%t18, 100))
   Interpolate("fold: total = ", %t17))
   aether_call[borrowed] print(%t16))
   drop %t15
@@ -65,7 +65,6 @@ Aether Memory Model Report
 
 warning: @fip on `my_map` analysis result NotProvable:
 - fresh heap allocation remains on at least one path
-- calls known function `my_map` whose FBIP behavior is not yet provable
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - constructor rebuild could not reuse an available token
 - control-flow join loses a precise allocation bound across paths
@@ -77,7 +76,6 @@ Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:
 - fresh heap allocation remains on at least one path
-- calls known function `my_map` whose FBIP behavior is not yet provable
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - constructor rebuild could not reuse an available token
 - control-flow join loses a precise allocation bound across paths

@@ -66,9 +66,7 @@ impl Parser {
                 self.next_token(); // fn
                 self.parse_function_statement(true, None)
             }
-            TokenType::At => {
-                self.parse_annotated_function()
-            }
+            TokenType::At => self.parse_annotated_function(),
             TokenType::Ident if self.current_token.literal == "fn" => {
                 // Defensive path: `fn` should lex as TokenType::Fn.
                 None
@@ -305,7 +303,9 @@ impl Parser {
                         annotation_span,
                         "Unknown Function Annotation",
                         DiagnosticCategory::ParserDeclaration,
-                        format!("Unknown annotation `@{annotation_name}` before function declaration."),
+                        format!(
+                            "Unknown annotation `@{annotation_name}` before function declaration."
+                        ),
                     )
                     .with_hint_text("Supported function annotations are `@fip` and `@fbip`."),
                 );

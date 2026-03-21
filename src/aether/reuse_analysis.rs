@@ -34,8 +34,10 @@ impl ReuseEnv {
             return env;
         };
         if let Some(tag) = pat_tag.cloned() {
-            env.origins
-                .insert(token_binder, ReuseOrigin::Scrutinee(token_binder, tag.clone()));
+            env.origins.insert(
+                token_binder,
+                ReuseOrigin::Scrutinee(token_binder, tag.clone()),
+            );
             if let Some(fields) = pat_binders {
                 for (field_index, binder_id) in fields.iter().enumerate() {
                     if let Some(binder_id) = binder_id {
@@ -91,7 +93,8 @@ impl ReuseEnv {
                 }
             }
         }
-        next.origins.insert(token_binder, ReuseOrigin::Scrutinee(token_binder, tag));
+        next.origins
+            .insert(token_binder, ReuseOrigin::Scrutinee(token_binder, tag));
         next
     }
 
@@ -206,9 +209,10 @@ impl ReuseEnv {
 
 fn origins_equivalent(lhs: &ReuseOrigin, rhs: &ReuseOrigin) -> bool {
     match (lhs, rhs) {
-        (ReuseOrigin::Scrutinee(lhs_token, lhs_tag), ReuseOrigin::Scrutinee(rhs_token, rhs_tag)) => {
-            lhs_token == rhs_token && lhs_tag == rhs_tag
-        }
+        (
+            ReuseOrigin::Scrutinee(lhs_token, lhs_tag),
+            ReuseOrigin::Scrutinee(rhs_token, rhs_tag),
+        ) => lhs_token == rhs_token && lhs_tag == rhs_tag,
         (
             ReuseOrigin::Field {
                 token_binder: lhs_token,
@@ -282,14 +286,7 @@ pub fn rewrite_drop_body(
     blocked_outer_token: Option<CoreBinderId>,
 ) -> ReuseRewrite {
     let env = ReuseEnv::seed(token, pat_binders, pat_tag);
-    rewrite_drop_body_with_env(
-        token,
-        body,
-        drop_span,
-        pat_tag,
-        blocked_outer_token,
-        &env,
-    )
+    rewrite_drop_body_with_env(token, body, drop_span, pat_tag, blocked_outer_token, &env)
 }
 
 pub fn diagnose_drop_body(
@@ -343,13 +340,23 @@ fn rewrite_drop_body_with_env(
         } => {
             if use_counts(&rhs).contains_key(&token_binder) {
                 return no_rewrite(
-                    CoreExpr::Let { var, rhs, body, span },
+                    CoreExpr::Let {
+                        var,
+                        rhs,
+                        body,
+                        span,
+                    },
                     ReuseFailureReason::TokenEscapesIntoFields,
                 );
             }
             if !is_admin_rhs(&rhs) {
                 return no_rewrite(
-                    CoreExpr::Let { var, rhs, body, span },
+                    CoreExpr::Let {
+                        var,
+                        rhs,
+                        body,
+                        span,
+                    },
                     ReuseFailureReason::EffectfulBoundary,
                 );
             }
@@ -385,9 +392,20 @@ fn rewrite_drop_body_with_env(
                 )
             }
         }
-        CoreExpr::LetRec { var, rhs, body, span } => {
-            no_rewrite(CoreExpr::LetRec { var, rhs, body, span }, ReuseFailureReason::EffectfulBoundary)
-        }
+        CoreExpr::LetRec {
+            var,
+            rhs,
+            body,
+            span,
+        } => no_rewrite(
+            CoreExpr::LetRec {
+                var,
+                rhs,
+                body,
+                span,
+            },
+            ReuseFailureReason::EffectfulBoundary,
+        ),
         CoreExpr::Case {
             scrutinee,
             alts,
@@ -435,11 +453,7 @@ fn rewrite_drop_body_with_env(
                     let alt_env = scrutinee_origin
                         .as_ref()
                         .map(|origin| {
-                            env.with_pattern_origin(
-                                origin,
-                                alt_pat_binders.as_deref(),
-                                alt_pat_tag,
-                            )
+                            env.with_pattern_origin(origin, alt_pat_binders.as_deref(), alt_pat_tag)
                         })
                         .unwrap_or_else(|| env.clone());
                     if use_counts(&alt.rhs).contains_key(&token_binder) {
@@ -496,16 +510,14 @@ fn rewrite_drop_body_with_env(
                 )
             }
         }
-        other => {
-            match build_reuse_expr(token, other.clone(), env, pat_tag, blocked_outer_token) {
-                Ok(expr) => ReuseRewrite {
-                    expr,
-                    reused: true,
-                    reason: None,
-                },
-                Err(reason) => no_rewrite(other, reason),
-            }
-        }
+        other => match build_reuse_expr(token, other.clone(), env, pat_tag, blocked_outer_token) {
+            Ok(expr) => ReuseRewrite {
+                expr,
+                reused: true,
+                reason: None,
+            },
+            Err(reason) => no_rewrite(other, reason),
+        },
     }
 }
 
@@ -584,9 +596,7 @@ fn is_admin_rhs(expr: &CoreExpr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ReuseFailureReason, diagnose_drop_body, rewrite_drop_body,
-    };
+    use super::{ReuseFailureReason, diagnose_drop_body, rewrite_drop_body};
     use crate::core::{CoreBinder, CoreBinderId, CoreExpr, CoreTag, CoreVarRef};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
@@ -637,7 +647,9 @@ mod tests {
             CoreExpr::Let { body, .. } => match *body {
                 CoreExpr::Reuse {
                     tag,
-                    field_mask, token, ..
+                    field_mask,
+                    token,
+                    ..
                 } => {
                     assert_eq!(tag, CoreTag::Cons);
                     assert_eq!(token.binder, Some(xs.id));
@@ -687,7 +699,9 @@ mod tests {
             CoreExpr::Let { body, .. } => match *body {
                 CoreExpr::Reuse {
                     tag,
-                    field_mask, token, ..
+                    field_mask,
+                    token,
+                    ..
                 } => {
                     assert_eq!(tag, pat_tag);
                     assert_eq!(token.binder, Some(t.id));

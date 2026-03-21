@@ -282,9 +282,9 @@ fn fip_annotation_emits_semantic_warning_for_fresh_allocation() {
         false,
     );
     assert!(
-        warnings
-            .iter()
-            .any(|d| d.message().is_some_and(|m| m.contains("fresh heap allocation"))),
+        warnings.iter().any(|d| d
+            .message()
+            .is_some_and(|m| m.contains("fresh heap allocation"))),
         "expected semantic @fip warning, got: {:?}",
         warnings
             .iter()
@@ -299,9 +299,9 @@ fn fbip_annotation_is_hard_error_when_proof_fails() {
         "@fbip fn bounded(f, x) { f(x) } fn main() { bounded(\\y -> y, 1) }",
     );
     assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.message().is_some_and(|m| m.contains("indirect or opaque callee `f`"))),
+        diagnostics.iter().any(|d| d
+            .message()
+            .is_some_and(|m| m.contains("indirect or opaque callee `f`"))),
         "expected semantic @fbip error, got: {:?}",
         diagnostics
             .iter()
@@ -320,8 +320,7 @@ fn fbip_annotation_without_constructors_emits_advisory_warning() {
     assert!(
         warnings.iter().any(|d| {
             d.title() == "FBIP Annotation Has No Effect"
-                && d
-                    .message()
+                && d.message()
                     .is_some_and(|m| m.contains("no heap constructor sites"))
         }),
         "expected no-constructors advisory warning, got: {:?}",

@@ -495,7 +495,9 @@ impl<'a> FnCtx<'a> {
             } => {
                 let meta = IrMetadata::from_span(*span);
                 let scrut_ir = self.bound_var(
-                    scrutinee.binder.expect("DropSpecialized scrutinee must be resolved"),
+                    scrutinee
+                        .binder
+                        .expect("DropSpecialized scrutinee must be resolved"),
                     scrutinee.name,
                 );
 

@@ -388,11 +388,10 @@ fn find_function_decl_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{
-        CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreLit, CorePrimOp, CoreProgram,
-        CoreVarRef,
-    };
     use crate::cfg::{IrExpr, IrTerminator};
+    use crate::core::{
+        CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreLit, CorePrimOp, CoreProgram, CoreVarRef,
+    };
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 
@@ -653,12 +652,18 @@ mod tests {
                 )
             })
         });
-        assert!(has_is_unique, "DropSpecialized should lower to IrExpr::IsUnique");
+        assert!(
+            has_is_unique,
+            "DropSpecialized should lower to IrExpr::IsUnique"
+        );
 
         let has_branch = spec_fn
             .blocks
             .iter()
             .any(|b| matches!(b.terminator, IrTerminator::Branch { .. }));
-        assert!(has_branch, "DropSpecialized should lower to a Branch terminator");
+        assert!(
+            has_branch,
+            "DropSpecialized should lower to a Branch terminator"
+        );
     }
 }

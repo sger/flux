@@ -83,12 +83,20 @@ fn snapshot_verify_aether_dump_core() {
 
 #[test]
 fn snapshot_verify_aether_dump_core_debug() {
-    assert_cli_snapshot("aether/verify_aether.flx", &["--dump-core=debug"], "dump_core_debug");
+    assert_cli_snapshot(
+        "aether/verify_aether.flx",
+        &["--dump-core=debug"],
+        "dump_core_debug",
+    );
 }
 
 #[test]
 fn snapshot_verify_aether_dump_aether() {
-    assert_cli_snapshot("aether/verify_aether.flx", &["--dump-aether"], "dump_aether");
+    assert_cli_snapshot(
+        "aether/verify_aether.flx",
+        &["--dump-aether"],
+        "dump_aether",
+    );
 }
 
 #[test]
@@ -103,15 +111,27 @@ fn snapshot_borrow_calls_dump_core() {
 
 #[test]
 fn snapshot_reuse_specialization_dump_core_debug() {
-    assert_cli_snapshot("aether/reuse_specialization.flx", &["--dump-core=debug"], "dump_core_debug");
+    assert_cli_snapshot(
+        "aether/reuse_specialization.flx",
+        &["--dump-core=debug"],
+        "dump_core_debug",
+    );
 }
 
 #[test]
 fn snapshot_drop_spec_branchy_dump_core_debug() {
-    assert_cli_snapshot("aether/drop_spec_branchy.flx", &["--dump-core=debug"], "dump_core_debug");
+    assert_cli_snapshot(
+        "aether/drop_spec_branchy.flx",
+        &["--dump-core=debug"],
+        "dump_core_debug",
+    );
 }
 
 #[test]
 fn snapshot_fbip_failure_dump_aether() {
-    assert_cli_snapshot("aether/fbip_fail_nonfip_call.flx", &["--dump-aether"], "dump_aether");
+    assert_cli_snapshot(
+        "aether/fbip_fail_nonfip_call.flx",
+        &["--dump-aether"],
+        "dump_aether",
+    );
 }

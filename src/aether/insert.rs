@@ -9,7 +9,9 @@ use std::collections::HashMap;
 use crate::core::{CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
 
-use super::analysis::{AetherEnv, AetherPlan, ValueDemand, join_branch_envs, pat_binders, use_counts};
+use super::analysis::{
+    AetherEnv, AetherPlan, ValueDemand, join_branch_envs, pat_binders, use_counts,
+};
 use super::borrow_infer::{BorrowMode, BorrowRegistry};
 use super::constructor_shape_for_tag;
 
@@ -18,7 +20,14 @@ type Scope = HashMap<CoreBinderId, CoreBinder>;
 /// Insert Dup/Drop annotations into a Core IR expression.
 pub fn insert_dup_drop(expr: CoreExpr) -> CoreExpr {
     let mut scope = Scope::new();
-    plan_expr(expr, AetherEnv::default(), ValueDemand::Owned, None, &mut scope).expr
+    plan_expr(
+        expr,
+        AetherEnv::default(),
+        ValueDemand::Owned,
+        None,
+        &mut scope,
+    )
+    .expr
 }
 
 /// Insert Dup/Drop annotations, consulting the borrow registry to skip
@@ -119,7 +128,13 @@ fn plan_expr(
                 param_ids.push(param.id);
             }
 
-            let body_plan = plan_expr(*body, AetherEnv::default(), ValueDemand::Owned, registry, scope);
+            let body_plan = plan_expr(
+                *body,
+                AetherEnv::default(),
+                ValueDemand::Owned,
+                registry,
+                scope,
+            );
             for param in &params {
                 scope.remove(&param.id);
             }
@@ -169,20 +184,20 @@ fn plan_expr(
                     }
                 })
                 .collect();
-            let (args, env_after_args) = plan_expr_list(
-                args,
-                tail_env,
+            let (args, env_after_args) = plan_expr_list(args, tail_env, registry, scope, |index| {
+                if arg_modes[index] == BorrowMode::Borrowed {
+                    ValueDemand::Borrowed
+                } else {
+                    ValueDemand::Owned
+                }
+            });
+            let func_plan = plan_expr(
+                *func,
+                env_after_args,
+                ValueDemand::Borrowed,
                 registry,
                 scope,
-                |index| {
-                    if arg_modes[index] == BorrowMode::Borrowed {
-                        ValueDemand::Borrowed
-                    } else {
-                        ValueDemand::Owned
-                    }
-                },
             );
-            let func_plan = plan_expr(*func, env_after_args, ValueDemand::Borrowed, registry, scope);
             AetherPlan {
                 expr: CoreExpr::AetherCall {
                     func: Box::new(func_plan.expr),
@@ -199,12 +214,19 @@ fn plan_expr(
             arg_modes,
             span,
         } => {
-            let (args, env_after_args) =
-                plan_expr_list(args, tail_env, registry, scope, |index| match arg_modes[index] {
+            let (args, env_after_args) = plan_expr_list(args, tail_env, registry, scope, |index| {
+                match arg_modes[index] {
                     BorrowMode::Borrowed => ValueDemand::Borrowed,
                     BorrowMode::Owned => ValueDemand::Owned,
-                });
-            let func_plan = plan_expr(*func, env_after_args, ValueDemand::Borrowed, registry, scope);
+                }
+            });
+            let func_plan = plan_expr(
+                *func,
+                env_after_args,
+                ValueDemand::Borrowed,
+                registry,
+                scope,
+            );
             AetherPlan {
                 expr: CoreExpr::AetherCall {
                     func: Box::new(func_plan.expr),
@@ -221,10 +243,7 @@ fn plan_expr(
             span,
         } => {
             let scrutinee_var = match scrutinee.as_ref() {
-                CoreExpr::Var { var, .. } => var.binder.map(|id| CoreBinder {
-                    id,
-                    name: var.name,
-                }),
+                CoreExpr::Var { var, .. } => var.binder.map(|id| CoreBinder { id, name: var.name }),
                 _ => None,
             };
 
@@ -245,8 +264,13 @@ fn plan_expr(
 
                 let rhs_plan = plan_expr(rhs, tail_env.clone(), demand, registry, scope);
                 let (guard, branch_env) = if let Some(guard) = guard {
-                    let guard_plan =
-                        plan_expr(guard, rhs_plan.env_before.clone(), ValueDemand::Borrowed, registry, scope);
+                    let guard_plan = plan_expr(
+                        guard,
+                        rhs_plan.env_before.clone(),
+                        ValueDemand::Borrowed,
+                        registry,
+                        scope,
+                    );
                     (Some(guard_plan.expr), guard_plan.env_before)
                 } else {
                     (None, rhs_plan.env_before.clone())
@@ -290,28 +314,33 @@ fn plan_expr(
 
             let alts = branch_plans
                 .into_iter()
-                .map(|(pat, guard, rhs, alt_span, _branch_env, env_without_pats)| {
-                    let compensation: Vec<_> = joined
-                        .owned
-                        .iter()
-                        .copied()
-                        .filter(|binder_id| !env_without_pats.is_live(*binder_id) && !tail_env.is_live(*binder_id))
-                        .filter(|binder_id| !expr_uses_binder(&rhs, *binder_id))
-                        .filter(|binder_id| !expr_drops_binder(&rhs, *binder_id))
-                        .filter_map(|binder_id| scope.get(&binder_id).copied())
-                        .collect();
-                    let rhs = compensation
-                        .into_iter()
-                        .rev()
-                        .fold(rhs, |body, binder| wrap_drop(binder, body, alt_span));
+                .map(
+                    |(pat, guard, rhs, alt_span, _branch_env, env_without_pats)| {
+                        let compensation: Vec<_> = joined
+                            .owned
+                            .iter()
+                            .copied()
+                            .filter(|binder_id| {
+                                !env_without_pats.is_live(*binder_id)
+                                    && !tail_env.is_live(*binder_id)
+                            })
+                            .filter(|binder_id| !expr_uses_binder(&rhs, *binder_id))
+                            .filter(|binder_id| !expr_drops_binder(&rhs, *binder_id))
+                            .filter_map(|binder_id| scope.get(&binder_id).copied())
+                            .collect();
+                        let rhs = compensation
+                            .into_iter()
+                            .rev()
+                            .fold(rhs, |body, binder| wrap_drop(binder, body, alt_span));
 
-                    CoreAlt {
-                        pat,
-                        guard,
-                        rhs,
-                        span: alt_span,
-                    }
-                })
+                        CoreAlt {
+                            pat,
+                            guard,
+                            rhs,
+                            span: alt_span,
+                        }
+                    },
+                )
                 .collect();
 
             let scrutinee_plan =
@@ -475,7 +504,10 @@ fn plan_expr(
         } => {
             let unique_plan = plan_expr(*unique_body, tail_env.clone(), demand, registry, scope);
             let shared_plan = plan_expr(*shared_body, tail_env.clone(), demand, registry, scope);
-            let joined = join_branch_envs(&[unique_plan.env_before.clone(), shared_plan.env_before.clone()]);
+            let joined = join_branch_envs(&[
+                unique_plan.env_before.clone(),
+                shared_plan.env_before.clone(),
+            ]);
             let scrutinee_plan = plan_expr(
                 CoreExpr::Var {
                     var: scrutinee,
@@ -556,12 +588,7 @@ fn plan_var(
             tail_env.mark_owned(id);
             let expr = if needs_dup {
                 if let Some(binder) = scope.get(&id).copied() {
-                    wrap_dups(
-                        binder,
-                        CoreExpr::Var { var, span },
-                        span,
-                        1,
-                    )
+                    wrap_dups(binder, CoreExpr::Var { var, span }, span, 1)
                 } else {
                     CoreExpr::Var { var, span }
                 }
@@ -694,10 +721,11 @@ fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
         | CoreExpr::Dup { body, .. }
         | CoreExpr::Return { value: body, .. } => expr_drops_binder(body, binder),
         CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
-            expr_drops_binder(func, binder)
-                || args.iter().any(|arg| expr_drops_binder(arg, binder))
+            expr_drops_binder(func, binder) || args.iter().any(|arg| expr_drops_binder(arg, binder))
         }
-        CoreExpr::Case { scrutinee, alts, .. } => {
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
             expr_drops_binder(scrutinee, binder)
                 || alts.iter().any(|alt| {
                     alt.guard
@@ -722,9 +750,7 @@ fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
             unique_body,
             shared_body,
             ..
-        } => {
-            expr_drops_binder(unique_body, binder) || expr_drops_binder(shared_body, binder)
-        }
+        } => expr_drops_binder(unique_body, binder) || expr_drops_binder(shared_body, binder),
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => false,
     }
 }
@@ -732,7 +758,9 @@ fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::aether::borrow_infer::{BorrowMode, BorrowRegistry};
-    use crate::core::{CoreBinder, CoreBinderId, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreVarRef};
+    use crate::core::{
+        CoreBinder, CoreBinderId, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreVarRef,
+    };
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 
@@ -764,9 +792,12 @@ mod tests {
                         .sum::<usize>()
             }
             CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
-                count_binder_nodes(rhs, binder, predicate) + count_binder_nodes(body, binder, predicate)
+                count_binder_nodes(rhs, binder, predicate)
+                    + count_binder_nodes(body, binder, predicate)
             }
-            CoreExpr::Case { scrutinee, alts, .. } => {
+            CoreExpr::Case {
+                scrutinee, alts, ..
+            } => {
                 count_binder_nodes(scrutinee, binder, predicate)
                     + alts
                         .iter()
@@ -890,10 +921,15 @@ mod tests {
         };
 
         let rewritten = insert_dup_drop_with_registry(expr, &registry);
-        let dups_for_xs = count_binder_nodes(&rewritten, xs.id, &|expr, binder| {
-            matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(binder))
-        });
-        assert_eq!(dups_for_xs, 0, "read-only closure capture should not duplicate the captured binder");
+        let dups_for_xs = count_binder_nodes(
+            &rewritten,
+            xs.id,
+            &|expr, binder| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(binder)),
+        );
+        assert_eq!(
+            dups_for_xs, 0,
+            "read-only closure capture should not duplicate the captured binder"
+        );
     }
 
     #[test]
@@ -923,9 +959,11 @@ mod tests {
         };
 
         let rewritten = insert_dup_drop_with_registry(expr, &BorrowRegistry::default());
-        let drops_for_outer = count_binder_nodes(&rewritten, outer.id, &|expr, binder| {
-            matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(binder))
-        });
+        let drops_for_outer = count_binder_nodes(
+            &rewritten,
+            outer.id,
+            &|expr, binder| matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(binder)),
+        );
         assert!(
             drops_for_outer >= 1,
             "unused outer binder should still be dropped when handler params shadow it"
@@ -977,9 +1015,11 @@ mod tests {
         };
 
         let rewritten = insert_dup_drop_with_registry(expr, &registry);
-        let drops_for_x = count_binder_nodes(&rewritten, x.id, &|expr, binder| {
-            matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(binder))
-        });
+        let drops_for_x = count_binder_nodes(
+            &rewritten,
+            x.id,
+            &|expr, binder| matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(binder)),
+        );
         assert_eq!(
             drops_for_x, 0,
             "borrow-only branch joins should not synthesize dead-path drops for the binder"

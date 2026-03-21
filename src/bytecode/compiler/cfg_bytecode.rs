@@ -633,10 +633,14 @@ impl Compiler {
             }
             IrExpr::Cons { head, tail } => {
                 self.load_symbol(bindings.get(head).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning("missing CFG bytecode cons head binding"))
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode cons head binding",
+                    ))
                 })?);
                 self.load_symbol(bindings.get(tail).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning("missing CFG bytecode cons tail binding"))
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode cons tail binding",
+                    ))
                 })?);
                 self.emit(OpCode::OpCons, &[]);
                 Ok(())
@@ -665,7 +669,9 @@ impl Compiler {
             IrExpr::MakeAdt(constructor, fields) => {
                 for field in fields {
                     self.load_symbol(bindings.get(field).ok_or_else(|| {
-                        Self::boxed(Diagnostic::warning("missing CFG bytecode ADT field binding"))
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode ADT field binding",
+                        ))
                     })?);
                 }
                 let const_idx =
@@ -688,7 +694,9 @@ impl Compiler {
             // ── Aether reuse expressions ─────────────────────────────────
             IrExpr::DropReuse(var) => {
                 self.load_symbol(bindings.get(var).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning("missing CFG bytecode DropReuse binding"))
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode DropReuse binding",
+                    ))
                 })?);
                 self.emit(OpCode::OpDropReuse, &[]);
                 Ok(())
@@ -789,9 +797,7 @@ impl Compiler {
 
             IrExpr::IsUnique(var) => {
                 self.load_symbol(bindings.get(var).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning(
-                        "missing CFG bytecode IsUnique binding",
-                    ))
+                    Self::boxed(Diagnostic::warning("missing CFG bytecode IsUnique binding"))
                 })?);
                 self.emit(OpCode::OpIsUnique, &[]);
                 Ok(())
@@ -832,9 +838,7 @@ impl Compiler {
             IrExpr::MakeHash(pairs) => {
                 for (k, v) in pairs {
                     self.load_symbol(bindings.get(k).ok_or_else(|| {
-                        Self::boxed(Diagnostic::warning(
-                            "missing CFG bytecode hash key binding",
-                        ))
+                        Self::boxed(Diagnostic::warning("missing CFG bytecode hash key binding"))
                     })?);
                     self.load_symbol(bindings.get(v).ok_or_else(|| {
                         Self::boxed(Diagnostic::warning(
@@ -871,7 +875,9 @@ impl Compiler {
             }
             IrExpr::Index { left, index } => {
                 self.load_symbol(bindings.get(left).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning("missing CFG bytecode index left binding"))
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode index left binding",
+                    ))
                 })?);
                 self.load_symbol(bindings.get(index).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning(
@@ -903,9 +909,7 @@ impl Compiler {
                 for part in parts {
                     match part {
                         crate::cfg::IrStringPart::Literal(s) => {
-                            self.emit_constant_value(Value::String(
-                                std::rc::Rc::new(s.clone()),
-                            ));
+                            self.emit_constant_value(Value::String(std::rc::Rc::new(s.clone())));
                         }
                         crate::cfg::IrStringPart::Interpolation(var) => {
                             self.load_symbol(bindings.get(var).ok_or_else(|| {
@@ -922,17 +926,11 @@ impl Compiler {
                     first = false;
                 }
                 if first {
-                    self.emit_constant_value(Value::String(
-                        std::rc::Rc::new(String::new()),
-                    ));
+                    self.emit_constant_value(Value::String(std::rc::Rc::new(String::new())));
                 }
                 Ok(())
             }
-            IrExpr::MemberAccess {
-                object,
-                member,
-                ..
-            } => {
+            IrExpr::MemberAccess { object, member, .. } => {
                 // Load object, emit member name as string, use OpIndex for runtime access
                 self.load_symbol(bindings.get(object).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning(
@@ -940,9 +938,7 @@ impl Compiler {
                     ))
                 })?);
                 let member_str = self.sym(*member).to_string();
-                self.emit_constant_value(Value::String(
-                    std::rc::Rc::new(member_str),
-                ));
+                self.emit_constant_value(Value::String(std::rc::Rc::new(member_str)));
                 self.emit(OpCode::OpIndex, &[]);
                 Ok(())
             }
@@ -1026,8 +1022,7 @@ impl Compiler {
                 // Try PrimOp emission for named tail calls.
                 if let IrCallTarget::Named(name) = callee {
                     let name_str = self.sym(*name);
-                    if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len())
-                    {
+                    if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
                         for arg in args {
                             self.load_symbol(bindings.get(arg).ok_or_else(|| {
                                 Self::boxed(Diagnostic::warning(
@@ -1035,10 +1030,7 @@ impl Compiler {
                                 ))
                             })?);
                         }
-                        self.emit(
-                            OpCode::OpPrimOp,
-                            &[primop.id() as usize, args.len()],
-                        );
+                        self.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
                         self.emit(OpCode::OpReturnValue, &[]);
                         return Ok(());
                     }
@@ -1153,10 +1145,7 @@ impl Compiler {
                         Self::boxed(Diagnostic::warning("missing CFG call arg binding"))
                     })?);
                 }
-                self.emit(
-                    OpCode::OpPrimOp,
-                    &[primop.id() as usize, args.len()],
-                );
+                self.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
                 return Ok(());
             }
         }

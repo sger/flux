@@ -252,7 +252,9 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
 
 fn check_diagnostics(expr: &CoreExpr, diags: &mut Vec<AetherDiagnostic>) {
     match expr {
-        CoreExpr::Case { scrutinee, alts, .. } => {
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
             check_diagnostics(scrutinee, diags);
             for alt in alts {
                 let destr_tag = pat_constructor_tag(&alt.pat);
@@ -349,7 +351,10 @@ fn field_mask_fits(mask: u64, arity: usize) -> bool {
     }
 }
 
-fn invalid_drop_specialized_uses(expr: &CoreExpr, scrutinee_id: crate::core::CoreBinderId) -> usize {
+fn invalid_drop_specialized_uses(
+    expr: &CoreExpr,
+    scrutinee_id: crate::core::CoreBinderId,
+) -> usize {
     match expr {
         CoreExpr::Var { var, .. } => usize::from(var.binder == Some(scrutinee_id)),
         CoreExpr::Lit(_, _) => 0,
@@ -546,7 +551,10 @@ mod tests {
             span: s(),
         };
         let err = verify_contract(&expr).expect_err("expected invalid reuse tag");
-        assert!(err.iter().any(|e| e.kind == AetherErrorKind::InvalidReuseTag));
+        assert!(
+            err.iter()
+                .any(|e| e.kind == AetherErrorKind::InvalidReuseTag)
+        );
     }
 
     #[test]
@@ -563,7 +571,10 @@ mod tests {
             span: s(),
         };
         let err = verify_contract(&expr).expect_err("expected invalid field mask");
-        assert!(err.iter().any(|e| e.kind == AetherErrorKind::InvalidFieldMask));
+        assert!(
+            err.iter()
+                .any(|e| e.kind == AetherErrorKind::InvalidFieldMask)
+        );
     }
 
     #[test]
@@ -772,7 +783,12 @@ mod tests {
                     }),
                     body: Box::new(CoreExpr::Con {
                         tag: node,
-                        fields: vec![CoreExpr::Lit(CoreLit::Int(0), s()), v(left), v(tmp), v(right)],
+                        fields: vec![
+                            CoreExpr::Lit(CoreLit::Int(0), s()),
+                            v(left),
+                            v(tmp),
+                            v(right),
+                        ],
                         span: s(),
                     }),
                     span: s(),

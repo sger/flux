@@ -101,9 +101,7 @@ impl Compiler {
                     !matches!(
                         left_ty,
                         InferType::App(
-                            TypeConstructor::Array
-                                | TypeConstructor::List
-                                | TypeConstructor::Map,
+                            TypeConstructor::Array | TypeConstructor::List | TypeConstructor::Map,
                             _,
                         ) | InferType::Tuple(_)
                             | InferType::Con(TypeConstructor::String)
@@ -133,9 +131,9 @@ impl Compiler {
                         .is_some_and(|b| self.block_has_index_type_error(b))
             }
             Expression::DoBlock { block, .. } => self.block_has_index_type_error(block),
-            Expression::Match { arms, .. } => {
-                arms.iter().any(|arm| self.expr_has_index_type_error(&arm.body))
-            }
+            Expression::Match { arms, .. } => arms
+                .iter()
+                .any(|arm| self.expr_has_index_type_error(&arm.body)),
             _ => false,
         }
     }
@@ -143,7 +141,11 @@ impl Compiler {
     /// Check if any identifier in the body references a base function with
     /// effects not declared by this function. Catches aliased effectful calls
     /// like `let p = print; p("hi")` in a pure function.
-    fn block_has_effectful_base_ref(&mut self, body: &Block, declared_effects: &[EffectExpr]) -> bool {
+    fn block_has_effectful_base_ref(
+        &mut self,
+        body: &Block,
+        declared_effects: &[EffectExpr],
+    ) -> bool {
         body.statements.iter().any(|s| match s {
             Statement::Let { value, .. }
             | Statement::Expression {
@@ -193,7 +195,9 @@ impl Compiler {
             Expression::DoBlock { block, .. } => {
                 self.block_has_effectful_base_ref(block, declared_effects)
             }
-            Expression::Match { scrutinee, arms, .. } => {
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
                 self.expr_has_effectful_base_ref(scrutinee, declared_effects)
                     || arms
                         .iter()
@@ -255,9 +259,7 @@ impl Compiler {
                 ..
             } => {
                 self.expr_has_prefix_type_error(function)
-                    || arguments
-                        .iter()
-                        .any(|a| self.expr_has_prefix_type_error(a))
+                    || arguments.iter().any(|a| self.expr_has_prefix_type_error(a))
             }
             _ => false,
         }
@@ -307,20 +309,15 @@ impl Compiler {
                 ..
             } => {
                 // Use HM type to check expected arity
-                if let super::hm_expr_typer::HmExprTypeResult::Known(InferType::Fun(
-                    params,
-                    _,
-                    _,
-                )) = self.hm_expr_type_strict_path(function)
+                if let super::hm_expr_typer::HmExprTypeResult::Known(InferType::Fun(params, _, _)) =
+                    self.hm_expr_type_strict_path(function)
                     && params.len() != arguments.len()
                 {
                     return true;
                 }
                 // Recurse into subexpressions
                 self.expr_has_call_arity_error(function)
-                    || arguments
-                        .iter()
-                        .any(|a| self.expr_has_call_arity_error(a))
+                    || arguments.iter().any(|a| self.expr_has_call_arity_error(a))
             }
             Expression::If {
                 condition,
@@ -355,8 +352,7 @@ impl Compiler {
             return true;
         }
         // Check for duplicate let bindings in the same scope (including params)
-        let mut seen: std::collections::HashSet<Symbol> =
-            parameters.iter().copied().collect();
+        let mut seen: std::collections::HashSet<Symbol> = parameters.iter().copied().collect();
         for stmt in &body.statements {
             if let Statement::Let { name, .. } = stmt
                 && !seen.insert(*name)
@@ -387,9 +383,9 @@ impl Compiler {
                         .is_some_and(|b| Self::block_has_semantic_errors(b, &[]))
             }
             Expression::DoBlock { block, .. } => Self::block_has_semantic_errors(block, &[]),
-            Expression::Match { arms, .. } => arms.iter().any(|arm| {
-                Self::expr_has_semantic_errors(&arm.body)
-            }),
+            Expression::Match { arms, .. } => arms
+                .iter()
+                .any(|arm| Self::expr_has_semantic_errors(&arm.body)),
             Expression::Function {
                 body, parameters, ..
             } => Self::block_has_semantic_errors(body, parameters),
@@ -435,14 +431,19 @@ impl Compiler {
                 arguments,
                 ..
             } => {
-                if self.call_has_effect_row_error(function, arguments, declared_effects, param_effect_rows) {
+                if self.call_has_effect_row_error(
+                    function,
+                    arguments,
+                    declared_effects,
+                    param_effect_rows,
+                ) {
                     return true;
                 }
                 // Recurse into subexpressions
                 self.expr_has_effect_row_error(function, declared_effects, param_effect_rows)
-                    || arguments
-                        .iter()
-                        .any(|a| self.expr_has_effect_row_error(a, declared_effects, param_effect_rows))
+                    || arguments.iter().any(|a| {
+                        self.expr_has_effect_row_error(a, declared_effects, param_effect_rows)
+                    })
             }
             Expression::If {
                 condition,
@@ -451,26 +452,29 @@ impl Compiler {
                 ..
             } => {
                 self.expr_has_effect_row_error(condition, declared_effects, param_effect_rows)
-                    || self.block_has_effect_row_error(consequence, declared_effects, param_effect_rows)
-                    || alternative
-                        .as_ref()
-                        .is_some_and(|b| self.block_has_effect_row_error(b, declared_effects, param_effect_rows))
+                    || self.block_has_effect_row_error(
+                        consequence,
+                        declared_effects,
+                        param_effect_rows,
+                    )
+                    || alternative.as_ref().is_some_and(|b| {
+                        self.block_has_effect_row_error(b, declared_effects, param_effect_rows)
+                    })
             }
             Expression::DoBlock { block, .. } => {
                 self.block_has_effect_row_error(block, declared_effects, param_effect_rows)
             }
-            Expression::Match { arms, .. } => arms
-                .iter()
-                .any(|arm| self.expr_has_effect_row_error(&arm.body, declared_effects, param_effect_rows)),
+            Expression::Match { arms, .. } => arms.iter().any(|arm| {
+                self.expr_has_effect_row_error(&arm.body, declared_effects, param_effect_rows)
+            }),
             // Check perform for unknown effects/operations (E404/E405)
             Expression::Perform {
                 effect, operation, ..
             } => {
                 // Check if the effect resolves
-                let resolved_effect = self
-                    .lookup_effect_alias(*effect)
-                    .unwrap_or(*effect);
-                self.effect_op_signature(resolved_effect, *operation).is_none()
+                let resolved_effect = self.lookup_effect_alias(*effect).unwrap_or(*effect);
+                self.effect_op_signature(resolved_effect, *operation)
+                    .is_none()
             }
             // Don't recurse into nested function bodies — they have their own effect context
             _ => false,
@@ -499,7 +503,10 @@ impl Compiler {
             }
         }
 
-        let Some(contract) = self.resolve_call_contract(function, arguments.len()).cloned() else {
+        let Some(contract) = self
+            .resolve_call_contract(function, arguments.len())
+            .cloned()
+        else {
             return false;
         };
 
@@ -584,11 +591,7 @@ impl Compiler {
     /// undefined variables (e.g. `mystery_value`) whose Core IR degenerates to
     /// `()`, making the CFG path compile without error. The AST path must handle
     /// these for proper E004 reporting.
-    fn block_has_undefined_identifier(
-        &mut self,
-        body: &Block,
-        parameters: &[Symbol],
-    ) -> bool {
+    fn block_has_undefined_identifier(&mut self, body: &Block, parameters: &[Symbol]) -> bool {
         let mut local_names: Vec<Symbol> = parameters.to_vec();
         for stmt in &body.statements {
             if let Statement::Let { name, .. } = stmt {
@@ -601,11 +604,7 @@ impl Compiler {
         false
     }
 
-    fn stmt_has_undefined_ident(
-        &mut self,
-        stmt: &Statement,
-        locals: &[Symbol],
-    ) -> bool {
+    fn stmt_has_undefined_ident(&mut self, stmt: &Statement, locals: &[Symbol]) -> bool {
         match stmt {
             Statement::Expression { expression, .. } => {
                 self.expr_has_undefined_ident(expression, locals)
@@ -615,11 +614,7 @@ impl Compiler {
         }
     }
 
-    fn expr_has_undefined_ident(
-        &mut self,
-        expr: &Expression,
-        locals: &[Symbol],
-    ) -> bool {
+    fn expr_has_undefined_ident(&mut self, expr: &Expression, locals: &[Symbol]) -> bool {
         match expr {
             Expression::Identifier { name, .. } => {
                 // Check: local binding, symbol table, or base function
@@ -634,14 +629,23 @@ impl Compiler {
                 ..
             } => {
                 self.expr_has_undefined_ident(condition, locals)
-                    || consequence.statements.iter().any(|s| self.stmt_has_undefined_ident(s, locals))
+                    || consequence
+                        .statements
+                        .iter()
+                        .any(|s| self.stmt_has_undefined_ident(s, locals))
                     || alternative.as_ref().is_some_and(|b| {
-                        b.statements.iter().any(|s| self.stmt_has_undefined_ident(s, locals))
+                        b.statements
+                            .iter()
+                            .any(|s| self.stmt_has_undefined_ident(s, locals))
                     })
             }
-            Expression::Match { scrutinee, arms, .. } => {
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
                 self.expr_has_undefined_ident(scrutinee, locals)
-                    || arms.iter().any(|arm| self.expr_has_undefined_ident(&arm.body, locals))
+                    || arms
+                        .iter()
+                        .any(|arm| self.expr_has_undefined_ident(&arm.body, locals))
             }
             Expression::Call {
                 function,
@@ -649,11 +653,14 @@ impl Compiler {
                 ..
             } => {
                 self.expr_has_undefined_ident(function, locals)
-                    || arguments.iter().any(|a| self.expr_has_undefined_ident(a, locals))
+                    || arguments
+                        .iter()
+                        .any(|a| self.expr_has_undefined_ident(a, locals))
             }
-            Expression::DoBlock { block, .. } => {
-                block.statements.iter().any(|s| self.stmt_has_undefined_ident(s, locals))
-            }
+            Expression::DoBlock { block, .. } => block
+                .statements
+                .iter()
+                .any(|s| self.stmt_has_undefined_ident(s, locals)),
             _ => false,
         }
     }
