@@ -57,14 +57,41 @@ impl ReuseEnv {
 
     pub fn with_alias(&self, binder: CoreBinderId, rhs: &CoreExpr) -> Self {
         let mut next = self.clone();
-        let origin = match rhs {
-            CoreExpr::Var { var, .. } => var
-                .binder
-                .and_then(|binder_id| self.origins.get(&binder_id).cloned())
-                .unwrap_or(ReuseOrigin::Unknown),
-            _ => ReuseOrigin::Unknown,
-        };
+        let origin = self.origin_of_expr(rhs).unwrap_or(ReuseOrigin::Unknown);
         next.origins.insert(binder, origin);
+        next
+    }
+
+    pub fn with_pattern_origin(
+        &self,
+        origin: &ReuseOrigin,
+        pat_binders: Option<&[Option<CoreBinderId>]>,
+        pat_tag: Option<&CoreTag>,
+    ) -> Self {
+        let mut next = self.clone();
+        let (token_binder, tag) = match origin {
+            ReuseOrigin::Scrutinee(token_binder, tag) => (*token_binder, tag.clone()),
+            _ => return next,
+        };
+        let Some(pat_tag) = pat_tag.cloned() else {
+            return next;
+        };
+        if let Some(fields) = pat_binders {
+            for (field_index, binder_id) in fields.iter().enumerate() {
+                if let Some(binder_id) = binder_id {
+                    next.origins.insert(
+                        *binder_id,
+                        ReuseOrigin::Field {
+                            token_binder,
+                            tag: pat_tag.clone(),
+                            field_index,
+                            binder_id: *binder_id,
+                        },
+                    );
+                }
+            }
+        }
+        next.origins.insert(token_binder, ReuseOrigin::Scrutinee(token_binder, tag));
         next
     }
 
@@ -86,19 +113,16 @@ impl ReuseEnv {
         field_index: usize,
         expr: &CoreExpr,
     ) -> bool {
-        let CoreExpr::Var { var, .. } = expr else {
-            return false;
-        };
-        let Some(binder_id) = var.binder else {
+        let Some(origin) = self.origin_of_expr(expr) else {
             return false;
         };
         matches!(
-            self.origins.get(&binder_id),
-            Some(ReuseOrigin::Field {
+            origin,
+            ReuseOrigin::Field {
                 token_binder: origin_token,
                 field_index: origin_index,
                 ..
-            }) if *origin_token == token_binder && *origin_index == field_index
+            } if origin_token == token_binder && origin_index == field_index
         )
     }
 
@@ -127,6 +151,95 @@ impl ReuseEnv {
                 } if *origin_token == token_binder
             )
         })
+    }
+
+    pub fn origin_of_expr(&self, expr: &CoreExpr) -> Option<ReuseOrigin> {
+        match expr {
+            CoreExpr::Var { var, .. } => var
+                .binder
+                .and_then(|binder_id| self.origins.get(&binder_id).cloned()),
+            CoreExpr::Let { var, rhs, body, .. } => {
+                if !is_admin_rhs(rhs) {
+                    return None;
+                }
+                let child = self.with_alias(var.id, rhs);
+                child.origin_of_expr(body)
+            }
+            CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => self.origin_of_expr(body),
+            CoreExpr::Case {
+                scrutinee, alts, ..
+            } => {
+                let scrutinee_origin = self.origin_of_expr(scrutinee);
+                let mut branch_origin: Option<ReuseOrigin> = None;
+                for alt in alts {
+                    if alt.guard.is_some() {
+                        return None;
+                    }
+                    let alt_pat_binders = pat_field_binder_ids(&alt.pat);
+                    let alt_pat_tag = match &alt.pat {
+                        crate::core::CorePat::Con { tag, .. } => Some(tag),
+                        _ => None,
+                    };
+                    let alt_env = scrutinee_origin
+                        .as_ref()
+                        .map(|origin| {
+                            self.with_pattern_origin(
+                                origin,
+                                alt_pat_binders.as_deref(),
+                                alt_pat_tag,
+                            )
+                        })
+                        .unwrap_or_else(|| self.clone());
+                    let alt_origin = alt_env.origin_of_expr(&alt.rhs)?;
+                    match &branch_origin {
+                        None => branch_origin = Some(alt_origin),
+                        Some(existing) if origins_equivalent(existing, &alt_origin) => {}
+                        Some(_) => return None,
+                    }
+                }
+                branch_origin
+            }
+            _ => None,
+        }
+    }
+}
+
+fn origins_equivalent(lhs: &ReuseOrigin, rhs: &ReuseOrigin) -> bool {
+    match (lhs, rhs) {
+        (ReuseOrigin::Scrutinee(lhs_token, lhs_tag), ReuseOrigin::Scrutinee(rhs_token, rhs_tag)) => {
+            lhs_token == rhs_token && lhs_tag == rhs_tag
+        }
+        (
+            ReuseOrigin::Field {
+                token_binder: lhs_token,
+                tag: lhs_tag,
+                field_index: lhs_field,
+                ..
+            },
+            ReuseOrigin::Field {
+                token_binder: rhs_token,
+                tag: rhs_tag,
+                field_index: rhs_field,
+                ..
+            },
+        ) => lhs_token == rhs_token && lhs_tag == rhs_tag && lhs_field == rhs_field,
+        (ReuseOrigin::Unknown, ReuseOrigin::Unknown) => true,
+        _ => false,
+    }
+}
+
+fn pat_field_binder_ids(pat: &crate::core::CorePat) -> Option<Vec<Option<CoreBinderId>>> {
+    match pat {
+        crate::core::CorePat::Con { fields, .. } | crate::core::CorePat::Tuple(fields) => Some(
+            fields
+                .iter()
+                .map(|field| match field {
+                    crate::core::CorePat::Var(binder) => Some(binder.id),
+                    _ => None,
+                })
+                .collect(),
+        ),
+        _ => None,
     }
 }
 
@@ -280,6 +393,7 @@ fn rewrite_drop_body_with_env(
             alts,
             span,
         } => {
+            let scrutinee_origin = env.origin_of_expr(&scrutinee);
             let scrutinee_is_plain_token = match scrutinee.as_ref() {
                 CoreExpr::Var { var, .. } => match var.binder {
                     Some(binder_id) if binder_id == token_binder => true,
@@ -313,6 +427,21 @@ fn rewrite_drop_body_with_env(
             let new_alts = alts
                 .into_iter()
                 .map(|alt| {
+                    let alt_pat_binders = pat_field_binder_ids(&alt.pat);
+                    let alt_pat_tag = match &alt.pat {
+                        crate::core::CorePat::Con { tag, .. } => Some(tag),
+                        _ => None,
+                    };
+                    let alt_env = scrutinee_origin
+                        .as_ref()
+                        .map(|origin| {
+                            env.with_pattern_origin(
+                                origin,
+                                alt_pat_binders.as_deref(),
+                                alt_pat_tag,
+                            )
+                        })
+                        .unwrap_or_else(|| env.clone());
                     if use_counts(&alt.rhs).contains_key(&token_binder) {
                         reasons.push(ReuseFailureReason::BranchAmbiguity);
                         return alt;
@@ -324,7 +453,7 @@ fn rewrite_drop_body_with_env(
                         drop_span,
                         pat_tag,
                         blocked_outer_token,
-                        env,
+                        &alt_env,
                     );
                     if inner.reused {
                         any_reused = true;

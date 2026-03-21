@@ -344,7 +344,7 @@ fn validate_skeleton(
             if uses_binder(scrutinee, scrutinee_id) {
                 return Err(DropSpecFailureReason::UnsupportedBranchShape);
             }
-            let mut all_branches_have_drop = true;
+            let mut any_branch_has_drop = false;
             for alt in alts {
                 if alt
                     .guard
@@ -355,16 +355,16 @@ fn validate_skeleton(
                 }
                 let branch_has_drop =
                     validate_skeleton(&alt.rhs, scrutinee_id, field_binders, state, acc)?;
-                all_branches_have_drop &= branch_has_drop;
+                any_branch_has_drop |= branch_has_drop;
             }
-            Ok(all_branches_have_drop)
+            Ok(any_branch_has_drop)
         }
         CoreExpr::DropSpecialized { .. } => Err(DropSpecFailureReason::AlreadySpecialized),
         other => {
             if uses_binder(other, scrutinee_id) {
                 Err(DropSpecFailureReason::ScrutineeEscapes)
             } else {
-                Err(DropSpecFailureReason::NoScrutineeDrop)
+                Ok(false)
             }
         }
     }
@@ -909,6 +909,85 @@ mod tests {
             CoreExpr::Case { ref alts, .. }
                 if matches!(alts[0].rhs, CoreExpr::DropSpecialized { .. })
         ));
+    }
+
+    #[test]
+    fn specializes_when_only_one_branch_has_scrutinee_drop() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let copy = binder(&mut interner, 2, "copy");
+        let h = binder(&mut interner, 3, "h");
+        let t = binder(&mut interner, 4, "t");
+
+        let rhs = CoreExpr::Case {
+            scrutinee: Box::new(var(copy)),
+            alts: vec![
+                CoreAlt {
+                    pat: CorePat::Lit(CoreLit::Bool(true)),
+                    guard: None,
+                    rhs: CoreExpr::Dup {
+                        var: crate::core::CoreVarRef::resolved(h),
+                        body: Box::new(CoreExpr::Drop {
+                            var: crate::core::CoreVarRef::resolved(xs),
+                            body: Box::new(CoreExpr::Con {
+                                tag: CoreTag::Cons,
+                                fields: vec![var(h), var(t)],
+                                span: Span::default(),
+                            }),
+                            span: Span::default(),
+                        }),
+                        span: Span::default(),
+                    },
+                    span: Span::default(),
+                },
+                CoreAlt {
+                    pat: CorePat::Wildcard,
+                    guard: None,
+                    rhs: CoreExpr::Con {
+                        tag: CoreTag::Cons,
+                        fields: vec![var(h), var(t)],
+                        span: Span::default(),
+                    },
+                    span: Span::default(),
+                },
+            ],
+            span: Span::default(),
+        };
+        let expr = CoreExpr::Case {
+            scrutinee: Box::new(var(xs)),
+            alts: vec![CoreAlt {
+                pat: CorePat::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![CorePat::Var(h), CorePat::Var(t)],
+                },
+                guard: None,
+                rhs,
+                span: Span::default(),
+            }],
+            span: Span::default(),
+        };
+
+        let specialized = specialize_drops(expr);
+        match specialized {
+            CoreExpr::Case { alts, .. } => match &alts[0].rhs {
+                CoreExpr::DropSpecialized {
+                    unique_body,
+                    shared_body,
+                    ..
+                } => {
+                    let unique_drops = count_matching(unique_body, &|expr| {
+                        matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(xs.id))
+                    });
+                    let shared_drops = count_matching(shared_body, &|expr| {
+                        matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(xs.id))
+                    });
+                    assert_eq!(unique_drops, 0);
+                    assert_eq!(shared_drops, 0);
+                }
+                other => panic!("expected DropSpecialized, got {other:?}"),
+            },
+            other => panic!("expected case, got {other:?}"),
+        }
     }
 
     #[test]

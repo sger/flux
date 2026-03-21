@@ -559,6 +559,124 @@ mod tests {
     }
 
     #[test]
+    fn branch_local_alias_join_recovers_exact_mask() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let flag = binder(2, interner.intern("flag"));
+        let h = binder(3, interner.intern("h"));
+        let t = binder(4, interner.intern("t"));
+        let tail = binder(5, interner.intern("tail"));
+
+        let expr = CoreExpr::Case {
+            scrutinee: Box::new(v(xs)),
+            alts: vec![CoreAlt {
+                pat: CorePat::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![CorePat::Var(h), CorePat::Var(t)],
+                },
+                guard: None,
+                rhs: CoreExpr::Let {
+                    var: tail,
+                    rhs: Box::new(CoreExpr::Case {
+                        scrutinee: Box::new(v(flag)),
+                        alts: vec![
+                            CoreAlt {
+                                pat: CorePat::Lit(crate::core::CoreLit::Bool(true)),
+                                guard: None,
+                                rhs: v(t),
+                                span: s(),
+                            },
+                            CoreAlt {
+                                pat: CorePat::Wildcard,
+                                guard: None,
+                                rhs: v(t),
+                                span: s(),
+                            },
+                        ],
+                        span: s(),
+                    }),
+                    body: Box::new(CoreExpr::Reuse {
+                        token: CoreVarRef::resolved(xs),
+                        tag: CoreTag::Cons,
+                        fields: vec![v(h), v(tail)],
+                        field_mask: None,
+                        span: s(),
+                    }),
+                    span: s(),
+                },
+                span: s(),
+            }],
+            span: s(),
+        };
+
+        let specialized = specialize_reuse(expr);
+        let field_mask = match specialized {
+            CoreExpr::Case { alts, .. } => expect_mask(alts[0].rhs.clone()),
+            _ => panic!("expected case"),
+        };
+        assert_eq!(field_mask, Some(0));
+    }
+
+    #[test]
+    fn ambiguous_branch_alias_join_stays_plain() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let flag = binder(2, interner.intern("flag"));
+        let h = binder(3, interner.intern("h"));
+        let t = binder(4, interner.intern("t"));
+        let tail = binder(5, interner.intern("tail"));
+
+        let expr = CoreExpr::Case {
+            scrutinee: Box::new(v(xs)),
+            alts: vec![CoreAlt {
+                pat: CorePat::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![CorePat::Var(h), CorePat::Var(t)],
+                },
+                guard: None,
+                rhs: CoreExpr::Let {
+                    var: tail,
+                    rhs: Box::new(CoreExpr::Case {
+                        scrutinee: Box::new(v(flag)),
+                        alts: vec![
+                            CoreAlt {
+                                pat: CorePat::Lit(crate::core::CoreLit::Bool(true)),
+                                guard: None,
+                                rhs: v(t),
+                                span: s(),
+                            },
+                            CoreAlt {
+                                pat: CorePat::Wildcard,
+                                guard: None,
+                                rhs: v(h),
+                                span: s(),
+                            },
+                        ],
+                        span: s(),
+                    }),
+                    body: Box::new(CoreExpr::Reuse {
+                        token: CoreVarRef::resolved(xs),
+                        tag: CoreTag::Cons,
+                        fields: vec![CoreExpr::Lit(crate::core::CoreLit::Int(0), s()), v(tail)],
+                        field_mask: None,
+                        span: s(),
+                    }),
+                    span: s(),
+                },
+                span: s(),
+            }],
+            span: s(),
+        };
+
+        let specialized = specialize_reuse(expr);
+        let field_mask = match specialized {
+            CoreExpr::Case { alts, .. } => expect_mask(alts[0].rhs.clone()),
+            _ => panic!("expected case"),
+        };
+        assert_eq!(field_mask, None);
+    }
+
+    #[test]
     fn unique_drop_spec_reuse_can_still_be_specialized() {
         let mut interner = Interner::new();
         let xs = binder(1, interner.intern("xs"));

@@ -230,6 +230,23 @@ fn reuse_named_adt_alias_spine_emits_reuse() {
 }
 
 #[test]
+fn maintained_reuse_alias_spines_fixture_emits_masked_reuse() {
+    let src =
+        std::fs::read_to_string("examples/aether/reuse_alias_spines.flx").expect("fixture should exist");
+    let core = lowered_core(&src);
+    let masked = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .filter(|expr| matches!(expr, CoreExpr::Reuse { field_mask: Some(_), .. }))
+        .count();
+    assert!(
+        masked >= 2,
+        "expected maintained alias-spine fixture to emit exact masked reuse sites"
+    );
+}
+
+#[test]
 fn reuse_branchy_filter_emits_reuse() {
     let src = r#"
 fn my_filter(xs, f) {
@@ -252,6 +269,39 @@ fn reuse_specialization_profitable_case_is_masked() {
         expr,
         CoreExpr::Reuse { tag: flux::core::CoreTag::Named(_), field_mask: Some(_), .. }
     )));
+}
+
+#[test]
+fn maintained_drop_spec_branchy_fixture_emits_reuse_inside_drop_specialized() {
+    let src =
+        std::fs::read_to_string("examples/aether/drop_spec_branchy.flx").expect("fixture should exist");
+    let core = lowered_core(&src);
+    let found = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .any(|expr| match expr {
+            CoreExpr::DropSpecialized {
+                unique_body,
+                shared_body,
+                ..
+            } => {
+                let unique_reuses = collect_core_exprs(unique_body)
+                    .into_iter()
+                    .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
+                    .count();
+                let shared_reuses = collect_core_exprs(shared_body)
+                    .into_iter()
+                    .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
+                    .count();
+                unique_reuses >= 1 && shared_reuses == 0
+            }
+            _ => false,
+        });
+    assert!(
+        found,
+        "expected maintained drop-spec fixture to preserve unique-path-only outer-token reuse"
+    );
 }
 
 #[test]
