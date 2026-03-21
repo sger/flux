@@ -41,10 +41,12 @@ use crate::syntax::interner::Interner;
 /// 5. `elim_dead_let`            — drop unused pure bindings left over
 /// 6. `evidence_pass`            — rewrite TR Handle/Perform into evidence passing
 /// 7. `anf_normalize`            — flatten nested subexpressions into let-chains
+#[allow(clippy::result_large_err)]
 pub fn run_core_passes(program: &mut CoreProgram) -> Result<(), Diagnostic> {
     run_core_passes_with_optional_interner(program, None).map(|_| ())
 }
 
+#[allow(clippy::result_large_err)]
 pub fn run_core_passes_with_interner(
     program: &mut CoreProgram,
     interner: &Interner,
@@ -52,6 +54,7 @@ pub fn run_core_passes_with_interner(
     run_core_passes_with_interner_and_warnings(program, interner).map(|_| ())
 }
 
+#[allow(clippy::result_large_err)]
 pub fn run_core_passes_with_interner_and_warnings(
     program: &mut CoreProgram,
     interner: &Interner,
@@ -59,6 +62,7 @@ pub fn run_core_passes_with_interner_and_warnings(
     run_core_passes_with_optional_interner(program, Some(interner))
 }
 
+#[allow(clippy::result_large_err)]
 fn run_core_passes_with_optional_interner(
     program: &mut CoreProgram,
     interner: Option<&Interner>,
@@ -206,6 +210,7 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn verify_aether_contract_stage(
     def: &crate::core::CoreDef,
     expr: &CoreExpr,

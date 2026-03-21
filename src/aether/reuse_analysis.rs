@@ -668,7 +668,9 @@ fn rewrite_drop_body_with_env(
                 } else {
                     no_rewrite(
                         other,
-                        forwarded.reason.unwrap_or(ReuseFailureReason::ShapeMismatch),
+                        forwarded
+                            .reason
+                            .unwrap_or(ReuseFailureReason::ShapeMismatch),
                     )
                 }
             }
@@ -2032,10 +2034,16 @@ mod tests {
             None,
         );
 
-        assert!(!rewritten.reused, "multiple forwarded-child candidates must stay fresh");
+        assert!(
+            !rewritten.reused,
+            "multiple forwarded-child candidates must stay fresh"
+        );
         assert_eq!(rewritten.reason, Some(ReuseFailureReason::BranchAmbiguity));
         let mut reuses = Vec::new();
         collect_reuses(&rewritten.expr, &mut reuses);
-        assert!(reuses.is_empty(), "negative twin should not synthesize Reuse");
+        assert!(
+            reuses.is_empty(),
+            "negative twin should not synthesize Reuse"
+        );
     }
 }

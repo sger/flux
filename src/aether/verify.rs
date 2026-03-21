@@ -384,7 +384,13 @@ fn invalid_drop_specialized_uses(
                             + alt
                                 .guard
                                 .as_ref()
-                                .map(|g| invalid_drop_specialized_uses(g, scrutinee_id, count_reuse_token))
+                                .map(|g| {
+                                    invalid_drop_specialized_uses(
+                                        g,
+                                        scrutinee_id,
+                                        count_reuse_token,
+                                    )
+                                })
                                 .unwrap_or(0)
                     })
                     .sum::<usize>()
@@ -401,7 +407,9 @@ fn invalid_drop_specialized_uses(
             invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
                 + handlers
                     .iter()
-                    .map(|h| invalid_drop_specialized_uses(&h.body, scrutinee_id, count_reuse_token))
+                    .map(|h| {
+                        invalid_drop_specialized_uses(&h.body, scrutinee_id, count_reuse_token)
+                    })
                     .sum::<usize>()
         }
         CoreExpr::Dup { var, body, .. } => {
@@ -413,12 +421,13 @@ fn invalid_drop_specialized_uses(
                 + invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
         }
         CoreExpr::Reuse { token, fields, .. } => {
-            let token_uses =
-                usize::from(count_reuse_token && token.binder == Some(scrutinee_id));
+            let token_uses = usize::from(count_reuse_token && token.binder == Some(scrutinee_id));
             token_uses
                 + fields
                     .iter()
-                    .map(|field| invalid_drop_specialized_uses(field, scrutinee_id, count_reuse_token))
+                    .map(|field| {
+                        invalid_drop_specialized_uses(field, scrutinee_id, count_reuse_token)
+                    })
                     .sum::<usize>()
         }
         CoreExpr::DropSpecialized {
