@@ -1,0 +1,43 @@
+---
+source: tests/aether_cli_snapshots.rs
+---
+Aether Memory Model Report
+==========================
+
+── fn touch_token ──
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λtoken, value.
+  drop token
+  value
+── fn fresh_tree ──
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+λt.
+  case t of
+    Node(_, left, _, right) →
+      reuse t Node(Black, left, 0, right) @mask=0b101
+    _ →
+      aether_call[owned, owned, owned, owned] Node(Black, Leaf, 0, Leaf)
+── fn main ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ.
+  let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
+  aether_call[borrowed] blocked_list(%t3))
+  aether_call[borrowed] print(%t2))
+  drop %t1
+  let %t4 = (let %t5 = (let %t6 = MakeList(1, 2, 3)
+  aether_call[borrowed] borrowed_len(%t6))
+  aether_call[borrowed] print(%t5))
+  drop %t4
+  let %t7 = (let %t8 = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
+  aether_call[borrowed] fresh_tree(%t8))
+  aether_call[borrowed] print(%t7)
+
+── Total ──
+  Dups: 0  Drops: 3  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
