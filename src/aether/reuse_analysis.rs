@@ -25,6 +25,18 @@ pub enum ReuseOrigin {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForwardedFieldOrigin {
     Exact(Box<ReuseOrigin>),
+    Ambiguous,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExprProvenance {
+    Exact(ReuseOrigin),
+    Forwarded {
+        tag: CoreTag,
+        fields: Vec<ForwardedFieldOrigin>,
+    },
+    Ambiguous,
     Unknown,
 }
 
@@ -70,7 +82,10 @@ impl ReuseEnv {
 
     pub fn with_alias(&self, binder: CoreBinderId, rhs: &CoreExpr) -> Self {
         let mut next = self.clone();
-        let origin = self.origin_of_expr(rhs).unwrap_or(ReuseOrigin::Unknown);
+        let origin = self
+            .provenance_of_expr(rhs)
+            .into_exact_origin()
+            .unwrap_or(ReuseOrigin::Unknown);
         next.origins.insert(binder, origin);
         next.aliases.insert(binder, rhs.clone());
         next
@@ -214,66 +229,76 @@ impl ReuseEnv {
     }
 
     pub fn origin_of_expr(&self, expr: &CoreExpr) -> Option<ReuseOrigin> {
+        self.provenance_of_expr(expr).into_exact_origin()
+    }
+
+    pub fn provenance_of_expr(&self, expr: &CoreExpr) -> ExprProvenance {
         match expr {
             CoreExpr::Var { var, .. } => var
                 .binder
-                .and_then(|binder_id| self.origins.get(&binder_id).cloned()),
+                .and_then(|binder_id| self.origins.get(&binder_id).cloned())
+                .map(ExprProvenance::Exact)
+                .unwrap_or(ExprProvenance::Unknown),
             CoreExpr::Con { tag, fields, .. } => {
                 let field_origins = fields
                     .iter()
                     .map(|field| {
-                        self.origin_of_expr(field)
-                            .map(ForwardedFieldOrigin::from_origin)
-                            .unwrap_or(ForwardedFieldOrigin::Unknown)
+                        ForwardedFieldOrigin::from_provenance(self.provenance_of_expr(field))
                     })
                     .collect::<Vec<_>>();
-                if !field_origins.iter().any(|field| field.exact().is_some()) {
-                    return None;
+                if !field_origins
+                    .iter()
+                    .any(|field| !matches!(field, ForwardedFieldOrigin::Unknown))
+                {
+                    return ExprProvenance::Unknown;
                 }
                 if has_duplicate_exact_origins(&field_origins) {
-                    return None;
+                    return ExprProvenance::Ambiguous;
                 }
-                Some(ReuseOrigin::Forwarded {
+                ExprProvenance::Forwarded {
                     tag: tag.clone(),
                     fields: field_origins,
-                })
+                }
             }
             CoreExpr::Reuse { tag, fields, .. } => {
                 let field_origins = fields
                     .iter()
                     .map(|field| {
-                        self.origin_of_expr(field)
-                            .map(ForwardedFieldOrigin::from_origin)
-                            .unwrap_or(ForwardedFieldOrigin::Unknown)
+                        ForwardedFieldOrigin::from_provenance(self.provenance_of_expr(field))
                     })
                     .collect::<Vec<_>>();
-                if !field_origins.iter().any(|field| field.exact().is_some()) {
-                    return None;
+                if !field_origins
+                    .iter()
+                    .any(|field| !matches!(field, ForwardedFieldOrigin::Unknown))
+                {
+                    return ExprProvenance::Unknown;
                 }
                 if has_duplicate_exact_origins(&field_origins) {
-                    return None;
+                    return ExprProvenance::Ambiguous;
                 }
-                Some(ReuseOrigin::Forwarded {
+                ExprProvenance::Forwarded {
                     tag: tag.clone(),
                     fields: field_origins,
-                })
+                }
             }
             CoreExpr::Let { var, rhs, body, .. } => {
                 if !is_alias_preserving_rhs(rhs) {
-                    return None;
+                    return ExprProvenance::Unknown;
                 }
                 let child = self.with_alias(var.id, rhs);
-                child.origin_of_expr(body)
+                child.provenance_of_expr(body)
             }
-            CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => self.origin_of_expr(body),
+            CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
+                self.provenance_of_expr(body)
+            }
             CoreExpr::Case {
                 scrutinee, alts, ..
             } => {
                 let scrutinee_origin = self.origin_of_expr(scrutinee);
-                let mut branch_origin: Option<ReuseOrigin> = None;
+                let mut branch_origin: Option<ExprProvenance> = None;
                 for alt in alts {
                     if alt.guard.is_some() {
-                        return None;
+                        return ExprProvenance::Ambiguous;
                     }
                     let alt_pat_binders = pat_field_binder_ids(&alt.pat);
                     let alt_pat_tag = match &alt.pat {
@@ -290,17 +315,138 @@ impl ReuseEnv {
                             )
                         })
                         .unwrap_or_else(|| self.clone());
-                    let alt_origin = alt_env.origin_of_expr(&alt.rhs)?;
+                    let alt_origin = alt_env.provenance_of_expr(&alt.rhs);
                     match &branch_origin {
                         None => branch_origin = Some(alt_origin),
-                        Some(existing) if origins_equivalent(existing, &alt_origin) => {}
-                        Some(_) => return None,
+                        Some(existing) => {
+                            let joined = join_expr_provenance(existing, &alt_origin);
+                            branch_origin = Some(joined);
+                        }
                     }
                 }
-                branch_origin
+                branch_origin.unwrap_or(ExprProvenance::Unknown)
             }
-            _ => None,
+            _ => ExprProvenance::Unknown,
         }
+    }
+}
+
+impl ExprProvenance {
+    fn into_exact_origin(self) -> Option<ReuseOrigin> {
+        match self {
+            ExprProvenance::Exact(origin) => Some(origin),
+            ExprProvenance::Forwarded { tag, fields } => {
+                let mut exact_fields = Vec::with_capacity(fields.len());
+                for field in fields {
+                    exact_fields.push(ForwardedFieldOrigin::into_exact_origin(field)?);
+                }
+                Some(ReuseOrigin::Forwarded {
+                    tag,
+                    fields: exact_fields
+                        .into_iter()
+                        .map(ForwardedFieldOrigin::from_origin)
+                        .collect(),
+                })
+            }
+            ExprProvenance::Ambiguous | ExprProvenance::Unknown => None,
+        }
+    }
+}
+
+fn join_expr_provenance(lhs: &ExprProvenance, rhs: &ExprProvenance) -> ExprProvenance {
+    match (lhs, rhs) {
+        (ExprProvenance::Unknown, ExprProvenance::Unknown) => ExprProvenance::Unknown,
+        (ExprProvenance::Ambiguous, _) | (_, ExprProvenance::Ambiguous) => {
+            ExprProvenance::Ambiguous
+        }
+        (ExprProvenance::Exact(lhs_origin), ExprProvenance::Exact(rhs_origin)) => {
+            join_exact_origins(lhs_origin, rhs_origin)
+        }
+        (
+            ExprProvenance::Forwarded {
+                tag: lhs_tag,
+                fields: lhs_fields,
+            },
+            ExprProvenance::Forwarded {
+                tag: rhs_tag,
+                fields: rhs_fields,
+            },
+        ) => join_forwarded_shapes(lhs_tag, lhs_fields, rhs_tag, rhs_fields),
+        (ExprProvenance::Exact(lhs_origin), ExprProvenance::Forwarded { tag, fields })
+        | (ExprProvenance::Forwarded { tag, fields }, ExprProvenance::Exact(lhs_origin)) => {
+            match lhs_origin {
+                ReuseOrigin::Forwarded {
+                    tag: lhs_tag,
+                    fields: lhs_fields,
+                } => join_forwarded_shapes(lhs_tag, lhs_fields, tag, fields),
+                _ => ExprProvenance::Ambiguous,
+            }
+        }
+        _ => ExprProvenance::Ambiguous,
+    }
+}
+
+fn join_exact_origins(lhs: &ReuseOrigin, rhs: &ReuseOrigin) -> ExprProvenance {
+    if origins_equivalent(lhs, rhs) {
+        ExprProvenance::Exact(lhs.clone())
+    } else {
+        match (lhs, rhs) {
+            (
+                ReuseOrigin::Forwarded {
+                    tag: lhs_tag,
+                    fields: lhs_fields,
+                },
+                ReuseOrigin::Forwarded {
+                    tag: rhs_tag,
+                    fields: rhs_fields,
+                },
+            ) => join_forwarded_shapes(lhs_tag, lhs_fields, rhs_tag, rhs_fields),
+            _ => ExprProvenance::Ambiguous,
+        }
+    }
+}
+
+fn join_forwarded_shapes(
+    lhs_tag: &CoreTag,
+    lhs_fields: &[ForwardedFieldOrigin],
+    rhs_tag: &CoreTag,
+    rhs_fields: &[ForwardedFieldOrigin],
+) -> ExprProvenance {
+    if lhs_tag != rhs_tag || lhs_fields.len() != rhs_fields.len() {
+        return ExprProvenance::Ambiguous;
+    }
+    ExprProvenance::Forwarded {
+        tag: lhs_tag.clone(),
+        fields: lhs_fields
+            .iter()
+            .zip(rhs_fields.iter())
+            .map(|(lhs, rhs)| join_forwarded_field_origin(lhs, rhs))
+            .collect(),
+    }
+}
+
+fn join_forwarded_field_origin(
+    lhs: &ForwardedFieldOrigin,
+    rhs: &ForwardedFieldOrigin,
+) -> ForwardedFieldOrigin {
+    match (lhs, rhs) {
+        (ForwardedFieldOrigin::Unknown, ForwardedFieldOrigin::Unknown) => {
+            ForwardedFieldOrigin::Unknown
+        }
+        (ForwardedFieldOrigin::Ambiguous, _) | (_, ForwardedFieldOrigin::Ambiguous) => {
+            ForwardedFieldOrigin::Ambiguous
+        }
+        (ForwardedFieldOrigin::Exact(lhs), ForwardedFieldOrigin::Exact(rhs)) => {
+            match join_exact_origins(lhs, rhs) {
+                ExprProvenance::Exact(origin) => ForwardedFieldOrigin::Exact(Box::new(origin)),
+                ExprProvenance::Forwarded { tag, fields } => {
+                    ForwardedFieldOrigin::Exact(Box::new(ReuseOrigin::Forwarded { tag, fields }))
+                }
+                ExprProvenance::Ambiguous => ForwardedFieldOrigin::Ambiguous,
+                ExprProvenance::Unknown => ForwardedFieldOrigin::Unknown,
+            }
+        }
+        _ => ForwardedFieldOrigin::Ambiguous,
     }
 }
 
@@ -530,6 +676,22 @@ fn rewrite_drop_body_with_env(
                     inner.reason.unwrap_or(ReuseFailureReason::ProvenanceLost),
                 )
             }
+        }
+        CoreExpr::Var { var, .. } => {
+            if let Some(alias) = var
+                .binder
+                .and_then(|binder_id| env.aliases.get(&binder_id).cloned())
+            {
+                return rewrite_drop_body_with_env(
+                    token,
+                    alias,
+                    drop_span,
+                    pat_tag,
+                    blocked_outer_token,
+                    env,
+                );
+            }
+            no_rewrite(body, ReuseFailureReason::ShapeMismatch)
         }
         CoreExpr::LetRec {
             var,
@@ -1084,6 +1246,21 @@ fn rewrite_forwarded_wrapper_body(
     };
 
     match expr {
+        CoreExpr::Var { var, .. } => {
+            if let Some(alias) = var
+                .binder
+                .and_then(|binder_id| env.aliases.get(&binder_id).cloned())
+            {
+                return rewrite_forwarded_wrapper_body(
+                    outer_token,
+                    alias,
+                    pat_tag,
+                    env,
+                    blocked_outer_token,
+                );
+            }
+            no_rewrite(expr, ReuseFailureReason::ShapeMismatch)
+        }
         CoreExpr::Let {
             var,
             rhs,
@@ -1143,6 +1320,75 @@ fn rewrite_forwarded_wrapper_body(
                     body_inner
                         .reason
                         .unwrap_or(ReuseFailureReason::ShapeMismatch),
+                )
+            }
+        }
+        CoreExpr::Case {
+            scrutinee,
+            alts,
+            span,
+        } => {
+            let scrutinee_origin = env.origin_of_expr(&scrutinee);
+            let mut any_reused = false;
+            let mut reasons = Vec::new();
+            let alts = alts
+                .into_iter()
+                .map(|alt| {
+                    let alt_pat_binders = pat_field_binder_ids(&alt.pat);
+                    let alt_pat_tag = match &alt.pat {
+                        crate::core::CorePat::Con { tag, .. } => Some(tag),
+                        _ => None,
+                    };
+                    let alt_env = scrutinee_origin
+                        .as_ref()
+                        .map(|origin| {
+                            env.with_pattern_origin(origin, alt_pat_binders.as_deref(), alt_pat_tag)
+                        })
+                        .unwrap_or_else(|| env.clone());
+                    if alt
+                        .guard
+                        .as_ref()
+                        .is_some_and(|guard| token_appears_in_expr(outer_token_binder, guard))
+                    {
+                        reasons.push(ReuseFailureReason::BranchAmbiguity);
+                        return alt;
+                    }
+                    let inner = rewrite_forwarded_wrapper_body(
+                        outer_token,
+                        alt.rhs,
+                        pat_tag,
+                        &alt_env,
+                        blocked_outer_token,
+                    );
+                    if inner.reused {
+                        any_reused = true;
+                    } else if let Some(reason) = inner.reason {
+                        reasons.push(reason);
+                    }
+                    CoreAlt {
+                        rhs: inner.expr,
+                        ..alt
+                    }
+                })
+                .collect();
+            if any_reused {
+                ReuseRewrite {
+                    expr: CoreExpr::Case {
+                        scrutinee,
+                        alts,
+                        span,
+                    },
+                    reused: true,
+                    reason: None,
+                }
+            } else {
+                no_rewrite(
+                    CoreExpr::Case {
+                        scrutinee,
+                        alts,
+                        span,
+                    },
+                    choose_reason(&reasons),
                 )
             }
         }
@@ -1360,6 +1606,17 @@ fn origin_tag(origin: &ReuseOrigin) -> Option<CoreTag> {
 }
 
 impl ForwardedFieldOrigin {
+    fn from_provenance(provenance: ExprProvenance) -> Self {
+        match provenance {
+            ExprProvenance::Exact(origin) => ForwardedFieldOrigin::Exact(Box::new(origin)),
+            ExprProvenance::Forwarded { tag, fields } => {
+                ForwardedFieldOrigin::Exact(Box::new(ReuseOrigin::Forwarded { tag, fields }))
+            }
+            ExprProvenance::Ambiguous => ForwardedFieldOrigin::Ambiguous,
+            ExprProvenance::Unknown => ForwardedFieldOrigin::Unknown,
+        }
+    }
+
     fn from_origin(origin: ReuseOrigin) -> Self {
         match origin {
             ReuseOrigin::Unknown => ForwardedFieldOrigin::Unknown,
@@ -1370,7 +1627,15 @@ impl ForwardedFieldOrigin {
     fn exact(&self) -> Option<&ReuseOrigin> {
         match self {
             ForwardedFieldOrigin::Exact(origin) => Some(origin.as_ref()),
-            ForwardedFieldOrigin::Unknown => None,
+            ForwardedFieldOrigin::Ambiguous | ForwardedFieldOrigin::Unknown => None,
+        }
+    }
+
+    fn into_exact_origin(self) -> Option<ReuseOrigin> {
+        match self {
+            ForwardedFieldOrigin::Exact(origin) => Some(*origin),
+            ForwardedFieldOrigin::Unknown => Some(ReuseOrigin::Unknown),
+            ForwardedFieldOrigin::Ambiguous => None,
         }
     }
 }
@@ -2045,5 +2310,220 @@ mod tests {
             reuses.is_empty(),
             "negative twin should not synthesize Reuse"
         );
+    }
+
+    #[test]
+    fn case_provenance_joins_exact_forwarded_shape() {
+        let mut interner = Interner::new();
+        let pair2 = interner.intern("Pair2");
+        let flag = binder(1, interner.intern("flag"));
+        let xs = binder(2, interner.intern("xs"));
+        let acc = binder(3, interner.intern("acc"));
+        let tmp = binder(4, interner.intern("tmp"));
+
+        let pair = binder(5, interner.intern("pair"));
+        let pair_pat = vec![Some(xs.id), Some(acc.id)];
+        let env = super::ReuseEnv::seed(
+            &CoreVarRef::resolved(pair),
+            Some(&pair_pat),
+            Some(&CoreTag::Named(pair2)),
+        );
+
+        let joined = env.provenance_of_expr(&CoreExpr::Case {
+            scrutinee: Box::new(v(flag)),
+            alts: vec![
+                crate::core::CoreAlt {
+                    pat: crate::core::CorePat::Lit(crate::core::CoreLit::Bool(true)),
+                    guard: None,
+                    rhs: CoreExpr::Con {
+                        tag: CoreTag::Cons,
+                        fields: vec![v(xs), v(acc)],
+                        span: s(),
+                    },
+                    span: s(),
+                },
+                crate::core::CoreAlt {
+                    pat: crate::core::CorePat::Wildcard,
+                    guard: None,
+                    rhs: CoreExpr::Let {
+                        var: tmp,
+                        rhs: Box::new(v(acc)),
+                        body: Box::new(CoreExpr::Con {
+                            tag: CoreTag::Cons,
+                            fields: vec![v(xs), v(tmp)],
+                            span: s(),
+                        }),
+                        span: s(),
+                    },
+                    span: s(),
+                },
+            ],
+            span: s(),
+        });
+
+        match joined {
+            super::ExprProvenance::Forwarded { tag, fields } => {
+                assert_eq!(tag, CoreTag::Cons);
+                assert_eq!(fields.len(), 2);
+                assert!(fields[0].exact().is_some());
+                assert!(fields[1].exact().is_some());
+            }
+            other => panic!("expected exact joined forwarded shape, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn alias_to_case_result_rewrites_each_branch_to_reuse() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let h = binder(2, interner.intern("h"));
+        let t = binder(3, interner.intern("t"));
+        let flag = binder(4, interner.intern("flag"));
+        let out = binder(5, interner.intern("out"));
+        let saved = binder(6, interner.intern("saved"));
+
+        let pat_binders = vec![Some(h.id), Some(t.id)];
+        let body = CoreExpr::Let {
+            var: out,
+            rhs: Box::new(CoreExpr::Case {
+                scrutinee: Box::new(v(flag)),
+                alts: vec![
+                    crate::core::CoreAlt {
+                        pat: crate::core::CorePat::Lit(crate::core::CoreLit::Bool(true)),
+                        guard: None,
+                        rhs: CoreExpr::Con {
+                            tag: CoreTag::Cons,
+                            fields: vec![v(h), v(t)],
+                            span: s(),
+                        },
+                        span: s(),
+                    },
+                    crate::core::CoreAlt {
+                        pat: crate::core::CorePat::Wildcard,
+                        guard: None,
+                        rhs: CoreExpr::Let {
+                            var: saved,
+                            rhs: Box::new(v(t)),
+                            body: Box::new(CoreExpr::Con {
+                                tag: CoreTag::Cons,
+                                fields: vec![v(h), v(saved)],
+                                span: s(),
+                            }),
+                            span: s(),
+                        },
+                        span: s(),
+                    },
+                ],
+                span: s(),
+            }),
+            body: Box::new(v(out)),
+            span: s(),
+        };
+
+        let rewritten = rewrite_drop_body(
+            &CoreVarRef::resolved(xs),
+            body,
+            s(),
+            Some(&pat_binders),
+            Some(&CoreTag::Cons),
+            None,
+        );
+
+        assert!(
+            rewritten.reused,
+            "alias-preserving case result should be reusable"
+        );
+        match rewritten.expr {
+            CoreExpr::Let { body, .. } => match *body {
+                CoreExpr::Case { alts, .. } => {
+                    assert_eq!(alts.len(), 2);
+                    assert!(alts.iter().all(|alt| match &alt.rhs {
+                        CoreExpr::Reuse {
+                            tag: CoreTag::Cons, ..
+                        } => true,
+                        CoreExpr::Let { body, .. } => matches!(
+                            body.as_ref(),
+                            CoreExpr::Reuse {
+                                tag: CoreTag::Cons,
+                                ..
+                            }
+                        ),
+                        _ => false,
+                    }));
+                }
+                other => panic!("expected case body under preserved let, got {other:?}"),
+            },
+            other => panic!("expected let spine to be preserved, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn forwarded_wrapper_case_branches_can_rewrite_child_reuse() {
+        let mut interner = Interner::new();
+        let pair2 = interner.intern("Pair2");
+        let xs = binder(1, interner.intern("xs"));
+        let y = binder(2, interner.intern("y"));
+        let ys = binder(3, interner.intern("ys"));
+        let acc = binder(4, interner.intern("acc"));
+        let flag = binder(5, interner.intern("flag"));
+
+        let pat_binders = vec![Some(y.id), Some(ys.id)];
+        let body = CoreExpr::Case {
+            scrutinee: Box::new(v(flag)),
+            alts: vec![
+                crate::core::CoreAlt {
+                    pat: crate::core::CorePat::Lit(crate::core::CoreLit::Bool(true)),
+                    guard: None,
+                    rhs: CoreExpr::Con {
+                        tag: CoreTag::Named(pair2),
+                        fields: vec![
+                            CoreExpr::Con {
+                                tag: CoreTag::Cons,
+                                fields: vec![v(y), v(acc)],
+                                span: s(),
+                            },
+                            v(ys),
+                        ],
+                        span: s(),
+                    },
+                    span: s(),
+                },
+                crate::core::CoreAlt {
+                    pat: crate::core::CorePat::Wildcard,
+                    guard: None,
+                    rhs: CoreExpr::Con {
+                        tag: CoreTag::Named(pair2),
+                        fields: vec![
+                            CoreExpr::Con {
+                                tag: CoreTag::Cons,
+                                fields: vec![v(y), v(acc)],
+                                span: s(),
+                            },
+                            v(ys),
+                        ],
+                        span: s(),
+                    },
+                    span: s(),
+                },
+            ],
+            span: s(),
+        };
+
+        let rewritten = rewrite_drop_body(
+            &CoreVarRef::resolved(xs),
+            body,
+            s(),
+            Some(&pat_binders),
+            Some(&CoreTag::Cons),
+            None,
+        );
+
+        assert!(
+            rewritten.reused,
+            "forwarded wrapper case should preserve inner child reuse"
+        );
+        let mut reuses = Vec::new();
+        collect_reuses(&rewritten.expr, &mut reuses);
+        assert_eq!(reuses, vec![CoreTag::Cons, CoreTag::Cons]);
     }
 }
