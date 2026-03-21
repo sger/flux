@@ -65,10 +65,10 @@ Aether Memory Model Report
 
 warning: @fip on `my_map` analysis result NotProvable:
 - fresh heap allocation remains on at least one path
-- calls a known function whose FBIP contract could not be proved
-- calls an indirect, unknown, or unannotated function
-- constructor rebuild needs a fresh token instead of guaranteed reuse
-- control-flow join loses a precise bound on all paths
+- calls known function `my_map` whose FBIP behavior is not yet provable
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+- constructor rebuild could not reuse an available token
+- control-flow join loses a precise allocation bound across paths
 
 ── Total ──
   Dups: 0  Drops: 10  Reuses: 0  DropSpecs: 0  FBIP: fbip(2)
@@ -77,22 +77,22 @@ Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:
 - fresh heap allocation remains on at least one path
-- calls a known function whose FBIP contract could not be proved
-- calls an indirect, unknown, or unannotated function
-- constructor rebuild needs a fresh token instead of guaranteed reuse
-- control-flow join loses a precise bound on all paths
+- calls known function `my_map` whose FBIP behavior is not yet provable
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+- constructor rebuild could not reuse an available token
+- control-flow join loses a precise allocation bound across paths
 
-  examples/aether/bench_reuse.flx:15:6
+  examples/aether/bench_reuse.flx:16:6
    |
-15 | @fip fn my_map(xs, f) {
+16 | @fip fn my_map(xs, f) {
    |      ^^^^^^^^^^^^^^^^^^
-16 |     match xs {
+17 |     match xs {
    | ^^^^^^^^^^^^^^
-17 |         [h | t] -> [f(h) | my_map(t, f)],
+18 |         [h | t] -> [f(h) | my_map(t, f)],
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-18 |         _ -> [],
+19 |         _ -> [],
    | ^^^^^^^^^^^^^^^^
-19 |     }
+20 |     }
    | ^^^^^
-20 | }
+21 | }
    | ^

@@ -275,19 +275,58 @@ impl Parser {
     /// Parse `@fip fn ...` or `@fbip fn ...`.
     fn parse_annotated_function(&mut self) -> Option<Statement> {
         use crate::syntax::statement::FipAnnotation;
+        let annotation_start = self.current_token.position;
         // Current token is '@'. Next should be 'fip' or 'fbip' (as an identifier).
         self.next_token();
-        let annotation = match self.current_token.literal.as_ref() {
+        if self.current_token.token_type != TokenType::Ident {
+            self.emit_parser_diagnostic(
+                unexpected_token_with_details(
+                    self.current_token.span(),
+                    "Invalid Function Annotation",
+                    DiagnosticCategory::ParserDeclaration,
+                    format!(
+                        "Expected a function annotation name after `@`, but found {}.",
+                        self.describe_token_type_for_diagnostic(self.current_token.token_type)
+                    ),
+                )
+                .with_hint_text("Supported function annotations are `@fip` and `@fbip`."),
+            );
+            return None;
+        }
+
+        let annotation_name = self.current_token.literal.to_string();
+        let annotation_span = self.span_from(annotation_start);
+        let annotation = match annotation_name.as_str() {
             "fip" => Some(FipAnnotation::Fip),
             "fbip" => Some(FipAnnotation::Fbip),
             _ => {
-                // Unknown annotation — skip and return None
+                self.emit_parser_diagnostic(
+                    unexpected_token_with_details(
+                        annotation_span,
+                        "Unknown Function Annotation",
+                        DiagnosticCategory::ParserDeclaration,
+                        format!("Unknown annotation `@{annotation_name}` before function declaration."),
+                    )
+                    .with_hint_text("Supported function annotations are `@fip` and `@fbip`."),
+                );
                 return None;
             }
         };
         // Next token must be 'fn'
         self.next_token();
         if self.current_token.token_type != TokenType::Fn {
+            self.emit_parser_diagnostic(
+                unexpected_token_with_details(
+                    self.current_token.span(),
+                    "Malformed Annotated Function",
+                    DiagnosticCategory::ParserDeclaration,
+                    format!(
+                        "Annotation `@{annotation_name}` must be followed by `fn`, but found {}.",
+                        self.describe_token_type_for_diagnostic(self.current_token.token_type)
+                    ),
+                )
+                .with_hint_text("Write annotated functions as `@fip fn name(...) { ... }` or `@fbip fn name(...) { ... }`."),
+            );
             return None;
         }
         self.parse_function_statement(false, annotation)

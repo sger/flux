@@ -2,10 +2,10 @@
 // Run with: cargo run -- --dump-aether examples/aether/verify_aether.flx
 // Execute: cargo run -- examples/aether/verify_aether.flx
 //
-// Exercises Perceus optimizations: dup/drop, drop spec, fusion, reuse, borrowed params
-// FBIP annotations: @fip = zero allocation on unique path, @fbip = bounded allocations
+// Exercises current Aether optimizations: dup/drop, drop spec, reuse, and borrowed params.
+// FBIP annotations remain intentionally conservative in higher-order map cases.
 
-// ── 1. Cons list map: reuse Cons cells (@fip — zero allocs) ──
+// ── 1. Cons list map: borrowed recursive traversal + early drop (FBIP still conservative) ──
 @fip fn my_map(xs, f) {
     match xs {
         [h | t] -> [f(h) | my_map(t, f)],
@@ -13,7 +13,7 @@
     }
 }
 
-// ── 2. Option map: reuse Some wrapper (@fip — zero allocs) ──
+// ── 2. Option map: borrowed higher-order call path (FBIP still conservative) ──
 @fip fn option_map(opt, f) {
     match opt {
         Some(x) -> Some(f(x)),
@@ -21,7 +21,7 @@
     }
 }
 
-// ── 3. ADT with reuse specialization ──
+// ── 3. ADT update with masked reuse ──
 type Color = Red | Black
 type Tree = Leaf | Node(Color, Tree, Int, Tree)
 
@@ -40,7 +40,7 @@ fn my_len(xs) {
     }
 }
 
-// ── 5. Filter: reuse + drop spec on cons cells ──
+// ── 5. Filter: unique-path reuse + drop specialization on cons cells ──
 fn my_filter(xs, f) {
     match xs {
         [h | t] -> if f(h) { [h | my_filter(t, f)] } else { my_filter(t, f) },

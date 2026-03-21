@@ -301,7 +301,7 @@ fn fbip_annotation_is_hard_error_when_proof_fails() {
     assert!(
         diagnostics
             .iter()
-            .any(|d| d.message().is_some_and(|m| m.contains("indirect, unknown, or unannotated function"))),
+            .any(|d| d.message().is_some_and(|m| m.contains("indirect or opaque callee `f`"))),
         "expected semantic @fbip error, got: {:?}",
         diagnostics
             .iter()

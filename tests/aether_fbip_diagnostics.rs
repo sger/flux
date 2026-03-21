@@ -29,7 +29,10 @@ fn fip_warning_reports_fresh_allocation_cause() {
         .expect("fixture should exist")
         .replace("@fbip fn bounded(f, x) {", "@fip fn bounded(f, x) {");
     let warnings = compile_ok_with_warnings(&src);
-    assert!(warnings.iter().any(|d| d.message().is_some_and(|m| m.contains("indirect, unknown, or unannotated function"))));
+    assert!(warnings.iter().any(|d| {
+        d.message()
+            .is_some_and(|m| m.contains("indirect or opaque callee `f`"))
+    }));
 }
 
 #[test]
@@ -37,7 +40,10 @@ fn fbip_failure_is_hard_error() {
     let src = std::fs::read_to_string("examples/aether/fbip_fail_nonfip_call.flx")
         .expect("fixture should exist");
     let diagnostics = compile_err_diagnostics(&src);
-    assert!(diagnostics.iter().any(|d| d.message().is_some_and(|m| m.contains("indirect, unknown, or unannotated function"))));
+    assert!(diagnostics.iter().any(|d| {
+        d.message()
+            .is_some_and(|m| m.contains("indirect or opaque callee `f`"))
+    }));
 }
 
 #[test]

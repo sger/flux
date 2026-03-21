@@ -113,10 +113,10 @@ Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:
 - fresh heap allocation remains on at least one path
-- calls a known function whose FBIP contract could not be proved
-- calls an indirect, unknown, or unannotated function
-- constructor rebuild needs a fresh token instead of guaranteed reuse
-- control-flow join loses a precise bound on all paths
+- calls known function `my_map` whose FBIP behavior is not yet provable
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+- constructor rebuild could not reuse an available token
+- control-flow join loses a precise allocation bound across paths
 
   examples/aether/verify_aether.flx:9:6
    |
@@ -138,9 +138,9 @@ Warning: FBIP Contract Not Proven
 
 @fip on `option_map` analysis result NotProvable:
 - fresh heap allocation remains on at least one path
-- calls an indirect, unknown, or unannotated function
-- constructor rebuild needs a fresh token instead of guaranteed reuse
-- control-flow join loses a precise bound on all paths
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+- constructor rebuild could not reuse an available token
+- control-flow join loses a precise allocation bound across paths
 
   examples/aether/verify_aether.flx:17:6
    |

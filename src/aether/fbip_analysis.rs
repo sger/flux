@@ -1,9 +1,9 @@
 use std::collections::{BTreeSet, HashMap};
 
 use crate::core::{CoreBinderId, CoreDef, CoreExpr, CoreProgram};
-use crate::syntax::{Identifier, statement::FipAnnotation};
+use crate::syntax::{Identifier, interner::Interner, statement::FipAnnotation};
 
-use super::is_heap_tag;
+use super::{builtin_effect_for_name, is_heap_tag, AetherBuiltinEffect};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FbipCapability {
@@ -21,6 +21,7 @@ pub enum FbipFailureReason {
     FreshAllocation,
     NonFipCall,
     UnknownCall,
+    BuiltinBoundary,
     EffectBoundary,
     TokenUnavailable,
     ControlFlowJoin,
@@ -41,6 +42,7 @@ pub struct FbipFact {
     pub has_constructors: bool,
     pub capabilities: BTreeSet<FbipCapability>,
     pub reasons: BTreeSet<FbipFailureReason>,
+    pub call_details: Vec<FbipCallDetail>,
 }
 
 impl Default for FbipFact {
@@ -51,8 +53,33 @@ impl Default for FbipFact {
             has_constructors: false,
             capabilities: BTreeSet::new(),
             reasons: BTreeSet::new(),
+            call_details: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FbipCallKind {
+    DirectInternal,
+    DirectNamed,
+    Builtin(AetherBuiltinEffect),
+    Indirect,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FbipCallOutcome {
+    KnownFip,
+    KnownFbip(usize),
+    KnownNotProvable,
+    KnownBuiltin,
+    UnknownIndirect,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FbipCallDetail {
+    pub callee: String,
+    pub kind: FbipCallKind,
+    pub outcome: FbipCallOutcome,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +90,8 @@ pub struct FbipSummary {
     pub has_constructors: bool,
     pub capabilities: BTreeSet<FbipCapability>,
     pub reasons: BTreeSet<FbipFailureReason>,
+    pub call_details: Vec<FbipCallDetail>,
+    pub trusted: bool,
 }
 
 impl FbipSummary {
@@ -83,9 +112,10 @@ impl FbipSummary {
 struct FbipContext<'a> {
     summaries: &'a HashMap<CoreBinderId, FbipSummary>,
     summaries_by_name: &'a HashMap<Identifier, FbipSummary>,
+    interner: &'a Interner,
 }
 
-pub fn analyze_program(program: &CoreProgram) -> HashMap<CoreBinderId, FbipSummary> {
+pub fn analyze_program(program: &CoreProgram, interner: &Interner) -> HashMap<CoreBinderId, FbipSummary> {
     let mut summaries = HashMap::new();
     let mut summaries_by_name = HashMap::new();
 
@@ -102,6 +132,7 @@ pub fn analyze_program(program: &CoreProgram) -> HashMap<CoreBinderId, FbipSumma
         let ctx = FbipContext {
             summaries: &summaries_snapshot,
             summaries_by_name: &summaries_by_name_snapshot,
+            interner,
         };
 
         for def in &program.defs {
@@ -123,23 +154,15 @@ pub fn analyze_program(program: &CoreProgram) -> HashMap<CoreBinderId, FbipSumma
 }
 
 fn initial_summary(def: &CoreDef) -> FbipSummary {
-    match def.fip {
-        Some(FipAnnotation::Fip) | Some(FipAnnotation::Fbip) => FbipSummary {
-            annotation: def.fip,
-            outcome: FbipOutcome::Fip,
-            bound: Some(0),
-            has_constructors: false,
-            capabilities: BTreeSet::new(),
-            reasons: BTreeSet::new(),
-        },
-        None => FbipSummary {
-            annotation: None,
-            outcome: FbipOutcome::NotProvable,
-            bound: None,
-            has_constructors: false,
-            capabilities: BTreeSet::new(),
-            reasons: BTreeSet::from([FbipFailureReason::UnknownCall]),
-        },
+    FbipSummary {
+        annotation: def.fip,
+        outcome: FbipOutcome::NotProvable,
+        bound: None,
+        has_constructors: false,
+        capabilities: BTreeSet::new(),
+        reasons: BTreeSet::new(),
+        call_details: Vec::new(),
+        trusted: false,
     }
 }
 
@@ -169,6 +192,8 @@ fn summarize_definition(def: &CoreDef, ctx: &FbipContext<'_>) -> FbipSummary {
         has_constructors: fact.has_constructors,
         capabilities: fact.capabilities,
         reasons,
+        call_details: fact.call_details,
+        trusted: true,
     }
 }
 
@@ -180,6 +205,10 @@ fn analyze_expr(expr: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
         CoreExpr::Drop { body, .. } => {
             let mut fact = analyze_expr(body, ctx);
             fact.capabilities.insert(FbipCapability::Dealloc);
+            if dropped_constructor_rebuild_needs_token(body) {
+                fact.capabilities.insert(FbipCapability::NeedsConstructorToken);
+                fact.reasons.insert(FbipFailureReason::TokenUnavailable);
+            }
             fact
         }
         CoreExpr::Return { value, .. } => analyze_expr(value, ctx),
@@ -199,7 +228,6 @@ fn analyze_expr(expr: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
                 fact.has_constructors = true;
                 fact.capabilities.insert(FbipCapability::AllocFresh);
                 fact.reasons.insert(FbipFailureReason::FreshAllocation);
-                fact.reasons.insert(FbipFailureReason::TokenUnavailable);
             }
             fact
         }
@@ -252,40 +280,105 @@ fn analyze_expr(expr: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
 
 fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
     let mut fact = FbipFact::default();
-    let summary = match func {
-        CoreExpr::Var { var, .. } => var
-            .binder
-            .and_then(|binder| ctx.summaries.get(&binder))
-            .or_else(|| ctx.summaries_by_name.get(&var.name)),
-        _ => None,
+    let (summary, detail) = match func {
+        CoreExpr::Var { var, .. } => {
+            let callee_name = safe_symbol_name(ctx.interner, var.name);
+            if let Some(binder) = var.binder
+                && let Some(summary) = ctx.summaries.get(&binder)
+            {
+                (
+                    Some(summary),
+                    Some(FbipCallDetail {
+                        callee: callee_name.clone(),
+                        kind: FbipCallKind::DirectInternal,
+                        outcome: FbipCallOutcome::KnownNotProvable,
+                    }),
+                )
+            } else if let Some(effect) =
+                builtin_effect_for_name(&callee_name)
+            {
+                (
+                    None,
+                    Some(FbipCallDetail {
+                        callee: callee_name.clone(),
+                        kind: FbipCallKind::Builtin(effect),
+                        outcome: FbipCallOutcome::KnownBuiltin,
+                    }),
+                )
+            } else if let Some(summary) = ctx.summaries_by_name.get(&var.name) {
+                (
+                    Some(summary),
+                    Some(FbipCallDetail {
+                        callee: callee_name.clone(),
+                        kind: FbipCallKind::DirectNamed,
+                        outcome: FbipCallOutcome::KnownNotProvable,
+                    }),
+                )
+            } else {
+                (
+                    None,
+                    Some(FbipCallDetail {
+                        callee: callee_name,
+                        kind: FbipCallKind::Indirect,
+                        outcome: FbipCallOutcome::UnknownIndirect,
+                    }),
+                )
+            }
+        }
+        _ => (None, None),
     };
+
+    if let Some(detail) = &detail
+        && matches!(detail.kind, FbipCallKind::Builtin(_))
+    {
+        fact.call_details.push(detail.clone());
+        return fact;
+    }
 
     let Some(summary) = summary else {
         fact.provable = false;
         fact.capabilities.insert(FbipCapability::CallsUnknown);
         fact.reasons.insert(FbipFailureReason::UnknownCall);
+        if let Some(detail) = detail {
+            fact.call_details.push(detail);
+        }
         return fact;
     };
 
-    if summary.annotation.is_none() {
+    let mut call_detail = detail.expect("summary-backed calls should have a detail");
+    if !summary.trusted {
         fact.provable = false;
-        fact.capabilities.insert(FbipCapability::CallsUnknown);
-        fact.reasons.insert(FbipFailureReason::UnknownCall);
+        fact.capabilities.insert(FbipCapability::CallsNonFip);
+        fact.reasons.insert(FbipFailureReason::NonFipCall);
+        call_detail.outcome = FbipCallOutcome::KnownNotProvable;
+        fact.call_details.push(call_detail);
         return fact;
     }
 
     match summary.outcome {
-        FbipOutcome::Fip => {}
+        FbipOutcome::Fip => {
+            call_detail.outcome = FbipCallOutcome::KnownFip;
+        }
         FbipOutcome::Fbip { bound } => {
             fact.bound += bound;
+            call_detail.outcome = FbipCallOutcome::KnownFbip(bound);
         }
         FbipOutcome::NotProvable => {
             fact.provable = false;
             fact.capabilities.insert(FbipCapability::CallsNonFip);
             fact.reasons.insert(FbipFailureReason::NonFipCall);
+            call_detail.outcome = FbipCallOutcome::KnownNotProvable;
         }
     }
+    fact.call_details.push(call_detail);
     fact
+}
+
+fn safe_symbol_name(interner: &Interner, name: Identifier) -> String {
+    interner
+        .try_resolve(name)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{name:?}"))
 }
 
 fn fold_all<I>(facts: I) -> FbipFact
@@ -301,6 +394,7 @@ fn seq(mut left: FbipFact, right: FbipFact) -> FbipFact {
     left.has_constructors |= right.has_constructors;
     left.capabilities.extend(right.capabilities);
     left.reasons.extend(right.reasons);
+    left.call_details.extend(right.call_details);
     left
 }
 
@@ -317,16 +411,33 @@ where
         acc.has_constructors |= fact.has_constructors;
         acc.capabilities.extend(fact.capabilities);
         acc.reasons.extend(fact.reasons);
+        acc.call_details.extend(fact.call_details);
         if acc.provable && fact.provable {
             acc.bound = acc.bound.max(fact.bound);
         } else {
             acc.provable = false;
-            acc.capabilities.insert(FbipCapability::BranchJoin);
-            acc.reasons.insert(FbipFailureReason::ControlFlowJoin);
+            if acc.bound != fact.bound || acc.has_constructors != fact.has_constructors {
+                acc.capabilities.insert(FbipCapability::BranchJoin);
+                acc.reasons.insert(FbipFailureReason::ControlFlowJoin);
+            }
         }
     }
 
     acc
+}
+
+fn dropped_constructor_rebuild_needs_token(expr: &CoreExpr) -> bool {
+    match expr {
+        CoreExpr::Con { tag, .. } => is_heap_tag(tag),
+        CoreExpr::Let { body, .. } | CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
+            dropped_constructor_rebuild_needs_token(body)
+        }
+        CoreExpr::Case { alts, .. } => alts
+            .iter()
+            .any(|alt| dropped_constructor_rebuild_needs_token(&alt.rhs)),
+        CoreExpr::Reuse { .. } | CoreExpr::DropSpecialized { .. } => false,
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -338,7 +449,7 @@ mod tests {
     use crate::diagnostics::position::Span;
     use crate::syntax::{interner::Interner, statement::FipAnnotation};
 
-    use super::{FbipFailureReason, FbipOutcome, analyze_program};
+    use super::{FbipCallKind, FbipCallOutcome, FbipFailureReason, FbipOutcome, analyze_program};
 
     fn binder(interner: &mut Interner, raw: u32, name: &str) -> CoreBinder {
         CoreBinder::new(CoreBinderId(raw), interner.intern(name))
@@ -390,7 +501,7 @@ mod tests {
             )],
             top_level_items: Vec::new(),
         };
-        let summaries = analyze_program(&program);
+        let summaries = analyze_program(&program, &interner);
         let summary = summaries.values().next().unwrap();
         assert_eq!(summary.outcome, FbipOutcome::Fbip { bound: 1 });
         assert!(summary.reasons.contains(&FbipFailureReason::FreshAllocation));
@@ -418,7 +529,7 @@ mod tests {
             )],
             top_level_items: Vec::new(),
         };
-        let summaries = analyze_program(&program);
+        let summaries = analyze_program(&program, &interner);
         let summary = summaries.values().next().unwrap();
         assert_eq!(summary.outcome, FbipOutcome::Fip);
     }
@@ -462,7 +573,7 @@ mod tests {
             )],
             top_level_items: Vec::new(),
         };
-        let summaries = analyze_program(&program);
+        let summaries = analyze_program(&program, &interner);
         let summary = summaries.values().next().unwrap();
         assert_eq!(summary.outcome, FbipOutcome::Fbip { bound: 1 });
     }
@@ -486,7 +597,7 @@ mod tests {
             )],
             top_level_items: Vec::new(),
         };
-        let summaries = analyze_program(&program);
+        let summaries = analyze_program(&program, &interner);
         let summary = summaries.values().next().unwrap();
         assert_eq!(summary.outcome, FbipOutcome::NotProvable);
         assert!(summary.reasons.contains(&FbipFailureReason::UnknownCall));
@@ -533,7 +644,7 @@ mod tests {
             defs: vec![callee, caller],
             top_level_items: Vec::new(),
         };
-        let summaries = analyze_program(&program);
+        let summaries = analyze_program(&program, &interner);
         let summary = summaries.get(&caller_binder.id).unwrap();
         assert_eq!(summary.outcome, FbipOutcome::Fip);
     }
@@ -576,9 +687,59 @@ mod tests {
             defs: vec![callee, caller],
             top_level_items: Vec::new(),
         };
-        let summaries = analyze_program(&program);
+        let summaries = analyze_program(&program, &interner);
         let summary = summaries.get(&caller_binder.id).unwrap();
         assert_eq!(summary.outcome, FbipOutcome::Fbip { bound: 1 });
+    }
+
+    #[test]
+    fn known_unannotated_internal_callee_summary_composes() {
+        let mut interner = Interner::new();
+        let token = binder(&mut interner, 2, "token");
+        let field = binder(&mut interner, 3, "field");
+        let callee = def(
+            &mut interner,
+            1,
+            "callee",
+            CoreExpr::Reuse {
+                token: CoreVarRef::resolved(token),
+                tag: CoreTag::Some,
+                fields: vec![var(field)],
+                field_mask: None,
+                span: Span::default(),
+            },
+            None,
+        );
+        let caller_binder = binder(&mut interner, 4, "caller");
+        let caller = CoreDef {
+            name: caller_binder.name,
+            binder: caller_binder,
+            expr: CoreExpr::App {
+                func: Box::new(CoreExpr::Var {
+                    var: CoreVarRef::resolved(callee.binder),
+                    span: Span::default(),
+                }),
+                args: vec![var(field)],
+                span: Span::default(),
+            },
+            borrow_signature: None,
+            result_ty: None,
+            is_anonymous: false,
+            is_recursive: false,
+            fip: Some(FipAnnotation::Fip),
+            span: Span::default(),
+        };
+        let program = CoreProgram {
+            defs: vec![callee, caller],
+            top_level_items: Vec::new(),
+        };
+        let summaries = analyze_program(&program, &interner);
+        let summary = summaries.get(&caller_binder.id).unwrap();
+        assert_eq!(summary.outcome, FbipOutcome::Fip);
+        assert!(summary
+            .call_details
+            .iter()
+            .any(|detail| matches!(detail.outcome, FbipCallOutcome::KnownFip)));
     }
 
     #[test]
@@ -602,10 +763,73 @@ mod tests {
             )],
             top_level_items: Vec::new(),
         };
-        let summaries = analyze_program(&program);
+        let summaries = analyze_program(&program, &interner);
         let summary = summaries.values().next().unwrap();
         assert_eq!(summary.outcome, FbipOutcome::NotProvable);
         assert!(summary.reasons.contains(&FbipFailureReason::EffectBoundary));
+    }
+
+    #[test]
+    fn builtin_io_call_is_not_unknown() {
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 2, "x");
+        let print = interner.intern("print");
+        let program = CoreProgram {
+            defs: vec![def(
+                &mut interner,
+                1,
+                "log_only",
+                CoreExpr::App {
+                    func: Box::new(CoreExpr::Var {
+                        var: CoreVarRef::unresolved(print),
+                        span: Span::default(),
+                    }),
+                    args: vec![var(x)],
+                    span: Span::default(),
+                },
+                Some(FipAnnotation::Fip),
+            )],
+            top_level_items: Vec::new(),
+        };
+        let summaries = analyze_program(&program, &interner);
+        let summary = summaries.values().next().unwrap();
+        assert_eq!(summary.outcome, FbipOutcome::Fip);
+        assert!(!summary.reasons.contains(&FbipFailureReason::UnknownCall));
+        assert!(summary
+            .call_details
+            .iter()
+            .any(|detail| matches!(detail.kind, FbipCallKind::Builtin(_))));
+    }
+
+    #[test]
+    fn builtin_time_call_is_not_unknown() {
+        let mut interner = Interner::new();
+        let now_ms = interner.intern("now_ms");
+        let program = CoreProgram {
+            defs: vec![def(
+                &mut interner,
+                1,
+                "clock",
+                CoreExpr::App {
+                    func: Box::new(CoreExpr::Var {
+                        var: CoreVarRef::unresolved(now_ms),
+                        span: Span::default(),
+                    }),
+                    args: vec![],
+                    span: Span::default(),
+                },
+                Some(FipAnnotation::Fip),
+            )],
+            top_level_items: Vec::new(),
+        };
+        let summaries = analyze_program(&program, &interner);
+        let summary = summaries.values().next().unwrap();
+        assert_eq!(summary.outcome, FbipOutcome::Fip);
+        assert!(!summary.reasons.contains(&FbipFailureReason::UnknownCall));
+        assert!(summary
+            .call_details
+            .iter()
+            .any(|detail| matches!(detail.kind, FbipCallKind::Builtin(_))));
     }
 
     #[test]
@@ -638,13 +862,13 @@ mod tests {
             )],
             top_level_items: Vec::new(),
         };
-        let summaries = analyze_program(&program);
+        let summaries = analyze_program(&program, &interner);
         let summary = summaries.values().next().unwrap();
         assert_eq!(summary.outcome, FbipOutcome::Fbip { bound: 1 });
     }
 
     #[test]
-    fn recursive_summary_stabilizes() {
+    fn recursive_self_call_does_not_get_free_fip_seed() {
         let mut interner = Interner::new();
         let f = binder(&mut interner, 1, "f");
         let x = binder(&mut interner, 2, "x");
@@ -666,8 +890,58 @@ mod tests {
             }],
             top_level_items: Vec::new(),
         };
-        let summaries = analyze_program(&program);
+        let summaries = analyze_program(&program, &interner);
         let summary = summaries.get(&f.id).unwrap();
-        assert_eq!(summary.outcome, FbipOutcome::Fip);
+        assert_eq!(summary.outcome, FbipOutcome::NotProvable);
+        assert!(summary.reasons.contains(&FbipFailureReason::NonFipCall));
+    }
+
+    #[test]
+    fn token_unavailable_only_for_dropped_rebuilds() {
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 2, "x");
+        let alloc_program = CoreProgram {
+            defs: vec![def(
+                &mut interner,
+                1,
+                "plain_alloc",
+                CoreExpr::Con {
+                    tag: CoreTag::Some,
+                    fields: vec![var(x)],
+                    span: Span::default(),
+                },
+                Some(FipAnnotation::Fbip),
+            )],
+            top_level_items: Vec::new(),
+        };
+        let summaries = analyze_program(&alloc_program, &interner);
+        let summary = summaries.values().next().unwrap();
+        assert!(summary.reasons.contains(&FbipFailureReason::FreshAllocation));
+        assert!(!summary.reasons.contains(&FbipFailureReason::TokenUnavailable));
+
+        let token = binder(&mut interner, 3, "token");
+        let dropped_program = CoreProgram {
+            defs: vec![def(
+                &mut interner,
+                4,
+                "dropped_rebuild",
+                CoreExpr::Drop {
+                    var: CoreVarRef::resolved(token),
+                    body: Box::new(CoreExpr::Con {
+                        tag: CoreTag::Some,
+                        fields: vec![var(x)],
+                        span: Span::default(),
+                    }),
+                    span: Span::default(),
+                },
+                Some(FipAnnotation::Fbip),
+            )],
+            top_level_items: Vec::new(),
+        };
+        let dropped_summaries = analyze_program(&dropped_program, &interner);
+        let dropped_summary = dropped_summaries.values().next().unwrap();
+        assert!(dropped_summary
+            .reasons
+            .contains(&FbipFailureReason::TokenUnavailable));
     }
 }
