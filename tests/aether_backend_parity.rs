@@ -182,6 +182,11 @@ fn aether_queue_workload_fixture_matches_vm_cranelift_and_llvm() {
 }
 
 #[test]
+fn aether_forwarded_wrapper_reuse_fixture_matches_vm_cranelift_and_llvm() {
+    assert_backend_parity("examples/aether/forwarded_wrapper_reuse.flx");
+}
+
+#[test]
 fn aether_opt_corpus_positive_fixture_matches_vm_cranelift_and_llvm() {
     assert_backend_parity("examples/aether/opt_corpus_positive.flx");
 }

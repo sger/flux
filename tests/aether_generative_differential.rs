@@ -20,6 +20,10 @@ enum CaseKind {
     NamedAdtReuse,
     BranchyTreeDropSpec,
     QueueReuse,
+    HigherOrderBorrowed,
+    ForwardedWrapperReuse,
+    ForwardedWrapperNearMiss,
+    BaseLenTraversal,
 }
 
 fn parse_and_infer(
@@ -162,14 +166,18 @@ fn run_llvm(src: &str) -> Value {
     value
 }
 
-fn generate_case(seed: u32) -> (String, bool, bool) {
-    let case_kind = match seed % 6 {
+fn generate_case(seed: u32) -> (String, bool, bool, bool) {
+    let case_kind = match seed % 10 {
         0 => CaseKind::ExactListReuse,
         1 => CaseKind::BlockedListReuse,
         2 => CaseKind::BranchyList,
         3 => CaseKind::NamedAdtReuse,
         4 => CaseKind::BranchyTreeDropSpec,
-        _ => CaseKind::QueueReuse,
+        5 => CaseKind::QueueReuse,
+        6 => CaseKind::HigherOrderBorrowed,
+        7 => CaseKind::ForwardedWrapperReuse,
+        8 => CaseKind::ForwardedWrapperNearMiss,
+        _ => CaseKind::BaseLenTraversal,
     };
     let n = 2 + (seed % 4);
     let choose = if seed % 2 == 0 { "true" } else { "false" };
@@ -260,6 +268,61 @@ fn main() {{
 }}
 "#
         ),
+        CaseKind::HigherOrderBorrowed => format!(
+            r#"
+fn sum_by(xs, f) {{
+    match xs {{
+        [h | t] -> f(h) + sum_by(t, f),
+        _ -> 0,
+    }}
+}}
+fn inc(x) {{ x + {n} }}
+fn main() {{
+    sum_by([1, 2, 3, 4], inc)
+}}
+"#
+        ),
+        CaseKind::ForwardedWrapperReuse => format!(
+            r#"
+type Pair2<T> = Pair2(T, T)
+fn forwarded(xs, acc) {{
+    match xs {{
+        [y | ys] -> Pair2([y | acc], ys),
+        _ -> Pair2(xs, acc),
+    }}
+}}
+fn main() {{
+    forwarded([1, 2, 3, 4], [{n}, {n} + 1])
+}}
+"#
+        ),
+        CaseKind::ForwardedWrapperNearMiss => format!(
+            r#"
+type Pair2<T> = Pair2(T, T)
+fn forwarded(xs, acc) {{
+    match xs {{
+        [y | ys] -> Pair2([y | acc], [y | acc]),
+        _ -> Pair2(xs, acc),
+    }}
+}}
+fn main() {{
+    forwarded([1, 2, 3, 4], [{n}, {n} + 1])
+}}
+"#
+        ),
+        CaseKind::BaseLenTraversal => format!(
+            r#"
+fn walk(xs) {{
+    match xs {{
+        [_ | t] -> len(t) + walk(t),
+        _ -> 0,
+    }}
+}}
+fn main() {{
+    walk([1, 2, 3, 4])
+}}
+"#
+        ),
     };
 
     let expect_reuse = matches!(
@@ -269,15 +332,18 @@ fn main() {{
             | CaseKind::NamedAdtReuse
             | CaseKind::BranchyTreeDropSpec
             | CaseKind::QueueReuse
+            | CaseKind::ForwardedWrapperReuse
     );
     let expect_dropspec = matches!(case_kind, CaseKind::BranchyTreeDropSpec);
-    (src, expect_reuse, expect_dropspec)
+    let expect_borrowed_call =
+        matches!(case_kind, CaseKind::HigherOrderBorrowed | CaseKind::QueueReuse);
+    (src, expect_reuse, expect_dropspec, expect_borrowed_call)
 }
 
 #[test]
 fn generated_aether_heavy_programs_keep_vm_jit_llvm_in_parity() {
     for seed in 0..20u32 {
-        let (src, expect_reuse, expect_dropspec) = generate_case(seed);
+        let (src, expect_reuse, expect_dropspec, expect_borrowed_call) = generate_case(seed);
         let core = lowered_core(&src);
         let exprs = core
             .defs
@@ -293,6 +359,18 @@ fn generated_aether_heavy_programs_keep_vm_jit_llvm_in_parity() {
             .iter()
             .filter(|expr| matches!(expr, CoreExpr::DropSpecialized { .. }))
             .count();
+        let borrowed_call_count = exprs
+            .iter()
+            .filter(|expr| {
+                matches!(
+                    expr,
+                    CoreExpr::AetherCall { arg_modes, .. }
+                        if arg_modes
+                            .iter()
+                            .any(|mode| *mode == flux::aether::borrow_infer::BorrowMode::Borrowed)
+                )
+            })
+            .count();
 
         if expect_reuse {
             assert!(
@@ -306,6 +384,12 @@ fn generated_aether_heavy_programs_keep_vm_jit_llvm_in_parity() {
             assert!(
                 dropspec_count >= 1,
                 "seed {seed} should emit DropSpecialized\n{src}"
+            );
+        }
+        if expect_borrowed_call {
+            assert!(
+                borrowed_call_count >= 1,
+                "seed {seed} should preserve a borrowed call mode\n{src}"
             );
         }
 

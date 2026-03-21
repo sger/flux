@@ -199,6 +199,15 @@ fn snapshot_queue_workload_dump_core_debug() {
 }
 
 #[test]
+fn snapshot_forwarded_wrapper_reuse_dump_aether() {
+    assert_cli_snapshot(
+        "aether/forwarded_wrapper_reuse.flx",
+        &["--dump-aether"],
+        "dump_aether",
+    );
+}
+
+#[test]
 fn snapshot_opt_corpus_positive_dump_aether() {
     assert_cli_snapshot(
         "aether/opt_corpus_positive.flx",

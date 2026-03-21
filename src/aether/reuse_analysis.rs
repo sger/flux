@@ -655,6 +655,23 @@ fn rewrite_drop_body_with_env(
                 reused: true,
                 reason: None,
             },
+            Err(ReuseFailureReason::ShapeMismatch) => {
+                let forwarded = rewrite_forwarded_wrapper_body(
+                    token,
+                    other.clone(),
+                    pat_tag,
+                    env,
+                    blocked_outer_token,
+                );
+                if forwarded.reused {
+                    forwarded
+                } else {
+                    no_rewrite(
+                        other,
+                        forwarded.reason.unwrap_or(ReuseFailureReason::ShapeMismatch),
+                    )
+                }
+            }
             Err(reason) => no_rewrite(other, reason),
         },
     }
@@ -1028,6 +1045,9 @@ fn build_reuse_expr(
     };
     let (tag, fields, span) =
         into_constructor_shape_for_tag(body, pat_tag).ok_or(ReuseFailureReason::ShapeMismatch)?;
+    if pat_tag.is_some_and(|expected| expected != &tag) {
+        return Err(ReuseFailureReason::ShapeMismatch);
+    }
     if !is_heap_tag(&tag) {
         return Err(ReuseFailureReason::ShapeMismatch);
     }
@@ -1050,7 +1070,6 @@ fn build_reuse_expr(
     })
 }
 
-#[allow(dead_code)]
 fn rewrite_forwarded_wrapper_body(
     outer_token: &CoreVarRef,
     expr: CoreExpr,
@@ -1058,6 +1077,10 @@ fn rewrite_forwarded_wrapper_body(
     env: &ReuseEnv,
     blocked_outer_token: Option<CoreBinderId>,
 ) -> ReuseRewrite {
+    let Some(outer_token_binder) = outer_token.binder else {
+        return no_rewrite(expr, ReuseFailureReason::ProvenanceLost);
+    };
+
     match expr {
         CoreExpr::Let {
             var,
@@ -1065,7 +1088,7 @@ fn rewrite_forwarded_wrapper_body(
             body,
             span,
         } => {
-            if token_appears_in_expr(outer_token.binder.unwrap_or(CoreBinderId(0)), &rhs) {
+            if token_appears_in_expr(outer_token_binder, &rhs) {
                 return no_rewrite(
                     CoreExpr::Let {
                         var,
@@ -1076,7 +1099,7 @@ fn rewrite_forwarded_wrapper_body(
                     ReuseFailureReason::TokenEscapesIntoFields,
                 );
             }
-            if !is_safe_precompute_rhs(outer_token.binder.unwrap_or(CoreBinderId(0)), &rhs) {
+            if !is_safe_precompute_rhs(outer_token_binder, &rhs) {
                 return no_rewrite(
                     CoreExpr::Let {
                         var,
@@ -1131,7 +1154,6 @@ fn rewrite_forwarded_wrapper_body(
     }
 }
 
-#[allow(dead_code)]
 fn try_rewrite_forwarded_wrapper_constructor(
     outer_token: &CoreVarRef,
     body: CoreExpr,
@@ -1142,12 +1164,15 @@ fn try_rewrite_forwarded_wrapper_constructor(
     let Some(outer_token_binder) = outer_token.binder else {
         return no_rewrite(body, ReuseFailureReason::ProvenanceLost);
     };
-    let Some((tag, fields, span)) = constructor_shape_for_expr(&body, pat_tag) else {
+    let Some((tag, fields, span)) = constructor_shape_for_expr(&body, None) else {
         return no_rewrite(body, ReuseFailureReason::ShapeMismatch);
     };
+    if pat_tag.is_some_and(|expected| expected == &tag) {
+        return no_rewrite(body, ReuseFailureReason::ShapeMismatch);
+    }
 
     let mut rewritten_fields = Vec::with_capacity(fields.len());
-    let mut reused = false;
+    let mut rewrite_count = 0usize;
     for field in fields {
         if field_has_token_provenance(env, outer_token_binder, &field)
             && let Some(field_expr) = try_rewrite_forwarded_child_field(
@@ -1158,18 +1183,23 @@ fn try_rewrite_forwarded_wrapper_constructor(
             )
         {
             rewritten_fields.push(field_expr);
-            reused = true;
+            rewrite_count += 1;
             continue;
         }
         rewritten_fields.push(field);
     }
 
-    if reused {
+    if rewrite_count == 1 {
         ReuseRewrite {
             expr: rebuild_constructor_shape(body, tag, rewritten_fields, span),
             reused: true,
             reason: None,
         }
+    } else if rewrite_count > 1 {
+        no_rewrite(
+            rebuild_constructor_shape(body, tag, rewritten_fields, span),
+            ReuseFailureReason::BranchAmbiguity,
+        )
     } else {
         no_rewrite(
             rebuild_constructor_shape(body, tag, rewritten_fields, span),
@@ -1178,7 +1208,6 @@ fn try_rewrite_forwarded_wrapper_constructor(
     }
 }
 
-#[allow(dead_code)]
 fn try_rewrite_forwarded_child_field(
     child_token_binder: CoreBinderId,
     expr: CoreExpr,
@@ -1186,21 +1215,16 @@ fn try_rewrite_forwarded_child_field(
     blocked_outer_token: Option<CoreBinderId>,
 ) -> Option<CoreExpr> {
     let resolved = expand_alias_expr(&expr, env);
-    let rewritten = build_child_reuse_expr(
+    build_child_reuse_expr(
         &CoreVarRef {
             name: crate::syntax::Identifier::new(0),
             binder: Some(child_token_binder),
         },
         resolved,
         blocked_outer_token,
-    )?;
-    if token_appears_in_expr(child_token_binder, &rewritten) {
-        return None;
-    }
-    Some(rewritten)
+    )
 }
 
-#[allow(dead_code)]
 fn build_child_reuse_expr(
     token: &CoreVarRef,
     expr: CoreExpr,
@@ -1248,7 +1272,6 @@ fn build_child_reuse_expr(
     }
 }
 
-#[allow(dead_code)]
 fn expand_alias_expr(expr: &CoreExpr, env: &ReuseEnv) -> CoreExpr {
     match expr {
         CoreExpr::Var { var, .. } => var
@@ -1259,7 +1282,6 @@ fn expand_alias_expr(expr: &CoreExpr, env: &ReuseEnv) -> CoreExpr {
     }
 }
 
-#[allow(dead_code)]
 fn constructor_shape_for_expr(
     expr: &CoreExpr,
     expected_tag: Option<&CoreTag>,
@@ -1278,7 +1300,6 @@ fn constructor_shape_for_expr(
     })
 }
 
-#[allow(dead_code)]
 fn rebuild_constructor_shape(
     original: CoreExpr,
     tag: CoreTag,
@@ -1304,14 +1325,12 @@ fn rebuild_constructor_shape(
     }
 }
 
-#[allow(dead_code)]
 fn field_has_token_provenance(env: &ReuseEnv, token_binder: CoreBinderId, expr: &CoreExpr) -> bool {
     env.origin_of_expr(expr)
         .as_ref()
         .is_some_and(|origin| origin_mentions_token(origin, token_binder))
 }
 
-#[allow(dead_code)]
 fn origin_mentions_token(origin: &ReuseOrigin, token_binder: CoreBinderId) -> bool {
     match origin {
         ReuseOrigin::Scrutinee(origin_token, _) => *origin_token == token_binder,
@@ -1916,5 +1935,107 @@ mod tests {
             child_env.unchanged_field_index(xs.id, 1, &v(ys)),
             "forwarded child tail provenance should remain exact after the nested match"
         );
+    }
+
+    #[test]
+    fn rewrites_single_forwarded_wrapper_child_to_inner_reuse() {
+        let mut interner = Interner::new();
+        let pair2 = interner.intern("Pair2");
+        let xs = binder(1, interner.intern("xs"));
+        let y = binder(2, interner.intern("y"));
+        let ys = binder(3, interner.intern("ys"));
+        let acc = binder(4, interner.intern("acc"));
+
+        let pat_binders = vec![Some(y.id), Some(ys.id)];
+        let body = CoreExpr::Con {
+            tag: CoreTag::Named(pair2),
+            fields: vec![
+                CoreExpr::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![v(y), v(acc)],
+                    span: s(),
+                },
+                v(ys),
+            ],
+            span: s(),
+        };
+
+        let rewritten = rewrite_drop_body(
+            &CoreVarRef::resolved(xs),
+            body,
+            s(),
+            Some(&pat_binders),
+            Some(&CoreTag::Cons),
+            None,
+        );
+
+        assert!(rewritten.reused, "expected forwarded child reuse to fire");
+        match rewritten.expr {
+            CoreExpr::Con { tag, fields, .. } => {
+                assert_eq!(tag, CoreTag::Named(pair2));
+                assert_eq!(fields.len(), 2);
+                match &fields[0] {
+                    CoreExpr::Reuse {
+                        token,
+                        tag,
+                        field_mask,
+                        ..
+                    } => {
+                        assert_eq!(token.binder, Some(xs.id));
+                        assert_eq!(*tag, CoreTag::Cons);
+                        assert_eq!(*field_mask, None);
+                    }
+                    other => panic!("expected inner forwarded Reuse, got {other:?}"),
+                }
+                assert!(
+                    matches!(&fields[1], CoreExpr::Var { var, .. } if var.binder == Some(ys.id)),
+                    "expected forwarded tail field to stay an exact passthrough"
+                );
+            }
+            other => panic!("expected outer wrapper rebuild, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn duplicate_forwarded_children_stay_conservative() {
+        let mut interner = Interner::new();
+        let pair2 = interner.intern("Pair2");
+        let xs = binder(1, interner.intern("xs"));
+        let y = binder(2, interner.intern("y"));
+        let ys = binder(3, interner.intern("ys"));
+        let acc = binder(4, interner.intern("acc"));
+
+        let pat_binders = vec![Some(y.id), Some(ys.id)];
+        let body = CoreExpr::Con {
+            tag: CoreTag::Named(pair2),
+            fields: vec![
+                CoreExpr::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![v(y), v(acc)],
+                    span: s(),
+                },
+                CoreExpr::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![v(y), v(acc)],
+                    span: s(),
+                },
+            ],
+            span: s(),
+        };
+
+        let rewritten = rewrite_drop_body(
+            &CoreVarRef::resolved(xs),
+            body,
+            s(),
+            Some(&pat_binders),
+            Some(&CoreTag::Cons),
+            None,
+        );
+
+        assert!(!rewritten.reused, "multiple forwarded-child candidates must stay fresh");
+        assert_eq!(rewritten.reason, Some(ReuseFailureReason::BranchAmbiguity));
+        let mut reuses = Vec::new();
+        collect_reuses(&rewritten.expr, &mut reuses);
+        assert!(reuses.is_empty(), "negative twin should not synthesize Reuse");
     }
 }
