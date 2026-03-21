@@ -32,6 +32,21 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
+error[E415]: Missing Main Function (strict)
+
+Strict mode requires `fn main()` for all programs.
+
+  tests/fixtures/precedence/logical_precedence.flx:1:1
+  |
+1 | print(true || false && false);
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2 | print(!true == false);
+  | ^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Add `fn main() { ... }` as the program entrypoint.
+
+
 error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
@@ -73,4 +88,4 @@ requires effect `IO` but the enclosing context does not provide it
 Hint:
   annotate the enclosing function with `with IO`
 
-Found 5 errors.
+Found 6 errors.

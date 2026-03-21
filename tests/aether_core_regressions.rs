@@ -258,6 +258,17 @@ fn main() { keep_or_dup_left(Node(Red, Leaf, 5, Leaf), false) }
 }
 
 #[test]
+fn maintained_either_match_fixture_survives_aether_passes() {
+    let src =
+        std::fs::read_to_string("examples/patterns/either_match.flx").expect("fixture should exist");
+    let core = lowered_core(&src);
+    assert!(
+        !core.defs.is_empty(),
+        "expected maintained either_match fixture to lower through Aether"
+    );
+}
+
+#[test]
 fn fbip_clean_fixture_keeps_annotations_provable() {
     let src = std::fs::read_to_string("examples/aether/verify_aether.flx").expect("fixture should exist");
     let (program, types, interner) = parse_and_infer(&src);
