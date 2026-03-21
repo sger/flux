@@ -2777,9 +2777,8 @@ pub extern "C" fn rt_reuse_adt_masked(
         {
             let ctx_r = unsafe { ctx_ref(ctx) };
             // Update constructor name if changed (rare but possible for same-size ADTs)
-            let new_name = unsafe {
-                from_utf8_unchecked(from_raw_parts(name_ptr, name_len as usize))
-            };
+            let new_name =
+                unsafe { from_utf8_unchecked(from_raw_parts(name_ptr, name_len as usize)) };
             if adt.constructor.as_ref() != new_name {
                 adt.constructor = Rc::new(new_name.to_string());
             }

@@ -38,9 +38,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
 
             // Extract scrutinee binder for specialization.
             let scrut_binder = match scrutinee.as_ref() {
-                CoreExpr::Var { var, .. } => {
-                    var.binder.map(|id| CoreBinder { id, name: var.name })
-                }
+                CoreExpr::Var { var, .. } => var.binder.map(|id| CoreBinder { id, name: var.name }),
                 _ => None,
             };
 
@@ -54,8 +52,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
                     if let Some(binder) = scrut_binder {
                         let field_binders = pat_binders(&alt.pat);
                         if !field_binders.is_empty() {
-                            alt.rhs =
-                                try_specialize(binder, &field_binders, alt.rhs, span);
+                            alt.rhs = try_specialize(binder, &field_binders, alt.rhs, span);
                         }
                     }
 
@@ -311,7 +308,13 @@ fn validate_skeleton(
                 return Err(DropSpecFailureReason::ScrutineeEscapes);
             }
             acc.wrappers.push(DropSpecWrapper::Let);
-            validate_skeleton(body, scrutinee_id, field_binders, DropScanState::BeforeDrop, acc)
+            validate_skeleton(
+                body,
+                scrutinee_id,
+                field_binders,
+                DropScanState::BeforeDrop,
+                acc,
+            )
         }
         CoreExpr::LetRec { .. } | CoreExpr::Perform { .. } | CoreExpr::Handle { .. } => {
             Err(DropSpecFailureReason::EffectfulBoundary)
@@ -326,7 +329,13 @@ fn validate_skeleton(
                 acc.duped_fields.insert(binder_id);
             }
             acc.wrappers.push(DropSpecWrapper::Dup);
-            validate_skeleton(body, scrutinee_id, field_binders, DropScanState::BeforeDrop, acc)
+            validate_skeleton(
+                body,
+                scrutinee_id,
+                field_binders,
+                DropScanState::BeforeDrop,
+                acc,
+            )
         }
         CoreExpr::Drop { var, body, .. } => {
             acc.wrappers.push(DropSpecWrapper::Drop);
@@ -334,13 +343,27 @@ fn validate_skeleton(
                 if state == DropScanState::AfterDrop {
                     return Err(DropSpecFailureReason::AlreadySpecialized);
                 }
-                validate_skeleton(body, scrutinee_id, field_binders, DropScanState::AfterDrop, acc)
-                    .map(|_| true)
+                validate_skeleton(
+                    body,
+                    scrutinee_id,
+                    field_binders,
+                    DropScanState::AfterDrop,
+                    acc,
+                )
+                .map(|_| true)
             } else {
-                validate_skeleton(body, scrutinee_id, field_binders, DropScanState::BeforeDrop, acc)
+                validate_skeleton(
+                    body,
+                    scrutinee_id,
+                    field_binders,
+                    DropScanState::BeforeDrop,
+                    acc,
+                )
             }
         }
-        CoreExpr::Case { scrutinee, alts, .. } => {
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
             if uses_binder(scrutinee, scrutinee_id) {
                 return Err(DropSpecFailureReason::UnsupportedBranchShape);
             }
@@ -414,7 +437,9 @@ fn validate_after_drop_body(
         CoreExpr::LetRec { .. } | CoreExpr::Perform { .. } | CoreExpr::Handle { .. } => {
             Err(DropSpecFailureReason::EffectfulBoundary)
         }
-        CoreExpr::Case { scrutinee, alts, .. } => {
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
             if uses_binder(scrutinee, scrutinee_id) {
                 return Err(DropSpecFailureReason::UnsupportedBranchShape);
             }
@@ -476,9 +501,7 @@ fn rewrite_mode(
 ) -> CoreExpr {
     match expr {
         CoreExpr::Dup { var, body, span } => {
-            let is_field_dup = var
-                .binder
-                .is_some_and(|id| duped_fields.contains(&id));
+            let is_field_dup = var.binder.is_some_and(|id| duped_fields.contains(&id));
             let inner = rewrite_mode(body, mode, scrutinee_id, duped_fields);
             if is_field_dup && mode == DropSpecMode::Unique {
                 inner
@@ -501,13 +524,23 @@ fn rewrite_mode(
                 }
             }
         }
-        CoreExpr::Let { var, rhs, body, span } => CoreExpr::Let {
+        CoreExpr::Let {
+            var,
+            rhs,
+            body,
+            span,
+        } => CoreExpr::Let {
             var: *var,
             rhs: Box::new(rewrite_mode(rhs, mode, scrutinee_id, duped_fields)),
             body: Box::new(rewrite_mode(body, mode, scrutinee_id, duped_fields)),
             span: *span,
         },
-        CoreExpr::LetRec { var, rhs, body, span } => CoreExpr::LetRec {
+        CoreExpr::LetRec {
+            var,
+            rhs,
+            body,
+            span,
+        } => CoreExpr::LetRec {
             var: *var,
             rhs: rhs.clone(),
             body: Box::new(rewrite_mode(body, mode, scrutinee_id, duped_fields)),
@@ -674,7 +707,7 @@ mod tests {
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 
-    use super::{specialize_drops, DropSpecFailureReason};
+    use super::{DropSpecFailureReason, specialize_drops};
 
     fn binder(interner: &mut Interner, raw: u32, name: &str) -> CoreBinder {
         CoreBinder::new(CoreBinderId(raw), interner.intern(name))
@@ -696,7 +729,10 @@ mod tests {
             CoreExpr::Lam { body, .. } => here + count_matching(body, predicate),
             CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
                 here + count_matching(func, predicate)
-                    + args.iter().map(|arg| count_matching(arg, predicate)).sum::<usize>()
+                    + args
+                        .iter()
+                        .map(|arg| count_matching(arg, predicate))
+                        .sum::<usize>()
             }
             CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
                 here + count_matching(rhs, predicate) + count_matching(body, predicate)
@@ -724,7 +760,10 @@ mod tests {
                     .sum::<usize>()
             }
             CoreExpr::PrimOp { args, .. } | CoreExpr::Perform { args, .. } => {
-                here + args.iter().map(|arg| count_matching(arg, predicate)).sum::<usize>()
+                here + args
+                    .iter()
+                    .map(|arg| count_matching(arg, predicate))
+                    .sum::<usize>()
             }
             CoreExpr::Return { value, .. } => here + count_matching(value, predicate),
             CoreExpr::Handle { body, handlers, .. } => {
@@ -975,12 +1014,14 @@ mod tests {
                     shared_body,
                     ..
                 } => {
-                    let unique_drops = count_matching(unique_body, &|expr| {
-                        matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(xs.id))
-                    });
-                    let shared_drops = count_matching(shared_body, &|expr| {
-                        matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(xs.id))
-                    });
+                    let unique_drops = count_matching(
+                        unique_body,
+                        &|expr| matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(xs.id)),
+                    );
+                    let shared_drops = count_matching(
+                        shared_body,
+                        &|expr| matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(xs.id)),
+                    );
                     assert_eq!(unique_drops, 0);
                     assert_eq!(shared_drops, 0);
                 }
@@ -1124,15 +1165,18 @@ mod tests {
                     shared_body,
                     ..
                 } => {
-                    let unique_field_dups = count_matching(unique_body, &|expr| {
-                        matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(h.id))
-                    });
-                    let unique_non_field_dups = count_matching(unique_body, &|expr| {
-                        matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(f.id))
-                    });
-                    let shared_field_dups = count_matching(shared_body, &|expr| {
-                        matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(h.id))
-                    });
+                    let unique_field_dups = count_matching(
+                        unique_body,
+                        &|expr| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(h.id)),
+                    );
+                    let unique_non_field_dups = count_matching(
+                        unique_body,
+                        &|expr| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(f.id)),
+                    );
+                    let shared_field_dups = count_matching(
+                        shared_body,
+                        &|expr| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(h.id)),
+                    );
                     assert_eq!(unique_field_dups, 0);
                     assert_eq!(unique_non_field_dups, 1);
                     assert_eq!(shared_field_dups, 1);

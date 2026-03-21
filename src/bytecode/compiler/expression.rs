@@ -1625,9 +1625,11 @@ impl Compiler {
             };
 
             let expected = EffectRow::from_effect_exprs(param_effects);
-            let Some(actual) =
-                self.infer_argument_function_effect_row_with_rows(argument, params.len(), param_effect_rows)
-            else {
+            let Some(actual) = self.infer_argument_function_effect_row_with_rows(
+                argument,
+                params.len(),
+                param_effect_rows,
+            ) else {
                 continue;
             };
 
@@ -3393,8 +3395,8 @@ impl Compiler {
             None
         };
 
-        let is_discard = !is_direct
-            && crate::bytecode::compiler::tail_resumptive::is_handler_discard(arms);
+        let is_discard =
+            !is_direct && crate::bytecode::compiler::tail_resumptive::is_handler_discard(arms);
 
         let desc = Value::HandlerDescriptor(Rc::new(HandlerDescriptor {
             effect,

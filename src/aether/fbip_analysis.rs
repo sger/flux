@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use crate::core::{CoreBinderId, CoreDef, CoreExpr, CoreProgram};
 use crate::syntax::{Identifier, interner::Interner, statement::FipAnnotation};
 
-use super::{builtin_effect_for_name, is_heap_tag, AetherBuiltinEffect};
+use super::{AetherBuiltinEffect, builtin_effect_for_name, is_heap_tag};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FbipCapability {
@@ -80,6 +80,7 @@ pub struct FbipCallDetail {
     pub callee: String,
     pub kind: FbipCallKind,
     pub outcome: FbipCallOutcome,
+    pub self_recursive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,9 +114,13 @@ struct FbipContext<'a> {
     summaries: &'a HashMap<CoreBinderId, FbipSummary>,
     summaries_by_name: &'a HashMap<Identifier, FbipSummary>,
     interner: &'a Interner,
+    current_def: Option<CoreBinderId>,
 }
 
-pub fn analyze_program(program: &CoreProgram, interner: &Interner) -> HashMap<CoreBinderId, FbipSummary> {
+pub fn analyze_program(
+    program: &CoreProgram,
+    interner: &Interner,
+) -> HashMap<CoreBinderId, FbipSummary> {
     let mut summaries = HashMap::new();
     let mut summaries_by_name = HashMap::new();
 
@@ -129,13 +134,13 @@ pub fn analyze_program(program: &CoreProgram, interner: &Interner) -> HashMap<Co
         let summaries_snapshot = summaries.clone();
         let summaries_by_name_snapshot = summaries_by_name.clone();
         let mut changed = false;
-        let ctx = FbipContext {
-            summaries: &summaries_snapshot,
-            summaries_by_name: &summaries_by_name_snapshot,
-            interner,
-        };
-
         for def in &program.defs {
+            let ctx = FbipContext {
+                summaries: &summaries_snapshot,
+                summaries_by_name: &summaries_by_name_snapshot,
+                interner,
+                current_def: Some(def.binder.id),
+            };
             let next = summarize_definition(def, &ctx);
             let prev = summaries.get(&def.binder.id);
             if prev != Some(&next) {
@@ -167,7 +172,8 @@ fn initial_summary(def: &CoreDef) -> FbipSummary {
 }
 
 fn summarize_definition(def: &CoreDef, ctx: &FbipContext<'_>) -> FbipSummary {
-    let fact = analyze_expr(&def.expr, ctx);
+    let mut fact = analyze_expr(&def.expr, ctx);
+    suppress_redundant_self_recursive_noise(&mut fact);
     let outcome = if fact.provable {
         if fact.bound == 0 {
             FbipOutcome::Fip
@@ -197,6 +203,45 @@ fn summarize_definition(def: &CoreDef, ctx: &FbipContext<'_>) -> FbipSummary {
     }
 }
 
+fn suppress_redundant_self_recursive_noise(fact: &mut FbipFact) {
+    let has_other_blocker = fact.reasons.iter().any(|reason| {
+        matches!(
+            reason,
+            FbipFailureReason::FreshAllocation
+                | FbipFailureReason::UnknownCall
+                | FbipFailureReason::TokenUnavailable
+                | FbipFailureReason::ControlFlowJoin
+                | FbipFailureReason::EffectBoundary
+                | FbipFailureReason::BuiltinBoundary
+        )
+    });
+
+    if !has_other_blocker {
+        return;
+    }
+
+    let removed_any = fact.call_details.iter().any(|detail| {
+        detail.self_recursive && matches!(detail.outcome, FbipCallOutcome::KnownNotProvable)
+    });
+
+    if !removed_any {
+        return;
+    }
+
+    fact.call_details.retain(|detail| {
+        !(detail.self_recursive && matches!(detail.outcome, FbipCallOutcome::KnownNotProvable))
+    });
+
+    let has_non_self_known_not_provable = fact.call_details.iter().any(|detail| {
+        !detail.self_recursive && matches!(detail.outcome, FbipCallOutcome::KnownNotProvable)
+    });
+
+    if !has_non_self_known_not_provable {
+        fact.reasons.remove(&FbipFailureReason::NonFipCall);
+        fact.capabilities.remove(&FbipCapability::CallsNonFip);
+    }
+}
+
 fn analyze_expr(expr: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => FbipFact::default(),
@@ -206,7 +251,8 @@ fn analyze_expr(expr: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
             let mut fact = analyze_expr(body, ctx);
             fact.capabilities.insert(FbipCapability::Dealloc);
             if dropped_constructor_rebuild_needs_token(body) {
-                fact.capabilities.insert(FbipCapability::NeedsConstructorToken);
+                fact.capabilities
+                    .insert(FbipCapability::NeedsConstructorToken);
                 fact.reasons.insert(FbipFailureReason::TokenUnavailable);
             }
             fact
@@ -218,7 +264,10 @@ fn analyze_expr(expr: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
         CoreExpr::PrimOp { args, .. } => fold_all(args.iter().map(|arg| analyze_expr(arg, ctx))),
         CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             let mut fact = analyze_expr(func, ctx);
-            fact = seq(fact, fold_all(args.iter().map(|arg| analyze_expr(arg, ctx))));
+            fact = seq(
+                fact,
+                fold_all(args.iter().map(|arg| analyze_expr(arg, ctx))),
+            );
             seq(fact, analyze_call(func, ctx))
         }
         CoreExpr::Con { tag, fields, .. } => {
@@ -283,6 +332,7 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
     let (summary, detail) = match func {
         CoreExpr::Var { var, .. } => {
             let callee_name = safe_symbol_name(ctx.interner, var.name);
+            let self_recursive = var.binder == ctx.current_def;
             if let Some(binder) = var.binder
                 && let Some(summary) = ctx.summaries.get(&binder)
             {
@@ -292,17 +342,17 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
                         callee: callee_name.clone(),
                         kind: FbipCallKind::DirectInternal,
                         outcome: FbipCallOutcome::KnownNotProvable,
+                        self_recursive,
                     }),
                 )
-            } else if let Some(effect) =
-                builtin_effect_for_name(&callee_name)
-            {
+            } else if let Some(effect) = builtin_effect_for_name(&callee_name) {
                 (
                     None,
                     Some(FbipCallDetail {
                         callee: callee_name.clone(),
                         kind: FbipCallKind::Builtin(effect),
                         outcome: FbipCallOutcome::KnownBuiltin,
+                        self_recursive: false,
                     }),
                 )
             } else if let Some(summary) = ctx.summaries_by_name.get(&var.name) {
@@ -312,6 +362,7 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
                         callee: callee_name.clone(),
                         kind: FbipCallKind::DirectNamed,
                         outcome: FbipCallOutcome::KnownNotProvable,
+                        self_recursive: false,
                     }),
                 )
             } else {
@@ -321,6 +372,7 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
                         callee: callee_name,
                         kind: FbipCallKind::Indirect,
                         outcome: FbipCallOutcome::UnknownIndirect,
+                        self_recursive: false,
                     }),
                 )
             }
@@ -504,7 +556,11 @@ mod tests {
         let summaries = analyze_program(&program, &interner);
         let summary = summaries.values().next().unwrap();
         assert_eq!(summary.outcome, FbipOutcome::Fbip { bound: 1 });
-        assert!(summary.reasons.contains(&FbipFailureReason::FreshAllocation));
+        assert!(
+            summary
+                .reasons
+                .contains(&FbipFailureReason::FreshAllocation)
+        );
     }
 
     #[test]
@@ -736,10 +792,12 @@ mod tests {
         let summaries = analyze_program(&program, &interner);
         let summary = summaries.get(&caller_binder.id).unwrap();
         assert_eq!(summary.outcome, FbipOutcome::Fip);
-        assert!(summary
-            .call_details
-            .iter()
-            .any(|detail| matches!(detail.outcome, FbipCallOutcome::KnownFip)));
+        assert!(
+            summary
+                .call_details
+                .iter()
+                .any(|detail| matches!(detail.outcome, FbipCallOutcome::KnownFip))
+        );
     }
 
     #[test]
@@ -795,10 +853,12 @@ mod tests {
         let summary = summaries.values().next().unwrap();
         assert_eq!(summary.outcome, FbipOutcome::Fip);
         assert!(!summary.reasons.contains(&FbipFailureReason::UnknownCall));
-        assert!(summary
-            .call_details
-            .iter()
-            .any(|detail| matches!(detail.kind, FbipCallKind::Builtin(_))));
+        assert!(
+            summary
+                .call_details
+                .iter()
+                .any(|detail| matches!(detail.kind, FbipCallKind::Builtin(_)))
+        );
     }
 
     #[test]
@@ -826,10 +886,12 @@ mod tests {
         let summary = summaries.values().next().unwrap();
         assert_eq!(summary.outcome, FbipOutcome::Fip);
         assert!(!summary.reasons.contains(&FbipFailureReason::UnknownCall));
-        assert!(summary
-            .call_details
-            .iter()
-            .any(|detail| matches!(detail.kind, FbipCallKind::Builtin(_))));
+        assert!(
+            summary
+                .call_details
+                .iter()
+                .any(|detail| matches!(detail.kind, FbipCallKind::Builtin(_)))
+        );
     }
 
     #[test]
@@ -916,8 +978,16 @@ mod tests {
         };
         let summaries = analyze_program(&alloc_program, &interner);
         let summary = summaries.values().next().unwrap();
-        assert!(summary.reasons.contains(&FbipFailureReason::FreshAllocation));
-        assert!(!summary.reasons.contains(&FbipFailureReason::TokenUnavailable));
+        assert!(
+            summary
+                .reasons
+                .contains(&FbipFailureReason::FreshAllocation)
+        );
+        assert!(
+            !summary
+                .reasons
+                .contains(&FbipFailureReason::TokenUnavailable)
+        );
 
         let token = binder(&mut interner, 3, "token");
         let dropped_program = CoreProgram {
@@ -940,8 +1010,10 @@ mod tests {
         };
         let dropped_summaries = analyze_program(&dropped_program, &interner);
         let dropped_summary = dropped_summaries.values().next().unwrap();
-        assert!(dropped_summary
-            .reasons
-            .contains(&FbipFailureReason::TokenUnavailable));
+        assert!(
+            dropped_summary
+                .reasons
+                .contains(&FbipFailureReason::TokenUnavailable)
+        );
     }
 }

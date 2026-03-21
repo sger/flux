@@ -344,7 +344,10 @@ fn count_owned_inner(
                         0 // shadowed by pattern
                     } else {
                         let rhs = count_owned_inner(var, &alt.rhs, registry);
-                        let guard = alt.guard.as_ref().map_or(0, |g| count_owned_inner(var, g, registry));
+                        let guard = alt
+                            .guard
+                            .as_ref()
+                            .map_or(0, |g| count_owned_inner(var, g, registry));
                         rhs + guard
                     }
                 })
@@ -358,7 +361,9 @@ fn count_owned_inner(
             let func_owned = count_owned_skip_direct(var, func, registry);
 
             let resolved_callee = registry.and_then(|reg| match func.as_ref() {
-                CoreExpr::Var { var: callee_var, .. } => Some(reg.resolve_var_ref(callee_var)),
+                CoreExpr::Var {
+                    var: callee_var, ..
+                } => Some(reg.resolve_var_ref(callee_var)),
                 _ => None,
             });
 
@@ -402,18 +407,21 @@ fn count_owned_inner(
         }
 
         // Con fields are OWNED (stored in data structure).
-        CoreExpr::Con { fields, .. } => fields.iter().map(|f| count_owned_inner(var, f, registry)).sum(),
+        CoreExpr::Con { fields, .. } => fields
+            .iter()
+            .map(|f| count_owned_inner(var, f, registry))
+            .sum(),
 
         // Return value is OWNED (escapes scope).
         CoreExpr::Return { value, .. } => count_owned_inner(var, value, registry),
 
-        // Lam: if var is captured (free in body), it's OWNED.
+        // Lam: captured values are owned only when the closure body consumes
+        // them. Read-only captures can stay borrowed.
         CoreExpr::Lam { params, body, .. } => {
             if params.iter().any(|p| p.id == var) {
                 0 // shadowed
             } else {
-                // Any free occurrence inside a Lam is a capture → owned
-                count_owned_in_capture(var, body)
+                count_owned_in_capture(var, body, registry)
             }
         }
 
@@ -446,7 +454,10 @@ fn count_owned_inner(
         }
 
         // Perform args are OWNED (continuation capture boundary).
-        CoreExpr::Perform { args, .. } => args.iter().map(|a| count_owned_inner(var, a, registry)).sum(),
+        CoreExpr::Perform { args, .. } => args
+            .iter()
+            .map(|a| count_owned_inner(var, a, registry))
+            .sum(),
 
         // Handle: body is normal context, handler bodies have their own scope.
         CoreExpr::Handle { body, handlers, .. } => {
@@ -475,7 +486,11 @@ fn count_owned_inner(
         // Reuse: token is owned (reuse consumes the token), fields are owned (stored).
         CoreExpr::Reuse { token, fields, .. } => {
             let token_use = if token.binder == Some(var) { 1 } else { 0 };
-            token_use + fields.iter().map(|f| count_owned_inner(var, f, registry)).sum::<usize>()
+            token_use
+                + fields
+                    .iter()
+                    .map(|f| count_owned_inner(var, f, registry))
+                    .sum::<usize>()
         }
         // DropSpecialized: scrutinee is borrowed (tested for uniqueness),
         // branches are normal context — take max (only one runs).
@@ -507,109 +522,14 @@ fn count_owned_skip_direct(
     }
 }
 
-/// Inside a Lam body, every free occurrence of var is a capture → owned.
-fn count_owned_in_capture(var: CoreBinderId, expr: &CoreExpr) -> usize {
-    total_occurrences(var, expr)
-}
-
-/// Count total free occurrences of `var` in `expr` (regardless of position).
-fn total_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
-    match expr {
-        CoreExpr::Var { var: ref_var, .. } => {
-            if ref_var.binder == Some(var) {
-                1
-            } else {
-                0
-            }
-        }
-        CoreExpr::Lit(_, _) => 0,
-        CoreExpr::Lam { params, body, .. } => {
-            if params.iter().any(|p| p.id == var) {
-                0
-            } else {
-                total_occurrences(var, body)
-            }
-        }
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
-            total_occurrences(var, func)
-                + args
-                    .iter()
-                    .map(|a| total_occurrences(var, a))
-                    .sum::<usize>()
-        }
-        CoreExpr::Let {
-            var: b, rhs, body, ..
-        } => {
-            let r = total_occurrences(var, rhs);
-            if b.id == var {
-                r
-            } else {
-                r + total_occurrences(var, body)
-            }
-        }
-        CoreExpr::LetRec {
-            var: b, rhs, body, ..
-        } => {
-            if b.id == var {
-                0
-            } else {
-                total_occurrences(var, rhs) + total_occurrences(var, body)
-            }
-        }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
-            total_occurrences(var, scrutinee)
-                + alts
-                    .iter()
-                    .map(|alt| {
-                        if pat_binds(var, &alt.pat) {
-                            0
-                        } else {
-                            total_occurrences(var, &alt.rhs)
-                                + alt.guard.as_ref().map_or(0, |g| total_occurrences(var, g))
-                        }
-                    })
-                    .sum::<usize>()
-        }
-        CoreExpr::Con { fields, .. } => fields.iter().map(|f| total_occurrences(var, f)).sum(),
-        CoreExpr::PrimOp { args, .. } => args.iter().map(|a| total_occurrences(var, a)).sum(),
-        CoreExpr::Return { value, .. } => total_occurrences(var, value),
-        CoreExpr::Perform { args, .. } => args.iter().map(|a| total_occurrences(var, a)).sum(),
-        CoreExpr::Handle { body, handlers, .. } => {
-            total_occurrences(var, body)
-                + handlers
-                    .iter()
-                    .map(|h| {
-                        if h.resume.id == var || h.params.iter().any(|p| p.id == var) {
-                            0
-                        } else {
-                            total_occurrences(var, &h.body)
-                        }
-                    })
-                    .sum::<usize>()
-        }
-        CoreExpr::Dup { var: v, body, .. } => {
-            (if v.binder == Some(var) { 1 } else { 0 }) + total_occurrences(var, body)
-        }
-        CoreExpr::Drop { body, .. } => total_occurrences(var, body),
-        CoreExpr::Reuse { token, fields, .. } => {
-            (if token.binder == Some(var) { 1 } else { 0 })
-                + fields
-                    .iter()
-                    .map(|f| total_occurrences(var, f))
-                    .sum::<usize>()
-        }
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
-            let scrut = if scrutinee.binder == Some(var) { 1 } else { 0 };
-            scrut + total_occurrences(var, unique_body) + total_occurrences(var, shared_body)
-        }
-    }
+/// Inside a Lam body, only consuming free occurrences of `var` force the
+/// capture to be owned. Borrow-only captures can remain borrowed.
+fn count_owned_in_capture(
+    var: CoreBinderId,
+    expr: &CoreExpr,
+    registry: Option<&super::borrow_infer::BorrowRegistry>,
+) -> usize {
+    count_owned_inner(var, expr, registry)
 }
 
 /// Check if a pattern binds the given variable (shadows it).

@@ -251,11 +251,7 @@ pub(super) fn declare_runtime_helpers(ctx: &mut LlvmCompilerContext) {
             vec![ptr_ty, ptr_ty, ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty],
         ),
         // rt_is_unique(ctx, val) -> i64
-        (
-            "rt_is_unique",
-            i64_ty,
-            vec![ptr_ty, ptr_ty],
-        ),
+        ("rt_is_unique", i64_ty, vec![ptr_ty, ptr_ty]),
     ];
 
     // Read-only helpers: inspect values without modifying ctx or heap.

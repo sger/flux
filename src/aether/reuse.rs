@@ -84,8 +84,18 @@ fn rewrite_with_ctx(
             span,
         } => CoreExpr::Let {
             var,
-            rhs: Box::new(rewrite_with_ctx(*rhs, pat_binders, pat_tag, blocked_outer_token)),
-            body: Box::new(rewrite_with_ctx(*body, pat_binders, pat_tag, blocked_outer_token)),
+            rhs: Box::new(rewrite_with_ctx(
+                *rhs,
+                pat_binders,
+                pat_tag,
+                blocked_outer_token,
+            )),
+            body: Box::new(rewrite_with_ctx(
+                *body,
+                pat_binders,
+                pat_tag,
+                blocked_outer_token,
+            )),
             span,
         },
         CoreExpr::LetRec {
@@ -95,8 +105,18 @@ fn rewrite_with_ctx(
             span,
         } => CoreExpr::LetRec {
             var,
-            rhs: Box::new(rewrite_with_ctx(*rhs, pat_binders, pat_tag, blocked_outer_token)),
-            body: Box::new(rewrite_with_ctx(*body, pat_binders, pat_tag, blocked_outer_token)),
+            rhs: Box::new(rewrite_with_ctx(
+                *rhs,
+                pat_binders,
+                pat_tag,
+                blocked_outer_token,
+            )),
+            body: Box::new(rewrite_with_ctx(
+                *body,
+                pat_binders,
+                pat_tag,
+                blocked_outer_token,
+            )),
             span,
         },
         CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
@@ -105,7 +125,12 @@ fn rewrite_with_ctx(
             span,
         },
         CoreExpr::App { func, args, span } => CoreExpr::App {
-            func: Box::new(rewrite_with_ctx(*func, pat_binders, pat_tag, blocked_outer_token)),
+            func: Box::new(rewrite_with_ctx(
+                *func,
+                pat_binders,
+                pat_tag,
+                blocked_outer_token,
+            )),
             args: args
                 .into_iter()
                 .map(|a| rewrite_with_ctx(a, pat_binders, pat_tag, blocked_outer_token))
@@ -118,7 +143,12 @@ fn rewrite_with_ctx(
             arg_modes,
             span,
         } => CoreExpr::AetherCall {
-            func: Box::new(rewrite_with_ctx(*func, pat_binders, pat_tag, blocked_outer_token)),
+            func: Box::new(rewrite_with_ctx(
+                *func,
+                pat_binders,
+                pat_tag,
+                blocked_outer_token,
+            )),
             args: args
                 .into_iter()
                 .map(|a| rewrite_with_ctx(a, pat_binders, pat_tag, blocked_outer_token))
@@ -170,7 +200,12 @@ fn rewrite_with_ctx(
             span,
         },
         CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(rewrite_with_ctx(*value, pat_binders, pat_tag, blocked_outer_token)),
+            value: Box::new(rewrite_with_ctx(
+                *value,
+                pat_binders,
+                pat_tag,
+                blocked_outer_token,
+            )),
             span,
         },
         CoreExpr::Perform {
@@ -193,7 +228,12 @@ fn rewrite_with_ctx(
             handlers,
             span,
         } => CoreExpr::Handle {
-            body: Box::new(rewrite_with_ctx(*body, pat_binders, pat_tag, blocked_outer_token)),
+            body: Box::new(rewrite_with_ctx(
+                *body,
+                pat_binders,
+                pat_tag,
+                blocked_outer_token,
+            )),
             effect,
             handlers: handlers
                 .into_iter()
@@ -206,7 +246,12 @@ fn rewrite_with_ctx(
         },
         CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
             var,
-            body: Box::new(rewrite_with_ctx(*body, pat_binders, pat_tag, blocked_outer_token)),
+            body: Box::new(rewrite_with_ctx(
+                *body,
+                pat_binders,
+                pat_tag,
+                blocked_outer_token,
+            )),
             span,
         },
         CoreExpr::Reuse {
@@ -286,64 +331,64 @@ fn insert_reuse_in_unique(
                 };
             }
             match ctor_like {
-        // Walk through Let spine
-        CoreExpr::Let {
-            var,
-            rhs,
-            body: let_body,
-            span,
-        } => CoreExpr::Let {
-            var,
-            rhs,
-            body: Box::new(insert_reuse_in_unique(scrutinee, *let_body, pat_tag)),
-            span,
-        },
-        // Walk through Dup spine
-        CoreExpr::Dup {
-            var,
-            body: dup_body,
-            span,
-        } => CoreExpr::Dup {
-            var,
-            body: Box::new(insert_reuse_in_unique(scrutinee, *dup_body, pat_tag)),
-            span,
-        },
-        // Walk through Drop spine
-        CoreExpr::Drop {
-            var,
-            body: drop_body,
-            span,
-        } => {
-            let body = insert_reuse_in_unique(scrutinee, *drop_body, pat_tag);
-            if var.binder == scrutinee.binder {
-                body
-            } else {
+                // Walk through Let spine
+                CoreExpr::Let {
+                    var,
+                    rhs,
+                    body: let_body,
+                    span,
+                } => CoreExpr::Let {
+                    var,
+                    rhs,
+                    body: Box::new(insert_reuse_in_unique(scrutinee, *let_body, pat_tag)),
+                    span,
+                },
+                // Walk through Dup spine
+                CoreExpr::Dup {
+                    var,
+                    body: dup_body,
+                    span,
+                } => CoreExpr::Dup {
+                    var,
+                    body: Box::new(insert_reuse_in_unique(scrutinee, *dup_body, pat_tag)),
+                    span,
+                },
+                // Walk through Drop spine
                 CoreExpr::Drop {
                     var,
-                    body: Box::new(body),
+                    body: drop_body,
                     span,
+                } => {
+                    let body = insert_reuse_in_unique(scrutinee, *drop_body, pat_tag);
+                    if var.binder == scrutinee.binder {
+                        body
+                    } else {
+                        CoreExpr::Drop {
+                            var,
+                            body: Box::new(body),
+                            span,
+                        }
+                    }
                 }
-            }
-        }
-        // Recurse into branchy bodies while preserving the outer reuse token.
-        CoreExpr::Case {
-            scrutinee: case_scrutinee,
-            alts,
-            span,
-        } => CoreExpr::Case {
-            scrutinee: Box::new(rewrite_with_pat_ctx(*case_scrutinee, None, None)),
-            alts: alts
-                .into_iter()
-                .map(|mut alt| {
-                    alt.rhs = insert_reuse_in_unique(scrutinee, alt.rhs, pat_tag);
-                    alt.guard = alt.guard.map(|g| rewrite_with_pat_ctx(g, None, None));
-                    alt
-                })
-                .collect(),
-            span,
-        },
-        // No compatible Con found — return body unchanged, recurse normally
-        other => rewrite_with_pat_ctx(other, None, pat_tag),
+                // Recurse into branchy bodies while preserving the outer reuse token.
+                CoreExpr::Case {
+                    scrutinee: case_scrutinee,
+                    alts,
+                    span,
+                } => CoreExpr::Case {
+                    scrutinee: Box::new(rewrite_with_pat_ctx(*case_scrutinee, None, None)),
+                    alts: alts
+                        .into_iter()
+                        .map(|mut alt| {
+                            alt.rhs = insert_reuse_in_unique(scrutinee, alt.rhs, pat_tag);
+                            alt.guard = alt.guard.map(|g| rewrite_with_pat_ctx(g, None, None));
+                            alt
+                        })
+                        .collect(),
+                    span,
+                },
+                // No compatible Con found — return body unchanged, recurse normally
+                other => rewrite_with_pat_ctx(other, None, pat_tag),
             }
         }
     }

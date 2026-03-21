@@ -616,10 +616,10 @@ fn parses_fbip_annotated_function() {
 fn rejects_unknown_function_annotation() {
     let (program, parser) = parse_with_errors("@fi fn bad() { 1 }\nlet ok = 1;");
     assert!(
-        parser
-            .errors
-            .iter()
-            .any(|d| d.message().unwrap_or("").contains("Unknown annotation `@fi`")),
+        parser.errors.iter().any(|d| d
+            .message()
+            .unwrap_or("")
+            .contains("Unknown annotation `@fi`")),
         "expected unknown function annotation diagnostic, got: {:?}",
         parser.errors
     );
@@ -644,10 +644,10 @@ fn rejects_unknown_function_annotation() {
 fn rejects_unknown_function_annotation_generically() {
     let (_program, parser) = parse_with_errors("@foo fn bad() { 1 }");
     assert!(
-        parser
-            .errors
-            .iter()
-            .any(|d| d.message().unwrap_or("").contains("Unknown annotation `@foo`")),
+        parser.errors.iter().any(|d| d
+            .message()
+            .unwrap_or("")
+            .contains("Unknown annotation `@foo`")),
         "expected unknown function annotation diagnostic, got: {:?}",
         parser.errors
     );
@@ -659,7 +659,9 @@ fn rejects_malformed_annotated_function_declaration() {
     assert!(
         parser.errors.iter().any(|d| {
             d.display_title() == Some("Malformed Annotated Function")
-                && d.message().unwrap_or("").contains("must be followed by `fn`")
+                && d.message()
+                    .unwrap_or("")
+                    .contains("must be followed by `fn`")
         }),
         "expected malformed annotated function diagnostic, got: {:?}",
         parser.errors
