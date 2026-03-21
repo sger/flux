@@ -160,6 +160,7 @@ pub struct Compiler {
     /// for functions in files with type errors (the Core IR may be degenerate).
     pub(super) has_hm_diagnostics: bool,
     pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
+    pub(super) inferred_function_effects: HashMap<ContractKey, HashSet<Symbol>>,
     strict_mode: bool,
     strict_require_main: bool,
     /// When true, run two-phase inference with type-informed optimization
@@ -228,6 +229,7 @@ impl Compiler {
             hm_expr_types: HashMap::new(),
             has_hm_diagnostics: false,
             ir_function_symbols: HashMap::new(),
+            inferred_function_effects: HashMap::new(),
             strict_mode: false,
             strict_require_main: true,
             type_optimize: false,
@@ -767,6 +769,7 @@ impl Compiler {
 
         let seeds = self.collect_function_effect_seeds(program);
         if seeds.is_empty() {
+            self.inferred_function_effects.clear();
             return;
         }
 
@@ -779,14 +782,6 @@ impl Compiler {
         while changed {
             changed = false;
             for seed in &seeds {
-                if !seed.declared_effects.is_empty() {
-                    continue;
-                }
-                let is_fully_unannotated =
-                    !seed.parameter_types.iter().any(Option::is_some) && seed.return_type.is_none();
-                if !is_fully_unannotated {
-                    continue;
-                }
                 let effects = self.infer_effects_from_block(
                     &seed.body,
                     seed.module_name,
@@ -794,13 +789,17 @@ impl Compiler {
                     io_effect,
                     time_effect,
                 );
+                let mut combined_effects = seed.declared_effects.clone();
+                combined_effects.extend(effects);
                 let entry = inferred.entry(seed.key.clone()).or_default();
-                if *entry != effects {
-                    *entry = effects;
+                if *entry != combined_effects {
+                    *entry = combined_effects;
                     changed = true;
                 }
             }
         }
+
+        self.inferred_function_effects = inferred.clone();
 
         for seed in &seeds {
             let is_fully_unannotated =
@@ -1708,28 +1707,36 @@ impl Compiler {
                             .with_primary_label(*span, "missing return type annotation"),
                         );
                     }
+                }
 
-                    let is_effectful = self
-                        .lookup_contract(module_name, *name, parameters.len())
-                        .is_some_and(|contract| !contract.effects.is_empty());
-                    if is_effectful && effects.is_empty() {
-                        self.errors.push(
-                            Diagnostic::make_error_dynamic(
-                                "E418",
-                                "STRICT EFFECT ANNOTATION REQUIRED",
-                                ErrorType::Compiler,
-                                format!(
-                                    "Public effectful function `{}` must declare `with ...` in strict mode.",
-                                    self.sym(*name)
-                                ),
-                                Some("Add explicit `with EffectName` to the function signature.".to_string()),
-                                self.file_path.clone(),
-                                *span,
-                            )
-                            .with_category(DiagnosticCategory::ModuleSystem)
-                            .with_primary_label(*span, "missing explicit effect annotation"),
-                        );
-                    }
+                let missing_effects = self.strict_missing_ambient_effects(
+                    module_name,
+                    *name,
+                    parameters.len(),
+                    effects,
+                );
+                for effect_name in missing_effects {
+                    let effect_text = self.sym(effect_name).to_string();
+                    self.errors.push(
+                        Diagnostic::make_error_dynamic(
+                            "E418",
+                            "STRICT EFFECT ANNOTATION REQUIRED",
+                            ErrorType::Compiler,
+                            format!(
+                                "Effectful function `{}` must declare `with {}` in strict mode.",
+                                self.sym(*name),
+                                effect_text,
+                            ),
+                            Some(format!(
+                                "Add explicit `with {}` to the function signature.",
+                                effect_text
+                            )),
+                            self.file_path.clone(),
+                            *span,
+                        )
+                        .with_category(DiagnosticCategory::ModuleSystem)
+                        .with_primary_label(*span, "missing explicit effect annotation"),
+                    );
                 }
 
                 for ty in parameter_types.iter().flatten() {
@@ -1746,6 +1753,44 @@ impl Compiler {
             }
             _ => {}
         }
+    }
+
+    fn strict_missing_ambient_effects(
+        &self,
+        module_name: Option<Symbol>,
+        function_name: Symbol,
+        arity: usize,
+        declared_effects: &[EffectExpr],
+    ) -> Vec<Symbol> {
+        let key = ContractKey {
+            module_name,
+            function_name,
+            arity,
+        };
+        let inferred = self
+            .inferred_function_effects
+            .get(&key)
+            .cloned()
+            .unwrap_or_default();
+        if inferred.is_empty() {
+            return Vec::new();
+        }
+
+        let declared: HashSet<Symbol> = declared_effects
+            .iter()
+            .flat_map(EffectExpr::normalized_names)
+            .collect();
+        let mut missing = Vec::new();
+
+        for effect in inferred {
+            let name = self.sym(effect);
+            if matches!(name, "IO" | "Time") && !declared.contains(&effect) {
+                missing.push(effect);
+            }
+        }
+
+        missing.sort_by_key(|effect| self.sym(*effect).to_string());
+        missing
     }
 
     fn error_on_any_type_expr_in_strict(&mut self, ty: &TypeExpr) {
@@ -2164,8 +2209,10 @@ impl Compiler {
 
         // Run FBIP checking on annotated functions
         let fbip_diags = crate::aether::check_fbip::check_fbip(&core, &self.interner);
-        for diag in &fbip_diags {
-            out.push_str(&format!("\nwarning: {}\n", diag));
+        for diag in &fbip_diags.diagnostics {
+            if let Some(message) = diag.diagnostic.message() {
+                out.push_str(&format!("\nwarning: {}\n", message));
+            }
         }
 
         out.push_str(&format!("\n── Total ──\n  {}\n", total));

@@ -53,7 +53,7 @@ fn resolve_expr_binders(expr: &mut CoreExpr, scopes: &mut Vec<BinderScope>) {
             resolve_expr_binders(body, scopes);
             scopes.pop();
         }
-        CoreExpr::App { func, args, .. } => {
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             resolve_expr_binders(func, scopes);
             for arg in args {
                 resolve_expr_binders(arg, scopes);
@@ -144,7 +144,7 @@ fn validate_expr_binders(expr: &CoreExpr, scopes: &mut Vec<BinderScope>) -> bool
             scopes.pop();
             ok
         }
-        CoreExpr::App { func, args, .. } => {
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             validate_expr_binders(func, scopes)
                 && args.iter().all(|arg| validate_expr_binders(arg, scopes))
         }

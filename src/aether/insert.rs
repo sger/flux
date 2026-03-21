@@ -10,7 +10,7 @@ use crate::core::{CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreTag, CoreVarR
 use crate::diagnostics::position::Span;
 
 use super::analysis::{AetherEnv, AetherPlan, ValueDemand, join_branch_envs, pat_binders, use_counts};
-use super::borrow_infer::BorrowRegistry;
+use super::borrow_infer::{BorrowMode, BorrowRegistry};
 use super::constructor_shape_for_tag;
 
 type Scope = HashMap<CoreBinderId, CoreBinder>;
@@ -153,16 +153,25 @@ fn plan_expr(
                 CoreExpr::Var { var, .. } => Some(reg.resolve_var_ref(var)),
                 _ => None,
             });
+            let arg_modes: Vec<_> = (0..args.len())
+                .map(|index| {
+                    let borrowed = resolved_callee
+                        .zip(registry)
+                        .is_some_and(|(callee, reg)| reg.is_borrowed(callee, index));
+                    if borrowed {
+                        BorrowMode::Borrowed
+                    } else {
+                        BorrowMode::Owned
+                    }
+                })
+                .collect();
             let (args, env_after_args) = plan_expr_list(
                 args,
                 tail_env,
                 registry,
                 scope,
                 |index| {
-                    let borrowed = resolved_callee
-                        .zip(registry)
-                        .is_some_and(|(callee, reg)| reg.is_borrowed(callee, index));
-                    if borrowed {
+                    if arg_modes[index] == BorrowMode::Borrowed {
                         ValueDemand::Borrowed
                     } else {
                         ValueDemand::Owned
@@ -171,9 +180,32 @@ fn plan_expr(
             );
             let func_plan = plan_expr(*func, env_after_args, ValueDemand::Borrowed, registry, scope);
             AetherPlan {
-                expr: CoreExpr::App {
+                expr: CoreExpr::AetherCall {
                     func: Box::new(func_plan.expr),
                     args,
+                    arg_modes,
+                    span,
+                },
+                env_before: func_plan.env_before,
+            }
+        }
+        CoreExpr::AetherCall {
+            func,
+            args,
+            arg_modes,
+            span,
+        } => {
+            let (args, env_after_args) =
+                plan_expr_list(args, tail_env, registry, scope, |index| match arg_modes[index] {
+                    BorrowMode::Borrowed => ValueDemand::Borrowed,
+                    BorrowMode::Owned => ValueDemand::Owned,
+                });
+            let func_plan = plan_expr(*func, env_after_args, ValueDemand::Borrowed, registry, scope);
+            AetherPlan {
+                expr: CoreExpr::AetherCall {
+                    func: Box::new(func_plan.expr),
+                    args,
+                    arg_modes,
                     span,
                 },
                 env_before: func_plan.env_before,
@@ -641,4 +673,53 @@ fn tags_shape_compatible(a: &CoreTag, b: &CoreTag) -> bool {
 
 fn expr_uses_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
     use_counts(expr).get(&binder).copied().unwrap_or(0) > 0
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::aether::borrow_infer::{BorrowMode, BorrowRegistry};
+    use crate::core::{CoreBinder, CoreBinderId, CoreExpr};
+    use crate::diagnostics::position::Span;
+    use crate::syntax::interner::Interner;
+
+    use super::insert_dup_drop_with_registry;
+
+    fn binder(interner: &mut Interner, raw: u32, name: &str) -> CoreBinder {
+        CoreBinder::new(CoreBinderId(raw), interner.intern(name))
+    }
+
+    fn var(binder: CoreBinder) -> CoreExpr {
+        CoreExpr::Var {
+            var: crate::core::CoreVarRef::resolved(binder),
+            span: Span::default(),
+        }
+    }
+
+    #[test]
+    fn indirect_calls_default_to_owned_aether_call_modes() {
+        let mut interner = Interner::new();
+        let f = binder(&mut interner, 1, "f");
+        let x = binder(&mut interner, 2, "x");
+
+        let expr = CoreExpr::Lam {
+            params: vec![f, x],
+            body: Box::new(CoreExpr::App {
+                func: Box::new(var(f)),
+                args: vec![var(x)],
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+
+        let rewritten = insert_dup_drop_with_registry(expr, &BorrowRegistry::default());
+        let CoreExpr::Lam { body, .. } = rewritten else {
+            panic!("expected lambda body");
+        };
+        match body.as_ref() {
+            CoreExpr::AetherCall { arg_modes, .. } => {
+                assert_eq!(arg_modes, &[BorrowMode::Owned]);
+            }
+            other => panic!("expected AetherCall, got {other:?}"),
+        }
+    }
 }

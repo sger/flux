@@ -19,10 +19,13 @@
 pub mod analysis;
 pub mod borrow_infer;
 pub mod check_fbip;
+pub mod fbip_analysis;
 pub mod drop_spec;
 pub mod fusion;
 pub mod insert;
+pub mod reuse_analysis;
 pub mod reuse;
+pub mod reuse_spec;
 pub mod verify;
 
 use crate::core::{CoreExpr, CoreTag, CoreVarRef};
@@ -111,7 +114,7 @@ fn count_nodes(expr: &CoreExpr, stats: &mut AetherStats) {
         }
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
         CoreExpr::Lam { body, .. } => count_nodes(body, stats),
-        CoreExpr::App { func, args, .. } => {
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             count_nodes(func, stats);
             for a in args {
                 count_nodes(a, stats);
@@ -193,6 +196,9 @@ pub fn constructor_shape_for_tag<'a>(
         CoreExpr::App { func, args, span } => {
             constructor_app_shape_for_tag(func.as_ref(), args, *span, expected_tag)
         }
+        CoreExpr::AetherCall { func, args, span, .. } => {
+            constructor_app_shape_for_tag(func.as_ref(), args, *span, expected_tag)
+        }
         _ => None,
     }
 }
@@ -205,6 +211,9 @@ pub fn into_constructor_shape_for_tag(
     match expr {
         CoreExpr::Con { tag, fields, span } => Some((tag, fields, span)),
         CoreExpr::App { func, args, span } => {
+            into_constructor_app_shape_for_tag(*func, args, span, expected_tag)
+        }
+        CoreExpr::AetherCall { func, args, span, .. } => {
             into_constructor_app_shape_for_tag(*func, args, span, expected_tag)
         }
         _ => None,
@@ -256,14 +265,16 @@ fn core_tag_from_constructor_var(
 /// 1. Dup/drop insertion (Phase 5) — insert explicit Rc operations
 /// 2. Drop specialization (Phase 8) — split into unique/shared paths
 /// 3. Dup/drop fusion (Phase 9) — cancel adjacent dup/drop pairs
-/// 4. Reuse token insertion (Phase 7) — reuse allocations on the fast path
+/// 4. Baseline reuse insertion (Phase 7) — emit legal plain `Reuse` sites
+/// 5. Reuse specialization (Phase 7b) — add profitable selective-write masks
 ///
 /// This is the public entry point called from `run_core_passes`.
 pub fn run_aether_pass(expr: CoreExpr) -> CoreExpr {
     let expr = insert::insert_dup_drop(expr);
     let expr = drop_spec::specialize_drops(expr);
     let expr = fusion::fuse_dup_drop(expr);
-    reuse::insert_reuse(expr)
+    let expr = reuse::insert_reuse(expr);
+    reuse_spec::specialize_reuse(expr)
 }
 
 /// Run the Aether pipeline with a borrow registry for cross-function optimization.
@@ -275,5 +286,6 @@ pub fn run_aether_pass_with_registry(
     let expr = insert::insert_dup_drop_with_registry(expr, registry);
     let expr = drop_spec::specialize_drops(expr);
     let expr = fusion::fuse_dup_drop(expr);
-    reuse::insert_reuse(expr)
+    let expr = reuse::insert_reuse(expr);
+    reuse_spec::specialize_reuse(expr)
 }

@@ -12,6 +12,7 @@ use super::{
     CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp,
     CoreProgram, CoreTag, CoreVarRef,
 };
+use crate::aether::borrow_infer::BorrowMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoreDisplayMode {
@@ -121,6 +122,33 @@ impl<'a> Formatter<'a> {
                 self.write_expr(out, body, indent + 2);
             }
             CoreExpr::App { func, args, .. } => {
+                self.write_expr(out, func, indent);
+                out.push('(');
+                for (i, a) in args.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    self.write_expr_inline(out, a, indent);
+                }
+                out.push(')');
+            }
+            CoreExpr::AetherCall {
+                func,
+                args,
+                arg_modes,
+                ..
+            } => {
+                out.push_str("aether_call[");
+                for (i, mode) in arg_modes.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    out.push_str(match mode {
+                        BorrowMode::Borrowed => "borrowed",
+                        BorrowMode::Owned => "owned",
+                    });
+                }
+                out.push_str("] ");
                 self.write_expr(out, func, indent);
                 out.push('(');
                 for (i, a) in args.iter().enumerate() {

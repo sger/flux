@@ -7,6 +7,7 @@
 use crate::core::{CoreExpr, CorePat, CoreTag};
 
 use super::analysis::use_counts;
+use super::reuse_analysis::diagnose_drop_body;
 use super::{constructor_shape_for_tag, is_heap_tag};
 
 /// Fatal Aether verification error.
@@ -20,6 +21,7 @@ pub struct AetherError {
 pub enum AetherErrorKind {
     UnresolvedAetherVar,
     UnsafeDrop,
+    InvalidAetherCallModes,
     InvalidReuseTag,
     ReuseTokenEscapesIntoFields,
     InvalidFieldMask,
@@ -65,6 +67,27 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
             check_contract(body, errors)
         }
         CoreExpr::App { func, args, .. } => {
+            check_contract(func, errors);
+            for arg in args {
+                check_contract(arg, errors);
+            }
+        }
+        CoreExpr::AetherCall {
+            func,
+            args,
+            arg_modes,
+            ..
+        } => {
+            if args.len() != arg_modes.len() {
+                errors.push(AetherError {
+                    kind: AetherErrorKind::InvalidAetherCallModes,
+                    message: format!(
+                        "aether_call argument count {} does not match mode count {}",
+                        args.len(),
+                        arg_modes.len()
+                    ),
+                });
+            }
             check_contract(func, errors);
             for arg in args {
                 check_contract(arg, errors);
@@ -238,12 +261,35 @@ fn check_diagnostics(expr: &CoreExpr, diags: &mut Vec<AetherDiagnostic>) {
                     && tags_compatible(&destr_tag, &con_tag)
                     && !has_reuse_for_tag(&alt.rhs, &con_tag)
                 {
+                    let scrutinee_var = match scrutinee.as_ref() {
+                        CoreExpr::Var { var, .. } => Some(*var),
+                        _ => None,
+                    };
+                    let reason = scrutinee_var
+                        .as_ref()
+                        .and_then(|var| {
+                            diagnose_drop_body(
+                                var,
+                                &alt.rhs,
+                                pat_field_binder_ids(&alt.pat).as_deref(),
+                                Some(&destr_tag),
+                                None,
+                            )
+                        })
+                        .map(|reason| reason.as_str());
                     diags.push(AetherDiagnostic {
                         kind: AetherDiagnosticKind::MissedReuse,
-                        message: format!(
-                            "MISSED REUSE: Case arm destructures {:?} and constructs {:?} — could reuse allocation",
-                            destr_tag, con_tag
-                        ),
+                        message: if let Some(reason) = reason {
+                            format!(
+                                "MISSED REUSE ({reason}): Case arm destructures {:?} and constructs {:?}",
+                                destr_tag, con_tag
+                            )
+                        } else {
+                            format!(
+                                "MISSED REUSE: Case arm destructures {:?} and constructs {:?} — could reuse allocation",
+                                destr_tag, con_tag
+                            )
+                        },
                     });
                 }
                 check_diagnostics(&alt.rhs, diags);
@@ -265,7 +311,7 @@ fn check_diagnostics(expr: &CoreExpr, diags: &mut Vec<AetherDiagnostic>) {
             check_diagnostics(rhs, diags);
             check_diagnostics(body, diags);
         }
-        CoreExpr::App { func, args, .. } => {
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             check_diagnostics(func, diags);
             for a in args {
                 check_diagnostics(a, diags);
@@ -310,7 +356,7 @@ fn invalid_drop_specialized_uses(expr: &CoreExpr, scrutinee_id: crate::core::Cor
         CoreExpr::Lam { body, .. } | CoreExpr::Return { value: body, .. } => {
             invalid_drop_specialized_uses(body, scrutinee_id)
         }
-        CoreExpr::App { func, args, .. } => {
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             invalid_drop_specialized_uses(func, scrutinee_id)
                 + args
                     .iter()
@@ -388,6 +434,21 @@ fn pat_constructor_tag(pat: &CorePat) -> Option<CoreTag> {
     }
 }
 
+fn pat_field_binder_ids(pat: &CorePat) -> Option<Vec<Option<crate::core::CoreBinderId>>> {
+    match pat {
+        CorePat::Con { fields, .. } | CorePat::Tuple(fields) => Some(
+            fields
+                .iter()
+                .map(|field| match field {
+                    CorePat::Var(binder) => Some(binder.id),
+                    _ => None,
+                })
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
 fn find_con_in_body(expr: &CoreExpr, expected_tag: Option<&CoreTag>) -> Option<CoreTag> {
     match expr {
         CoreExpr::Reuse { tag, .. } => Some(tag.clone()),
@@ -428,7 +489,7 @@ mod tests {
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 
-    use super::{AetherErrorKind, verify_contract};
+    use super::{AetherDiagnosticKind, AetherErrorKind, verify_contract, verify_diagnostics};
 
     fn binder(raw: u32, name: crate::syntax::Identifier) -> CoreBinder {
         CoreBinder::new(CoreBinderId(raw), name)
@@ -519,6 +580,24 @@ mod tests {
         assert!(
             err.iter()
                 .any(|e| e.kind == AetherErrorKind::InvalidDropSpecializedScrutinee)
+        );
+    }
+
+    #[test]
+    fn contract_rejects_aether_call_with_mismatched_mode_count() {
+        let mut interner = Interner::new();
+        let f = binder(1, interner.intern("f"));
+        let x = binder(2, interner.intern("x"));
+        let expr = CoreExpr::AetherCall {
+            func: Box::new(v(f)),
+            args: vec![v(x)],
+            arg_modes: vec![],
+            span: s(),
+        };
+        let err = verify_contract(&expr).expect_err("expected invalid aether_call mode count");
+        assert!(
+            err.iter()
+                .any(|e| e.kind == AetherErrorKind::InvalidAetherCallModes)
         );
     }
 
@@ -658,5 +737,55 @@ mod tests {
             span: s(),
         };
         assert!(verify_contract(&branchy_named).is_ok());
+    }
+
+    #[test]
+    fn diagnostics_report_specific_missed_reuse_reason() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let left = binder(2, interner.intern("left"));
+        let key = binder(3, interner.intern("key"));
+        let right = binder(4, interner.intern("right"));
+        let tmp = binder(5, interner.intern("tmp"));
+        let node = CoreTag::Named(interner.intern("Node"));
+
+        let expr = CoreExpr::Case {
+            scrutinee: Box::new(v(xs)),
+            alts: vec![CoreAlt {
+                pat: CorePat::Con {
+                    tag: node.clone(),
+                    fields: vec![
+                        CorePat::Wildcard,
+                        CorePat::Var(left),
+                        CorePat::Var(key),
+                        CorePat::Var(right),
+                    ],
+                },
+                guard: None,
+                rhs: CoreExpr::Let {
+                    var: tmp,
+                    rhs: Box::new(CoreExpr::AetherCall {
+                        func: Box::new(CoreExpr::external_var(interner.intern("escape"), s())),
+                        args: vec![v(key)],
+                        arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
+                        span: s(),
+                    }),
+                    body: Box::new(CoreExpr::Con {
+                        tag: node,
+                        fields: vec![CoreExpr::Lit(CoreLit::Int(0), s()), v(left), v(tmp), v(right)],
+                        span: s(),
+                    }),
+                    span: s(),
+                },
+                span: s(),
+            }],
+            span: s(),
+        };
+
+        let diags = verify_diagnostics(&expr);
+        assert!(diags.iter().any(|diag| {
+            diag.kind == AetherDiagnosticKind::MissedReuse
+                && diag.message.contains("EffectfulBoundary")
+        }));
     }
 }

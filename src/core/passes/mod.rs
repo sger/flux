@@ -42,20 +42,28 @@ use crate::syntax::interner::Interner;
 /// 6. `evidence_pass`            — rewrite TR Handle/Perform into evidence passing
 /// 7. `anf_normalize`            — flatten nested subexpressions into let-chains
 pub fn run_core_passes(program: &mut CoreProgram) -> Result<(), Diagnostic> {
-    run_core_passes_with_optional_interner(program, None)
+    run_core_passes_with_optional_interner(program, None).map(|_| ())
 }
 
 pub fn run_core_passes_with_interner(
     program: &mut CoreProgram,
     interner: &Interner,
 ) -> Result<(), Diagnostic> {
+    run_core_passes_with_interner_and_warnings(program, interner).map(|_| ())
+}
+
+pub fn run_core_passes_with_interner_and_warnings(
+    program: &mut CoreProgram,
+    interner: &Interner,
+) -> Result<Vec<Diagnostic>, Diagnostic> {
     run_core_passes_with_optional_interner(program, Some(interner))
 }
 
 fn run_core_passes_with_optional_interner(
     program: &mut CoreProgram,
     interner: Option<&Interner>,
-) -> Result<(), Diagnostic> {
+) -> Result<Vec<Diagnostic>, Diagnostic> {
+    let mut warnings = Vec::new();
     // Find the maximum binder ID so passes can allocate fresh IDs above it.
     let mut max_binder_id: u32 = 0;
     for def in &program.defs {
@@ -96,19 +104,24 @@ fn run_core_passes_with_optional_interner(
             return Err(aether_contract_error(def, &errors));
         }
     }
-    Ok(())
+
+    if let Some(interner) = interner {
+        let fbip_result = check_fbip_annotations(program, interner);
+        warnings.extend(fbip_result.warnings);
+        if let Some(error) = fbip_result.error {
+            return Err(error);
+        }
+    }
+
+    Ok(warnings)
 }
 
-/// Run FBIP checking on annotated functions after Aether passes.
-/// Reports violations as warnings to stderr.
+/// Run semantic FBIP checking on annotated functions after Aether passes.
 pub fn check_fbip_annotations(
     program: &CoreProgram,
     interner: &crate::syntax::interner::Interner,
-) {
-    let diags = crate::aether::check_fbip::check_fbip(program, interner);
-    for diag in &diags {
-        eprintln!("warning: {}", diag);
-    }
+) -> crate::aether::check_fbip::FbipCheckResult {
+    crate::aether::check_fbip::check_fbip(program, interner)
 }
 
 /// Walk an expression tree to find the maximum `CoreBinderId` in use.
@@ -122,7 +135,7 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
             }
             collect_max_binder_id(body, max);
         }
-        App { func, args, .. } => {
+        App { func, args, .. } | AetherCall { func, args, .. } => {
             collect_max_binder_id(func, max);
             for a in args {
                 collect_max_binder_id(a, max);

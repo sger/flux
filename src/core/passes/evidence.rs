@@ -190,6 +190,20 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
                 .collect(),
             span,
         },
+        CoreExpr::AetherCall {
+            func,
+            args,
+            arg_modes,
+            span,
+        } => CoreExpr::AetherCall {
+            func: Box::new(evidence_transform(*func, next_id, evidence)),
+            args: args
+                .into_iter()
+                .map(|a| evidence_transform(a, next_id, evidence))
+                .collect(),
+            arg_modes,
+            span,
+        },
 
         CoreExpr::Let {
             var,
