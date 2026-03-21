@@ -62,7 +62,8 @@ fn main() {
     let enable_analyze = args.iter().any(|arg| arg == "--analyze" || arg == "-A");
     let show_stats = args.iter().any(|arg| arg == "--stats");
     let test_mode = args.iter().any(|arg| arg == "--test");
-    let strict_mode = args.iter().any(|arg| arg == "--strict");
+    let explicit_no_strict = args.iter().any(|arg| arg == "--no-strict");
+    let strict_mode = !explicit_no_strict;
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
     let dump_aether = args.iter().any(|arg| arg == "--dump-aether");
     #[cfg(feature = "jit")]
@@ -114,8 +115,11 @@ fn main() {
     if test_mode {
         args.retain(|arg| arg != "--test");
     }
-    if strict_mode {
+    if args.iter().any(|arg| arg == "--strict") {
         args.retain(|arg| arg != "--strict");
+    }
+    if explicit_no_strict {
+        args.retain(|arg| arg != "--no-strict");
     }
     if all_errors {
         args.retain(|arg| arg != "--all-errors");
@@ -406,7 +410,8 @@ Flags:
   --root <path>      Add a module root (can be repeated)
   --roots-only       Use only explicitly provided --root values
   --stats            Print execution analytics (parse/compile/execute times, module info)
-  --strict           Enable strict type/effect boundary checks
+  --strict           Enable strict type/effect boundary checks (default)
+  --no-strict        Disable strict type/effect boundary checks
   --all-errors       Show diagnostics from all phases (disable stage-aware filtering)
   --dump-core        Lower to Flux Core IR, print a readable dump, and exit
   --dump-core=debug  Lower to Flux Core IR, print a raw debug dump, and exit
@@ -638,8 +643,22 @@ fn run_file(
             }
 
             if dump_aether {
-                let report = compiler.dump_aether_report(&program, enable_optimize);
-                println!("{report}");
+                match compiler.dump_aether_report(&program, enable_optimize) {
+                    Ok(report) => println!("{report}"),
+                    Err(diag) => {
+                        emit_diagnostics(
+                            &[diag],
+                            Some(path),
+                            Some(source.as_str()),
+                            is_multimodule,
+                            max_errors,
+                            diagnostics_format,
+                            all_errors,
+                            true,
+                        );
+                        std::process::exit(1);
+                    }
+                }
                 return;
             }
 
@@ -653,7 +672,22 @@ fn run_file(
                         CoreDumpMode::None => unreachable!("checked above"),
                     },
                 );
-                println!("{dumped}");
+                match dumped {
+                    Ok(dumped) => println!("{dumped}"),
+                    Err(diag) => {
+                        emit_diagnostics(
+                            &[diag],
+                            Some(path),
+                            Some(source.as_str()),
+                            is_multimodule,
+                            max_errors,
+                            diagnostics_format,
+                            all_errors,
+                            true,
+                        );
+                        std::process::exit(1);
+                    }
+                }
                 return;
             }
 

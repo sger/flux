@@ -1373,22 +1373,18 @@ impl VM {
                 let head = self.pop()?;
                 let token = self.pop()?;
                 let result = match token {
-                    Value::Cons(rc) => {
-                        match Rc::try_unwrap(rc) {
-                            Ok(mut cell) => {
-                                // Unique — reuse allocation, only write changed fields
-                                if field_mask == 0xFF || field_mask & 1 != 0 {
-                                    cell.head = head;
-                                }
-                                if field_mask == 0xFF || field_mask & 2 != 0 {
-                                    cell.tail = tail;
-                                }
-                                Value::Cons(Rc::new(cell))
+                    Value::Cons(mut rc) => {
+                        if let Some(cell) = Rc::get_mut(&mut rc) {
+                            // Unique — reuse allocation, only write changed fields.
+                            if field_mask == 0xFF || field_mask & 1 != 0 {
+                                cell.head = head;
                             }
-                            Err(_) => {
-                                // Shared — allocate fresh
-                                ConsCell::cons(head, tail)
+                            if field_mask == 0xFF || field_mask & 2 != 0 {
+                                cell.tail = tail;
                             }
+                            Value::Cons(rc)
+                        } else {
+                            ConsCell::cons(head, tail)
                         }
                     }
                     _ => ConsCell::cons(head, tail),
@@ -1423,25 +1419,24 @@ impl VM {
                 let token = self.pop()?;
 
                 let result = match token {
-                    Value::Adt(rc) => {
-                        match Rc::try_unwrap(rc) {
-                            Ok(mut adt) => {
-                                adt.constructor = constructor_name;
-                                if field_mask == 0xFF {
-                                    adt.fields = AdtFields::from_vec(fields);
-                                } else {
-                                    for (i, val) in fields.into_iter().enumerate() {
-                                        if field_mask as u64 & (1u64 << i) != 0 {
-                                            adt.fields.set_field(i, val);
-                                        }
+                    Value::Adt(mut rc) => {
+                        if let Some(adt) = Rc::get_mut(&mut rc) {
+                            adt.constructor = constructor_name;
+                            if field_mask == 0xFF {
+                                adt.fields = AdtFields::from_vec(fields);
+                            } else {
+                                for (i, val) in fields.into_iter().enumerate() {
+                                    if field_mask as u64 & (1u64 << i) != 0 {
+                                        adt.fields.set_field(i, val);
                                     }
                                 }
-                                Value::Adt(Rc::new(adt))
                             }
-                            Err(_) => Value::Adt(Rc::new(AdtValue {
+                            Value::Adt(rc)
+                        } else {
+                            Value::Adt(Rc::new(AdtValue {
                                 constructor: constructor_name,
                                 fields: AdtFields::from_vec(fields),
-                            })),
+                            }))
                         }
                     }
                     _ => Value::Adt(Rc::new(AdtValue {
@@ -1457,9 +1452,14 @@ impl VM {
                 let inner = self.pop()?;
                 let token = self.pop()?;
                 let result = match token {
-                    Value::Some(rc) if Rc::strong_count(&rc) == 1 => {
-                        // Reuse — but Some only has one field, always write it
-                        Value::Some(Rc::new(inner))
+                    Value::Some(mut rc) => {
+                        if let Some(v) = Rc::get_mut(&mut rc) {
+                            // Unique — overwrite the existing payload in place.
+                            *v = inner;
+                            Value::Some(rc)
+                        } else {
+                            Value::Some(Rc::new(inner))
+                        }
                     }
                     _ => Value::Some(Rc::new(inner)),
                 };
@@ -1471,8 +1471,13 @@ impl VM {
                 let inner = self.pop()?;
                 let token = self.pop()?;
                 let result = match token {
-                    Value::Left(rc) if Rc::strong_count(&rc) == 1 => {
-                        Value::Left(Rc::new(inner))
+                    Value::Left(mut rc) => {
+                        if let Some(v) = Rc::get_mut(&mut rc) {
+                            *v = inner;
+                            Value::Left(rc)
+                        } else {
+                            Value::Left(Rc::new(inner))
+                        }
                     }
                     _ => Value::Left(Rc::new(inner)),
                 };
@@ -1484,8 +1489,13 @@ impl VM {
                 let inner = self.pop()?;
                 let token = self.pop()?;
                 let result = match token {
-                    Value::Right(rc) if Rc::strong_count(&rc) == 1 => {
-                        Value::Right(Rc::new(inner))
+                    Value::Right(mut rc) => {
+                        if let Some(v) = Rc::get_mut(&mut rc) {
+                            *v = inner;
+                            Value::Right(rc)
+                        } else {
+                            Value::Right(Rc::new(inner))
+                        }
                     }
                     _ => Value::Right(Rc::new(inner)),
                 };

@@ -1,0 +1,20 @@
+// Aether borrow-call regression fixture.
+// Used by --dump-core / --dump-aether snapshot tests and backend parity.
+
+fn my_len(xs) {
+    len(xs)
+}
+
+fn len_twice(xs) {
+    my_len(xs) + my_len(xs)
+}
+
+fn borrow_then_return(xs, y) {
+    if len(xs) > 0 { y } else { y }
+}
+
+fn main() with IO {
+    let xs = [1, 2, 3]
+    print(len_twice(xs))
+    print(borrow_then_return(xs, 42))
+}

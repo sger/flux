@@ -96,7 +96,7 @@ fn count_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
                 count_occurrences(var, body)
             }
         }
-        CoreExpr::App { func, args, .. } => {
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             count_occurrences(var, func)
                 + args
                     .iter()
@@ -205,7 +205,7 @@ fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
                 count_occurrences(var, body) > 0
             }
         }
-        CoreExpr::App { func, args, .. } => {
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             occurs_under_lambda(var, func) || args.iter().any(|a| occurs_under_lambda(var, a))
         }
         CoreExpr::Let {
