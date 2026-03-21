@@ -157,6 +157,21 @@ fn aether_bench_fixture_matches_vm_cranelift_and_llvm() {
 }
 
 #[test]
+fn aether_hof_recursive_suite_matches_vm_cranelift_and_llvm() {
+    assert_backend_parity("examples/aether/hof_recursive_suite.flx");
+}
+
+#[test]
+fn aether_tree_updates_fixture_matches_vm_cranelift_and_llvm() {
+    assert_backend_parity("examples/aether/tree_updates.flx");
+}
+
+#[test]
+fn aether_fbip_success_cases_fixture_matches_vm_cranelift_and_llvm() {
+    assert_backend_parity("examples/aether/fbip_success_cases.flx");
+}
+
+#[test]
 fn aether_borrow_calls_fixture_matches_vm_cranelift_and_llvm() {
     assert_backend_parity("examples/aether/borrow_calls.flx");
 }

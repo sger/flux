@@ -12,7 +12,8 @@ fn build_list(n) {
     build_go(n, [])
 }
 
-// This shape should recover plain Reuse on the cons rebuild.
+// This is the reuse-enabled side of the A/B benchmark and currently emits
+// plain Reuse on the cons rebuild.
 @fip fn map_enabled(xs, f) {
     match xs {
         [h | t] -> [f(h) | map_enabled(t, f)],

@@ -1,8 +1,11 @@
 use std::collections::HashMap;
+use std::path::Path;
 
+use flux::bytecode::compiler::Compiler;
 use flux::core::{CoreExpr, lower_ast::lower_program_ast, passes::run_core_passes_with_interner};
+use flux::diagnostics::Diagnostic;
 use flux::runtime::value::Value;
-use flux::syntax::{lexer::Lexer, parser::Parser};
+use flux::syntax::{lexer::Lexer, module_graph::ModuleGraph, parser::Parser};
 use flux::types::infer_type::InferType;
 
 fn parse_and_infer(
@@ -115,6 +118,46 @@ fn lowered_core(src: &str) -> flux::core::CoreProgram {
     let mut core = lower_program_ast(&program, &types);
     run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
     core
+}
+
+fn compile_fixture_warnings(rel: &str) -> Vec<Diagnostic> {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let fixture = workspace_root.join(rel);
+    let source = std::fs::read_to_string(&fixture).expect("fixture should exist");
+
+    let lexer = Lexer::new(&source);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+
+    let mut roots = Vec::new();
+    if let Some(parent) = fixture.parent() {
+        roots.push(parent.to_path_buf());
+    }
+    let src_root = workspace_root.join("src");
+    if src_root.exists() {
+        roots.push(src_root);
+    }
+
+    let graph = ModuleGraph::build_with_entry_and_roots(&fixture, &program, parser.take_interner(), &roots);
+    assert!(
+        graph.diagnostics.is_empty(),
+        "module diagnostics: {:?}",
+        graph.diagnostics
+    );
+
+    let mut compiler = Compiler::new_with_interner(rel, graph.interner);
+    for node in graph.graph.topo_order() {
+        compiler.set_file_path(node.path.to_string_lossy().to_string());
+        if let Err(diags) = compiler.compile(&node.program) {
+            panic!("expected fixture `{rel}` to compile, got diagnostics: {diags:?}");
+        }
+    }
+    compiler.take_warnings()
 }
 
 #[test]
@@ -944,5 +987,170 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
                     flux::aether::borrow_infer::BorrowMode::Borrowed,
                 ]
         )
+    }));
+}
+
+#[test]
+fn hof_recursive_suite_fixture_claims_match_current_core_shape() {
+    let src = std::fs::read_to_string("examples/aether/hof_recursive_suite.flx")
+        .expect("fixture should exist");
+    let core = lowered_core(&src);
+
+    let map_reuse = core
+        .defs
+        .iter()
+        .find(|def| {
+            let exprs = collect_core_exprs(&def.expr);
+            exprs.iter().any(|expr| matches!(expr, CoreExpr::Reuse { .. }))
+                && exprs.iter().any(|expr| {
+                    matches!(
+                        expr,
+                        CoreExpr::AetherCall { arg_modes, .. }
+                            if arg_modes == &[
+                                flux::aether::borrow_infer::BorrowMode::Borrowed,
+                                flux::aether::borrow_infer::BorrowMode::Borrowed,
+                            ]
+                    )
+                })
+        })
+        .expect("map_reuse-like def");
+    assert!(
+        collect_core_exprs(&map_reuse.expr)
+            .into_iter()
+            .any(|expr| matches!(expr, CoreExpr::Reuse { .. })),
+        "higher-order recursive rebuild should emit plain Reuse"
+    );
+
+    let borrowed_only = core
+        .defs
+        .iter()
+        .find(|def| {
+            let exprs = collect_core_exprs(&def.expr);
+            exprs.iter().any(|expr| {
+                matches!(
+                    expr,
+                    CoreExpr::AetherCall { arg_modes, .. }
+                        if arg_modes == &[
+                            flux::aether::borrow_infer::BorrowMode::Borrowed,
+                            flux::aether::borrow_infer::BorrowMode::Borrowed,
+                        ]
+                )
+            }) && !exprs.iter().any(|expr| matches!(expr, CoreExpr::Reuse { .. }))
+        })
+        .expect("count_if-like def");
+    assert!(
+        !collect_core_exprs(&borrowed_only.expr)
+            .into_iter()
+            .any(|expr| matches!(expr, CoreExpr::Reuse { .. })),
+        "borrowed-only higher-order traversal should stay non-reusing"
+    );
+
+    let warnings = compile_fixture_warnings("examples/aether/hof_recursive_suite.flx");
+    assert!(warnings.iter().any(|d| {
+        d.message()
+            .is_some_and(|m| m.contains("@fip on `option_chain`") && m.contains("indirect or opaque callee `f`"))
+    }));
+}
+
+#[test]
+fn tree_updates_fixture_claims_match_current_core_shape() {
+    let src = std::fs::read_to_string("examples/aether/tree_updates.flx")
+        .expect("fixture should exist");
+    let core = lowered_core(&src);
+    let exprs = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .collect::<Vec<_>>();
+
+    assert!(
+        exprs.iter().any(|expr| {
+            matches!(
+                expr,
+                CoreExpr::Reuse {
+                    tag: flux::core::CoreTag::Named(_),
+                    field_mask: Some(_),
+                    ..
+                }
+            )
+        }),
+        "tree_updates should include masked named-ADT reuse"
+    );
+    assert!(
+        exprs.iter().any(|expr| {
+            matches!(
+                expr,
+                CoreExpr::Reuse {
+                    tag: flux::core::CoreTag::Named(_),
+                    field_mask: Some(_),
+                    ..
+                }
+            )
+        }),
+        "tree_updates should include an additional named-ADT reuse site"
+    );
+    assert!(
+        exprs.iter().any(|expr| {
+            matches!(
+                expr,
+                CoreExpr::Reuse {
+                    tag: flux::core::CoreTag::Named(_),
+                    field_mask: None,
+                    ..
+                }
+            )
+        }),
+        "tree_updates should include plain named-ADT reuse on a wider rewrite"
+    );
+    assert!(
+        exprs.iter().any(|expr| match expr {
+            CoreExpr::DropSpecialized {
+                unique_body,
+                shared_body,
+                ..
+            } => {
+                let unique_reuses = collect_core_exprs(unique_body)
+                    .into_iter()
+                    .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
+                    .count();
+                let shared_reuses = collect_core_exprs(shared_body)
+                    .into_iter()
+                    .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
+                    .count();
+                unique_reuses >= 1 && shared_reuses == 0
+            }
+            _ => false,
+        }),
+        "tree_updates should keep unique/shared asymmetry on branch-sensitive updates"
+    );
+}
+
+#[test]
+fn fbip_success_cases_fixture_stays_provable() {
+    let warnings = compile_fixture_warnings("examples/aether/fbip_success_cases.flx");
+    assert!(
+        warnings.is_empty(),
+        "fbip_success_cases should compile without FBIP warnings, got: {warnings:?}"
+    );
+}
+
+#[test]
+fn fbip_failure_cases_fixture_reports_expected_warning_mix() {
+    let warnings = compile_fixture_warnings("examples/aether/fbip_failure_cases.flx");
+    assert!(warnings.iter().any(|d| {
+        d.message()
+            .is_some_and(|m| m.contains("@fip on `fail_indirect`") && m.contains("indirect or opaque callee `f`"))
+    }));
+    assert!(warnings.iter().any(|d| {
+        d.message().is_some_and(|m| {
+            m.contains("@fip on `fail_imported`")
+                && (m.contains("Imported.imported_inc")
+                    || m.contains("imported_inc")
+                    || m.contains("indirect or opaque callee"))
+        })
+    }));
+    assert!(warnings.iter().any(|d| {
+        d.message()
+            .is_some_and(|m| m.contains("@fip on `fail_fresh`") && m.contains("fresh heap allocation remains"))
     }));
 }
