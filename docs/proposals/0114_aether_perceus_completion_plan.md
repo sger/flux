@@ -25,12 +25,18 @@ The original plan was organized around four gaps:
 3. **Reuse sophistication** — reuse and drop specialization must be generalized and profitability-aware.
 4. **FBIP rigor** — `@fip` / `@fbip` checking must become semantic rather than count-based.
 
-Phases A-J established that base. This extension adds a second tranche focused on
-the remaining gap between "working Aether" and "Koka-grade maturity":
+Phases A-J established that base. The post-M tranche through Phases N-U then
+pushed Aether through higher-order precision, broader reuse/drop-spec
+coverage, stronger interprocedural summaries, a larger maintained FIP/FBIP
+corpus, forwarding/wrapper reuse work, and maintained workload evidence. After
+rechecking the current implementation against the Perceus paper and the local
+Koka sources, the remaining gap is now narrower and more concrete:
 
 5. **Ownership precision** — borrow/liveness reasoning must become less conservative across recursive, higher-order, imported, and effect-sensitive cases.
 6. **Reuse/drop-spec coverage** — more realistic transformed Core shapes must trigger profitable reuse and drop specialization.
 7. **FBIP maturity** — semantic FBIP must become less conservative and more Flux-native without expanding the public annotation surface yet.
+8. **Forwarding/wrapper reuse** — transparent wrapper and forwarding-child style reuse cases should be recognized more often, closing a specific gap that Koka's C-level reuse still covers better today.
+9. **Workload/performance maturity** — Aether progress should be measured not only by transformed Core and parity, but also by maintained Koka-style workloads and A/B performance cases.
 
 This proposal does **not** replace 0084. It is the execution plan for finishing
 0084 to a level that is comparable in spirit and behavior to Koka's Perceus.
@@ -104,11 +110,13 @@ The first tranche of 0114 has established the Aether base:
 - dedicated Aether core/snapshot/parity/diagnostic suites exist
 
 The remaining work is no longer architectural bootstrapping. It is primarily
-about precision, coverage, and maturity:
+about precision, coverage, maturity, and validation:
 
 - fewer conservative ownership decisions
 - broader reuse and `DropSpecialized` coverage on transformed Core
 - more credible interprocedural FBIP summaries and diagnostics
+- better forwarding/wrapper reuse coverage
+- explicit workload and performance tracking on maintained Aether examples
 
 ## Non-goals
 
@@ -118,6 +126,7 @@ This proposal does not:
 - reintroduce AST fallback into JIT or backend paths
 - add a second semantic IR beside `core`
 - require actor transfer semantics; that remains future work
+- add atomic/thread-shared reference counting or shared-memory concurrency support; that remains outside 0114 and should be handled by a future actor/concurrency proposal
 - require every possible Perceus optimization before progress can ship
 
 ## Design principles
@@ -502,10 +511,10 @@ implementation: ownership precision, reuse/drop-spec coverage, and FBIP
 maturity. The next tranche should turn those broad categories into a concrete
 execution order for closing the remaining gap with Koka/Perceus.
 
-Phases N-S therefore define the practical post-M implementation sequence. The
+Phases N-U therefore define the practical post-M implementation sequence. The
 goal is not to clone Koka mechanically, but to close the remaining precision,
-coverage, and benchmark-corpus gaps while keeping Aether Flux-native and
-preserving Flux's Core/Aether/CFG architecture.
+coverage, benchmark-corpus, and workload-validation gaps while keeping Aether
+Flux-native and preserving Flux's Core/Aether/CFG architecture.
 
 ### Phase N: Higher-order and recursive borrow/FBIP precision
 
@@ -625,22 +634,76 @@ preserving Flux's Core/Aether/CFG architecture.
 - a larger corpus exists for FIP/FBIP and reuse-heavy cases
 - no maintained benchmark/fixture comment overstates what actually fires
 
-### Phase S: Bounded FBIP forms, deferred until after N-R
+### Phase T: Forwarding and wrapper reuse coverage
 
-**Goal:** keep `fip(n)` / `fbip(n)` explicitly deferred until post-N-R evidence shows that bounded forms are semantically justified and worth a separate proposal.
+**Goal:** close the remaining reuse gap on transparent-wrapper and forwarding-child style patterns that Koka's reuse pipeline still handles more often today.
+
+#### Scope
+
+- wrapper-like constructor rebuilds where the outer shape is preserved through forwarding
+- transparent/named-ADT update paths where exact field provenance survives but current Core-level reuse still misses the opportunity
+- more identity-like rebuilds through admin lets and forwarding bindings
+- preserve exactness: no speculative reuse, no ambiguous provenance joins, no new shared-path reuse
+
+#### Primary files
+
+- `src/aether/reuse_analysis.rs`
+- `src/aether/reuse.rs`
+- `src/aether/reuse_spec.rs`
+
+#### Acceptance criteria
+
+- more wrapper and forwarding fixtures emit real `Reuse`
+- at least one maintained fixture captures a forwarding/wrapper case that previously stayed fresh
+- Koka-style forwarding-child gaps shrink without changing verifier or backend semantics
+
+### Phase U: Aether workload and performance maturity
+
+**Goal:** make Aether maturity measurable on maintained workloads, not only on transformed Core dumps and parity suites.
+
+#### Scope
+
+- add Koka-style workload fixtures for trees, queues, heaps, and reuse-heavy updates where practical in Flux
+- keep A/B performance fixtures for reuse-friendly versus reuse-blocked shapes
+- track Aether-specific metrics alongside runtime:
+  - `Dup`
+  - `Drop`
+  - `Reuse`
+  - `DropSpecialized`
+  - fresh allocations
+- keep backend parity and performance tracking separate so Aether wins are not confused with backend speed differences
+
+#### Primary files
+
+- `examples/aether/`
+- `tests/aether_core_regressions.rs`
+- `tests/aether_backend_parity.rs`
+- `tests/aether_cli_snapshots.rs`
+- release/benchmark scripts where needed
+
+#### Acceptance criteria
+
+- maintained Aether workloads exist beyond micro-fixtures
+- at least one list workload, one tree/ADT workload, and one A/B control benchmark measure real Aether effects
+- optimization claims in docs/examples are supported by both transformed-Core assertions and runnable workload evidence
+
+### Phase S: Bounded FBIP forms, deferred until after N-U
+
+**Goal:** keep `fip(n)` / `fbip(n)` explicitly deferred until post-N-U evidence shows that bounded forms are semantically justified and worth a separate proposal.
 
 #### Scope
 
 - proposal-level evaluation only
-- no syntax commitment until N-R materially reduce conservative gaps on maintained fixtures
+- no syntax commitment until N-U materially reduce conservative gaps on maintained fixtures
 - if pursued later, bounded forms must be grounded in the semantic FBIP checker, not a count-based shortcut
 
 #### Evaluation gates
 
 Bounded forms are not eligible for reconsideration until all of the following are true:
 
-- Phases N-R have reduced higher-order and imported-call conservatism materially on maintained fixtures
+- Phases N-U have reduced higher-order and imported-call conservatism materially on maintained fixtures
 - the maintained Aether corpus added through Phase R shows stable, representative FBIP success and failure categories
+- the maintained workload and performance corpus from Phase U shows that the remaining gaps are semantic precision limits rather than missing benchmark coverage
 - the remaining false negatives are understood as semantic limits of the current model, not analysis or corpus immaturity
 - `@fip` / `@fbip` remain the only supported surface until those gates are met
 
@@ -675,6 +738,10 @@ Any future Phase S reconsideration must be grounded in the post-M maturity evide
   - stronger interprocedural summaries
 - Phase R:
   - larger maintained FIP/FBIP corpus
+- Phase T:
+  - forwarding and wrapper reuse coverage
+- Phase U:
+  - maintained workload and performance evidence
 
 The evaluation trigger is therefore concrete: revisit bounded forms only after those phases provide stable evidence that the remaining FBIP gaps are principled and measurable.
 
@@ -694,7 +761,8 @@ Phase S does **not** authorize:
 #### Acceptance criteria
 
 - bounded syntax remains explicitly deferred in the current proposal
-- proposal text states that this phase is contingent on N-R success and the evaluation gates above
+- proposal text states that this phase is contingent on N-U success and the evaluation gates above
+- proposal text states that Phase S is evaluation-only
 - no implementation work on `fip(n)` / `fbip(n)` is part of the current execution tranche
 
 ## Recommended implementation order
@@ -719,7 +787,9 @@ The phases should land in this order:
 16. Phase P — Missed drop-specialization coverage
 17. Phase Q — Stronger interprocedural summaries
 18. Phase R — Larger FIP/FBIP benchmark corpus
-19. Phase S — Bounded FBIP evaluation
+19. Phase T — Forwarding and wrapper reuse coverage
+20. Phase U — Aether workload and performance maturity
+21. Phase S — Bounded FBIP evaluation
 
 ## Milestones
 
@@ -853,7 +923,21 @@ Includes:
 Exit criteria:
 
 - the proposal explicitly defines when bounded FBIP forms may be reconsidered
-- no bounded surface is added unless N-R materially reduced conservative gaps and the Phase S checklist can be answered cleanly
+- Phase S remains evaluation-only and authorizes no implementation work
+- no bounded surface is added unless N-U materially reduced conservative gaps and the Phase S checklist can be answered cleanly
+
+### Milestone 12: Forwarding reuse and workload maturity
+
+Includes:
+
+- Phase T
+- Phase U
+
+Exit criteria:
+
+- forwarding/wrapper reuse coverage improves on maintained fixtures
+- Aether optimization wins are tracked on representative workloads, not only on dumps and parity
+- release-facing evidence exists for both transformed-Core quality and runtime impact
 
 ## Testing strategy
 
@@ -884,6 +968,8 @@ Recommended test categories:
 - currently non-reusing recursive rebuild fixtures
 - deeper branch/admin-let drop-specialization fixtures
 - expanded maintained FIP/FBIP benchmark corpus
+- wrapper/forwarding-child reuse fixtures
+- maintained A/B performance fixtures that isolate Aether reuse/drop-spec effects from backend speed
 - maintained examples must not regress into `E999` internal Aether failures
 
 ## Alternatives considered
@@ -904,6 +990,96 @@ Partially rejected. A fully semantic checker can wait until later phases, but
 parity and verifier hardening must come first so the optimization work has a
 stable target.
 
+## Candidate enhancements beyond the current tranche
+
+The phases above define the current execution plan. The following items are
+explicitly recorded as high-value Aether enhancements that may become later
+proposal work or a post-U extension of 0114 once the current tranche settles.
+
+These are not authorized implementation work by default, but they capture the
+most likely next areas for improvement after the current maturity sequence.
+
+### 1. Precision enhancements
+
+Potential next precision work:
+
+- wrapper and forwarding-child reuse recognition
+- better imported/base/runtime summary precision
+- more exact higher-order call reasoning when callee identity is known exactly
+- fewer conservative ownership degradations at branch joins
+
+Why this matters:
+
+- this is where Aether still trails Koka most concretely on some realistic
+  transformed shapes
+- many remaining false negatives now come from conservatism rather than missing
+  Aether architecture
+
+### 2. Optimization coverage enhancements
+
+Potential next optimization-coverage work:
+
+- broader `DropSpecialized` candidate extraction on deeper admin-let shapes
+- more selective-write reuse on named ADTs and tree updates
+- better reuse through forwarding wrappers and exact field passthrough
+- more profitable fusion around borrowed recursive traversals
+
+Why this matters:
+
+- the remaining gap is increasingly about whether profitable shapes are
+  recognized often enough in realistic workloads
+- these are the kinds of cases that distinguish "working Aether" from
+  "mature Aether"
+
+### 3. Validation and workload enhancements
+
+Potential next validation work:
+
+- workload-level Aether benchmarks, not only micro-fixtures
+- maintained A/B fixtures for reuse-enabled versus reuse-blocked shapes
+- per-fixture tracked Aether metrics:
+  - `Dup`
+  - `Drop`
+  - `Reuse`
+  - `DropSpecialized`
+  - fresh allocations
+- tighter consistency checks between dumps, traces, and backend parity
+
+Why this matters:
+
+- transformed-Core evidence is necessary but not sufficient
+- release confidence improves when Aether wins are visible on maintained
+  workloads and not confused with backend speed differences
+
+### 4. Tooling enhancements
+
+Potential next tooling work:
+
+- richer `--trace-aether` filtering, such as by function name
+- optional summary-only trace/report mode
+- machine-readable Aether report output, such as JSON
+- more explicit verifier/FBIP reason categories in CI and snapshot surfaces
+
+Why this matters:
+
+- as Aether grows, the debugging and validation surfaces need to stay usable
+- richer tooling can make maturity work faster without changing semantics
+
+### 5. Longer-term architectural enhancements
+
+Potential longer-term work, explicitly outside the current tranche:
+
+- actor-boundary ownership/sendability rules on top of Aether
+- bounded `fip(n)` / `fbip(n)` forms only after the Phase S gate
+- shared-memory concurrency or thread-shared/atomic RC in a separate proposal
+
+Why this matters:
+
+- these are plausible future directions, but they should not dilute the
+  current single-threaded Aether maturity plan
+- concurrency and actor-transfer semantics need their own design space rather
+  than being smuggled into 0114 implicitly
+
 ## Resolved design decisions
 
 1. **Borrow metadata remains compiler-internal**
@@ -919,8 +1095,12 @@ stable target.
 
 4. **Bounded source forms are deferred**
    - `@fip` and `@fbip` remain the only source-level FBIP forms for now
-   - numeric bounded forms like `fip(n)` / `fbip(n)` may only be reconsidered after the post-N-R gates and checklist in Phase S are satisfied
+   - numeric bounded forms like `fip(n)` / `fbip(n)` may only be reconsidered after the post-N-U gates and checklist in Phase S are satisfied
    - this proposal makes no syntax commitment for bounded forms and authorizes no implementation work for them
+
+5. **Concurrency remains outside 0114**
+   - the Perceus paper and Koka runtime both include thread-shared/atomic RC concerns, but Flux Aether remains intentionally single-threaded today
+   - actor transfer semantics and any future `Arc`/thread-shared RC design should be handled in a separate proposal once Aether's single-threaded maturity work has settled
 
 ## Success metrics
 
@@ -934,5 +1114,7 @@ This proposal is succeeding if:
 - higher-order recursive false negatives continue to fall after post-M precision work
 - maintained fixtures with actual `Reuse` / `DropSpecialized` coverage continue to grow
 - the Aether benchmark corpus grows toward Koka-style FIP/FBIP coverage with explicit Core-shape assertions
+- forwarding/wrapper reuse gaps relative to Koka continue to shrink
+- performance evidence exists for Aether-specific wins on maintained workloads, not only backend-to-backend timing comparisons
 - precision improvements do not reintroduce backend parity regressions
 - proposal 0084 can be updated from "partially implemented" to a status that accurately reflects Koka-comparable Aether maturity

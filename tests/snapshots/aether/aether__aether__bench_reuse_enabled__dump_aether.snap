@@ -1,0 +1,63 @@
+---
+source: tests/aether_cli_snapshots.rs
+---
+Aether Memory Model Report
+==========================
+
+── fn build_list ──
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+  verifier: ok
+λn.
+  letrec build_go = (λi, acc.
+    let %t1 = Le(i, 0)
+    case %t1 of
+      true →
+        drop i
+        acc
+      _ →
+        let %t2 = ISub(i, 1)
+        let %t3 = ::(i, acc)
+        aether_call[owned, owned] build_go(%t2, %t3))
+  let %t4 = []
+  aether_call[owned, owned] build_go(n, %t4)
+── fn map_enabled @fip ──
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+  fbip: NotProvable
+    - calls indirect or opaque callee `f` whose FBIP behavior is unknown
+    - control-flow join loses a precise allocation bound across paths
+λxs, f.
+  case xs of
+    ::(h, t) →
+      let %t1 = aether_call[owned] f(h)
+      let %t2 = aether_call[borrowed, borrowed] map_enabled(t, f)
+      reuse xs ::(%t1, %t2)
+    _ →
+      []
+
+── Total ──
+  Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+
+Warning: FBIP Contract Not Proven
+
+@fip on `map_enabled` analysis result NotProvable:
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+- control-flow join loses a precise allocation bound across paths
+
+  examples/aether/bench_reuse_enabled.flx:17:6
+   |
+17 | @fip fn map_enabled(xs, f) {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^
+18 |     match xs {
+   | ^^^^^^^^^^^^^^
+19 |         [h | t] -> [f(h) | map_enabled(t, f)],
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+20 |         _ -> [],
+   | ^^^^^^^^^^^^^^^^
+21 |     }
+   | ^^^^^
+22 | }
+   | ^

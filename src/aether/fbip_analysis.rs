@@ -3,9 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use crate::core::{CoreBinderId, CoreDef, CoreExpr, CoreProgram};
 use crate::syntax::{Identifier, interner::Interner, statement::FipAnnotation};
 
-use super::{
-    AetherBuiltinEffect, builtin_effect_for_name, callee::AetherCalleeKind, is_heap_tag,
-};
+use super::{AetherBuiltinEffect, builtin_effect_for_name, callee::AetherCalleeKind, is_heap_tag};
 use super::{borrow_infer::BorrowProvenance, callee::classify_direct_var_ref};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -414,7 +412,9 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
                     {
                         Some(BorrowProvenance::BaseRuntime)
                     } else {
-                        ctx.summaries_by_name.get(&name).map(|entry| entry.provenance)
+                        ctx.summaries_by_name
+                            .get(&name)
+                            .map(|entry| entry.provenance)
                     }
                 },
             );
@@ -610,7 +610,9 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
             collect_unresolved_callees(rhs, unresolved);
             collect_unresolved_callees(body, unresolved);
         }
-        CoreExpr::Case { scrutinee, alts, .. } => {
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
             collect_unresolved_callees(scrutinee, unresolved);
             for alt in alts {
                 if let Some(guard) = &alt.guard {
