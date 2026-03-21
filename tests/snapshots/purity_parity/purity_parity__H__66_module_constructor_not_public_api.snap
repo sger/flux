@@ -7,11 +7,11 @@ Strict: true
 Expect compile error: true
 
 == vm command ==
-$ flux --no-cache --strict --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx
+$ flux --no-cache --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx
 exit_code: 1
 
 == jit command ==
-$ flux --no-cache --strict --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx --jit
+$ flux --no-cache --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx --jit
 exit_code: 1
 
 == vm tuples ==

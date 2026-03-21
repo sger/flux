@@ -1,6 +1,5 @@
 ---
 source: tests/aether_cli_snapshots.rs
-assertion_line: 75
 ---
 letrec set_black : Tree =
 λt#1.
@@ -16,7 +15,6 @@ letrec keep_right_only : Tree =
       Node(color#7, left#8, key#9, right#10) →
         drop color#7
         drop left#8
-        drop t#6
         drop t#6
         reuse key#9 Node(Black#?[external], Leaf#?[external], 0, right#10)
       _ →
@@ -50,4 +48,4 @@ letrec main : Unit =
     aether_call[borrowed] print#?[external](#4000026[synthetic]#26)
 
 ── Aether stats ──
-Dups: 0  Drops: 8  Reuses: 2  DropSpecs: 0  FBIP: fbip(2)
+Dups: 0  Drops: 7  Reuses: 2  DropSpecs: 0  FBIP: fbip(2)

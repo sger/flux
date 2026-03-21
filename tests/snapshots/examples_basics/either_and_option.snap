@@ -1,5 +1,6 @@
 ---
 source: tests/examples_basics_snapshots.rs
+assertion_line: 21
 ---
 Fixture: examples/basics/either_and_option.flx
 == compile ==

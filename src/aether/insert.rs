@@ -293,6 +293,7 @@ fn plan_expr(
                         .copied()
                         .filter(|binder_id| !env_without_pats.is_live(*binder_id) && !tail_env.is_live(*binder_id))
                         .filter(|binder_id| !expr_uses_binder(&rhs, *binder_id))
+                        .filter(|binder_id| !expr_drops_binder(&rhs, *binder_id))
                         .filter_map(|binder_id| scope.get(&binder_id).copied())
                         .collect();
                     let rhs = compensation
@@ -673,6 +674,53 @@ fn tags_shape_compatible(a: &CoreTag, b: &CoreTag) -> bool {
 
 fn expr_uses_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
     use_counts(expr).get(&binder).copied().unwrap_or(0) > 0
+}
+
+fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
+    match expr {
+        CoreExpr::Drop { var, body, .. } => {
+            var.binder == Some(binder) || expr_drops_binder(body, binder)
+        }
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            expr_drops_binder(rhs, binder) || expr_drops_binder(body, binder)
+        }
+        CoreExpr::Lam { body, .. }
+        | CoreExpr::Dup { body, .. }
+        | CoreExpr::Return { value: body, .. } => expr_drops_binder(body, binder),
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+            expr_drops_binder(func, binder)
+                || args.iter().any(|arg| expr_drops_binder(arg, binder))
+        }
+        CoreExpr::Case { scrutinee, alts, .. } => {
+            expr_drops_binder(scrutinee, binder)
+                || alts.iter().any(|alt| {
+                    alt.guard
+                        .as_ref()
+                        .is_some_and(|guard| expr_drops_binder(guard, binder))
+                        || expr_drops_binder(&alt.rhs, binder)
+                })
+        }
+        CoreExpr::Con { fields, .. }
+        | CoreExpr::PrimOp { args: fields, .. }
+        | CoreExpr::Reuse { fields, .. }
+        | CoreExpr::Perform { args: fields, .. } => {
+            fields.iter().any(|field| expr_drops_binder(field, binder))
+        }
+        CoreExpr::Handle { body, handlers, .. } => {
+            expr_drops_binder(body, binder)
+                || handlers
+                    .iter()
+                    .any(|handler| expr_drops_binder(&handler.body, binder))
+        }
+        CoreExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            expr_drops_binder(unique_body, binder) || expr_drops_binder(shared_body, binder)
+        }
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => false,
+    }
 }
 
 #[cfg(test)]

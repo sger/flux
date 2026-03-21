@@ -1,0 +1,25 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/aether/fbip_fail_nonfip_call.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E999]: FBIP Contract Failed
+
+@fbip on `bounded` analysis result NotProvable:
+- calls an indirect, unknown, or unannotated function
+
+  examples/aether/fbip_fail_nonfip_call.flx:7:7
+  |
+7 | @fbip fn bounded(f, x) {
+  |       ^^^^^^^^^^^^^^^^^^
+8 |     f(x)
+  | ^^^^^^^^
+9 | }
+  | ^
+
+Hint:
+  Annotate only functions whose fresh allocations remain provably bounded.
+== stdout ==
+<not executed>

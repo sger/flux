@@ -32,6 +32,25 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
+error[E415]: Missing Main Function (strict)
+
+Strict mode requires `fn main()` for all programs.
+
+  tests/fixtures/precedence/arithmetic_precedence.flx:1:1
+  |
+1 | print(1 + 2 * 3);
+  | ^^^^^^^^^^^^^^^^^
+2 | print(1 * 2 + 3);
+  | ^^^^^^^^^^^^^^^^^
+3 | print(1 + 2 + 3);
+  | ^^^^^^^^^^^^^^^^^
+4 | print(1 - 2 - 3);
+  | ^^^^^^^^^^^^^^^^^
+
+Hint:
+  Add `fn main() { ... }` as the program entrypoint.
+
+
 error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
@@ -129,4 +148,4 @@ requires effect `IO` but the enclosing context does not provide it
 Hint:
   annotate the enclosing function with `with IO`
 
-Found 9 errors.
+Found 10 errors.
