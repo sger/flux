@@ -25,9 +25,8 @@ letrec option_map : Option<Any> =
 λopt#12, f#13.
     case opt#12 of
       Some(x#14) →
-        drop opt#12
         let #4000019[synthetic]#19 = aether_call[owned] f#13(x#14)
-        Some(#4000019[synthetic]#19)
+        reuse opt#12 Some(#4000019[synthetic]#19)
       _ →
         None
 
@@ -48,4 +47,4 @@ letrec main : Unit =
     aether_call[borrowed] print#?[external](#4000026[synthetic]#26)
 
 ── Aether stats ──
-Dups: 0  Drops: 6  Reuses: 2  DropSpecs: 0  FBIP: fbip(2)
+Dups: 0  Drops: 5  Reuses: 3  DropSpecs: 0  FBIP: fbip(1)

@@ -1,0 +1,37 @@
+// Aether plain-Reuse benchmark: reuse-friendly recursive list rebuild.
+// Run:   cargo run --release -- examples/aether/bench_reuse_enabled.flx
+// JIT:   cargo run --release --features 'jit llvm' -- --jit examples/aether/bench_reuse_enabled.flx
+// LLVM:  cargo run --release --features 'jit llvm' -- --llvm examples/aether/bench_reuse_enabled.flx
+// Stats: cargo run --release -- --dump-aether examples/aether/bench_reuse_enabled.flx
+
+fn build_list(n) {
+    fn build_go(i, acc) {
+        if i <= 0 { acc }
+        else { build_go(i - 1, [i | acc]) }
+    }
+    build_go(n, [])
+}
+
+// This shape should recover plain Reuse on the cons rebuild.
+@fip fn map_enabled(xs, f) {
+    match xs {
+        [h | t] -> [f(h) | map_enabled(t, f)],
+        _ -> [],
+    }
+}
+
+fn bench_map(xs, iterations) {
+    fn go(i, current) {
+        if i <= 0 { current }
+        else { go(i - 1, map_enabled(current, \x -> x + 1)) }
+    }
+    go(iterations, xs)
+}
+
+fn main() with IO {
+    let size = 5000
+    let iterations = 100
+    let xs = build_list(size)
+    let mapped = bench_map(xs, iterations)
+    print("enabled: result head = #{hd(mapped)}")
+}

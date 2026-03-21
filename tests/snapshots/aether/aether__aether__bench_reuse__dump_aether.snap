@@ -21,14 +21,13 @@ Aether Memory Model Report
   let %t4 = []
   aether_call[owned, owned] build_go(n, %t4)
 ── fn my_map @fip ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
 λxs, f.
   case xs of
     ::(h, t) →
-      drop xs
       let %t1 = aether_call[owned] f(h)
       let %t2 = aether_call[borrowed, borrowed] my_map(t, f)
-      ::(%t1, %t2)
+      reuse xs ::(%t1, %t2)
     _ →
       []
 ── fn main ──
@@ -64,20 +63,16 @@ Aether Memory Model Report
   aether_call[borrowed] print("Done.")
 
 warning: @fip on `my_map` analysis result NotProvable:
-- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
-- constructor rebuild could not reuse an available token
 - control-flow join loses a precise allocation bound across paths
 
 ── Total ──
-  Dups: 0  Drops: 10  Reuses: 0  DropSpecs: 0  FBIP: fbip(2)
+  Dups: 0  Drops: 9  Reuses: 1  DropSpecs: 0  FBIP: fbip(1)
 
 Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:
-- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
-- constructor rebuild could not reuse an available token
 - control-flow join loses a precise allocation bound across paths
 
   examples/aether/bench_reuse.flx:16:6

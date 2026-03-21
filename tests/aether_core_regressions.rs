@@ -640,7 +640,7 @@ fn fbip_failure_fixture_stays_non_provable() {
 }
 
 #[test]
-fn bench_reuse_fixture_my_map_shows_borrowed_recursion_not_plain_reuse() {
+fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
     let src =
         std::fs::read_to_string("examples/aether/bench_reuse.flx").expect("fixture should exist");
     let core = lowered_core(&src);
@@ -693,12 +693,111 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_not_plain_reuse() {
         "bench_reuse my_map should preserve borrowed recursive traversal"
     );
     assert!(
-        !has_reuse,
-        "bench_reuse my_map does not currently emit plain Reuse and the fixture should not claim that it does"
+        has_reuse,
+        "bench_reuse my_map should now emit plain Reuse through safe precompute let spines"
     );
     assert!(
         borrowed_benchmark_wrappers,
         "bench_reuse wrappers should thread the benchmark list input through borrowed call modes"
+    );
+}
+
+#[test]
+fn higher_order_recursive_rebuild_with_precompute_let_emits_reuse() {
+    let src = r#"
+fn map_like(xs, f) {
+    match xs {
+        [h | t] -> [f(h) | map_like(t, f)],
+        _ -> [],
+    }
+}
+fn main() { map_like([1, 2, 3], \x -> x + 1) }
+"#;
+    let core = lowered_core(src);
+    let map_like = core.defs.first().expect("map_like def");
+    let has_reuse = collect_core_exprs(&map_like.expr)
+        .into_iter()
+        .any(|expr| matches!(expr, CoreExpr::Reuse { .. }));
+    let borrowed_self_call = collect_core_exprs(&map_like.expr).into_iter().any(|expr| {
+        matches!(
+            expr,
+            CoreExpr::AetherCall { arg_modes, .. }
+                if arg_modes == &[
+                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                ]
+        )
+    });
+    assert!(has_reuse, "higher-order recursive rebuild should now emit plain Reuse");
+    assert!(
+        borrowed_self_call,
+        "higher-order recursive rebuild should preserve borrowed recursive tail traversal"
+    );
+}
+
+#[test]
+fn branch_sensitive_list_rebuild_can_reuse_on_one_path_only() {
+    let src = r#"
+fn keep_or_inc(xs, choose) {
+    match xs {
+        [h | t] -> if choose { [h + 1 | t] } else { t },
+        _ -> [],
+    }
+}
+fn main() { keep_or_inc([1, 2, 3], true) }
+"#;
+    let core = lowered_core(src);
+    let found = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .any(|expr| match expr {
+            CoreExpr::Case { alts, .. } => {
+                let branch_reuses = alts
+                    .iter()
+                    .map(|alt| {
+                        collect_core_exprs(&alt.rhs)
+                            .into_iter()
+                            .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
+                            .count()
+                    })
+                    .collect::<Vec<_>>();
+                branch_reuses.iter().any(|count| *count >= 1)
+                    && branch_reuses.iter().any(|count| *count == 0)
+            }
+            _ => false,
+        });
+    assert!(
+        found,
+        "branch-sensitive rebuild should allow plain Reuse on the exact branch only"
+    );
+}
+
+#[test]
+fn token_use_in_precompute_let_keeps_reuse_disabled() {
+    let src = r#"
+fn my_len(xs) {
+    match xs {
+        [_ | t] -> 1 + my_len(t),
+        _ -> 0,
+    }
+}
+fn bad_rebuild(xs) {
+    match xs {
+        [_ | t] -> [my_len(xs) | t],
+        _ -> [],
+    }
+}
+fn main() { bad_rebuild([1, 2, 3]) }
+"#;
+    let core = lowered_core(src);
+    let bad_rebuild = core.defs.first().expect("bad_rebuild def");
+    let has_reuse = collect_core_exprs(&bad_rebuild.expr)
+        .into_iter()
+        .any(|expr| matches!(expr, CoreExpr::Reuse { .. }));
+    assert!(
+        !has_reuse,
+        "token-dependent precompute lets must keep plain Reuse disabled"
     );
 }
 

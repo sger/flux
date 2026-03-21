@@ -6,24 +6,22 @@ Aether Memory Model Report
 ==========================
 
 ── fn my_map @fip ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
 λxs, f.
   case xs of
     ::(h, t) →
-      drop xs
       let %t1 = aether_call[owned] f(h)
       let %t2 = aether_call[borrowed, borrowed] my_map(t, f)
-      ::(%t1, %t2)
+      reuse xs ::(%t1, %t2)
     _ →
       []
 ── fn option_map @fip ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
 λopt, f.
   case opt of
     Some(x) →
-      drop opt
       let %t1 = aether_call[owned] f(x)
-      Some(%t1)
+      reuse opt Some(%t1)
     _ →
       None
 ── fn set_black ──
@@ -95,26 +93,20 @@ Aether Memory Model Report
   aether_call[borrowed] print(%t20)
 
 warning: @fip on `my_map` analysis result NotProvable:
-- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
-- constructor rebuild could not reuse an available token
 - control-flow join loses a precise allocation bound across paths
 
 warning: @fip on `option_map` analysis result NotProvable:
-- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
-- constructor rebuild could not reuse an available token
 - control-flow join loses a precise allocation bound across paths
 
 ── Total ──
-  Dups: 1  Drops: 9  Reuses: 2  DropSpecs: 1  FBIP: fbip(4)
+  Dups: 1  Drops: 7  Reuses: 4  DropSpecs: 1  FBIP: fbip(2)
 
 Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:
-- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
-- constructor rebuild could not reuse an available token
 - control-flow join loses a precise allocation bound across paths
 
   examples/aether/verify_aether.flx:9:6
@@ -136,9 +128,7 @@ Warning: FBIP Contract Not Proven
 Warning: FBIP Contract Not Proven
 
 @fip on `option_map` analysis result NotProvable:
-- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
-- constructor rebuild could not reuse an available token
 - control-flow join loses a precise allocation bound across paths
 
   examples/aether/verify_aether.flx:17:6

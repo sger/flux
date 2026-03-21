@@ -760,6 +760,8 @@ mod tests {
         let tmp = binder(5, interner.intern("tmp"));
         let node = CoreTag::Named(interner.intern("Node"));
 
+        let io = interner.intern("IO");
+        let print = interner.intern("print");
         let expr = CoreExpr::Case {
             scrutinee: Box::new(v(xs)),
             alts: vec![CoreAlt {
@@ -775,10 +777,10 @@ mod tests {
                 guard: None,
                 rhs: CoreExpr::Let {
                     var: tmp,
-                    rhs: Box::new(CoreExpr::AetherCall {
-                        func: Box::new(CoreExpr::external_var(interner.intern("escape"), s())),
+                    rhs: Box::new(CoreExpr::Perform {
+                        effect: io,
+                        operation: print,
                         args: vec![v(key)],
-                        arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
                         span: s(),
                     }),
                     body: Box::new(CoreExpr::Con {
