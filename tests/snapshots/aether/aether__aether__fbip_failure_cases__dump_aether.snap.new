@@ -1,0 +1,77 @@
+---
+source: tests/aether_cli_snapshots.rs
+assertion_line: 109
+---
+error[E027]: Duplicate Module
+
+Duplicate module declaration: `Aether.FbipImportedSupport`.
+
+  examples/aether/fbip_failure_cases.flx:1:1
+  |
+1 | import Aether.FbipImportedSupport as Imported
+  | ^
+
+Hint:
+  Remove one of the duplicate module declarations.
+  Found: /Users/s.gerokostas/Downloads/Github/flux/examples/aether/Aether/FbipImportedSupport.flx, /Users/s.gerokostas/Downloads/Github/flux/src/aether/FbipImportedSupport.flx
+
+
+Warning: FBIP Contract Not Proven
+
+@fip on `fail_indirect` analysis result NotProvable:
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+
+  examples/aether/fbip_failure_cases.flx:11:6
+   |
+11 | @fip fn fail_indirect(f, x) {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^^
+12 |     f(x)
+   | ^^^^^^^^
+13 | }
+   | ^
+
+
+Warning: FBIP Contract Not Proven
+
+@fip on `fail_imported` analysis result NotProvable:
+- calls indirect or opaque callee `Symbol(4000011)` whose FBIP behavior is unknown
+
+  examples/aether/fbip_failure_cases.flx:15:6
+   |
+15 | @fip fn fail_imported(x: Int) -> Int {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+16 |     Imported.imported_inc(x)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17 | }
+   | ^
+
+
+error[E425]: Unresolved Boundary Type
+
+Strict mode cannot enforce runtime boundary check for unresolved expression type in function return expression.
+
+  examples/aether/fbip_failure_cases.flx:16:5
+   |
+16 |     Imported.imported_inc(x)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+   |     ------------------------ expression type is unresolved in strict mode
+
+Hint:
+  Use concrete types (or additional annotations) so HM can resolve this expression.
+
+
+Warning: FBIP Contract Not Proven
+
+@fip on `fail_fresh` analysis result Fbip { bound: 1 }:
+- fresh heap allocation remains on at least one path
+
+  examples/aether/fbip_failure_cases.flx:19:6
+   |
+19 | @fip fn fail_fresh(x: Int) {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^
+20 |     Some(x)
+   | ^^^^^^^^^^^
+21 | }
+   | ^
+
+Found 2 errors and 3 warnings.

@@ -1275,6 +1275,18 @@ impl Compiler {
                     if self.is_last_instruction(OpCode::OpPop) {
                         self.replace_last_pop_with_return();
                     } else if self.replace_last_local_read_with_return() {
+                        // The replacement turned the last instruction into
+                        // OpReturnLocal in-place, so the alternative branch
+                        // returns directly.  However, if the body ends with
+                        // an if-else expression, the consequence branch's
+                        // OpJump was patched to `instructions.len()` (the
+                        // position right after the alternative).  Because the
+                        // replacement didn't grow the buffer, that jump now
+                        // targets one byte past the end.  Emit a landing-pad
+                        // OpReturnValue so the jump has a valid target.
+                        // It is dead code for the alternative path but
+                        // harmless (1 extra byte per affected function).
+                        self.emit(OpCode::OpReturnValue, &[]);
                     } else if !self.is_last_instruction(OpCode::OpReturnValue)
                         && !self.is_last_instruction(OpCode::OpReturnLocal)
                     {

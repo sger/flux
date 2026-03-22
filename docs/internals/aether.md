@@ -285,19 +285,100 @@ Bounded forms like `fip(n)` / `fbip(n)` are intentionally deferred.
 
 ## Reporting and Debugging
 
-Useful surfaces:
+### Flags
 
-- `--dump-core`
-  - first semantic debugging surface
-- `--dump-core=debug`
-  - raw/binder-heavy Core view
-- `--dump-aether`
-  - report-only Aether memory-model report
-- `--trace-aether`
-  - backend/path header plus Aether report, then normal execution
-- `scripts/release/bench_aether.sh`
-  - opt-in release workload runner that prints Aether totals separately from
-    VM/JIT/LLVM timing data
+**`--dump-aether`** — run Aether, print the per-function report, exit without
+executing the program. Best starting point for inspecting what Aether decided.
+
+```bash
+cargo run -- --dump-aether examples/aether/borrow_calls.flx
+```
+
+**`--trace-aether`** — same report, but continues into the backend and runs
+the program. Report goes to stderr before program output. Lets you verify
+Aether decisions and correct output together.
+
+```bash
+cargo run -- --trace-aether examples/aether/borrow_calls.flx
+```
+
+Combine with `--stats` to see timing alongside the report:
+
+```bash
+cargo run -- --trace-aether --stats examples/aether/borrow_calls.flx
+```
+
+Note: `--trace-aether` is incompatible with `--dump-core` and `--dump-aether`.
+Use one at a time.
+
+**`--dump-core`** — print full Core IR after all passes including Aether, then
+exit. Shows the actual `Dup`, `Drop`, `Reuse`, `AetherCall`, and
+`DropSpecialized` nodes that were inserted.
+
+```bash
+cargo run -- --dump-core examples/aether/borrow_calls.flx
+```
+
+**`--dump-core=debug`** — same but raw Rust `Debug` format. More verbose,
+shows every struct field.
+
+```bash
+cargo run -- --dump-core=debug examples/aether/borrow_calls.flx
+```
+
+**`scripts/release/bench_aether.sh`** — opt-in release workload runner that
+prints Aether totals separately from VM/JIT/LLVM timing data.
+
+### Reading the report
+
+Example output for `examples/aether/borrow_calls.flx`:
+
+```
+── Aether Trace ──
+file: examples/aether/borrow_calls.flx
+backend: vm
+pipeline: AST -> Core -> CFG -> bytecode -> VM
+cache: disabled
+optimize: off
+strict: on
+modules: 1
+────────────────────────
+Aether Memory Model Report
+==========================
+
+── fn main ──
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ.
+  let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
+  aether_call[borrowed] len_twice(%t3))
+  aether_call[borrowed] print(%t2))
+  drop %t1
+  ...
+
+── Total ──
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+```
+
+Per-function stats:
+
+| Field | Meaning |
+|---|---|
+| `Dups` | Number of `Rc::clone` operations inserted |
+| `Drops` | Number of early releases inserted |
+| `Reuses` | Number of in-place allocation reuses |
+| `DropSpecs` | Number of unique/shared runtime splits |
+| `FreshAllocs` | New heap allocations tracked by Aether |
+| `verifier` | `ok` means post-pass ownership checks passed |
+
+Functions with all-zero stats are omitted from the report.
+
+`aether_call[borrowed]` in the Core body means Aether determined that argument
+is read-only — no `Dup` is emitted for it. `aether_call[borrowed, owned]`
+means the first argument is borrowed and the second is owned (ownership
+transfers to the callee).
 
 The Aether report is built from:
 - `src/bytecode/compiler/mod.rs`
