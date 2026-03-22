@@ -116,7 +116,7 @@ fn count_matching(expr: &CoreExpr, predicate: &impl Fn(&CoreExpr) -> bool) -> us
 fn lowered_core(src: impl AsRef<str>) -> flux::core::CoreProgram {
     let (program, types, interner) = parse_and_infer(src.as_ref());
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
     core
 }
 
@@ -784,7 +784,7 @@ fn fbip_clean_fixture_keeps_annotations_provable() {
         std::fs::read_to_string("examples/aether/verify_aether.flx").expect("fixture should exist");
     let (program, types, interner) = parse_and_infer(&src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
     let fbip = flux::aether::check_fbip::check_fbip(&core, &interner);
     assert!(
         fbip.error.is_none(),
@@ -798,7 +798,7 @@ fn fbip_failure_fixture_stays_non_provable() {
         .expect("fixture should exist");
     let (program, types, interner) = parse_and_infer(&src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes_with_interner(&mut core, &interner)
+    run_core_passes_with_interner(&mut core, &interner, false)
         .expect_err("fbip failure fixture should error during core passes");
 }
 

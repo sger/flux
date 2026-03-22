@@ -32,40 +32,53 @@ use crate::syntax::interner::Interner;
 
 /// Run all Core IR passes in order.
 ///
-/// Pass order matters:
+/// Simplification passes (iterated when `optimize` is true):
 /// 1. `beta_reduce`              — eliminate `App(Lam(x, body), arg)` redexes
 /// 2. `case_of_case`             — push outer case into inner case arms
 /// 3. `case_of_known_constructor` — reduce `Case(Con/Lit, alts)` statically
 /// 4. `inline_lets`              — inline dead, single-use, and small let-bindings
 ///    (subsumes `inline_trivial_lets`; uses occurrence analysis)
 /// 5. `elim_dead_let`            — drop unused pure bindings left over
+///
+/// Normalization passes (run once after simplification):
 /// 6. `evidence_pass`            — rewrite TR Handle/Perform into evidence passing
 /// 7. `anf_normalize`            — flatten nested subexpressions into let-chains
+///
+/// When `optimize` is true, simplification passes run up to 3 rounds (fixed-
+/// point iteration inspired by GHC's Core simplifier).  Each additional round
+/// can discover opportunities exposed by the previous round (e.g. beta
+/// reduction exposing a known constructor for COKC).
 #[allow(clippy::result_large_err)]
 pub fn run_core_passes(program: &mut CoreProgram) -> Result<(), Diagnostic> {
-    run_core_passes_with_optional_interner(program, None).map(|_| ())
+    run_core_passes_with_optional_interner(program, None, false).map(|_| ())
 }
 
 #[allow(clippy::result_large_err)]
 pub fn run_core_passes_with_interner(
     program: &mut CoreProgram,
     interner: &Interner,
+    optimize: bool,
 ) -> Result<(), Diagnostic> {
-    run_core_passes_with_interner_and_warnings(program, interner).map(|_| ())
+    run_core_passes_with_interner_and_warnings(program, interner, optimize).map(|_| ())
 }
 
 #[allow(clippy::result_large_err)]
 pub fn run_core_passes_with_interner_and_warnings(
     program: &mut CoreProgram,
     interner: &Interner,
+    optimize: bool,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
-    run_core_passes_with_optional_interner(program, Some(interner))
+    run_core_passes_with_optional_interner(program, Some(interner), optimize)
 }
+
+/// Maximum number of simplification rounds when `-O` is enabled.
+const MAX_SIMPLIFIER_ROUNDS: usize = 3;
 
 #[allow(clippy::result_large_err)]
 fn run_core_passes_with_optional_interner(
     program: &mut CoreProgram,
     interner: Option<&Interner>,
+    optimize: bool,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
     let mut warnings = Vec::new();
     // Find the maximum binder ID so passes can allocate fresh IDs above it.
@@ -78,24 +91,49 @@ fn run_core_passes_with_optional_interner(
 
     let sentinel = CoreExpr::Lit(CoreLit::Unit, Default::default());
 
-    // Run all Core passes + Aether in a single loop per definition.
-    // Borrow inference runs once upfront over the pre-pass program.
-    // (Pre-pass bodies are not yet ANF-normalized, so owned_use_count
-    // results are approximate — but still correct for the common case
-    // of parameters only used in PrimOp/Case/App positions.)
-    // Run standard Core passes first (before Aether).
+    // ── Stage 1: Simplification passes (iterated when optimize=true) ─────
+    let max_rounds = if optimize { MAX_SIMPLIFIER_ROUNDS } else { 1 };
+
+    for round in 0..max_rounds {
+        // Measure total program size before this round to detect changes.
+        let size_before: usize = program
+            .defs
+            .iter()
+            .map(|d| helpers::expr_size(&d.expr))
+            .sum();
+
+        for def in &mut program.defs {
+            let e = std::mem::replace(&mut def.expr, sentinel.clone());
+            let e = beta_reduce(e);
+            verify_aether_contract_stage(def, &e, "beta_reduce")?;
+            let e = case_of_case(e);
+            verify_aether_contract_stage(def, &e, "case_of_case")?;
+            let e = case_of_known_constructor(e);
+            verify_aether_contract_stage(def, &e, "case_of_known_constructor")?;
+            let e = inline_lets(e);
+            verify_aether_contract_stage(def, &e, "inline_lets")?;
+            let e = elim_dead_let(e);
+            verify_aether_contract_stage(def, &e, "elim_dead_let")?;
+            def.expr = e;
+        }
+
+        // After the first round, check whether anything changed.
+        // If the total node count is the same, no pass fired — stop early.
+        if round > 0 {
+            let size_after: usize = program
+                .defs
+                .iter()
+                .map(|d| helpers::expr_size(&d.expr))
+                .sum();
+            if size_after == size_before {
+                break;
+            }
+        }
+    }
+
+    // ── Stage 2: Normalization passes (run once) ─────────────────────────
     for def in &mut program.defs {
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
-        let e = beta_reduce(e);
-        verify_aether_contract_stage(def, &e, "beta_reduce")?;
-        let e = case_of_case(e);
-        verify_aether_contract_stage(def, &e, "case_of_case")?;
-        let e = case_of_known_constructor(e);
-        verify_aether_contract_stage(def, &e, "case_of_known_constructor")?;
-        let e = inline_lets(e);
-        verify_aether_contract_stage(def, &e, "inline_lets")?;
-        let e = elim_dead_let(e);
-        verify_aether_contract_stage(def, &e, "elim_dead_let")?;
         let e = evidence_pass(e, &mut next_id);
         verify_aether_contract_stage(def, &e, "evidence_pass")?;
         let e = anf_normalize(e, &mut next_id);

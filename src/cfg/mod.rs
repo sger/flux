@@ -54,9 +54,31 @@ pub fn lower_program_to_ir_with_interner_and_warnings(
     hm_expr_types: &HashMap<ExprId, InferType>,
     interner: Option<&Interner>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
+    lower_program_to_ir_impl(program, hm_expr_types, interner, false)
+}
+
+#[allow(clippy::result_large_err)]
+pub fn lower_program_to_ir_with_optimize(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&Interner>,
+    optimize: bool,
+) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
+    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize)
+}
+
+#[allow(clippy::result_large_err)]
+fn lower_program_to_ir_impl(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&Interner>,
+    optimize: bool,
+) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
     let mut core = lower_program_ast(program, hm_expr_types);
     let warnings = if let Some(interner) = interner {
-        crate::core::passes::run_core_passes_with_interner_and_warnings(&mut core, interner)?
+        crate::core::passes::run_core_passes_with_interner_and_warnings(
+            &mut core, interner, optimize,
+        )?
     } else {
         run_core_passes(&mut core)?;
         Vec::new()

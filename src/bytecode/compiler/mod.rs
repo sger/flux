@@ -2129,7 +2129,7 @@ impl Compiler {
 
         let mut core =
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
-        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner)?;
+        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
 
         // Collect Aether stats across all definitions
         let mut total_stats = crate::aether::AetherStats::default();
@@ -2175,7 +2175,7 @@ impl Compiler {
 
         let mut core =
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
-        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner)?;
+        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
         Ok(core)
     }
 
