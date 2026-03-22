@@ -148,6 +148,16 @@ impl VM {
         loop {
             let ip = self.frames[self.frame_index].ip;
             if ip >= instructions.len() {
+                if self.frame_index > 0 {
+                    let fn_name = "<function>";
+                    return Err(format!(
+                        "VM bug: IP {} overran instruction boundary ({} bytes) in function '{}' at frame depth {}",
+                        ip,
+                        instructions.len(),
+                        fn_name,
+                        self.frame_index,
+                    ));
+                }
                 break;
             }
 

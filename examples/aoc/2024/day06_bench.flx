@@ -1,0 +1,18 @@
+// Day 6 - Benchmark Part A vs Part B separately
+// Run: cargo run --features jit -- examples/aoc/2024/day06_bench.flx --jit --stats
+
+import Day06Solver as Day06
+
+fn main() with IO, Time {
+    let lines: Array<String> = read_lines("examples/aoc/2024/day06.txt")
+
+    let t0 = now_ms()
+    let part_a = Day06.day06a_from_lines(lines)
+    let t1 = now_ms()
+    print("Part A: " + to_string(part_a) + "  (" + to_string(t1 - t0) + " ms)")
+
+    let t2 = now_ms()
+    let part_b = Day06.day06b_from_lines(lines)
+    let t3 = now_ms()
+    print("Part B: " + to_string(part_b) + "  (" + to_string(t3 - t2) + " ms)")
+}

@@ -1,0 +1,22 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+assertion_line: 27
+---
+Fixture: examples/aether/fbip_failure_cases.flx
+== compile ==
+failed (module)
+== diagnostics ==
+error[E027]: Duplicate Module
+
+Duplicate module declaration: `Aether.FbipImportedSupport`.
+
+  examples/aether/fbip_failure_cases.flx:1:1
+  |
+1 | import Aether.FbipImportedSupport as Imported
+  | ^
+
+Hint:
+  Remove one of the duplicate module declarations.
+  Found: examples/aether/Aether/FbipImportedSupport.flx, src/aether/FbipImportedSupport.flx
+== stdout ==
+<not executed>
