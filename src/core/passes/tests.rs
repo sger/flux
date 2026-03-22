@@ -260,7 +260,8 @@ fn run_core_passes_reports_aether_contract_stage() {
         top_level_items: Vec::new(),
     };
 
-    let err = run_core_passes_with_interner(&mut program, &interner).expect_err("should fail");
+    let err =
+        run_core_passes_with_interner(&mut program, &interner, false).expect_err("should fail");
     let message = err.message.clone().unwrap_or_default();
     assert!(
         message.contains("after `beta_reduce`"),
