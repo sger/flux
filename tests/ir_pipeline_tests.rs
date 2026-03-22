@@ -173,7 +173,7 @@ fn main() {
     // Core IR: after passes, guard should still reference x correctly
     let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
 
     // The Case should still have a guard expression after passes
     let main_def = &core.defs[0];
@@ -221,7 +221,7 @@ fn main() {
     // Core IR passes may inline `let n = 5` — guard must still work
     let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
 
     assert_eq!(run(src), Value::String("small".to_string().into()));
 }
@@ -321,7 +321,7 @@ fn main() {
 "#;
     let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
 
     // After beta reduction, the application f(5) may be reduced
     // The final result should still be 6
@@ -347,7 +347,7 @@ fn main() {
         .filter(|e| matches!(e, CoreExpr::Let { .. }))
         .count();
 
-    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
 
     // After passes: dead let should be eliminated
     let after_lets = collect_core_exprs(&core.defs[0].expr)
@@ -482,7 +482,7 @@ fn main() {
 "#;
     let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
 
     // After COKC, the Case(Con(Some, [42]), ...) should reduce to just 42
     let main_exprs = collect_core_exprs(&core.defs[0].expr);

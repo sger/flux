@@ -49,7 +49,7 @@ fn parse_and_infer(
 fn lowered_core(src: &str) -> flux::core::CoreProgram {
     let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes_with_interner(&mut core, &interner).expect("core passes should succeed");
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
     core
 }
 
