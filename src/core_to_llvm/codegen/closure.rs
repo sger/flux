@@ -10,7 +10,7 @@ use crate::{
     runtime::nanbox::NanTag,
 };
 
-use super::prelude::FluxNanboxLayout;
+use super::prelude::{FluxNanboxLayout, has_function, helper_attrs};
 
 pub const FLUX_CLOSURE_TYPE_NAME: &str = "FluxClosure";
 pub const FLUX_CLOSURE_HEADER_SIZE: i64 = 24;
@@ -39,6 +39,7 @@ pub fn closure_type() -> LlvmType {
     LlvmType::Named(FLUX_CLOSURE_TYPE_NAME.into())
 }
 
+#[allow(dead_code)]
 pub fn closure_entry_sig() -> LlvmFunctionSig {
     LlvmFunctionSig {
         ret: LlvmType::i64(),
@@ -145,7 +146,7 @@ fn emit_copy_helper(module: &mut LlvmModule) {
             LlvmLocal("src".into()),
             LlvmLocal("count".into()),
         ],
-        attrs: helper_attrs(),
+        attrs: vec![],
         blocks: vec![
             LlvmBlock {
                 label: LabelId("entry".into()),
@@ -721,7 +722,7 @@ fn emit_call_closure(module: &mut LlvmModule) {
                     },
                     LlvmInstr::Call {
                         dst: Some(LlvmLocal("result".into())),
-                        tail: false,
+                        tail: true,
                         call_conv: Some(CallConv::Fastcc),
                         ret_ty: LlvmType::i64(),
                         callee: LlvmOperand::Global(flux_closure_symbol("flux_call_closure")),
@@ -858,14 +859,6 @@ pub(super) fn common_closure_load_instrs(closure_value: LlvmOperand) -> Vec<Llvm
             rhs: local("remaining_arity"),
         },
     ]
-}
-
-fn has_function(module: &LlvmModule, name: &str) -> bool {
-    module.functions.iter().any(|func| func.name.0 == name)
-}
-
-fn helper_attrs() -> Vec<String> {
-    vec!["alwaysinline".into()]
 }
 
 pub(super) fn local(name: &str) -> LlvmOperand {
