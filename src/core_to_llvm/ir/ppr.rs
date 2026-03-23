@@ -106,11 +106,9 @@ impl Display for LlvmGlobal {
 
 impl Display for LlvmDecl {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "declare {} {} {} @{}(",
-            self.linkage, self.sig.call_conv, self.sig.ret, self.name
-        )?;
+        write!(f, "declare ")?;
+        fmt_linkage(f, self.linkage)?;
+        write!(f, "{} {} @{}(", self.sig.call_conv, self.sig.ret, self.name)?;
         fmt_param_types(f, &self.sig.params, self.sig.varargs)?;
         write!(f, ")")?;
         for attr in &self.attrs {
@@ -122,11 +120,9 @@ impl Display for LlvmDecl {
 
 impl Display for LlvmFunction {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "define {} {} {} @{}(",
-            self.linkage, self.sig.call_conv, self.sig.ret, self.name
-        )?;
+        write!(f, "define ")?;
+        fmt_linkage(f, self.linkage)?;
+        write!(f, "{} {} @{}(", self.sig.call_conv, self.sig.ret, self.name)?;
         for (idx, (ty, param)) in self.sig.params.iter().zip(&self.params).enumerate() {
             if idx > 0 {
                 write!(f, ", ")?;
@@ -364,7 +360,7 @@ impl Display for LlvmTerminator {
                 if !cases.is_empty() {
                     writeln!(f)?;
                     for (value, target) in cases {
-                        writeln!(f, "    {value}, label %{target}")?;
+                        writeln!(f, "    {ty} {value}, label %{target}")?;
                     }
                     write!(f, "  ]")
                 } else {
@@ -381,10 +377,12 @@ impl Display for LlvmConst {
         match self {
             LlvmConst::Int { value, .. } => write!(f, "{value}"),
             LlvmConst::Float(value) => {
-                if value.is_nan() {
-                    write!(f, "0x7FF8000000000000")
+                if value.is_nan() || value.is_infinite() {
+                    write!(f, "0x{:016X}", value.to_bits())
+                } else if value.fract() == 0.0 {
+                    write!(f, "{:.1}", value)
                 } else {
-                    write!(f, "{value}")
+                    write!(f, "0x{:016X}", value.to_bits())
                 }
             }
             LlvmConst::Null => write!(f, "null"),
@@ -422,6 +420,7 @@ impl Display for LlvmConst {
                 Ok(())
             }
             LlvmConst::GlobalRef(id) => write!(f, "@{id}"),
+            LlvmConst::ZeroInit => write!(f, "zeroinitializer"),
         }
     }
 }
@@ -487,6 +486,13 @@ fn write_section<T: Display>(f: &mut Formatter<'_>, items: &[T]) -> fmt::Result 
         writeln!(f)?;
     }
     Ok(())
+}
+
+fn fmt_linkage(f: &mut Formatter<'_>, linkage: Linkage) -> fmt::Result {
+    match linkage {
+        Linkage::External => Ok(()),
+        _ => write!(f, "{linkage} "),
+    }
 }
 
 fn fmt_param_types(f: &mut Formatter<'_>, params: &[LlvmType], varargs: bool) -> fmt::Result {
@@ -623,7 +629,7 @@ mod tests {
         };
         assert_eq!(
             decl.to_string(),
-            "declare external ccc i32 @puts(ptr) nounwind"
+            "declare ccc i32 @puts(ptr) nounwind"
         );
 
         let func = LlvmFunction {

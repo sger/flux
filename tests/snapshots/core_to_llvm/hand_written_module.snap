@@ -9,7 +9,7 @@ target datalayout = "e-m:e-p:64:64-i64:64-n8:16:32:64-S128"
 
 @flux.tag.true = private constant i64 9221120237041090562
 
-declare external ccc void @flux_print(i64)
+declare ccc void @flux_print(i64)
 
 define internal fastcc i64 @flux.main(i64 %arg) alwaysinline {
 entry:

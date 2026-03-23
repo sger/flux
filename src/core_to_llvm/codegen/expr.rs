@@ -1200,6 +1200,15 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CorePrimOp::IMul => self.lower_helper_call("flux_imul", args),
             CorePrimOp::IDiv => self.lower_helper_call("flux_idiv", args),
             CorePrimOp::FAdd => self.lower_helper_call("flux_fadd", args),
+            CorePrimOp::FSub => self.lower_helper_call("flux_fsub", args),
+            CorePrimOp::FMul => self.lower_helper_call("flux_fmul", args),
+            CorePrimOp::FDiv => self.lower_helper_call("flux_fdiv", args),
+            CorePrimOp::Mod => self.lower_helper_call("flux_imod", args),
+            CorePrimOp::IMod => self.lower_helper_call("flux_imod", args),
+            CorePrimOp::Neg => self.lower_unary_helper_call("flux_ineg", args),
+            CorePrimOp::Not => self.lower_unary_helper_call("flux_not", args),
+            CorePrimOp::And => self.lower_helper_call("flux_and", args),
+            CorePrimOp::Or => self.lower_helper_call("flux_or", args),
             CorePrimOp::Eq => self.lower_cmp_bool(args, LlvmCmpOp::Eq, false),
             CorePrimOp::NEq => self.lower_cmp_bool(args, LlvmCmpOp::Ne, false),
             CorePrimOp::Lt => self.lower_cmp_bool(args, LlvmCmpOp::Slt, true),
@@ -1209,16 +1218,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CorePrimOp::MakeList => self.lower_make_list(args),
             CorePrimOp::MakeTuple => self.lower_make_tuple(args),
             CorePrimOp::TupleField(index) => self.lower_tuple_field(*index, args),
-            CorePrimOp::Mod
-            | CorePrimOp::IMod
-            | CorePrimOp::FSub
-            | CorePrimOp::FMul
-            | CorePrimOp::FDiv
-            | CorePrimOp::Neg
-            | CorePrimOp::Not
-            | CorePrimOp::And
-            | CorePrimOp::Or
-            | CorePrimOp::Concat
+            CorePrimOp::Concat
             | CorePrimOp::Interpolate
             | CorePrimOp::MakeArray
             | CorePrimOp::MakeHash
@@ -1281,6 +1281,30 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             ret_ty: LlvmType::i64(),
             callee: LlvmOperand::Global(flux_arith_symbol(name)),
             args: vec![(LlvmType::i64(), left), (LlvmType::i64(), right)],
+            attrs: vec![],
+        });
+        Ok(LlvmOperand::Local(dst))
+    }
+
+    fn lower_unary_helper_call(
+        &mut self,
+        name: &str,
+        args: &[CoreExpr],
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        if args.len() != 1 {
+            return Err(CoreToLlvmError::Malformed {
+                message: format!("helper `{name}` expected 1 arg, got {}", args.len()),
+            });
+        }
+        let operand = self.lower_expr(&args[0])?;
+        let dst = self.state.temp_local("primop");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(dst.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(flux_arith_symbol(name)),
+            args: vec![(LlvmType::i64(), operand)],
             attrs: vec![],
         });
         Ok(LlvmOperand::Local(dst))

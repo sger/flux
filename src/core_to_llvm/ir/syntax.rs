@@ -122,6 +122,7 @@ pub enum LlvmConst {
         fields: Vec<(LlvmType, LlvmConst)>,
     },
     GlobalRef(GlobalId),
+    ZeroInit,
 }
 
 #[derive(Debug, Clone, PartialEq)]

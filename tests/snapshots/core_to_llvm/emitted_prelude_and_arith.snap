@@ -1,5 +1,6 @@
 ---
 source: tests/core_to_llvm_codegen_snapshots.rs
+expression: render_module(&module)
 ---
 source_filename = "helpers.flx"
 target triple = "x86_64-unknown-linux-gnu"
@@ -98,11 +99,88 @@ entry:
   ret i64 %result
 }
 
+define internal fastcc i64 @flux_imod(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
+  %result_raw = srem i64 %a_raw, %b_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_ineg(i64 %a) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %neg = sub i64 0, %a_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %neg)
+  ret i64 %result
+}
+
 define internal fastcc i64 @flux_fadd(i64 %a, i64 %b) alwaysinline {
 entry:
   %a_bits = bitcast i64 %a to double
   %b_bits = bitcast i64 %b to double
-  %sum = fadd double %a_bits, %b_bits
-  %result = bitcast double %sum to i64
+  %result_f = fadd double %a_bits, %b_bits
+  %result = bitcast double %result_f to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fsub(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_bits = bitcast i64 %a to double
+  %b_bits = bitcast i64 %b to double
+  %result_f = fsub double %a_bits, %b_bits
+  %result = bitcast double %result_f to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fmul(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_bits = bitcast i64 %a to double
+  %b_bits = bitcast i64 %b to double
+  %result_f = fmul double %a_bits, %b_bits
+  %result = bitcast double %result_f to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fdiv(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_bits = bitcast i64 %a to double
+  %b_bits = bitcast i64 %b to double
+  %result_f = fdiv double %a_bits, %b_bits
+  %result = bitcast double %result_f to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fneg(i64 %a) alwaysinline {
+entry:
+  %a_bits = bitcast i64 %a to double
+  %neg = fsub double 0.0, %a_bits
+  %result = bitcast double %neg to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_not(i64 %a) alwaysinline {
+entry:
+  %is_true = icmp eq i64 %a, 9222316505692110849
+  %result = select i1 %is_true, i64 9222316505692110848, i64 9222316505692110849
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_and(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_is_true = icmp eq i64 %a, 9222316505692110849
+  %b_is_true = icmp eq i64 %b, 9222316505692110849
+  %combined = and i1 %a_is_true, %b_is_true
+  %result = select i1 %combined, i64 9222316505692110849, i64 9222316505692110848
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_or(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_is_true = icmp eq i64 %a, 9222316505692110849
+  %b_is_true = icmp eq i64 %b, 9222316505692110849
+  %combined = or i1 %a_is_true, %b_is_true
+  %result = select i1 %combined, i64 9222316505692110849, i64 9222316505692110848
   ret i64 %result
 }
