@@ -1036,7 +1036,7 @@ mod tests {
         let rendered = render_module(&module);
 
         assert!(rendered.contains("%FluxClosure = type {ptr, i32, i32, i32, [0 x i64]}"));
-        assert!(rendered.contains("declare external ccc ptr @flux_gc_alloc(i32)"));
+        assert!(rendered.contains("declare ccc ptr @flux_gc_alloc(i32)"));
         assert!(rendered.contains("define internal fastcc i64 @flux_tag_boxed_ptr(ptr %ptr)"));
         assert!(rendered.contains("lshr i64 %addr, 3"));
         assert!(rendered.contains("define internal fastcc ptr @flux_untag_boxed_ptr(i64 %value)"));

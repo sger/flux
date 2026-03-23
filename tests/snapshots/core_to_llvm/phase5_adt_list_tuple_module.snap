@@ -25,7 +25,7 @@ expression: render_module(&module)
 
 @flux.nanbox.max_inline_int = private constant i64 35184372088831
 
-declare external ccc ptr @flux_gc_alloc(i32)
+declare ccc ptr @flux_gc_alloc(i32)
 
 define internal fastcc i64 @flux_tag_int(i64 %raw) alwaysinline {
 entry:

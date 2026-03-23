@@ -328,7 +328,11 @@ fn emit_void_stub(
     });
 }
 
-fn unary_i64_sig() -> LlvmFunctionSig {
+pub fn linkage_internal() -> Linkage {
+    Linkage::Internal
+}
+
+pub fn unary_i64_sig() -> LlvmFunctionSig {
     LlvmFunctionSig {
         ret: LlvmType::i64(),
         params: vec![LlvmType::i64()],
@@ -337,11 +341,11 @@ fn unary_i64_sig() -> LlvmFunctionSig {
     }
 }
 
-fn helper_attrs() -> Vec<String> {
+pub fn helper_attrs() -> Vec<String> {
     vec!["alwaysinline".into()]
 }
 
-fn has_function(module: &LlvmModule, name: &str) -> bool {
+pub fn has_function(module: &LlvmModule, name: &str) -> bool {
     module.functions.iter().any(|f| f.name.0 == name)
 }
 
