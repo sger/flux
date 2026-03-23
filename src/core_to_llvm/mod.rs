@@ -1,5 +1,7 @@
 pub mod codegen;
 pub mod ir;
+pub mod pipeline;
+pub mod target;
 
 pub use codegen::{
     CoreToLlvmError, FLUX_ADT_TYPE_NAME, FLUX_CLOSURE_TYPE_NAME, FLUX_TUPLE_TYPE_NAME,

@@ -588,7 +588,7 @@ fn emit_call_closure(module: &mut LlvmModule) {
             LlvmBlock {
                 label: LabelId("exact".into()),
                 instrs: vec![LlvmInstr::Call {
-                    dst: Some(LlvmLocal("result".into())),
+                    dst: Some(LlvmLocal("exact.result".into())),
                     tail: false,
                     call_conv: Some(CallConv::Fastcc),
                     ret_ty: LlvmType::i64(),
@@ -602,7 +602,7 @@ fn emit_call_closure(module: &mut LlvmModule) {
                 }],
                 term: LlvmTerminator::Ret {
                     ty: LlvmType::i64(),
-                    value: local("result"),
+                    value: local("exact.result"),
                 },
             },
             LlvmBlock {
@@ -669,7 +669,7 @@ fn emit_call_closure(module: &mut LlvmModule) {
                         rhs: local("nargs"),
                     },
                     LlvmInstr::Call {
-                        dst: Some(LlvmLocal("result".into())),
+                        dst: Some(LlvmLocal("under.result".into())),
                         tail: false,
                         call_conv: Some(CallConv::Fastcc),
                         ret_ty: LlvmType::i64(),
@@ -687,14 +687,14 @@ fn emit_call_closure(module: &mut LlvmModule) {
                 ],
                 term: LlvmTerminator::Ret {
                     ty: LlvmType::i64(),
-                    value: local("result"),
+                    value: local("under.result"),
                 },
             },
             LlvmBlock {
                 label: LabelId("over".into()),
                 instrs: vec![
                     LlvmInstr::Call {
-                        dst: Some(LlvmLocal("exact.result".into())),
+                        dst: Some(LlvmLocal("over.first".into())),
                         tail: false,
                         call_conv: Some(CallConv::Fastcc),
                         ret_ty: LlvmType::i64(),
@@ -721,13 +721,13 @@ fn emit_call_closure(module: &mut LlvmModule) {
                         indices: vec![(LlvmType::i32(), local("remaining_arity"))],
                     },
                     LlvmInstr::Call {
-                        dst: Some(LlvmLocal("result".into())),
+                        dst: Some(LlvmLocal("over.result".into())),
                         tail: true,
                         call_conv: Some(CallConv::Fastcc),
                         ret_ty: LlvmType::i64(),
                         callee: LlvmOperand::Global(flux_closure_symbol("flux_call_closure")),
                         args: vec![
-                            (LlvmType::i64(), local("exact.result")),
+                            (LlvmType::i64(), local("over.first")),
                             (LlvmType::ptr(), local("leftover.args")),
                             (LlvmType::i32(), local("leftover.count")),
                         ],
@@ -736,7 +736,7 @@ fn emit_call_closure(module: &mut LlvmModule) {
                 ],
                 term: LlvmTerminator::Ret {
                     ty: LlvmType::i64(),
-                    value: local("result"),
+                    value: local("over.result"),
                 },
             },
         ],

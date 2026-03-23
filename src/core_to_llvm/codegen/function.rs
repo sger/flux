@@ -62,6 +62,10 @@ pub(super) struct ProgramState<'a> {
     pub generated_functions: Vec<LlvmFunction>,
     pub top_level_wrappers: HashMap<CoreBinderId, GlobalId>,
     pub next_lambda_id: u32,
+    /// Builtin C runtime functions referenced during codegen.
+    pub needed_builtins: Vec<&'static super::builtins::BuiltinMapping>,
+    /// String literal globals to emit (name, content).
+    pub generated_string_globals: Vec<(GlobalId, String)>,
 }
 
 impl<'a> ProgramState<'a> {
@@ -77,6 +81,14 @@ impl<'a> ProgramState<'a> {
             generated_functions: Vec::new(),
             top_level_wrappers: HashMap::new(),
             next_lambda_id: 0,
+            needed_builtins: Vec::new(),
+            generated_string_globals: Vec::new(),
+        }
+    }
+
+    pub fn register_builtin(&mut self, mapping: &'static super::builtins::BuiltinMapping) {
+        if !self.needed_builtins.iter().any(|m| m.c_name == mapping.c_name) {
+            self.needed_builtins.push(mapping);
         }
     }
 
@@ -144,10 +156,17 @@ pub fn compile_program_with_interner(
                 ),
             });
         };
+        let raw_name = sanitize_symbol_name(def.name, interner);
+        // Rename user's `main` to `flux_main` so the C runtime can call it.
+        let symbol_name = if raw_name == "main" {
+            "flux_main".to_string()
+        } else {
+            raw_name
+        };
         top_level.insert(
             def.binder.id,
             TopLevelFunctionInfo {
-                symbol: GlobalId(sanitize_symbol_name(def.name, interner)),
+                symbol: GlobalId(symbol_name),
                 arity: params.len(),
                 name: def.name,
             },
@@ -170,6 +189,62 @@ pub fn compile_program_with_interner(
         module.functions.push(function);
     }
     module.functions.extend(program.generated_functions);
+
+    // Make flux_main externally visible so the C runtime's main() can call it.
+    // Also use ccc (C calling convention) for the entry point.
+    for func in &mut module.functions {
+        if func.name.0 == "flux_main" {
+            func.linkage = crate::core_to_llvm::Linkage::External;
+            func.sig.call_conv = crate::core_to_llvm::CallConv::Ccc;
+        }
+    }
+
+    // Add C runtime declarations for any builtin functions referenced.
+    for mapping in &program.needed_builtins {
+        super::builtins::ensure_builtin_declared(&mut module, mapping);
+    }
+
+    // Emit string literal globals.
+    for (name, content) in &program.generated_string_globals {
+        module.globals.push(crate::core_to_llvm::LlvmGlobal {
+            linkage: crate::core_to_llvm::Linkage::Private,
+            name: name.clone(),
+            ty: LlvmType::Array {
+                len: content.len() as u64,
+                element: Box::new(LlvmType::i8()),
+            },
+            is_constant: true,
+            value: crate::core_to_llvm::LlvmConst::Array {
+                element_ty: LlvmType::i8(),
+                elements: content.bytes().map(|b| crate::core_to_llvm::LlvmConst::Int {
+                    bits: 8,
+                    value: b as i128,
+                }).collect(),
+            },
+            attrs: vec![],
+        });
+    }
+
+    // Ensure flux_string_new is declared with its actual signature (ptr, i32) → i64.
+    if !program.generated_string_globals.is_empty() {
+        let name = "flux_string_new";
+        if !module.declarations.iter().any(|d| d.name.0 == name)
+            && !module.functions.iter().any(|f| f.name.0 == name)
+        {
+            module.declarations.push(crate::core_to_llvm::LlvmDecl {
+                linkage: crate::core_to_llvm::Linkage::External,
+                name: GlobalId(name.into()),
+                sig: crate::core_to_llvm::LlvmFunctionSig {
+                    ret: LlvmType::i64(),
+                    params: vec![LlvmType::ptr(), LlvmType::i32()],
+                    varargs: false,
+                    call_conv: crate::core_to_llvm::CallConv::Ccc,
+                },
+                attrs: vec!["nounwind".into()],
+            });
+        }
+    }
+
     Ok(module)
 }
 

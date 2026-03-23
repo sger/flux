@@ -2159,7 +2159,7 @@ impl Compiler {
     }
 
     #[allow(clippy::result_large_err)]
-    fn lower_aether_report_program(
+    pub fn lower_aether_report_program(
         &self,
         program: &Program,
         optimize: bool,
