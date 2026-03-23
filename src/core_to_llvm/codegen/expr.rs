@@ -6,7 +6,7 @@ use crate::{
         CoreVarRef,
     },
     core_to_llvm::{
-        CallConv, GlobalId, LlvmCmpOp, LlvmConst, LlvmInstr, LlvmLocal, LlvmOperand,
+        CallConv, GlobalId, LabelId, LlvmCmpOp, LlvmConst, LlvmInstr, LlvmLocal, LlvmOperand,
         LlvmTerminator, LlvmType, flux_adt_symbol, flux_arith_symbol, flux_closure_symbol,
         flux_prelude_symbol,
     },
@@ -720,7 +720,202 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             ));
         }
 
+        // Try to emit a switch on ADT constructor tags when all arms are
+        // boxed constructor patterns (with an optional wildcard/var default).
+        if let Some(result) = self.try_lower_case_switch(scrutinee, alts)? {
+            return Ok(result);
+        }
+
         let scrutinee = self.lower_expr(scrutinee)?;
+        self.lower_case_chain(scrutinee, alts)
+    }
+
+    /// Emit a `switch i32 %tag` when all case arms match on boxed ADT
+    /// constructor patterns (Some/Left/Right/Cons/Named), optionally
+    /// followed by a single wildcard or variable default.  Returns `None`
+    /// if the pattern mix is not suitable for a switch.
+    fn try_lower_case_switch(
+        &mut self,
+        scrutinee: &CoreExpr,
+        alts: &[CoreAlt],
+    ) -> Result<Option<LlvmOperand>, CoreToLlvmError> {
+        // Classify each alt as a boxed‐constructor arm or a default arm.
+        struct SwitchArm<'a> {
+            tag_id: i32,
+            fields: &'a [CorePat],
+            rhs: &'a CoreExpr,
+        }
+        let mut ctor_arms: Vec<SwitchArm<'_>> = Vec::new();
+        let mut default_alt: Option<&CoreAlt> = None;
+
+        for alt in alts {
+            match &alt.pat {
+                CorePat::Con { tag, fields } => {
+                    let tag_id = match tag {
+                        CoreTag::Some
+                        | CoreTag::Left
+                        | CoreTag::Right
+                        | CoreTag::Cons
+                        | CoreTag::Named(_) => {
+                            self.program.adt_metadata.tag_for(tag)
+                        }
+                        // None/Nil are immediate values, not boxed — can't switch on ADT tag
+                        CoreTag::None | CoreTag::Nil => return Ok(None),
+                    };
+                    let Some(id) = tag_id else {
+                        return Ok(None);
+                    };
+                    ctor_arms.push(SwitchArm {
+                        tag_id: id,
+                        fields,
+                        rhs: &alt.rhs,
+                    });
+                }
+                CorePat::Wildcard | CorePat::Var(_) => {
+                    if default_alt.is_some() {
+                        // Multiple defaults — fall back to chain
+                        return Ok(None);
+                    }
+                    default_alt = Some(alt);
+                }
+                // Lit, EmptyList, Tuple patterns mixed with constructors — fall back
+                _ => return Ok(None),
+            }
+        }
+
+        // Need at least 2 constructor arms for a switch to be worthwhile
+        if ctor_arms.len() < 2 {
+            return Ok(None);
+        }
+
+        let scrutinee_val = self.lower_expr(scrutinee)?;
+
+        // Check is_ptr, then extract tag
+        let is_ptr = self.emit_is_ptr_call(scrutinee_val.clone(), "switch.is_ptr")?;
+        let tag_block_label = self.state.new_block_label("switch.tag");
+        let tag_block_idx = self.state.push_block(tag_block_label.clone());
+        let default_label = self.state.new_block_label("switch.default");
+        let default_idx = self.state.push_block(default_label.clone());
+        self.state.set_terminator(LlvmTerminator::CondBr {
+            cond_ty: LlvmType::i1(),
+            cond: is_ptr,
+            then_label: tag_block_label,
+            else_label: default_label.clone(),
+        });
+
+        // Extract tag
+        self.state.switch_to_block(tag_block_idx);
+        let tag_local = self.state.temp_local("switch.adt.tag");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(tag_local.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i32(),
+            callee: LlvmOperand::Global(flux_adt_symbol("flux_adt_tag")),
+            args: vec![(LlvmType::i64(), scrutinee_val.clone())],
+            attrs: vec![],
+        });
+
+        // Build case labels and blocks for each constructor arm
+        let join_label = self.state.new_block_label("case.join");
+        let join_idx = self.state.push_block(join_label.clone());
+        let mut switch_cases: Vec<(LlvmConst, LabelId)> = Vec::new();
+        let mut arm_blocks: Vec<(usize, &SwitchArm<'_>)> = Vec::new();
+
+        for arm in &ctor_arms {
+            let arm_label = self.state.new_block_label("switch.arm");
+            let arm_idx = self.state.push_block(arm_label.clone());
+            switch_cases.push((
+                LlvmConst::Int {
+                    bits: 32,
+                    value: arm.tag_id.into(),
+                },
+                arm_label,
+            ));
+            arm_blocks.push((arm_idx, arm));
+        }
+
+        // Emit the switch terminator
+        self.state.set_terminator(LlvmTerminator::Switch {
+            ty: LlvmType::i32(),
+            scrutinee: LlvmOperand::Local(tag_local),
+            default: default_label.clone(),
+            cases: switch_cases,
+        });
+
+        // Lower each constructor arm: extract fields, lower RHS
+        let mut incoming = Vec::new();
+        for (arm_idx, arm) in arm_blocks {
+            self.state.switch_to_block(arm_idx);
+            let mut restores = Vec::new();
+
+            // Extract and bind fields
+            if !arm.fields.is_empty() {
+                let field_success = self.state.new_block_label("switch.fields");
+                let field_idx = self.state.push_block(field_success.clone());
+                self.emit_field_pattern_chain(
+                    scrutinee_val.clone(),
+                    arm.fields,
+                    field_success.clone(),
+                    default_label.clone(),
+                    &mut restores,
+                    |this, base, index| this.load_adt_field(base, index),
+                )?;
+                self.state.switch_to_block(field_idx);
+            }
+
+            let value = self.lower_expr(arm.rhs)?;
+            if self.state.current_block_open() {
+                let from = self.state.current_block_label();
+                self.state.set_terminator(LlvmTerminator::Br {
+                    target: join_label.clone(),
+                });
+                incoming.push((value, from));
+            }
+            self.restore_bindings(restores);
+        }
+
+        // Lower the default arm
+        self.state.switch_to_block(default_idx);
+        if let Some(alt) = default_alt {
+            let mut restores = Vec::new();
+            if let CorePat::Var(binder) = &alt.pat {
+                self.bind_pattern_var(*binder, scrutinee_val.clone(), &mut restores);
+            }
+            let value = self.lower_expr(&alt.rhs)?;
+            if self.state.current_block_open() {
+                let from = self.state.current_block_label();
+                self.state.set_terminator(LlvmTerminator::Br {
+                    target: join_label.clone(),
+                });
+                incoming.push((value, from));
+            }
+            self.restore_bindings(restores);
+        } else {
+            self.state.set_terminator(LlvmTerminator::Unreachable);
+        }
+
+        // Join
+        self.state.switch_to_block(join_idx);
+        if incoming.is_empty() {
+            return Err(CoreToLlvmError::Malformed {
+                message: "case switch join had no incoming values".into(),
+            });
+        }
+        let phi = self.state.temp_local("case.result");
+        self.state.emit(LlvmInstr::Phi {
+            dst: phi.clone(),
+            ty: LlvmType::i64(),
+            incoming,
+        });
+        Ok(Some(LlvmOperand::Local(phi)))
+    }
+
+    fn lower_case_chain(
+        &mut self,
+        scrutinee: LlvmOperand,
+        alts: &[CoreAlt],
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
         let join_label = self.state.new_block_label("case.join");
         let join_idx = self.state.push_block(join_label.clone());
         let mut incoming = Vec::new();

@@ -130,6 +130,65 @@ fn main() {
 }
 
 #[test]
+fn lowers_multi_constructor_match_as_switch() {
+    let src = r#"
+data Color {
+    Red,
+    Green,
+    Blue,
+}
+
+fn to_int(c) {
+    match c {
+        Red -> 0,
+        Green -> 1,
+        Blue -> 2,
+    }
+}
+
+fn main() {
+    to_int(Green)
+}
+"#;
+    let (core, interner) = parse_and_lower_core(src);
+    let module = compile_program_with_interner(&core, Some(&interner)).expect("lower to llvm");
+    let rendered = render_module(&module);
+
+    // Should emit a switch instruction, not a chain of icmp+condbr
+    assert!(
+        rendered.contains("switch i32"),
+        "expected switch instruction for multi-constructor match, got:\n{}",
+        rendered
+    );
+    assert!(rendered.contains("switch.arm"));
+}
+
+#[test]
+fn lowers_none_construction_and_matching() {
+    let src = r#"
+fn safe_head(xs) {
+    match xs {
+        [h | _] -> Some(h),
+        _ -> None,
+    }
+}
+fn main() {
+    match safe_head([]) {
+        Some(v) -> v,
+        None -> 0,
+    }
+}
+"#;
+    let (core, interner) = parse_and_lower_core(src);
+    let module = compile_program_with_interner(&core, Some(&interner)).expect("lower to llvm");
+    let rendered = render_module(&module);
+
+    assert!(rendered.contains("define internal fastcc i64 @safe_head("));
+    // None is an immediate NaN-box value, not a heap-allocated ADT
+    assert!(!rendered.contains("@flux_make_adt(ptr") || rendered.contains("case.none"));
+}
+
+#[test]
 fn guarded_matches_still_fail_fast() {
     let src = r#"
 fn main() {
