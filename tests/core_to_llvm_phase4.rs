@@ -155,6 +155,48 @@ fn lowers_recursive_local_closure_from_handwritten_core() {
 }
 
 #[test]
+fn lowers_partial_application_via_closure() {
+    let src = r#"
+fn add(a, b) { a + b }
+fn main() {
+    let add5 = add(5)
+    add5(10)
+}
+"#;
+    let (core, interner) = parse_and_lower_core(src);
+    let module = compile_program_with_interner(&core, Some(&interner)).expect("lower to llvm");
+    let rendered = render_module(&module);
+
+    // add is used as a value → wrapper closure is generated
+    assert!(rendered.contains("@add.closure_wrapper"));
+    assert!(rendered.contains("call fastcc i64 @flux_make_closure(ptr @add.closure_wrapper"));
+    // add5(10) dispatches through call_closure
+    assert!(rendered.contains("call fastcc i64 @flux_call_closure("));
+}
+
+#[test]
+fn lowers_higher_order_map_over_list() {
+    let src = r#"
+fn map(f, xs) {
+    match xs {
+        [h | t] -> [f(h) | map(f, t)],
+        _ -> xs,
+    }
+}
+fn main() {
+    map(\x -> x + 1, [1, 2, 3])
+}
+"#;
+    let (core, interner) = parse_and_lower_core(src);
+    let module = compile_program_with_interner(&core, Some(&interner)).expect("lower to llvm");
+    let rendered = render_module(&module);
+
+    assert!(rendered.contains("define internal fastcc i64 @map(i64 %arg0, i64 %arg1)"));
+    assert!(rendered.contains("call fastcc i64 @flux_call_closure("));
+    assert!(rendered.contains("call fastcc i64 @flux_make_cons("));
+}
+
+#[test]
 fn emitted_closure_module_verifies_with_opt_when_available() {
     if Command::new("opt").arg("--version").output().is_err() {
         return;

@@ -199,17 +199,29 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CoreExpr::Handle { .. } => {
                 Err(self.unsupported("effects", "Handle requires Phase 6 runtime support"))
             }
-            CoreExpr::Dup { body, .. } => self.lower_expr(body),
-            CoreExpr::Drop { .. } => {
-                Err(self.unsupported("aether drop", "Drop nodes are not lowered in Phase 4"))
+            CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => self.lower_expr(body),
+            CoreExpr::Reuse {
+                tag, fields, ..
+            } => {
+                // Before Phase 7, ignore the reuse token and just construct normally.
+                self.lower_constructor(tag, fields)
             }
-            CoreExpr::Reuse { .. } => {
-                Err(self.unsupported("reuse", "Reuse requires Phase 7 Aether lowering"))
+            CoreExpr::DropSpecialized {
+                unique_body,
+                shared_body,
+                ..
+            } => {
+                // Before Phase 7, treat as non-unique: lower the shared path
+                // which dups fields and decrements the scrutinee (both are no-ops
+                // with stubbed flux_dup/flux_drop).  Fall back to unique_body if
+                // the shared path is not available (shouldn't happen in practice).
+                let body = if matches!(shared_body.as_ref(), CoreExpr::Lit(..)) {
+                    unique_body
+                } else {
+                    shared_body
+                };
+                self.lower_expr(body)
             }
-            CoreExpr::DropSpecialized { .. } => Err(self.unsupported(
-                "drop specialization",
-                "DropSpecialized requires Phase 7 Aether lowering",
-            )),
         }
     }
 
@@ -477,25 +489,29 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             return self.lower_constructor(&tag, args);
         }
 
-        if let Some(callee) = self.resolve_direct_call_target(func) {
-            let lowered_args = args
-                .iter()
-                .map(|arg| self.lower_expr(arg))
-                .collect::<Result<Vec<_>, _>>()?;
-            let dst = self.state.temp_local("call");
-            self.state.emit(LlvmInstr::Call {
-                dst: Some(dst.clone()),
-                tail: false,
-                call_conv: Some(CallConv::Fastcc),
-                ret_ty: LlvmType::i64(),
-                callee: LlvmOperand::Global(callee),
-                args: lowered_args
-                    .into_iter()
-                    .map(|arg| (LlvmType::i64(), arg))
-                    .collect(),
-                attrs: vec![],
-            });
-            return Ok(LlvmOperand::Local(dst));
+        if let Some((callee, arity)) = self.resolve_direct_call_target(func) {
+            if args.len() == arity {
+                let lowered_args = args
+                    .iter()
+                    .map(|arg| self.lower_expr(arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let is_self_recursive = callee.0 == self.state.symbol.0;
+                let dst = self.state.temp_local("call");
+                self.state.emit(LlvmInstr::Call {
+                    dst: Some(dst.clone()),
+                    tail: is_self_recursive,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::i64(),
+                    callee: LlvmOperand::Global(callee),
+                    args: lowered_args
+                        .into_iter()
+                        .map(|arg| (LlvmType::i64(), arg))
+                        .collect(),
+                    attrs: vec![],
+                });
+                return Ok(LlvmOperand::Local(dst));
+            }
+            // Arity mismatch (partial application): fall through to closure dispatch
         }
 
         let callee = self.lower_expr(func)?;
@@ -521,7 +537,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         Ok(LlvmOperand::Local(dst))
     }
 
-    fn resolve_direct_call_target(&self, func: &CoreExpr) -> Option<GlobalId> {
+    fn resolve_direct_call_target(&self, func: &CoreExpr) -> Option<(GlobalId, usize)> {
         match func {
             CoreExpr::Var { var, .. } => {
                 let binder = var.binder?;
@@ -530,7 +546,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 }
                 self.program
                     .top_level_info(binder)
-                    .map(|info| info.symbol.clone())
+                    .map(|info| (info.symbol.clone(), info.arity))
             }
             _ => None,
         }
