@@ -7,6 +7,7 @@ license = "MIT"
 default-run = "flux"
 
 [features]
+core_to_llvm = []
 jit = [
     "cranelift-codegen",
     "cranelift-frontend",
