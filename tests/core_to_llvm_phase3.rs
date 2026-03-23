@@ -86,7 +86,7 @@ fn fibonacci(n) {
 }
 
 #[test]
-fn rejects_lambda_in_expression() {
+fn lowers_lambda_in_expression_via_closure_dispatch() {
     let src = r#"
 fn main(x) {
     let f = fn (y) { y }
@@ -94,21 +94,11 @@ fn main(x) {
 }
 "#;
     let (core, interner) = parse_and_lower_core(src);
-    let err = compile_program_with_interner(&core, Some(&interner))
-        .expect_err("should reject closure lowering");
-    assert!(matches!(
-        err,
-        CoreToLlvmError::Unsupported {
-            feature: "closure lambda",
-            ..
-        } | CoreToLlvmError::Unsupported {
-            feature: "local letrec lambda",
-            ..
-        } | CoreToLlvmError::Unsupported {
-            feature: "indirect local calls",
-            ..
-        }
-    ));
+    let module = compile_program_with_interner(&core, Some(&interner)).expect("lower to llvm");
+    let rendered = render_module(&module);
+    assert!(rendered.contains("call fastcc i64 @flux_make_closure("));
+    assert!(rendered.contains("call fastcc i64 @flux_call_closure("));
+    assert!(rendered.contains(".lambda."));
 }
 
 #[test]

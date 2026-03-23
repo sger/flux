@@ -4,12 +4,16 @@ use crate::{
     core::{CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreProgram},
     core_to_llvm::{
         CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmFunction, LlvmFunctionSig, LlvmInstr,
-        LlvmLocal, LlvmModule, LlvmTerminator, LlvmType, emit_prelude_and_arith,
+        LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType, LlvmValueKind,
+        emit_closure_support, emit_prelude_and_arith,
     },
     syntax::{Identifier, interner::Interner},
 };
 
-use super::expr::FunctionLowering;
+use super::{
+    closure::{closure_entry_sig, common_closure_load_instrs},
+    expr::FunctionLowering,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoreToLlvmError {
@@ -43,6 +47,74 @@ impl fmt::Display for CoreToLlvmError {
 
 impl std::error::Error for CoreToLlvmError {}
 
+#[derive(Debug, Clone)]
+pub(super) struct TopLevelFunctionInfo {
+    pub symbol: GlobalId,
+    pub arity: usize,
+    pub name: Identifier,
+}
+
+pub(super) struct ProgramState<'a> {
+    pub interner: Option<&'a Interner>,
+    pub top_level: HashMap<CoreBinderId, TopLevelFunctionInfo>,
+    pub generated_functions: Vec<LlvmFunction>,
+    pub top_level_wrappers: HashMap<CoreBinderId, GlobalId>,
+    pub next_lambda_id: u32,
+}
+
+impl<'a> ProgramState<'a> {
+    fn new(
+        top_level: HashMap<CoreBinderId, TopLevelFunctionInfo>,
+        interner: Option<&'a Interner>,
+    ) -> Self {
+        Self {
+            interner,
+            top_level,
+            generated_functions: Vec::new(),
+            top_level_wrappers: HashMap::new(),
+            next_lambda_id: 0,
+        }
+    }
+
+    pub fn fresh_lambda_symbol(&mut self, hint: &str) -> GlobalId {
+        let id = self.next_lambda_id;
+        self.next_lambda_id += 1;
+        GlobalId(format!("{}.lambda.{id}", sanitize_symbol_fragment(hint)))
+    }
+
+    pub fn push_generated_function(&mut self, function: LlvmFunction) {
+        self.generated_functions.push(function);
+    }
+
+    pub fn top_level_info(&self, binder: CoreBinderId) -> Option<&TopLevelFunctionInfo> {
+        self.top_level.get(&binder)
+    }
+
+    pub fn ensure_top_level_wrapper(
+        &mut self,
+        binder: CoreBinderId,
+    ) -> Result<GlobalId, CoreToLlvmError> {
+        if let Some(symbol) = self.top_level_wrappers.get(&binder) {
+            return Ok(symbol.clone());
+        }
+        let info =
+            self.top_level
+                .get(&binder)
+                .cloned()
+                .ok_or_else(|| CoreToLlvmError::MissingSymbol {
+                    message: format!("missing wrapper target for binder {:?}", binder),
+                })?;
+        let wrapper = GlobalId(format!(
+            "{}.closure_wrapper",
+            sanitize_symbol_name(info.name, self.interner)
+        ));
+        let function = build_top_level_wrapper(&wrapper, &info.symbol, info.arity);
+        self.generated_functions.push(function);
+        self.top_level_wrappers.insert(binder, wrapper.clone());
+        Ok(wrapper)
+    }
+}
+
 pub fn compile_program(core: &CoreProgram) -> Result<LlvmModule, CoreToLlvmError> {
     compile_program_with_interner(core, None)
 }
@@ -53,10 +125,11 @@ pub fn compile_program_with_interner(
 ) -> Result<LlvmModule, CoreToLlvmError> {
     let mut module = LlvmModule::new();
     emit_prelude_and_arith(&mut module);
+    emit_closure_support(&mut module);
 
-    let mut symbols = HashMap::new();
+    let mut top_level = HashMap::new();
     for def in &core.defs {
-        let CoreExpr::Lam { .. } = &def.expr else {
+        let CoreExpr::Lam { params, .. } = &def.expr else {
             return Err(CoreToLlvmError::Unsupported {
                 feature: "top-level value definitions",
                 context: format!(
@@ -65,27 +138,32 @@ pub fn compile_program_with_interner(
                 ),
             });
         };
-        symbols.insert(
+        top_level.insert(
             def.binder.id,
-            GlobalId(sanitize_symbol_name(def.name, interner)),
+            TopLevelFunctionInfo {
+                symbol: GlobalId(sanitize_symbol_name(def.name, interner)),
+                arity: params.len(),
+                name: def.name,
+            },
         );
     }
 
+    let mut program = ProgramState::new(top_level, interner);
     for def in &core.defs {
-        let symbol =
-            symbols
-                .get(&def.binder.id)
-                .cloned()
-                .ok_or_else(|| CoreToLlvmError::MissingSymbol {
-                    message: format!(
-                        "missing top-level symbol for `{}`",
-                        display_ident(def.name, interner)
-                    ),
-                })?;
-        let function = lower_top_level_function(def, symbol, &symbols, interner)?;
+        let info = program
+            .top_level
+            .get(&def.binder.id)
+            .cloned()
+            .ok_or_else(|| CoreToLlvmError::MissingSymbol {
+                message: format!(
+                    "missing top-level symbol for `{}`",
+                    display_ident(def.name, interner)
+                ),
+            })?;
+        let function = lower_top_level_function(def, info.symbol.clone(), &mut program)?;
         module.functions.push(function);
     }
-
+    module.functions.extend(program.generated_functions);
     Ok(module)
 }
 
@@ -96,7 +174,10 @@ pub(super) fn display_ident(ident: Identifier, interner: Option<&Interner>) -> S
 }
 
 pub(super) fn sanitize_symbol_name(ident: Identifier, interner: Option<&Interner>) -> String {
-    let raw = display_ident(ident, interner);
+    sanitize_symbol_fragment(&display_ident(ident, interner))
+}
+
+pub(super) fn sanitize_symbol_fragment(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for ch in raw.chars() {
         if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
@@ -111,21 +192,120 @@ pub(super) fn sanitize_symbol_name(ident: Identifier, interner: Option<&Interner
 fn lower_top_level_function(
     def: &CoreDef,
     symbol: GlobalId,
-    symbols: &HashMap<CoreBinderId, GlobalId>,
-    interner: Option<&Interner>,
+    program: &mut ProgramState<'_>,
 ) -> Result<LlvmFunction, CoreToLlvmError> {
     let CoreExpr::Lam { params, body, .. } = &def.expr else {
         return Err(CoreToLlvmError::Malformed {
             message: format!(
                 "top-level function `{}` was not lowered as Lam",
-                display_ident(def.name, interner)
+                display_ident(def.name, program.interner)
             ),
         });
     };
 
-    let mut lowering = FunctionLowering::new(symbol.clone(), params, symbols, interner);
+    let mut lowering = FunctionLowering::new_top_level(symbol.clone(), params, program);
     let result = lowering.lower_expr(body)?;
     lowering.finish_with_return(result)
+}
+
+fn build_top_level_wrapper(wrapper: &GlobalId, target: &GlobalId, arity: usize) -> LlvmFunction {
+    let mut state = FunctionState::new_closure_entry(wrapper.clone(), HashMap::new(), None);
+    state.blocks[0]
+        .instrs
+        .extend(common_closure_load_instrs(LlvmOperand::Local(LlvmLocal(
+            "closure".into(),
+        ))));
+    let mut instrs = emit_closure_param_unpack(&mut state, arity, 0);
+    let mut args = Vec::with_capacity(arity);
+    for index in 0..arity {
+        args.push((
+            LlvmType::i64(),
+            LlvmOperand::Local(LlvmLocal(format!("param.{index}"))),
+        ));
+    }
+    instrs.push(LlvmInstr::Call {
+        dst: Some(LlvmLocal("result".into())),
+        tail: false,
+        call_conv: Some(CallConv::Fastcc),
+        ret_ty: LlvmType::i64(),
+        callee: LlvmOperand::Global(target.clone()),
+        args,
+        attrs: vec![],
+    });
+    state.blocks[0].instrs.extend(instrs);
+    state.blocks[0].terminator = Some(LlvmTerminator::Ret {
+        ty: LlvmType::i64(),
+        value: LlvmOperand::Local(LlvmLocal("result".into())),
+    });
+    state.finish().expect("top-level wrapper should be valid")
+}
+
+pub(super) fn emit_closure_param_unpack(
+    state: &mut FunctionState<'_>,
+    arity: usize,
+    capture_count: usize,
+) -> Vec<LlvmInstr> {
+    let mut instrs = Vec::new();
+    let payload = LlvmOperand::Local(LlvmLocal("payload".into()));
+    for index in 0..arity {
+        let applied_gep = LlvmLocal(format!("param.src.applied.{index}"));
+        let applied_load = LlvmLocal(format!("param.applied.{index}"));
+        let applied_idx = capture_count as i32 + index as i32;
+        instrs.push(LlvmInstr::GetElementPtr {
+            dst: applied_gep.clone(),
+            inbounds: true,
+            element_ty: LlvmType::i64(),
+            base: payload.clone(),
+            indices: vec![(LlvmType::i32(), const_i32_operand(applied_idx))],
+        });
+        instrs.push(LlvmInstr::Load {
+            dst: applied_load.clone(),
+            ty: LlvmType::i64(),
+            ptr: LlvmOperand::Local(applied_gep),
+            align: Some(8),
+        });
+        let new_arg_idx = LlvmLocal(format!("param.new.idx.{index}"));
+        instrs.push(LlvmInstr::Binary {
+            dst: new_arg_idx.clone(),
+            op: LlvmValueKind::Sub,
+            ty: LlvmType::i32(),
+            lhs: const_i32_operand(index as i32),
+            rhs: LlvmOperand::Local(LlvmLocal("applied_count".into())),
+        });
+        let new_gep = LlvmLocal(format!("param.src.new.{index}"));
+        instrs.push(LlvmInstr::GetElementPtr {
+            dst: new_gep.clone(),
+            inbounds: true,
+            element_ty: LlvmType::i64(),
+            base: LlvmOperand::Local(LlvmLocal("args".into())),
+            indices: vec![(LlvmType::i32(), LlvmOperand::Local(new_arg_idx))],
+        });
+        let new_load = LlvmLocal(format!("param.new.{index}"));
+        instrs.push(LlvmInstr::Load {
+            dst: new_load.clone(),
+            ty: LlvmType::i64(),
+            ptr: LlvmOperand::Local(new_gep),
+            align: Some(8),
+        });
+        let cond = LlvmLocal(format!("param.is_applied.{index}"));
+        instrs.push(LlvmInstr::Icmp {
+            dst: cond.clone(),
+            op: crate::core_to_llvm::LlvmCmpOp::Slt,
+            ty: LlvmType::i32(),
+            lhs: const_i32_operand(index as i32),
+            rhs: LlvmOperand::Local(LlvmLocal("applied_count".into())),
+        });
+        instrs.push(LlvmInstr::Select {
+            dst: LlvmLocal(format!("param.{index}")),
+            cond_ty: LlvmType::i1(),
+            cond: LlvmOperand::Local(cond),
+            value_ty: LlvmType::i64(),
+            then_value: LlvmOperand::Local(applied_load),
+            else_value: LlvmOperand::Local(new_load),
+        });
+    }
+    let _ = state;
+    instrs
 }
 
 pub(super) struct FunctionBlock {
@@ -149,8 +329,13 @@ impl FunctionBlock {
 pub(super) struct FunctionState<'a> {
     pub symbol: GlobalId,
     pub interner: Option<&'a Interner>,
-    pub top_level_symbols: &'a HashMap<CoreBinderId, GlobalId>,
+    #[allow(dead_code)]
+    pub top_level_symbols: HashMap<CoreBinderId, GlobalId>,
     pub param_bindings: Vec<(CoreBinder, LlvmLocal)>,
+    pub llvm_params: Vec<LlvmLocal>,
+    pub llvm_param_types: Vec<LlvmType>,
+    pub ret_ty: LlvmType,
+    pub call_conv: CallConv,
     pub blocks: Vec<FunctionBlock>,
     pub current_block: usize,
     pub entry_allocas: Vec<LlvmInstr>,
@@ -158,20 +343,16 @@ pub(super) struct FunctionState<'a> {
     pub next_slot: u32,
     pub next_block_id: u32,
     pub local_slots: HashMap<CoreBinderId, LlvmLocal>,
+    pub binder_names: HashMap<CoreBinderId, Identifier>,
 }
 
 impl<'a> FunctionState<'a> {
-    pub fn new(
+    pub fn new_top_level(
         symbol: GlobalId,
         params: &[CoreBinder],
-        top_level_symbols: &'a HashMap<CoreBinderId, GlobalId>,
+        top_level_symbols: HashMap<CoreBinderId, GlobalId>,
         interner: Option<&'a Interner>,
     ) -> Self {
-        let entry = FunctionBlock {
-            label: LabelId("entry".into()),
-            instrs: Vec::new(),
-            terminator: None,
-        };
         let param_bindings = params
             .iter()
             .enumerate()
@@ -181,19 +362,80 @@ impl<'a> FunctionState<'a> {
                     LlvmLocal(format!("arg{idx}")),
                 )
             })
+            .collect::<Vec<_>>();
+        let llvm_params = param_bindings
+            .iter()
+            .map(|(_, local)| local.clone())
+            .collect::<Vec<_>>();
+        let llvm_param_types = llvm_params.iter().map(|_| LlvmType::i64()).collect();
+        Self::base(
+            symbol,
+            top_level_symbols,
+            interner,
+            param_bindings,
+            llvm_params,
+            llvm_param_types,
+            LlvmType::i64(),
+            CallConv::Fastcc,
+        )
+    }
+
+    pub fn new_closure_entry(
+        symbol: GlobalId,
+        top_level_symbols: HashMap<CoreBinderId, GlobalId>,
+        interner: Option<&'a Interner>,
+    ) -> Self {
+        Self::base(
+            symbol,
+            top_level_symbols,
+            interner,
+            Vec::new(),
+            vec![
+                LlvmLocal("closure".into()),
+                LlvmLocal("args".into()),
+                LlvmLocal("nargs".into()),
+            ],
+            vec![LlvmType::ptr(), LlvmType::ptr(), LlvmType::i32()],
+            LlvmType::i64(),
+            CallConv::Fastcc,
+        )
+    }
+
+    fn base(
+        symbol: GlobalId,
+        top_level_symbols: HashMap<CoreBinderId, GlobalId>,
+        interner: Option<&'a Interner>,
+        param_bindings: Vec<(CoreBinder, LlvmLocal)>,
+        llvm_params: Vec<LlvmLocal>,
+        llvm_param_types: Vec<LlvmType>,
+        ret_ty: LlvmType,
+        call_conv: CallConv,
+    ) -> Self {
+        let binder_names = param_bindings
+            .iter()
+            .map(|(binder, _)| (binder.id, binder.name))
             .collect();
         Self {
             symbol,
             interner,
             top_level_symbols,
             param_bindings,
-            blocks: vec![entry],
+            llvm_params,
+            llvm_param_types,
+            ret_ty,
+            call_conv,
+            blocks: vec![FunctionBlock {
+                label: LabelId("entry".into()),
+                instrs: Vec::new(),
+                terminator: None,
+            }],
             current_block: 0,
             entry_allocas: Vec::new(),
             next_tmp: 0,
             next_slot: 0,
             next_block_id: 0,
             local_slots: HashMap::new(),
+            binder_names,
         }
     }
 
@@ -248,8 +490,9 @@ impl<'a> FunctionState<'a> {
         self.current_block = idx;
     }
 
-    pub fn bind_slot(&mut self, binder: CoreBinderId, slot: LlvmLocal) {
-        self.local_slots.insert(binder, slot);
+    pub fn bind_local(&mut self, binder: CoreBinder, slot: LlvmLocal) {
+        self.local_slots.insert(binder.id, slot);
+        self.binder_names.insert(binder.id, binder.name);
     }
 
     pub fn finish(mut self) -> Result<LlvmFunction, CoreToLlvmError> {
@@ -263,22 +506,30 @@ impl<'a> FunctionState<'a> {
             linkage: Linkage::Internal,
             name: self.symbol,
             sig: LlvmFunctionSig {
-                ret: LlvmType::i64(),
-                params: self
-                    .param_bindings
-                    .iter()
-                    .map(|_| LlvmType::i64())
-                    .collect(),
+                ret: self.ret_ty,
+                params: self.llvm_param_types,
                 varargs: false,
-                call_conv: CallConv::Fastcc,
+                call_conv: self.call_conv,
             },
-            params: self
-                .param_bindings
-                .into_iter()
-                .map(|(_, local)| local)
-                .collect(),
+            params: self.llvm_params,
             attrs: vec![],
             blocks,
         })
     }
+}
+
+pub(super) fn const_i32_operand(value: i32) -> LlvmOperand {
+    LlvmOperand::Const(crate::core_to_llvm::LlvmConst::Int {
+        bits: 32,
+        value: value.into(),
+    })
+}
+
+pub(super) fn closure_entry_function(
+    symbol: GlobalId,
+    top_level_symbols: HashMap<CoreBinderId, GlobalId>,
+    interner: Option<&Interner>,
+) -> FunctionState<'_> {
+    let _ = closure_entry_sig;
+    FunctionState::new_closure_entry(symbol, top_level_symbols, interner)
 }

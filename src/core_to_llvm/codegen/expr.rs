@@ -1,27 +1,36 @@
+use std::collections::HashMap;
+
 use crate::{
-    core::{CoreAlt, CoreBinderId, CoreExpr, CoreLit, CorePat, CorePrimOp},
+    core::{CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreLit, CorePat, CorePrimOp, CoreVarRef},
     core_to_llvm::{
-        CallConv, GlobalId, LlvmCmpOp, LlvmConst, LlvmInstr, LlvmOperand, LlvmTerminator, LlvmType,
-        flux_arith_symbol, flux_prelude_symbol,
+        CallConv, GlobalId, LlvmCmpOp, LlvmConst, LlvmInstr, LlvmLocal, LlvmOperand,
+        LlvmTerminator, LlvmType, flux_arith_symbol, flux_closure_symbol, flux_prelude_symbol,
     },
     runtime::nanbox::NanTag,
 };
 
-use super::function::{CoreToLlvmError, FunctionState};
-use super::prelude::FluxNanboxLayout;
+use super::{
+    closure::{analyze_lambda_captures, common_closure_load_instrs, const_i32_operand, local},
+    function::{
+        CoreToLlvmError, FunctionState, ProgramState, closure_entry_function,
+        emit_closure_param_unpack,
+    },
+    prelude::FluxNanboxLayout,
+};
 
-pub(super) struct FunctionLowering<'a> {
-    state: FunctionState<'a>,
+pub(super) struct FunctionLowering<'a, 'p> {
+    pub state: FunctionState<'a>,
+    pub program: &'p mut ProgramState<'a>,
 }
 
-impl<'a> FunctionLowering<'a> {
-    pub fn new(
+impl<'a, 'p> FunctionLowering<'a, 'p> {
+    pub fn new_top_level(
         symbol: GlobalId,
-        params: &[crate::core::CoreBinder],
-        top_level_symbols: &'a std::collections::HashMap<CoreBinderId, GlobalId>,
-        interner: Option<&'a crate::syntax::interner::Interner>,
+        params: &[CoreBinder],
+        program: &'p mut ProgramState<'a>,
     ) -> Self {
-        let mut state = FunctionState::new(symbol, params, top_level_symbols, interner);
+        let symbols = top_level_symbols(program);
+        let mut state = FunctionState::new_top_level(symbol, params, symbols, program.interner);
         for (binder, param_local) in state.param_bindings.clone() {
             let slot = state.new_slot();
             state.emit_entry_alloca(LlvmInstr::Alloca {
@@ -36,9 +45,100 @@ impl<'a> FunctionLowering<'a> {
                 ptr: LlvmOperand::Local(slot.clone()),
                 align: Some(8),
             });
-            state.bind_slot(binder.id, slot);
+            state.bind_local(binder, slot);
         }
-        Self { state }
+        Self { state, program }
+    }
+
+    fn new_closure_entry(
+        symbol: GlobalId,
+        params: &[CoreBinder],
+        captures: &[CoreBinder],
+        recursive_binder: Option<CoreBinder>,
+        program: &'p mut ProgramState<'a>,
+    ) -> Result<Self, CoreToLlvmError> {
+        let symbols = top_level_symbols(program);
+        let mut state = closure_entry_function(symbol, symbols, program.interner);
+        state.blocks[0]
+            .instrs
+            .extend(common_closure_load_instrs(local("closure")));
+
+        for (index, binder) in captures.iter().enumerate() {
+            let slot = state.new_slot();
+            state.emit_entry_alloca(LlvmInstr::Alloca {
+                dst: slot.clone(),
+                ty: LlvmType::i64(),
+                count: None,
+                align: Some(8),
+            });
+            state.emit(LlvmInstr::GetElementPtr {
+                dst: LlvmLocal(format!("capture.src.{index}")),
+                inbounds: true,
+                element_ty: LlvmType::i64(),
+                base: LlvmOperand::Local(LlvmLocal("payload".into())),
+                indices: vec![(LlvmType::i32(), const_i32_operand(index as i32))],
+            });
+            state.emit(LlvmInstr::Load {
+                dst: LlvmLocal(format!("capture.val.{index}")),
+                ty: LlvmType::i64(),
+                ptr: LlvmOperand::Local(LlvmLocal(format!("capture.src.{index}"))),
+                align: Some(8),
+            });
+            state.emit(LlvmInstr::Store {
+                ty: LlvmType::i64(),
+                value: LlvmOperand::Local(LlvmLocal(format!("capture.val.{index}"))),
+                ptr: LlvmOperand::Local(slot.clone()),
+                align: Some(8),
+            });
+            state.bind_local(*binder, slot);
+        }
+
+        if let Some(binder) = recursive_binder {
+            let slot = state.new_slot();
+            state.emit_entry_alloca(LlvmInstr::Alloca {
+                dst: slot.clone(),
+                ty: LlvmType::i64(),
+                count: None,
+                align: Some(8),
+            });
+            state.emit(LlvmInstr::Call {
+                dst: Some(LlvmLocal("self.tagged".into())),
+                tail: false,
+                call_conv: Some(CallConv::Fastcc),
+                ret_ty: LlvmType::i64(),
+                callee: LlvmOperand::Global(flux_closure_symbol("flux_tag_boxed_ptr")),
+                args: vec![(LlvmType::ptr(), local("closure"))],
+                attrs: vec![],
+            });
+            state.emit(LlvmInstr::Store {
+                ty: LlvmType::i64(),
+                value: LlvmOperand::Local(LlvmLocal("self.tagged".into())),
+                ptr: LlvmOperand::Local(slot.clone()),
+                align: Some(8),
+            });
+            state.bind_local(binder, slot);
+        }
+
+        let param_unpack = emit_closure_param_unpack(&mut state, params.len(), captures.len());
+        state.blocks[0].instrs.extend(param_unpack);
+        for (index, binder) in params.iter().enumerate() {
+            let slot = state.new_slot();
+            state.emit_entry_alloca(LlvmInstr::Alloca {
+                dst: slot.clone(),
+                ty: LlvmType::i64(),
+                count: None,
+                align: Some(8),
+            });
+            state.emit(LlvmInstr::Store {
+                ty: LlvmType::i64(),
+                value: LlvmOperand::Local(LlvmLocal(format!("param.{index}"))),
+                ptr: LlvmOperand::Local(slot.clone()),
+                align: Some(8),
+            });
+            state.bind_local(*binder, slot);
+        }
+
+        Ok(Self { state, program })
     }
 
     pub fn finish_with_return(
@@ -58,19 +158,13 @@ impl<'a> FunctionLowering<'a> {
         match expr {
             CoreExpr::Var { var, .. } => self.lower_var(*var),
             CoreExpr::Lit(lit, _) => self.lower_lit(lit),
-            CoreExpr::Lam { .. } => Err(self.unsupported(
-                "closure lambda",
-                "lambda inside expression requires Phase 4 closure lowering",
-            )),
+            CoreExpr::Lam { params, body, .. } => self.lower_lambda_value(params, body, None),
             CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
                 self.lower_call(func, args)
             }
             CoreExpr::Let { var, rhs, body, .. } => self.lower_let(*var, rhs, body),
             CoreExpr::LetRec { rhs, .. } if matches!(rhs.as_ref(), CoreExpr::Lam { .. }) => {
-                Err(self.unsupported(
-                    "local letrec lambda",
-                    "local recursive functions require Phase 4 closure lowering",
-                ))
+                self.lower_letrec_lambda(expr)
             }
             CoreExpr::LetRec { var, rhs, body, .. } => self.lower_let(*var, rhs, body),
             CoreExpr::Case {
@@ -98,7 +192,7 @@ impl<'a> FunctionLowering<'a> {
             }
             CoreExpr::Dup { body, .. } => self.lower_expr(body),
             CoreExpr::Drop { .. } => {
-                Err(self.unsupported("aether drop", "Drop nodes are not lowered in Phase 3"))
+                Err(self.unsupported("aether drop", "Drop nodes are not lowered in Phase 4"))
             }
             CoreExpr::Reuse { .. } => {
                 Err(self.unsupported("reuse", "Reuse requires Phase 7 Aether lowering"))
@@ -110,24 +204,15 @@ impl<'a> FunctionLowering<'a> {
         }
     }
 
-    fn lower_var(&mut self, var: crate::core::CoreVarRef) -> Result<LlvmOperand, CoreToLlvmError> {
+    fn lower_var(&mut self, var: CoreVarRef) -> Result<LlvmOperand, CoreToLlvmError> {
         if let Some(binder) = var.binder {
             if let Some(slot) = self.state.local_slots.get(&binder).cloned() {
-                let tmp = self.state.temp_local("load");
-                self.state.emit(LlvmInstr::Load {
-                    dst: tmp.clone(),
-                    ty: LlvmType::i64(),
-                    ptr: LlvmOperand::Local(slot),
-                    align: Some(8),
-                });
-                return Ok(LlvmOperand::Local(tmp));
+                return self.load_slot_value(slot, "load");
             }
 
-            if self.state.top_level_symbols.contains_key(&binder) {
-                return Err(self.unsupported(
-                    "function values",
-                    "top-level function references are only supported in direct call position in Phase 3",
-                ));
+            if let Some(info) = self.program.top_level_info(binder).cloned() {
+                let wrapper = self.program.ensure_top_level_wrapper(binder)?;
+                return self.emit_make_closure_value(wrapper, info.arity as i32, vec![], vec![]);
             }
         }
 
@@ -147,7 +232,7 @@ impl<'a> FunctionLowering<'a> {
                 {
                     return Err(self.unsupported(
                         "large integer literals",
-                        "boxed integer literals are not lowered in Phase 3",
+                        "boxed integer literals are not lowered in Phase 4",
                     ));
                 }
                 Ok(const_i64(tagged_int_bits(*n)))
@@ -164,7 +249,7 @@ impl<'a> FunctionLowering<'a> {
 
     fn lower_let(
         &mut self,
-        binder: crate::core::CoreBinder,
+        binder: CoreBinder,
         rhs: &CoreExpr,
         body: &CoreExpr,
     ) -> Result<LlvmOperand, CoreToLlvmError> {
@@ -183,14 +268,117 @@ impl<'a> FunctionLowering<'a> {
             align: Some(8),
         });
 
-        let old = self.state.local_slots.insert(binder.id, slot);
+        let old_slot = self.state.local_slots.insert(binder.id, slot);
+        let old_name = self.state.binder_names.insert(binder.id, binder.name);
         let result = self.lower_expr(body);
-        if let Some(previous) = old {
-            self.state.local_slots.insert(binder.id, previous);
-        } else {
-            self.state.local_slots.remove(&binder.id);
-        }
+        restore_local_binding(&mut self.state, binder.id, old_slot, old_name);
         result
+    }
+
+    fn lower_letrec_lambda(&mut self, expr: &CoreExpr) -> Result<LlvmOperand, CoreToLlvmError> {
+        let CoreExpr::LetRec { var, rhs, body, .. } = expr else {
+            unreachable!();
+        };
+        let CoreExpr::Lam {
+            params,
+            body: rhs_body,
+            ..
+        } = rhs.as_ref()
+        else {
+            return Err(self.unsupported(
+                "local letrec",
+                "only lambda letrec bindings are supported in Phase 4",
+            ));
+        };
+        let slot = self.state.new_slot();
+        self.state.emit_entry_alloca(LlvmInstr::Alloca {
+            dst: slot.clone(),
+            ty: LlvmType::i64(),
+            count: None,
+            align: Some(8),
+        });
+        let old_slot = self.state.local_slots.insert(var.id, slot.clone());
+        let old_name = self.state.binder_names.insert(var.id, var.name);
+        let rhs_value = self.lower_lambda_value(params, rhs_body, Some(*var))?;
+        self.state.emit(LlvmInstr::Store {
+            ty: LlvmType::i64(),
+            value: rhs_value,
+            ptr: LlvmOperand::Local(slot),
+            align: Some(8),
+        });
+        let result = self.lower_expr(body);
+        restore_local_binding(&mut self.state, var.id, old_slot, old_name);
+        result
+    }
+
+    fn lower_lambda_value(
+        &mut self,
+        params: &[CoreBinder],
+        body: &CoreExpr,
+        recursive_binder: Option<CoreBinder>,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        let lam = CoreExpr::Lam {
+            params: params.to_vec(),
+            body: Box::new(body.clone()),
+            span: body.span(),
+        };
+        let available = self
+            .state
+            .local_slots
+            .keys()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        let capture_ids = analyze_lambda_captures(
+            &lam,
+            body,
+            params,
+            recursive_binder.map(|binder| binder.id),
+            &available,
+        );
+        let captures = capture_ids
+            .into_iter()
+            .map(|binder| {
+                let name = self
+                    .state
+                    .binder_names
+                    .get(&binder)
+                    .copied()
+                    .ok_or_else(|| CoreToLlvmError::MissingSymbol {
+                        message: format!("missing capture name for binder {:?}", binder),
+                    })?;
+                Ok(CoreBinder { id: binder, name })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let hint = self.state.symbol.0.clone();
+        let symbol = self.program.fresh_lambda_symbol(&hint);
+        let mut lowering = FunctionLowering::new_closure_entry(
+            symbol.clone(),
+            params,
+            &captures,
+            recursive_binder,
+            self.program,
+        )?;
+        let result = lowering.lower_expr(body)?;
+        let function = lowering.finish_with_return(result)?;
+        self.program.push_generated_function(function);
+
+        let capture_values = captures
+            .iter()
+            .map(|binder| {
+                let slot = self
+                    .state
+                    .local_slots
+                    .get(&binder.id)
+                    .cloned()
+                    .ok_or_else(|| CoreToLlvmError::MissingSymbol {
+                        message: format!("missing capture slot for binder {:?}", binder.id),
+                    })?;
+                self.load_slot_value(slot, "capture.load")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.emit_make_closure_value(symbol, params.len() as i32, capture_values, vec![])
     }
 
     fn lower_call(
@@ -198,55 +386,139 @@ impl<'a> FunctionLowering<'a> {
         func: &CoreExpr,
         args: &[CoreExpr],
     ) -> Result<LlvmOperand, CoreToLlvmError> {
-        let callee = self.resolve_call_target(func)?;
+        if let Some(callee) = self.resolve_direct_call_target(func) {
+            let lowered_args = args
+                .iter()
+                .map(|arg| self.lower_expr(arg))
+                .collect::<Result<Vec<_>, _>>()?;
+            let dst = self.state.temp_local("call");
+            self.state.emit(LlvmInstr::Call {
+                dst: Some(dst.clone()),
+                tail: false,
+                call_conv: Some(CallConv::Fastcc),
+                ret_ty: LlvmType::i64(),
+                callee: LlvmOperand::Global(callee),
+                args: lowered_args
+                    .into_iter()
+                    .map(|arg| (LlvmType::i64(), arg))
+                    .collect(),
+                attrs: vec![],
+            });
+            return Ok(LlvmOperand::Local(dst));
+        }
+
+        let callee = self.lower_expr(func)?;
         let lowered_args = args
             .iter()
             .map(|arg| self.lower_expr(arg))
             .collect::<Result<Vec<_>, _>>()?;
-        let dst = self.state.temp_local("call");
+        let args_ptr = self.emit_operand_array(&lowered_args, "call.args")?;
+        let dst = self.state.temp_local("closure.call");
         self.state.emit(LlvmInstr::Call {
             dst: Some(dst.clone()),
             tail: false,
             call_conv: Some(CallConv::Fastcc),
             ret_ty: LlvmType::i64(),
-            callee: LlvmOperand::Global(callee),
-            args: lowered_args
-                .into_iter()
-                .map(|arg| (LlvmType::i64(), arg))
-                .collect(),
+            callee: LlvmOperand::Global(flux_closure_symbol("flux_call_closure")),
+            args: vec![
+                (LlvmType::i64(), callee),
+                (LlvmType::ptr(), LlvmOperand::Local(args_ptr)),
+                (LlvmType::i32(), const_i32(args.len() as i32)),
+            ],
             attrs: vec![],
         });
         Ok(LlvmOperand::Local(dst))
     }
 
-    fn resolve_call_target(&self, func: &CoreExpr) -> Result<GlobalId, CoreToLlvmError> {
+    fn resolve_direct_call_target(&self, func: &CoreExpr) -> Option<GlobalId> {
         match func {
             CoreExpr::Var { var, .. } => {
-                if let Some(binder) = var.binder {
-                    if let Some(symbol) = self.state.top_level_symbols.get(&binder) {
-                        return Ok(symbol.clone());
-                    }
-                    if self.state.local_slots.contains_key(&binder) {
-                        return Err(self.unsupported(
-                            "indirect local calls",
-                            "calling closure-valued locals is deferred to Phase 4",
-                        ));
-                    }
+                let binder = var.binder?;
+                if self.state.local_slots.contains_key(&binder) {
+                    return None;
                 }
-                Err(self.unsupported(
-                    "dynamic calls",
-                    "direct named or self calls are the only supported call targets in Phase 3",
-                ))
+                self.program
+                    .top_level_info(binder)
+                    .map(|info| info.symbol.clone())
             }
-            CoreExpr::Lam { .. } => Err(self.unsupported(
-                "lambda calls",
-                "calling lambdas directly requires Phase 4 closure lowering",
-            )),
-            _ => Err(self.unsupported(
-                "dynamic calls",
-                "direct named or self calls are the only supported call targets in Phase 3",
-            )),
+            _ => None,
         }
+    }
+
+    fn emit_make_closure_value(
+        &mut self,
+        fn_symbol: GlobalId,
+        remaining_arity: i32,
+        capture_values: Vec<LlvmOperand>,
+        applied_values: Vec<LlvmOperand>,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        let capture_ptr = self.emit_operand_array(&capture_values, "capture.array")?;
+        let applied_ptr = self.emit_operand_array(&applied_values, "applied.array")?;
+        let dst = self.state.temp_local("closure.make");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(dst.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(flux_closure_symbol("flux_make_closure")),
+            args: vec![
+                (LlvmType::ptr(), LlvmOperand::Global(fn_symbol)),
+                (LlvmType::i32(), const_i32(remaining_arity)),
+                (LlvmType::ptr(), LlvmOperand::Local(capture_ptr)),
+                (LlvmType::i32(), const_i32(capture_values.len() as i32)),
+                (LlvmType::ptr(), LlvmOperand::Local(applied_ptr)),
+                (LlvmType::i32(), const_i32(applied_values.len() as i32)),
+            ],
+            attrs: vec![],
+        });
+        Ok(LlvmOperand::Local(dst))
+    }
+
+    fn emit_operand_array(
+        &mut self,
+        values: &[LlvmOperand],
+        prefix: &str,
+    ) -> Result<LlvmLocal, CoreToLlvmError> {
+        let ptr = self.state.temp_local(prefix);
+        let count = values.len().max(1) as i32;
+        self.state.emit(LlvmInstr::Alloca {
+            dst: ptr.clone(),
+            ty: LlvmType::i64(),
+            count: Some((LlvmType::i32(), const_i32(count))),
+            align: Some(8),
+        });
+        for (index, value) in values.iter().enumerate() {
+            let slot = self.state.temp_local(&format!("{prefix}.slot"));
+            self.state.emit(LlvmInstr::GetElementPtr {
+                dst: slot.clone(),
+                inbounds: true,
+                element_ty: LlvmType::i64(),
+                base: LlvmOperand::Local(ptr.clone()),
+                indices: vec![(LlvmType::i32(), const_i32(index as i32))],
+            });
+            self.state.emit(LlvmInstr::Store {
+                ty: LlvmType::i64(),
+                value: value.clone(),
+                ptr: LlvmOperand::Local(slot),
+                align: Some(8),
+            });
+        }
+        Ok(ptr)
+    }
+
+    fn load_slot_value(
+        &mut self,
+        slot: LlvmLocal,
+        prefix: &str,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        let tmp = self.state.temp_local(prefix);
+        self.state.emit(LlvmInstr::Load {
+            dst: tmp.clone(),
+            ty: LlvmType::i64(),
+            ptr: LlvmOperand::Local(slot),
+            align: Some(8),
+        });
+        Ok(LlvmOperand::Local(tmp))
     }
 
     fn lower_case(
@@ -262,7 +534,7 @@ impl<'a> FunctionLowering<'a> {
         if alts.iter().any(|alt| alt.guard.is_some()) {
             return Err(self.unsupported(
                 "case guards",
-                "guarded case alternatives are not lowered in Phase 3",
+                "guarded case alternatives are not lowered in Phase 4",
             ));
         }
 
@@ -314,7 +586,7 @@ impl<'a> FunctionLowering<'a> {
                         self.state.switch_to_block(active_block);
                         return Err(self.unsupported(
                             "non-exhaustive literal case",
-                            "literal-only case expressions require a wildcard/default arm in Phase 3",
+                            "literal-only case expressions require a wildcard/default arm in Phase 4",
                         ));
                     }
                 }
@@ -361,7 +633,7 @@ impl<'a> FunctionLowering<'a> {
                 {
                     return Err(self.unsupported(
                         "large integer literal patterns",
-                        "boxed integer patterns are not lowered in Phase 3",
+                        "boxed integer patterns are not lowered in Phase 4",
                     ));
                 }
                 const_i64(tagged_int_bits(*n))
@@ -426,7 +698,7 @@ impl<'a> FunctionLowering<'a> {
             | CorePrimOp::MemberAccess(_)
             | CorePrimOp::TupleField(_) => Err(self.unsupported(
                 "primop",
-                &format!("primop `{op:?}` is not lowered in Phase 3"),
+                &format!("primop `{op:?}` is not lowered in Phase 4"),
             )),
         }
     }
@@ -523,6 +795,32 @@ impl<'a> FunctionLowering<'a> {
     }
 }
 
+fn top_level_symbols(program: &ProgramState<'_>) -> HashMap<CoreBinderId, GlobalId> {
+    program
+        .top_level
+        .iter()
+        .map(|(binder, info)| (*binder, info.symbol.clone()))
+        .collect()
+}
+
+fn restore_local_binding(
+    state: &mut FunctionState<'_>,
+    binder: CoreBinderId,
+    old_slot: Option<LlvmLocal>,
+    old_name: Option<crate::syntax::Identifier>,
+) {
+    if let Some(previous) = old_slot {
+        state.local_slots.insert(binder, previous);
+    } else {
+        state.local_slots.remove(&binder);
+    }
+    if let Some(previous) = old_name {
+        state.binder_names.insert(binder, previous);
+    } else {
+        state.binder_names.remove(&binder);
+    }
+}
+
 fn tagged_int_bits(value: i64) -> i64 {
     ((value as u64) & FluxNanboxLayout::PAYLOAD_MASK_U64 | FluxNanboxLayout::NANBOX_SENTINEL_U64)
         as i64
@@ -537,6 +835,13 @@ fn tagged_bool_bits(value: bool) -> i64 {
 fn tagged_none_bits() -> i64 {
     (FluxNanboxLayout::NANBOX_SENTINEL_U64 | ((NanTag::None as u64) << FluxNanboxLayout::TAG_SHIFT))
         as i64
+}
+
+fn const_i32(value: i32) -> LlvmOperand {
+    LlvmOperand::Const(LlvmConst::Int {
+        bits: 32,
+        value: value.into(),
+    })
 }
 
 pub(super) fn const_i64(value: i64) -> LlvmOperand {
