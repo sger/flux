@@ -64,7 +64,7 @@ fn factorial(n, acc) {
     assert!(rendered.contains("call fastcc i64 @flux_isub"));
     assert!(rendered.contains("call fastcc i64 @flux_imul"));
     assert!(rendered.contains("call fastcc i64 @factorial("));
-    assert!(rendered.contains("br i1 %case.cond."));
+    assert!(rendered.contains("br i1 %case.lit."));
     assert!(rendered.contains("phi i64"));
 }
 
