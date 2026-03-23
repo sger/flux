@@ -5,12 +5,13 @@ use crate::{
     core_to_llvm::{
         CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmFunction, LlvmFunctionSig, LlvmInstr,
         LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType, LlvmValueKind,
-        emit_closure_support, emit_prelude_and_arith,
+        emit_adt_support, emit_closure_support, emit_prelude_and_arith,
     },
     syntax::{Identifier, interner::Interner},
 };
 
 use super::{
+    adt::AdtMetadata,
     closure::{closure_entry_sig, common_closure_load_instrs},
     expr::FunctionLowering,
 };
@@ -57,6 +58,7 @@ pub(super) struct TopLevelFunctionInfo {
 pub(super) struct ProgramState<'a> {
     pub interner: Option<&'a Interner>,
     pub top_level: HashMap<CoreBinderId, TopLevelFunctionInfo>,
+    pub adt_metadata: AdtMetadata,
     pub generated_functions: Vec<LlvmFunction>,
     pub top_level_wrappers: HashMap<CoreBinderId, GlobalId>,
     pub next_lambda_id: u32,
@@ -65,11 +67,13 @@ pub(super) struct ProgramState<'a> {
 impl<'a> ProgramState<'a> {
     fn new(
         top_level: HashMap<CoreBinderId, TopLevelFunctionInfo>,
+        adt_metadata: AdtMetadata,
         interner: Option<&'a Interner>,
     ) -> Self {
         Self {
             interner,
             top_level,
+            adt_metadata,
             generated_functions: Vec::new(),
             top_level_wrappers: HashMap::new(),
             next_lambda_id: 0,
@@ -126,6 +130,8 @@ pub fn compile_program_with_interner(
     let mut module = LlvmModule::new();
     emit_prelude_and_arith(&mut module);
     emit_closure_support(&mut module);
+    let adt_metadata = AdtMetadata::collect(core, interner)?;
+    emit_adt_support(&mut module, &adt_metadata);
 
     let mut top_level = HashMap::new();
     for def in &core.defs {
@@ -148,7 +154,7 @@ pub fn compile_program_with_interner(
         );
     }
 
-    let mut program = ProgramState::new(top_level, interner);
+    let mut program = ProgramState::new(top_level, adt_metadata, interner);
     for def in &core.defs {
         let info = program
             .top_level
