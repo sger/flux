@@ -3,6 +3,8 @@ pub mod ast;
 pub mod bytecode;
 pub mod cfg;
 pub mod core;
+#[cfg(feature = "core_to_llvm")]
+pub mod core_to_llvm;
 pub mod diagnostics;
 #[cfg(feature = "jit")]
 pub mod jit;

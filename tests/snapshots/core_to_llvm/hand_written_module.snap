@@ -1,0 +1,30 @@
+---
+source: tests/core_to_llvm_snapshots.rs
+---
+source_filename = "snapshot.flx"
+target triple = "x86_64-unknown-linux-gnu"
+target datalayout = "e-m:e-p:64:64-i64:64-n8:16:32:64-S128"
+
+%Closure = type {ptr, i32, i32, [0 x i64]}
+
+@flux.tag.true = private constant i64 9221120237041090562
+
+declare external ccc void @flux_print(i64)
+
+define internal fastcc i64 @flux.main(i64 %arg) alwaysinline {
+entry:
+  %slot = alloca i64, align 8
+  store i64 %arg, ptr %slot, align 8
+  %loaded = load i64, ptr %slot, align 8
+  %is_zero = icmp eq i64 %loaded, 0
+  br i1 %is_zero, label %zero, label %nonzero
+zero:
+  call ccc void @flux_print(i64 9221120237041090562)
+  br label %join
+nonzero:
+  %dec = sub i64 %loaded, 1
+  br label %join
+join:
+  %result = phi i64 [ 0, %zero ], [ %dec, %nonzero ]
+  ret i64 %result
+}
