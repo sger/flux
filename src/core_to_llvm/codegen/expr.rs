@@ -249,11 +249,20 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             ));
         }
 
+        // Check if it's a known base function — return an error indicating it
+        // should be called directly, not used as a first-class value (yet).
+        let name_str = super::function::display_ident(var.name, self.state.interner);
+        if super::builtins::find_builtin(&name_str).is_some() {
+            return Err(self.unsupported(
+                "first-class base functions",
+                format!(
+                    "base function `{name_str}` cannot be used as a value yet; call it directly"
+                ),
+            ));
+        }
+
         Err(CoreToLlvmError::MissingSymbol {
-            message: format!(
-                "unresolved local binding for `{}`",
-                super::function::display_ident(var.name, self.state.interner)
-            ),
+            message: format!("unresolved local binding for `{name_str}`"),
         })
     }
 
@@ -273,11 +282,56 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CoreLit::Float(f) => Ok(const_i64(f.to_bits() as i64)),
             CoreLit::Bool(value) => Ok(const_i64(tagged_bool_bits(*value))),
             CoreLit::Unit => Ok(const_i64(tagged_none_bits())),
-            CoreLit::String(_) => Err(self.unsupported(
-                "string literals",
-                "string lowering requires later runtime phases",
-            )),
+            CoreLit::String(s) => self.lower_string_literal(s),
         }
+    }
+
+    /// Lower a string literal to a `flux_string_new(ptr, len)` call.
+    fn lower_string_literal(&mut self, s: &str) -> Result<LlvmOperand, CoreToLlvmError> {
+        // flux_string_new declaration is handled by compile_program_with_interner
+        // when generated_string_globals is non-empty (special signature: ptr, i32 → i64).
+
+        // Create a global constant for the string bytes.
+        let str_id = self.state.temp_local("str.data");
+        let global_name = GlobalId(format!("flux.str.{}", str_id.0));
+
+        // Emit a global string constant: @flux.str.N = private constant [N x i8] c"..."
+        self.program.generated_string_globals.push((
+            global_name.clone(),
+            s.to_string(),
+        ));
+
+        // Get pointer to the string data.
+        let ptr_local = self.state.temp_local("str.ptr");
+        self.state.emit(LlvmInstr::GetElementPtr {
+            dst: ptr_local.clone(),
+            inbounds: true,
+            element_ty: LlvmType::Array {
+                len: s.len() as u64,
+                element: Box::new(LlvmType::i8()),
+            },
+            base: LlvmOperand::Global(global_name),
+            indices: vec![
+                (LlvmType::i32(), const_i32(0)),
+                (LlvmType::i32(), const_i32(0)),
+            ],
+        });
+
+        // Call flux_string_new(ptr, len) → i64.
+        let dst = self.state.temp_local("str.val");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(dst.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Ccc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(GlobalId("flux_string_new".into())),
+            args: vec![
+                (LlvmType::ptr(), LlvmOperand::Local(ptr_local)),
+                (LlvmType::i32(), const_i32(s.len() as i32)),
+            ],
+            attrs: vec![],
+        });
+        Ok(LlvmOperand::Local(dst))
     }
 
     pub(super) fn lower_constructor(
@@ -481,6 +535,9 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         func: &CoreExpr,
         args: &[CoreExpr],
     ) -> Result<LlvmOperand, CoreToLlvmError> {
+        if let Some(result) = self.try_lower_builtin_call(func, args)? {
+            return Ok(result);
+        }
         if let Some(tag) = self.resolve_constructor_call(func) {
             return self.lower_constructor(&tag, args);
         }
@@ -543,6 +600,11 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         arg_modes: &[crate::aether::borrow_infer::BorrowMode],
     ) -> Result<LlvmOperand, CoreToLlvmError> {
         use crate::aether::borrow_infer::BorrowMode;
+
+        // Check if it's a direct base function call first.
+        if let Some(result) = self.try_lower_builtin_call(func, args)? {
+            return Ok(result);
+        }
 
         // For direct/constructor calls, fall through to the normal path —
         // the borrow annotations are an optimization hint that affects
@@ -625,6 +687,68 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             attrs: vec![],
         });
         Ok(LlvmOperand::Local(dst))
+    }
+
+    /// Try to resolve a call as a base function (e.g., `print`, `println`).
+    /// Returns the lowered result if successful, None if not a base function.
+    fn try_lower_builtin_call(
+        &mut self,
+        func: &CoreExpr,
+        args: &[CoreExpr],
+    ) -> Result<Option<LlvmOperand>, CoreToLlvmError> {
+        let CoreExpr::Var { var, .. } = func else {
+            return Ok(None);
+        };
+        // Base functions have binder = None (not user-defined).
+        if var.binder.is_some() {
+            return Ok(None);
+        }
+        let name_str = super::function::display_ident(var.name, self.state.interner);
+        let Some(mapping) = super::builtins::find_builtin(&name_str) else {
+            return Ok(None);
+        };
+
+        // Register the builtin for declaration emission.
+        self.program.register_builtin(mapping);
+
+        // Lower all arguments.
+        let lowered_args: Vec<LlvmOperand> = args
+            .iter()
+            .map(|arg| self.lower_expr(arg))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if mapping.returns_value {
+            let dst = self.state.temp_local("builtin");
+            self.state.emit(LlvmInstr::Call {
+                dst: Some(dst.clone()),
+                tail: false,
+                call_conv: Some(CallConv::Ccc),
+                ret_ty: LlvmType::i64(),
+                callee: LlvmOperand::Global(GlobalId(mapping.c_name.into())),
+                args: lowered_args
+                    .into_iter()
+                    .map(|a| (LlvmType::i64(), a))
+                    .collect(),
+                attrs: vec![],
+            });
+            Ok(Some(LlvmOperand::Local(dst)))
+        } else {
+            // Void function (e.g., print, println) — call and return None/unit.
+            self.state.emit(LlvmInstr::Call {
+                dst: None,
+                tail: false,
+                call_conv: Some(CallConv::Ccc),
+                ret_ty: LlvmType::Void,
+                callee: LlvmOperand::Global(GlobalId(mapping.c_name.into())),
+                args: lowered_args
+                    .into_iter()
+                    .map(|a| (LlvmType::i64(), a))
+                    .collect(),
+                attrs: vec![],
+            });
+            // Return None (unit) value.
+            Ok(Some(const_i64(tagged_none_bits())))
+        }
     }
 
     fn resolve_direct_call_target(&self, func: &CoreExpr) -> Option<(GlobalId, usize)> {

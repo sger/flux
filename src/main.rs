@@ -7,9 +7,9 @@ use std::{
     time::Instant,
 };
 
-#[cfg(any(feature = "jit", feature = "llvm"))]
+#[cfg(any(feature = "jit", feature = "llvm", feature = "core_to_llvm"))]
 use flux::ast::{constant_fold_with_interner, desugar, rename};
-#[cfg(any(feature = "jit", feature = "llvm"))]
+#[cfg(any(feature = "jit", feature = "llvm", feature = "core_to_llvm"))]
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
@@ -87,6 +87,12 @@ fn main() {
     let emit_obj = args.iter().any(|arg| arg == "--emit-obj");
     #[cfg(not(feature = "llvm"))]
     let emit_obj = false;
+    #[cfg(feature = "core_to_llvm")]
+    let use_core_to_llvm = args.iter().any(|arg| arg == "--core-to-llvm");
+    #[cfg(not(feature = "core_to_llvm"))]
+    let use_core_to_llvm = false;
+    let emit_llvm = args.iter().any(|arg| arg == "--emit-llvm");
+    let emit_binary = args.iter().any(|arg| arg == "--emit-binary");
     let mut roots = Vec::new();
     if verbose {
         args.retain(|arg| arg != "--verbose");
@@ -139,6 +145,16 @@ fn main() {
     if dump_aether {
         args.retain(|arg| arg != "--dump-aether");
     }
+    if use_core_to_llvm {
+        args.retain(|arg| arg != "--core-to-llvm");
+    }
+    if emit_llvm {
+        args.retain(|arg| arg != "--emit-llvm");
+    }
+    if emit_binary {
+        args.retain(|arg| arg != "--emit-binary");
+    }
+    let output_path = extract_output_path(&mut args);
     let dump_core = match extract_dump_core_mode(&mut args) {
         Some(value) => value,
         None => return,
@@ -207,6 +223,10 @@ fn main() {
                 all_errors,
                 dump_core,
                 dump_aether,
+                use_core_to_llvm,
+                emit_llvm,
+                emit_binary,
+                output_path.clone(),
             );
         }
         return;
@@ -264,6 +284,10 @@ fn main() {
                     all_errors,
                     dump_core,
                     dump_aether,
+                    use_core_to_llvm,
+                    emit_llvm,
+                    emit_binary,
+                    output_path,
                 );
             }
         }
@@ -438,6 +462,10 @@ Flags:
   --dump-core        Lower to Flux Core IR, print a readable dump, and exit
   --dump-core=debug  Lower to Flux Core IR, print a raw debug dump, and exit
   --dump-aether      Show Aether memory model report (per-function reuse/drop stats)
+  --core-to-llvm     Compile via Core IR → LLVM text IR backend (requires LLVM tools)
+  --emit-llvm        Emit LLVM IR text (.ll) to stdout (with --core-to-llvm)
+  --emit-binary      Compile to native binary via opt + llc + cc (with --core-to-llvm)
+  -o <path>          Output path for --emit-llvm or --emit-binary
   -h, --help         Show this help message
 
 Optimization & Analysis:
@@ -470,6 +498,10 @@ fn run_file(
     all_errors: bool,
     dump_core: CoreDumpMode,
     dump_aether: bool,
+    #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] use_core_to_llvm: bool,
+    emit_llvm: bool,
+    emit_binary: bool,
+    output_path: Option<String>,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -714,6 +746,138 @@ fn run_file(
                             all_errors,
                             true,
                         );
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+
+            // --- Core-to-LLVM execution path ---
+            #[cfg(feature = "core_to_llvm")]
+            if use_core_to_llvm || (emit_llvm && !use_llvm) || (emit_binary && !use_llvm) {
+                use std::collections::HashMap;
+
+                let mut c2l_program = Program::new();
+                for node in graph.topo_order() {
+                    c2l_program
+                        .statements
+                        .extend(node.program.statements.clone());
+                }
+
+                if enable_optimize {
+                    let desugared = desugar(c2l_program);
+                    let optimized =
+                        constant_fold_with_interner(desugared, &compiler.interner);
+                    c2l_program = rename(optimized, HashMap::new());
+                }
+
+                // Lower AST → Core IR (with Aether passes).
+                let core = match compiler
+                    .lower_aether_report_program(&c2l_program, enable_optimize)
+                {
+                    Ok(core) => core,
+                    Err(diag) => {
+                        emit_diagnostics(
+                            &[diag],
+                            Some(path),
+                            Some(source.as_str()),
+                            is_multimodule,
+                            max_errors,
+                            diagnostics_format,
+                            all_errors,
+                            true,
+                        );
+                        std::process::exit(1);
+                    }
+                };
+
+                // Core IR → LLVM IR AST → text.
+                let llvm_module = match flux::core_to_llvm::compile_program_with_interner(
+                    &core,
+                    Some(&compiler.interner),
+                ) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("core_to_llvm compilation failed: {e}");
+                        std::process::exit(1);
+                    }
+                };
+
+                // Inject target triple and data layout.
+                let mut llvm_module = llvm_module;
+                llvm_module.target_triple =
+                    Some(flux::core_to_llvm::target::host_triple());
+                llvm_module.data_layout =
+                    flux::core_to_llvm::target::host_data_layout();
+
+                let ll_text = flux::core_to_llvm::render_module(&llvm_module);
+
+                if emit_llvm {
+                    if let Some(ref out) = output_path {
+                        if let Err(e) = std::fs::write(out, &ll_text) {
+                            eprintln!("Failed to write LLVM IR: {e}");
+                            std::process::exit(1);
+                        }
+                        println!("Emitted LLVM IR: {out}");
+                    } else {
+                        println!("{ll_text}");
+                    }
+                    return;
+                }
+
+                if emit_binary {
+                    let runtime_lib_dir = locate_runtime_lib_dir();
+                    let out = output_path
+                        .map(std::path::PathBuf::from)
+                        .unwrap_or_else(|| {
+                            std::path::PathBuf::from(
+                                path.strip_suffix(".flx").unwrap_or(path),
+                            )
+                        });
+                    let config = flux::core_to_llvm::pipeline::PipelineConfig {
+                        ll_text,
+                        opt_level: if enable_optimize { 2 } else { 0 },
+                        output_path: Some(out.clone()),
+                        runtime_lib_dir,
+                    };
+                    match flux::core_to_llvm::pipeline::compile_to_binary(&config)
+                    {
+                        Ok(flux::core_to_llvm::pipeline::PipelineResult::EmittedBinary {
+                            path: bin_path,
+                        }) => {
+                            println!(
+                                "Emitted binary: {}",
+                                bin_path.display()
+                            );
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("core_to_llvm pipeline failed: {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                    return;
+                }
+
+                // Default: compile and run.
+                let runtime_lib_dir = locate_runtime_lib_dir();
+                let config = flux::core_to_llvm::pipeline::PipelineConfig {
+                    ll_text,
+                    opt_level: if enable_optimize { 2 } else { 0 },
+                    output_path: None,
+                    runtime_lib_dir,
+                };
+                match flux::core_to_llvm::pipeline::compile_and_run(&config) {
+                    Ok(flux::core_to_llvm::pipeline::PipelineResult::Executed {
+                        exit_code,
+                    }) => {
+                        if exit_code != 0 {
+                            std::process::exit(exit_code);
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("core_to_llvm execution failed: {e}");
                         std::process::exit(1);
                     }
                 }
@@ -1424,6 +1588,50 @@ fn print_leak_stats() {
         "\nLeak stats (approx):\n  compiled_functions: {}\n  closures: {}\n  arrays: {}\n  hashes: {}\n  somes: {}",
         stats.compiled_functions, stats.closures, stats.arrays, stats.hashes, stats.somes
     );
+}
+
+/// Locate the Flux C runtime library directory (`runtime/c/`).
+///
+/// Searches relative to the running executable and common development paths.
+/// Returns `None` if not found (linker will search system paths).
+#[cfg(feature = "core_to_llvm")]
+fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
+    // Check relative to the executable (development: target/debug/../runtime/c)
+    if let Ok(exe) = std::env::current_exe() {
+        // Walk up from target/debug/ or target/release/ to the project root.
+        let mut dir = exe.parent().map(Path::to_path_buf);
+        for _ in 0..5 {
+            if let Some(ref d) = dir {
+                let candidate = d.join("runtime").join("c");
+                if candidate.join("libflux_rt.a").exists() {
+                    return Some(candidate);
+                }
+                dir = d.parent().map(Path::to_path_buf);
+            }
+        }
+    }
+    // Check current working directory.
+    let cwd = std::path::PathBuf::from("runtime/c");
+    if cwd.join("libflux_rt.a").exists() {
+        return Some(cwd);
+    }
+    None
+}
+
+fn extract_output_path(args: &mut Vec<String>) -> Option<String> {
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "-o" {
+            args.remove(i);
+            if i < args.len() {
+                return Some(args.remove(i));
+            }
+            eprintln!("Error: -o requires an output path argument.");
+            return None;
+        }
+        i += 1;
+    }
+    None
 }
 
 fn extract_dump_core_mode(args: &mut Vec<String>) -> Option<CoreDumpMode> {
