@@ -276,10 +276,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         let free = collect_free_vars_core(expr);
         let used = used_outer_binders(
             body,
-            params
-                .iter()
-                .map(|param| param.id)
-                .chain(recursive_binder),
+            params.iter().map(|param| param.id).chain(recursive_binder),
             &free,
         );
         let mut captures: Vec<CoreBinder> = free
