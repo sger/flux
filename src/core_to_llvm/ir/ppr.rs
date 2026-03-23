@@ -689,7 +689,7 @@ mod tests {
 
         let output = Command::new("opt")
             .arg("--disable-output")
-            .arg("--verify")
+            .arg("-passes=verify")
             .arg(&file)
             .output()
             .expect("run opt");
@@ -731,17 +731,30 @@ mod tests {
                 },
                 attrs: vec![],
             }],
-            declarations: vec![LlvmDecl {
-                linkage: Linkage::External,
-                name: GlobalId("puts".into()),
-                sig: LlvmFunctionSig {
-                    ret: LlvmType::i32(),
-                    params: vec![LlvmType::ptr()],
-                    varargs: false,
-                    call_conv: CallConv::Ccc,
+            declarations: vec![
+                LlvmDecl {
+                    linkage: Linkage::External,
+                    name: GlobalId("puts".into()),
+                    sig: LlvmFunctionSig {
+                        ret: LlvmType::i32(),
+                        params: vec![LlvmType::ptr()],
+                        varargs: false,
+                        call_conv: CallConv::Ccc,
+                    },
+                    attrs: vec!["nounwind".into()],
                 },
-                attrs: vec!["nounwind".into()],
-            }],
+                LlvmDecl {
+                    linkage: Linkage::External,
+                    name: GlobalId("helper".into()),
+                    sig: LlvmFunctionSig {
+                        ret: LlvmType::i64(),
+                        params: vec![LlvmType::i64()],
+                        varargs: false,
+                        call_conv: CallConv::Fastcc,
+                    },
+                    attrs: vec![],
+                },
+            ],
             functions: vec![demo_function()],
         }
     }
