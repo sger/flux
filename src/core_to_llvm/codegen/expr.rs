@@ -1,15 +1,20 @@
 use std::collections::HashMap;
 
 use crate::{
-    core::{CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreLit, CorePat, CorePrimOp, CoreVarRef},
+    core::{
+        CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreLit, CorePat, CorePrimOp, CoreTag,
+        CoreVarRef,
+    },
     core_to_llvm::{
         CallConv, GlobalId, LlvmCmpOp, LlvmConst, LlvmInstr, LlvmLocal, LlvmOperand,
-        LlvmTerminator, LlvmType, flux_arith_symbol, flux_closure_symbol, flux_prelude_symbol,
+        LlvmTerminator, LlvmType, flux_adt_symbol, flux_arith_symbol, flux_closure_symbol,
+        flux_prelude_symbol,
     },
     runtime::nanbox::NanTag,
 };
 
 use super::{
+    adt::tagged_empty_list_bits,
     closure::{analyze_lambda_captures, common_closure_load_instrs, const_i32_operand, local},
     function::{
         CoreToLlvmError, FunctionState, ProgramState, closure_entry_function,
@@ -21,6 +26,12 @@ use super::{
 pub(super) struct FunctionLowering<'a, 'p> {
     pub state: FunctionState<'a>,
     pub program: &'p mut ProgramState<'a>,
+}
+
+struct BindingRestore {
+    binder: CoreBinderId,
+    old_slot: Option<LlvmLocal>,
+    old_name: Option<crate::syntax::Identifier>,
 }
 
 impl<'a, 'p> FunctionLowering<'a, 'p> {
@@ -170,9 +181,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CoreExpr::Case {
                 scrutinee, alts, ..
             } => self.lower_case(scrutinee, alts),
-            CoreExpr::Con { .. } => {
-                Err(self.unsupported("constructors", "ADT construction is deferred to Phase 5"))
-            }
+            CoreExpr::Con { tag, fields, .. } => self.lower_constructor(tag, fields),
             CoreExpr::PrimOp { op, args, .. } => self.lower_primop(op, args),
             CoreExpr::Return { value, .. } => {
                 let ret = self.lower_expr(value)?;
@@ -216,6 +225,22 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             }
         }
 
+        if var.binder.is_none()
+            && let Some(arity) = self.program.adt_metadata.arity_for_constructor(var.name)
+        {
+            if arity == 0 {
+                return self.lower_constructor(&CoreTag::Named(var.name), &[]);
+            }
+            return Err(self.unsupported(
+                "first-class constructors",
+                format!(
+                    "constructor `{}` requires {} argument(s) and cannot be used as a bare value in Phase 5",
+                    super::function::display_ident(var.name, self.state.interner),
+                    arity
+                ),
+            ));
+        }
+
         Err(CoreToLlvmError::MissingSymbol {
             message: format!(
                 "unresolved local binding for `{}`",
@@ -244,6 +269,68 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 "string literals",
                 "string lowering requires later runtime phases",
             )),
+        }
+    }
+
+    fn lower_constructor(
+        &mut self,
+        tag: &CoreTag,
+        fields: &[CoreExpr],
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        match tag {
+            CoreTag::None => {
+                if !fields.is_empty() {
+                    return Err(CoreToLlvmError::Malformed {
+                        message: "None constructor cannot carry fields".into(),
+                    });
+                }
+                Ok(const_i64(tagged_none_bits()))
+            }
+            CoreTag::Nil => {
+                if !fields.is_empty() {
+                    return Err(CoreToLlvmError::Malformed {
+                        message: "Nil constructor cannot carry fields".into(),
+                    });
+                }
+                Ok(const_i64(tagged_empty_list_bits()))
+            }
+            CoreTag::Cons => {
+                if fields.len() != 2 {
+                    return Err(CoreToLlvmError::Malformed {
+                        message: format!("Cons expects 2 fields, got {}", fields.len()),
+                    });
+                }
+                let head = self.lower_expr(&fields[0])?;
+                let tail = self.lower_expr(&fields[1])?;
+                self.emit_make_cons_value(head, tail)
+            }
+            CoreTag::Some | CoreTag::Left | CoreTag::Right | CoreTag::Named(_) => {
+                let expected = self.program.adt_metadata.arity_for(tag).ok_or_else(|| {
+                    CoreToLlvmError::MissingSymbol {
+                        message: format!("missing ADT arity for constructor {:?}", tag),
+                    }
+                })?;
+                if expected != fields.len() {
+                    return Err(CoreToLlvmError::Malformed {
+                        message: format!(
+                            "constructor {:?} expects {} fields, got {}",
+                            tag,
+                            expected,
+                            fields.len()
+                        ),
+                    });
+                }
+                let ctor_tag = self.program.adt_metadata.tag_for(tag).ok_or_else(|| {
+                    CoreToLlvmError::MissingSymbol {
+                        message: format!("missing ADT tag for constructor {:?}", tag),
+                    }
+                })?;
+                let lowered = fields
+                    .iter()
+                    .map(|field| self.lower_expr(field))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.emit_make_adt_value(ctor_tag, lowered)
+            }
         }
     }
 
@@ -386,6 +473,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         func: &CoreExpr,
         args: &[CoreExpr],
     ) -> Result<LlvmOperand, CoreToLlvmError> {
+        if let Some(tag) = self.resolve_constructor_call(func) {
+            return self.lower_constructor(&tag, args);
+        }
+
         if let Some(callee) = self.resolve_direct_call_target(func) {
             let lowered_args = args
                 .iter()
@@ -445,6 +536,19 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         }
     }
 
+    fn resolve_constructor_call(&self, func: &CoreExpr) -> Option<CoreTag> {
+        let CoreExpr::Var { var, .. } = func else {
+            return None;
+        };
+        if var.binder.is_some() {
+            return None;
+        }
+        self.program
+            .adt_metadata
+            .arity_for_constructor(var.name)
+            .map(|_| CoreTag::Named(var.name))
+    }
+
     fn emit_make_closure_value(
         &mut self,
         fn_symbol: GlobalId,
@@ -468,6 +572,68 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 (LlvmType::i32(), const_i32(capture_values.len() as i32)),
                 (LlvmType::ptr(), LlvmOperand::Local(applied_ptr)),
                 (LlvmType::i32(), const_i32(applied_values.len() as i32)),
+            ],
+            attrs: vec![],
+        });
+        Ok(LlvmOperand::Local(dst))
+    }
+
+    fn emit_make_adt_value(
+        &mut self,
+        ctor_tag: i32,
+        field_values: Vec<LlvmOperand>,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        let fields_ptr = self.emit_operand_array(&field_values, "adt.fields")?;
+        let dst = self.state.temp_local("adt.make");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(dst.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(flux_adt_symbol("flux_make_adt")),
+            args: vec![
+                (LlvmType::ptr(), LlvmOperand::Local(fields_ptr)),
+                (LlvmType::i32(), const_i32(field_values.len() as i32)),
+                (LlvmType::i32(), const_i32(ctor_tag)),
+            ],
+            attrs: vec![],
+        });
+        Ok(LlvmOperand::Local(dst))
+    }
+
+    fn emit_make_cons_value(
+        &mut self,
+        head: LlvmOperand,
+        tail: LlvmOperand,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        let dst = self.state.temp_local("cons.make");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(dst.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(flux_adt_symbol("flux_make_cons")),
+            args: vec![(LlvmType::i64(), head), (LlvmType::i64(), tail)],
+            attrs: vec![],
+        });
+        Ok(LlvmOperand::Local(dst))
+    }
+
+    fn emit_make_tuple_value(
+        &mut self,
+        field_values: Vec<LlvmOperand>,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        let fields_ptr = self.emit_operand_array(&field_values, "tuple.fields")?;
+        let dst = self.state.temp_local("tuple.make");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(dst.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(flux_adt_symbol("flux_make_tuple")),
+            args: vec![
+                (LlvmType::ptr(), LlvmOperand::Local(fields_ptr)),
+                (LlvmType::i32(), const_i32(field_values.len() as i32)),
             ],
             attrs: vec![],
         });
@@ -544,67 +710,38 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         let mut incoming = Vec::new();
         let mut active_block = self.state.current_block;
 
-        for (index, alt) in alts.iter().enumerate() {
+        for alt in alts {
             self.state.switch_to_block(active_block);
-            match &alt.pat {
-                CorePat::Wildcard => {
-                    let value = self.lower_expr(&alt.rhs)?;
-                    if self.state.current_block_open() {
-                        let from = self.state.current_block_label();
-                        self.state.set_terminator(LlvmTerminator::Br {
-                            target: join_label.clone(),
-                        });
-                        incoming.push((value, from));
-                    }
-                    break;
-                }
-                CorePat::Lit(lit) => {
-                    let then_label = self.state.new_block_label("case.then");
-                    let then_idx = self.state.push_block(then_label.clone());
-                    let else_label = self.state.new_block_label("case.else");
-                    let else_idx = self.state.push_block(else_label.clone());
-                    let cond = self.emit_match_cond(scrutinee.clone(), lit)?;
-                    self.state.set_terminator(LlvmTerminator::CondBr {
-                        cond_ty: LlvmType::i1(),
-                        cond,
-                        then_label: then_label.clone(),
-                        else_label: else_label.clone(),
-                    });
+            let then_label = self.state.new_block_label("case.then");
+            let then_idx = self.state.push_block(then_label.clone());
+            let else_label = self.state.new_block_label("case.else");
+            let else_idx = self.state.push_block(else_label.clone());
+            let mut restores = Vec::new();
+            self.emit_pattern_branch(
+                scrutinee.clone(),
+                &alt.pat,
+                then_label.clone(),
+                else_label.clone(),
+                &mut restores,
+            )?;
 
-                    self.state.switch_to_block(then_idx);
-                    let value = self.lower_expr(&alt.rhs)?;
-                    if self.state.current_block_open() {
-                        let from = self.state.current_block_label();
-                        self.state.set_terminator(LlvmTerminator::Br {
-                            target: join_label.clone(),
-                        });
-                        incoming.push((value, from));
-                    }
-
-                    active_block = else_idx;
-                    if index == alts.len() - 1 {
-                        self.state.switch_to_block(active_block);
-                        return Err(self.unsupported(
-                            "non-exhaustive literal case",
-                            "literal-only case expressions require a wildcard/default arm in Phase 4",
-                        ));
-                    }
-                }
-                CorePat::Var(_) => {
-                    return Err(self.unsupported(
-                        "case binder patterns",
-                        "binding patterns are deferred until richer pattern lowering",
-                    ));
-                }
-                CorePat::Con { .. } | CorePat::Tuple(_) | CorePat::EmptyList => {
-                    return Err(self.unsupported(
-                        "ADT patterns",
-                        "general pattern matching is deferred to Phase 5",
-                    ));
-                }
+            self.state.switch_to_block(then_idx);
+            let value = self.lower_expr(&alt.rhs)?;
+            if self.state.current_block_open() {
+                let from = self.state.current_block_label();
+                self.state.set_terminator(LlvmTerminator::Br {
+                    target: join_label.clone(),
+                });
+                incoming.push((value, from));
             }
+            self.restore_bindings(restores);
+            active_block = else_idx;
         }
 
+        self.state.switch_to_block(active_block);
+        if self.state.current_block_open() {
+            self.state.set_terminator(LlvmTerminator::Unreachable);
+        }
         self.state.switch_to_block(join_idx);
         if incoming.is_empty() {
             return Err(CoreToLlvmError::Malformed {
@@ -620,20 +757,202 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         Ok(LlvmOperand::Local(phi))
     }
 
-    fn emit_match_cond(
+    fn emit_pattern_branch(
         &mut self,
-        scrutinee: LlvmOperand,
+        value: LlvmOperand,
+        pat: &CorePat,
+        success_label: crate::core_to_llvm::LabelId,
+        fail_label: crate::core_to_llvm::LabelId,
+        restores: &mut Vec<BindingRestore>,
+    ) -> Result<(), CoreToLlvmError> {
+        match pat {
+            CorePat::Wildcard => {
+                self.state.set_terminator(LlvmTerminator::Br {
+                    target: success_label,
+                });
+            }
+            CorePat::Var(binder) => {
+                self.bind_pattern_var(*binder, value, restores);
+                self.state.set_terminator(LlvmTerminator::Br {
+                    target: success_label,
+                });
+            }
+            CorePat::Lit(lit) => {
+                let cond = self.emit_literal_match_cond(value, lit)?;
+                self.state.set_terminator(LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond,
+                    then_label: success_label,
+                    else_label: fail_label,
+                });
+            }
+            CorePat::EmptyList => {
+                let cond = self.emit_immediate_eq(value, tagged_empty_list_bits(), "case.empty");
+                self.state.set_terminator(LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond,
+                    then_label: success_label,
+                    else_label: fail_label,
+                });
+            }
+            CorePat::Con { tag, fields } => match tag {
+                CoreTag::None => {
+                    if !fields.is_empty() {
+                        return Err(CoreToLlvmError::Malformed {
+                            message: "None pattern cannot bind fields".into(),
+                        });
+                    }
+                    let cond = self.emit_immediate_eq(value, tagged_none_bits(), "case.none");
+                    self.state.set_terminator(LlvmTerminator::CondBr {
+                        cond_ty: LlvmType::i1(),
+                        cond,
+                        then_label: success_label,
+                        else_label: fail_label,
+                    });
+                }
+                CoreTag::Nil => {
+                    if !fields.is_empty() {
+                        return Err(CoreToLlvmError::Malformed {
+                            message: "Nil pattern cannot bind fields".into(),
+                        });
+                    }
+                    let cond = self.emit_immediate_eq(value, tagged_empty_list_bits(), "case.nil");
+                    self.state.set_terminator(LlvmTerminator::CondBr {
+                        cond_ty: LlvmType::i1(),
+                        cond,
+                        then_label: success_label,
+                        else_label: fail_label,
+                    });
+                }
+                CoreTag::Some
+                | CoreTag::Left
+                | CoreTag::Right
+                | CoreTag::Cons
+                | CoreTag::Named(_) => {
+                    let expected_arity =
+                        self.program.adt_metadata.arity_for(tag).ok_or_else(|| {
+                            CoreToLlvmError::MissingSymbol {
+                                message: format!("missing constructor arity for pattern {:?}", tag),
+                            }
+                        })?;
+                    if expected_arity != fields.len() {
+                        return Err(CoreToLlvmError::Malformed {
+                            message: format!(
+                                "pattern for {:?} expects {} fields, got {}",
+                                tag,
+                                expected_arity,
+                                fields.len()
+                            ),
+                        });
+                    }
+                    let expected_tag = self.program.adt_metadata.tag_for(tag).ok_or_else(|| {
+                        CoreToLlvmError::MissingSymbol {
+                            message: format!("missing constructor tag for pattern {:?}", tag),
+                        }
+                    })?;
+                    let check_label = self.state.new_block_label("case.ctor");
+                    let check_idx = self.state.push_block(check_label.clone());
+                    self.emit_boxed_tag_branch(
+                        value.clone(),
+                        expected_tag,
+                        check_label,
+                        fail_label.clone(),
+                        "case.adt",
+                    )?;
+                    self.state.switch_to_block(check_idx);
+                    self.emit_field_pattern_chain(
+                        value,
+                        fields,
+                        success_label,
+                        fail_label,
+                        restores,
+                        |this, base, index| this.load_adt_field(base, index),
+                    )?;
+                }
+            },
+            CorePat::Tuple(fields) => {
+                let check_label = self.state.new_block_label("case.tuple");
+                let check_idx = self.state.push_block(check_label.clone());
+                self.emit_tuple_arity_branch(
+                    value.clone(),
+                    fields.len() as i32,
+                    check_label,
+                    fail_label.clone(),
+                )?;
+                self.state.switch_to_block(check_idx);
+                self.emit_field_pattern_chain(
+                    value,
+                    fields,
+                    success_label,
+                    fail_label,
+                    restores,
+                    |this, base, index| this.load_tuple_field(base, index),
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_field_pattern_chain<F>(
+        &mut self,
+        base: LlvmOperand,
+        fields: &[CorePat],
+        success_label: crate::core_to_llvm::LabelId,
+        fail_label: crate::core_to_llvm::LabelId,
+        restores: &mut Vec<BindingRestore>,
+        mut load_field: F,
+    ) -> Result<(), CoreToLlvmError>
+    where
+        F: FnMut(&mut Self, LlvmOperand, usize) -> Result<LlvmOperand, CoreToLlvmError>,
+    {
+        if fields.is_empty() {
+            self.state.set_terminator(LlvmTerminator::Br {
+                target: success_label,
+            });
+            return Ok(());
+        }
+
+        for (index, field_pat) in fields.iter().enumerate() {
+            let field_value = load_field(self, base.clone(), index)?;
+            let is_last = index + 1 == fields.len();
+            let next_label = if is_last {
+                success_label.clone()
+            } else {
+                self.state.new_block_label("case.field")
+            };
+            let next_idx = if is_last {
+                None
+            } else {
+                Some(self.state.push_block(next_label.clone()))
+            };
+            self.emit_pattern_branch(
+                field_value,
+                field_pat,
+                next_label,
+                fail_label.clone(),
+                restores,
+            )?;
+            if let Some(idx) = next_idx {
+                self.state.switch_to_block(idx);
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_literal_match_cond(
+        &mut self,
+        value: LlvmOperand,
         lit: &CoreLit,
     ) -> Result<LlvmOperand, CoreToLlvmError> {
         let rhs = match lit {
-            CoreLit::Bool(value) => const_i64(tagged_bool_bits(*value)),
+            CoreLit::Bool(flag) => const_i64(tagged_bool_bits(*flag)),
             CoreLit::Int(n) => {
                 if !(FluxNanboxLayout::MIN_INLINE_INT..=FluxNanboxLayout::MAX_INLINE_INT)
                     .contains(n)
                 {
                     return Err(self.unsupported(
                         "large integer literal patterns",
-                        "boxed integer patterns are not lowered in Phase 4",
+                        "boxed integer patterns are not lowered in Phase 5",
                     ));
                 }
                 const_i64(tagged_int_bits(*n))
@@ -647,15 +966,223 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 ));
             }
         };
-        let cond = self.state.temp_local("case.cond");
+        Ok(self.emit_icmp_eq(value, rhs, "case.lit"))
+    }
+
+    fn emit_immediate_eq(&mut self, lhs: LlvmOperand, rhs_bits: i64, prefix: &str) -> LlvmOperand {
+        self.emit_icmp_eq(lhs, const_i64(rhs_bits), prefix)
+    }
+
+    fn emit_icmp_eq(&mut self, lhs: LlvmOperand, rhs: LlvmOperand, prefix: &str) -> LlvmOperand {
+        let cond = self.state.temp_local(prefix);
         self.state.emit(LlvmInstr::Icmp {
             dst: cond.clone(),
             op: LlvmCmpOp::Eq,
             ty: LlvmType::i64(),
-            lhs: scrutinee,
+            lhs,
             rhs,
         });
-        Ok(LlvmOperand::Local(cond))
+        LlvmOperand::Local(cond)
+    }
+
+    fn emit_boxed_tag_branch(
+        &mut self,
+        value: LlvmOperand,
+        expected_tag: i32,
+        success_label: crate::core_to_llvm::LabelId,
+        fail_label: crate::core_to_llvm::LabelId,
+        prefix: &str,
+    ) -> Result<(), CoreToLlvmError> {
+        let is_ptr = self.emit_is_ptr_call(value.clone(), &format!("{prefix}.is_ptr"))?;
+        let tag_block_label = self.state.new_block_label(&format!("{prefix}.tag"));
+        let tag_block_idx = self.state.push_block(tag_block_label.clone());
+        self.state.set_terminator(LlvmTerminator::CondBr {
+            cond_ty: LlvmType::i1(),
+            cond: is_ptr,
+            then_label: tag_block_label,
+            else_label: fail_label.clone(),
+        });
+        self.state.switch_to_block(tag_block_idx);
+        let tag = self.state.temp_local(&format!("{prefix}.tag"));
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(tag.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i32(),
+            callee: LlvmOperand::Global(flux_adt_symbol("flux_adt_tag")),
+            args: vec![(LlvmType::i64(), value)],
+            attrs: vec![],
+        });
+        let matches = self.state.temp_local(&format!("{prefix}.matches"));
+        self.state.emit(LlvmInstr::Icmp {
+            dst: matches.clone(),
+            op: LlvmCmpOp::Eq,
+            ty: LlvmType::i32(),
+            lhs: LlvmOperand::Local(tag),
+            rhs: const_i32(expected_tag),
+        });
+        self.state.set_terminator(LlvmTerminator::CondBr {
+            cond_ty: LlvmType::i1(),
+            cond: LlvmOperand::Local(matches),
+            then_label: success_label,
+            else_label: fail_label,
+        });
+        Ok(())
+    }
+
+    fn emit_tuple_arity_branch(
+        &mut self,
+        value: LlvmOperand,
+        expected_arity: i32,
+        success_label: crate::core_to_llvm::LabelId,
+        fail_label: crate::core_to_llvm::LabelId,
+    ) -> Result<(), CoreToLlvmError> {
+        let is_ptr = self.emit_is_ptr_call(value.clone(), "case.tuple.is_ptr")?;
+        let len_block_label = self.state.new_block_label("case.tuple.len");
+        let len_block_idx = self.state.push_block(len_block_label.clone());
+        self.state.set_terminator(LlvmTerminator::CondBr {
+            cond_ty: LlvmType::i1(),
+            cond: is_ptr,
+            then_label: len_block_label,
+            else_label: fail_label.clone(),
+        });
+        self.state.switch_to_block(len_block_idx);
+        let len = self.state.temp_local("case.tuple.arity");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(len.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i32(),
+            callee: LlvmOperand::Global(flux_adt_symbol("flux_tuple_len")),
+            args: vec![(LlvmType::i64(), value)],
+            attrs: vec![],
+        });
+        let matches = self.state.temp_local("case.tuple.matches");
+        self.state.emit(LlvmInstr::Icmp {
+            dst: matches.clone(),
+            op: LlvmCmpOp::Eq,
+            ty: LlvmType::i32(),
+            lhs: LlvmOperand::Local(len),
+            rhs: const_i32(expected_arity),
+        });
+        self.state.set_terminator(LlvmTerminator::CondBr {
+            cond_ty: LlvmType::i1(),
+            cond: LlvmOperand::Local(matches),
+            then_label: success_label,
+            else_label: fail_label,
+        });
+        Ok(())
+    }
+
+    fn emit_is_ptr_call(
+        &mut self,
+        value: LlvmOperand,
+        prefix: &str,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        let dst = self.state.temp_local(prefix);
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(dst.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i1(),
+            callee: LlvmOperand::Global(flux_prelude_symbol("flux_is_ptr")),
+            args: vec![(LlvmType::i64(), value)],
+            attrs: vec![],
+        });
+        Ok(LlvmOperand::Local(dst))
+    }
+
+    fn load_adt_field(
+        &mut self,
+        base: LlvmOperand,
+        index: usize,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        let ptr = self.state.temp_local("case.adt.field.ptr");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(ptr.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::ptr(),
+            callee: LlvmOperand::Global(flux_adt_symbol("flux_adt_field_ptr")),
+            args: vec![
+                (LlvmType::i64(), base),
+                (LlvmType::i32(), const_i32(index as i32)),
+            ],
+            attrs: vec![],
+        });
+        let val = self.state.temp_local("case.adt.field");
+        self.state.emit(LlvmInstr::Load {
+            dst: val.clone(),
+            ty: LlvmType::i64(),
+            ptr: LlvmOperand::Local(ptr),
+            align: Some(8),
+        });
+        Ok(LlvmOperand::Local(val))
+    }
+
+    fn load_tuple_field(
+        &mut self,
+        base: LlvmOperand,
+        index: usize,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        let ptr = self.state.temp_local("case.tuple.field.ptr");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(ptr.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::ptr(),
+            callee: LlvmOperand::Global(flux_adt_symbol("flux_tuple_field_ptr")),
+            args: vec![
+                (LlvmType::i64(), base),
+                (LlvmType::i32(), const_i32(index as i32)),
+            ],
+            attrs: vec![],
+        });
+        let val = self.state.temp_local("case.tuple.field");
+        self.state.emit(LlvmInstr::Load {
+            dst: val.clone(),
+            ty: LlvmType::i64(),
+            ptr: LlvmOperand::Local(ptr),
+            align: Some(8),
+        });
+        Ok(LlvmOperand::Local(val))
+    }
+
+    fn bind_pattern_var(
+        &mut self,
+        binder: CoreBinder,
+        value: LlvmOperand,
+        restores: &mut Vec<BindingRestore>,
+    ) {
+        let slot = self.state.new_slot();
+        self.state.emit_entry_alloca(LlvmInstr::Alloca {
+            dst: slot.clone(),
+            ty: LlvmType::i64(),
+            count: None,
+            align: Some(8),
+        });
+        self.state.emit(LlvmInstr::Store {
+            ty: LlvmType::i64(),
+            value,
+            ptr: LlvmOperand::Local(slot.clone()),
+            align: Some(8),
+        });
+        restores.push(BindingRestore {
+            binder: binder.id,
+            old_slot: self.state.local_slots.insert(binder.id, slot),
+            old_name: self.state.binder_names.insert(binder.id, binder.name),
+        });
+    }
+
+    fn restore_bindings(&mut self, restores: Vec<BindingRestore>) {
+        for restore in restores.into_iter().rev() {
+            restore_local_binding(
+                &mut self.state,
+                restore.binder,
+                restore.old_slot,
+                restore.old_name,
+            );
+        }
     }
 
     fn lower_primop(
@@ -679,6 +1206,9 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CorePrimOp::Le => self.lower_cmp_bool(args, LlvmCmpOp::Sle, true),
             CorePrimOp::Gt => self.lower_cmp_bool(args, LlvmCmpOp::Sgt, true),
             CorePrimOp::Ge => self.lower_cmp_bool(args, LlvmCmpOp::Sge, true),
+            CorePrimOp::MakeList => self.lower_make_list(args),
+            CorePrimOp::MakeTuple => self.lower_make_tuple(args),
+            CorePrimOp::TupleField(index) => self.lower_tuple_field(*index, args),
             CorePrimOp::Mod
             | CorePrimOp::IMod
             | CorePrimOp::FSub
@@ -690,17 +1220,45 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             | CorePrimOp::Or
             | CorePrimOp::Concat
             | CorePrimOp::Interpolate
-            | CorePrimOp::MakeList
             | CorePrimOp::MakeArray
-            | CorePrimOp::MakeTuple
             | CorePrimOp::MakeHash
             | CorePrimOp::Index
-            | CorePrimOp::MemberAccess(_)
-            | CorePrimOp::TupleField(_) => Err(self.unsupported(
+            | CorePrimOp::MemberAccess(_) => Err(self.unsupported(
                 "primop",
-                &format!("primop `{op:?}` is not lowered in Phase 4"),
+                &format!("primop `{op:?}` is not lowered in Phase 5"),
             )),
         }
+    }
+
+    fn lower_make_list(&mut self, args: &[CoreExpr]) -> Result<LlvmOperand, CoreToLlvmError> {
+        let mut list = const_i64(tagged_empty_list_bits());
+        for arg in args.iter().rev() {
+            let head = self.lower_expr(arg)?;
+            list = self.emit_make_cons_value(head, list)?;
+        }
+        Ok(list)
+    }
+
+    fn lower_make_tuple(&mut self, args: &[CoreExpr]) -> Result<LlvmOperand, CoreToLlvmError> {
+        let fields = args
+            .iter()
+            .map(|arg| self.lower_expr(arg))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.emit_make_tuple_value(fields)
+    }
+
+    fn lower_tuple_field(
+        &mut self,
+        index: usize,
+        args: &[CoreExpr],
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        if args.len() != 1 {
+            return Err(CoreToLlvmError::Malformed {
+                message: format!("TupleField expects 1 arg, got {}", args.len()),
+            });
+        }
+        let tuple = self.lower_expr(&args[0])?;
+        self.load_tuple_field(tuple, index)
     }
 
     fn lower_helper_call(
