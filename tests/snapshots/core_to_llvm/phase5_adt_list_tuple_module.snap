@@ -1,6 +1,5 @@
 ---
 source: tests/core_to_llvm_phase5_snapshots.rs
-assertion_line: 59
 expression: render_module(&module)
 ---
 %FluxClosure = type {ptr, i32, i32, i32, [0 x i64]}
@@ -104,16 +103,93 @@ entry:
   ret i64 %result
 }
 
+define internal fastcc i64 @flux_imod(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
+  %result_raw = srem i64 %a_raw, %b_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_ineg(i64 %a) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %neg = sub i64 0, %a_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %neg)
+  ret i64 %result
+}
+
 define internal fastcc i64 @flux_fadd(i64 %a, i64 %b) alwaysinline {
 entry:
   %a_bits = bitcast i64 %a to double
   %b_bits = bitcast i64 %b to double
-  %sum = fadd double %a_bits, %b_bits
-  %result = bitcast double %sum to i64
+  %result_f = fadd double %a_bits, %b_bits
+  %result = bitcast double %result_f to i64
   ret i64 %result
 }
 
-define internal fastcc void @flux_copy_i64s(ptr %dst, ptr %src, i32 %count) alwaysinline {
+define internal fastcc i64 @flux_fsub(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_bits = bitcast i64 %a to double
+  %b_bits = bitcast i64 %b to double
+  %result_f = fsub double %a_bits, %b_bits
+  %result = bitcast double %result_f to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fmul(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_bits = bitcast i64 %a to double
+  %b_bits = bitcast i64 %b to double
+  %result_f = fmul double %a_bits, %b_bits
+  %result = bitcast double %result_f to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fdiv(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_bits = bitcast i64 %a to double
+  %b_bits = bitcast i64 %b to double
+  %result_f = fdiv double %a_bits, %b_bits
+  %result = bitcast double %result_f to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fneg(i64 %a) alwaysinline {
+entry:
+  %a_bits = bitcast i64 %a to double
+  %neg = fsub double 0.0, %a_bits
+  %result = bitcast double %neg to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_not(i64 %a) alwaysinline {
+entry:
+  %is_true = icmp eq i64 %a, 9222316505692110849
+  %result = select i1 %is_true, i64 9222316505692110848, i64 9222316505692110849
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_and(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_is_true = icmp eq i64 %a, 9222316505692110849
+  %b_is_true = icmp eq i64 %b, 9222316505692110849
+  %combined = and i1 %a_is_true, %b_is_true
+  %result = select i1 %combined, i64 9222316505692110849, i64 9222316505692110848
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_or(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_is_true = icmp eq i64 %a, 9222316505692110849
+  %b_is_true = icmp eq i64 %b, 9222316505692110849
+  %combined = or i1 %a_is_true, %b_is_true
+  %result = select i1 %combined, i64 9222316505692110849, i64 9222316505692110848
+  ret i64 %result
+}
+
+define internal fastcc void @flux_copy_i64s(ptr %dst, ptr %src, i32 %count) {
 entry:
   %empty = icmp eq i32 %count, 0
   br i1 %empty, label %done, label %loop
@@ -203,7 +279,7 @@ over:
   %exact.result = call fastcc i64 %fn_ptr(ptr %closure, ptr %args, i32 %remaining_arity)
   %leftover.count = sub i32 %nargs, %remaining_arity
   %leftover.args = getelementptr inbounds i64, ptr %args, i32 %remaining_arity
-  %result = call fastcc i64 @flux_call_closure(i64 %exact.result, ptr %leftover.args, i32 %leftover.count)
+  %result = tail call fastcc i64 @flux_call_closure(i64 %exact.result, ptr %leftover.args, i32 %leftover.count)
   ret i64 %result
 }
 
@@ -298,7 +374,7 @@ case.else.2:
   br i1 %case.adt.is_ptr.2, label %case.adt.tag.6, label %case.else.4
 case.then.3:
   %load.9 = load i64, ptr %slot.2, align 8
-  %call.10 = call fastcc i64 @fold(i64 %load.9)
+  %call.10 = tail call fastcc i64 @fold(i64 %load.9)
   store i64 %call.10, ptr %slot.3, align 8
   %load.11 = load i64, ptr %slot.1, align 8
   %load.12 = load i64, ptr %slot.3, align 8

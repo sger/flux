@@ -12,7 +12,7 @@ use crate::{
 
 use super::{
     adt::AdtMetadata,
-    closure::{closure_entry_sig, common_closure_load_instrs},
+    closure::common_closure_load_instrs,
     expr::FunctionLowering,
 };
 
@@ -536,6 +536,5 @@ pub(super) fn closure_entry_function(
     top_level_symbols: HashMap<CoreBinderId, GlobalId>,
     interner: Option<&Interner>,
 ) -> FunctionState<'_> {
-    let _ = closure_entry_sig;
     FunctionState::new_closure_entry(symbol, top_level_symbols, interner)
 }
