@@ -22,6 +22,10 @@ target datalayout = "e-m:e-p:64:64-i64:64-n8:16:32:64-S128"
 
 @flux.nanbox.max_inline_int = private constant i64 35184372088831
 
+declare ccc void @flux_gc_free(ptr) nounwind
+
+declare ccc ptr @flux_gc_alloc(i32) nounwind
+
 define internal fastcc i64 @flux_tag_int(i64 %raw) alwaysinline {
 entry:
   %masked = and i64 %raw, 70368744177663
@@ -50,17 +54,73 @@ entry:
 
 define internal fastcc void @flux_dup(i64 %val) alwaysinline {
 entry:
+  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
+  br i1 %is_ptr, label %do_dup, label %done
+do_dup:
+  %payload = and i64 %val, 70368744177663
+  %shifted = shl i64 %payload, 3
+  %ptr = inttoptr i64 %shifted to ptr
+  %rc_ptr = getelementptr i64, ptr %ptr, i64 -1
+  %old_rc = load i64, ptr %rc_ptr, align 8
+  %new_rc = add i64 %old_rc, 1
+  store i64 %new_rc, ptr %rc_ptr, align 8
+  br label %done
+done:
   ret void
 }
 
 define internal fastcc void @flux_drop(i64 %val) alwaysinline {
 entry:
+  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
+  br i1 %is_ptr, label %do_drop, label %done
+do_drop:
+  %payload = and i64 %val, 70368744177663
+  %shifted = shl i64 %payload, 3
+  %ptr = inttoptr i64 %shifted to ptr
+  %rc_ptr = getelementptr i64, ptr %ptr, i64 -1
+  %old_rc = load i64, ptr %rc_ptr, align 8
+  %new_rc = sub i64 %old_rc, 1
+  store i64 %new_rc, ptr %rc_ptr, align 8
+  %is_zero = icmp eq i64 %new_rc, 0
+  br i1 %is_zero, label %free, label %done
+free:
+  call ccc void @flux_gc_free(ptr %ptr)
+  br label %done
+done:
   ret void
 }
 
 define internal fastcc ptr @flux_drop_reuse(i64 %val, i32 %size) alwaysinline {
 entry:
-  ret ptr null
+  %payload = and i64 %val, 70368744177663
+  %shifted = shl i64 %payload, 3
+  %ptr = inttoptr i64 %shifted to ptr
+  %rc_ptr = getelementptr i64, ptr %ptr, i64 -1
+  %rc = load i64, ptr %rc_ptr, align 8
+  %unique = icmp eq i64 %rc, 1
+  br i1 %unique, label %reuse, label %fresh
+reuse:
+  ret ptr %ptr
+fresh:
+  call fastcc void @flux_drop(i64 %val)
+  %new_mem = call ccc ptr @flux_gc_alloc(i32 %size)
+  ret ptr %new_mem
+}
+
+define internal fastcc i1 @flux_rc_is_unique(i64 %val) alwaysinline {
+entry:
+  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
+  br i1 %is_ptr, label %check_rc, label %not_unique
+check_rc:
+  %payload = and i64 %val, 70368744177663
+  %shifted = shl i64 %payload, 3
+  %ptr = inttoptr i64 %shifted to ptr
+  %rc_ptr = getelementptr i64, ptr %ptr, i64 -1
+  %rc = load i64, ptr %rc_ptr, align 8
+  %is_one = icmp eq i64 %rc, 1
+  ret i1 %is_one
+not_unique:
+  ret i1 0
 }
 
 define internal fastcc i64 @flux_iadd(i64 %a, i64 %b) alwaysinline {

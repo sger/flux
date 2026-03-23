@@ -1,42 +1,20 @@
 ---
 source: tests/aether_cli_snapshots.rs
 ---
-• 2 errors • examples/aether/Aether/FbipImportedSupport.flx
-error[E416]: Strict Function Annotation Required
+error[E027]: Duplicate Module
 
-Public function `imported_inc` must annotate all parameters in strict mode.
+Duplicate module declaration: `Aether.FbipImportedSupport`.
 
-  examples/aether/Aether/FbipImportedSupport.flx:3:12
+  examples/aether/fbip_failure_cases.flx:1:1
   |
-3 |     public fn imported_inc(x) {
-  |            ^^^^^^^^^^^^^^^^^^^^
-4 |         x + 1
-  | ^^^^^^^^^^^^^
-5 |     }
-  | ^^^^^
+1 | import Aether.FbipImportedSupport as Imported
+  | ^
 
 Hint:
-  Add explicit parameter types to the function signature.
+  Remove one of the duplicate module declarations.
+  Found: /Users/s.gerokostas/Downloads/Github/flux/examples/aether/Aether/FbipImportedSupport.flx, /Users/s.gerokostas/Downloads/Github/flux/src/aether/FbipImportedSupport.flx
 
 
-error[E417]: Strict Return Annotation Required
-
-Public function `imported_inc` must declare a return type in strict mode.
-
-  examples/aether/Aether/FbipImportedSupport.flx:3:12
-  |
-3 |     public fn imported_inc(x) {
-  |            ^^^^^^^^^^^^^^^^^^^^
-4 |         x + 1
-  | ^^^^^^^^^^^^^
-5 |     }
-  | ^^^^^
-
-Hint:
-  Add `-> Type` to the function signature.
-
-
-• 1 error, 3 warnings • examples/aether/fbip_failure_cases.flx
 Warning: FBIP Contract Not Proven
 
 @fip on `fail_indirect` analysis result NotProvable:
@@ -95,4 +73,4 @@ Warning: FBIP Contract Not Proven
 21 | }
    | ^
 
-Found 3 errors and 3 warnings across 2 modules.
+Found 2 errors and 3 warnings.

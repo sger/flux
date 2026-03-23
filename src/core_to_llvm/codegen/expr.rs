@@ -170,9 +170,13 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CoreExpr::Var { var, .. } => self.lower_var(*var),
             CoreExpr::Lit(lit, _) => self.lower_lit(lit),
             CoreExpr::Lam { params, body, .. } => self.lower_lambda_value(params, body, None),
-            CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
-                self.lower_call(func, args)
-            }
+            CoreExpr::App { func, args, .. } => self.lower_call(func, args),
+            CoreExpr::AetherCall {
+                func,
+                args,
+                arg_modes,
+                ..
+            } => self.lower_aether_call(func, args, arg_modes),
             CoreExpr::Let { var, rhs, body, .. } => self.lower_let(*var, rhs, body),
             CoreExpr::LetRec { rhs, .. } if matches!(rhs.as_ref(), CoreExpr::Lam { .. }) => {
                 self.lower_letrec_lambda(expr)
@@ -199,29 +203,21 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CoreExpr::Handle { .. } => {
                 Err(self.unsupported("effects", "Handle requires Phase 6 runtime support"))
             }
-            CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => self.lower_expr(body),
+            CoreExpr::Dup { var, body, .. } => self.lower_dup(*var, body),
+            CoreExpr::Drop { var, body, .. } => self.lower_drop(*var, body),
             CoreExpr::Reuse {
-                tag, fields, ..
-            } => {
-                // Before Phase 7, ignore the reuse token and just construct normally.
-                self.lower_constructor(tag, fields)
-            }
+                token,
+                tag,
+                fields,
+                field_mask,
+                ..
+            } => self.lower_reuse(*token, tag, fields, *field_mask),
             CoreExpr::DropSpecialized {
+                scrutinee,
                 unique_body,
                 shared_body,
                 ..
-            } => {
-                // Before Phase 7, treat as non-unique: lower the shared path
-                // which dups fields and decrements the scrutinee (both are no-ops
-                // with stubbed flux_dup/flux_drop).  Fall back to unique_body if
-                // the shared path is not available (shouldn't happen in practice).
-                let body = if matches!(shared_body.as_ref(), CoreExpr::Lit(..)) {
-                    unique_body
-                } else {
-                    shared_body
-                };
-                self.lower_expr(body)
-            }
+            } => self.lower_drop_specialized(*scrutinee, unique_body, shared_body),
         }
     }
 
@@ -284,7 +280,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         }
     }
 
-    fn lower_constructor(
+    pub(super) fn lower_constructor(
         &mut self,
         tag: &CoreTag,
         fields: &[CoreExpr],
@@ -537,6 +533,100 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         Ok(LlvmOperand::Local(dst))
     }
 
+    /// Lower an `AetherCall`: like a regular call, but with per-argument
+    /// borrow modes.  For `Borrowed` args we skip the dup (the callee only
+    /// reads them); for `Owned` args we emit `flux_dup` before passing.
+    fn lower_aether_call(
+        &mut self,
+        func: &CoreExpr,
+        args: &[CoreExpr],
+        arg_modes: &[crate::aether::borrow_infer::BorrowMode],
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        use crate::aether::borrow_infer::BorrowMode;
+
+        // For direct/constructor calls, fall through to the normal path —
+        // the borrow annotations are an optimization hint that affects
+        // whether the caller duplicates values, not how the call is made.
+        if let Some(tag) = self.resolve_constructor_call(func) {
+            return self.lower_constructor(&tag, args);
+        }
+
+        if let Some((callee, arity)) = self.resolve_direct_call_target(func) {
+            if args.len() == arity {
+                let lowered_args = args
+                    .iter()
+                    .map(|arg| self.lower_expr(arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                // Emit dup for Owned args that need it.
+                for (i, val) in lowered_args.iter().enumerate() {
+                    if i < arg_modes.len() && arg_modes[i] == BorrowMode::Owned {
+                        self.state.emit(LlvmInstr::Call {
+                            dst: None,
+                            tail: false,
+                            call_conv: Some(CallConv::Fastcc),
+                            ret_ty: LlvmType::Void,
+                            callee: LlvmOperand::Global(flux_prelude_symbol("flux_dup")),
+                            args: vec![(LlvmType::i64(), val.clone())],
+                            attrs: vec![],
+                        });
+                    }
+                }
+                let is_self_recursive = callee.0 == self.state.symbol.0;
+                let dst = self.state.temp_local("acall");
+                self.state.emit(LlvmInstr::Call {
+                    dst: Some(dst.clone()),
+                    tail: is_self_recursive,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::i64(),
+                    callee: LlvmOperand::Global(callee),
+                    args: lowered_args
+                        .into_iter()
+                        .map(|arg| (LlvmType::i64(), arg))
+                        .collect(),
+                    attrs: vec![],
+                });
+                return Ok(LlvmOperand::Local(dst));
+            }
+        }
+
+        // Closure call path.
+        let callee = self.lower_expr(func)?;
+        let lowered_args = args
+            .iter()
+            .map(|arg| self.lower_expr(arg))
+            .collect::<Result<Vec<_>, _>>()?;
+        // Emit dup for Owned args.
+        for (i, val) in lowered_args.iter().enumerate() {
+            if i < arg_modes.len() && arg_modes[i] == BorrowMode::Owned {
+                self.state.emit(LlvmInstr::Call {
+                    dst: None,
+                    tail: false,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::Void,
+                    callee: LlvmOperand::Global(flux_prelude_symbol("flux_dup")),
+                    args: vec![(LlvmType::i64(), val.clone())],
+                    attrs: vec![],
+                });
+            }
+        }
+        let args_ptr = self.emit_operand_array(&lowered_args, "acall.args")?;
+        let dst = self.state.temp_local("acall.closure");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(dst.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(flux_closure_symbol("flux_call_closure")),
+            args: vec![
+                (LlvmType::i64(), callee),
+                (LlvmType::ptr(), LlvmOperand::Local(args_ptr)),
+                (LlvmType::i32(), const_i32(args.len() as i32)),
+            ],
+            attrs: vec![],
+        });
+        Ok(LlvmOperand::Local(dst))
+    }
+
     fn resolve_direct_call_target(&self, func: &CoreExpr) -> Option<(GlobalId, usize)> {
         match func {
             CoreExpr::Var { var, .. } => {
@@ -688,7 +778,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         Ok(ptr)
     }
 
-    fn load_slot_value(
+    pub(super) fn load_slot_value(
         &mut self,
         slot: LlvmLocal,
         prefix: &str,

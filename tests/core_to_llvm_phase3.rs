@@ -148,7 +148,7 @@ fn factorial(n, acc) {
     fs::write(&path, ll).expect("write ll");
     let output = Command::new("opt")
         .arg("--disable-output")
-        .arg("--verify")
+        .arg("-passes=verify")
         .arg(&path)
         .output()
         .expect("run opt");

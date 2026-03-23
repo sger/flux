@@ -47,7 +47,7 @@ fn emitted_prelude_and_arith_opt_verify_if_available() {
     fs::write(&temp, ll).expect("write ll file");
     let output = Command::new("opt")
         .arg("--disable-output")
-        .arg("--verify")
+        .arg("-passes=verify")
         .arg(&temp)
         .output()
         .expect("run opt");
