@@ -12,12 +12,14 @@ use crate::{
 
 use super::{
     closure::{const_i32_operand, flux_closure_symbol, local as local_operand},
-    function::CoreToLlvmError,
-    prelude::FluxNanboxLayout,
+    function::{CoreToLlvmError, display_ident},
+    prelude::{FluxNanboxLayout, has_function, helper_attrs},
 };
 
 pub const FLUX_ADT_TYPE_NAME: &str = "FluxAdt";
 pub const FLUX_TUPLE_TYPE_NAME: &str = "FluxTuple";
+// FluxAdt = {i32 tag, i32 field_count, [0 x i64]} → 8 bytes before payload (no padding needed).
+// FluxTuple = {i32 arity, [0 x i64]} → 4 bytes data, but LLVM pads to 8 for i64 alignment.
 const FLUX_ADT_HEADER_SIZE: i32 = 8;
 const FLUX_TUPLE_HEADER_SIZE: i32 = 8;
 
@@ -98,6 +100,8 @@ pub fn flux_adt_symbol(name: &str) -> GlobalId {
     GlobalId(name.to_string())
 }
 
+/// Emit ADT/tuple type definitions and helper functions into the module.
+/// `_metadata` is reserved for future use (e.g., specialized constructors for known arities).
 pub fn emit_adt_support(module: &mut LlvmModule, _metadata: &AdtMetadata) {
     emit_adt_type(module);
     emit_tuple_type(module);
@@ -681,19 +685,6 @@ fn untag_boxed_ptr_call(dst: &str, value: LlvmOperand) -> LlvmInstr {
     }
 }
 
-fn has_function(module: &LlvmModule, name: &str) -> bool {
-    module.functions.iter().any(|func| func.name.0 == name)
-}
-
-fn helper_attrs() -> Vec<String> {
-    vec!["alwaysinline".into()]
-}
-
-fn display_ident(ident: Identifier, interner: Option<&Interner>) -> String {
-    interner
-        .map(|it| it.resolve(ident).to_string())
-        .unwrap_or_else(|| ident.to_string())
-}
 
 #[cfg(test)]
 mod tests {
