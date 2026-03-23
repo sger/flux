@@ -2,8 +2,8 @@ pub mod codegen;
 pub mod ir;
 
 pub use codegen::{
-    FluxNanboxLayout, emit_arith, emit_prelude, emit_prelude_and_arith, flux_arith_symbol,
-    flux_prelude_symbol,
+    CoreToLlvmError, FluxNanboxLayout, compile_program, compile_program_with_interner, emit_arith,
+    emit_prelude, emit_prelude_and_arith, flux_arith_symbol, flux_prelude_symbol,
 };
 pub use ir::{
     CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCallingConv, LlvmCmpOp, LlvmConst,
