@@ -1,9 +1,11 @@
+mod adt;
 mod arith;
 mod closure;
 mod expr;
 mod function;
 mod prelude;
 
+pub use adt::{FLUX_ADT_TYPE_NAME, FLUX_TUPLE_TYPE_NAME, emit_adt_support, flux_adt_symbol};
 pub use arith::{emit_arith, flux_arith_symbol};
 pub use closure::{
     FLUX_CLOSURE_TYPE_NAME, closure_type, emit_closure_support, flux_closure_symbol,
