@@ -4,6 +4,11 @@
  * All values are NaN-boxed i64.  See flux_rt.h for the encoding.
  */
 
+// Expose POSIX APIs (clock_gettime, etc.) on Linux/glibc.
+#if !defined(_POSIX_C_SOURCE) && !defined(__APPLE__)
+#define _POSIX_C_SOURCE 199309L
+#endif
+
 #include "flux_rt.h"
 #include <stdio.h>
 #include <stdlib.h>

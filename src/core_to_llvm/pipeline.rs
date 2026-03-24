@@ -99,12 +99,17 @@ fn run_opt(ll_path: &Path, bc_path: &Path, opt_level: u32) -> Result<(), Pipelin
 /// Run `llc` to compile `.bc` → `.o`.
 fn run_llc(bc_path: &Path, obj_path: &Path) -> Result<(), PipelineError> {
     let llc = find_tool("llc")?;
-    let output = Command::new(&llc)
-        .arg(bc_path)
+    let mut cmd = Command::new(&llc);
+    cmd.arg(bc_path)
         .arg("-o")
         .arg(obj_path)
-        .arg("--filetype=obj")
-        .output()?;
+        .arg("--filetype=obj");
+    // macOS Mach-O is position-independent by default; Linux and Windows
+    // require PIC for PIE executables (the default linker mode).
+    if !cfg!(target_os = "macos") {
+        cmd.arg("--relocation-model=pic");
+    }
+    let output = cmd.output()?;
     check_output("llc", &output)
 }
 
@@ -262,11 +267,51 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
     Ok(())
 }
 
-/// Locate a tool on PATH.
+/// Locate an LLVM tool, searching:
+/// 1. `<tool>` on PATH
+/// 2. Versioned names on PATH: `<tool>-18`, `<tool>-17`, `<tool>-16`
+/// 3. Well-known install directories (Linux, macOS Homebrew, Windows)
 fn find_tool(name: &'static str) -> Result<PathBuf, PipelineError> {
-    which(name).ok_or_else(|| PipelineError::ToolNotFound {
+    // 1. Exact name on PATH
+    if let Some(p) = which(name) {
+        return Ok(p);
+    }
+
+    // 3. Versioned names on PATH (prefer newest)
+    for ver in &["18", "17", "16"] {
+        let versioned = format!("{name}-{ver}");
+        if let Some(p) = which(&versioned) {
+            return Ok(p);
+        }
+    }
+
+    // 4. Well-known install directories
+    let well_known: &[&str] = &[
+        // Linux (apt.llvm.org packages)
+        "/usr/lib/llvm-18/bin",
+        "/usr/lib/llvm-17/bin",
+        "/usr/lib/llvm-16/bin",
+        // macOS Homebrew (Apple Silicon + Intel)
+        "/opt/homebrew/opt/llvm@18/bin",
+        "/opt/homebrew/opt/llvm/bin",
+        "/usr/local/opt/llvm@18/bin",
+        "/usr/local/opt/llvm/bin",
+        // Windows (typical LLVM install)
+        "C:\\Program Files\\LLVM\\bin",
+    ];
+    for dir in well_known {
+        let candidate = PathBuf::from(dir).join(name);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(PipelineError::ToolNotFound {
         tool: name,
-        detail: format!("`{name}` not found on PATH. Install LLVM to use --core-to-llvm."),
+        detail: format!(
+            "`{name}` not found on PATH or in well-known LLVM directories. \
+             Install LLVM (e.g., `apt install llvm-18` or `brew install llvm@18`)."
+        ),
     })
 }
 
