@@ -116,6 +116,11 @@ impl<'a> ProgramState<'a> {
         self.top_level.get(&binder)
     }
 
+    /// Look up a top-level function by its Identifier (name), for MemberAccess resolution.
+    pub fn top_level_by_name(&self, name: Identifier) -> Option<&TopLevelFunctionInfo> {
+        self.top_level.values().find(|info| info.name == name)
+    }
+
     pub fn ensure_top_level_wrapper(
         &mut self,
         binder: CoreBinderId,
