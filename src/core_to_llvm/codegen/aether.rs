@@ -129,13 +129,11 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         });
 
         for (i, val) in field_values.iter().enumerate() {
-            // If field_mask is set and bit `i` is clear, skip this field
-            // (it's unchanged from the original allocation).
-            if let Some(mask) = field_mask
-                && (mask >> i) & 1 == 0
-            {
-                continue;
-            }
+            // NOTE: The Aether reuse pass provides a field_mask indicating which
+            // fields changed.  However, flux_drop_reuse may allocate *fresh*
+            // (zeroed) memory when the RC > 1, so we must always write all
+            // fields to avoid reading stale zeros.
+            let _ = field_mask;
             let field_ptr = self.state.temp_local(&format!("reuse.field.{i}"));
             self.state.emit(LlvmInstr::GetElementPtr {
                 dst: field_ptr.clone(),
