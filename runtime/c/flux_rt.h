@@ -153,6 +153,18 @@ int     flux_string_eq(int64_t a, int64_t b);
 const char *flux_string_data(int64_t s);
 uint32_t    flux_string_len(int64_t s);
 
+/* ── Arrays ─────────────────────────────────────────────────────────── */
+
+int64_t flux_array_new(int64_t *elements, int32_t len);
+int64_t flux_array_len(int64_t arr);
+int64_t flux_array_get(int64_t arr, int64_t index);
+int64_t flux_array_set(int64_t arr, int64_t index, int64_t value);
+int64_t flux_array_push(int64_t arr, int64_t value);
+int64_t flux_array_concat(int64_t a, int64_t b);
+int64_t flux_array_slice(int64_t arr, int64_t start, int64_t end);
+int64_t flux_array_reverse(int64_t arr);
+int64_t flux_array_contains(int64_t arr, int64_t value);
+
 /* ── HAMT (persistent hash map) ─────────────────────────────────────── */
 
 int64_t flux_hamt_empty(void);
@@ -161,6 +173,36 @@ int64_t flux_hamt_set(int64_t map, int64_t key, int64_t value);
 int64_t flux_hamt_delete(int64_t map, int64_t key);
 int64_t flux_hamt_contains(int64_t map, int64_t key);
 int64_t flux_hamt_size(int64_t map);
+
+/* ── Numeric ────────────────────────────────────────────────────────── */
+
+int64_t flux_abs(int64_t n);
+int64_t flux_min(int64_t a, int64_t b);
+int64_t flux_max(int64_t a, int64_t b);
+
+/* ── Type inspection ────────────────────────────────────────────────── */
+
+int64_t flux_type_of(int64_t val);
+int64_t flux_is_int(int64_t val);
+int64_t flux_is_float(int64_t val);
+int64_t flux_is_string(int64_t val);
+int64_t flux_is_bool(int64_t val);
+int64_t flux_is_none(int64_t val);
+
+/* ── Control ────────────────────────────────────────────────────────── */
+
+void    flux_panic(int64_t msg);
+int64_t flux_clock_now(void);
+
+/* ── Extended I/O ───────────────────────────────────────────────────── */
+
+int64_t flux_read_lines(int64_t path);
+int64_t flux_trim(int64_t s);
+int64_t flux_split(int64_t s, int64_t delim);
+int64_t flux_join(int64_t list, int64_t sep);
+int64_t flux_substring(int64_t s, int64_t start, int64_t end);
+int64_t flux_parse_int(int64_t s);
+int64_t flux_to_string(int64_t val);
 
 /* ── Effect handlers ────────────────────────────────────────────────── */
 

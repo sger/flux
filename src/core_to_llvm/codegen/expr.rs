@@ -1573,6 +1573,161 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         Ok(LlvmOperand::Local(val))
     }
 
+    /// Lower `Concat` (string `++`) to a C runtime call.
+    fn lower_concat_primop(
+        &mut self,
+        args: &[CoreExpr],
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        self.lower_c_runtime_call("flux_string_concat", args, true)
+    }
+
+    /// Lower `Interpolate` to sequential string concatenation via `flux_to_string` + `flux_string_concat`.
+    fn lower_interpolate_primop(
+        &mut self,
+        args: &[CoreExpr],
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        if args.is_empty() {
+            return self.lower_string_literal("");
+        }
+        // Convert first arg to string.
+        let first = self.lower_expr(&args[0])?;
+        let mut result = self.emit_c_call("flux_to_string", &[first], true)?;
+        // Concatenate remaining args.
+        for arg in &args[1..] {
+            let val = self.lower_expr(arg)?;
+            let s = self.emit_c_call("flux_to_string", &[val], true)?;
+            result = self.emit_c_call("flux_string_concat", &[result, s], true)?;
+        }
+        Ok(result)
+    }
+
+    /// Lower `MakeArray` to `flux_array_new(ptr, len)`.
+    fn lower_make_array(
+        &mut self,
+        args: &[CoreExpr],
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        let lowered: Vec<LlvmOperand> = args
+            .iter()
+            .map(|a| self.lower_expr(a))
+            .collect::<Result<Vec<_>, _>>()?;
+        let arr_ptr = self.emit_operand_array(&lowered, "arr.elems")?;
+        let dst = self.state.temp_local("arr.new");
+        self.ensure_c_decl("flux_array_new", &[LlvmType::ptr(), LlvmType::i32()], LlvmType::i64());
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(dst.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Ccc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(GlobalId("flux_array_new".into())),
+            args: vec![
+                (LlvmType::ptr(), LlvmOperand::Local(arr_ptr)),
+                (LlvmType::i32(), const_i32(lowered.len() as i32)),
+            ],
+            attrs: vec![],
+        });
+        Ok(LlvmOperand::Local(dst))
+    }
+
+    /// Lower `MakeHash` to sequential `flux_hamt_set` calls.
+    fn lower_make_hash(
+        &mut self,
+        args: &[CoreExpr],
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        // MakeHash args come in key-value pairs.
+        let mut map = self.emit_c_call_no_args("flux_hamt_empty", true)?;
+        let mut i = 0;
+        while i + 1 < args.len() {
+            let key = self.lower_expr(&args[i])?;
+            let val = self.lower_expr(&args[i + 1])?;
+            map = self.emit_c_call("flux_hamt_set", &[map, key, val], true)?;
+            i += 2;
+        }
+        Ok(map)
+    }
+
+    /// Lower `Index` (e.g., `arr[i]` or `map[k]`) to a C runtime call.
+    fn lower_index_primop(
+        &mut self,
+        args: &[CoreExpr],
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        if args.len() != 2 {
+            return Err(CoreToLlvmError::Malformed {
+                message: format!("Index expects 2 args, got {}", args.len()),
+            });
+        }
+        let collection = self.lower_expr(&args[0])?;
+        let index = self.lower_expr(&args[1])?;
+        // Use array_get as default — works for arrays.
+        // HAMT get uses the same (collection, key) signature.
+        self.emit_c_call("flux_array_get", &[collection, index], true)
+    }
+
+    /// Emit a call to a C runtime function, ensuring it's declared.
+    fn lower_c_runtime_call(
+        &mut self,
+        name: &str,
+        args: &[CoreExpr],
+        returns_value: bool,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        let lowered: Vec<LlvmOperand> = args
+            .iter()
+            .map(|a| self.lower_expr(a))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.emit_c_call(name, &lowered, returns_value)
+    }
+
+    /// Emit a C call with already-lowered operands.
+    fn emit_c_call(
+        &mut self,
+        name: &str,
+        args: &[LlvmOperand],
+        returns_value: bool,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        let params: Vec<LlvmType> = args.iter().map(|_| LlvmType::i64()).collect();
+        let ret = if returns_value { LlvmType::i64() } else { LlvmType::Void };
+        self.ensure_c_decl(name, &params, ret.clone());
+
+        if returns_value {
+            let dst = self.state.temp_local("rt");
+            self.state.emit(LlvmInstr::Call {
+                dst: Some(dst.clone()),
+                tail: false,
+                call_conv: Some(CallConv::Ccc),
+                ret_ty: LlvmType::i64(),
+                callee: LlvmOperand::Global(GlobalId(name.into())),
+                args: args.iter().map(|a| (LlvmType::i64(), a.clone())).collect(),
+                attrs: vec![],
+            });
+            Ok(LlvmOperand::Local(dst))
+        } else {
+            self.state.emit(LlvmInstr::Call {
+                dst: None,
+                tail: false,
+                call_conv: Some(CallConv::Ccc),
+                ret_ty: LlvmType::Void,
+                callee: LlvmOperand::Global(GlobalId(name.into())),
+                args: args.iter().map(|a| (LlvmType::i64(), a.clone())).collect(),
+                attrs: vec![],
+            });
+            Ok(const_i64(tagged_none_bits()))
+        }
+    }
+
+    /// Emit a C call with no arguments.
+    fn emit_c_call_no_args(
+        &mut self,
+        name: &str,
+        returns_value: bool,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        self.emit_c_call(name, &[], returns_value)
+    }
+
+    /// Ensure a C function is declared in the module.
+    fn ensure_c_decl(&mut self, name: &str, params: &[LlvmType], ret: LlvmType) {
+        // Track as a custom declaration request.
+        self.program.ensure_c_decl(name, params, ret);
+    }
+
     fn bind_pattern_var(
         &mut self,
         binder: CoreBinder,
@@ -1643,14 +1798,14 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CorePrimOp::MakeList => self.lower_make_list(args),
             CorePrimOp::MakeTuple => self.lower_make_tuple(args),
             CorePrimOp::TupleField(index) => self.lower_tuple_field(*index, args),
-            CorePrimOp::Concat
-            | CorePrimOp::Interpolate
-            | CorePrimOp::MakeArray
-            | CorePrimOp::MakeHash
-            | CorePrimOp::Index
-            | CorePrimOp::MemberAccess(_) => Err(self.unsupported(
+            CorePrimOp::Concat => self.lower_concat_primop(args),
+            CorePrimOp::Interpolate => self.lower_interpolate_primop(args),
+            CorePrimOp::MakeArray => self.lower_make_array(args),
+            CorePrimOp::MakeHash => self.lower_make_hash(args),
+            CorePrimOp::Index => self.lower_index_primop(args),
+            CorePrimOp::MemberAccess(_) => Err(self.unsupported(
                 "primop",
-                &format!("primop `{op:?}` is not lowered in Phase 5"),
+                &format!("primop `{op:?}` requires record types"),
             )),
         }
     }

@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 
 /* ── Forward declarations for string helpers (string.c) ─────────────── */
 
@@ -170,6 +171,206 @@ int64_t flux_write_file(int64_t path, int64_t content) {
     fclose(f);
 
     return flux_make_bool(written == content_len);
+}
+
+/* ── Numeric helpers ────────────────────────────────────────────────── */
+
+int64_t flux_abs(int64_t n) {
+    int64_t raw = flux_untag_int(n);
+    return flux_tag_int(raw < 0 ? -raw : raw);
+}
+
+int64_t flux_min(int64_t a, int64_t b) {
+    int64_t ra = flux_untag_int(a);
+    int64_t rb = flux_untag_int(b);
+    return flux_tag_int(ra < rb ? ra : rb);
+}
+
+int64_t flux_max(int64_t a, int64_t b) {
+    int64_t ra = flux_untag_int(a);
+    int64_t rb = flux_untag_int(b);
+    return flux_tag_int(ra > rb ? ra : rb);
+}
+
+/* ── Type inspection ────────────────────────────────────────────────── */
+
+int64_t flux_type_of(int64_t val) {
+    uint64_t bits = (uint64_t)val;
+    if ((bits & FLUX_SENTINEL_MASK) != FLUX_NANBOX_SENTINEL) {
+        return flux_string_new("Float", 5);
+    }
+    int tag = flux_nanbox_tag(val);
+    switch (tag) {
+    case FLUX_TAG_INTEGER:       return flux_string_new("Int", 3);
+    case FLUX_TAG_BOOLEAN:       return flux_string_new("Bool", 4);
+    case FLUX_TAG_NONE:          return flux_string_new("None", 4);
+    case FLUX_TAG_EMPTY_LIST:    return flux_string_new("List", 4);
+    case FLUX_TAG_BASE_FUNCTION: return flux_string_new("Function", 8);
+    case FLUX_TAG_BOXED_VALUE:   return flux_string_new("Object", 6);
+    default:                     return flux_string_new("Unknown", 7);
+    }
+}
+
+int64_t flux_is_int(int64_t val) {
+    if (!flux_is_nanbox(val)) return flux_make_bool(0);
+    return flux_make_bool(flux_nanbox_tag(val) == FLUX_TAG_INTEGER);
+}
+
+int64_t flux_is_float(int64_t val) {
+    return flux_make_bool(!flux_is_nanbox(val));
+}
+
+int64_t flux_is_string(int64_t val) {
+    /* Strings are boxed values; we can't distinguish from other boxed without a type tag. */
+    return flux_make_bool(flux_is_ptr(val));
+}
+
+int64_t flux_is_bool(int64_t val) {
+    if (!flux_is_nanbox(val)) return flux_make_bool(0);
+    return flux_make_bool(flux_nanbox_tag(val) == FLUX_TAG_BOOLEAN);
+}
+
+int64_t flux_is_none(int64_t val) {
+    if (!flux_is_nanbox(val)) return flux_make_bool(0);
+    return flux_make_bool(flux_nanbox_tag(val) == FLUX_TAG_NONE);
+}
+
+/* ── Control ────────────────────────────────────────────────────────── */
+
+void flux_panic(int64_t msg) {
+    if (flux_is_ptr(msg)) {
+        uint32_t len = flux_string_len(msg);
+        const char *data = flux_string_data(msg);
+        fprintf(stderr, "panic: %.*s\n", (int)len, data);
+    } else {
+        fprintf(stderr, "panic: ");
+        flux_print(msg);
+        fprintf(stderr, "\n");
+    }
+    abort();
+}
+
+int64_t flux_clock_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    int64_t ms = (int64_t)ts.tv_sec * 1000 + (int64_t)ts.tv_nsec / 1000000;
+    return flux_tag_int(ms);
+}
+
+/* ── Extended string/I/O helpers ────────────────────────────────────── */
+
+int64_t flux_trim(int64_t s) {
+    const char *data = flux_string_data(s);
+    uint32_t len = flux_string_len(s);
+    uint32_t start = 0, end = len;
+    while (start < end && (data[start] == ' ' || data[start] == '\t' ||
+                            data[start] == '\n' || data[start] == '\r'))
+        start++;
+    while (end > start && (data[end - 1] == ' ' || data[end - 1] == '\t' ||
+                            data[end - 1] == '\n' || data[end - 1] == '\r'))
+        end--;
+    return flux_string_new(data + start, end - start);
+}
+
+int64_t flux_substring(int64_t s, int64_t start_val, int64_t end_val) {
+    return flux_string_slice(s, start_val, end_val);
+}
+
+int64_t flux_parse_int(int64_t s) {
+    return flux_string_to_int(s);
+}
+
+int64_t flux_to_string(int64_t val) {
+    uint64_t bits = (uint64_t)val;
+    /* Float. */
+    if ((bits & FLUX_SENTINEL_MASK) != FLUX_NANBOX_SENTINEL) {
+        return flux_float_to_string(val);
+    }
+    int tag = flux_nanbox_tag(val);
+    switch (tag) {
+    case FLUX_TAG_INTEGER:    return flux_int_to_string(val);
+    case FLUX_TAG_BOOLEAN:
+        return ((uint64_t)val & FLUX_PAYLOAD_MASK)
+            ? flux_string_new("true", 4)
+            : flux_string_new("false", 5);
+    case FLUX_TAG_NONE:       return flux_string_new("None", 4);
+    case FLUX_TAG_EMPTY_LIST: return flux_string_new("[]", 2);
+    case FLUX_TAG_BOXED_VALUE: {
+        /* If it's a string, return it directly. */
+        return val;
+    }
+    default: return flux_string_new("<value>", 7);
+    }
+}
+
+int64_t flux_read_lines(int64_t path) {
+    /* Read file, then split on newlines into a cons list. */
+    int64_t content = flux_read_file(path);
+    if (flux_nanbox_tag(content) == FLUX_TAG_NONE) {
+        return flux_make_empty_list();
+    }
+    const char *data = flux_string_data(content);
+    uint32_t len = flux_string_len(content);
+
+    /* Build list in reverse, then reverse. */
+    int64_t list = flux_make_empty_list();
+    uint32_t start = 0;
+    for (uint32_t i = 0; i <= len; i++) {
+        if (i == len || data[i] == '\n') {
+            uint32_t line_len = i - start;
+            /* Skip trailing \r. */
+            if (line_len > 0 && data[start + line_len - 1] == '\r') line_len--;
+            int64_t line = flux_string_new(data + start, line_len);
+            /* Cons onto front. */
+            int64_t fields[2];
+            fields[0] = line;
+            fields[1] = list;
+            /* Build a 2-field ADT with CONS tag (4). */
+            list = flux_tag_ptr(flux_gc_alloc(sizeof(int32_t) * 2 + sizeof(int64_t) * 2));
+            void *ptr = flux_untag_ptr(list);
+            *(int32_t *)ptr = 4; /* CONS_TAG */
+            *((int32_t *)ptr + 1) = 2; /* field count */
+            int64_t *fptr = (int64_t *)((char *)ptr + 8);
+            fptr[0] = line;
+            fptr[1] = flux_make_empty_list(); /* placeholder */
+            start = i + 1;
+        }
+    }
+    /* TODO: proper cons list building requires reverse. For now, rebuild forward. */
+    /* Rebuild forward by collecting lines first. */
+    uint32_t line_count = 0;
+    for (uint32_t i = 0; i < len; i++) {
+        if (data[i] == '\n') line_count++;
+    }
+    line_count++; /* last line */
+
+    /* Allocate temporary array of lines. */
+    int64_t *lines = (int64_t *)malloc(line_count * sizeof(int64_t));
+    uint32_t li = 0;
+    start = 0;
+    for (uint32_t i = 0; i <= len; i++) {
+        if (i == len || data[i] == '\n') {
+            uint32_t line_len = i - start;
+            if (line_len > 0 && data[start + line_len - 1] == '\r') line_len--;
+            lines[li++] = flux_string_new(data + start, line_len);
+            start = i + 1;
+        }
+    }
+
+    /* Build cons list from back to front. */
+    list = flux_make_empty_list();
+    for (int32_t i = (int32_t)li - 1; i >= 0; i--) {
+        /* Use flux_gc_alloc for ADT: tag(4) + field_count(4) + 2*i64 */
+        void *mem = flux_gc_alloc(8 + 2 * 8);
+        *(int32_t *)mem = 4; /* CONS tag */
+        *((int32_t *)mem + 1) = 2;
+        int64_t *fields_p = (int64_t *)((char *)mem + 8);
+        fields_p[0] = lines[i];
+        fields_p[1] = list;
+        list = flux_tag_ptr(mem);
+    }
+    free(lines);
+    return list;
 }
 
 /* ── Main entry point wrapper ───────────────────────────────────────── */

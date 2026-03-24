@@ -1,0 +1,31 @@
+// Base.Numeric — Numeric list operations.
+
+fn sum(list) {
+    fold(list, 0, \(acc, x) -> acc + x)
+}
+
+fn product(list) {
+    fold(list, 1, \(acc, x) -> acc * x)
+}
+
+fn max_list(list) {
+    match list {
+        [x] -> x,
+        [x | xs] -> {
+            let m = max_list(xs);
+            if x > m { x } else { m }
+        },
+        _ -> 0
+    }
+}
+
+fn min_list(list) {
+    match list {
+        [x] -> x,
+        [x | xs] -> {
+            let m = min_list(xs);
+            if x < m { x } else { m }
+        },
+        _ -> 0
+    }
+}

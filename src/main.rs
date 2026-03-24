@@ -758,6 +758,30 @@ fn run_file(
                 use std::collections::HashMap;
 
                 let mut c2l_program = Program::new();
+
+                // Load Base library (stdlib) — parse prelude .flx files
+                // and prepend their definitions before user code.
+                // Base library auto-loading: disabled pending separate compilation
+                // support. The Base functions need their own type inference pass
+                // rather than being mixed into the user program. For now, base
+                // functions are handled via builtins.rs (C runtime FFI calls).
+                // See Proposal 0120 for the full design.
+                if false {
+                    let base_dir = locate_base_lib_dir().unwrap();
+                    let base_files = [
+                        "List.flx",
+                    ];
+                    for file in base_files {
+                        let base_path = base_dir.join(file);
+                        if let Ok(base_source) = std::fs::read_to_string(&base_path) {
+                            let lexer = Lexer::new(&base_source);
+                            let mut parser = Parser::new(lexer);
+                            let base_prog = parser.parse_program();
+                            c2l_program.statements.extend(base_prog.statements);
+                        }
+                    }
+                }
+
                 for node in graph.topo_order() {
                     c2l_program
                         .statements
@@ -770,6 +794,9 @@ fn run_file(
                         constant_fold_with_interner(desugared, &compiler.interner);
                     c2l_program = rename(optimized, HashMap::new());
                 }
+
+                // Re-run HM type inference when Base library is loaded.
+                // (Currently disabled — see above.)
 
                 // Lower AST → Core IR (with Aether passes).
                 let core = match compiler
@@ -791,6 +818,7 @@ fn run_file(
                     }
                 };
 
+                eprintln!("[c2l] Core IR done ({} defs). Starting LLVM codegen...", core.defs.len());
                 // Core IR → LLVM IR AST → text.
                 let llvm_module = match flux::core_to_llvm::compile_program_with_interner(
                     &core,
@@ -1613,6 +1641,28 @@ fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
     // Check current working directory.
     let cwd = std::path::PathBuf::from("runtime/c");
     if cwd.join("libflux_rt.a").exists() {
+        return Some(cwd);
+    }
+    None
+}
+
+/// Locate the Base library directory (`lib/Base/`).
+#[cfg(feature = "core_to_llvm")]
+fn locate_base_lib_dir() -> Option<std::path::PathBuf> {
+    if let Ok(exe) = std::env::current_exe() {
+        let mut dir = exe.parent().map(Path::to_path_buf);
+        for _ in 0..5 {
+            if let Some(ref d) = dir {
+                let candidate = d.join("lib").join("Base");
+                if candidate.join("List.flx").exists() {
+                    return Some(candidate);
+                }
+                dir = d.parent().map(Path::to_path_buf);
+            }
+        }
+    }
+    let cwd = std::path::PathBuf::from("lib/Base");
+    if cwd.join("List.flx").exists() {
         return Some(cwd);
     }
     None
