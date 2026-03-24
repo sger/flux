@@ -245,6 +245,26 @@ int64_t flux_substring(int64_t s, int64_t start, int64_t end);
 int64_t flux_parse_int(int64_t s);
 int64_t flux_to_string(int64_t val);
 
+/* ── Collection helpers ─────────────────────────────────────────────── */
+
+int64_t flux_first(int64_t collection);
+int64_t flux_last(int64_t collection);
+int64_t flux_rest(int64_t collection);
+int64_t flux_rt_len(int64_t collection);
+int64_t flux_to_list(int64_t arr);
+int64_t flux_is_array(int64_t val);
+int64_t flux_is_map(int64_t val);
+int64_t flux_hamt_keys(int64_t map);
+int64_t flux_hamt_values(int64_t map);
+int64_t flux_hamt_get_option(int64_t map, int64_t key);
+int64_t flux_hamt_merge(int64_t a, int64_t b);
+int64_t flux_to_array(int64_t list);
+int64_t flux_hamt_values(int64_t map);
+int64_t flux_is_list(int64_t val);
+int64_t flux_is_some(int64_t val);
+int64_t flux_unwrap(int64_t val);
+int64_t flux_unwrap_or(int64_t val, int64_t def);
+
 /* ── Effect handlers ────────────────────────────────────────────────── */
 
 void    flux_push_handler(int64_t effect_tag, void *handler_fn, void *resume_fn);

@@ -363,6 +363,27 @@ int64_t flux_rt_neg(int64_t a) {
     return flux_tag_int(-flux_untag_int(a));
 }
 
+/* ── Some-wrapping helper ───────────────────────────────────────────── */
+
+static int64_t flux_wrap_some(int64_t val) {
+    void *mem = flux_gc_alloc(8 + 8);
+    int32_t *hdr = (int32_t *)mem;
+    hdr[0] = 1; /* ctor_tag = Some */
+    hdr[1] = 1; /* field_count = 1 */
+    int64_t *fields = (int64_t *)((char *)mem + 8);
+    fields[0] = val;
+    return flux_tag_ptr(mem);
+}
+
+/* HAMT get returning Some(value) or None — matches VM semantics. */
+int64_t flux_hamt_get_option(int64_t map, int64_t key) {
+    int64_t result = flux_hamt_get(map, key);
+    if (flux_is_nanbox(result) && flux_nanbox_tag(result) == FLUX_TAG_NONE) {
+        return flux_make_none();
+    }
+    return flux_wrap_some(result);
+}
+
 /* ── Runtime-dispatching comparisons ────────────────────────────────── */
 
 int64_t flux_rt_eq(int64_t a, int64_t b) {
@@ -438,51 +459,21 @@ int64_t flux_rt_index(int64_t collection, int64_t key) {
     switch (tag) {
     case FLUX_OBJ_ARRAY: {
         int64_t result = flux_array_get(collection, key);
-        /* flux_array_get returns raw value or None for out-of-bounds.
-         * VM's Index wraps in Some() for safe indexing. */
         if (flux_is_nanbox(result) && flux_nanbox_tag(result) == FLUX_TAG_NONE) {
             return flux_make_none();
         }
-        void *mem = flux_gc_alloc(8 + 8);
-        int32_t *hdr = (int32_t *)mem;
-        hdr[0] = 1; /* ctor_tag = Some */
-        hdr[1] = 1; /* field_count = 1 */
-        int64_t *fields = (int64_t *)((char *)mem + 8);
-        fields[0] = result;
-        return flux_tag_ptr(mem);
+        return flux_wrap_some(result);
     }
     case FLUX_OBJ_TUPLE: {
-        /* Tuple indexing: return Some(field) or None. */
         uint32_t arity = *(uint32_t *)((char *)ptr + 4);
         int64_t idx = flux_untag_int(key);
         if (idx < 0 || (uint32_t)idx >= arity) return flux_make_none();
         int64_t *elems = (int64_t *)((char *)ptr + 8);
-        /* Wrap in Some — matches VM semantics for safe indexing. */
-        /* Allocate a 1-field ADT with tag=1 (Some). */
-        void *mem = flux_gc_alloc(8 + 8);
-        int32_t *hdr = (int32_t *)mem;
-        hdr[0] = 1; /* ctor_tag = Some */
-        hdr[1] = 1; /* field_count = 1 */
-        int64_t *fields = (int64_t *)((char *)mem + 8);
-        fields[0] = elems[idx];
-        return flux_tag_ptr(mem);
+        return flux_wrap_some(elems[idx]);
     }
     default: {
         /* Assume HAMT for any other boxed value. */
-        int64_t result = flux_hamt_get(collection, key);
-        /* flux_hamt_get returns raw value or None.
-         * VM's Index wraps in Some() for safe indexing. */
-        if (flux_is_nanbox(result) && flux_nanbox_tag(result) == FLUX_TAG_NONE) {
-            return flux_make_none();
-        }
-        /* Wrap in Some(value) — allocate 1-field ADT with tag=1 */
-        void *mem = flux_gc_alloc(8 + 8);
-        int32_t *hdr = (int32_t *)mem;
-        hdr[0] = 1; /* ctor_tag = Some */
-        hdr[1] = 1; /* field_count = 1 */
-        int64_t *fields = (int64_t *)((char *)mem + 8);
-        fields[0] = result;
-        return flux_tag_ptr(mem);
+        return flux_hamt_get_option(collection, key);
     }
     }
 }
@@ -510,7 +501,27 @@ int64_t flux_type_of(int64_t val) {
             case FLUX_OBJ_ARRAY:   return flux_string_new("Array", 5);
             case FLUX_OBJ_TUPLE:   return flux_string_new("Tuple", 5);
             case FLUX_OBJ_CLOSURE: return flux_string_new("Function", 8);
-            default: break;
+            default: {
+                /* Non-FLUX_OBJ_* tag: either ADT or HAMT.
+                 * ADTs have { int32 ctor_tag, int32 field_count, ... }.
+                 * HAMTs have { int32 kind, ... }.
+                 * Best heuristic: check is_map logic. */
+                int32_t first_i32 = *(int32_t *)ptr;
+                int32_t second_i32 = *((int32_t *)ptr + 1);
+                /* ADT: ctor_tag 0-255, field_count 0-100 (reasonable) */
+                if (first_i32 >= 0 && first_i32 <= 255 && second_i32 >= 0 && second_i32 <= 100) {
+                    switch (first_i32) {
+                    case 0: return (second_i32 == 0) ? flux_string_new("None", 4) : flux_string_new("Adt", 3);
+                    case 1: return flux_string_new("Some", 4);
+                    case 2: return flux_string_new("Left", 4);
+                    case 3: return flux_string_new("Right", 5);
+                    case 4: return flux_string_new("List", 4);
+                    default: return flux_string_new("Adt", 3);
+                    }
+                }
+                /* Fall through to Map for HAMT-like structures. */
+                return flux_string_new("Map", 3);
+            }
             }
         }
         return flux_string_new("Object", 6);
@@ -724,6 +735,304 @@ int64_t flux_read_lines(int64_t path) {
     }
     free(lines);
     return list;
+}
+
+/* ── Collection helpers ─────────────────────────────────────────────── */
+
+/* first(collection) → Some(first_element) or None.
+ * Supports arrays and cons lists. */
+int64_t flux_first(int64_t collection) {
+    /* Check for empty list NaN-box tag first. */
+    if (flux_is_nanbox(collection) && flux_nanbox_tag(collection) == FLUX_TAG_EMPTY_LIST) {
+        return flux_make_none();
+    }
+
+    if (flux_is_ptr(collection)) {
+        void *ptr = flux_untag_ptr(collection);
+        if (!ptr) return flux_make_none();
+        uint8_t obj = flux_obj_tag(ptr);
+
+        if (obj == FLUX_OBJ_ARRAY) {
+            uint32_t len = *(uint32_t *)((char *)ptr + 4);
+            if (len == 0) return flux_make_none();
+            int64_t *elems = (int64_t *)((char *)ptr + 16);
+            return flux_wrap_some(elems[0]);
+        }
+
+        /* Check for cons list: ADT with ctor_tag=4, field_count=2 */
+        int32_t ctor_tag = *(int32_t *)ptr;
+        int32_t field_count = *((int32_t *)ptr + 1);
+        if (ctor_tag == 4 && field_count == 2) {
+            int64_t *fields = (int64_t *)((char *)ptr + 8);
+            return flux_wrap_some(fields[0]);
+        }
+    }
+
+    return flux_make_none();
+}
+
+/* to_list(arr) → converts array to cons list. */
+int64_t flux_to_list(int64_t arr_val) {
+    if (!flux_is_ptr(arr_val)) return flux_make_empty_list();
+    void *ptr = flux_untag_ptr(arr_val);
+    if (!ptr) return flux_make_empty_list();
+    uint8_t obj = flux_obj_tag(ptr);
+    if (obj != FLUX_OBJ_ARRAY) return flux_make_empty_list();
+
+    uint32_t len = *(uint32_t *)((char *)ptr + 4);
+    int64_t *elems = (int64_t *)((char *)ptr + 16);
+
+    /* Build cons list from back to front. */
+    int64_t list = flux_make_empty_list();
+    for (int32_t i = (int32_t)len - 1; i >= 0; i--) {
+        void *mem = flux_gc_alloc(8 + 2 * 8);
+        *(int32_t *)mem = 4; /* CONS tag */
+        *((int32_t *)mem + 1) = 2;
+        int64_t *fields = (int64_t *)((char *)mem + 8);
+        fields[0] = elems[i];
+        fields[1] = list;
+        list = flux_tag_ptr(mem);
+    }
+    return list;
+}
+
+/* is_array(val) → bool (true if val is a boxed array). */
+int64_t flux_is_array(int64_t val) {
+    if (!flux_is_ptr(val)) return flux_make_bool(0);
+    void *ptr = flux_untag_ptr(val);
+    if (!ptr) return flux_make_bool(0);
+    return flux_make_bool(flux_obj_tag(ptr) == FLUX_OBJ_ARRAY);
+}
+
+/* is_map(val) → bool (true if val is a HAMT map).
+ * HAMTs don't have a FLUX_OBJ_* tag, so we check if it's a boxed pointer
+ * that is NOT any of the known object types. */
+int64_t flux_is_map(int64_t val) {
+    if (!flux_is_ptr(val)) return flux_make_bool(0);
+    void *ptr = flux_untag_ptr(val);
+    if (!ptr) return flux_make_bool(0);
+    uint8_t obj = flux_obj_tag(ptr);
+    /* Known obj_tags are 0xF1..0xF5.  HAMT nodes use HamtKind enum values
+     * (0=EMPTY, 1=LEAF, 2=BRANCH, 3=COLLISION) as their first bytes.
+     * So if obj_tag is NOT one of the FLUX_OBJ_* tags, assume HAMT. */
+    if (obj == FLUX_OBJ_STRING || obj == FLUX_OBJ_ARRAY ||
+        obj == FLUX_OBJ_TUPLE || obj == FLUX_OBJ_ADT || obj == FLUX_OBJ_CLOSURE) {
+        return flux_make_bool(0);
+    }
+    return flux_make_bool(1);
+}
+
+/* last(collection) → Some(last_element) or None. */
+int64_t flux_last(int64_t collection) {
+    if (flux_is_nanbox(collection) && flux_nanbox_tag(collection) == FLUX_TAG_EMPTY_LIST) {
+        return flux_make_none();
+    }
+    if (!flux_is_ptr(collection)) return flux_make_none();
+    void *ptr = flux_untag_ptr(collection);
+    if (!ptr) return flux_make_none();
+    uint8_t obj = flux_obj_tag(ptr);
+    if (obj == FLUX_OBJ_ARRAY) {
+        uint32_t len = *(uint32_t *)((char *)ptr + 4);
+        if (len == 0) return flux_make_none();
+        int64_t *elems = (int64_t *)((char *)ptr + 16);
+        return flux_wrap_some(elems[len - 1]);
+    }
+    /* Cons list: walk to the end. */
+    int64_t cur = collection;
+    int64_t last_head = flux_make_none();
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        int32_t ct = *(int32_t *)cp;
+        if (ct != 4) break;
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        last_head = fields[0];
+        cur = fields[1];
+    }
+    if (flux_is_nanbox(last_head) && flux_nanbox_tag(last_head) == FLUX_TAG_NONE) {
+        return flux_make_none();
+    }
+    return flux_wrap_some(last_head);
+}
+
+/* rest(collection) → tail of list/array (everything except first). */
+int64_t flux_rest(int64_t collection) {
+    if (flux_is_nanbox(collection) && flux_nanbox_tag(collection) == FLUX_TAG_EMPTY_LIST) {
+        return flux_make_empty_list();
+    }
+    if (!flux_is_ptr(collection)) return flux_make_empty_list();
+    void *ptr = flux_untag_ptr(collection);
+    if (!ptr) return flux_make_empty_list();
+    uint8_t obj = flux_obj_tag(ptr);
+    if (obj == FLUX_OBJ_ARRAY) {
+        uint32_t len = *(uint32_t *)((char *)ptr + 4);
+        if (len <= 1) return flux_array_new(NULL, 0);
+        int64_t *elems = (int64_t *)((char *)ptr + 16);
+        return flux_array_new(elems + 1, (int32_t)(len - 1));
+    }
+    /* Cons list: return tail. */
+    int32_t ct = *(int32_t *)ptr;
+    if (ct == 4) {
+        int64_t *fields = (int64_t *)((char *)ptr + 8);
+        return fields[1]; /* tail */
+    }
+    return flux_make_empty_list();
+}
+
+/* len/length — returns length of array, string, list, tuple, or map. */
+int64_t flux_rt_len(int64_t collection) {
+    if (flux_is_nanbox(collection)) {
+        if (flux_nanbox_tag(collection) == FLUX_TAG_EMPTY_LIST) return flux_tag_int(0);
+        return flux_tag_int(0);
+    }
+    if (!flux_is_ptr(collection)) return flux_tag_int(0);
+    void *ptr = flux_untag_ptr(collection);
+    if (!ptr) return flux_tag_int(0);
+    uint8_t obj = flux_obj_tag(ptr);
+    if (obj == FLUX_OBJ_ARRAY) {
+        uint32_t len = *(uint32_t *)((char *)ptr + 4);
+        return flux_tag_int((int64_t)len);
+    }
+    if (obj == FLUX_OBJ_STRING) {
+        return flux_string_length(collection);
+    }
+    if (obj == FLUX_OBJ_TUPLE) {
+        uint32_t arity = *(uint32_t *)((char *)ptr + 4);
+        return flux_tag_int((int64_t)arity);
+    }
+    /* Cons list: count nodes. */
+    int64_t count = 0;
+    int64_t cur = collection;
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        int32_t ct = *(int32_t *)cp;
+        if (ct != 4) break;
+        count++;
+        cur = ((int64_t *)((char *)cp + 8))[1];
+    }
+    return flux_tag_int(count);
+}
+
+/* to_array(list) → array. Converts cons list to array. */
+int64_t flux_to_array(int64_t list) {
+    /* Count elements. */
+    int64_t count = 0;
+    int64_t cur = list;
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        int32_t ct = *(int32_t *)cp;
+        if (ct != 4) break;
+        count++;
+        cur = ((int64_t *)((char *)cp + 8))[1];
+    }
+    if (count == 0) return flux_array_new(NULL, 0);
+    int64_t *elems = (int64_t *)malloc(count * sizeof(int64_t));
+    cur = list;
+    for (int64_t i = 0; i < count; i++) {
+        void *cp = flux_untag_ptr(cur);
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        elems[i] = fields[0];
+        cur = fields[1];
+    }
+    int64_t result = flux_array_new(elems, (int32_t)count);
+    free(elems);
+    return result;
+}
+
+/* is_list(val) → bool. */
+int64_t flux_is_list(int64_t val) {
+    if (flux_is_nanbox(val) && flux_nanbox_tag(val) == FLUX_TAG_EMPTY_LIST)
+        return flux_make_bool(1);
+    if (!flux_is_ptr(val)) return flux_make_bool(0);
+    void *ptr = flux_untag_ptr(val);
+    if (!ptr) return flux_make_bool(0);
+    /* Cons list has ctor_tag=4 */
+    int32_t ct = *(int32_t *)ptr;
+    return flux_make_bool(ct == 4);
+}
+
+/* is_some(val) → bool. */
+int64_t flux_is_some(int64_t val) {
+    if (!flux_is_ptr(val)) return flux_make_bool(0);
+    void *ptr = flux_untag_ptr(val);
+    if (!ptr) return flux_make_bool(0);
+    int32_t ct = *(int32_t *)ptr;
+    return flux_make_bool(ct == 1); /* ctor_tag 1 = Some */
+}
+
+/* unwrap(option) → value or panic. */
+int64_t flux_unwrap(int64_t val) {
+    if (flux_is_ptr(val)) {
+        void *ptr = flux_untag_ptr(val);
+        if (ptr) {
+            int32_t ct = *(int32_t *)ptr;
+            if (ct == 1) { /* Some */
+                int64_t *fields = (int64_t *)((char *)ptr + 8);
+                return fields[0];
+            }
+        }
+    }
+    flux_panic(flux_string_new("unwrap called on None", 21));
+    return flux_make_none(); /* unreachable */
+}
+
+/* unwrap_or(option, default) → value or default. */
+int64_t flux_unwrap_or(int64_t val, int64_t def) {
+    if (flux_is_ptr(val)) {
+        void *ptr = flux_untag_ptr(val);
+        if (ptr) {
+            int32_t ct = *(int32_t *)ptr;
+            if (ct == 1) { /* Some */
+                int64_t *fields = (int64_t *)((char *)ptr + 8);
+                return fields[0];
+            }
+        }
+    }
+    return def;
+}
+
+/* split(s, delim) → array of strings. */
+int64_t flux_split(int64_t s, int64_t delim) {
+    const char *s_data = flux_string_data(s);
+    uint32_t s_len = flux_string_len(s);
+    const char *d_data = flux_string_data(delim);
+    uint32_t d_len = flux_string_len(delim);
+
+    /* Edge case: empty delimiter → return array of single-char strings. */
+    if (d_len == 0) {
+        int64_t *parts = (int64_t *)malloc(s_len * sizeof(int64_t));
+        for (uint32_t i = 0; i < s_len; i++) {
+            parts[i] = flux_string_new(s_data + i, 1);
+        }
+        int64_t result = flux_array_new(parts, (int32_t)s_len);
+        free(parts);
+        return result;
+    }
+
+    /* Count splits first. */
+    uint32_t count = 1;
+    for (uint32_t i = 0; i + d_len <= s_len; i++) {
+        if (memcmp(s_data + i, d_data, d_len) == 0) {
+            count++;
+            i += d_len - 1;
+        }
+    }
+
+    int64_t *parts = (int64_t *)malloc(count * sizeof(int64_t));
+    uint32_t pi = 0;
+    uint32_t start = 0;
+    for (uint32_t i = 0; i + d_len <= s_len; i++) {
+        if (memcmp(s_data + i, d_data, d_len) == 0) {
+            parts[pi++] = flux_string_new(s_data + start, i - start);
+            i += d_len - 1;
+            start = i + 1;
+        }
+    }
+    /* Last segment. */
+    parts[pi++] = flux_string_new(s_data + start, s_len - start);
+
+    int64_t result = flux_array_new(parts, (int32_t)pi);
+    free(parts);
+    return result;
 }
 
 /* ── Main entry point wrapper ───────────────────────────────────────── */
