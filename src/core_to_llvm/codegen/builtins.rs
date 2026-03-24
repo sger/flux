@@ -40,6 +40,40 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     // I/O (file)
     BuiltinMapping { flux_name: "read_file",   c_name: "flux_read_file",       arity: 1, returns_value: true },
     BuiltinMapping { flux_name: "read_stdin",  c_name: "flux_read_line",       arity: 0, returns_value: true },
+    BuiltinMapping { flux_name: "read_lines",  c_name: "flux_read_lines",      arity: 1, returns_value: true },
+    BuiltinMapping { flux_name: "write_file",  c_name: "flux_write_file",      arity: 2, returns_value: true },
+    // Numeric
+    BuiltinMapping { flux_name: "abs",         c_name: "flux_abs",             arity: 1, returns_value: true },
+    BuiltinMapping { flux_name: "min",         c_name: "flux_min",             arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "max",         c_name: "flux_max",             arity: 2, returns_value: true },
+    // Type inspection
+    BuiltinMapping { flux_name: "type_of",     c_name: "flux_type_of",         arity: 1, returns_value: true },
+    BuiltinMapping { flux_name: "is_int",      c_name: "flux_is_int",          arity: 1, returns_value: true },
+    BuiltinMapping { flux_name: "is_float",    c_name: "flux_is_float",        arity: 1, returns_value: true },
+    BuiltinMapping { flux_name: "is_string",   c_name: "flux_is_string",       arity: 1, returns_value: true },
+    BuiltinMapping { flux_name: "is_bool",     c_name: "flux_is_bool",         arity: 1, returns_value: true },
+    BuiltinMapping { flux_name: "is_none",     c_name: "flux_is_none",         arity: 1, returns_value: true },
+    // String operations
+    BuiltinMapping { flux_name: "trim",        c_name: "flux_trim",            arity: 1, returns_value: true },
+    BuiltinMapping { flux_name: "substring",   c_name: "flux_substring",       arity: 3, returns_value: true },
+    BuiltinMapping { flux_name: "parse_int",   c_name: "flux_parse_int",       arity: 1, returns_value: true },
+    BuiltinMapping { flux_name: "parse_ints",  c_name: "flux_parse_int",       arity: 1, returns_value: true },
+    // Array operations
+    BuiltinMapping { flux_name: "len",         c_name: "flux_array_len",       arity: 1, returns_value: true },
+    BuiltinMapping { flux_name: "push",        c_name: "flux_array_push",      arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "concat",      c_name: "flux_array_concat",    arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "reverse",     c_name: "flux_array_reverse",   arity: 1, returns_value: true },
+    BuiltinMapping { flux_name: "slice",       c_name: "flux_array_slice",     arity: 3, returns_value: true },
+    BuiltinMapping { flux_name: "contains",    c_name: "flux_array_contains",  arity: 2, returns_value: true },
+    // HAMT extended
+    BuiltinMapping { flux_name: "put",         c_name: "flux_hamt_set",        arity: 3, returns_value: true },
+    BuiltinMapping { flux_name: "get",         c_name: "flux_hamt_get",        arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "has_key",     c_name: "flux_hamt_contains",   arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "delete",      c_name: "flux_hamt_delete",     arity: 2, returns_value: true },
+    // Control
+    BuiltinMapping { flux_name: "panic",       c_name: "flux_panic",           arity: 1, returns_value: false },
+    BuiltinMapping { flux_name: "now_ms",      c_name: "flux_clock_now",       arity: 0, returns_value: true },
+    BuiltinMapping { flux_name: "time",        c_name: "flux_clock_now",       arity: 0, returns_value: true },
 ];
 
 /// Look up a base function's C runtime mapping by Flux name.

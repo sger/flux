@@ -1,0 +1,21 @@
+// Base.IO — I/O helper functions.
+
+fn print_all(list) with IO {
+    match list {
+        [] -> (),
+        [h | t] -> {
+            print(h);
+            print_all(t)
+        }
+    }
+}
+
+fn println_all(list) with IO {
+    match list {
+        [] -> (),
+        [h | t] -> {
+            println(h);
+            println_all(t)
+        }
+    }
+}

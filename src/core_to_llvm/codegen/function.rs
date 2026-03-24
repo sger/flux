@@ -66,6 +66,8 @@ pub(super) struct ProgramState<'a> {
     pub needed_builtins: Vec<&'static super::builtins::BuiltinMapping>,
     /// String literal globals to emit (name, content).
     pub generated_string_globals: Vec<(GlobalId, String)>,
+    /// C runtime declarations needed (name, param types, return type).
+    pub needed_c_decls: Vec<(String, Vec<LlvmType>, LlvmType)>,
 }
 
 impl<'a> ProgramState<'a> {
@@ -83,6 +85,14 @@ impl<'a> ProgramState<'a> {
             next_lambda_id: 0,
             needed_builtins: Vec::new(),
             generated_string_globals: Vec::new(),
+            needed_c_decls: Vec::new(),
+        }
+    }
+
+    /// Track a C runtime function declaration needed by the codegen.
+    pub fn ensure_c_decl(&mut self, name: &str, params: &[LlvmType], ret: LlvmType) {
+        if !self.needed_c_decls.iter().any(|(n, _, _)| n == name) {
+            self.needed_c_decls.push((name.to_string(), params.to_vec(), ret));
         }
     }
 
@@ -202,6 +212,25 @@ pub fn compile_program_with_interner(
     // Add C runtime declarations for any builtin functions referenced.
     for mapping in &program.needed_builtins {
         super::builtins::ensure_builtin_declared(&mut module, mapping);
+    }
+
+    // Add C runtime declarations requested by codegen.
+    for (name, params, ret) in &program.needed_c_decls {
+        if !module.declarations.iter().any(|d| d.name.0 == *name)
+            && !module.functions.iter().any(|f| f.name.0 == *name)
+        {
+            module.declarations.push(crate::core_to_llvm::LlvmDecl {
+                linkage: crate::core_to_llvm::Linkage::External,
+                name: GlobalId(name.clone()),
+                sig: crate::core_to_llvm::LlvmFunctionSig {
+                    ret: ret.clone(),
+                    params: params.clone(),
+                    varargs: false,
+                    call_conv: crate::core_to_llvm::CallConv::Ccc,
+                },
+                attrs: vec!["nounwind".into()],
+            });
+        }
     }
 
     // Emit string literal globals.
