@@ -62,7 +62,10 @@ pub(super) struct FunctionLowering<'a, 'p> {
     is_tail_position: bool,
     /// If this function belongs to a mutual tail-recursion group (Phase 2),
     /// stores (this function's binder, the group).
-    pub mutual_group: Option<(CoreBinderId, std::sync::Arc<super::function::MutualRecGroup>)>,
+    pub mutual_group: Option<(
+        CoreBinderId,
+        std::sync::Arc<super::function::MutualRecGroup>,
+    )>,
     /// Phase 3 CPS state — present when the function has non-tail self-recursion.
     pub cps_state: Option<CpsState>,
 }
@@ -327,9 +330,12 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         &mut self,
         body_result: LlvmOperand,
     ) -> Result<LlvmOperand, CoreToLlvmError> {
-        let cps = self.cps_state.as_ref().ok_or_else(|| CoreToLlvmError::Malformed {
-            message: "finalize_cps called without CPS state".into(),
-        })?;
+        let cps = self
+            .cps_state
+            .as_ref()
+            .ok_or_else(|| CoreToLlvmError::Malformed {
+                message: "finalize_cps called without CPS state".into(),
+            })?;
         let unwind_header = cps.unwind_header.clone();
         let result_slot = cps.result_slot.clone();
         let head_slot = cps.head_slot.clone();
@@ -445,7 +451,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             .iter()
             .map(|cb| {
                 (
-                    LlvmConst::Int { bits: 8, value: cb.tag as i128 },
+                    LlvmConst::Int {
+                        bits: 8,
+                        value: cb.tag as i128,
+                    },
                     cb.label.clone(),
                 )
             })
@@ -528,7 +537,12 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             .iter()
             .filter(|(id, _)| free.contains(id) && **id != binder.id)
             .map(|(id, slot)| {
-                let name = self.state.binder_names.get(id).copied().unwrap_or(binder.name);
+                let name = self
+                    .state
+                    .binder_names
+                    .get(id)
+                    .copied()
+                    .unwrap_or(binder.name);
                 (CoreBinder::new(*id, name), slot.clone())
             })
             .collect();
@@ -574,7 +588,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         });
         self.state.emit(LlvmInstr::Store {
             ty: LlvmType::i8(),
-            value: LlvmOperand::Const(LlvmConst::Int { bits: 8, value: tag as i128 }),
+            value: LlvmOperand::Const(LlvmConst::Int {
+                bits: 8,
+                value: tag as i128,
+            }),
             ptr: LlvmOperand::Local(tag_ptr),
             align: Some(1),
         });
@@ -771,10 +788,14 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         }
 
         // Record this continuation block.
-        self.cps_state.as_mut().unwrap().cont_blocks.push(CpsContBlock {
-            tag,
-            label: cont_label,
-        });
+        self.cps_state
+            .as_mut()
+            .unwrap()
+            .cont_blocks
+            .push(CpsContBlock {
+                tag,
+                label: cont_label,
+            });
 
         // Return a dummy — the original block was already terminated by the br to loop.
         Ok(Some(const_i64(0)))

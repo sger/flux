@@ -949,7 +949,8 @@ fn collect_used_candidate_binders(
     match expr {
         CoreExpr::Var { var, .. } => {
             if let Some(binder) = var.binder
-                && candidates.contains(&binder) && !bound.contains(&binder)
+                && candidates.contains(&binder)
+                && !bound.contains(&binder)
             {
                 used.insert(binder);
             }
@@ -1029,7 +1030,8 @@ fn collect_used_candidate_binders(
         }
         CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
             if let Some(binder) = var.binder
-                && candidates.contains(&binder) && !bound.contains(&binder)
+                && candidates.contains(&binder)
+                && !bound.contains(&binder)
             {
                 used.insert(binder);
             }
@@ -1037,7 +1039,8 @@ fn collect_used_candidate_binders(
         }
         CoreExpr::Reuse { token, fields, .. } => {
             if let Some(binder) = token.binder
-                && candidates.contains(&binder) && !bound.contains(&binder)
+                && candidates.contains(&binder)
+                && !bound.contains(&binder)
             {
                 used.insert(binder);
             }
@@ -1052,7 +1055,8 @@ fn collect_used_candidate_binders(
             ..
         } => {
             if let Some(binder) = scrutinee.binder
-                && candidates.contains(&binder) && !bound.contains(&binder)
+                && candidates.contains(&binder)
+                && !bound.contains(&binder)
             {
                 used.insert(binder);
             }
@@ -1092,7 +1096,9 @@ mod tests {
         assert!(rendered.contains("call ccc ptr @flux_gc_alloc(i32 %size)"));
         assert!(rendered.contains("call fastcc void @flux_copy_i64s("));
         assert!(rendered.contains("define internal fastcc i64 @flux_call_closure(i64 %closure_value, ptr %args, i32 %nargs)"));
-        assert!(rendered.contains("call fastcc i64 %fn_ptr(i64 %closure_value, ptr %args, i32 %nargs)"));
+        assert!(
+            rendered.contains("call fastcc i64 %fn_ptr(i64 %closure_value, ptr %args, i32 %nargs)")
+        );
         assert!(rendered.contains("call fastcc i64 @flux_call_closure(i64 %over.first, ptr %leftover.args, i32 %leftover.count)"));
     }
 }
