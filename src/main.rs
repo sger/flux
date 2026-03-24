@@ -1252,24 +1252,34 @@ fn print_leak_stats() {
 /// Returns `None` if not found (linker will search system paths).
 #[cfg(feature = "core_to_llvm")]
 fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
-    // Check relative to the executable (development: target/debug/../runtime/c)
-    if let Ok(exe) = std::env::current_exe() {
-        // Walk up from target/debug/ or target/release/ to the project root.
-        let mut dir = exe.parent().map(Path::to_path_buf);
-        for _ in 0..5 {
-            if let Some(ref d) = dir {
-                let candidate = d.join("runtime").join("c");
-                if candidate.join("libflux_rt.a").exists() {
-                    return Some(candidate);
+    // Find the runtime/c source directory relative to the executable or cwd.
+    let candidates = {
+        let mut v = Vec::new();
+        if let Ok(exe) = std::env::current_exe() {
+            let mut dir = exe.parent().map(Path::to_path_buf);
+            for _ in 0..5 {
+                if let Some(ref d) = dir {
+                    v.push(d.join("runtime").join("c"));
+                    dir = d.parent().map(Path::to_path_buf);
                 }
-                dir = d.parent().map(Path::to_path_buf);
             }
         }
-    }
-    // Check current working directory.
-    let cwd = std::path::PathBuf::from("runtime/c");
-    if cwd.join("libflux_rt.a").exists() {
-        return Some(cwd);
+        v.push(std::path::PathBuf::from("runtime/c"));
+        v
+    };
+
+    for candidate in &candidates {
+        // Check if source directory exists (has flux_rt.h).
+        if candidate.join("flux_rt.h").exists() {
+            // Auto-build libflux_rt.a if missing or stale.
+            #[cfg(feature = "core_to_llvm")]
+            if let Err(e) = flux::core_to_llvm::pipeline::ensure_runtime_lib(candidate) {
+                eprintln!("Warning: failed to build C runtime: {e}");
+            }
+            if candidate.join("libflux_rt.a").exists() {
+                return Some(candidate.clone());
+            }
+        }
     }
     None
 }
