@@ -27,7 +27,7 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     BuiltinMapping { flux_name: "print",      c_name: "flux_print",           arity: 1, returns_value: false },
     BuiltinMapping { flux_name: "println",     c_name: "flux_println",         arity: 1, returns_value: false },
     // String conversion
-    BuiltinMapping { flux_name: "to_string",   c_name: "flux_int_to_string",   arity: 1, returns_value: true },
+    BuiltinMapping { flux_name: "to_string",   c_name: "flux_to_string",       arity: 1, returns_value: true },
     // String operations
     BuiltinMapping { flux_name: "str_concat",  c_name: "flux_string_concat",   arity: 2, returns_value: true },
     BuiltinMapping { flux_name: "str_length",  c_name: "flux_string_length",   arity: 1, returns_value: true },

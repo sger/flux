@@ -88,8 +88,19 @@ static void flux_print_value(int64_t val) {
                 flux_print_value(elems[i]);
             }
             printf("|]");
+        } else if (obj == FLUX_OBJ_TUPLE) {
+            /* Tuple: { obj_tag, _pad[3], i32 arity, i64 elements[] } */
+            uint32_t arity = *(uint32_t *)((char *)ptr + 4);
+            int64_t *elems = (int64_t *)((char *)ptr + 8);
+            printf("(");
+            for (uint32_t i = 0; i < arity; i++) {
+                if (i > 0) printf(", ");
+                flux_print_value(elems[i]);
+            }
+            if (arity == 1) printf(",");
+            printf(")");
         } else {
-            /* ADT or Tuple: { i32 tag/arity, i32 field_count, i64 fields[] } */
+            /* ADT: { i32 tag, i32 field_count, i64 fields[] } */
             int32_t ctor_tag = *(int32_t *)ptr;
             int32_t field_count = *((int32_t *)ptr + 1);
             int64_t *fields = (int64_t *)((char *)ptr + 8);
@@ -171,6 +182,11 @@ void flux_print(int64_t val) {
 void flux_println(int64_t val) {
     flux_print(val);
 }
+/* Print value without newline, followed by a space — used for multi-arg print. */
+void flux_print_space(int64_t val) {
+    flux_print_value(val);
+    putchar(' ');
+}
 
 /* ── I/O ────────────────────────────────────────────────────────────── */
 
@@ -241,21 +257,110 @@ int64_t flux_write_file(int64_t path, int64_t content) {
 
 /* ── Numeric helpers ────────────────────────────────────────────────── */
 
+static inline int flux_val_is_float(int64_t val) {
+    return !flux_is_nanbox(val);
+}
+
+static inline double flux_as_double(int64_t val) {
+    double d;
+    memcpy(&d, &val, sizeof(d));
+    return d;
+}
+
+static inline int64_t flux_from_double(double d) {
+    int64_t v;
+    memcpy(&v, &d, sizeof(v));
+    return v;
+}
+
 int64_t flux_abs(int64_t n) {
+    if (flux_val_is_float(n)) {
+        double d = flux_as_double(n);
+        return flux_from_double(d < 0 ? -d : d);
+    }
     int64_t raw = flux_untag_int(n);
     return flux_tag_int(raw < 0 ? -raw : raw);
 }
 
 int64_t flux_min(int64_t a, int64_t b) {
+    if (flux_val_is_float(a)) {
+        double da = flux_as_double(a);
+        double db = flux_as_double(b);
+        return flux_from_double(da < db ? da : db);
+    }
     int64_t ra = flux_untag_int(a);
     int64_t rb = flux_untag_int(b);
     return flux_tag_int(ra < rb ? ra : rb);
 }
 
 int64_t flux_max(int64_t a, int64_t b) {
+    if (flux_val_is_float(a)) {
+        double da = flux_as_double(a);
+        double db = flux_as_double(b);
+        return flux_from_double(da > db ? da : db);
+    }
     int64_t ra = flux_untag_int(a);
     int64_t rb = flux_untag_int(b);
     return flux_tag_int(ra > rb ? ra : rb);
+}
+
+/* ── Runtime-dispatching arithmetic ─────────────────────────────────── */
+/* These check the value type at runtime and dispatch to the correct op. */
+
+static inline int flux_val_is_string(int64_t val) {
+    if (!flux_is_ptr(val)) return 0;
+    void *ptr = flux_untag_ptr(val);
+    return flux_obj_tag(ptr) == FLUX_OBJ_STRING;
+}
+
+int64_t flux_rt_add(int64_t a, int64_t b) {
+    /* Check string first (boxed ptr with string tag), then float (!nanbox). */
+    if (flux_val_is_string(a)) {
+        return flux_string_concat(a, b);
+    }
+    if (flux_val_is_float(a)) {
+        return flux_from_double(flux_as_double(a) + flux_as_double(b));
+    }
+    return flux_tag_int(flux_untag_int(a) + flux_untag_int(b));
+}
+
+int64_t flux_rt_sub(int64_t a, int64_t b) {
+    if (flux_val_is_float(a)) {
+        return flux_from_double(flux_as_double(a) - flux_as_double(b));
+    }
+    return flux_tag_int(flux_untag_int(a) - flux_untag_int(b));
+}
+
+int64_t flux_rt_mul(int64_t a, int64_t b) {
+    if (flux_val_is_float(a)) {
+        return flux_from_double(flux_as_double(a) * flux_as_double(b));
+    }
+    return flux_tag_int(flux_untag_int(a) * flux_untag_int(b));
+}
+
+int64_t flux_rt_div(int64_t a, int64_t b) {
+    if (flux_val_is_float(a)) {
+        return flux_from_double(flux_as_double(a) / flux_as_double(b));
+    }
+    int64_t rb = flux_untag_int(b);
+    if (rb == 0) return flux_tag_int(0);
+    return flux_tag_int(flux_untag_int(a) / rb);
+}
+
+int64_t flux_rt_mod(int64_t a, int64_t b) {
+    if (flux_val_is_float(a)) {
+        return flux_from_double(fmod(flux_as_double(a), flux_as_double(b)));
+    }
+    int64_t rb = flux_untag_int(b);
+    if (rb == 0) return flux_tag_int(0);
+    return flux_tag_int(flux_untag_int(a) % rb);
+}
+
+int64_t flux_rt_neg(int64_t a) {
+    if (flux_val_is_float(a)) {
+        return flux_from_double(-flux_as_double(a));
+    }
+    return flux_tag_int(-flux_untag_int(a));
 }
 
 /* ── Type inspection ────────────────────────────────────────────────── */

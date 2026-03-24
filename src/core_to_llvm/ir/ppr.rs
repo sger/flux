@@ -548,6 +548,7 @@ fn value_kind_name(op: LlvmValueKind) -> &'static str {
         LlvmValueKind::FSub => "fsub",
         LlvmValueKind::FMul => "fmul",
         LlvmValueKind::FDiv => "fdiv",
+        LlvmValueKind::FRem => "frem",
         LlvmValueKind::And => "and",
         LlvmValueKind::Or => "or",
         LlvmValueKind::Xor => "xor",
