@@ -43,7 +43,8 @@ fn main(x) {
     let module = compile_program_with_interner(&core, Some(&interner)).expect("lower to llvm");
     let rendered = render_module(&module);
 
-    assert!(rendered.contains("define internal fastcc i64 @main(i64 %arg0)"));
+    // `main` is renamed to `flux_main` with ccc calling convention.
+    assert!(rendered.contains("define ccc i64 @flux_main(i64 %arg0)"));
     assert!(rendered.contains("%slot.0 = alloca i64, align 8"));
     assert!(rendered.contains("store i64 %arg0, ptr %slot.0, align 8"));
     assert!(rendered.contains("load i64, ptr %slot.0, align 8"));
@@ -63,9 +64,11 @@ fn factorial(n, acc) {
     assert!(rendered.contains("define internal fastcc i64 @factorial(i64 %arg0, i64 %arg1)"));
     assert!(rendered.contains("call fastcc i64 @flux_isub"));
     assert!(rendered.contains("call fastcc i64 @flux_imul"));
-    assert!(rendered.contains("tail call fastcc i64 @factorial("));
+    // TCO converts the self-recursive tail call into a loop branch.
+    assert!(rendered.contains("br label %tco.loop."));
     assert!(rendered.contains("br i1 %case.lit."));
-    assert!(rendered.contains("phi i64"));
+    // No recursive call to @factorial — it's a loop now.
+    assert!(!rendered.contains("call fastcc i64 @factorial("));
 }
 
 #[test]
@@ -139,7 +142,7 @@ fn factorial(n, acc) {
     let module = compile_program_with_interner(&core, Some(&interner)).expect("lower to llvm");
     let ll = render_module(&module);
     let path = std::env::temp_dir().join(format!(
-        "core_to_llvm_phase3_{}.ll",
+        "core_to_llvm_codegen_{}.ll",
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock after unix epoch")
