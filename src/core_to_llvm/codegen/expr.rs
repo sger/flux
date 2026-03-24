@@ -72,7 +72,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         let mut state = closure_entry_function(symbol, symbols, program.interner);
         state.blocks[0]
             .instrs
-            .extend(common_closure_load_instrs(local("closure")));
+            .extend(common_closure_load_instrs(local("closure_raw")));
 
         for (index, binder) in captures.iter().enumerate() {
             let slot = state.new_slot();
@@ -105,6 +105,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         }
 
         if let Some(binder) = recursive_binder {
+            // closure_raw is already a NaN-boxed i64 — store it directly.
             let slot = state.new_slot();
             state.emit_entry_alloca(LlvmInstr::Alloca {
                 dst: slot.clone(),
@@ -112,18 +113,9 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 count: None,
                 align: Some(8),
             });
-            state.emit(LlvmInstr::Call {
-                dst: Some(LlvmLocal("self.tagged".into())),
-                tail: false,
-                call_conv: Some(CallConv::Fastcc),
-                ret_ty: LlvmType::i64(),
-                callee: LlvmOperand::Global(flux_closure_symbol("flux_tag_boxed_ptr")),
-                args: vec![(LlvmType::ptr(), local("closure"))],
-                attrs: vec![],
-            });
             state.emit(LlvmInstr::Store {
                 ty: LlvmType::i64(),
-                value: LlvmOperand::Local(LlvmLocal("self.tagged".into())),
+                value: local("closure_raw"),
                 ptr: LlvmOperand::Local(slot.clone()),
                 align: Some(8),
             });
@@ -292,8 +284,9 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         // when generated_string_globals is non-empty (special signature: ptr, i32 → i64).
 
         // Create a global constant for the string bytes.
-        let str_id = self.state.temp_local("str.data");
-        let global_name = GlobalId(format!("flux.str.{}", str_id.0));
+        // Use program-wide counter to avoid name collisions across functions.
+        let str_idx = self.program.generated_string_globals.len();
+        let global_name = GlobalId(format!("flux.str.{str_idx}"));
 
         // Emit a global string constant: @flux.str.N = private constant [N x i8] c"..."
         self.program.generated_string_globals.push((

@@ -33,14 +33,14 @@ void flux_rt_shutdown(void) {
  * Print a NaN-boxed value to stdout (no trailing newline).
  * Dispatches on the NaN-box tag to determine the type.
  */
-void flux_print(int64_t val) {
+/* Internal: print a value without trailing newline. */
+static void flux_print_value(int64_t val) {
     uint64_t bits = (uint64_t)val;
 
     /* Float: top 14 bits are NOT the sentinel → raw IEEE double. */
     if ((bits & FLUX_SENTINEL_MASK) != FLUX_NANBOX_SENTINEL) {
         double d;
         memcpy(&d, &bits, sizeof(d));
-        /* Print without trailing zeros: use %g. */
         printf("%g", d);
         return;
     }
@@ -64,32 +64,94 @@ void flux_print(int64_t val) {
         break;
 
     case FLUX_TAG_BOXED_VALUE: {
-        /*
-         * Boxed values can be strings, ADTs, closures, etc.
-         * For now, we only handle strings (identified by the FluxString
-         * layout).  Other boxed types print as "<object>".
-         *
-         * String detection heuristic: the first 4 bytes are the length,
-         * followed by that many valid bytes.  This is fragile; Phase 8
-         * should add a type tag to the object header.
-         */
         void *ptr = flux_untag_ptr(val);
-        if (ptr) {
-            /*
-             * Assume string for now — the codegen tags strings via
-             * flux_string_new which uses the FluxString layout.
-             * A type-tag system will be added in a later phase.
-             */
-            uint32_t len = *(uint32_t *)ptr;
-            const char *data = (const char *)ptr + sizeof(uint32_t);
-            /* Sanity check: len should be reasonable. */
-            if (len < 1024 * 1024) {
-                fwrite(data, 1, len, stdout);
-            } else {
-                printf("<object@%p>", ptr);
-            }
-        } else {
+        if (!ptr) {
             printf("<null>");
+            break;
+        }
+
+        uint8_t obj = flux_obj_tag(ptr);
+        if (obj == FLUX_OBJ_STRING) {
+            /* String: { obj_tag, _pad[3], len, data[] } */
+            uint32_t len = *(uint32_t *)((char *)ptr + 4);
+            const char *data = (const char *)ptr + 8;
+            putchar('"');
+            fwrite(data, 1, len, stdout);
+            putchar('"');
+        } else if (obj == FLUX_OBJ_ARRAY) {
+            /* Array: { obj_tag, _pad[3], len, capacity, _pad2, elements[] } */
+            uint32_t len = *(uint32_t *)((char *)ptr + 4);
+            int64_t *elems = (int64_t *)((char *)ptr + 16);
+            printf("[|");
+            for (uint32_t i = 0; i < len; i++) {
+                if (i > 0) printf(", ");
+                flux_print_value(elems[i]);
+            }
+            printf("|]");
+        } else {
+            /* ADT or Tuple: { i32 tag/arity, i32 field_count, i64 fields[] } */
+            int32_t ctor_tag = *(int32_t *)ptr;
+            int32_t field_count = *((int32_t *)ptr + 1);
+            int64_t *fields = (int64_t *)((char *)ptr + 8);
+
+            switch (ctor_tag) {
+            case 0: /* None or Nil */
+                if (field_count == 0) {
+                    printf("None");
+                } else {
+                    printf("(");
+                    for (int32_t i = 0; i < field_count; i++) {
+                        if (i > 0) printf(", ");
+                        flux_print_value(fields[i]);
+                    }
+                    printf(")");
+                }
+                break;
+            case 1: /* Some */
+                printf("Some(");
+                if (field_count > 0) flux_print_value(fields[0]);
+                printf(")");
+                break;
+            case 2: /* Left */
+                printf("Left(");
+                if (field_count > 0) flux_print_value(fields[0]);
+                printf(")");
+                break;
+            case 3: /* Right */
+                printf("Right(");
+                if (field_count > 0) flux_print_value(fields[0]);
+                printf(")");
+                break;
+            case 4: /* Cons */
+                printf("[");
+                flux_print_value(fields[0]);
+                {
+                    int64_t tail = fields[1];
+                    while (flux_is_ptr(tail)) {
+                        void *tp = flux_untag_ptr(tail);
+                        int32_t tt = *(int32_t *)tp;
+                        if (tt != 4) break;
+                        int64_t *tf = (int64_t *)((char *)tp + 8);
+                        printf(", ");
+                        flux_print_value(tf[0]);
+                        tail = tf[1];
+                    }
+                }
+                printf("]");
+                break;
+            default:
+                if (field_count == 0) {
+                    printf("<adt tag=%d>", ctor_tag);
+                } else {
+                    printf("<adt tag=%d>(", ctor_tag);
+                    for (int32_t i = 0; i < field_count; i++) {
+                        if (i > 0) printf(", ");
+                        flux_print_value(fields[i]);
+                    }
+                    printf(")");
+                }
+                break;
+            }
         }
         break;
     }
@@ -100,10 +162,14 @@ void flux_print(int64_t val) {
     }
 }
 
-void flux_println(int64_t val) {
-    flux_print(val);
+void flux_print(int64_t val) {
+    flux_print_value(val);
     putchar('\n');
     fflush(stdout);
+}
+
+void flux_println(int64_t val) {
+    flux_print(val);
 }
 
 /* ── I/O ────────────────────────────────────────────────────────────── */

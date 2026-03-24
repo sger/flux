@@ -323,7 +323,7 @@ fn build_top_level_wrapper(wrapper: &GlobalId, target: &GlobalId, arity: usize) 
     state.blocks[0]
         .instrs
         .extend(common_closure_load_instrs(LlvmOperand::Local(LlvmLocal(
-            "closure".into(),
+            "closure_raw".into(),
         ))));
     let mut instrs = emit_closure_param_unpack(&mut state, arity, 0);
     let mut args = Vec::with_capacity(arity);
@@ -501,11 +501,11 @@ impl<'a> FunctionState<'a> {
             interner,
             Vec::new(),
             vec![
-                LlvmLocal("closure".into()),
+                LlvmLocal("closure_raw".into()),
                 LlvmLocal("args".into()),
                 LlvmLocal("nargs".into()),
             ],
-            vec![LlvmType::ptr(), LlvmType::ptr(), LlvmType::i32()],
+            vec![LlvmType::i64(), LlvmType::ptr(), LlvmType::i32()],
             LlvmType::i64(),
             CallConv::Fastcc,
         )

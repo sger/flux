@@ -499,9 +499,9 @@ fn run_file(
     dump_core: CoreDumpMode,
     dump_aether: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] use_core_to_llvm: bool,
-    emit_llvm: bool,
-    emit_binary: bool,
-    output_path: Option<String>,
+    #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] emit_llvm: bool,
+    #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] emit_binary: bool,
+    #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] output_path: Option<String>,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -520,6 +520,9 @@ fn run_file(
             if !no_cache
                 && !use_jit
                 && !use_llvm
+                && !use_core_to_llvm
+                && !emit_llvm
+                && !emit_binary
                 && matches!(dump_core, CoreDumpMode::None)
                 && !dump_aether
                 && !trace_aether

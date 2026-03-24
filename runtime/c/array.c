@@ -17,8 +17,11 @@
 /* ── FluxArray layout ───────────────────────────────────────────────── */
 
 typedef struct {
+    uint8_t  obj_tag;    /* FLUX_OBJ_ARRAY */
+    uint8_t  _pad[3];
     uint32_t len;
     uint32_t capacity;
+    uint32_t _pad2;
     int64_t  elements[];
 } FluxArray;
 
@@ -35,6 +38,7 @@ static int64_t array_tag(FluxArray *arr) {
 static FluxArray *alloc_array(uint32_t capacity) {
     uint32_t size = (uint32_t)(sizeof(FluxArray) + capacity * sizeof(int64_t));
     FluxArray *arr = (FluxArray *)flux_gc_alloc(size);
+    arr->obj_tag = FLUX_OBJ_ARRAY;
     arr->len = 0;
     arr->capacity = capacity;
     return arr;

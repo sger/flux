@@ -106,6 +106,24 @@ static inline int64_t flux_make_empty_list(void) {
                      | ((uint64_t)FLUX_TAG_EMPTY_LIST << FLUX_TAG_SHIFT));
 }
 
+/* ── Heap object type tags ──────────────────────────────────────────── */
+/*
+ * Every heap-allocated object starts with a uint8_t type tag so that
+ * flux_print (and future GC) can identify the object kind at runtime.
+ * The tag occupies the first byte; the remaining layout is type-specific.
+ */
+
+/* Tags are chosen to not collide with ADT constructor tags (0-255). */
+#define FLUX_OBJ_STRING   0xF1
+#define FLUX_OBJ_ADT      0xF2
+#define FLUX_OBJ_TUPLE    0xF3
+#define FLUX_OBJ_ARRAY    0xF4
+#define FLUX_OBJ_CLOSURE  0xF5
+
+static inline uint8_t flux_obj_tag(void *ptr) {
+    return *(uint8_t *)ptr;
+}
+
 /* ── GC ─────────────────────────────────────────────────────────────── */
 
 void  flux_gc_init(size_t heap_size);
