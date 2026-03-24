@@ -162,11 +162,7 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
         .clone()
         .unwrap_or_else(|| dir.join("program"));
 
-    run_linker(
-        &obj_path,
-        &exe_path,
-        config.runtime_lib_dir.as_deref(),
-    )?;
+    run_linker(&obj_path, &exe_path, config.runtime_lib_dir.as_deref())?;
 
     // Clean up intermediates (keep the output binary).
     let _ = std::fs::remove_file(&ll_path);
@@ -204,9 +200,7 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
     let lib_path = runtime_c_dir.join("libflux_rt.a");
     if lib_path.exists() {
         // Check if any .c or .h file is newer than the .a
-        let lib_mtime = std::fs::metadata(&lib_path)
-            .and_then(|m| m.modified())
-            .ok();
+        let lib_mtime = std::fs::metadata(&lib_path).and_then(|m| m.modified()).ok();
         let sources_newer = lib_mtime.map_or(true, |lib_t| {
             let mut newer = false;
             for ext in &["c", "h"] {
@@ -233,7 +227,14 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
     eprintln!("[c2l] Building C runtime (libflux_rt.a)...");
 
     let cc = std::env::var("CC").unwrap_or_else(|_| "cc".into());
-    let c_files = ["gc.c", "flux_rt.c", "string.c", "hamt.c", "effects.c", "array.c"];
+    let c_files = [
+        "gc.c",
+        "flux_rt.c",
+        "string.c",
+        "hamt.c",
+        "effects.c",
+        "array.c",
+    ];
     let mut obj_files = Vec::new();
 
     for c_file in &c_files {

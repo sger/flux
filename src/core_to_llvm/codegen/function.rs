@@ -10,11 +10,7 @@ use crate::{
     syntax::{Identifier, interner::Interner},
 };
 
-use super::{
-    adt::AdtMetadata,
-    closure::common_closure_load_instrs,
-    expr::FunctionLowering,
-};
+use super::{adt::AdtMetadata, closure::common_closure_load_instrs, expr::FunctionLowering};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoreToLlvmError {
@@ -92,12 +88,17 @@ impl<'a> ProgramState<'a> {
     /// Track a C runtime function declaration needed by the codegen.
     pub fn ensure_c_decl(&mut self, name: &str, params: &[LlvmType], ret: LlvmType) {
         if !self.needed_c_decls.iter().any(|(n, _, _)| n == name) {
-            self.needed_c_decls.push((name.to_string(), params.to_vec(), ret));
+            self.needed_c_decls
+                .push((name.to_string(), params.to_vec(), ret));
         }
     }
 
     pub fn register_builtin(&mut self, mapping: &'static super::builtins::BuiltinMapping) {
-        if !self.needed_builtins.iter().any(|m| m.c_name == mapping.c_name) {
+        if !self
+            .needed_builtins
+            .iter()
+            .any(|m| m.c_name == mapping.c_name)
+        {
             self.needed_builtins.push(mapping);
         }
     }
@@ -118,8 +119,14 @@ impl<'a> ProgramState<'a> {
 
     /// Look up a top-level function by its Identifier (name), for MemberAccess resolution.
     /// Returns (CoreBinderId, &TopLevelFunctionInfo) so the caller can use ensure_top_level_wrapper.
-    pub fn top_level_by_name_with_binder(&self, name: Identifier) -> Option<(CoreBinderId, TopLevelFunctionInfo)> {
-        self.top_level.iter().find(|(_, info)| info.name == name).map(|(k, v)| (*k, v.clone()))
+    pub fn top_level_by_name_with_binder(
+        &self,
+        name: Identifier,
+    ) -> Option<(CoreBinderId, TopLevelFunctionInfo)> {
+        self.top_level
+            .iter()
+            .find(|(_, info)| info.name == name)
+            .map(|(k, v)| (*k, v.clone()))
     }
 
     pub fn ensure_top_level_wrapper(
@@ -201,7 +208,8 @@ pub fn compile_program_with_interner(
                     display_ident(def.name, interner)
                 ),
             })?;
-        let function = lower_top_level_function(def, info.symbol.clone(), def.is_recursive, &mut program)?;
+        let function =
+            lower_top_level_function(def, info.symbol.clone(), def.is_recursive, &mut program)?;
         module.functions.push(function);
     }
     module.functions.extend(program.generated_functions);
@@ -251,10 +259,13 @@ pub fn compile_program_with_interner(
             is_constant: true,
             value: crate::core_to_llvm::LlvmConst::Array {
                 element_ty: LlvmType::i8(),
-                elements: content.bytes().map(|b| crate::core_to_llvm::LlvmConst::Int {
-                    bits: 8,
-                    value: b as i128,
-                }).collect(),
+                elements: content
+                    .bytes()
+                    .map(|b| crate::core_to_llvm::LlvmConst::Int {
+                        bits: 8,
+                        value: b as i128,
+                    })
+                    .collect(),
             },
             attrs: vec![],
         });
