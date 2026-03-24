@@ -115,6 +115,18 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     BuiltinMapping { flux_name: "array_slice",c_name: "flux_array_slice",     arity: 3, returns_value: true },
     BuiltinMapping { flux_name: "string_length", c_name: "flux_string_length", arity: 1, returns_value: true },
     BuiltinMapping { flux_name: "substring",  c_name: "flux_substring",       arity: 3, returns_value: true },
+    // Higher-order functions (call closures via flux_call_closure_c trampoline)
+    BuiltinMapping { flux_name: "map",        c_name: "flux_ho_map",          arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "filter",     c_name: "flux_ho_filter",       arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "sort",       c_name: "flux_ho_sort",         arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "any",        c_name: "flux_ho_any",          arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "all",        c_name: "flux_ho_all",          arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "fold",       c_name: "flux_ho_fold",         arity: 3, returns_value: true },
+    BuiltinMapping { flux_name: "each",       c_name: "flux_ho_each",         arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "find",       c_name: "flux_ho_find",         arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "sum",        c_name: "flux_sum",             arity: 1, returns_value: true },
+    BuiltinMapping { flux_name: "starts_with", c_name: "flux_starts_with",   arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "ends_with",  c_name: "flux_ends_with",      arity: 2, returns_value: true },
 ];
 
 /// Look up a base function's C runtime mapping by Flux name.
