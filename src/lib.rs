@@ -3,7 +3,7 @@ pub mod ast;
 pub mod bytecode;
 pub mod cfg;
 pub mod core;
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "native")]
 pub mod core_to_llvm;
 pub mod diagnostics;
 pub mod primop;

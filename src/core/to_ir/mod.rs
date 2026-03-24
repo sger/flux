@@ -22,7 +22,7 @@ use crate::{
 mod case;
 mod closure;
 pub(super) mod fn_ctx;
-mod free_vars;
+pub mod free_vars;
 mod primop;
 
 pub use free_vars::collect_free_vars_core;

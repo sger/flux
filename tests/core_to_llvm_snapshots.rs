@@ -1,4 +1,4 @@
-#![cfg(feature = "core_to_llvm")]
+#![cfg(feature = "native")]
 
 use flux::core_to_llvm::{
     CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl, LlvmFunction,

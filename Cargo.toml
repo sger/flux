@@ -7,7 +7,8 @@ license = "MIT"
 default-run = "flux"
 
 [features]
-core_to_llvm = []
+native = []
+core_to_llvm = ["native"]  # backward-compatible alias
 
 [dependencies]
 sha2 = "0.10"

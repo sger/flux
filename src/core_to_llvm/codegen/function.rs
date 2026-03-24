@@ -157,6 +157,81 @@ impl<'a> ProgramState<'a> {
     }
 }
 
+// ── Non-tail self-recursion detection (Phase 3 CPS) ──────────────────────────
+
+/// Check if a function has any non-tail recursive calls to itself.
+/// Returns true if the function body contains at least one `App`/`AetherCall`
+/// to the function's own binder in a non-tail position.
+pub(super) fn has_nontail_self_recursion(def: &CoreDef) -> bool {
+    let CoreExpr::Lam { body, .. } = &def.expr else {
+        return false;
+    };
+    has_nontail_self_call(body, def.binder.id, true)
+}
+
+/// Recursively check if `expr` contains a non-tail call to `self_id`.
+fn has_nontail_self_call(expr: &CoreExpr, self_id: CoreBinderId, in_tail: bool) -> bool {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => false,
+        CoreExpr::Lam { body, .. } => {
+            // Lambda body is a new function scope — NOT tail of the enclosing one.
+            has_nontail_self_call(body, self_id, false)
+        }
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+            // If this is a call to self and we're NOT in tail position → found it.
+            if !in_tail
+                && let CoreExpr::Var { var, .. } = func.as_ref()
+                && var.binder == Some(self_id)
+            {
+                return true;
+            }
+            // Check subexpressions (all non-tail).
+            has_nontail_self_call(func, self_id, false)
+                || args.iter().any(|a| has_nontail_self_call(a, self_id, false))
+        }
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            has_nontail_self_call(rhs, self_id, false)
+                || has_nontail_self_call(body, self_id, in_tail)
+        }
+        CoreExpr::Case { scrutinee, alts, .. } => {
+            has_nontail_self_call(scrutinee, self_id, false)
+                || alts.iter().any(|alt| {
+                    alt.guard
+                        .as_ref()
+                        .is_some_and(|g| has_nontail_self_call(g, self_id, false))
+                        || has_nontail_self_call(&alt.rhs, self_id, in_tail)
+                })
+        }
+        CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
+            fields.iter().any(|f| has_nontail_self_call(f, self_id, false))
+        }
+        CoreExpr::Return { value, .. } => has_nontail_self_call(value, self_id, in_tail),
+        CoreExpr::Perform { args, .. } => {
+            args.iter().any(|a| has_nontail_self_call(a, self_id, false))
+        }
+        CoreExpr::Handle { body, handlers, .. } => {
+            has_nontail_self_call(body, self_id, false)
+                || handlers
+                    .iter()
+                    .any(|h| has_nontail_self_call(&h.body, self_id, false))
+        }
+        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
+            has_nontail_self_call(body, self_id, in_tail)
+        }
+        CoreExpr::Reuse { fields, .. } => {
+            fields.iter().any(|f| has_nontail_self_call(f, self_id, false))
+        }
+        CoreExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            has_nontail_self_call(unique_body, self_id, in_tail)
+                || has_nontail_self_call(shared_body, self_id, in_tail)
+        }
+    }
+}
+
 // ── Mutual tail-call recursion detection ─────────────────────────────────────
 
 /// A group of mutually tail-recursive functions (SCC of size >= 2 on the
@@ -435,9 +510,16 @@ pub fn compile_program_with_interner(
 
         let mutual_group = program.mutual_rec_groups.get(&def.binder.id).cloned();
 
-        if let Some(ref group) = mutual_group {
-            // Member of a mutual recursion group: rename implementation to @name.impl,
-            // generate an entry wrapper @name that calls the trampoline.
+        if has_nontail_self_recursion(def) {
+            // Phase 3: CPS driver loop for non-tail self-recursion.
+            let function = lower_top_level_function_cps(
+                def,
+                info.symbol.clone(),
+                &mut program,
+            )?;
+            module.functions.push(function);
+        } else if let Some(ref group) = mutual_group {
+            // Phase 2: mutual tail-call trampoline.
             let impl_symbol = GlobalId(format!("{}.impl", info.symbol.0));
             let function = lower_top_level_function_with_mutual(
                 def,
@@ -449,7 +531,6 @@ pub fn compile_program_with_interner(
             )?;
             module.functions.push(function);
 
-            // Generate entry wrapper: @name calls trampoline with fn_index + args.
             let wrapper = build_trampoline_entry_wrapper(
                 &info.symbol,
                 &impl_symbol,
@@ -460,12 +541,12 @@ pub fn compile_program_with_interner(
             );
             module.functions.push(wrapper);
 
-            // Generate the trampoline once per group.
             if generated_trampolines.insert(group.trampoline_name.clone()) {
                 let trampoline = build_trampoline_function(group, &program);
                 module.functions.push(trampoline);
             }
         } else {
+            // Phase 1 or normal lowering.
             let function = lower_top_level_function(
                 def,
                 info.symbol.clone(),
@@ -600,6 +681,29 @@ fn lower_top_level_function(
     }
     let result = lowering.lower_expr(body)?;
     lowering.finish_with_return(result)
+}
+
+/// Lower a function with non-tail self-recursion using the Phase 3 CPS
+/// driver loop (explicit continuation stack).
+fn lower_top_level_function_cps(
+    def: &CoreDef,
+    symbol: GlobalId,
+    program: &mut ProgramState<'_>,
+) -> Result<LlvmFunction, CoreToLlvmError> {
+    let CoreExpr::Lam { params, body, .. } = &def.expr else {
+        return Err(CoreToLlvmError::Malformed {
+            message: format!(
+                "top-level function `{}` was not lowered as Lam",
+                display_ident(def.name, program.interner)
+            ),
+        });
+    };
+
+    let mut lowering = FunctionLowering::new_top_level(symbol.clone(), params, program);
+    lowering.setup_cps_driver(def.binder.id);
+    let body_result = lowering.lower_expr(body)?;
+    let final_result = lowering.finalize_cps(body_result)?;
+    lowering.finish_with_return(final_result)
 }
 
 /// Like `lower_top_level_function`, but sets up mutual group info so that
