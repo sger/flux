@@ -191,6 +191,77 @@ pub fn compile_and_run(config: &PipelineConfig) -> Result<PipelineResult, Pipeli
     Ok(PipelineResult::Executed { exit_code })
 }
 
+/// Build `libflux_rt.a` from the C source files if it doesn't exist.
+///
+/// This mirrors what `make` does in `runtime/c/`, but runs automatically
+/// so users never need to build the C runtime manually.
+pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
+    let lib_path = runtime_c_dir.join("libflux_rt.a");
+    if lib_path.exists() {
+        // Check if any .c or .h file is newer than the .a
+        let lib_mtime = std::fs::metadata(&lib_path)
+            .and_then(|m| m.modified())
+            .ok();
+        let sources_newer = lib_mtime.map_or(true, |lib_t| {
+            let mut newer = false;
+            for ext in &["c", "h"] {
+                if let Ok(entries) = std::fs::read_dir(runtime_c_dir) {
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        if p.extension().and_then(|e| e.to_str()) == Some(ext) {
+                            if let Ok(src_t) = std::fs::metadata(&p).and_then(|m| m.modified()) {
+                                if src_t > lib_t {
+                                    newer = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            newer
+        });
+        if !sources_newer {
+            return Ok(());
+        }
+    }
+
+    eprintln!("[c2l] Building C runtime (libflux_rt.a)...");
+
+    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".into());
+    let c_files = ["gc.c", "flux_rt.c", "string.c", "hamt.c", "effects.c", "array.c"];
+    let mut obj_files = Vec::new();
+
+    for c_file in &c_files {
+        let src = runtime_c_dir.join(c_file);
+        if !src.exists() {
+            continue;
+        }
+        let obj = runtime_c_dir.join(c_file.replace(".c", ".o"));
+        let output = Command::new(&cc)
+            .args(["-std=c11", "-Wall", "-O2", "-g", "-c"])
+            .arg("-o")
+            .arg(&obj)
+            .arg(&src)
+            .arg(format!("-I{}", runtime_c_dir.display()))
+            .output()?;
+        check_output("cc (runtime)", &output)?;
+        obj_files.push(obj);
+    }
+
+    // Create static library
+    let ar = std::env::var("AR").unwrap_or_else(|_| "ar".into());
+    let mut cmd = Command::new(&ar);
+    cmd.args(["rcs"]).arg(&lib_path);
+    for obj in &obj_files {
+        cmd.arg(obj);
+    }
+    let output = cmd.output()?;
+    check_output("ar", &output)?;
+
+    eprintln!("[c2l] Built {}", lib_path.display());
+    Ok(())
+}
+
 /// Locate a tool on PATH.
 fn find_tool(name: &'static str) -> Result<PathBuf, PipelineError> {
     which(name).ok_or_else(|| PipelineError::ToolNotFound {
