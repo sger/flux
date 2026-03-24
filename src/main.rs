@@ -5,9 +5,9 @@ use std::{
     time::Instant,
 };
 
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "native")]
 use flux::ast::{constant_fold_with_interner, desugar, rename};
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "native")]
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
@@ -67,9 +67,10 @@ fn main() {
     let strict_mode = !explicit_no_strict;
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
     let dump_aether = args.iter().any(|arg| arg == "--dump-aether");
-    #[cfg(feature = "core_to_llvm")]
-    let use_core_to_llvm = args.iter().any(|arg| arg == "--core-to-llvm");
-    #[cfg(not(feature = "core_to_llvm"))]
+    #[cfg(feature = "native")]
+    let use_core_to_llvm =
+        args.iter().any(|arg| arg == "--core-to-llvm" || arg == "--native");
+    #[cfg(not(feature = "native"))]
     let use_core_to_llvm = false;
     let emit_llvm = args.iter().any(|arg| arg == "--emit-llvm");
     let emit_binary = args.iter().any(|arg| arg == "--emit-binary");
@@ -117,7 +118,7 @@ fn main() {
         args.retain(|arg| arg != "--dump-aether");
     }
     if use_core_to_llvm {
-        args.retain(|arg| arg != "--core-to-llvm");
+        args.retain(|arg| arg != "--core-to-llvm" && arg != "--native");
     }
     if emit_llvm {
         args.retain(|arg| arg != "--emit-llvm");
@@ -427,9 +428,10 @@ Flags:
   --dump-core        Lower to Flux Core IR, print a readable dump, and exit
   --dump-core=debug  Lower to Flux Core IR, print a raw debug dump, and exit
   --dump-aether      Show Aether memory model report (per-function reuse/drop stats)
-  --core-to-llvm     Compile via Core IR → LLVM text IR backend (requires LLVM tools)
-  --emit-llvm        Emit LLVM IR text (.ll) to stdout (with --core-to-llvm)
-  --emit-binary      Compile to native binary via opt + llc + cc (with --core-to-llvm)
+  --native           Compile via Core IR → LLVM text IR → native binary (requires LLVM tools)
+  --core-to-llvm     Alias for --native
+  --emit-llvm        Emit LLVM IR text (.ll) to stdout (with --native)
+  --emit-binary      Compile to native binary via opt + llc + cc (with --native)
   -o <path>          Output path for --emit-llvm or --emit-binary
   -h, --help         Show this help message
 
@@ -715,7 +717,7 @@ fn run_file(
             }
 
             // --- Core-to-LLVM execution path ---
-            #[cfg(feature = "core_to_llvm")]
+            #[cfg(feature = "native")]
             if use_core_to_llvm || emit_llvm || emit_binary {
                 use std::collections::HashMap;
 
@@ -1236,7 +1238,7 @@ fn print_leak_stats() {
 ///
 /// Searches relative to the running executable and common development paths.
 /// Returns `None` if not found (linker will search system paths).
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "native")]
 fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
     // Find the runtime/c source directory relative to the executable or cwd.
     let candidates = {
@@ -1258,7 +1260,7 @@ fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
         // Check if source directory exists (has flux_rt.h).
         if candidate.join("flux_rt.h").exists() {
             // Auto-build libflux_rt.a if missing or stale.
-            #[cfg(feature = "core_to_llvm")]
+            #[cfg(feature = "native")]
             if let Err(e) = flux::core_to_llvm::pipeline::ensure_runtime_lib(candidate) {
                 eprintln!("Warning: failed to build C runtime: {e}");
             }
@@ -1271,7 +1273,7 @@ fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
 }
 
 /// Locate the Base library directory (`lib/Base/`).
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "native")]
 fn locate_base_lib_dir() -> Option<std::path::PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         let mut dir = exe.parent().map(Path::to_path_buf);

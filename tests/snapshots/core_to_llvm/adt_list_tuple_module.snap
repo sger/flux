@@ -1,5 +1,5 @@
 ---
-source: tests/core_to_llvm_phase5_snapshots.rs
+source: tests/core_to_llvm_adt_snapshots.rs
 expression: render_module(&module)
 ---
 %FluxClosure = type {ptr, i32, i32, i32, [0 x i64]}
@@ -546,47 +546,68 @@ entry:
 define internal fastcc i64 @fold(i64 %arg0) {
 entry:
   %slot.0 = alloca i64, align 8
-  %slot.1 = alloca i64, align 8
+  %slot.1 = alloca ptr, align 8
   %slot.2 = alloca i64, align 8
-  %slot.3 = alloca i64, align 8
+  %slot.3 = alloca ptr, align 8
+  %slot.4 = alloca i64, align 8
+  %slot.5 = alloca i64, align 8
+  %slot.6 = alloca i64, align 8
   store i64 %arg0, ptr %slot.0, align 8
-  br label %tco.loop.0
-tco.loop.0:
+  store ptr null, ptr %slot.1, align 8
+  br label %cps.loop.0
+cps.loop.0:
   %load.0 = load i64, ptr %slot.0, align 8
   %case.empty.1 = icmp eq i64 %load.0, 9222527611924643840
-  br i1 %case.empty.1, label %case.then.2, label %case.else.3
-case.join.1:
-  %case.result.14 = phi i64 [ 9222246136947933184, %case.then.2 ], [ %primop.13, %case.then.4 ]
-  ret i64 %case.result.14
-case.then.2:
-  br label %case.join.1
-case.else.3:
+  br i1 %case.empty.1, label %case.then.3, label %case.else.4
+case.join.2:
+  %case.result.14 = phi i64 [ 9222246136947933184, %case.then.3 ], [ %primop.13, %case.then.5 ]
+  store i64 %case.result.14, ptr %slot.2, align 8
+  br label %cps.unwind.1
+case.then.3:
+  br label %case.join.2
+case.else.4:
   %case.adt.is_ptr.2 = call fastcc i1 @flux_is_ptr(i64 %load.0)
-  br i1 %case.adt.is_ptr.2, label %case.adt.check.7, label %case.else.5
-case.then.4:
-  %load.9 = load i64, ptr %slot.2, align 8
+  br i1 %case.adt.is_ptr.2, label %case.adt.check.8, label %case.else.6
+case.then.5:
+  %load.9 = load i64, ptr %slot.5, align 8
   %acall.10 = tail call fastcc i64 @fold(i64 %load.9)
-  store i64 %acall.10, ptr %slot.3, align 8
-  %load.11 = load i64, ptr %slot.1, align 8
-  %load.12 = load i64, ptr %slot.3, align 8
+  store i64 %acall.10, ptr %slot.6, align 8
+  %load.11 = load i64, ptr %slot.4, align 8
+  %load.12 = load i64, ptr %slot.6, align 8
   %primop.13 = call ccc i64 @flux_rt_add(i64 %load.11, i64 %load.12)
-  br label %case.join.1
-case.else.5:
+  br label %case.join.2
+case.else.6:
   unreachable
-case.ctor.6:
+case.ctor.7:
   %case.adt.field.ptr.5 = call fastcc ptr @flux_adt_field_ptr(i64 %load.0, i32 0)
   %case.adt.field.6 = load i64, ptr %case.adt.field.ptr.5, align 8
-  store i64 %case.adt.field.6, ptr %slot.1, align 8
-  br label %case.field.8
-case.adt.check.7:
+  store i64 %case.adt.field.6, ptr %slot.4, align 8
+  br label %case.field.9
+case.adt.check.8:
   %case.adt.tag.3 = call fastcc i32 @flux_adt_tag(i64 %load.0)
   %case.adt.matches.4 = icmp eq i32 %case.adt.tag.3, 4
-  br i1 %case.adt.matches.4, label %case.ctor.6, label %case.else.5
-case.field.8:
+  br i1 %case.adt.matches.4, label %case.ctor.7, label %case.else.6
+case.field.9:
   %case.adt.field.ptr.7 = call fastcc ptr @flux_adt_field_ptr(i64 %load.0, i32 1)
   %case.adt.field.8 = load i64, ptr %case.adt.field.ptr.7, align 8
-  store i64 %case.adt.field.8, ptr %slot.2, align 8
-  br label %case.then.4
+  store i64 %case.adt.field.8, ptr %slot.5, align 8
+  br label %case.then.5
+cps.unwind.1:
+  %cps.result.15 = load i64, ptr %slot.2, align 8
+  %cps.head.16 = load ptr, ptr %slot.1, align 8
+  %cps.empty.17 = icmp eq ptr %cps.head.16, null
+  br i1 %cps.empty.17, label %cps.done.10, label %cps.pop.11
+cps.pop.11:
+  %cps.next.18 = load ptr, ptr %cps.head.16, align 8
+  store ptr %cps.next.18, ptr %slot.1, align 8
+  store ptr %cps.head.16, ptr %slot.3, align 8
+  %cps.tag_ptr.19 = getelementptr inbounds i64, ptr %cps.head.16, i32 1
+  %cps.tag.20 = load i8, ptr %cps.tag_ptr.19, align 1
+  switch i8 %cps.tag.20, label %cps.unreachable.12 [ ]
+cps.unreachable.12:
+  unreachable
+cps.done.10:
+  ret i64 %cps.result.15
 }
 
 define ccc i64 @flux_main() {

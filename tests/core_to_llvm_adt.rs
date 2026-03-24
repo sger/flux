@@ -1,4 +1,4 @@
-#![cfg(feature = "core_to_llvm")]
+#![cfg(feature = "native")]
 
 use std::{
     collections::HashMap,
