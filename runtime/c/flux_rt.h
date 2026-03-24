@@ -48,6 +48,7 @@ extern "C" {
 #define FLUX_TAG_UNINIT        0x3
 #define FLUX_TAG_EMPTY_LIST    0x4
 #define FLUX_TAG_BASE_FUNCTION 0x5
+#define FLUX_TAG_THUNK         0x6
 #define FLUX_TAG_BOXED_VALUE   0x8
 
 #define FLUX_PTR_SHIFT         3
@@ -116,6 +117,23 @@ static inline int64_t flux_tag_ptr(void *ptr) {
     uint64_t payload = (uint64_t)ptr >> FLUX_PTR_SHIFT;
     return (int64_t)(FLUX_NANBOX_SENTINEL
                      | ((uint64_t)FLUX_TAG_BOXED_VALUE << FLUX_TAG_SHIFT)
+                     | payload);
+}
+
+static inline int flux_is_thunk(int64_t val) {
+    if (!flux_is_nanbox(val)) return 0;
+    return flux_nanbox_tag(val) == FLUX_TAG_THUNK;
+}
+
+static inline void *flux_untag_thunk(int64_t val) {
+    uint64_t payload = (uint64_t)val & FLUX_PAYLOAD_MASK;
+    return (void *)(payload << FLUX_PTR_SHIFT);
+}
+
+static inline int64_t flux_tag_thunk(void *ptr) {
+    uint64_t payload = (uint64_t)ptr >> FLUX_PTR_SHIFT;
+    return (int64_t)(FLUX_NANBOX_SENTINEL
+                     | ((uint64_t)FLUX_TAG_THUNK << FLUX_TAG_SHIFT)
                      | payload);
 }
 

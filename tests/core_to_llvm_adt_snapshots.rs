@@ -27,7 +27,7 @@ fn parse_and_lower_core(src: &str) -> (flux::core::CoreProgram, Interner) {
 }
 
 #[test]
-fn phase5_snapshot_for_adt_list_and_tuple_lowering() {
+fn snapshot_for_adt_list_and_tuple_lowering() {
     let src = r#"
 data Wrap {
     Wrap(Int),
@@ -56,6 +56,6 @@ fn main() {
         snapshot_path => "snapshots/core_to_llvm",
         prepend_module_to_snapshot => false,
     }, {
-        insta::assert_snapshot!("phase5_adt_list_tuple_module", render_module(&module));
+        insta::assert_snapshot!("adt_list_tuple_module", render_module(&module));
     });
 }

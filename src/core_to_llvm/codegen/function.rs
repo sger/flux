@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt};
+use std::{collections::{HashMap, HashSet}, fmt, sync::Arc};
 
 use crate::{
     core::{CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreProgram},
@@ -64,6 +64,8 @@ pub(super) struct ProgramState<'a> {
     pub generated_string_globals: Vec<(GlobalId, String)>,
     /// C runtime declarations needed (name, param types, return type).
     pub needed_c_decls: Vec<(String, Vec<LlvmType>, LlvmType)>,
+    /// Mutual tail-recursion groups (Phase 2 TCO).
+    pub mutual_rec_groups: HashMap<CoreBinderId, Arc<MutualRecGroup>>,
 }
 
 impl<'a> ProgramState<'a> {
@@ -82,6 +84,7 @@ impl<'a> ProgramState<'a> {
             needed_builtins: Vec::new(),
             generated_string_globals: Vec::new(),
             needed_c_decls: Vec::new(),
+            mutual_rec_groups: HashMap::new(),
         }
     }
 
@@ -154,6 +157,222 @@ impl<'a> ProgramState<'a> {
     }
 }
 
+// ── Mutual tail-call recursion detection ─────────────────────────────────────
+
+/// A group of mutually tail-recursive functions (SCC of size >= 2 on the
+/// tail-call graph).  Each member gets a `fn_index` used by the trampoline.
+#[derive(Debug, Clone)]
+pub(super) struct MutualRecGroup {
+    /// Symbol names of group members, indexed by `fn_index`.
+    pub members: Vec<CoreBinderId>,
+    /// Binder → fn_index mapping.
+    pub member_index: HashMap<CoreBinderId, u8>,
+    /// A descriptive name for the trampoline function (e.g., "isEven_isOdd").
+    pub trampoline_name: String,
+}
+
+/// Collect only tail-call edges from a Core expression.
+/// Unlike `collect_local_callees` (which collects ALL callees), this only
+/// records calls that are in tail position relative to the enclosing function.
+fn collect_tail_callees(
+    expr: &CoreExpr,
+    def_ids: &HashSet<CoreBinderId>,
+    out: &mut HashSet<CoreBinderId>,
+    in_tail: bool,
+) {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
+        CoreExpr::Lam { body, .. } => {
+            // Lambda body starts a new function — not tail of the enclosing one.
+            collect_tail_callees(body, def_ids, out, false);
+        }
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+            if in_tail
+                && let CoreExpr::Var { var, .. } = func.as_ref()
+                && let Some(binder) = var.binder
+                && def_ids.contains(&binder)
+            {
+                out.insert(binder);
+            }
+            // Subexpressions of a call are never in tail position.
+            collect_tail_callees(func, def_ids, out, false);
+            for arg in args {
+                collect_tail_callees(arg, def_ids, out, false);
+            }
+        }
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            collect_tail_callees(rhs, def_ids, out, false);
+            collect_tail_callees(body, def_ids, out, in_tail); // body inherits tail
+        }
+        CoreExpr::Case { scrutinee, alts, .. } => {
+            collect_tail_callees(scrutinee, def_ids, out, false);
+            for alt in alts {
+                if let Some(guard) = &alt.guard {
+                    collect_tail_callees(guard, def_ids, out, false);
+                }
+                collect_tail_callees(&alt.rhs, def_ids, out, in_tail); // arms inherit tail
+            }
+        }
+        CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
+            for field in fields {
+                collect_tail_callees(field, def_ids, out, false);
+            }
+        }
+        CoreExpr::Return { value, .. } => {
+            collect_tail_callees(value, def_ids, out, in_tail);
+        }
+        CoreExpr::Perform { args, .. } => {
+            for arg in args {
+                collect_tail_callees(arg, def_ids, out, false);
+            }
+        }
+        CoreExpr::Handle { body, handlers, .. } => {
+            collect_tail_callees(body, def_ids, out, false);
+            for handler in handlers {
+                collect_tail_callees(&handler.body, def_ids, out, false);
+            }
+        }
+        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
+            collect_tail_callees(body, def_ids, out, in_tail); // transparent for tail
+        }
+        CoreExpr::Reuse { fields, .. } => {
+            for field in fields {
+                collect_tail_callees(field, def_ids, out, false);
+            }
+        }
+        CoreExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            collect_tail_callees(unique_body, def_ids, out, in_tail);
+            collect_tail_callees(shared_body, def_ids, out, in_tail);
+        }
+    }
+}
+
+/// Compute mutual tail-recursion groups using Tarjan's SCC on the tail-call
+/// graph.  Returns a map from each member's `CoreBinderId` to its group.
+/// Only groups of size >= 2 are included (self-recursive = Phase 1).
+fn compute_mutual_rec_groups(
+    core: &CoreProgram,
+    interner: Option<&Interner>,
+) -> HashMap<CoreBinderId, Arc<MutualRecGroup>> {
+    let def_ids: HashSet<_> = core.defs.iter().map(|def| def.binder.id).collect();
+
+    // Build tail-call adjacency graph.
+    let adjacency: HashMap<CoreBinderId, Vec<CoreBinderId>> = core
+        .defs
+        .iter()
+        .map(|def| {
+            let mut callees = HashSet::new();
+            // The body of a top-level Lam starts in tail position.
+            if let CoreExpr::Lam { body, .. } = &def.expr {
+                collect_tail_callees(body, &def_ids, &mut callees, true);
+            }
+            // Remove self-edges (handled by Phase 1).
+            callees.remove(&def.binder.id);
+            (def.binder.id, callees.into_iter().collect())
+        })
+        .collect();
+
+    // Tarjan's SCC algorithm.
+    let mut index = 0usize;
+    let mut stack = Vec::new();
+    let mut on_stack = HashSet::new();
+    let mut indices = HashMap::<CoreBinderId, usize>::new();
+    let mut lowlinks = HashMap::<CoreBinderId, usize>::new();
+    let mut components = Vec::new();
+
+    #[allow(clippy::too_many_arguments)]
+    fn strongconnect(
+        v: CoreBinderId,
+        adjacency: &HashMap<CoreBinderId, Vec<CoreBinderId>>,
+        index: &mut usize,
+        stack: &mut Vec<CoreBinderId>,
+        on_stack: &mut HashSet<CoreBinderId>,
+        indices: &mut HashMap<CoreBinderId, usize>,
+        lowlinks: &mut HashMap<CoreBinderId, usize>,
+        components: &mut Vec<Vec<CoreBinderId>>,
+    ) {
+        indices.insert(v, *index);
+        lowlinks.insert(v, *index);
+        *index += 1;
+        stack.push(v);
+        on_stack.insert(v);
+
+        for w in adjacency.get(&v).into_iter().flatten().copied() {
+            if !indices.contains_key(&w) {
+                strongconnect(w, adjacency, index, stack, on_stack, indices, lowlinks, components);
+                let low_v = lowlinks[&v];
+                let low_w = lowlinks[&w];
+                lowlinks.insert(v, low_v.min(low_w));
+            } else if on_stack.contains(&w) {
+                let low_v = lowlinks[&v];
+                let idx_w = indices[&w];
+                lowlinks.insert(v, low_v.min(idx_w));
+            }
+        }
+
+        if indices[&v] == lowlinks[&v] {
+            let mut component = Vec::new();
+            while let Some(w) = stack.pop() {
+                on_stack.remove(&w);
+                component.push(w);
+                if w == v {
+                    break;
+                }
+            }
+            components.push(component);
+        }
+    }
+
+    for def in &core.defs {
+        if !indices.contains_key(&def.binder.id) {
+            strongconnect(
+                def.binder.id, &adjacency, &mut index, &mut stack, &mut on_stack,
+                &mut indices, &mut lowlinks, &mut components,
+            );
+        }
+    }
+
+    // Build MutualRecGroup for SCCs with >= 2 members.
+    let mut result = HashMap::new();
+    for component in components {
+        if component.len() < 2 {
+            continue;
+        }
+        let member_index: HashMap<CoreBinderId, u8> = component
+            .iter()
+            .enumerate()
+            .map(|(i, &id)| (id, i as u8))
+            .collect();
+
+        // Build a descriptive trampoline name from member function names.
+        let name_parts: Vec<String> = component
+            .iter()
+            .map(|id| {
+                core.defs
+                    .iter()
+                    .find(|d| d.binder.id == *id)
+                    .map(|d| display_ident(d.name, interner))
+                    .unwrap_or_else(|| format!("{:?}", id))
+            })
+            .collect();
+        let trampoline_name = format!("trampoline.{}", name_parts.join("_"));
+
+        let group = Arc::new(MutualRecGroup {
+            members: component,
+            member_index,
+            trampoline_name,
+        });
+        for &member in &group.members {
+            result.insert(member, Arc::clone(&group));
+        }
+    }
+    result
+}
+
 pub fn compile_program(core: &CoreProgram) -> Result<LlvmModule, CoreToLlvmError> {
     compile_program_with_interner(core, None)
 }
@@ -197,6 +416,11 @@ pub fn compile_program_with_interner(
     }
 
     let mut program = ProgramState::new(top_level, adt_metadata, interner);
+    program.mutual_rec_groups = compute_mutual_rec_groups(core, interner);
+
+    // Track which groups we've already generated trampolines for.
+    let mut generated_trampolines: HashSet<String> = HashSet::new();
+
     for def in &core.defs {
         let info = program
             .top_level
@@ -208,9 +432,48 @@ pub fn compile_program_with_interner(
                     display_ident(def.name, interner)
                 ),
             })?;
-        let function =
-            lower_top_level_function(def, info.symbol.clone(), def.is_recursive, &mut program)?;
-        module.functions.push(function);
+
+        let mutual_group = program.mutual_rec_groups.get(&def.binder.id).cloned();
+
+        if let Some(ref group) = mutual_group {
+            // Member of a mutual recursion group: rename implementation to @name.impl,
+            // generate an entry wrapper @name that calls the trampoline.
+            let impl_symbol = GlobalId(format!("{}.impl", info.symbol.0));
+            let function = lower_top_level_function_with_mutual(
+                def,
+                impl_symbol.clone(),
+                def.is_recursive,
+                def.binder.id,
+                group.clone(),
+                &mut program,
+            )?;
+            module.functions.push(function);
+
+            // Generate entry wrapper: @name calls trampoline with fn_index + args.
+            let wrapper = build_trampoline_entry_wrapper(
+                &info.symbol,
+                &impl_symbol,
+                info.arity,
+                group,
+                def.binder.id,
+                &program,
+            );
+            module.functions.push(wrapper);
+
+            // Generate the trampoline once per group.
+            if generated_trampolines.insert(group.trampoline_name.clone()) {
+                let trampoline = build_trampoline_function(group, &program);
+                module.functions.push(trampoline);
+            }
+        } else {
+            let function = lower_top_level_function(
+                def,
+                info.symbol.clone(),
+                def.is_recursive,
+                &mut program,
+            )?;
+            module.functions.push(function);
+        }
     }
     module.functions.extend(program.generated_functions);
 
@@ -337,6 +600,374 @@ fn lower_top_level_function(
     }
     let result = lowering.lower_expr(body)?;
     lowering.finish_with_return(result)
+}
+
+/// Like `lower_top_level_function`, but sets up mutual group info so that
+/// cross-function tail calls within the group emit thunk returns.
+fn lower_top_level_function_with_mutual(
+    def: &CoreDef,
+    symbol: GlobalId,
+    is_recursive: bool,
+    binder: CoreBinderId,
+    group: Arc<MutualRecGroup>,
+    program: &mut ProgramState<'_>,
+) -> Result<LlvmFunction, CoreToLlvmError> {
+    let CoreExpr::Lam { params, body, .. } = &def.expr else {
+        return Err(CoreToLlvmError::Malformed {
+            message: format!(
+                "top-level function `{}` was not lowered as Lam",
+                display_ident(def.name, program.interner)
+            ),
+        });
+    };
+
+    let mut lowering = FunctionLowering::new_top_level(symbol.clone(), params, program);
+    lowering.mutual_group = Some((binder, group));
+    if is_recursive {
+        lowering.setup_tco_loop();
+    }
+    let result = lowering.lower_expr(body)?;
+    lowering.finish_with_return(result)
+}
+
+/// Build a trampoline function for a mutual recursion group.
+///
+/// ```llvm
+/// define fastcc i64 @trampoline.NAME(i8 %fn_index, ptr %args, i32 %nargs) {
+///   loop: switch on fn_index → call each member's .impl
+///   check: if is_thunk → unpack, loop; else → ret
+/// }
+/// ```
+fn build_trampoline_function(
+    group: &MutualRecGroup,
+    program: &ProgramState<'_>,
+) -> LlvmFunction {
+    use crate::core_to_llvm::LlvmConst;
+    use super::prelude::flux_prelude_symbol;
+
+    let trampoline_sym = GlobalId(group.trampoline_name.clone());
+
+    let mut blocks = Vec::new();
+
+    // entry: br label %loop
+    blocks.push(LlvmBlock {
+        label: LabelId("entry".into()),
+        instrs: vec![],
+        term: LlvmTerminator::Br {
+            target: LabelId("loop".into()),
+        },
+    });
+
+    // loop: phi nodes for fn_index, args, nargs
+    //   switch on fn_index → call.0, call.1, ...
+    let loop_instrs = vec![
+        LlvmInstr::Phi {
+            dst: LlvmLocal("cur.fn".into()),
+            ty: LlvmType::i8(),
+            incoming: vec![
+                (LlvmOperand::Local(LlvmLocal("fn_index".into())), LabelId("entry".into())),
+                (LlvmOperand::Local(LlvmLocal("next.fn".into())), LabelId("continue".into())),
+            ],
+        },
+        LlvmInstr::Phi {
+            dst: LlvmLocal("cur.args".into()),
+            ty: LlvmType::ptr(),
+            incoming: vec![
+                (LlvmOperand::Local(LlvmLocal("args".into())), LabelId("entry".into())),
+                (LlvmOperand::Local(LlvmLocal("next.args".into())), LabelId("continue".into())),
+            ],
+        },
+        LlvmInstr::Phi {
+            dst: LlvmLocal("cur.nargs".into()),
+            ty: LlvmType::i32(),
+            incoming: vec![
+                (LlvmOperand::Local(LlvmLocal("nargs".into())), LabelId("entry".into())),
+                (LlvmOperand::Local(LlvmLocal("next.nargs".into())), LabelId("continue".into())),
+            ],
+        },
+    ];
+
+    // Build switch cases
+    let mut switch_cases = Vec::new();
+    for (i, _member_id) in group.members.iter().enumerate() {
+        let label = LabelId(format!("call.{i}"));
+        switch_cases.push((
+            LlvmConst::Int { bits: 8, value: i as i128 },
+            label,
+        ));
+    }
+
+    blocks.push(LlvmBlock {
+        label: LabelId("loop".into()),
+        instrs: loop_instrs,
+        term: LlvmTerminator::Switch {
+            ty: LlvmType::i8(),
+            scrutinee: LlvmOperand::Local(LlvmLocal("cur.fn".into())),
+            default: LabelId("unreachable".into()),
+            cases: switch_cases,
+        },
+    });
+
+    // Generate call blocks: each loads args and calls the .impl function
+    let mut check_incoming = Vec::new();
+    for (i, &member_id) in group.members.iter().enumerate() {
+        let info = program.top_level.get(&member_id).expect("mutual group member in top_level");
+        let impl_symbol = GlobalId(format!("{}.impl", info.symbol.0));
+        let arity = info.arity;
+        let label = LabelId(format!("call.{i}"));
+
+        let mut instrs = Vec::new();
+
+        // Load each argument from cur.args
+        let mut call_args = Vec::new();
+        for j in 0..arity {
+            let slot = LlvmLocal(format!("call.{i}.arg.ptr.{j}"));
+            instrs.push(LlvmInstr::GetElementPtr {
+                dst: slot.clone(),
+                inbounds: true,
+                element_ty: LlvmType::i64(),
+                base: LlvmOperand::Local(LlvmLocal("cur.args".into())),
+                indices: vec![(LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: j as i128 }))],
+            });
+            let arg = LlvmLocal(format!("call.{i}.arg.{j}"));
+            instrs.push(LlvmInstr::Load {
+                dst: arg.clone(),
+                ty: LlvmType::i64(),
+                ptr: LlvmOperand::Local(slot),
+                align: Some(8),
+            });
+            call_args.push((LlvmType::i64(), LlvmOperand::Local(arg)));
+        }
+
+        // Call the .impl function
+        let result = LlvmLocal(format!("call.{i}.result"));
+        instrs.push(LlvmInstr::Call {
+            dst: Some(result.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(impl_symbol),
+            args: call_args,
+            attrs: vec![],
+        });
+
+        check_incoming.push((LlvmOperand::Local(result), label.clone()));
+
+        blocks.push(LlvmBlock {
+            label,
+            instrs,
+            term: LlvmTerminator::Br {
+                target: LabelId("check".into()),
+            },
+        });
+    }
+
+    // check: phi result, test is_thunk, branch to continue or done
+    blocks.push(LlvmBlock {
+        label: LabelId("check".into()),
+        instrs: vec![
+            LlvmInstr::Phi {
+                dst: LlvmLocal("result".into()),
+                ty: LlvmType::i64(),
+                incoming: check_incoming,
+            },
+            LlvmInstr::Call {
+                dst: Some(LlvmLocal("is_thunk".into())),
+                tail: false,
+                call_conv: Some(CallConv::Fastcc),
+                ret_ty: LlvmType::i1(),
+                callee: LlvmOperand::Global(flux_prelude_symbol("flux_is_thunk")),
+                args: vec![(LlvmType::i64(), LlvmOperand::Local(LlvmLocal("result".into())))],
+                attrs: vec![],
+            },
+        ],
+        term: LlvmTerminator::CondBr {
+            cond_ty: LlvmType::i1(),
+            cond: LlvmOperand::Local(LlvmLocal("is_thunk".into())),
+            then_label: LabelId("continue".into()),
+            else_label: LabelId("done".into()),
+        },
+    });
+
+    // continue: unpack thunk → next.fn, next.args, next.nargs, branch to loop
+    blocks.push(LlvmBlock {
+        label: LabelId("continue".into()),
+        instrs: vec![
+            // Untag the thunk pointer
+            LlvmInstr::Call {
+                dst: Some(LlvmLocal("thunk.ptr".into())),
+                tail: false,
+                call_conv: Some(CallConv::Fastcc),
+                ret_ty: LlvmType::ptr(),
+                callee: LlvmOperand::Global(flux_prelude_symbol("flux_untag_thunk_ptr")),
+                args: vec![(LlvmType::i64(), LlvmOperand::Local(LlvmLocal("result".into())))],
+                attrs: vec![],
+            },
+            // Load fn_index (i8 at offset 0)
+            LlvmInstr::Load {
+                dst: LlvmLocal("next.fn".into()),
+                ty: LlvmType::i8(),
+                ptr: LlvmOperand::Local(LlvmLocal("thunk.ptr".into())),
+                align: Some(1),
+            },
+            // Load nargs (i32 at offset 4)
+            LlvmInstr::GetElementPtr {
+                dst: LlvmLocal("thunk.nargs.ptr".into()),
+                inbounds: true,
+                element_ty: LlvmType::i32(),
+                base: LlvmOperand::Local(LlvmLocal("thunk.ptr".into())),
+                indices: vec![(LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 1 }))],
+            },
+            LlvmInstr::Load {
+                dst: LlvmLocal("next.nargs".into()),
+                ty: LlvmType::i32(),
+                ptr: LlvmOperand::Local(LlvmLocal("thunk.nargs.ptr".into())),
+                align: Some(4),
+            },
+            // Args pointer (i64* at offset 8)
+            LlvmInstr::GetElementPtr {
+                dst: LlvmLocal("next.args".into()),
+                inbounds: true,
+                element_ty: LlvmType::i64(),
+                base: LlvmOperand::Local(LlvmLocal("thunk.ptr".into())),
+                indices: vec![(LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 1 }))],
+            },
+        ],
+        term: LlvmTerminator::Br {
+            target: LabelId("loop".into()),
+        },
+    });
+
+    // done: return the result
+    blocks.push(LlvmBlock {
+        label: LabelId("done".into()),
+        instrs: vec![],
+        term: LlvmTerminator::Ret {
+            ty: LlvmType::i64(),
+            value: LlvmOperand::Local(LlvmLocal("result".into())),
+        },
+    });
+
+    // unreachable
+    blocks.push(LlvmBlock {
+        label: LabelId("unreachable".into()),
+        instrs: vec![],
+        term: LlvmTerminator::Unreachable,
+    });
+
+    LlvmFunction {
+        linkage: Linkage::Internal,
+        name: trampoline_sym,
+        sig: LlvmFunctionSig {
+            ret: LlvmType::i64(),
+            params: vec![LlvmType::i8(), LlvmType::ptr(), LlvmType::i32()],
+            varargs: false,
+            call_conv: CallConv::Fastcc,
+        },
+        params: vec![
+            LlvmLocal("fn_index".into()),
+            LlvmLocal("args".into()),
+            LlvmLocal("nargs".into()),
+        ],
+        attrs: vec![],
+        blocks,
+    }
+}
+
+/// Build an entry wrapper that calls the trampoline with the appropriate fn_index.
+///
+/// ```llvm
+/// define fastcc i64 @isEven(i64 %arg0) {
+///   %args = alloca [1 x i64]
+///   store %arg0 into args[0]
+///   %result = call fastcc i64 @trampoline.GROUP(i8 0, ptr %args, i32 1)
+///   ret i64 %result
+/// }
+/// ```
+fn build_trampoline_entry_wrapper(
+    public_symbol: &GlobalId,
+    _impl_symbol: &GlobalId,
+    arity: usize,
+    group: &MutualRecGroup,
+    binder: CoreBinderId,
+    _program: &ProgramState<'_>,
+) -> LlvmFunction {
+    use crate::core_to_llvm::LlvmConst;
+
+    let fn_index = group.member_index[&binder];
+    let trampoline_sym = GlobalId(group.trampoline_name.clone());
+
+    let params: Vec<LlvmLocal> = (0..arity)
+        .map(|i| LlvmLocal(format!("arg{i}")))
+        .collect();
+    let param_types: Vec<LlvmType> = (0..arity).map(|_| LlvmType::i64()).collect();
+
+    let mut instrs = Vec::new();
+
+    // Allocate args array on stack
+    let args_ptr = LlvmLocal("entry.args".into());
+    let count = arity.max(1) as i32;
+    instrs.push(LlvmInstr::Alloca {
+        dst: args_ptr.clone(),
+        ty: LlvmType::i64(),
+        count: Some((LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: count as i128 }))),
+        align: Some(8),
+    });
+
+    // Store each arg
+    for (i, param) in params.iter().enumerate() {
+        let slot = LlvmLocal(format!("entry.args.slot.{i}"));
+        instrs.push(LlvmInstr::GetElementPtr {
+            dst: slot.clone(),
+            inbounds: true,
+            element_ty: LlvmType::i64(),
+            base: LlvmOperand::Local(args_ptr.clone()),
+            indices: vec![(LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: i as i128 }))],
+        });
+        instrs.push(LlvmInstr::Store {
+            ty: LlvmType::i64(),
+            value: LlvmOperand::Local(param.clone()),
+            ptr: LlvmOperand::Local(slot),
+            align: Some(8),
+        });
+    }
+
+    // Call trampoline
+    let result = LlvmLocal("entry.result".into());
+    instrs.push(LlvmInstr::Call {
+        dst: Some(result.clone()),
+        tail: false,
+        call_conv: Some(CallConv::Fastcc),
+        ret_ty: LlvmType::i64(),
+        callee: LlvmOperand::Global(trampoline_sym),
+        args: vec![
+            (LlvmType::i8(), LlvmOperand::Const(LlvmConst::Int { bits: 8, value: fn_index as i128 })),
+            (LlvmType::ptr(), LlvmOperand::Local(args_ptr)),
+            (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: arity as i128 })),
+        ],
+        attrs: vec![],
+    });
+
+    LlvmFunction {
+        linkage: Linkage::Internal,
+        name: public_symbol.clone(),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::i64(),
+            params: param_types,
+            varargs: false,
+            call_conv: CallConv::Fastcc,
+        },
+        params,
+        attrs: vec![],
+        blocks: vec![LlvmBlock {
+            label: LabelId("entry".into()),
+            instrs,
+            term: LlvmTerminator::Ret {
+                ty: LlvmType::i64(),
+                value: LlvmOperand::Local(result),
+            },
+        }],
+    }
 }
 
 fn build_top_level_wrapper(wrapper: &GlobalId, target: &GlobalId, arity: usize) -> LlvmFunction {

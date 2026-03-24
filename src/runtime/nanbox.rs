@@ -106,7 +106,9 @@ mod inner {
         EmptyList = 0x4,
         /// `Value::BaseFunction(u8)`: payload holds the index.
         BaseFunction = 0x5,
-        // Tag 0x6 was GcHandle (removed in Aether Phase 4), now falls through to BoxedValue.
+        /// Trampoline thunk for mutual tail-call optimization (core_to_llvm only).
+        /// Payload holds a heap pointer (>> 3) to `{i8 fn_index, i8[3] _pad, i32 nargs, i64 args[]}`.
+        Thunk = 0x6,
         /// Heap-allocated `Rc<Value>` for any Value variant not encoded inline.
         /// Payload holds the `Rc<Value>` raw pointer shifted right 3 bits.
         BoxedValue = 0x8,
@@ -123,7 +125,8 @@ mod inner {
                 0x3 => NanTag::Uninit,
                 0x4 => NanTag::EmptyList,
                 0x5 => NanTag::BaseFunction,
-                0x6..=0x8 => NanTag::BoxedValue, // 0x6 was GcHandle, removed in Aether Phase 4
+                0x6 => NanTag::Thunk,
+                0x7 | 0x8 => NanTag::BoxedValue,
                 _ => NanTag::BoxedValue,         // reserved tags fall back to boxed
             }
         }
@@ -367,6 +370,11 @@ mod inner {
                 NanTag::Uninit => Value::Uninit,
                 NanTag::EmptyList => Value::EmptyList,
                 NanTag::BaseFunction => Value::BaseFunction(self.as_base_fn()),
+                NanTag::Thunk => {
+                    // Thunks are core_to_llvm-only trampoline values. They should
+                    // never appear in the VM. Treat as None if encountered.
+                    Value::None
+                }
                 NanTag::BoxedValue => {
                     // Reconstruct the Rc. `from_raw` takes ownership, which will
                     // drop the Rc (decrementing count) at end of this block.
