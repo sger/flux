@@ -131,10 +131,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         for (i, val) in field_values.iter().enumerate() {
             // If field_mask is set and bit `i` is clear, skip this field
             // (it's unchanged from the original allocation).
-            if let Some(mask) = field_mask {
-                if (mask >> i) & 1 == 0 {
-                    continue;
-                }
+            if let Some(mask) = field_mask
+                && (mask >> i) & 1 == 0
+            {
+                continue;
             }
             let field_ptr = self.state.temp_local(&format!("reuse.field.{i}"));
             self.state.emit(LlvmInstr::GetElementPtr {
@@ -279,10 +279,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
     /// Load a variable's current value from its local slot.
     /// Returns the loaded operand, or an error if the variable is unbound.
     fn load_var_value(&mut self, var: CoreVarRef) -> Result<LlvmOperand, CoreToLlvmError> {
-        if let Some(binder) = var.binder {
-            if let Some(slot) = self.state.local_slots.get(&binder).cloned() {
-                return self.load_slot_value(slot, "aether.load");
-            }
+        if let Some(binder) = var.binder
+            && let Some(slot) = self.state.local_slots.get(&binder).cloned()
+        {
+            return self.load_slot_value(slot, "aether.load");
         }
         // If the variable is not in scope (e.g., a top-level reference or
         // already dropped), silently skip the RC operation.  The Aether pass

@@ -642,6 +642,7 @@ pub fn ensure_builtin_declared(module: &mut LlvmModule, mapping: &BuiltinMapping
 }
 
 /// Check if a name (resolved via interner) is a known base function.
+#[allow(dead_code)]
 pub fn is_known_builtin(name: &str) -> bool {
     find_builtin(name).is_some()
 }
