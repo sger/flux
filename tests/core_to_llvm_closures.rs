@@ -149,7 +149,7 @@ fn lowers_recursive_local_closure_from_handwritten_core() {
     let module = compile_program(&core).expect("lower to llvm");
     let rendered = render_module(&module);
 
-    assert!(rendered.contains("call fastcc i64 @flux_tag_boxed_ptr(ptr %closure)"));
+    assert!(rendered.contains("call fastcc i64 @flux_make_closure("));
     assert!(rendered.contains("call fastcc i64 @flux_call_closure("));
     assert!(rendered.contains(".lambda."));
 }
@@ -215,7 +215,7 @@ fn main() {
     let module = compile_program_with_interner(&core, Some(&interner)).expect("lower to llvm");
     let ll = render_module(&module);
     let path = std::env::temp_dir().join(format!(
-        "core_to_llvm_phase4_{}.ll",
+        "core_to_llvm_closures_{}.ll",
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock after unix epoch")
