@@ -7,7 +7,6 @@ use std::{
 
 #[cfg(feature = "native")]
 use flux::ast::{constant_fold_with_interner, desugar, rename};
-#[cfg(feature = "native")]
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
@@ -668,8 +667,22 @@ fn run_file(
                 );
             }
 
+            // Build merged program from all modules for dump-core / dump-aether.
+            // This ensures module functions are visible in the output.
+            let merged_program = if is_multimodule
+                && (dump_aether || !matches!(dump_core, CoreDumpMode::None))
+            {
+                let mut merged = Program::new();
+                for node in graph.topo_order() {
+                    merged.statements.extend(node.program.statements.clone());
+                }
+                merged
+            } else {
+                program.clone()
+            };
+
             if dump_aether {
-                match compiler.dump_aether_report(&program, enable_optimize) {
+                match compiler.dump_aether_report(&merged_program, enable_optimize) {
                     Ok(report) => println!("{report}"),
                     Err(diag) => {
                         emit_diagnostics(
@@ -690,7 +703,7 @@ fn run_file(
 
             if !matches!(dump_core, CoreDumpMode::None) {
                 let dumped = compiler.dump_core_with_opts(
-                    &program,
+                    &merged_program,
                     enable_optimize,
                     match dump_core {
                         CoreDumpMode::Readable => flux::core::display::CoreDisplayMode::Readable,

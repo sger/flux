@@ -1,0 +1,10 @@
+// Advent of Code 2024 - Day 7: Bridge Repair
+// Uses input file: examples/aoc/2024/day07.txt
+
+import Day07Solver as Day07
+
+fn main() with IO {
+    let lines: Array<String> = read_lines("examples/aoc/2024/day07.txt")
+    print("Part A: " + to_string(Day07.day07a(lines)))
+    print("Part B: " + to_string(Day07.day07b(lines)))
+}

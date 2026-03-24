@@ -291,6 +291,7 @@ int64_t flux_split(int64_t s, int64_t delim);
 int64_t flux_join(int64_t list, int64_t sep);
 int64_t flux_substring(int64_t s, int64_t start, int64_t end);
 int64_t flux_parse_int(int64_t s);
+int64_t flux_parse_ints(int64_t arr);
 int64_t flux_to_string(int64_t val);
 
 /* ── Collection helpers ─────────────────────────────────────────────── */

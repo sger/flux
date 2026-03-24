@@ -1,0 +1,79 @@
+module Day07Solver {
+    // AoC 2024 Day 7 - Bridge Repair
+
+    fn safe_get(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> 0,
+        }
+    }
+
+    fn to_int(s) {
+        let arr = parse_ints([|s|])
+        safe_get(arr, 0)
+    }
+
+    fn parse_line(line) {
+        let parts = split(line, ": ")
+        let target_str = match parts[0] { Some(v) -> v, _ -> "0" }
+        let nums_str = match parts[1] { Some(v) -> v, _ -> "" }
+        let target = to_int(target_str)
+        let nums = parse_ints(split(nums_str, " "))
+        let result = (target, nums)
+        result
+    }
+
+    fn can_solve_a(nums, idx, current, target) {
+        if idx >= len(nums) {
+            current == target
+        } else if current > target {
+            false
+        } else {
+            let n = safe_get(nums, idx)
+            can_solve_a(nums, idx + 1, current + n, target)
+            || can_solve_a(nums, idx + 1, current * n, target)
+        }
+    }
+
+    fn concat_nums(a, b) {
+        to_int(to_string(a) + to_string(b))
+    }
+
+    fn can_solve_b(nums, idx, current, target) {
+        if idx >= len(nums) {
+            current == target
+        } else if current > target {
+            false
+        } else {
+            let n = safe_get(nums, idx)
+            can_solve_b(nums, idx + 1, current + n, target)
+            || can_solve_b(nums, idx + 1, current * n, target)
+            || can_solve_b(nums, idx + 1, concat_nums(current, n), target)
+        }
+    }
+
+    fn solve(lines, idx, acc, checker) {
+        if idx >= len(lines) {
+            acc
+        } else {
+            let line = match lines[idx] { Some(v) -> v, _ -> "" }
+            if len(line) == 0 {
+                solve(lines, idx + 1, acc, checker)
+            } else {
+                let parsed = parse_line(line)
+                let target = parsed.0
+                let nums = parsed.1
+                let valid = checker(nums, 1, safe_get(nums, 0), target)
+                solve(lines, idx + 1, if valid { acc + target } else { acc }, checker)
+            }
+        }
+    }
+
+    public fn day07a(lines: Array<String>) -> Int {
+        solve(lines, 0, 0, can_solve_a)
+    }
+
+    public fn day07b(lines: Array<String>) -> Int {
+        solve(lines, 0, 0, can_solve_b)
+    }
+}
