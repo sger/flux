@@ -201,7 +201,7 @@ pub fn compile_program_with_interner(
                     display_ident(def.name, interner)
                 ),
             })?;
-        let function = lower_top_level_function(def, info.symbol.clone(), &mut program)?;
+        let function = lower_top_level_function(def, info.symbol.clone(), def.is_recursive, &mut program)?;
         module.functions.push(function);
     }
     module.functions.extend(program.generated_functions);
@@ -308,6 +308,7 @@ pub(super) fn sanitize_symbol_fragment(raw: &str) -> String {
 fn lower_top_level_function(
     def: &CoreDef,
     symbol: GlobalId,
+    is_recursive: bool,
     program: &mut ProgramState<'_>,
 ) -> Result<LlvmFunction, CoreToLlvmError> {
     let CoreExpr::Lam { params, body, .. } = &def.expr else {
@@ -320,6 +321,9 @@ fn lower_top_level_function(
     };
 
     let mut lowering = FunctionLowering::new_top_level(symbol.clone(), params, program);
+    if is_recursive {
+        lowering.setup_tco_loop();
+    }
     let result = lowering.lower_expr(body)?;
     lowering.finish_with_return(result)
 }
@@ -424,6 +428,17 @@ pub(super) fn emit_closure_param_unpack(
     instrs
 }
 
+/// State for self-tail-call optimization.  When present, the function body
+/// is lowered inside a loop block; tail self-calls store updated argument
+/// values into the parameter alloca slots and branch back to `loop_header`.
+pub(super) struct TcoLoopState {
+    /// Label of the loop header block (body starts here).
+    pub loop_header: LabelId,
+    /// Alloca slots for each parameter, in order.  Tail self-calls store new
+    /// argument values into these slots before branching to `loop_header`.
+    pub param_slots: Vec<LlvmLocal>,
+}
+
 pub(super) struct FunctionBlock {
     pub label: LabelId,
     pub instrs: Vec<LlvmInstr>,
@@ -460,6 +475,8 @@ pub(super) struct FunctionState<'a> {
     pub next_block_id: u32,
     pub local_slots: HashMap<CoreBinderId, LlvmLocal>,
     pub binder_names: HashMap<CoreBinderId, Identifier>,
+    /// TCO loop state — present when the function is self-recursive.
+    pub tco_loop: Option<TcoLoopState>,
 }
 
 impl<'a> FunctionState<'a> {
@@ -552,6 +569,7 @@ impl<'a> FunctionState<'a> {
             next_block_id: 0,
             local_slots: HashMap::new(),
             binder_names,
+            tco_loop: None,
         }
     }
 

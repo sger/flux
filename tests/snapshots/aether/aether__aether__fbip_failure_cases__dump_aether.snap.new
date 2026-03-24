@@ -1,0 +1,99 @@
+---
+source: tests/aether_cli_snapshots.rs
+assertion_line: 109
+---
+• 2 errors • examples/aether/Aether/FbipImportedSupport.flx
+error[E416]: Strict Function Annotation Required
+
+Public function `imported_inc` must annotate all parameters in strict mode.
+
+  examples/aether/Aether/FbipImportedSupport.flx:3:12
+  |
+3 |     public fn imported_inc(x) {
+  |            ^^^^^^^^^^^^^^^^^^^^
+4 |         x + 1
+  | ^^^^^^^^^^^^^
+5 |     }
+  | ^^^^^
+
+Hint:
+  Add explicit parameter types to the function signature.
+
+
+error[E417]: Strict Return Annotation Required
+
+Public function `imported_inc` must declare a return type in strict mode.
+
+  examples/aether/Aether/FbipImportedSupport.flx:3:12
+  |
+3 |     public fn imported_inc(x) {
+  |            ^^^^^^^^^^^^^^^^^^^^
+4 |         x + 1
+  | ^^^^^^^^^^^^^
+5 |     }
+  | ^^^^^
+
+Hint:
+  Add `-> Type` to the function signature.
+
+
+• 1 error, 3 warnings • examples/aether/fbip_failure_cases.flx
+Warning: FBIP Contract Not Proven
+
+@fip on `fail_indirect` analysis result NotProvable:
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+
+  examples/aether/fbip_failure_cases.flx:11:6
+   |
+11 | @fip fn fail_indirect(f, x) {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^^
+12 |     f(x)
+   | ^^^^^^^^
+13 | }
+   | ^
+
+
+Warning: FBIP Contract Not Proven
+
+@fip on `fail_imported` analysis result NotProvable:
+- calls indirect or opaque callee `Symbol(4000011)` whose FBIP behavior is unknown
+
+  examples/aether/fbip_failure_cases.flx:15:6
+   |
+15 | @fip fn fail_imported(x: Int) -> Int {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+16 |     Imported.imported_inc(x)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17 | }
+   | ^
+
+
+error[E425]: Unresolved Boundary Type
+
+Strict mode cannot enforce runtime boundary check for unresolved expression type in function return expression.
+
+  examples/aether/fbip_failure_cases.flx:16:5
+   |
+16 |     Imported.imported_inc(x)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+   |     ------------------------ expression type is unresolved in strict mode
+
+Hint:
+  Use concrete types (or additional annotations) so HM can resolve this expression.
+
+
+Warning: FBIP Contract Not Proven
+
+@fip on `fail_fresh` analysis result Fbip { bound: 1 }:
+- fresh heap allocation remains on at least one path
+
+  examples/aether/fbip_failure_cases.flx:19:6
+   |
+19 | @fip fn fail_fresh(x: Int) {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^
+20 |     Some(x)
+   | ^^^^^^^^^^^
+21 | }
+   | ^
+
+Found 3 errors and 3 warnings across 2 modules.

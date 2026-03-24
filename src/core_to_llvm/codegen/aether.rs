@@ -65,7 +65,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         // Lower all field values first.
         let field_values: Vec<LlvmOperand> = fields
             .iter()
-            .map(|f| self.lower_expr(f))
+            .map(|f| self.lower_expr_not_tail(f))
             .collect::<Result<Vec<_>, _>>()?;
 
         // Load the token value.
@@ -212,31 +212,43 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         let unique_idx = self.state.push_block(unique_label.clone());
         self.state.switch_to_block(unique_idx);
         let unique_result = self.lower_expr(unique_body)?;
-        let unique_from = self.state.current_block_label();
-        self.state.set_terminator(LlvmTerminator::Br {
-            target: join_label.clone(),
-        });
+        let mut incoming = Vec::new();
+        if self.state.current_block_open() {
+            let unique_from = self.state.current_block_label();
+            self.state.set_terminator(LlvmTerminator::Br {
+                target: join_label.clone(),
+            });
+            incoming.push((unique_result, unique_from));
+        }
 
         // --- Shared body ---
         let shared_idx = self.state.push_block(shared_label.clone());
         self.state.switch_to_block(shared_idx);
         let shared_result = self.lower_expr(shared_body)?;
-        let shared_from = self.state.current_block_label();
-        self.state.set_terminator(LlvmTerminator::Br {
-            target: join_label.clone(),
-        });
+        if self.state.current_block_open() {
+            let shared_from = self.state.current_block_label();
+            self.state.set_terminator(LlvmTerminator::Br {
+                target: join_label.clone(),
+            });
+            incoming.push((shared_result, shared_from));
+        }
 
         // --- Join block with phi ---
         let join_idx = self.state.push_block(join_label);
         self.state.switch_to_block(join_idx);
+        if incoming.is_empty() {
+            // Both arms terminated (e.g., both tail-called back to TCO loop).
+            self.state.set_terminator(LlvmTerminator::Unreachable);
+            return Ok(LlvmOperand::Const(crate::core_to_llvm::LlvmConst::Int {
+                bits: 64,
+                value: 0,
+            }));
+        }
         let result = self.state.temp_local("ds.result");
         self.state.emit(LlvmInstr::Phi {
             dst: result.clone(),
             ty: LlvmType::i64(),
-            incoming: vec![
-                (unique_result, unique_from),
-                (shared_result, shared_from),
-            ],
+            incoming,
         });
 
         Ok(LlvmOperand::Local(result))
