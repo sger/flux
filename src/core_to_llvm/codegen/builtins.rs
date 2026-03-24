@@ -118,7 +118,7 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     // Higher-order functions (call closures via flux_call_closure_c trampoline)
     BuiltinMapping { flux_name: "map",        c_name: "flux_ho_map",          arity: 2, returns_value: true },
     BuiltinMapping { flux_name: "filter",     c_name: "flux_ho_filter",       arity: 2, returns_value: true },
-    BuiltinMapping { flux_name: "sort",       c_name: "flux_ho_sort",         arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "sort",       c_name: "flux_sort_default",    arity: 1, returns_value: true },
     BuiltinMapping { flux_name: "any",        c_name: "flux_ho_any",          arity: 2, returns_value: true },
     BuiltinMapping { flux_name: "all",        c_name: "flux_ho_all",          arity: 2, returns_value: true },
     BuiltinMapping { flux_name: "fold",       c_name: "flux_ho_fold",         arity: 3, returns_value: true },

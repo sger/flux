@@ -121,6 +121,9 @@ fn run_linker(
         cmd.arg(format!("-L{}", dir.display()));
         cmd.arg("-lflux_rt");
     }
+    // Set large stack size for deeply recursive programs.
+    #[cfg(target_os = "macos")]
+    cmd.args(["-Wl,-stack_size,0x4000000"]); // 64 MB stack
     // Link math library on Linux.
     #[cfg(target_os = "linux")]
     cmd.arg("-lm");
