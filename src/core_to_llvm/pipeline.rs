@@ -201,18 +201,17 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
     if lib_path.exists() {
         // Check if any .c or .h file is newer than the .a
         let lib_mtime = std::fs::metadata(&lib_path).and_then(|m| m.modified()).ok();
-        let sources_newer = lib_mtime.map_or(true, |lib_t| {
+        let sources_newer = lib_mtime.is_none_or(|lib_t| {
             let mut newer = false;
             for ext in &["c", "h"] {
                 if let Ok(entries) = std::fs::read_dir(runtime_c_dir) {
                     for entry in entries.flatten() {
                         let p = entry.path();
-                        if p.extension().and_then(|e| e.to_str()) == Some(ext) {
-                            if let Ok(src_t) = std::fs::metadata(&p).and_then(|m| m.modified()) {
-                                if src_t > lib_t {
-                                    newer = true;
-                                }
-                            }
+                        if p.extension().and_then(|e| e.to_str()) == Some(ext)
+                            && let Ok(src_t) = std::fs::metadata(&p).and_then(|m| m.modified())
+                            && src_t > lib_t
+                        {
+                            newer = true;
                         }
                     }
                 }

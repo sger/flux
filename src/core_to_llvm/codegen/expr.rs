@@ -635,33 +635,32 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             return self.lower_constructor(&tag, args);
         }
 
-        if let Some((callee, arity)) = self.resolve_direct_call_target(func) {
-            if args.len() == arity {
-                let lowered_args = args
-                    .iter()
-                    .map(|arg| self.lower_expr_not_tail(arg))
-                    .collect::<Result<Vec<_>, _>>()?;
-                // TCO: convert tail self-calls into loop branches.
-                if let Some(dummy) = self.try_lower_tco_self_call(&callee, &lowered_args) {
-                    return Ok(dummy);
-                }
-                let is_self_recursive = callee.0 == self.state.symbol.0;
-                let dst = self.state.temp_local("call");
-                self.state.emit(LlvmInstr::Call {
-                    dst: Some(dst.clone()),
-                    tail: is_self_recursive,
-                    call_conv: Some(CallConv::Fastcc),
-                    ret_ty: LlvmType::i64(),
-                    callee: LlvmOperand::Global(callee),
-                    args: lowered_args
-                        .into_iter()
-                        .map(|arg| (LlvmType::i64(), arg))
-                        .collect(),
-                    attrs: vec![],
-                });
-                return Ok(LlvmOperand::Local(dst));
+        if let Some((callee, arity)) = self.resolve_direct_call_target(func)
+            && args.len() == arity
+        {
+            let lowered_args = args
+                .iter()
+                .map(|arg| self.lower_expr_not_tail(arg))
+                .collect::<Result<Vec<_>, _>>()?;
+            // TCO: convert tail self-calls into loop branches.
+            if let Some(dummy) = self.try_lower_tco_self_call(&callee, &lowered_args) {
+                return Ok(dummy);
             }
-            // Arity mismatch (partial application): fall through to closure dispatch
+            let is_self_recursive = callee.0 == self.state.symbol.0;
+            let dst = self.state.temp_local("call");
+            self.state.emit(LlvmInstr::Call {
+                dst: Some(dst.clone()),
+                tail: is_self_recursive,
+                call_conv: Some(CallConv::Fastcc),
+                ret_ty: LlvmType::i64(),
+                callee: LlvmOperand::Global(callee),
+                args: lowered_args
+                    .into_iter()
+                    .map(|arg| (LlvmType::i64(), arg))
+                    .collect(),
+                attrs: vec![],
+            });
+            return Ok(LlvmOperand::Local(dst));
         }
 
         let callee = self.lower_expr_not_tail(func)?;
@@ -710,46 +709,46 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             return self.lower_constructor(&tag, args);
         }
 
-        if let Some((callee, arity)) = self.resolve_direct_call_target(func) {
-            if args.len() == arity {
-                let lowered_args = args
-                    .iter()
-                    .map(|arg| self.lower_expr_not_tail(arg))
-                    .collect::<Result<Vec<_>, _>>()?;
-                // Emit dup for Owned args that need it.
-                for (i, val) in lowered_args.iter().enumerate() {
-                    if i < arg_modes.len() && arg_modes[i] == BorrowMode::Owned {
-                        self.state.emit(LlvmInstr::Call {
-                            dst: None,
-                            tail: false,
-                            call_conv: Some(CallConv::Fastcc),
-                            ret_ty: LlvmType::Void,
-                            callee: LlvmOperand::Global(flux_prelude_symbol("flux_dup")),
-                            args: vec![(LlvmType::i64(), val.clone())],
-                            attrs: vec![],
-                        });
-                    }
+        if let Some((callee, arity)) = self.resolve_direct_call_target(func)
+            && args.len() == arity
+        {
+            let lowered_args = args
+                .iter()
+                .map(|arg| self.lower_expr_not_tail(arg))
+                .collect::<Result<Vec<_>, _>>()?;
+            // Emit dup for Owned args that need it.
+            for (i, val) in lowered_args.iter().enumerate() {
+                if i < arg_modes.len() && arg_modes[i] == BorrowMode::Owned {
+                    self.state.emit(LlvmInstr::Call {
+                        dst: None,
+                        tail: false,
+                        call_conv: Some(CallConv::Fastcc),
+                        ret_ty: LlvmType::Void,
+                        callee: LlvmOperand::Global(flux_prelude_symbol("flux_dup")),
+                        args: vec![(LlvmType::i64(), val.clone())],
+                        attrs: vec![],
+                    });
                 }
-                // TCO: convert tail self-calls into loop branches.
-                if let Some(dummy) = self.try_lower_tco_self_call(&callee, &lowered_args) {
-                    return Ok(dummy);
-                }
-                let is_self_recursive = callee.0 == self.state.symbol.0;
-                let dst = self.state.temp_local("acall");
-                self.state.emit(LlvmInstr::Call {
-                    dst: Some(dst.clone()),
-                    tail: is_self_recursive,
-                    call_conv: Some(CallConv::Fastcc),
-                    ret_ty: LlvmType::i64(),
-                    callee: LlvmOperand::Global(callee),
-                    args: lowered_args
-                        .into_iter()
-                        .map(|arg| (LlvmType::i64(), arg))
-                        .collect(),
-                    attrs: vec![],
-                });
-                return Ok(LlvmOperand::Local(dst));
             }
+            // TCO: convert tail self-calls into loop branches.
+            if let Some(dummy) = self.try_lower_tco_self_call(&callee, &lowered_args) {
+                return Ok(dummy);
+            }
+            let is_self_recursive = callee.0 == self.state.symbol.0;
+            let dst = self.state.temp_local("acall");
+            self.state.emit(LlvmInstr::Call {
+                dst: Some(dst.clone()),
+                tail: is_self_recursive,
+                call_conv: Some(CallConv::Fastcc),
+                ret_ty: LlvmType::i64(),
+                callee: LlvmOperand::Global(callee),
+                args: lowered_args
+                    .into_iter()
+                    .map(|arg| (LlvmType::i64(), arg))
+                    .collect(),
+                attrs: vec![],
+            });
+            return Ok(LlvmOperand::Local(dst));
         }
 
         // Closure call path.
@@ -1949,7 +1948,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                     let member_name = super::function::display_ident(*member, self.state.interner);
                     Err(self.unsupported(
                         "primop",
-                        &format!("MemberAccess `{member_name}` not found in compiled defs"),
+                        format!("MemberAccess `{member_name}` not found in compiled defs"),
                     ))
                 }
             }
@@ -2090,6 +2089,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         Ok(LlvmOperand::Local(dst))
     }
 
+    #[allow(dead_code)]
     fn lower_cmp_bool(
         &mut self,
         args: &[CoreExpr],
@@ -2131,6 +2131,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         Ok(LlvmOperand::Local(result))
     }
 
+    #[allow(dead_code)]
     fn emit_untag_call(
         &mut self,
         value: LlvmOperand,

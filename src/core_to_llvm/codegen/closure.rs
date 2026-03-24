@@ -948,10 +948,10 @@ fn collect_used_candidate_binders(
 ) {
     match expr {
         CoreExpr::Var { var, .. } => {
-            if let Some(binder) = var.binder {
-                if candidates.contains(&binder) && !bound.contains(&binder) {
-                    used.insert(binder);
-                }
+            if let Some(binder) = var.binder
+                && candidates.contains(&binder) && !bound.contains(&binder)
+            {
+                used.insert(binder);
             }
         }
         CoreExpr::Lit(_, _) => {}
@@ -1028,18 +1028,18 @@ fn collect_used_candidate_binders(
             }
         }
         CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
-            if let Some(binder) = var.binder {
-                if candidates.contains(&binder) && !bound.contains(&binder) {
-                    used.insert(binder);
-                }
+            if let Some(binder) = var.binder
+                && candidates.contains(&binder) && !bound.contains(&binder)
+            {
+                used.insert(binder);
             }
             collect_used_candidate_binders(body, bound, candidates, used);
         }
         CoreExpr::Reuse { token, fields, .. } => {
-            if let Some(binder) = token.binder {
-                if candidates.contains(&binder) && !bound.contains(&binder) {
-                    used.insert(binder);
-                }
+            if let Some(binder) = token.binder
+                && candidates.contains(&binder) && !bound.contains(&binder)
+            {
+                used.insert(binder);
             }
             for field in fields {
                 collect_used_candidate_binders(field, bound, candidates, used);
@@ -1051,10 +1051,10 @@ fn collect_used_candidate_binders(
             shared_body,
             ..
         } => {
-            if let Some(binder) = scrutinee.binder {
-                if candidates.contains(&binder) && !bound.contains(&binder) {
-                    used.insert(binder);
-                }
+            if let Some(binder) = scrutinee.binder
+                && candidates.contains(&binder) && !bound.contains(&binder)
+            {
+                used.insert(binder);
             }
             collect_used_candidate_binders(unique_body, bound, candidates, used);
             collect_used_candidate_binders(shared_body, bound, candidates, used);

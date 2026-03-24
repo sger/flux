@@ -545,6 +545,7 @@ impl<'a> FunctionState<'a> {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn base(
         symbol: GlobalId,
         top_level_symbols: HashMap<CoreBinderId, GlobalId>,
