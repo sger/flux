@@ -363,6 +363,130 @@ int64_t flux_rt_neg(int64_t a) {
     return flux_tag_int(-flux_untag_int(a));
 }
 
+/* ── Runtime-dispatching comparisons ────────────────────────────────── */
+
+int64_t flux_rt_eq(int64_t a, int64_t b) {
+    /* Fast path: bitwise equal (same int, bool, None, or same pointer). */
+    if (a == b) return flux_make_bool(1);
+    /* String structural equality. */
+    if (flux_is_ptr(a) && flux_is_ptr(b)) {
+        void *pa = flux_untag_ptr(a);
+        void *pb = flux_untag_ptr(b);
+        if (pa && pb && flux_obj_tag(pa) == FLUX_OBJ_STRING
+            && flux_obj_tag(pb) == FLUX_OBJ_STRING) {
+            return flux_make_bool(flux_string_eq(a, b));
+        }
+        /* Tuple structural equality. */
+        if (pa && pb && flux_obj_tag(pa) == FLUX_OBJ_TUPLE
+            && flux_obj_tag(pb) == FLUX_OBJ_TUPLE) {
+            uint32_t arity_a = *(uint32_t *)((char *)pa + 4);
+            uint32_t arity_b = *(uint32_t *)((char *)pb + 4);
+            if (arity_a != arity_b) return flux_make_bool(0);
+            int64_t *fa = (int64_t *)((char *)pa + 8);
+            int64_t *fb = (int64_t *)((char *)pb + 8);
+            for (uint32_t i = 0; i < arity_a; i++) {
+                int64_t eq = flux_rt_eq(fa[i], fb[i]);
+                if (eq == flux_make_bool(0)) return flux_make_bool(0);
+            }
+            return flux_make_bool(1);
+        }
+    }
+    /* Float equality. */
+    if (flux_val_is_float(a) && flux_val_is_float(b)) {
+        return flux_make_bool(flux_as_double(a) == flux_as_double(b));
+    }
+    return flux_make_bool(0);
+}
+
+int64_t flux_rt_neq(int64_t a, int64_t b) {
+    int64_t eq = flux_rt_eq(a, b);
+    return (eq == flux_make_bool(1)) ? flux_make_bool(0) : flux_make_bool(1);
+}
+
+int64_t flux_rt_lt(int64_t a, int64_t b) {
+    if (flux_val_is_float(a))
+        return flux_make_bool(flux_as_double(a) < flux_as_double(b));
+    return flux_make_bool(flux_untag_int(a) < flux_untag_int(b));
+}
+
+int64_t flux_rt_le(int64_t a, int64_t b) {
+    if (flux_val_is_float(a))
+        return flux_make_bool(flux_as_double(a) <= flux_as_double(b));
+    return flux_make_bool(flux_untag_int(a) <= flux_untag_int(b));
+}
+
+int64_t flux_rt_gt(int64_t a, int64_t b) {
+    if (flux_val_is_float(a))
+        return flux_make_bool(flux_as_double(a) > flux_as_double(b));
+    return flux_make_bool(flux_untag_int(a) > flux_untag_int(b));
+}
+
+int64_t flux_rt_ge(int64_t a, int64_t b) {
+    if (flux_val_is_float(a))
+        return flux_make_bool(flux_as_double(a) >= flux_as_double(b));
+    return flux_make_bool(flux_untag_int(a) >= flux_untag_int(b));
+}
+
+/* ── Runtime-dispatching index ──────────────────────────────────────── */
+
+int64_t flux_rt_index(int64_t collection, int64_t key) {
+    if (!flux_is_ptr(collection)) {
+        return flux_make_none();
+    }
+    void *ptr = flux_untag_ptr(collection);
+    uint8_t tag = flux_obj_tag(ptr);
+    switch (tag) {
+    case FLUX_OBJ_ARRAY: {
+        int64_t result = flux_array_get(collection, key);
+        /* flux_array_get returns raw value or None for out-of-bounds.
+         * VM's Index wraps in Some() for safe indexing. */
+        if (flux_is_nanbox(result) && flux_nanbox_tag(result) == FLUX_TAG_NONE) {
+            return flux_make_none();
+        }
+        void *mem = flux_gc_alloc(8 + 8);
+        int32_t *hdr = (int32_t *)mem;
+        hdr[0] = 1; /* ctor_tag = Some */
+        hdr[1] = 1; /* field_count = 1 */
+        int64_t *fields = (int64_t *)((char *)mem + 8);
+        fields[0] = result;
+        return flux_tag_ptr(mem);
+    }
+    case FLUX_OBJ_TUPLE: {
+        /* Tuple indexing: return Some(field) or None. */
+        uint32_t arity = *(uint32_t *)((char *)ptr + 4);
+        int64_t idx = flux_untag_int(key);
+        if (idx < 0 || (uint32_t)idx >= arity) return flux_make_none();
+        int64_t *elems = (int64_t *)((char *)ptr + 8);
+        /* Wrap in Some — matches VM semantics for safe indexing. */
+        /* Allocate a 1-field ADT with tag=1 (Some). */
+        void *mem = flux_gc_alloc(8 + 8);
+        int32_t *hdr = (int32_t *)mem;
+        hdr[0] = 1; /* ctor_tag = Some */
+        hdr[1] = 1; /* field_count = 1 */
+        int64_t *fields = (int64_t *)((char *)mem + 8);
+        fields[0] = elems[idx];
+        return flux_tag_ptr(mem);
+    }
+    default: {
+        /* Assume HAMT for any other boxed value. */
+        int64_t result = flux_hamt_get(collection, key);
+        /* flux_hamt_get returns raw value or None.
+         * VM's Index wraps in Some() for safe indexing. */
+        if (flux_is_nanbox(result) && flux_nanbox_tag(result) == FLUX_TAG_NONE) {
+            return flux_make_none();
+        }
+        /* Wrap in Some(value) — allocate 1-field ADT with tag=1 */
+        void *mem = flux_gc_alloc(8 + 8);
+        int32_t *hdr = (int32_t *)mem;
+        hdr[0] = 1; /* ctor_tag = Some */
+        hdr[1] = 1; /* field_count = 1 */
+        int64_t *fields = (int64_t *)((char *)mem + 8);
+        fields[0] = result;
+        return flux_tag_ptr(mem);
+    }
+    }
+}
+
 /* ── Type inspection ────────────────────────────────────────────────── */
 
 int64_t flux_type_of(int64_t val) {
@@ -377,7 +501,20 @@ int64_t flux_type_of(int64_t val) {
     case FLUX_TAG_NONE:          return flux_string_new("None", 4);
     case FLUX_TAG_EMPTY_LIST:    return flux_string_new("List", 4);
     case FLUX_TAG_BASE_FUNCTION: return flux_string_new("Function", 8);
-    case FLUX_TAG_BOXED_VALUE:   return flux_string_new("Object", 6);
+    case FLUX_TAG_BOXED_VALUE: {
+        void *ptr = flux_untag_ptr(val);
+        if (ptr) {
+            uint8_t obj = flux_obj_tag(ptr);
+            switch (obj) {
+            case FLUX_OBJ_STRING:  return flux_string_new("String", 6);
+            case FLUX_OBJ_ARRAY:   return flux_string_new("Array", 5);
+            case FLUX_OBJ_TUPLE:   return flux_string_new("Tuple", 5);
+            case FLUX_OBJ_CLOSURE: return flux_string_new("Function", 8);
+            default: break;
+            }
+        }
+        return flux_string_new("Object", 6);
+    }
     default:                     return flux_string_new("Unknown", 7);
     }
 }
@@ -467,8 +604,53 @@ int64_t flux_to_string(int64_t val) {
     case FLUX_TAG_NONE:       return flux_string_new("None", 4);
     case FLUX_TAG_EMPTY_LIST: return flux_string_new("[]", 2);
     case FLUX_TAG_BOXED_VALUE: {
-        /* If it's a string, return it directly. */
-        return val;
+        void *ptr = flux_untag_ptr(val);
+        if (ptr) {
+            uint8_t obj = flux_obj_tag(ptr);
+            if (obj == FLUX_OBJ_STRING) return val;
+            if (obj == FLUX_OBJ_ARRAY) {
+                /* Render array as "[|elem1, elem2, ...|]" */
+                uint32_t len = *(uint32_t *)((char *)ptr + 4);
+                int64_t *elems = (int64_t *)((char *)ptr + 16);
+                /* Build string in buffer. */
+                char buf[4096];
+                int pos = 0;
+                pos += snprintf(buf + pos, sizeof(buf) - pos, "[|");
+                for (uint32_t i = 0; i < len && pos < (int)sizeof(buf) - 20; i++) {
+                    if (i > 0) pos += snprintf(buf + pos, sizeof(buf) - pos, ", ");
+                    int64_t s = flux_to_string(elems[i]);
+                    const char *sd = flux_string_data(s);
+                    uint32_t sl = flux_string_len(s);
+                    if (pos + sl < sizeof(buf) - 10) {
+                        memcpy(buf + pos, sd, sl);
+                        pos += sl;
+                    }
+                }
+                pos += snprintf(buf + pos, sizeof(buf) - pos, "|]");
+                return flux_string_new(buf, (uint32_t)pos);
+            }
+            if (obj == FLUX_OBJ_TUPLE) {
+                uint32_t arity = *(uint32_t *)((char *)ptr + 4);
+                int64_t *elems = (int64_t *)((char *)ptr + 8);
+                char buf[4096];
+                int pos = 0;
+                pos += snprintf(buf + pos, sizeof(buf) - pos, "(");
+                for (uint32_t i = 0; i < arity && pos < (int)sizeof(buf) - 20; i++) {
+                    if (i > 0) pos += snprintf(buf + pos, sizeof(buf) - pos, ", ");
+                    int64_t s = flux_to_string(elems[i]);
+                    const char *sd = flux_string_data(s);
+                    uint32_t sl = flux_string_len(s);
+                    if (pos + sl < sizeof(buf) - 10) {
+                        memcpy(buf + pos, sd, sl);
+                        pos += sl;
+                    }
+                }
+                if (arity == 1) pos += snprintf(buf + pos, sizeof(buf) - pos, ",");
+                pos += snprintf(buf + pos, sizeof(buf) - pos, ")");
+                return flux_string_new(buf, (uint32_t)pos);
+            }
+        }
+        return flux_string_new("<value>", 7);
     }
     default: return flux_string_new("<value>", 7);
     }

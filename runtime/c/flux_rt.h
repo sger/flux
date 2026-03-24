@@ -210,6 +210,17 @@ int64_t flux_rt_neg(int64_t a);
 /* Print value with trailing space (for multi-arg print). */
 void    flux_print_space(int64_t val);
 
+/* Runtime-dispatching comparisons (int/float/string/tuple). */
+int64_t flux_rt_eq(int64_t a, int64_t b);
+int64_t flux_rt_neq(int64_t a, int64_t b);
+int64_t flux_rt_lt(int64_t a, int64_t b);
+int64_t flux_rt_le(int64_t a, int64_t b);
+int64_t flux_rt_gt(int64_t a, int64_t b);
+int64_t flux_rt_ge(int64_t a, int64_t b);
+
+/* Runtime-dispatching index (array, tuple, HAMT). */
+int64_t flux_rt_index(int64_t collection, int64_t key);
+
 /* ── Type inspection ────────────────────────────────────────────────── */
 
 int64_t flux_type_of(int64_t val);

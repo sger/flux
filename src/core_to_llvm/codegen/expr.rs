@@ -1675,9 +1675,8 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         }
         let collection = self.lower_expr(&args[0])?;
         let index = self.lower_expr(&args[1])?;
-        // Use array_get as default — works for arrays.
-        // HAMT get uses the same (collection, key) signature.
-        self.emit_c_call("flux_array_get", &[collection, index], true)
+        // Runtime dispatch: checks collection type (array, HAMT, tuple, string).
+        self.emit_c_call("flux_rt_index", &[collection, index], true)
     }
 
     /// Emit a call to a C runtime function, ensuring it's declared.
@@ -1807,12 +1806,12 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CorePrimOp::Not => self.lower_unary_helper_call("flux_not", args),
             CorePrimOp::And => self.lower_helper_call("flux_and", args),
             CorePrimOp::Or => self.lower_helper_call("flux_or", args),
-            CorePrimOp::Eq => self.lower_cmp_bool(args, LlvmCmpOp::Eq, false),
-            CorePrimOp::NEq => self.lower_cmp_bool(args, LlvmCmpOp::Ne, false),
-            CorePrimOp::Lt => self.lower_cmp_bool(args, LlvmCmpOp::Slt, true),
-            CorePrimOp::Le => self.lower_cmp_bool(args, LlvmCmpOp::Sle, true),
-            CorePrimOp::Gt => self.lower_cmp_bool(args, LlvmCmpOp::Sgt, true),
-            CorePrimOp::Ge => self.lower_cmp_bool(args, LlvmCmpOp::Sge, true),
+            CorePrimOp::Eq => self.lower_rt_call("flux_rt_eq", args),
+            CorePrimOp::NEq => self.lower_rt_call("flux_rt_neq", args),
+            CorePrimOp::Lt => self.lower_rt_call("flux_rt_lt", args),
+            CorePrimOp::Le => self.lower_rt_call("flux_rt_le", args),
+            CorePrimOp::Gt => self.lower_rt_call("flux_rt_gt", args),
+            CorePrimOp::Ge => self.lower_rt_call("flux_rt_ge", args),
             CorePrimOp::MakeList => self.lower_make_list(args),
             CorePrimOp::MakeTuple => self.lower_make_tuple(args),
             CorePrimOp::TupleField(index) => self.lower_tuple_field(*index, args),
