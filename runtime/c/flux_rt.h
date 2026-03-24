@@ -198,6 +198,18 @@ int64_t flux_abs(int64_t n);
 int64_t flux_min(int64_t a, int64_t b);
 int64_t flux_max(int64_t a, int64_t b);
 
+/* ── Runtime-dispatching arithmetic (int/float/string) ──────────────── */
+
+int64_t flux_rt_add(int64_t a, int64_t b);
+int64_t flux_rt_sub(int64_t a, int64_t b);
+int64_t flux_rt_mul(int64_t a, int64_t b);
+int64_t flux_rt_div(int64_t a, int64_t b);
+int64_t flux_rt_mod(int64_t a, int64_t b);
+int64_t flux_rt_neg(int64_t a);
+
+/* Print value with trailing space (for multi-arg print). */
+void    flux_print_space(int64_t val);
+
 /* ── Type inspection ────────────────────────────────────────────────── */
 
 int64_t flux_type_of(int64_t val);

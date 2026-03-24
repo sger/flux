@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use crate::{
     core::{CoreProgram, CoreTag, CoreTopLevelItem},
     core_to_llvm::{
-        CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmFunction, LlvmFunctionSig, LlvmInstr,
-        LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType, LlvmTypeDef, LlvmValueKind,
+        CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmConst, LlvmFunction, LlvmFunctionSig,
+        LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType, LlvmTypeDef,
+        LlvmValueKind,
     },
     runtime::nanbox::NanTag,
     syntax::{Identifier, interner::Interner},
@@ -33,8 +34,9 @@ pub const FLUX_ADT_TAG_FIELD: i32 = 0;
 pub const FLUX_ADT_FIELD_COUNT_FIELD: i32 = 1;
 pub const FLUX_ADT_PAYLOAD_FIELD: i32 = 2;
 
-pub const FLUX_TUPLE_ARITY_FIELD: i32 = 0;
-pub const FLUX_TUPLE_PAYLOAD_FIELD: i32 = 1;
+pub const FLUX_TUPLE_OBJ_TAG_FIELD: i32 = 0;
+pub const FLUX_TUPLE_ARITY_FIELD: i32 = 4;
+pub const FLUX_TUPLE_PAYLOAD_FIELD: i32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdtMetadata {
@@ -207,7 +209,11 @@ fn emit_tuple_type(module: &mut LlvmModule) {
         ty: LlvmType::Struct {
             packed: false,
             fields: vec![
-                LlvmType::i32(),
+                LlvmType::i8(),  // obj_tag (FLUX_OBJ_TUPLE = 0xF3)
+                LlvmType::i8(),  // _pad[0]
+                LlvmType::i8(),  // _pad[1]
+                LlvmType::i8(),  // _pad[2]
+                LlvmType::i32(), // arity
                 LlvmType::Array {
                     len: 0,
                     element: Box::new(LlvmType::i64()),
@@ -414,6 +420,22 @@ fn emit_make_tuple(module: &mut LlvmModule) {
                     callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc")),
                     args: vec![(LlvmType::i32(), local_operand("alloc.bytes"))],
                     attrs: vec![],
+                },
+                // Store obj_tag = FLUX_OBJ_TUPLE (0xF3)
+                gep_struct_field(
+                    "tag.ptr",
+                    tuple_type(),
+                    local_operand("mem"),
+                    FLUX_TUPLE_OBJ_TAG_FIELD,
+                ),
+                LlvmInstr::Store {
+                    ty: LlvmType::i8(),
+                    value: LlvmOperand::Const(LlvmConst::Int {
+                        bits: 8,
+                        value: 0xF3,
+                    }),
+                    ptr: local_operand("tag.ptr"),
+                    align: Some(1),
                 },
                 gep_struct_field(
                     "arity.ptr",

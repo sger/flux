@@ -5,13 +5,19 @@
 #   scripts/check_core_to_llvm_parity.sh [dir]
 #
 # Runs each .flx file through both backends and reports parity.
+# Requires: cargo build --features core_to_llvm
 
 DIR="${1:-examples/basics}"
 TMPBIN="/tmp/flux_parity_test_$$"
+FLUX="target/debug/flux"
 TIMEOUT=15
 
+if [ ! -f "$FLUX" ]; then
+    echo "Build first: cargo build --features core_to_llvm"
+    exit 1
+fi
+
 pass=0
-fail=0
 skip=0
 mismatch=0
 total=0
@@ -25,11 +31,15 @@ for f in "$DIR"/*.flx; do
     name=$(basename "$f")
     total=$((total + 1))
 
+    # Delete any stale bytecode cache
+    fxc="${f%.flx}.fxc"
+    rm -f "$fxc"
+
     # Try to compile to native binary
-    native_compile=$(timeout $TIMEOUT cargo run --features core_to_llvm -- "$f" --core-to-llvm --emit-binary -o "$TMPBIN" 2>&1)
+    native_compile=$(timeout $TIMEOUT "$FLUX" "$f" --core-to-llvm --emit-binary -o "$TMPBIN" 2>&1)
     if ! echo "$native_compile" | grep -q "Emitted binary"; then
         skip=$((skip + 1))
-        reason=$(echo "$native_compile" | grep -E "failed|unsupported" | head -1 | sed 's/.*: //')
+        reason=$(echo "$native_compile" | grep -E "failed|unsupported|error|panic" | head -1 | sed 's/.*: //')
         echo -e "${YELLOW}SKIP${NC} $name${reason:+ ($reason)}"
         continue
     fi
@@ -37,8 +47,8 @@ for f in "$DIR"/*.flx; do
     # Run native binary
     native_out=$(timeout $TIMEOUT "$TMPBIN" 2>&1 || true)
 
-    # Run VM
-    vm_out=$(timeout $TIMEOUT cargo run -- "$f" 2>&1 | grep -v '^warning\|^  \|^$\|Finished\|Running\|Compiling\|^   =\|^   |' || true)
+    # Run VM with --no-cache to ensure fresh bytecode
+    vm_out=$(timeout $TIMEOUT "$FLUX" "$f" --no-cache 2>&1 || true)
 
     # Compare
     if [ "$vm_out" = "$native_out" ]; then
@@ -47,8 +57,7 @@ for f in "$DIR"/*.flx; do
     else
         mismatch=$((mismatch + 1))
         echo -e "${RED}MISMATCH${NC} $name"
-        # Show first difference
-        diff_out=$(diff <(echo "$vm_out") <(echo "$native_out") | head -6)
+        diff_out=$(diff <(echo "$vm_out") <(echo "$native_out") | head -8)
         echo "  $diff_out"
     fi
 
