@@ -1037,6 +1037,342 @@ int64_t flux_split(int64_t s, int64_t delim) {
 
 /* ── Main entry point wrapper ───────────────────────────────────────── */
 
+/* ── String join ───────────────────────────────────────────────────── */
+
+int64_t flux_join(int64_t list, int64_t sep) {
+    const char *sep_data = flux_string_data(sep);
+    uint32_t sep_len = flux_string_len(sep);
+
+    /* Collect strings from array or cons list. */
+    char buf[8192];
+    int pos = 0;
+    int first = 1;
+
+    int64_t *elems; uint32_t len;
+    if (flux_is_ptr(list)) {
+        void *ptr = flux_untag_ptr(list);
+        if (ptr && flux_obj_tag(ptr) == FLUX_OBJ_ARRAY) {
+            len = *(uint32_t *)((char *)ptr + 4);
+            elems = (int64_t *)((char *)ptr + 16);
+            for (uint32_t i = 0; i < len && pos < (int)sizeof(buf) - 200; i++) {
+                if (!first && sep_len > 0) { memcpy(buf + pos, sep_data, sep_len); pos += sep_len; }
+                first = 0;
+                const char *sd = flux_string_data(elems[i]);
+                uint32_t sl = flux_string_len(elems[i]);
+                if (pos + (int)sl < (int)sizeof(buf) - 10) { memcpy(buf + pos, sd, sl); pos += sl; }
+            }
+            return flux_string_new(buf, (uint32_t)pos);
+        }
+    }
+    /* Cons list. */
+    int64_t cur = list;
+    while (flux_is_ptr(cur) && pos < (int)sizeof(buf) - 200) {
+        void *cp = flux_untag_ptr(cur);
+        int32_t ct = *(int32_t *)cp;
+        if (ct != 4) break;
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        if (!first && sep_len > 0) { memcpy(buf + pos, sep_data, sep_len); pos += sep_len; }
+        first = 0;
+        const char *sd = flux_string_data(fields[0]);
+        uint32_t sl = flux_string_len(fields[0]);
+        if (pos + (int)sl < (int)sizeof(buf) - 10) { memcpy(buf + pos, sd, sl); pos += sl; }
+        cur = fields[1];
+    }
+    return flux_string_new(buf, (uint32_t)pos);
+}
+
+/* ── Simple numeric helpers ────────────────────────────────────────── */
+
+int64_t flux_sum(int64_t collection) {
+    int64_t *elems; uint32_t len;
+    if (flux_is_ptr(collection)) {
+        void *ptr = flux_untag_ptr(collection);
+        if (ptr && flux_obj_tag(ptr) == FLUX_OBJ_ARRAY) {
+            len = *(uint32_t *)((char *)ptr + 4);
+            elems = (int64_t *)((char *)ptr + 16);
+            int64_t acc = flux_tag_int(0);
+            for (uint32_t i = 0; i < len; i++) acc = flux_rt_add(acc, elems[i]);
+            return acc;
+        }
+    }
+    /* Cons list. */
+    int64_t acc = flux_tag_int(0);
+    int64_t cur = collection;
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        if (*(int32_t *)cp != 4) break;
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        acc = flux_rt_add(acc, fields[0]);
+        cur = fields[1];
+    }
+    return acc;
+}
+
+/* ── String helpers ────────────────────────────────────────────────── */
+
+int64_t flux_starts_with(int64_t s, int64_t prefix) {
+    const char *sd = flux_string_data(s);
+    uint32_t sl = flux_string_len(s);
+    const char *pd = flux_string_data(prefix);
+    uint32_t pl = flux_string_len(prefix);
+    if (pl > sl) return flux_make_bool(0);
+    return flux_make_bool(memcmp(sd, pd, pl) == 0);
+}
+
+int64_t flux_ends_with(int64_t s, int64_t suffix) {
+    const char *sd = flux_string_data(s);
+    uint32_t sl = flux_string_len(s);
+    const char *xd = flux_string_data(suffix);
+    uint32_t xl = flux_string_len(suffix);
+    if (xl > sl) return flux_make_bool(0);
+    return flux_make_bool(memcmp(sd + sl - xl, xd, xl) == 0);
+}
+
+/* ── Higher-order functions ─────────────────────────────────────────── */
+/* These call Flux closures via the ccc trampoline flux_call_closure_c. */
+
+static int64_t call1(int64_t func, int64_t arg) {
+    int64_t args[1] = { arg };
+    return flux_call_closure_c(func, args, 1);
+}
+
+static int64_t call2(int64_t func, int64_t a, int64_t b) {
+    int64_t args[2] = { a, b };
+    return flux_call_closure_c(func, args, 2);
+}
+
+/* Helper: get array elements pointer and length. */
+static int flux_get_array_elems(int64_t arr, int64_t **out_elems, uint32_t *out_len) {
+    if (!flux_is_ptr(arr)) return 0;
+    void *ptr = flux_untag_ptr(arr);
+    if (!ptr || flux_obj_tag(ptr) != FLUX_OBJ_ARRAY) return 0;
+    *out_len = *(uint32_t *)((char *)ptr + 4);
+    *out_elems = (int64_t *)((char *)ptr + 16);
+    return 1;
+}
+
+int64_t flux_ho_map(int64_t collection, int64_t func) {
+    int64_t *elems; uint32_t len;
+    if (flux_get_array_elems(collection, &elems, &len)) {
+        int64_t *results = (int64_t *)malloc(len * sizeof(int64_t));
+        for (uint32_t i = 0; i < len; i++) {
+            results[i] = call1(func, elems[i]);
+        }
+        int64_t result = flux_array_new(results, (int32_t)len);
+        free(results);
+        return result;
+    }
+    /* Cons list: map and build new list. */
+    int64_t cur = collection;
+    /* Collect into temp array, then build cons list. */
+    uint32_t count = 0;
+    int64_t temp_cur = cur;
+    while (flux_is_ptr(temp_cur)) {
+        void *cp = flux_untag_ptr(temp_cur);
+        int32_t ct = *(int32_t *)cp;
+        if (ct != 4) break;
+        count++;
+        temp_cur = ((int64_t *)((char *)cp + 8))[1];
+    }
+    if (count == 0) return flux_make_empty_list();
+    int64_t *mapped = (int64_t *)malloc(count * sizeof(int64_t));
+    for (uint32_t i = 0; i < count; i++) {
+        void *cp = flux_untag_ptr(cur);
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        mapped[i] = call1(func, fields[0]);
+        cur = fields[1];
+    }
+    /* Build cons list from back to front. */
+    int64_t list = flux_make_empty_list();
+    for (int32_t i = (int32_t)count - 1; i >= 0; i--) {
+        void *mem = flux_gc_alloc(8 + 2 * 8);
+        *(int32_t *)mem = 4;
+        *((int32_t *)mem + 1) = 2;
+        int64_t *f = (int64_t *)((char *)mem + 8);
+        f[0] = mapped[i];
+        f[1] = list;
+        list = flux_tag_ptr(mem);
+    }
+    free(mapped);
+    return list;
+}
+
+int64_t flux_ho_filter(int64_t collection, int64_t func) {
+    int64_t *elems; uint32_t len;
+    if (flux_get_array_elems(collection, &elems, &len)) {
+        int64_t *results = (int64_t *)malloc(len * sizeof(int64_t));
+        uint32_t count = 0;
+        for (uint32_t i = 0; i < len; i++) {
+            int64_t keep = call1(func, elems[i]);
+            if (keep == flux_make_bool(1)) {
+                results[count++] = elems[i];
+            }
+        }
+        int64_t result = flux_array_new(results, (int32_t)count);
+        free(results);
+        return result;
+    }
+    /* Cons list filter. */
+    int64_t cur = collection;
+    uint32_t cap = 64;
+    int64_t *kept = (int64_t *)malloc(cap * sizeof(int64_t));
+    uint32_t count = 0;
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        int32_t ct = *(int32_t *)cp;
+        if (ct != 4) break;
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        int64_t keep = call1(func, fields[0]);
+        if (keep == flux_make_bool(1)) {
+            if (count >= cap) { cap *= 2; kept = (int64_t *)realloc(kept, cap * sizeof(int64_t)); }
+            kept[count++] = fields[0];
+        }
+        cur = fields[1];
+    }
+    /* Build cons list. */
+    int64_t list = flux_make_empty_list();
+    for (int32_t i = (int32_t)count - 1; i >= 0; i--) {
+        void *mem = flux_gc_alloc(8 + 2 * 8);
+        *(int32_t *)mem = 4;
+        *((int32_t *)mem + 1) = 2;
+        int64_t *f = (int64_t *)((char *)mem + 8);
+        f[0] = kept[i];
+        f[1] = list;
+        list = flux_tag_ptr(mem);
+    }
+    free(kept);
+    return list;
+}
+
+int64_t flux_ho_any(int64_t collection, int64_t func) {
+    int64_t *elems; uint32_t len;
+    if (flux_get_array_elems(collection, &elems, &len)) {
+        for (uint32_t i = 0; i < len; i++) {
+            int64_t r = call1(func, elems[i]);
+            if (r == flux_make_bool(1)) return flux_make_bool(1);
+        }
+        return flux_make_bool(0);
+    }
+    int64_t cur = collection;
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        if (*(int32_t *)cp != 4) break;
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        int64_t r = call1(func, fields[0]);
+        if (r == flux_make_bool(1)) return flux_make_bool(1);
+        cur = fields[1];
+    }
+    return flux_make_bool(0);
+}
+
+int64_t flux_ho_all(int64_t collection, int64_t func) {
+    int64_t *elems; uint32_t len;
+    if (flux_get_array_elems(collection, &elems, &len)) {
+        for (uint32_t i = 0; i < len; i++) {
+            int64_t r = call1(func, elems[i]);
+            if (r != flux_make_bool(1)) return flux_make_bool(0);
+        }
+        return flux_make_bool(1);
+    }
+    int64_t cur = collection;
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        if (*(int32_t *)cp != 4) break;
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        int64_t r = call1(func, fields[0]);
+        if (r != flux_make_bool(1)) return flux_make_bool(0);
+        cur = fields[1];
+    }
+    return flux_make_bool(1);
+}
+
+int64_t flux_ho_fold(int64_t collection, int64_t init, int64_t func) {
+    int64_t acc = init;
+    int64_t *elems; uint32_t len;
+    if (flux_get_array_elems(collection, &elems, &len)) {
+        for (uint32_t i = 0; i < len; i++) {
+            acc = call2(func, acc, elems[i]);
+        }
+        return acc;
+    }
+    int64_t cur = collection;
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        if (*(int32_t *)cp != 4) break;
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        acc = call2(func, acc, fields[0]);
+        cur = fields[1];
+    }
+    return acc;
+}
+
+int64_t flux_ho_each(int64_t collection, int64_t func) {
+    int64_t *elems; uint32_t len;
+    if (flux_get_array_elems(collection, &elems, &len)) {
+        for (uint32_t i = 0; i < len; i++) call1(func, elems[i]);
+        return flux_make_none();
+    }
+    int64_t cur = collection;
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        if (*(int32_t *)cp != 4) break;
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        call1(func, fields[0]);
+        cur = fields[1];
+    }
+    return flux_make_none();
+}
+
+int64_t flux_ho_find(int64_t collection, int64_t func) {
+    int64_t *elems; uint32_t len;
+    if (flux_get_array_elems(collection, &elems, &len)) {
+        for (uint32_t i = 0; i < len; i++) {
+            int64_t r = call1(func, elems[i]);
+            if (r == flux_make_bool(1)) return flux_wrap_some(elems[i]);
+        }
+        return flux_make_none();
+    }
+    int64_t cur = collection;
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        if (*(int32_t *)cp != 4) break;
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        int64_t r = call1(func, fields[0]);
+        if (r == flux_make_bool(1)) return flux_wrap_some(fields[0]);
+        cur = fields[1];
+    }
+    return flux_make_none();
+}
+
+/* sort(collection, comparator) — insertion sort using comparator. */
+int64_t flux_ho_sort(int64_t collection, int64_t func) {
+    int64_t *elems; uint32_t len;
+    if (!flux_get_array_elems(collection, &elems, &len)) return collection;
+    if (len <= 1) return collection;
+
+    /* Copy elements. */
+    int64_t *sorted = (int64_t *)malloc(len * sizeof(int64_t));
+    memcpy(sorted, elems, len * sizeof(int64_t));
+
+    /* Insertion sort using comparator. */
+    for (uint32_t i = 1; i < len; i++) {
+        int64_t key = sorted[i];
+        int32_t j = (int32_t)i - 1;
+        while (j >= 0) {
+            int64_t cmp = call2(func, sorted[j], key);
+            /* If cmp > 0, shift right. */
+            int64_t cmp_result = flux_rt_gt(cmp, flux_tag_int(0));
+            if (cmp_result != flux_make_bool(1)) break;
+            sorted[j + 1] = sorted[j];
+            j--;
+        }
+        sorted[j + 1] = key;
+    }
+    int64_t result = flux_array_new(sorted, (int32_t)len);
+    free(sorted);
+    return result;
+}
+
 #ifndef FLUX_RT_NO_MAIN
 
 /*
