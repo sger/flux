@@ -265,6 +265,23 @@ int64_t flux_is_some(int64_t val);
 int64_t flux_unwrap(int64_t val);
 int64_t flux_unwrap_or(int64_t val, int64_t def);
 
+int64_t flux_sum(int64_t collection);
+int64_t flux_starts_with(int64_t s, int64_t prefix);
+int64_t flux_ends_with(int64_t s, int64_t suffix);
+
+/* ── Higher-order functions (closure calling) ──────────────────────── */
+/* flux_call_closure_c is defined in LLVM IR (ccc trampoline). */
+extern int64_t flux_call_closure_c(int64_t closure, int64_t *args, int32_t nargs);
+
+int64_t flux_ho_map(int64_t collection, int64_t func);
+int64_t flux_ho_filter(int64_t collection, int64_t func);
+int64_t flux_ho_sort(int64_t collection, int64_t func);
+int64_t flux_ho_any(int64_t collection, int64_t func);
+int64_t flux_ho_all(int64_t collection, int64_t func);
+int64_t flux_ho_fold(int64_t collection, int64_t init, int64_t func);
+int64_t flux_ho_each(int64_t collection, int64_t func);
+int64_t flux_ho_find(int64_t collection, int64_t func);
+
 /* ── Effect handlers ────────────────────────────────────────────────── */
 
 void    flux_push_handler(int64_t effect_tag, void *handler_fn, void *resume_fn);

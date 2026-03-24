@@ -33,6 +33,7 @@ pub fn emit_closure_support(module: &mut LlvmModule) {
     emit_untag_boxed_ptr(module);
     emit_make_closure(module);
     emit_call_closure(module);
+    emit_call_closure_c(module);
 }
 
 pub fn closure_type() -> LlvmType {
@@ -740,6 +741,51 @@ fn emit_call_closure(module: &mut LlvmModule) {
                 },
             },
         ],
+    });
+}
+
+/// C-callable trampoline for `flux_call_closure`.
+/// Uses Ccc so C runtime functions (map, filter, sort, any) can call closures.
+fn emit_call_closure_c(module: &mut LlvmModule) {
+    let name = "flux_call_closure_c";
+    if has_function(module, name) {
+        return;
+    }
+    module.functions.push(LlvmFunction {
+        linkage: Linkage::External,
+        name: flux_closure_symbol(name),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::i64(),
+            params: vec![LlvmType::i64(), LlvmType::ptr(), LlvmType::i32()],
+            varargs: false,
+            call_conv: CallConv::Ccc,
+        },
+        params: vec![
+            LlvmLocal("closure_value".into()),
+            LlvmLocal("args".into()),
+            LlvmLocal("nargs".into()),
+        ],
+        attrs: vec![],
+        blocks: vec![LlvmBlock {
+            label: LabelId("entry".into()),
+            instrs: vec![LlvmInstr::Call {
+                dst: Some(LlvmLocal("result".into())),
+                tail: false,
+                call_conv: Some(CallConv::Fastcc),
+                ret_ty: LlvmType::i64(),
+                callee: LlvmOperand::Global(flux_closure_symbol("flux_call_closure")),
+                args: vec![
+                    (LlvmType::i64(), local("closure_value")),
+                    (LlvmType::ptr(), local("args")),
+                    (LlvmType::i32(), local("nargs")),
+                ],
+                attrs: vec![],
+            }],
+            term: LlvmTerminator::Ret {
+                ty: LlvmType::i64(),
+                value: local("result"),
+            },
+        }],
     });
 }
 
