@@ -117,8 +117,9 @@ impl<'a> ProgramState<'a> {
     }
 
     /// Look up a top-level function by its Identifier (name), for MemberAccess resolution.
-    pub fn top_level_by_name(&self, name: Identifier) -> Option<&TopLevelFunctionInfo> {
-        self.top_level.values().find(|info| info.name == name)
+    /// Returns (CoreBinderId, &TopLevelFunctionInfo) so the caller can use ensure_top_level_wrapper.
+    pub fn top_level_by_name_with_binder(&self, name: Identifier) -> Option<(CoreBinderId, TopLevelFunctionInfo)> {
+        self.top_level.iter().find(|(_, info)| info.name == name).map(|(k, v)| (*k, v.clone()))
     }
 
     pub fn ensure_top_level_wrapper(

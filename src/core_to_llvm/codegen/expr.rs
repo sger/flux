@@ -1792,16 +1792,16 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CorePrimOp::Sub => self.lower_rt_call("flux_rt_sub", args),
             CorePrimOp::Mul => self.lower_rt_call("flux_rt_mul", args),
             CorePrimOp::Div => self.lower_rt_call("flux_rt_div", args),
-            CorePrimOp::IAdd => self.lower_helper_call("flux_iadd", args),
-            CorePrimOp::ISub => self.lower_helper_call("flux_isub", args),
-            CorePrimOp::IMul => self.lower_helper_call("flux_imul", args),
-            CorePrimOp::IDiv => self.lower_helper_call("flux_idiv", args),
+            CorePrimOp::IAdd => self.lower_rt_call("flux_rt_add", args),
+            CorePrimOp::ISub => self.lower_rt_call("flux_rt_sub", args),
+            CorePrimOp::IMul => self.lower_rt_call("flux_rt_mul", args),
+            CorePrimOp::IDiv => self.lower_rt_call("flux_rt_div", args),
             CorePrimOp::FAdd => self.lower_helper_call("flux_fadd", args),
             CorePrimOp::FSub => self.lower_helper_call("flux_fsub", args),
             CorePrimOp::FMul => self.lower_helper_call("flux_fmul", args),
             CorePrimOp::FDiv => self.lower_helper_call("flux_fdiv", args),
             CorePrimOp::Mod => self.lower_rt_call("flux_rt_mod", args),
-            CorePrimOp::IMod => self.lower_helper_call("flux_imod", args),
+            CorePrimOp::IMod => self.lower_rt_call("flux_rt_mod", args),
             CorePrimOp::Neg => self.lower_rt_unary_call("flux_rt_neg", args),
             CorePrimOp::Not => self.lower_unary_helper_call("flux_not", args),
             CorePrimOp::And => self.lower_helper_call("flux_and", args),
@@ -1822,11 +1822,12 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CorePrimOp::Index => self.lower_index_primop(args),
             CorePrimOp::MemberAccess(member) => {
                 // Module member access: resolve to the function by name.
-                // In the flat compilation model, module functions are top-level defs.
-                if let Some(info) = self.program.top_level_by_name(*member) {
-                    let symbol = info.symbol.clone();
+                // Must use ensure_top_level_wrapper to get a closure entry
+                // with the correct (i64, ptr, i32) calling convention.
+                if let Some((binder, info)) = self.program.top_level_by_name_with_binder(*member) {
+                    let wrapper = self.program.ensure_top_level_wrapper(binder)?;
                     let arity = info.arity as i32;
-                    self.emit_make_closure_value(symbol, arity, vec![], vec![])
+                    self.emit_make_closure_value(wrapper, arity, vec![], vec![])
                 } else {
                     // Try as a builtin.
                     if let Some(result) = self.try_lower_builtin_call(

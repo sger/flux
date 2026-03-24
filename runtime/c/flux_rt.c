@@ -20,11 +20,13 @@ extern int64_t     flux_string_new(const char *data, uint32_t len);
 /* ── Runtime lifecycle ──────────────────────────────────────────────── */
 
 void flux_rt_init(void) {
-    flux_gc_init(0); /* 0 → default 4 MB */
+    flux_gc_init(0);
 }
 
 void flux_rt_shutdown(void) {
-    flux_gc_shutdown();
+    /* Skip GC shutdown — the OS reclaims all memory at process exit.
+     * Walking millions of malloc'd objects is slower than just exiting. */
+    fflush(stdout);
 }
 
 /* ── Printing ───────────────────────────────────────────────────────── */
@@ -71,7 +73,11 @@ static void flux_print_value(int64_t val) {
         }
 
         uint8_t obj = flux_obj_tag(ptr);
-        if (obj == FLUX_OBJ_STRING) {
+        if (obj == FLUX_OBJ_BIGINT) {
+            /* BigInt: { obj_tag, pad[7], int64_t value } */
+            int64_t bigval = *(int64_t *)((char *)ptr + 8);
+            printf("%lld", (long long)bigval);
+        } else if (obj == FLUX_OBJ_STRING) {
             /* String: { obj_tag, _pad[3], len, data[] } */
             uint32_t len = *(uint32_t *)((char *)ptr + 4);
             const char *data = (const char *)ptr + 8;
@@ -497,6 +503,7 @@ int64_t flux_type_of(int64_t val) {
         if (ptr) {
             uint8_t obj = flux_obj_tag(ptr);
             switch (obj) {
+            case FLUX_OBJ_BIGINT:  return flux_string_new("Int", 3);
             case FLUX_OBJ_STRING:  return flux_string_new("String", 6);
             case FLUX_OBJ_ARRAY:   return flux_string_new("Array", 5);
             case FLUX_OBJ_TUPLE:   return flux_string_new("Tuple", 5);
@@ -618,6 +625,12 @@ int64_t flux_to_string(int64_t val) {
         void *ptr = flux_untag_ptr(val);
         if (ptr) {
             uint8_t obj = flux_obj_tag(ptr);
+            if (obj == FLUX_OBJ_BIGINT) {
+                int64_t bigval = *(int64_t *)((char *)ptr + 8);
+                char buf[32];
+                int len = snprintf(buf, sizeof(buf), "%lld", (long long)bigval);
+                return flux_string_new(buf, (uint32_t)len);
+            }
             if (obj == FLUX_OBJ_STRING) return val;
             if (obj == FLUX_OBJ_ARRAY) {
                 /* Render array as "[|elem1, elem2, ...|]" */
@@ -668,50 +681,24 @@ int64_t flux_to_string(int64_t val) {
 }
 
 int64_t flux_read_lines(int64_t path) {
-    /* Read file, then split on newlines into a cons list. */
+    /* Read file, split on newlines, return as Array (matching VM semantics). */
     int64_t content = flux_read_file(path);
-    if (flux_nanbox_tag(content) == FLUX_TAG_NONE) {
-        return flux_make_empty_list();
+    if (flux_is_nanbox(content) && flux_nanbox_tag(content) == FLUX_TAG_NONE) {
+        return flux_array_new(NULL, 0);
     }
     const char *data = flux_string_data(content);
     uint32_t len = flux_string_len(content);
 
-    /* Build list in reverse, then reverse. */
-    int64_t list = flux_make_empty_list();
-    uint32_t start = 0;
-    for (uint32_t i = 0; i <= len; i++) {
-        if (i == len || data[i] == '\n') {
-            uint32_t line_len = i - start;
-            /* Skip trailing \r. */
-            if (line_len > 0 && data[start + line_len - 1] == '\r') line_len--;
-            int64_t line = flux_string_new(data + start, line_len);
-            /* Cons onto front. */
-            int64_t fields[2];
-            fields[0] = line;
-            fields[1] = list;
-            /* Build a 2-field ADT with CONS tag (4). */
-            list = flux_tag_ptr(flux_gc_alloc(sizeof(int32_t) * 2 + sizeof(int64_t) * 2));
-            void *ptr = flux_untag_ptr(list);
-            *(int32_t *)ptr = 4; /* CONS_TAG */
-            *((int32_t *)ptr + 1) = 2; /* field count */
-            int64_t *fptr = (int64_t *)((char *)ptr + 8);
-            fptr[0] = line;
-            fptr[1] = flux_make_empty_list(); /* placeholder */
-            start = i + 1;
-        }
-    }
-    /* TODO: proper cons list building requires reverse. For now, rebuild forward. */
-    /* Rebuild forward by collecting lines first. */
+    /* Count lines. */
     uint32_t line_count = 0;
     for (uint32_t i = 0; i < len; i++) {
         if (data[i] == '\n') line_count++;
     }
-    line_count++; /* last line */
+    line_count++; /* last line (or single line without newline) */
 
-    /* Allocate temporary array of lines. */
     int64_t *lines = (int64_t *)malloc(line_count * sizeof(int64_t));
     uint32_t li = 0;
-    start = 0;
+    uint32_t start = 0;
     for (uint32_t i = 0; i <= len; i++) {
         if (i == len || data[i] == '\n') {
             uint32_t line_len = i - start;
@@ -721,20 +708,15 @@ int64_t flux_read_lines(int64_t path) {
         }
     }
 
-    /* Build cons list from back to front. */
-    list = flux_make_empty_list();
-    for (int32_t i = (int32_t)li - 1; i >= 0; i--) {
-        /* Use flux_gc_alloc for ADT: tag(4) + field_count(4) + 2*i64 */
-        void *mem = flux_gc_alloc(8 + 2 * 8);
-        *(int32_t *)mem = 4; /* CONS tag */
-        *((int32_t *)mem + 1) = 2;
-        int64_t *fields_p = (int64_t *)((char *)mem + 8);
-        fields_p[0] = lines[i];
-        fields_p[1] = list;
-        list = flux_tag_ptr(mem);
+    /* Strip trailing empty line (file ends with \n). */
+    if (li > 0) {
+        uint32_t last_len = flux_string_len(lines[li - 1]);
+        if (last_len == 0) li--;
     }
+
+    int64_t result = flux_array_new(lines, (int32_t)li);
     free(lines);
-    return list;
+    return result;
 }
 
 /* ── Collection helpers ─────────────────────────────────────────────── */
@@ -1342,6 +1324,32 @@ int64_t flux_ho_find(int64_t collection, int64_t func) {
         cur = fields[1];
     }
     return flux_make_none();
+}
+
+/* sort_default(collection) — sort by natural int ordering. */
+int64_t flux_sort_default(int64_t collection) {
+    int64_t *elems; uint32_t len;
+    if (!flux_get_array_elems(collection, &elems, &len)) return collection;
+    if (len <= 1) return collection;
+
+    int64_t *sorted = (int64_t *)malloc(len * sizeof(int64_t));
+    memcpy(sorted, elems, len * sizeof(int64_t));
+
+    /* Insertion sort by NaN-boxed int comparison. */
+    for (uint32_t i = 1; i < len; i++) {
+        int64_t key = sorted[i];
+        int32_t j = (int32_t)i - 1;
+        while (j >= 0) {
+            int64_t cmp = flux_rt_gt(sorted[j], key);
+            if (cmp != flux_make_bool(1)) break;
+            sorted[j + 1] = sorted[j];
+            j--;
+        }
+        sorted[j + 1] = key;
+    }
+    int64_t result = flux_array_new(sorted, (int32_t)len);
+    free(sorted);
+    return result;
 }
 
 /* sort(collection, comparator) — insertion sort using comparator. */
