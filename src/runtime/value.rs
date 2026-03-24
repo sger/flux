@@ -3,7 +3,7 @@ use std::{cell::RefCell, fmt, rc::Rc};
 use crate::runtime::{
     closure::Closure, compiled_function::CompiledFunction, cons_cell::ConsCell,
     continuation::Continuation, hamt::HamtNode, handler_descriptor::HandlerDescriptor,
-    hash_key::HashKey, jit_closure::JitClosure, perform_descriptor::PerformDescriptor,
+    hash_key::HashKey, perform_descriptor::PerformDescriptor,
 };
 
 /// Inner data for an ADT constructor value, boxed behind a single `Rc` so that
@@ -286,8 +286,6 @@ pub enum Value {
     Function(Rc<CompiledFunction>),
     /// Runtime closure object.
     Closure(Rc<Closure>),
-    /// JIT-compiled closure object.
-    JitClosure(Rc<JitClosure>),
     /// Base function handle (index into base function table).
     BaseFunction(u8),
     /// Ordered collection of values.
@@ -332,7 +330,6 @@ impl fmt::Display for Value {
             Value::ReturnValue(v) => write!(f, "{}", v),
             Value::Function(_) => write!(f, "<function>"),
             Value::Closure(_) => write!(f, "<closure>"),
-            Value::JitClosure(_) => write!(f, "<jit-closure>"),
             Value::BaseFunction(_) => write!(f, "<base-fn>"),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
@@ -402,7 +399,6 @@ impl Value {
             Value::ReturnValue(_) => "ReturnValue",
             Value::Function(_) => "Function",
             Value::Closure(_) => "Closure",
-            Value::JitClosure(_) => "JitClosure",
             Value::BaseFunction(_) => "BaseFunction",
             Value::Array(_) => "Array",
             Value::Tuple(_) => "Tuple",
@@ -421,7 +417,7 @@ impl Value {
     pub fn is_callable(&self) -> bool {
         matches!(
             self,
-            Value::Function(_) | Value::Closure(_) | Value::JitClosure(_) | Value::BaseFunction(_)
+            Value::Function(_) | Value::Closure(_) | Value::BaseFunction(_)
         )
     }
 
@@ -468,7 +464,6 @@ impl Value {
             Value::ReturnValue(v) => v.to_string_value(),
             Value::Function(_) => "<function>".to_string(),
             Value::Closure(_) => "<closure>".to_string(),
-            Value::JitClosure(_) => "<jit-closure>".to_string(),
             Value::BaseFunction(_) => "<base-fn>".to_string(),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();

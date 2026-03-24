@@ -6,10 +6,6 @@ pub mod core;
 #[cfg(feature = "core_to_llvm")]
 pub mod core_to_llvm;
 pub mod diagnostics;
-#[cfg(feature = "jit")]
-pub mod jit;
-#[cfg(feature = "llvm")]
-pub mod llvm;
 pub mod primop;
 pub mod runtime;
 pub mod shared_ir;

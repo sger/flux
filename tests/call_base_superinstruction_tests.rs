@@ -127,26 +127,3 @@ fn vm_allowlisted_base_function_wrong_arity_error_is_preserved() {
     );
 }
 
-#[cfg(feature = "jit")]
-#[test]
-fn vm_and_jit_match_on_allowlisted_base_function_program() {
-    use flux::jit::{JitOptions, jit_compile_and_run};
-
-    let input = "to_array(map(list(1, 2, 3), fn(x) { x + 1 }))";
-    let vm_value = run_vm(input);
-
-    let lexer = Lexer::new(input);
-    let mut parser = Parser::new(lexer);
-    let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "{}",
-        render_diagnostics(&parser.errors, Some(input), None)
-    );
-    let interner = parser.take_interner();
-    let jit_value = jit_compile_and_run(&program, &interner, &JitOptions::default())
-        .expect("jit run should succeed")
-        .0;
-
-    assert_eq!(vm_value, jit_value);
-}

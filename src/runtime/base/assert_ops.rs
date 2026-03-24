@@ -186,7 +186,7 @@ pub(super) fn base_assert_throws_borrowed(
     };
 
     match args[0] {
-        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) => {}
         other => {
             return Err(format!(
                 "assert_throws expected callable as first argument, got {}",
@@ -398,7 +398,7 @@ pub(super) fn base_try_borrowed(
 ) -> Result<Value, String> {
     check_arity_ref(args, 1, "try", "try(fn)")?;
     match args[0] {
-        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) => {}
         other => {
             return Err(format!(
                 "try expected callable as first argument, got {}",
