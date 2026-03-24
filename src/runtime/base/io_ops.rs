@@ -247,7 +247,7 @@ pub(super) fn base_time_borrowed(
 ) -> Result<Value, String> {
     check_arity_ref(args, 1, "time", "time(fn)")?;
     match args[0] {
-        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) => {}
         other => {
             return Err(type_error(
                 "time",

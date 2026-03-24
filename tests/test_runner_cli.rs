@@ -183,49 +183,6 @@ fn test_mode_test_filter_no_match_reports_empty() {
     );
 }
 
-#[cfg(feature = "jit")]
-#[test]
-fn test_mode_jit_matches_vm_summary() {
-    let file = fixture_path("all_pass.flx");
-    let vm = run_flux(&["--test", file.to_str().unwrap()]);
-    let vm_text = combined_output(&vm);
-    assert!(vm.status.success(), "vm run failed:\n{}", vm_text);
-
-    let jit = run_flux(&["--test", file.to_str().unwrap(), "--jit"]);
-    let jit_text = combined_output(&jit);
-    assert!(jit.status.success(), "jit run failed:\n{}", jit_text);
-
-    assert!(
-        vm_text.contains("2 tests: 2 passed, 0 failed"),
-        "unexpected vm summary:\n{}",
-        vm_text
-    );
-    assert!(
-        jit_text.contains("2 tests: 2 passed, 0 failed"),
-        "unexpected jit summary:\n{}",
-        jit_text
-    );
-
-    let jit_filtered = run_flux(&[
-        "--test",
-        file.to_str().unwrap(),
-        "--test-filter",
-        "test_a",
-        "--jit",
-    ]);
-    let jit_filtered_text = combined_output(&jit_filtered);
-    assert!(
-        jit_filtered.status.success(),
-        "jit filtered run failed:\n{}",
-        jit_filtered_text
-    );
-    assert!(
-        jit_filtered_text.contains("1 tests: 1 passed, 0 failed"),
-        "unexpected jit filtered summary:\n{}",
-        jit_filtered_text
-    );
-}
-
 #[test]
 fn test_mode_primops_fixture_passes_on_vm() {
     let file = fixture_path("primops_all.flx");
@@ -550,61 +507,6 @@ fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
     );
 }
 
-#[cfg(feature = "jit")]
-#[test]
-fn jit_runtime_error_json_matches_text_metadata() {
-    let file = example_path("runtime_errors/indirect_call_wrong_arity.flx");
-
-    let text_output = run_flux(&["--no-cache", file.to_str().unwrap(), "--jit"]);
-    let text = combined_output(&text_output);
-    assert!(
-        !text_output.status.success(),
-        "expected JIT text run to fail, output:\n{}",
-        text
-    );
-    assert!(
-        text.contains("error[E1000]: wrong number of arguments: want=2, got=1"),
-        "expected structured text diagnostic, output:\n{}",
-        text
-    );
-
-    let json_output = run_flux(&[
-        "--no-cache",
-        file.to_str().unwrap(),
-        "--jit",
-        "--format",
-        "json",
-    ]);
-    let json_text = combined_output(&json_output);
-    assert!(
-        !json_output.status.success(),
-        "expected JIT json run to fail, output:\n{}",
-        json_text
-    );
-
-    let parsed: serde_json::Value =
-        serde_json::from_str(&json_text).expect("expected valid JSON diagnostics output");
-    let first = parsed
-        .as_array()
-        .and_then(|arr| arr.first())
-        .expect("expected at least one runtime diagnostic");
-
-    assert_eq!(first.get("code").and_then(|v| v.as_str()), Some("E1000"));
-    assert_eq!(first.get("phase").and_then(|v| v.as_str()), Some("runtime"));
-    assert_eq!(
-        first.get("category").and_then(|v| v.as_str()),
-        Some("runtime_execution")
-    );
-    assert_eq!(
-        first.get("title").and_then(|v| v.as_str()),
-        Some("wrong number of arguments: want=2, got=1")
-    );
-    assert_eq!(
-        first.get("file").and_then(|v| v.as_str()),
-        Some("examples/runtime_errors/indirect_call_wrong_arity.flx")
-    );
-}
-
 #[test]
 fn test_mode_parse_errors_exit_early_even_with_all_errors() {
     let file = fixture_path("parse_error.flx");
@@ -687,27 +589,3 @@ fn all_errors_flag_reveals_effect_diagnostics_after_type_errors() {
     );
 }
 
-#[cfg(feature = "jit")]
-#[test]
-fn test_mode_primops_fixture_passes_on_jit() {
-    let file = fixture_path("primops_all.flx");
-    let output = run_flux(&[
-        "--test",
-        file.to_str().unwrap(),
-        "--root",
-        workspace_root().join("lib").to_str().unwrap(),
-        "--jit",
-    ]);
-    let text = combined_output(&output);
-
-    assert!(
-        output.status.success(),
-        "expected success, output:\n{}",
-        text
-    );
-    assert!(
-        text.contains("8 tests: 8 passed, 0 failed"),
-        "unexpected summary, output:\n{}",
-        text
-    );
-}

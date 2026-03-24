@@ -34,7 +34,7 @@ pub(super) fn base_map(
     check_arity(&args, 2, "map", "map(collection, fn)")?;
 
     match &args[1] {
-        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) => {}
         other => {
             return Err(type_error(
                 "map",
@@ -113,7 +113,7 @@ pub(super) fn base_filter(
     check_arity(&args, 2, "filter", "filter(collection, pred)")?;
 
     match &args[1] {
-        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) => {}
         other => {
             return Err(type_error(
                 "filter",
@@ -205,7 +205,7 @@ pub(super) fn base_flat_map(
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) => {}
         other => {
             return Err(type_error(
                 "flat_map",
@@ -286,7 +286,7 @@ pub(super) fn base_any(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) => {}
         other => {
             return Err(type_error(
                 "any",
@@ -341,7 +341,7 @@ pub(super) fn base_all(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) => {}
         other => {
             return Err(type_error(
                 "all",
@@ -396,7 +396,7 @@ pub(super) fn base_find(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resul
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) => {}
         other => {
             return Err(type_error(
                 "find",
@@ -454,7 +454,7 @@ pub(super) fn base_sort_by(
 
     let func = args[1].clone();
     match &func {
-        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) => {}
         other => {
             return Err(type_error(
                 "sort_by",
@@ -638,7 +638,7 @@ pub(super) fn base_count(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resu
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) => {}
         other => {
             return Err(type_error(
                 "count",
@@ -697,7 +697,7 @@ pub(super) fn base_fold(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resul
     let func = &args[2];
 
     match func {
-        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) => {}
         other => {
             return Err(type_error(
                 "fold",

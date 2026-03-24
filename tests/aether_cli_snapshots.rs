@@ -293,26 +293,6 @@ fn snapshot_verify_aether_trace_aether_vm() {
     );
 }
 
-#[cfg(feature = "jit")]
-#[test]
-fn snapshot_verify_aether_trace_aether_jit() {
-    assert_trace_snapshot(
-        "aether/verify_aether.flx",
-        &["--trace-aether", "--jit"],
-        "trace_aether_jit",
-    );
-}
-
-#[cfg(feature = "llvm")]
-#[test]
-fn snapshot_verify_aether_trace_aether_llvm() {
-    assert_trace_snapshot(
-        "aether/verify_aether.flx",
-        &["--trace-aether", "--llvm"],
-        "trace_aether_llvm",
-    );
-}
-
 #[test]
 fn trace_aether_emits_report_on_stderr_and_program_output_on_stdout() {
     let file = example_path("aether/verify_aether.flx");

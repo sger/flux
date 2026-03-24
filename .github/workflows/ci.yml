@@ -15,28 +15,10 @@ jobs:
   core:
     name: Rust (fmt, clippy, test)
     runs-on: ubuntu-latest
-    env:
-      LLVM_SYS_180_PREFIX: /usr/lib/llvm-18
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Cache LLVM apt packages
-        id: cache-llvm
-        uses: actions/cache@v4
-        with:
-          path: /var/cache/apt/archives
-          key: llvm-18-apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
-          restore-keys: |
-            llvm-18-apt-${{ runner.os }}-
-
-      - name: Install LLVM 18
-        run: |
-          if [ "${{ steps.cache-llvm.outputs.cache-hit }}" != "true" ]; then
-            sudo apt-get update -qq
-          fi
-          sudo apt-get install -y llvm-18-dev libclang-18-dev libpolly-18-dev lld-18 libzstd-dev
 
       # Installs Rust toolchain + rustfmt + clippy
       - name: Setup Rust
@@ -70,44 +52,17 @@ jobs:
       - name: Aether FBIP diagnostics
         run: cargo test --test aether_fbip_diagnostics
 
-      - name: Aether backend parity
-        run: cargo test --features 'jit llvm' --test aether_backend_parity
-
-      - name: Purity VM/JIT parity snapshots
-        run: cargo test --all --all-features purity_vm_jit_parity_snapshots
-
       - name: Build (debug)
         run: cargo build --all --all-features
-
-      - name: VM/JIT parity check (all examples)
-        run: scripts/release/check_parity.sh examples/basics examples/advanced examples/functions examples/patterns examples/tail_call examples/perf examples/primop tests/flux
 
   examples-smoke:
     name: Examples Tier 1 (PR smoke)
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' || github.event_name == 'push'
-    env:
-      LLVM_SYS_180_PREFIX: /usr/lib/llvm-18
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Cache LLVM apt packages
-        id: cache-llvm
-        uses: actions/cache@v4
-        with:
-          path: /var/cache/apt/archives
-          key: llvm-18-apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
-          restore-keys: |
-            llvm-18-apt-${{ runner.os }}-
-
-      - name: Install LLVM 18
-        run: |
-          if [ "${{ steps.cache-llvm.outputs.cache-hit }}" != "true" ]; then
-            sudo apt-get update -qq
-          fi
-          sudo apt-get install -y llvm-18-dev libclang-18-dev libpolly-18-dev lld-18 libzstd-dev
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -125,28 +80,10 @@ jobs:
     name: Examples Tier 2 (changed-path expansion)
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    env:
-      LLVM_SYS_180_PREFIX: /usr/lib/llvm-18
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Cache LLVM apt packages
-        id: cache-llvm
-        uses: actions/cache@v4
-        with:
-          path: /var/cache/apt/archives
-          key: llvm-18-apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
-          restore-keys: |
-            llvm-18-apt-${{ runner.os }}-
-
-      - name: Install LLVM 18
-        run: |
-          if [ "${{ steps.cache-llvm.outputs.cache-hit }}" != "true" ]; then
-            sudo apt-get update -qq
-          fi
-          sudo apt-get install -y llvm-18-dev libclang-18-dev libpolly-18-dev lld-18 libzstd-dev
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -169,16 +106,15 @@ jobs:
               - 'src/ast/**'
               - 'src/bytecode/**'
               - 'examples/type_system/**'
-            jit:
-              - 'src/jit/**'
+            runtime:
               - 'src/runtime/**'
-              - 'tests/runtime_vm_jit_parity_release.rs'
+              - 'src/core_to_llvm/**'
             examples_misc:
               - 'examples/**'
               - 'lib/**'
 
       - name: Build flux (all features)
-        if: steps.filter.outputs.parser == 'true' || steps.filter.outputs.type_system == 'true' || steps.filter.outputs.jit == 'true' || steps.filter.outputs.examples_misc == 'true'
+        if: steps.filter.outputs.parser == 'true' || steps.filter.outputs.type_system == 'true' || steps.filter.outputs.runtime == 'true' || steps.filter.outputs.examples_misc == 'true'
         run: cargo build --all --all-features
 
       - name: Tier 2 parser cases
@@ -189,10 +125,6 @@ jobs:
         if: steps.filter.outputs.type_system == 'true'
         run: scripts/ci/run_flux_manifest.sh --tier 2 --category type_system
 
-      - name: Tier 2 jit-sensitive cases
-        if: steps.filter.outputs.jit == 'true'
-        run: scripts/ci/run_flux_manifest.sh --tier 2 --category jit
-
       - name: Tier 2 misc example cases
         if: steps.filter.outputs.examples_misc == 'true'
         run: scripts/ci/run_flux_manifest.sh --tier 2 --category smoke
@@ -201,8 +133,6 @@ jobs:
     name: Examples Tier 1-3 full
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    env:
-      LLVM_SYS_180_PREFIX: /usr/lib/llvm-18
     strategy:
       fail-fast: false
       matrix:
@@ -212,22 +142,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Cache LLVM apt packages
-        id: cache-llvm
-        uses: actions/cache@v4
-        with:
-          path: /var/cache/apt/archives
-          key: llvm-18-apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
-          restore-keys: |
-            llvm-18-apt-${{ runner.os }}-
-
-      - name: Install LLVM 18
-        run: |
-          if [ "${{ steps.cache-llvm.outputs.cache-hit }}" != "true" ]; then
-            sudo apt-get update -qq
-          fi
-          sudo apt-get install -y llvm-18-dev libclang-18-dev libpolly-18-dev lld-18 libzstd-dev
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

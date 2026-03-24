@@ -8,27 +8,11 @@ default-run = "flux"
 
 [features]
 core_to_llvm = []
-jit = [
-    "cranelift-codegen",
-    "cranelift-frontend",
-    "cranelift-module",
-    "cranelift-jit",
-    "cranelift-native",
-    "target-lexicon",
-]
-llvm = ["llvm-sys"]
 
 [dependencies]
 sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-cranelift-codegen = { version = "0.128", optional = true }
-cranelift-frontend = { version = "0.128", optional = true }
-cranelift-module = { version = "0.128", optional = true }
-cranelift-jit = { version = "0.128", optional = true }
-cranelift-native = { version = "0.128", optional = true }
-target-lexicon = { version = "0.13", optional = true }
-llvm-sys = { version = "180", optional = true }
 
 [dev-dependencies]
 insta = { version = "1.41", features = ["yaml"] }

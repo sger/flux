@@ -62,9 +62,6 @@ run_case_mode() {
   fi
 
   cmd+=("$path")
-  if [[ "$mode" == "jit" ]]; then
-    cmd+=("--jit")
-  fi
 
   printf '==> [%s] %s :: ' "$mode" "$name"
   printf '%q ' "${cmd[@]}"

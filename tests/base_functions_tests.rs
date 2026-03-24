@@ -8,9 +8,6 @@ use std::{
 
 use flux::bytecode::bytecode::Bytecode;
 use flux::bytecode::vm::VM;
-#[cfg(feature = "jit")]
-use flux::jit::context::JitContext;
-use flux::runtime::RuntimeContext;
 use flux::runtime::base::{
     get_base_function as get_base, get_base_function_index as get_base_index,
 };
@@ -119,32 +116,6 @@ fn test_get_base() {
     assert!(get_base("print").is_some());
     assert!(get_base("len").is_some());
     assert!(get_base("nonexistent").is_none());
-}
-
-#[cfg(feature = "jit")]
-#[test]
-fn borrowed_dispatch_works_from_jit_context_for_borrowed_base_function() {
-    let mut ctx = JitContext::new();
-    let arg = Value::String("hello".to_string().into());
-    let refs = [&arg];
-    let idx = get_base_index("len").expect("len base exists");
-    let result = ctx.invoke_base_function_borrowed(idx, &refs).unwrap();
-    assert_eq!(result, Value::Integer(5));
-}
-
-#[cfg(feature = "jit")]
-#[test]
-fn borrowed_dispatch_falls_back_for_owned_only_base_function() {
-    let mut ctx = JitContext::new();
-    let arr = Value::Array(vec![Value::Integer(1)].into());
-    let elem = Value::Integer(2);
-    let refs = [&arr, &elem];
-    let idx = get_base_index("push").expect("push base exists");
-    let result = ctx.invoke_base_function_borrowed(idx, &refs).unwrap();
-    assert_eq!(
-        result,
-        Value::Array(vec![Value::Integer(1), Value::Integer(2)].into())
-    );
 }
 
 #[test]
