@@ -1,5 +1,3 @@
-#![cfg(feature = "jit")]
-
 mod diagnostics_env;
 #[path = "support/examples_snapshot.rs"]
 mod examples_snapshot;
