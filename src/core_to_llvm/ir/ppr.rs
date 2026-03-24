@@ -628,10 +628,7 @@ mod tests {
             },
             attrs: vec!["nounwind".into()],
         };
-        assert_eq!(
-            decl.to_string(),
-            "declare ccc i32 @puts(ptr) nounwind"
-        );
+        assert_eq!(decl.to_string(), "declare ccc i32 @puts(ptr) nounwind");
 
         let func = LlvmFunction {
             linkage: Linkage::Internal,

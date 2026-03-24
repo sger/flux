@@ -44,3 +44,7 @@ function: concat/2
 
 Hint:
   concat(a, b)
+
+Stack trace:
+  at main (examples/runtime_errors/base_map_callback_arity.flx:2:19)
+  at <main>

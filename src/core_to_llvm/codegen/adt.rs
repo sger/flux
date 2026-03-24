@@ -707,7 +707,6 @@ fn untag_boxed_ptr_call(dst: &str, value: LlvmOperand) -> LlvmInstr {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

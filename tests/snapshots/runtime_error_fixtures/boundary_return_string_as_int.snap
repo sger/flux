@@ -58,3 +58,7 @@ Note:
 
 Help:
   Check the value flowing into this operation or add a conversion before this point.
+
+Stack trace:
+  at bad
+  at <main> (examples/runtime_errors/boundary_return_string_as_int.flx:7:1)

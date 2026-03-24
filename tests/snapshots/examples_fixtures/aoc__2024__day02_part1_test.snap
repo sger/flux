@@ -7,12 +7,12 @@ failed (compile)
 == diagnostics ==
 error[E011]: Private Member
 
-Cannot access private member `int_at`.
+Cannot access private member `predicate`.
 
-  examples/aoc/2024/Day02Solver.flx:24:27
+  examples/aoc/2024/day02_part1_test.flx:19:17
    |
-24 |                 push(acc, Shared.int_at(xs, idx) - Shared.int_at(xs, idx + 1)),
-   |                           ^^^^^^^^^^^^^
+19 |     assert_true(Day02.predicate(Day02.parse_report("7 6 4 2 1")))
+   |                 ^^^^^^^^^^^^^^^
 
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
@@ -20,16 +20,29 @@ Hint:
 
 error[E011]: Private Member
 
-Cannot access private member `int_at`.
+Cannot access private member `predicate`.
 
-  examples/aoc/2024/Day02Solver.flx:47:44
+  examples/aoc/2024/day02_part1_test.flx:23:17
    |
-47 |             let keep_head = prepend_to_all(Shared.int_at(xs, 0), try_drops(tail))
-   |                                            ^^^^^^^^^^^^^
+23 |     assert_true(Day02.predicate(Day02.parse_report("1 3 6 7 9")))
+   |                 ^^^^^^^^^^^^^^^
 
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
-Found 2 errors.
+
+error[E011]: Private Member
+
+Cannot access private member `predicate`.
+
+  examples/aoc/2024/day02_part1_test.flx:27:18
+   |
+27 |     assert_false(Day02.predicate(Day02.parse_report("1 3 2 4 5")))
+   |                  ^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+Found 3 errors.
 == stdout ==
 <not executed>
