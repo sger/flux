@@ -73,13 +73,9 @@ static inline size_t align_up(size_t n, size_t align) {
 /* ── Public API ─────────────────────────────────────────────────────── */
 
 void flux_gc_init(size_t heap_size) {
-    if (heap_size == 0) heap_size = 4 * 1024 * 1024; /* 4 MB default */
-    gc_arena = (char *)malloc(heap_size);
-    if (!gc_arena) {
-        fprintf(stderr, "flux_gc_init: out of memory\n");
-        abort();
-    }
-    gc_arena_size       = heap_size;
+    (void)heap_size; /* arena no longer used — all allocs go through malloc */
+    gc_arena            = NULL;
+    gc_arena_size       = 0;
     gc_arena_used       = 0;
     gc_all_objects      = NULL;
     gc_root_count       = 0;
@@ -88,68 +84,32 @@ void flux_gc_init(size_t heap_size) {
 }
 
 void flux_gc_shutdown(void) {
-    /* Free all objects that were malloc'd during overflow. */
+    /* Free all malloc'd objects. */
     ObjHeader *obj = gc_all_objects;
     while (obj) {
         ObjHeader *next = obj->next;
-        /* Objects inside the arena don't need individual free. */
-        char *p = (char *)obj;
-        if (p < gc_arena || p >= gc_arena + gc_arena_size) {
-            free(obj);
-        }
+        free(obj);
         obj = next;
     }
     gc_all_objects = NULL;
-    free(gc_arena);
-    gc_arena      = NULL;
-    gc_arena_size = 0;
-    gc_arena_used = 0;
-    gc_root_count = 0;
+    gc_root_count  = 0;
 }
 
 /*
- * Try bump-allocating from the arena.  If there is not enough room,
- * attempt a GC collection and retry.  If still insufficient, fall back
- * to malloc (the object is still tracked in the linked list).
+ * Allocate GC-managed memory.
+ *
+ * Uses malloc directly — no fixed arena. This avoids the heap exhaustion
+ * problem for large programs (e.g., AoC Day 6 Part B). Objects are tracked
+ * in an intrusive linked list for shutdown cleanup.
+ *
+ * Future: proper generational/copying GC (like GHC's) would reclaim memory
+ * during execution. For now, Flux's Aether RC model means most objects are
+ * short-lived and the OS reclaims everything at process exit.
  */
 void *flux_gc_alloc(uint32_t size) {
-    size_t aligned   = align_up((size_t)size, GC_ALIGN);
-    size_t total     = sizeof(ObjHeader) + aligned;
+    size_t aligned = align_up((size_t)size, GC_ALIGN);
+    size_t total   = sizeof(ObjHeader) + aligned;
 
-    /* Fast path: bump allocator. */
-    if (gc_arena && gc_arena_used + total <= gc_arena_size) {
-        ObjHeader *hdr = (ObjHeader *)(gc_arena + gc_arena_used);
-        gc_arena_used += total;
-        hdr->size  = (uint32_t)aligned;
-        hdr->flags = 0;
-        hdr->next  = gc_all_objects;
-        gc_all_objects = hdr;
-        gc_total_allocated += aligned;
-        gc_num_allocs++;
-        void *payload = payload_of(hdr);
-        memset(payload, 0, aligned);
-        return payload;
-    }
-
-    /* Try collecting. */
-    flux_gc_collect();
-
-    /* Retry bump. */
-    if (gc_arena && gc_arena_used + total <= gc_arena_size) {
-        ObjHeader *hdr = (ObjHeader *)(gc_arena + gc_arena_used);
-        gc_arena_used += total;
-        hdr->size  = (uint32_t)aligned;
-        hdr->flags = 0;
-        hdr->next  = gc_all_objects;
-        gc_all_objects = hdr;
-        gc_total_allocated += aligned;
-        gc_num_allocs++;
-        void *payload = payload_of(hdr);
-        memset(payload, 0, aligned);
-        return payload;
-    }
-
-    /* Overflow: malloc fallback (still linked). */
     ObjHeader *hdr = (ObjHeader *)malloc(total);
     if (!hdr) {
         fprintf(stderr, "flux_gc_alloc: out of memory (%u bytes)\n", size);

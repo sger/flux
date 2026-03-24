@@ -54,12 +54,41 @@ extern "C" {
 
 /* ── Inline NaN-box helpers ─────────────────────────────────────────── */
 
+#define FLUX_MAX_INLINE_INT  ((int64_t)((1LL << 45) - 1))   /*  35_184_372_088_831 */
+#define FLUX_MIN_INLINE_INT  ((int64_t)(-(1LL << 45)))      /* -35_184_372_088_832 */
+
+/* BigInt heap tag — defined early so inline helpers can reference it. */
+#define FLUX_OBJ_BIGINT   0xF6
+
+/* Forward declaration for overflow boxing. */
+void *flux_gc_alloc(uint32_t size);
+
 static inline int64_t flux_tag_int(int64_t raw) {
-    uint64_t payload = (uint64_t)raw & FLUX_PAYLOAD_MASK;
-    return (int64_t)(payload | FLUX_NANBOX_SENTINEL);
+    if (raw >= FLUX_MIN_INLINE_INT && raw <= FLUX_MAX_INLINE_INT) {
+        uint64_t payload = (uint64_t)raw & FLUX_PAYLOAD_MASK;
+        return (int64_t)(payload | FLUX_NANBOX_SENTINEL);
+    }
+    /* Overflow: heap-box the full 64-bit integer.
+     * Layout: { uint8_t obj_tag=FLUX_OBJ_BIGINT, pad[7], int64_t value } */
+    void *mem = flux_gc_alloc(16);
+    *(uint8_t *)mem = FLUX_OBJ_BIGINT;
+    *(int64_t *)((char *)mem + 8) = raw;
+    uint64_t payload = (uint64_t)mem >> FLUX_PTR_SHIFT;
+    return (int64_t)(FLUX_NANBOX_SENTINEL
+                     | ((uint64_t)FLUX_TAG_BOXED_VALUE << FLUX_TAG_SHIFT)
+                     | payload);
 }
 
 static inline int64_t flux_untag_int(int64_t val) {
+    /* Check for heap-boxed big integer. */
+    if (((uint64_t)val & FLUX_SENTINEL_MASK) == FLUX_NANBOX_SENTINEL
+        && ((((uint64_t)val >> FLUX_TAG_SHIFT) & FLUX_TAG_MASK) == FLUX_TAG_BOXED_VALUE)) {
+        uint64_t p = (uint64_t)val & FLUX_PAYLOAD_MASK;
+        void *ptr = (void *)(p << FLUX_PTR_SHIFT);
+        if (ptr && *(uint8_t *)ptr == FLUX_OBJ_BIGINT) {
+            return *(int64_t *)((char *)ptr + 8);
+        }
+    }
     uint64_t payload = (uint64_t)val & FLUX_PAYLOAD_MASK;
     /* Sign-extend from 46 bits. */
     return (int64_t)(payload << 18) >> 18;
@@ -119,6 +148,7 @@ static inline int64_t flux_make_empty_list(void) {
 #define FLUX_OBJ_TUPLE    0xF3
 #define FLUX_OBJ_ARRAY    0xF4
 #define FLUX_OBJ_CLOSURE  0xF5
+/* FLUX_OBJ_BIGINT (0xF6) defined above near inline helpers */
 
 static inline uint8_t flux_obj_tag(void *ptr) {
     return *(uint8_t *)ptr;
@@ -266,6 +296,7 @@ int64_t flux_unwrap(int64_t val);
 int64_t flux_unwrap_or(int64_t val, int64_t def);
 
 int64_t flux_sum(int64_t collection);
+int64_t flux_sort_default(int64_t collection);
 int64_t flux_starts_with(int64_t s, int64_t prefix);
 int64_t flux_ends_with(int64_t s, int64_t suffix);
 
