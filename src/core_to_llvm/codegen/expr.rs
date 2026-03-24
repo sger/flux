@@ -30,6 +30,9 @@ pub(super) struct FunctionLowering<'a, 'p> {
     /// function's return value).  Used by TCO to decide whether a self-recursive
     /// call can be converted into a branch back to the loop header.
     is_tail_position: bool,
+    /// If this function belongs to a mutual tail-recursion group (Phase 2),
+    /// stores (this function's binder, the group).
+    pub mutual_group: Option<(CoreBinderId, std::sync::Arc<super::function::MutualRecGroup>)>,
 }
 
 struct BindingRestore {
@@ -66,6 +69,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             state,
             program,
             is_tail_position: true,
+            mutual_group: None,
         }
     }
 
@@ -153,6 +157,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             state,
             program,
             is_tail_position: false,
+            mutual_group: None,
         })
     }
 
@@ -256,6 +261,115 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         // Return a dummy operand — this value is dead (the branch already
         // transferred control).
         Some(const_i64(0))
+    }
+
+    /// Try to lower a cross-function tail call within a mutual recursion group
+    /// as a thunk return (Phase 2 trampoline TCO).
+    /// Returns `Some(Ok(dummy))` if converted, `None` if not applicable.
+    fn try_lower_mutual_tco_call(
+        &mut self,
+        callee_binder: CoreBinderId,
+        lowered_args: &[LlvmOperand],
+    ) -> Option<Result<LlvmOperand, CoreToLlvmError>> {
+        if !self.is_tail_position {
+            return None;
+        }
+        let (my_binder, group) = self.mutual_group.as_ref()?;
+        // Only apply to cross-function calls within the group (not self-calls).
+        if callee_binder == *my_binder {
+            return None;
+        }
+        let fn_index = *group.member_index.get(&callee_binder)?;
+
+        // Pack args into a stack-allocated array.
+        let args_ptr = match self.emit_operand_array(lowered_args, "thunk.args") {
+            Ok(ptr) => ptr,
+            Err(e) => return Some(Err(e)),
+        };
+
+        // Allocate thunk: flux_gc_alloc(8 + nargs * 8)
+        let nargs = lowered_args.len() as i32;
+        let alloc_size = 8 + nargs * 8;
+        let mem = self.state.temp_local("thunk.mem");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(mem.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Ccc),
+            ret_ty: LlvmType::ptr(),
+            callee: LlvmOperand::Global(GlobalId("flux_gc_alloc".into())),
+            args: vec![(LlvmType::i32(), const_i32(alloc_size))],
+            attrs: vec![],
+        });
+
+        // Write fn_index (i8 at offset 0).
+        self.state.emit(LlvmInstr::Store {
+            ty: LlvmType::i8(),
+            value: LlvmOperand::Const(crate::core_to_llvm::LlvmConst::Int {
+                bits: 8,
+                value: fn_index as i128,
+            }),
+            ptr: LlvmOperand::Local(mem.clone()),
+            align: Some(1),
+        });
+
+        // Write nargs (i32 at offset 4).
+        let nargs_ptr = self.state.temp_local("thunk.nargs_ptr");
+        self.state.emit(LlvmInstr::GetElementPtr {
+            dst: nargs_ptr.clone(),
+            inbounds: true,
+            element_ty: LlvmType::i32(),
+            base: LlvmOperand::Local(mem.clone()),
+            indices: vec![(LlvmType::i32(), const_i32(1))], // offset 4 bytes
+        });
+        self.state.emit(LlvmInstr::Store {
+            ty: LlvmType::i32(),
+            value: const_i32(nargs),
+            ptr: LlvmOperand::Local(nargs_ptr),
+            align: Some(4),
+        });
+
+        // Copy args (i64[] at offset 8).
+        let payload_ptr = self.state.temp_local("thunk.payload");
+        self.state.emit(LlvmInstr::GetElementPtr {
+            dst: payload_ptr.clone(),
+            inbounds: true,
+            element_ty: LlvmType::i64(),
+            base: LlvmOperand::Local(mem.clone()),
+            indices: vec![(LlvmType::i32(), const_i32(1))], // offset 8 bytes
+        });
+        self.state.emit(LlvmInstr::Call {
+            dst: None,
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::Void,
+            callee: LlvmOperand::Global(GlobalId("flux_copy_i64s".into())),
+            args: vec![
+                (LlvmType::ptr(), LlvmOperand::Local(payload_ptr)),
+                (LlvmType::ptr(), LlvmOperand::Local(args_ptr)),
+                (LlvmType::i32(), const_i32(nargs)),
+            ],
+            attrs: vec![],
+        });
+
+        // Tag with thunk NaN-box tag and return.
+        let tagged = self.state.temp_local("thunk.tagged");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(tagged.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(flux_prelude_symbol("flux_tag_thunk")),
+            args: vec![(LlvmType::ptr(), LlvmOperand::Local(mem))],
+            attrs: vec![],
+        });
+
+        // Return the thunk — the trampoline will evaluate it.
+        self.state.set_terminator(LlvmTerminator::Ret {
+            ty: LlvmType::i64(),
+            value: LlvmOperand::Local(tagged),
+        });
+
+        Some(Ok(const_i64(0)))
     }
 
     pub fn lower_expr(&mut self, expr: &CoreExpr) -> Result<LlvmOperand, CoreToLlvmError> {
@@ -635,16 +749,20 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             return self.lower_constructor(&tag, args);
         }
 
-        if let Some((callee, arity)) = self.resolve_direct_call_target(func)
+        if let Some((callee, arity, callee_binder)) = self.resolve_direct_call_target(func)
             && args.len() == arity
         {
             let lowered_args = args
                 .iter()
                 .map(|arg| self.lower_expr_not_tail(arg))
                 .collect::<Result<Vec<_>, _>>()?;
-            // TCO: convert tail self-calls into loop branches.
+            // Phase 1 TCO: convert tail self-calls into loop branches.
             if let Some(dummy) = self.try_lower_tco_self_call(&callee, &lowered_args) {
                 return Ok(dummy);
+            }
+            // Phase 2 TCO: convert mutual tail calls into thunk returns.
+            if let Some(result) = self.try_lower_mutual_tco_call(callee_binder, &lowered_args) {
+                return result;
             }
             let is_self_recursive = callee.0 == self.state.symbol.0;
             let dst = self.state.temp_local("call");
@@ -709,7 +827,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             return self.lower_constructor(&tag, args);
         }
 
-        if let Some((callee, arity)) = self.resolve_direct_call_target(func)
+        if let Some((callee, arity, callee_binder)) = self.resolve_direct_call_target(func)
             && args.len() == arity
         {
             let lowered_args = args
@@ -730,9 +848,13 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                     });
                 }
             }
-            // TCO: convert tail self-calls into loop branches.
+            // Phase 1 TCO: convert tail self-calls into loop branches.
             if let Some(dummy) = self.try_lower_tco_self_call(&callee, &lowered_args) {
                 return Ok(dummy);
+            }
+            // Phase 2 TCO: convert mutual tail calls into thunk returns.
+            if let Some(result) = self.try_lower_mutual_tco_call(callee_binder, &lowered_args) {
+                return result;
             }
             let is_self_recursive = callee.0 == self.state.symbol.0;
             let dst = self.state.temp_local("acall");
@@ -877,7 +999,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         }
     }
 
-    fn resolve_direct_call_target(&self, func: &CoreExpr) -> Option<(GlobalId, usize)> {
+    fn resolve_direct_call_target(
+        &self,
+        func: &CoreExpr,
+    ) -> Option<(GlobalId, usize, CoreBinderId)> {
         match func {
             CoreExpr::Var { var, .. } => {
                 let binder = var.binder?;
@@ -886,7 +1011,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 }
                 self.program
                     .top_level_info(binder)
-                    .map(|info| (info.symbol.clone(), info.arity))
+                    .map(|info| (info.symbol.clone(), info.arity, binder))
             }
             _ => None,
         }

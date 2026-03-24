@@ -123,6 +123,34 @@ not_unique:
   ret i1 0
 }
 
+define internal fastcc i1 @flux_is_thunk(i64 %val) alwaysinline {
+entry:
+  %tag_bits = lshr i64 %val, 46
+  %tag = and i64 %tag_bits, 15
+  %masked = and i64 %val, -1125899906842624
+  %is_nanbox = icmp eq i64 %masked, 9222246136947933184
+  %is_thunk_tag = icmp eq i64 %tag, 6
+  %result = select i1 %is_nanbox, i1 %is_thunk_tag, i1 0
+  ret i1 %result
+}
+
+define internal fastcc i64 @flux_tag_thunk(ptr %ptr) alwaysinline {
+entry:
+  %addr = ptrtoint ptr %ptr to i64
+  %shifted = lshr i64 %addr, 3
+  %payload = and i64 %shifted, 70368744177663
+  %tagged = or i64 %payload, 9222668349412999168
+  ret i64 %tagged
+}
+
+define internal fastcc ptr @flux_untag_thunk_ptr(i64 %val) alwaysinline {
+entry:
+  %payload = and i64 %val, 70368744177663
+  %addr = shl i64 %payload, 3
+  %ptr = inttoptr i64 %addr to ptr
+  ret ptr %ptr
+}
+
 define internal fastcc i64 @flux_iadd(i64 %a, i64 %b) alwaysinline {
 entry:
   %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
