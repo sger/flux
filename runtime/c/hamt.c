@@ -67,16 +67,30 @@ struct HamtNode {
 
 /* ── Hashing ────────────────────────────────────────────────────────── */
 
-static uint64_t hamt_hash(int64_t key) {
-    /* FNV-1a 64-bit, hashing the raw i64 bytes. */
+static uint64_t fnv1a_bytes(const uint8_t *data, size_t len) {
     uint64_t h = 14695981039346656037ULL;
-    uint64_t k = (uint64_t)key;
-    for (int i = 0; i < 8; i++) {
-        h ^= (k & 0xFF);
+    for (size_t i = 0; i < len; i++) {
+        h ^= data[i];
         h *= 1099511628211ULL;
-        k >>= 8;
     }
     return h;
+}
+
+static uint64_t hamt_hash(int64_t key) {
+    /* For string keys, hash the string content (not the pointer).
+     * This ensures two strings with the same bytes get the same hash,
+     * matching the VM's HashKey::String behavior. */
+    if (flux_is_ptr(key)) {
+        void *ptr = flux_untag_ptr(key);
+        if (ptr && flux_obj_tag(ptr) == FLUX_OBJ_STRING) {
+            uint32_t len = *(uint32_t *)((char *)ptr + 4);
+            const char *data = (const char *)ptr + 8;
+            return fnv1a_bytes((const uint8_t *)data, len);
+        }
+    }
+    /* For non-string keys, hash the raw i64 bytes. */
+    uint64_t k = (uint64_t)key;
+    return fnv1a_bytes((const uint8_t *)&k, 8);
 }
 
 static uint32_t slot_at_depth(uint64_t hash, uint32_t depth) {
