@@ -449,3 +449,99 @@ int64_t flux_hamt_size(int64_t map) {
     if (!root) return flux_tag_int(0);
     return flux_tag_int((int64_t)hamt_size_impl(root));
 }
+
+/* ── Collect all keys into a flat array ─────────────────────────────── */
+
+static void hamt_collect_keys(HamtNode *node, int64_t *out, uint32_t *idx) {
+    switch (node->kind) {
+    case HAMT_EMPTY:
+        break;
+    case HAMT_LEAF:
+        out[*idx] = node->u.leaf.key;
+        (*idx)++;
+        break;
+    case HAMT_COLLISION:
+        for (uint32_t i = 0; i < node->u.collision.count; i++) {
+            out[*idx] = node->u.collision.keys[i];
+            (*idx)++;
+        }
+        break;
+    case HAMT_BRANCH:
+        for (uint32_t i = 0; i < node->u.branch.count; i++) {
+            hamt_collect_keys(&node->u.branch.children[i], out, idx);
+        }
+        break;
+    }
+}
+
+static void hamt_collect_values(HamtNode *node, int64_t *out, uint32_t *idx) {
+    switch (node->kind) {
+    case HAMT_EMPTY: break;
+    case HAMT_LEAF:
+        out[*idx] = node->u.leaf.value;
+        (*idx)++;
+        break;
+    case HAMT_COLLISION:
+        for (uint32_t i = 0; i < node->u.collision.count; i++) {
+            out[*idx] = node->u.collision.values[i];
+            (*idx)++;
+        }
+        break;
+    case HAMT_BRANCH:
+        for (uint32_t i = 0; i < node->u.branch.count; i++) {
+            hamt_collect_values(&node->u.branch.children[i], out, idx);
+        }
+        break;
+    }
+}
+
+int64_t flux_hamt_values(int64_t map) {
+    HamtNode *root = (HamtNode *)flux_untag_ptr(map);
+    if (!root) return flux_array_new(NULL, 0);
+    uint32_t size = hamt_size_impl(root);
+    if (size == 0) return flux_array_new(NULL, 0);
+    int64_t *vals = (int64_t *)malloc(size * sizeof(int64_t));
+    uint32_t idx = 0;
+    hamt_collect_values(root, vals, &idx);
+    int64_t result = flux_array_new(vals, (int32_t)idx);
+    free(vals);
+    return result;
+}
+
+/* Merge two HAMTs: keys from b override keys from a. */
+int64_t flux_hamt_merge(int64_t a, int64_t b) {
+    HamtNode *root_b = (HamtNode *)flux_untag_ptr(b);
+    if (!root_b) return a;
+    uint32_t size_b = hamt_size_impl(root_b);
+    if (size_b == 0) return a;
+
+    /* Collect all key-value pairs from b, then set them into a. */
+    int64_t *keys_arr = (int64_t *)malloc(size_b * sizeof(int64_t));
+    int64_t *vals_arr = (int64_t *)malloc(size_b * sizeof(int64_t));
+    uint32_t ki = 0, vi = 0;
+    hamt_collect_keys(root_b, keys_arr, &ki);
+    hamt_collect_values(root_b, vals_arr, &vi);
+
+    int64_t result = a;
+    for (uint32_t i = 0; i < ki; i++) {
+        result = flux_hamt_set(result, keys_arr[i], vals_arr[i]);
+    }
+    free(keys_arr);
+    free(vals_arr);
+    return result;
+}
+
+int64_t flux_hamt_keys(int64_t map) {
+    HamtNode *root = (HamtNode *)flux_untag_ptr(map);
+    if (!root) return flux_array_new(NULL, 0);
+    uint32_t size = hamt_size_impl(root);
+    if (size == 0) return flux_array_new(NULL, 0);
+
+    int64_t *keys = (int64_t *)malloc(size * sizeof(int64_t));
+    uint32_t idx = 0;
+    hamt_collect_keys(root, keys, &idx);
+
+    int64_t result = flux_array_new(keys, (int32_t)idx);
+    free(keys);
+    return result;
+}
