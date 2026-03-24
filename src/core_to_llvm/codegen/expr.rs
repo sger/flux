@@ -1820,10 +1820,31 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CorePrimOp::MakeArray => self.lower_make_array(args),
             CorePrimOp::MakeHash => self.lower_make_hash(args),
             CorePrimOp::Index => self.lower_index_primop(args),
-            CorePrimOp::MemberAccess(_) => Err(self.unsupported(
-                "primop",
-                &format!("primop `{op:?}` requires record types"),
-            )),
+            CorePrimOp::MemberAccess(member) => {
+                // Module member access: resolve to the function by name.
+                // In the flat compilation model, module functions are top-level defs.
+                if let Some(info) = self.program.top_level_by_name(*member) {
+                    let symbol = info.symbol.clone();
+                    let arity = info.arity as i32;
+                    self.emit_make_closure_value(symbol, arity, vec![], vec![])
+                } else {
+                    // Try as a builtin.
+                    if let Some(result) = self.try_lower_builtin_call(
+                        &CoreExpr::Var {
+                            var: crate::core::CoreVarRef { name: *member, binder: None },
+                            span: crate::diagnostics::position::Span::default(),
+                        },
+                        &[],
+                    )? {
+                        return Ok(result);
+                    }
+                    let member_name = super::function::display_ident(*member, self.state.interner);
+                    Err(self.unsupported(
+                        "primop",
+                        &format!("MemberAccess `{member_name}` not found in compiled defs"),
+                    ))
+                }
+            }
         }
     }
 
