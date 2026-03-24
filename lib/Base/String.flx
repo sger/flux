@@ -1,0 +1,46 @@
+// Base.String — String helper operations.
+// Only includes functions that can be expressed in Flux
+// using existing primops (len, substring, to_string, ++).
+
+fn starts_with(s, prefix) {
+    let plen = len(prefix);
+    if plen > len(s) { false }
+    else { substring(s, 0, plen) == prefix }
+}
+
+fn ends_with(s, suffix) {
+    let slen = len(s);
+    let plen = len(suffix);
+    if plen > slen { false }
+    else { substring(s, slen - plen, slen) == suffix }
+}
+
+fn chars(s) {
+    fn go(i) {
+        if i >= len(s) { [] }
+        else { [substring(s, i, i + 1) | go(i + 1)] }
+    }
+    go(0)
+}
+
+fn join(list, sep) {
+    match list {
+        [] -> "",
+        [x] -> to_string(x),
+        [x | xs] -> to_string(x) ++ sep ++ join(xs, sep)
+    }
+}
+
+fn str_contains(s, needle) {
+    let slen = len(s);
+    let nlen = len(needle);
+    if nlen > slen { false }
+    else {
+        fn go(i) {
+            if i + nlen > slen { false }
+            else if substring(s, i, i + nlen) == needle { true }
+            else { go(i + 1) }
+        }
+        go(0)
+    }
+}

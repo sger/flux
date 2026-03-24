@@ -1,0 +1,36 @@
+// Base.Option — Option type helpers.
+
+fn unwrap(opt) {
+    match opt {
+        Some(v) -> v,
+        None -> panic("unwrap called on None")
+    }
+}
+
+fn unwrap_or(opt, default) {
+    match opt {
+        Some(v) -> v,
+        None -> default
+    }
+}
+
+fn map_option(opt, f) {
+    match opt {
+        Some(v) -> Some(f(v)),
+        None -> None
+    }
+}
+
+fn flat_map_option(opt, f) {
+    match opt {
+        Some(v) -> f(v),
+        None -> None
+    }
+}
+
+fn is_some(opt) {
+    match opt {
+        Some(_) -> true,
+        None -> false
+    }
+}

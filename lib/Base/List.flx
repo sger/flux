@@ -1,0 +1,184 @@
+// Base.List — Standard list operations for the Flux base library.
+// Argument order follows Flux convention: collection first, function second.
+
+fn map(list, f) {
+    match list {
+        [] -> [],
+        [h | t] -> [f(h) | map(t, f)]
+    }
+}
+
+fn filter(list, pred) {
+    match list {
+        [] -> [],
+        [h | t] -> if pred(h) { [h | filter(t, pred)] } else { filter(t, pred) }
+    }
+}
+
+fn fold(list, acc, f) {
+    match list {
+        [] -> acc,
+        [h | t] -> fold(t, f(acc, h), f)
+    }
+}
+
+fn len(list) {
+    fn go(l, acc) {
+        match l {
+            [] -> acc,
+            [_ | t] -> go(t, acc + 1)
+        }
+    }
+    go(list, 0)
+}
+
+fn range(start, stop) {
+    if start >= stop { [] }
+    else { [start | range(start + 1, stop)] }
+}
+
+fn reverse(list) {
+    fold(list, [], \(acc, x) -> [x | acc])
+}
+
+fn sort(list) {
+    match list {
+        [] -> [],
+        [pivot | rest] -> {
+            let lo = filter(rest, \x -> x < pivot);
+            let hi = filter(rest, \x -> x >= pivot);
+            concat_lists(sort(lo), [pivot | sort(hi)])
+        }
+    }
+}
+
+fn sort_by(list, f) {
+    match list {
+        [] -> [],
+        [pivot | rest] -> {
+            let lo = filter(rest, \x -> f(x) < f(pivot));
+            let hi = filter(rest, \x -> f(x) >= f(pivot));
+            concat_lists(sort_by(lo, f), [pivot | sort_by(hi, f)])
+        }
+    }
+}
+
+fn concat_lists(a, b) {
+    match a {
+        [] -> b,
+        [h | t] -> [h | concat_lists(t, b)]
+    }
+}
+
+fn flat_map(list, f) {
+    match list {
+        [] -> [],
+        [h | t] -> concat_lists(f(h), flat_map(t, f))
+    }
+}
+
+fn flatten(list) {
+    match list {
+        [] -> [],
+        [h | t] -> concat_lists(h, flatten(t))
+    }
+}
+
+fn any(list, pred) {
+    match list {
+        [] -> false,
+        [h | t] -> if pred(h) { true } else { any(t, pred) }
+    }
+}
+
+fn all(list, pred) {
+    match list {
+        [] -> true,
+        [h | t] -> if pred(h) { all(t, pred) } else { false }
+    }
+}
+
+fn find(list, pred) {
+    match list {
+        [] -> None,
+        [h | t] -> if pred(h) { Some(h) } else { find(t, pred) }
+    }
+}
+
+fn zip(a, b) {
+    match a {
+        [] -> [],
+        [x | xs] -> match b {
+            [] -> [],
+            [y | ys] -> [(x, y) | zip(xs, ys)]
+        }
+    }
+}
+
+fn first(list) {
+    match list {
+        [h | _] -> Some(h),
+        _ -> None
+    }
+}
+
+fn last(list) {
+    match list {
+        [] -> None,
+        [h] -> Some(h),
+        [_ | t] -> last(t)
+    }
+}
+
+fn rest(list) {
+    match list {
+        [_ | t] -> t,
+        _ -> []
+    }
+}
+
+fn take(n, list) {
+    if n <= 0 { [] }
+    else {
+        match list {
+            [] -> [],
+            [h | t] -> [h | take(n - 1, t)]
+        }
+    }
+}
+
+fn drop_list(n, list) {
+    if n <= 0 { list }
+    else {
+        match list {
+            [] -> [],
+            [_ | t] -> drop_list(n - 1, t)
+        }
+    }
+}
+
+fn contains(list, x) {
+    any(list, \item -> item == x)
+}
+
+fn count(list, pred) {
+    fold(list, 0, \(acc, x) -> if pred(x) { acc + 1 } else { acc })
+}
+
+fn to_list(arr) {
+    arr
+}
+
+fn hd(list) {
+    match list {
+        [h | _] -> h,
+        _ -> None
+    }
+}
+
+fn tl(list) {
+    match list {
+        [_ | t] -> t,
+        _ -> []
+    }
+}

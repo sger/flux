@@ -162,7 +162,8 @@ pub fn infer_borrow_modes(
         .collect();
     let recursive_groups = compute_recursive_groups(program);
 
-    loop {
+    const MAX_BORROW_INFERENCE_ROUNDS: usize = 10;
+    for _round in 0..MAX_BORROW_INFERENCE_ROUNDS {
         let mut changed_any = false;
         for group in &recursive_groups {
             let group_set: HashSet<_> = group.iter().copied().collect();

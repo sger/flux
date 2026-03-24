@@ -1,0 +1,5 @@
+---
+source: tests/aether_cli_snapshots.rs
+assertion_line: 124
+---
+Error: unknown command or invalid input `--jit`. Pass a `.flx` file or a valid subcommand.
