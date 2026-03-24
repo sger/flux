@@ -68,8 +68,9 @@ fn main() {
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
     let dump_aether = args.iter().any(|arg| arg == "--dump-aether");
     #[cfg(feature = "native")]
-    let use_core_to_llvm =
-        args.iter().any(|arg| arg == "--core-to-llvm" || arg == "--native");
+    let use_core_to_llvm = args
+        .iter()
+        .any(|arg| arg == "--core-to-llvm" || arg == "--native");
     #[cfg(not(feature = "native"))]
     let use_core_to_llvm = false;
     let emit_llvm = args.iter().any(|arg| arg == "--emit-llvm");

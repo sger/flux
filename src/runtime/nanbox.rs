@@ -127,7 +127,7 @@ mod inner {
                 0x5 => NanTag::BaseFunction,
                 0x6 => NanTag::Thunk,
                 0x7 | 0x8 => NanTag::BoxedValue,
-                _ => NanTag::BoxedValue,         // reserved tags fall back to boxed
+                _ => NanTag::BoxedValue, // reserved tags fall back to boxed
             }
         }
     }
