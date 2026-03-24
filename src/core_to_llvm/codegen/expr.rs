@@ -1437,7 +1437,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         prefix: &str,
     ) -> Result<(), CoreToLlvmError> {
         let is_ptr = self.emit_is_ptr_call(value.clone(), &format!("{prefix}.is_ptr"))?;
-        let tag_block_label = self.state.new_block_label(&format!("{prefix}.tag"));
+        let tag_block_label = self.state.new_block_label(&format!("{prefix}.check"));
         let tag_block_idx = self.state.push_block(tag_block_label.clone());
         self.state.set_terminator(LlvmTerminator::CondBr {
             cond_ty: LlvmType::i1(),
