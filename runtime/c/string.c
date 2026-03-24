@@ -18,6 +18,8 @@
 /* ── FluxString layout ──────────────────────────────────────────────── */
 
 typedef struct {
+    uint8_t  obj_tag;    /* FLUX_OBJ_STRING */
+    uint8_t  _pad[3];
     uint32_t len;
     char     data[];
 } FluxString;
@@ -32,9 +34,10 @@ static FluxString *string_ptr(int64_t val) {
 /* ── Public API ─────────────────────────────────────────────────────── */
 
 int64_t flux_string_new(const char *data, uint32_t len) {
-    uint32_t alloc_size = (uint32_t)(sizeof(uint32_t) + len);
+    uint32_t alloc_size = (uint32_t)(sizeof(FluxString) + len);
     void *mem = flux_gc_alloc(alloc_size);
     FluxString *s = (FluxString *)mem;
+    s->obj_tag = FLUX_OBJ_STRING;
     s->len = len;
     if (len > 0 && data) {
         memcpy(s->data, data, len);
