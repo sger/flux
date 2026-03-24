@@ -26,6 +26,10 @@ use super::{
 pub(super) struct FunctionLowering<'a, 'p> {
     pub state: FunctionState<'a>,
     pub program: &'p mut ProgramState<'a>,
+    /// Whether the current expression is in tail position (its result is the
+    /// function's return value).  Used by TCO to decide whether a self-recursive
+    /// call can be converted into a branch back to the loop header.
+    is_tail_position: bool,
 }
 
 struct BindingRestore {
@@ -58,7 +62,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             });
             state.bind_local(binder, slot);
         }
-        Self { state, program }
+        Self { state, program, is_tail_position: true }
     }
 
     fn new_closure_entry(
@@ -141,7 +145,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             state.bind_local(*binder, slot);
         }
 
-        Ok(Self { state, program })
+        Ok(Self { state, program, is_tail_position: false })
     }
 
     pub fn finish_with_return(
@@ -155,6 +159,92 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             });
         }
         self.state.finish()
+    }
+
+    /// Set up the TCO loop structure for a self-recursive function.
+    ///
+    /// Creates a `tco.loop` header block and branches from entry to it.
+    /// The function body will be lowered starting from the loop header.
+    /// Tail self-calls will store new argument values into the parameter
+    /// alloca slots and branch back to the loop header.
+    pub fn setup_tco_loop(&mut self) {
+        let loop_header = self.state.new_block_label("tco.loop");
+        let loop_idx = self.state.push_block(loop_header.clone());
+
+        // Terminate entry block with branch to loop header.
+        self.state.set_terminator(LlvmTerminator::Br {
+            target: loop_header.clone(),
+        });
+
+        // Collect parameter alloca slots in order.
+        let param_slots: Vec<LlvmLocal> = self
+            .state
+            .param_bindings
+            .clone()
+            .iter()
+            .map(|(binder, _)| self.state.local_slots[&binder.id].clone())
+            .collect();
+
+        // Switch to loop header block — body lowering continues from here.
+        self.state.switch_to_block(loop_idx);
+
+        self.state.tco_loop = Some(super::function::TcoLoopState {
+            loop_header,
+            param_slots,
+        });
+
+        self.is_tail_position = true;
+    }
+
+    /// Lower an expression in a non-tail context (its result is used by
+    /// subsequent computation, so a self-recursive call here cannot be
+    /// converted to a loop branch).
+    pub(super) fn lower_expr_not_tail(&mut self, expr: &CoreExpr) -> Result<LlvmOperand, CoreToLlvmError> {
+        let saved = self.is_tail_position;
+        self.is_tail_position = false;
+        let result = self.lower_expr(expr);
+        self.is_tail_position = saved;
+        result
+    }
+
+    /// Try to lower a direct self-recursive call as a TCO loop branch.
+    /// Returns `Some(dummy_operand)` if the call was converted, `None` otherwise.
+    fn try_lower_tco_self_call(
+        &mut self,
+        callee: &GlobalId,
+        lowered_args: &[LlvmOperand],
+    ) -> Option<LlvmOperand> {
+        if !self.is_tail_position {
+            return None;
+        }
+        let tco = self.state.tco_loop.as_ref()?;
+        if callee.0 != self.state.symbol.0 {
+            return None;
+        }
+
+        let loop_header = tco.loop_header.clone();
+        let param_slots = tco.param_slots.clone();
+
+        // Store new argument values into the parameter alloca slots.
+        // All args are already evaluated into SSA operands, so stores
+        // don't interfere with reads.
+        for (slot, arg_val) in param_slots.iter().zip(lowered_args.iter()) {
+            self.state.emit(LlvmInstr::Store {
+                ty: LlvmType::i64(),
+                value: arg_val.clone(),
+                ptr: LlvmOperand::Local(slot.clone()),
+                align: Some(8),
+            });
+        }
+
+        // Branch back to loop header.
+        self.state.set_terminator(LlvmTerminator::Br {
+            target: loop_header,
+        });
+
+        // Return a dummy operand — this value is dead (the branch already
+        // transferred control).
+        Some(const_i64(0))
     }
 
     pub fn lower_expr(&mut self, expr: &CoreExpr) -> Result<LlvmOperand, CoreToLlvmError> {
@@ -355,8 +445,8 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                         message: format!("Cons expects 2 fields, got {}", fields.len()),
                     });
                 }
-                let head = self.lower_expr(&fields[0])?;
-                let tail = self.lower_expr(&fields[1])?;
+                let head = self.lower_expr_not_tail(&fields[0])?;
+                let tail = self.lower_expr_not_tail(&fields[1])?;
                 self.emit_make_cons_value(head, tail)
             }
             CoreTag::Some | CoreTag::Left | CoreTag::Right | CoreTag::Named(_) => {
@@ -382,7 +472,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 })?;
                 let lowered = fields
                     .iter()
-                    .map(|field| self.lower_expr(field))
+                    .map(|field| self.lower_expr_not_tail(field))
                     .collect::<Result<Vec<_>, _>>()?;
                 self.emit_make_adt_value(ctor_tag, lowered)
             }
@@ -395,7 +485,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         rhs: &CoreExpr,
         body: &CoreExpr,
     ) -> Result<LlvmOperand, CoreToLlvmError> {
-        let rhs_value = self.lower_expr(rhs)?;
+        let rhs_value = self.lower_expr_not_tail(rhs)?;
         let slot = self.state.new_slot();
         self.state.emit_entry_alloca(LlvmInstr::Alloca {
             dst: slot.clone(),
@@ -539,8 +629,12 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             if args.len() == arity {
                 let lowered_args = args
                     .iter()
-                    .map(|arg| self.lower_expr(arg))
+                    .map(|arg| self.lower_expr_not_tail(arg))
                     .collect::<Result<Vec<_>, _>>()?;
+                // TCO: convert tail self-calls into loop branches.
+                if let Some(dummy) = self.try_lower_tco_self_call(&callee, &lowered_args) {
+                    return Ok(dummy);
+                }
                 let is_self_recursive = callee.0 == self.state.symbol.0;
                 let dst = self.state.temp_local("call");
                 self.state.emit(LlvmInstr::Call {
@@ -560,10 +654,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             // Arity mismatch (partial application): fall through to closure dispatch
         }
 
-        let callee = self.lower_expr(func)?;
+        let callee = self.lower_expr_not_tail(func)?;
         let lowered_args = args
             .iter()
-            .map(|arg| self.lower_expr(arg))
+            .map(|arg| self.lower_expr_not_tail(arg))
             .collect::<Result<Vec<_>, _>>()?;
         let args_ptr = self.emit_operand_array(&lowered_args, "call.args")?;
         let dst = self.state.temp_local("closure.call");
@@ -610,7 +704,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             if args.len() == arity {
                 let lowered_args = args
                     .iter()
-                    .map(|arg| self.lower_expr(arg))
+                    .map(|arg| self.lower_expr_not_tail(arg))
                     .collect::<Result<Vec<_>, _>>()?;
                 // Emit dup for Owned args that need it.
                 for (i, val) in lowered_args.iter().enumerate() {
@@ -625,6 +719,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                             attrs: vec![],
                         });
                     }
+                }
+                // TCO: convert tail self-calls into loop branches.
+                if let Some(dummy) = self.try_lower_tco_self_call(&callee, &lowered_args) {
+                    return Ok(dummy);
                 }
                 let is_self_recursive = callee.0 == self.state.symbol.0;
                 let dst = self.state.temp_local("acall");
@@ -645,10 +743,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         }
 
         // Closure call path.
-        let callee = self.lower_expr(func)?;
+        let callee = self.lower_expr_not_tail(func)?;
         let lowered_args = args
             .iter()
-            .map(|arg| self.lower_expr(arg))
+            .map(|arg| self.lower_expr_not_tail(arg))
             .collect::<Result<Vec<_>, _>>()?;
         // Emit dup for Owned args.
         for (i, val) in lowered_args.iter().enumerate() {
@@ -707,7 +805,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         // Lower all arguments.
         let lowered_args: Vec<LlvmOperand> = args
             .iter()
-            .map(|arg| self.lower_expr(arg))
+            .map(|arg| self.lower_expr_not_tail(arg))
             .collect::<Result<Vec<_>, _>>()?;
 
         if mapping.returns_value {
@@ -958,7 +1056,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             return Ok(result);
         }
 
-        let scrutinee = self.lower_expr(scrutinee)?;
+        let scrutinee = self.lower_expr_not_tail(scrutinee)?;
         self.lower_case_chain(scrutinee, alts)
     }
 
@@ -1020,7 +1118,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             return Ok(None);
         }
 
-        let scrutinee_val = self.lower_expr(scrutinee)?;
+        let scrutinee_val = self.lower_expr_not_tail(scrutinee)?;
 
         // Check is_ptr, then extract tag
         let is_ptr = self.emit_is_ptr_call(scrutinee_val.clone(), "switch.is_ptr")?;
@@ -1130,9 +1228,9 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         // Join
         self.state.switch_to_block(join_idx);
         if incoming.is_empty() {
-            return Err(CoreToLlvmError::Malformed {
-                message: "case switch join had no incoming values".into(),
-            });
+            // All arms terminated (e.g., all tail-called back to the TCO loop).
+            self.state.set_terminator(LlvmTerminator::Unreachable);
+            return Ok(Some(const_i64(0)));
         }
         let phi = self.state.temp_local("case.result");
         self.state.emit(LlvmInstr::Phi {
@@ -1187,9 +1285,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         }
         self.state.switch_to_block(join_idx);
         if incoming.is_empty() {
-            return Err(CoreToLlvmError::Malformed {
-                message: "case join had no incoming values".into(),
-            });
+            // All arms terminated (e.g., all tail-called back to the TCO loop).
+            // The join block is unreachable dead code.
+            self.state.set_terminator(LlvmTerminator::Unreachable);
+            return Ok(const_i64(0));
         }
         let phi = self.state.temp_local("case.result");
         self.state.emit(LlvmInstr::Phi {
@@ -1890,8 +1989,8 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 message: format!("helper `{name}` expected 2 args, got {}", args.len()),
             });
         }
-        let left = self.lower_expr(&args[0])?;
-        let right = self.lower_expr(&args[1])?;
+        let left = self.lower_expr_not_tail(&args[0])?;
+        let right = self.lower_expr_not_tail(&args[1])?;
         let dst = self.state.temp_local("primop");
         self.state.emit(LlvmInstr::Call {
             dst: Some(dst.clone()),
@@ -1915,7 +2014,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 message: format!("helper `{name}` expected 1 arg, got {}", args.len()),
             });
         }
-        let operand = self.lower_expr(&args[0])?;
+        let operand = self.lower_expr_not_tail(&args[0])?;
         let dst = self.state.temp_local("primop");
         self.state.emit(LlvmInstr::Call {
             dst: Some(dst.clone()),
@@ -1940,8 +2039,8 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 message: format!("rt `{name}` expected 2 args, got {}", args.len()),
             });
         }
-        let left = self.lower_expr(&args[0])?;
-        let right = self.lower_expr(&args[1])?;
+        let left = self.lower_expr_not_tail(&args[0])?;
+        let right = self.lower_expr_not_tail(&args[1])?;
         self.program.ensure_c_decl(name, &[LlvmType::i64(), LlvmType::i64()], LlvmType::i64());
         let dst = self.state.temp_local("primop");
         self.state.emit(LlvmInstr::Call {
@@ -1966,7 +2065,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 message: format!("rt `{name}` expected 1 arg, got {}", args.len()),
             });
         }
-        let operand = self.lower_expr(&args[0])?;
+        let operand = self.lower_expr_not_tail(&args[0])?;
         self.program.ensure_c_decl(name, &[LlvmType::i64()], LlvmType::i64());
         let dst = self.state.temp_local("primop");
         self.state.emit(LlvmInstr::Call {
