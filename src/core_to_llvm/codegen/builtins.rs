@@ -187,7 +187,7 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     },
     BuiltinMapping {
         flux_name: "parse_ints",
-        c_name: "flux_parse_int",
+        c_name: "flux_parse_ints",
         arity: 1,
         returns_value: true,
     },

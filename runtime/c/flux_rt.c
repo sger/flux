@@ -409,23 +409,33 @@ int64_t flux_rt_eq(int64_t a, int64_t b) {
     if (flux_is_ptr(a) && flux_is_ptr(b)) {
         void *pa = flux_untag_ptr(a);
         void *pb = flux_untag_ptr(b);
-        if (pa && pb && flux_obj_tag(pa) == FLUX_OBJ_STRING
-            && flux_obj_tag(pb) == FLUX_OBJ_STRING) {
-            return flux_make_bool(flux_string_eq(a, b));
-        }
-        /* Tuple structural equality. */
-        if (pa && pb && flux_obj_tag(pa) == FLUX_OBJ_TUPLE
-            && flux_obj_tag(pb) == FLUX_OBJ_TUPLE) {
-            uint32_t arity_a = *(uint32_t *)((char *)pa + 4);
-            uint32_t arity_b = *(uint32_t *)((char *)pb + 4);
-            if (arity_a != arity_b) return flux_make_bool(0);
-            int64_t *fa = (int64_t *)((char *)pa + 8);
-            int64_t *fb = (int64_t *)((char *)pb + 8);
-            for (uint32_t i = 0; i < arity_a; i++) {
-                int64_t eq = flux_rt_eq(fa[i], fb[i]);
-                if (eq == flux_make_bool(0)) return flux_make_bool(0);
+        if (pa && pb) {
+            uint8_t tag_a = flux_obj_tag(pa);
+            uint8_t tag_b = flux_obj_tag(pb);
+            if (tag_a != tag_b) return flux_make_bool(0);
+            /* BigInt structural equality. */
+            if (tag_a == FLUX_OBJ_BIGINT) {
+                int64_t va = *(int64_t *)((char *)pa + 8);
+                int64_t vb = *(int64_t *)((char *)pb + 8);
+                return flux_make_bool(va == vb);
             }
-            return flux_make_bool(1);
+            /* String structural equality. */
+            if (tag_a == FLUX_OBJ_STRING) {
+                return flux_make_bool(flux_string_eq(a, b));
+            }
+            /* Tuple structural equality. */
+            if (tag_a == FLUX_OBJ_TUPLE) {
+                uint32_t arity_a = *(uint32_t *)((char *)pa + 4);
+                uint32_t arity_b = *(uint32_t *)((char *)pb + 4);
+                if (arity_a != arity_b) return flux_make_bool(0);
+                int64_t *fa = (int64_t *)((char *)pa + 8);
+                int64_t *fb = (int64_t *)((char *)pb + 8);
+                for (uint32_t i = 0; i < arity_a; i++) {
+                    int64_t eq = flux_rt_eq(fa[i], fb[i]);
+                    if (eq == flux_make_bool(0)) return flux_make_bool(0);
+                }
+                return flux_make_bool(1);
+            }
         }
     }
     /* Float equality. */
@@ -614,6 +624,22 @@ int64_t flux_substring(int64_t s, int64_t start_val, int64_t end_val) {
 
 int64_t flux_parse_int(int64_t s) {
     return flux_string_to_int(s);
+}
+
+/* parse_ints(arr) → parse each string element of arr as an int. */
+int64_t flux_parse_ints(int64_t arr) {
+    if (!flux_is_ptr(arr)) return flux_array_new(NULL, 0);
+    void *ptr = flux_untag_ptr(arr);
+    if (!ptr || flux_obj_tag(ptr) != FLUX_OBJ_ARRAY) return flux_array_new(NULL, 0);
+    uint32_t len = *(uint32_t *)((char *)ptr + 4);
+    int64_t *elems = (int64_t *)((char *)ptr + 16);
+    int64_t *ints = (int64_t *)malloc(len * sizeof(int64_t));
+    for (uint32_t i = 0; i < len; i++) {
+        ints[i] = flux_parse_int(elems[i]);
+    }
+    int64_t result = flux_array_new(ints, (int32_t)len);
+    free(ints);
+    return result;
 }
 
 int64_t flux_to_string(int64_t val) {
