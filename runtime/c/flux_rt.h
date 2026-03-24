@@ -297,6 +297,8 @@ int64_t flux_unwrap_or(int64_t val, int64_t def);
 
 int64_t flux_sum(int64_t collection);
 int64_t flux_sort_default(int64_t collection);
+int64_t flux_split_ints(int64_t s, int64_t delim);
+int64_t flux_zip(int64_t a, int64_t b);
 int64_t flux_starts_with(int64_t s, int64_t prefix);
 int64_t flux_ends_with(int64_t s, int64_t suffix);
 

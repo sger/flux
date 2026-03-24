@@ -57,6 +57,8 @@ fn day01b(day_pairs_b) {
 }
 
 // Program entry: parse once, then print both answers.
-let all_pairs_data = read_lines("examples/aoc/2024/day01.txt") |> parse_pairs
-print(day01a(all_pairs_data))
-print(day01b(all_pairs_data))
+fn main() with IO {
+    let all_pairs_data = read_lines("examples/aoc/2024/day01.txt") |> parse_pairs
+    print(day01a(all_pairs_data))
+    print(day01b(all_pairs_data))
+}

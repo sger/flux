@@ -3,6 +3,8 @@
 
 import Day02Solver as Day02
 
-let reports = read_lines("examples/aoc/2024/day02.txt") |> Day02.parse_reports
-print(Day02.day02a(reports))
-print(Day02.day02b(reports))
+fn main() with IO {
+    let reports = read_lines("examples/aoc/2024/day02.txt") |> Day02.parse_reports
+    print(Day02.day02a(reports))
+    print(Day02.day02b(reports))
+}
