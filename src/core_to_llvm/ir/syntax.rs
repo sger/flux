@@ -160,6 +160,7 @@ pub enum LlvmValueKind {
     FSub,
     FMul,
     FDiv,
+    FRem,
     And,
     Or,
     Xor,

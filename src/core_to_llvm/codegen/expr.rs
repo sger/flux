@@ -726,19 +726,44 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             });
             Ok(Some(LlvmOperand::Local(dst)))
         } else {
-            // Void function (e.g., print, println) — call and return None/unit.
-            self.state.emit(LlvmInstr::Call {
-                dst: None,
-                tail: false,
-                call_conv: Some(CallConv::Ccc),
-                ret_ty: LlvmType::Void,
-                callee: LlvmOperand::Global(GlobalId(mapping.c_name.into())),
-                args: lowered_args
-                    .into_iter()
-                    .map(|a| (LlvmType::i64(), a))
-                    .collect(),
-                attrs: vec![],
-            });
+            // Void function (e.g., print, println) — call once per argument
+            // to match VM semantics where print(a, b) prints both values.
+            let is_print_fn = mapping.c_name == "flux_print" || mapping.c_name == "flux_println";
+            if is_print_fn && lowered_args.len() > 1 {
+                // Multi-arg print: space-separated on one line, matching VM semantics.
+                // Use flux_print_space for all but the last, flux_print for the last.
+                self.program.ensure_c_decl("flux_print_space", &[LlvmType::i64()], LlvmType::Void);
+                let last_idx = lowered_args.len() - 1;
+                for (i, arg) in lowered_args.into_iter().enumerate() {
+                    let callee_name = if i < last_idx {
+                        "flux_print_space"
+                    } else {
+                        mapping.c_name
+                    };
+                    self.state.emit(LlvmInstr::Call {
+                        dst: None,
+                        tail: false,
+                        call_conv: Some(CallConv::Ccc),
+                        ret_ty: LlvmType::Void,
+                        callee: LlvmOperand::Global(GlobalId(callee_name.into())),
+                        args: vec![(LlvmType::i64(), arg)],
+                        attrs: vec![],
+                    });
+                }
+            } else {
+                self.state.emit(LlvmInstr::Call {
+                    dst: None,
+                    tail: false,
+                    call_conv: Some(CallConv::Ccc),
+                    ret_ty: LlvmType::Void,
+                    callee: LlvmOperand::Global(GlobalId(mapping.c_name.into())),
+                    args: lowered_args
+                        .into_iter()
+                        .map(|a| (LlvmType::i64(), a))
+                        .collect(),
+                    attrs: vec![],
+                });
+            }
             // Return None (unit) value.
             Ok(Some(const_i64(tagged_none_bits())))
         }
@@ -1764,10 +1789,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         args: &[CoreExpr],
     ) -> Result<LlvmOperand, CoreToLlvmError> {
         match op {
-            CorePrimOp::Add => self.lower_helper_call("flux_iadd", args),
-            CorePrimOp::Sub => self.lower_helper_call("flux_isub", args),
-            CorePrimOp::Mul => self.lower_helper_call("flux_imul", args),
-            CorePrimOp::Div => self.lower_helper_call("flux_idiv", args),
+            CorePrimOp::Add => self.lower_rt_call("flux_rt_add", args),
+            CorePrimOp::Sub => self.lower_rt_call("flux_rt_sub", args),
+            CorePrimOp::Mul => self.lower_rt_call("flux_rt_mul", args),
+            CorePrimOp::Div => self.lower_rt_call("flux_rt_div", args),
             CorePrimOp::IAdd => self.lower_helper_call("flux_iadd", args),
             CorePrimOp::ISub => self.lower_helper_call("flux_isub", args),
             CorePrimOp::IMul => self.lower_helper_call("flux_imul", args),
@@ -1776,9 +1801,9 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CorePrimOp::FSub => self.lower_helper_call("flux_fsub", args),
             CorePrimOp::FMul => self.lower_helper_call("flux_fmul", args),
             CorePrimOp::FDiv => self.lower_helper_call("flux_fdiv", args),
-            CorePrimOp::Mod => self.lower_helper_call("flux_imod", args),
+            CorePrimOp::Mod => self.lower_rt_call("flux_rt_mod", args),
             CorePrimOp::IMod => self.lower_helper_call("flux_imod", args),
-            CorePrimOp::Neg => self.lower_unary_helper_call("flux_ineg", args),
+            CorePrimOp::Neg => self.lower_rt_unary_call("flux_rt_neg", args),
             CorePrimOp::Not => self.lower_unary_helper_call("flux_not", args),
             CorePrimOp::And => self.lower_helper_call("flux_and", args),
             CorePrimOp::Or => self.lower_helper_call("flux_or", args),
@@ -1877,6 +1902,58 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             call_conv: Some(CallConv::Fastcc),
             ret_ty: LlvmType::i64(),
             callee: LlvmOperand::Global(flux_arith_symbol(name)),
+            args: vec![(LlvmType::i64(), operand)],
+            attrs: vec![],
+        });
+        Ok(LlvmOperand::Local(dst))
+    }
+
+    /// Call a C runtime dispatch function (Ccc calling convention).
+    fn lower_rt_call(
+        &mut self,
+        name: &str,
+        args: &[CoreExpr],
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        if args.len() != 2 {
+            return Err(CoreToLlvmError::Malformed {
+                message: format!("rt `{name}` expected 2 args, got {}", args.len()),
+            });
+        }
+        let left = self.lower_expr(&args[0])?;
+        let right = self.lower_expr(&args[1])?;
+        self.program.ensure_c_decl(name, &[LlvmType::i64(), LlvmType::i64()], LlvmType::i64());
+        let dst = self.state.temp_local("primop");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(dst.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Ccc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(GlobalId(name.into())),
+            args: vec![(LlvmType::i64(), left), (LlvmType::i64(), right)],
+            attrs: vec![],
+        });
+        Ok(LlvmOperand::Local(dst))
+    }
+
+    fn lower_rt_unary_call(
+        &mut self,
+        name: &str,
+        args: &[CoreExpr],
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        if args.len() != 1 {
+            return Err(CoreToLlvmError::Malformed {
+                message: format!("rt `{name}` expected 1 arg, got {}", args.len()),
+            });
+        }
+        let operand = self.lower_expr(&args[0])?;
+        self.program.ensure_c_decl(name, &[LlvmType::i64()], LlvmType::i64());
+        let dst = self.state.temp_local("primop");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(dst.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Ccc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(GlobalId(name.into())),
             args: vec![(LlvmType::i64(), operand)],
             attrs: vec![],
         });

@@ -24,10 +24,18 @@ pub fn emit_arith(module: &mut LlvmModule) {
     emit_fsub(module);
     emit_fmul(module);
     emit_fdiv(module);
+    emit_fmod(module);
     emit_fneg(module);
     emit_not(module);
     emit_and(module);
     emit_or(module);
+    // Runtime-dispatching wrappers (check int vs float at runtime)
+    emit_dispatch_binary(module, "flux_add", "flux_iadd", "flux_fadd");
+    emit_dispatch_binary(module, "flux_sub", "flux_isub", "flux_fsub");
+    emit_dispatch_binary(module, "flux_mul", "flux_imul", "flux_fmul");
+    emit_dispatch_binary(module, "flux_div", "flux_idiv", "flux_fdiv");
+    emit_dispatch_binary(module, "flux_mod", "flux_imod", "flux_fmod");
+    emit_dispatch_unary(module, "flux_neg", "flux_ineg", "flux_fneg");
 }
 
 fn emit_iadd(module: &mut LlvmModule) {
@@ -178,6 +186,192 @@ fn emit_fneg(module: &mut LlvmModule) {
     });
 }
 
+fn emit_fmod(module: &mut LlvmModule) {
+    emit_float_binary_helper(module, "flux_fmod", LlvmValueKind::FRem);
+}
+
+/// Emit a binary dispatch wrapper: check if the first arg is a NaN-boxed int
+/// (sentinel bits set) and call the int helper, otherwise call the float helper.
+fn emit_dispatch_binary(
+    module: &mut LlvmModule,
+    name: &str,
+    int_helper: &str,
+    float_helper: &str,
+) {
+    if has_function(module, name) {
+        return;
+    }
+    let sentinel_mask = FluxNanboxLayout::SENTINEL_MASK_U64 as i128;
+    let sentinel = FluxNanboxLayout::NANBOX_SENTINEL_U64 as i128;
+
+    module.functions.push(LlvmFunction {
+        linkage: linkage_internal(),
+        name: flux_arith_symbol(name),
+        sig: binary_i64_sig(),
+        params: vec![LlvmLocal("a".into()), LlvmLocal("b".into())],
+        attrs: helper_attrs(),
+        blocks: vec![
+            LlvmBlock {
+                label: LabelId("entry".into()),
+                instrs: vec![
+                    LlvmInstr::Binary {
+                        dst: LlvmLocal("masked".into()),
+                        op: LlvmValueKind::And,
+                        ty: LlvmType::i64(),
+                        lhs: local("a"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int {
+                            bits: 64,
+                            value: sentinel_mask,
+                        }),
+                    },
+                    LlvmInstr::Icmp {
+                        dst: LlvmLocal("is_nanbox".into()),
+                        op: LlvmCmpOp::Eq,
+                        ty: LlvmType::i64(),
+                        lhs: local("masked"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int {
+                            bits: 64,
+                            value: sentinel,
+                        }),
+                    },
+                ],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("is_nanbox"),
+                    then_label: LabelId("do_int".into()),
+                    else_label: LabelId("do_float".into()),
+                },
+            },
+            LlvmBlock {
+                label: LabelId("do_int".into()),
+                instrs: vec![LlvmInstr::Call {
+                    dst: Some(LlvmLocal("int_result".into())),
+                    tail: false,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::i64(),
+                    callee: LlvmOperand::Global(flux_prelude_symbol(int_helper)),
+                    args: vec![
+                        (LlvmType::i64(), local("a")),
+                        (LlvmType::i64(), local("b")),
+                    ],
+                    attrs: vec![],
+                }],
+                term: LlvmTerminator::Ret {
+                    ty: LlvmType::i64(),
+                    value: local("int_result"),
+                },
+            },
+            LlvmBlock {
+                label: LabelId("do_float".into()),
+                instrs: vec![LlvmInstr::Call {
+                    dst: Some(LlvmLocal("float_result".into())),
+                    tail: false,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::i64(),
+                    callee: LlvmOperand::Global(flux_prelude_symbol(float_helper)),
+                    args: vec![
+                        (LlvmType::i64(), local("a")),
+                        (LlvmType::i64(), local("b")),
+                    ],
+                    attrs: vec![],
+                }],
+                term: LlvmTerminator::Ret {
+                    ty: LlvmType::i64(),
+                    value: local("float_result"),
+                },
+            },
+        ],
+    });
+}
+
+/// Emit a unary dispatch wrapper: check if the arg is NaN-boxed int
+/// and call the int helper, otherwise call the float helper.
+fn emit_dispatch_unary(
+    module: &mut LlvmModule,
+    name: &str,
+    int_helper: &str,
+    float_helper: &str,
+) {
+    if has_function(module, name) {
+        return;
+    }
+    let sentinel_mask = FluxNanboxLayout::SENTINEL_MASK_U64 as i128;
+    let sentinel = FluxNanboxLayout::NANBOX_SENTINEL_U64 as i128;
+
+    module.functions.push(LlvmFunction {
+        linkage: linkage_internal(),
+        name: flux_arith_symbol(name),
+        sig: unary_i64_sig(),
+        params: vec![LlvmLocal("a".into())],
+        attrs: helper_attrs(),
+        blocks: vec![
+            LlvmBlock {
+                label: LabelId("entry".into()),
+                instrs: vec![
+                    LlvmInstr::Binary {
+                        dst: LlvmLocal("masked".into()),
+                        op: LlvmValueKind::And,
+                        ty: LlvmType::i64(),
+                        lhs: local("a"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int {
+                            bits: 64,
+                            value: sentinel_mask,
+                        }),
+                    },
+                    LlvmInstr::Icmp {
+                        dst: LlvmLocal("is_nanbox".into()),
+                        op: LlvmCmpOp::Eq,
+                        ty: LlvmType::i64(),
+                        lhs: local("masked"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int {
+                            bits: 64,
+                            value: sentinel,
+                        }),
+                    },
+                ],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("is_nanbox"),
+                    then_label: LabelId("do_int".into()),
+                    else_label: LabelId("do_float".into()),
+                },
+            },
+            LlvmBlock {
+                label: LabelId("do_int".into()),
+                instrs: vec![LlvmInstr::Call {
+                    dst: Some(LlvmLocal("int_result".into())),
+                    tail: false,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::i64(),
+                    callee: LlvmOperand::Global(flux_prelude_symbol(int_helper)),
+                    args: vec![(LlvmType::i64(), local("a"))],
+                    attrs: vec![],
+                }],
+                term: LlvmTerminator::Ret {
+                    ty: LlvmType::i64(),
+                    value: local("int_result"),
+                },
+            },
+            LlvmBlock {
+                label: LabelId("do_float".into()),
+                instrs: vec![LlvmInstr::Call {
+                    dst: Some(LlvmLocal("float_result".into())),
+                    tail: false,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::i64(),
+                    callee: LlvmOperand::Global(flux_prelude_symbol(float_helper)),
+                    args: vec![(LlvmType::i64(), local("a"))],
+                    attrs: vec![],
+                }],
+                term: LlvmTerminator::Ret {
+                    ty: LlvmType::i64(),
+                    value: local("float_result"),
+                },
+            },
+        ],
+    });
+}
+
 fn emit_float_binary_helper(module: &mut LlvmModule, name: &str, op: LlvmValueKind) {
     if has_function(module, name) {
         return;
@@ -229,12 +423,18 @@ fn emit_float_binary_helper(module: &mut LlvmModule, name: &str, op: LlvmValueKi
 }
 
 pub fn emit_not(module: &mut LlvmModule) {
+    // Flux truthiness: false, None, EmptyList, and Uninit are falsy.
+    // Everything else is truthy. Not(x) returns true if x is falsy.
     let name = "flux_not";
     if has_function(module, name) {
         return;
     }
     let true_bits = tagged_bool_bits(true);
     let false_bits = tagged_bool_bits(false);
+    let none_bits = tagged_special_bits(0x2); // TAG_NONE
+    let empty_list_bits = tagged_special_bits(0x4); // TAG_EMPTY_LIST
+    let uninit_bits = tagged_special_bits(0x3); // TAG_UNINIT
+
     module.functions.push(LlvmFunction {
         linkage: linkage_internal(),
         name: flux_arith_symbol(name),
@@ -244,28 +444,82 @@ pub fn emit_not(module: &mut LlvmModule) {
         blocks: vec![LlvmBlock {
             label: LabelId("entry".into()),
             instrs: vec![
+                // Check if value is one of the falsy values
                 LlvmInstr::Icmp {
-                    dst: LlvmLocal("is_true".into()),
+                    dst: LlvmLocal("is_false".into()),
                     op: LlvmCmpOp::Eq,
                     ty: LlvmType::i64(),
                     lhs: local("a"),
                     rhs: LlvmOperand::Const(LlvmConst::Int {
                         bits: 64,
-                        value: true_bits.into(),
+                        value: false_bits.into(),
                     }),
                 },
+                LlvmInstr::Icmp {
+                    dst: LlvmLocal("is_none".into()),
+                    op: LlvmCmpOp::Eq,
+                    ty: LlvmType::i64(),
+                    lhs: local("a"),
+                    rhs: LlvmOperand::Const(LlvmConst::Int {
+                        bits: 64,
+                        value: none_bits.into(),
+                    }),
+                },
+                LlvmInstr::Icmp {
+                    dst: LlvmLocal("is_empty".into()),
+                    op: LlvmCmpOp::Eq,
+                    ty: LlvmType::i64(),
+                    lhs: local("a"),
+                    rhs: LlvmOperand::Const(LlvmConst::Int {
+                        bits: 64,
+                        value: empty_list_bits.into(),
+                    }),
+                },
+                LlvmInstr::Icmp {
+                    dst: LlvmLocal("is_uninit".into()),
+                    op: LlvmCmpOp::Eq,
+                    ty: LlvmType::i64(),
+                    lhs: local("a"),
+                    rhs: LlvmOperand::Const(LlvmConst::Int {
+                        bits: 64,
+                        value: uninit_bits.into(),
+                    }),
+                },
+                // falsy = is_false || is_none || is_empty || is_uninit
+                LlvmInstr::Binary {
+                    dst: LlvmLocal("f1".into()),
+                    op: LlvmValueKind::Or,
+                    ty: LlvmType::i1(),
+                    lhs: local("is_false"),
+                    rhs: local("is_none"),
+                },
+                LlvmInstr::Binary {
+                    dst: LlvmLocal("f2".into()),
+                    op: LlvmValueKind::Or,
+                    ty: LlvmType::i1(),
+                    lhs: local("is_empty"),
+                    rhs: local("is_uninit"),
+                },
+                LlvmInstr::Binary {
+                    dst: LlvmLocal("is_falsy".into()),
+                    op: LlvmValueKind::Or,
+                    ty: LlvmType::i1(),
+                    lhs: local("f1"),
+                    rhs: local("f2"),
+                },
+                // Not(falsy_value) = true, Not(truthy_value) = false
                 LlvmInstr::Select {
                     dst: LlvmLocal("result".into()),
                     cond_ty: LlvmType::i1(),
-                    cond: local("is_true"),
+                    cond: local("is_falsy"),
                     value_ty: LlvmType::i64(),
                     then_value: LlvmOperand::Const(LlvmConst::Int {
                         bits: 64,
-                        value: false_bits.into(),
+                        value: true_bits.into(),
                     }),
                     else_value: LlvmOperand::Const(LlvmConst::Int {
                         bits: 64,
-                        value: true_bits.into(),
+                        value: false_bits.into(),
                     }),
                 },
             ],
@@ -383,6 +637,10 @@ fn call_i64(dst: &str, callee: &str, args: Vec<LlvmOperand>) -> LlvmInstr {
         args: args.into_iter().map(|arg| (LlvmType::i64(), arg)).collect(),
         attrs: vec![],
     }
+}
+
+fn tagged_special_bits(tag: u64) -> i64 {
+    (FluxNanboxLayout::NANBOX_SENTINEL_U64 | (tag << FluxNanboxLayout::TAG_SHIFT)) as i64
 }
 
 fn tagged_bool_bits(value: bool) -> i64 {

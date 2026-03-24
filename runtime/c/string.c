@@ -69,9 +69,10 @@ int64_t flux_string_concat(int64_t a, int64_t b) {
     if (!sb) return a;
 
     uint32_t new_len = sa->len + sb->len;
-    uint32_t alloc_size = (uint32_t)(sizeof(uint32_t) + new_len);
+    uint32_t alloc_size = (uint32_t)(sizeof(FluxString) + new_len);
     void *mem = flux_gc_alloc(alloc_size);
     FluxString *result = (FluxString *)mem;
+    result->obj_tag = FLUX_OBJ_STRING;
     result->len = new_len;
     memcpy(result->data, sa->data, sa->len);
     memcpy(result->data + sa->len, sb->data, sb->len);
