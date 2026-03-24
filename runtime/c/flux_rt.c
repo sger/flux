@@ -1110,6 +1110,27 @@ int64_t flux_ends_with(int64_t s, int64_t suffix) {
     return flux_make_bool(memcmp(sd + sl - xl, xd, xl) == 0);
 }
 
+/* split_ints(s, delim) → array of ints parsed from split string. */
+int64_t flux_split_ints(int64_t s, int64_t delim) {
+    int64_t parts = flux_split(s, delim);
+    int64_t *elems; uint32_t len;
+    if (!flux_is_ptr(parts)) return flux_array_new(NULL, 0);
+    void *ptr = flux_untag_ptr(parts);
+    if (!ptr || flux_obj_tag(ptr) != FLUX_OBJ_ARRAY) return flux_array_new(NULL, 0);
+    len = *(uint32_t *)((char *)ptr + 4);
+    elems = (int64_t *)((char *)ptr + 16);
+    int64_t *ints = (int64_t *)malloc(len * sizeof(int64_t));
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < len; i++) {
+        /* Skip empty strings. */
+        if (flux_string_len(elems[i]) == 0) continue;
+        ints[count++] = flux_parse_int(elems[i]);
+    }
+    int64_t result = flux_array_new(ints, (int32_t)count);
+    free(ints);
+    return result;
+}
+
 /* ── Higher-order functions ─────────────────────────────────────────── */
 /* These call Flux closures via the ccc trampoline flux_call_closure_c. */
 
@@ -1327,6 +1348,82 @@ int64_t flux_ho_find(int64_t collection, int64_t func) {
 }
 
 /* sort_default(collection) — sort by natural int ordering. */
+int64_t flux_ho_count(int64_t collection, int64_t func) {
+    int64_t *elems; uint32_t len;
+    if (flux_get_array_elems(collection, &elems, &len)) {
+        int64_t c = 0;
+        for (uint32_t i = 0; i < len; i++) {
+            if (call1(func, elems[i]) == flux_make_bool(1)) c++;
+        }
+        return flux_tag_int(c);
+    }
+    int64_t c = 0;
+    int64_t cur = collection;
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        if (*(int32_t *)cp != 4) break;
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        if (call1(func, fields[0]) == flux_make_bool(1)) c++;
+        cur = fields[1];
+    }
+    return flux_tag_int(c);
+}
+
+/* sort_by(collection, key_fn) — sort by key function result. */
+int64_t flux_ho_sort_by(int64_t collection, int64_t func) {
+    int64_t *elems; uint32_t len;
+    if (!flux_get_array_elems(collection, &elems, &len)) return collection;
+    if (len <= 1) return collection;
+
+    /* Compute keys, then sort by keys. */
+    int64_t *sorted = (int64_t *)malloc(len * sizeof(int64_t));
+    int64_t *keys_arr = (int64_t *)malloc(len * sizeof(int64_t));
+    memcpy(sorted, elems, len * sizeof(int64_t));
+    for (uint32_t i = 0; i < len; i++) {
+        keys_arr[i] = call1(func, sorted[i]);
+    }
+
+    /* Insertion sort by key. */
+    for (uint32_t i = 1; i < len; i++) {
+        int64_t key = keys_arr[i];
+        int64_t val = sorted[i];
+        int32_t j = (int32_t)i - 1;
+        while (j >= 0 && flux_rt_gt(keys_arr[j], key) == flux_make_bool(1)) {
+            keys_arr[j + 1] = keys_arr[j];
+            sorted[j + 1] = sorted[j];
+            j--;
+        }
+        keys_arr[j + 1] = key;
+        sorted[j + 1] = val;
+    }
+    int64_t result = flux_array_new(sorted, (int32_t)len);
+    free(sorted);
+    free(keys_arr);
+    return result;
+}
+
+/* zip(a, b) → array of tuples [(a[0],b[0]), (a[1],b[1]), ...]. */
+int64_t flux_zip(int64_t a, int64_t b) {
+    int64_t *ea, *eb; uint32_t la, lb;
+    if (!flux_get_array_elems(a, &ea, &la)) return flux_array_new(NULL, 0);
+    if (!flux_get_array_elems(b, &eb, &lb)) return flux_array_new(NULL, 0);
+    uint32_t len = la < lb ? la : lb;
+    int64_t *tuples = (int64_t *)malloc(len * sizeof(int64_t));
+    for (uint32_t i = 0; i < len; i++) {
+        /* Build 2-tuple: { obj_tag=F3, pad[3], arity=2, elem0, elem1 } */
+        void *mem = flux_gc_alloc(8 + 2 * 8);
+        *(uint8_t *)mem = FLUX_OBJ_TUPLE;
+        *(uint32_t *)((char *)mem + 4) = 2;
+        int64_t *fields = (int64_t *)((char *)mem + 8);
+        fields[0] = ea[i];
+        fields[1] = eb[i];
+        tuples[i] = flux_tag_ptr(mem);
+    }
+    int64_t result = flux_array_new(tuples, (int32_t)len);
+    free(tuples);
+    return result;
+}
+
 int64_t flux_sort_default(int64_t collection) {
     int64_t *elems; uint32_t len;
     if (!flux_get_array_elems(collection, &elems, &len)) return collection;

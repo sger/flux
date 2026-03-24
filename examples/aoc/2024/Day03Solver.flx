@@ -66,7 +66,7 @@ module Day03Solver {
 
     // Part A: sum all mul(X,Y) products — Enable/Disable tokens are ignored.
     // state = (next_idx_to_process, total)
-    fn day03a_from_memory(memory: String) -> Int {
+    public fn day03a_from_memory(memory: String) -> Int {
         state.1
         where indices = to_list(range(0, len(memory)))
         where state = fold(indices, (0, 0), \(st: (Int, Int), i: Int) -> {
@@ -89,7 +89,7 @@ module Day03Solver {
 
     // Part B: respect Enable/Disable control tokens.
     // state = (next_idx_to_process, enabled, total)
-    fn day03b_from_memory(memory: String) -> Int {
+    public fn day03b_from_memory(memory: String) -> Int {
         state.2
         where indices = to_list(range(0, len(memory)))
         where state = fold(indices, (0, true, 0), \(st: (Int, Bool, Int), i: Int) -> {
@@ -116,11 +116,11 @@ module Day03Solver {
     }
 
     // Backward-compatible aliases used by existing perf scripts/tests.
-    fn day03a_from_memory_hof(memory: String) -> Int {
+    public fn day03a_from_memory_hof(memory: String) -> Int {
         day03a_from_memory(memory)
     }
 
-    fn day03b_from_memory_hof(memory: String) -> Int {
+    public fn day03b_from_memory_hof(memory: String) -> Int {
         day03b_from_memory(memory)
     }
 }

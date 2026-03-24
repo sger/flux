@@ -124,9 +124,13 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     BuiltinMapping { flux_name: "fold",       c_name: "flux_ho_fold",         arity: 3, returns_value: true },
     BuiltinMapping { flux_name: "each",       c_name: "flux_ho_each",         arity: 2, returns_value: true },
     BuiltinMapping { flux_name: "find",       c_name: "flux_ho_find",         arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "sort_by",   c_name: "flux_ho_sort_by",     arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "zip",       c_name: "flux_zip",            arity: 2, returns_value: true },
     BuiltinMapping { flux_name: "sum",        c_name: "flux_sum",             arity: 1, returns_value: true },
     BuiltinMapping { flux_name: "starts_with", c_name: "flux_starts_with",   arity: 2, returns_value: true },
     BuiltinMapping { flux_name: "ends_with",  c_name: "flux_ends_with",      arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "split_ints", c_name: "flux_split_ints",    arity: 2, returns_value: true },
+    BuiltinMapping { flux_name: "count",      c_name: "flux_ho_count",      arity: 2, returns_value: true },
 ];
 
 /// Look up a base function's C runtime mapping by Flux name.
