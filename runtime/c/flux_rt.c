@@ -70,6 +70,11 @@ static void flux_print_value(int64_t val) {
         printf("[]");
         break;
 
+    case FLUX_TAG_THUNK:
+        /* Thunks should never escape to user code; print for debugging. */
+        printf("<thunk>");
+        break;
+
     case FLUX_TAG_BOXED_VALUE: {
         void *ptr = flux_untag_ptr(val);
         if (!ptr) {

@@ -13,6 +13,7 @@ impl FluxNanboxLayout {
     pub const TAG_SHIFT: u32 = 46;
     pub const TAG_MASK_U64: u64 = 0xF;
     pub const PAYLOAD_MASK_U64: u64 = (1u64 << 46) - 1;
+    pub const THUNK_TAG_U8: u8 = 0x6;
     pub const BOXED_VALUE_TAG_U8: u8 = 0x8;
     pub const MIN_INLINE_INT: i64 = crate::runtime::nanbox::MIN_INLINE_INT;
     pub const MAX_INLINE_INT: i64 = crate::runtime::nanbox::MAX_INLINE_INT;
@@ -80,6 +81,9 @@ pub fn emit_prelude(module: &mut LlvmModule) {
     emit_drop(module);
     emit_drop_reuse(module);
     emit_rc_is_unique(module);
+    emit_is_thunk(module);
+    emit_tag_thunk(module);
+    emit_untag_thunk_ptr(module);
 }
 
 pub fn emit_prelude_and_arith(module: &mut LlvmModule) {
@@ -689,6 +693,196 @@ pub fn unary_i64_sig() -> LlvmFunctionSig {
         varargs: false,
         call_conv: CallConv::Fastcc,
     }
+}
+
+// ── Thunk helpers (Phase 2 mutual TCO) ───────────────────────────────────────
+
+/// NaN-box tag bits for Thunk (SENTINEL | (0x6 << 46)).
+pub fn thunk_nanbox_tag_bits() -> i64 {
+    (FluxNanboxLayout::NANBOX_SENTINEL_U64
+        | ((FluxNanboxLayout::THUNK_TAG_U8 as u64) << FluxNanboxLayout::TAG_SHIFT)) as i64
+}
+
+/// `flux_is_thunk(i64 %val) -> i1`: check if NaN-box tag == 0x6 (Thunk).
+fn emit_is_thunk(module: &mut LlvmModule) {
+    let name = "flux_is_thunk";
+    if has_function(module, name) {
+        return;
+    }
+    module.functions.push(LlvmFunction {
+        linkage: Linkage::Internal,
+        name: flux_prelude_symbol(name),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::i1(),
+            params: vec![LlvmType::i64()],
+            varargs: false,
+            call_conv: CallConv::Fastcc,
+        },
+        params: vec![LlvmLocal("val".into())],
+        attrs: helper_attrs(),
+        blocks: vec![LlvmBlock {
+            label: LabelId("entry".into()),
+            instrs: vec![
+                // Extract tag: (val >> 46) & 0xF
+                LlvmInstr::Binary {
+                    dst: LlvmLocal("tag_bits".into()),
+                    op: LlvmValueKind::LShr,
+                    ty: LlvmType::i64(),
+                    lhs: local("val"),
+                    rhs: const_i64_operand(FluxNanboxLayout::TAG_SHIFT as i64),
+                },
+                LlvmInstr::Binary {
+                    dst: LlvmLocal("tag".into()),
+                    op: LlvmValueKind::And,
+                    ty: LlvmType::i64(),
+                    lhs: local("tag_bits"),
+                    rhs: const_i64_operand(FluxNanboxLayout::tag_mask_i64()),
+                },
+                // Check sentinel
+                LlvmInstr::Binary {
+                    dst: LlvmLocal("masked".into()),
+                    op: LlvmValueKind::And,
+                    ty: LlvmType::i64(),
+                    lhs: local("val"),
+                    rhs: const_i64_operand(FluxNanboxLayout::sentinel_mask_i64()),
+                },
+                LlvmInstr::Icmp {
+                    dst: LlvmLocal("is_nanbox".into()),
+                    op: LlvmCmpOp::Eq,
+                    ty: LlvmType::i64(),
+                    lhs: local("masked"),
+                    rhs: const_i64_operand(FluxNanboxLayout::nanbox_sentinel_i64()),
+                },
+                // Check tag == 0x6
+                LlvmInstr::Icmp {
+                    dst: LlvmLocal("is_thunk_tag".into()),
+                    op: LlvmCmpOp::Eq,
+                    ty: LlvmType::i64(),
+                    lhs: local("tag"),
+                    rhs: const_i64_operand(FluxNanboxLayout::THUNK_TAG_U8 as i64),
+                },
+                LlvmInstr::Select {
+                    dst: LlvmLocal("result".into()),
+                    cond_ty: LlvmType::i1(),
+                    cond: local("is_nanbox"),
+                    value_ty: LlvmType::i1(),
+                    then_value: local("is_thunk_tag"),
+                    else_value: const_i1_operand(false),
+                },
+            ],
+            term: LlvmTerminator::Ret {
+                ty: LlvmType::i1(),
+                value: local("result"),
+            },
+        }],
+    });
+}
+
+/// `flux_tag_thunk(ptr %ptr) -> i64`: NaN-box a heap pointer with Thunk tag.
+fn emit_tag_thunk(module: &mut LlvmModule) {
+    let name = "flux_tag_thunk";
+    if has_function(module, name) {
+        return;
+    }
+    module.functions.push(LlvmFunction {
+        linkage: Linkage::Internal,
+        name: flux_prelude_symbol(name),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::i64(),
+            params: vec![LlvmType::ptr()],
+            varargs: false,
+            call_conv: CallConv::Fastcc,
+        },
+        params: vec![LlvmLocal("ptr".into())],
+        attrs: helper_attrs(),
+        blocks: vec![LlvmBlock {
+            label: LabelId("entry".into()),
+            instrs: vec![
+                LlvmInstr::Cast {
+                    dst: LlvmLocal("addr".into()),
+                    op: LlvmValueKind::PtrToInt,
+                    from_ty: LlvmType::ptr(),
+                    operand: local("ptr"),
+                    to_ty: LlvmType::i64(),
+                },
+                LlvmInstr::Binary {
+                    dst: LlvmLocal("shifted".into()),
+                    op: LlvmValueKind::LShr,
+                    ty: LlvmType::i64(),
+                    lhs: local("addr"),
+                    rhs: const_i64_operand(3),
+                },
+                LlvmInstr::Binary {
+                    dst: LlvmLocal("payload".into()),
+                    op: LlvmValueKind::And,
+                    ty: LlvmType::i64(),
+                    lhs: local("shifted"),
+                    rhs: const_i64_operand(FluxNanboxLayout::payload_mask_i64()),
+                },
+                LlvmInstr::Binary {
+                    dst: LlvmLocal("tagged".into()),
+                    op: LlvmValueKind::Or,
+                    ty: LlvmType::i64(),
+                    lhs: local("payload"),
+                    rhs: const_i64_operand(thunk_nanbox_tag_bits()),
+                },
+            ],
+            term: LlvmTerminator::Ret {
+                ty: LlvmType::i64(),
+                value: local("tagged"),
+            },
+        }],
+    });
+}
+
+/// `flux_untag_thunk_ptr(i64 %val) -> ptr`: extract raw pointer from a thunk-tagged NaN-box.
+fn emit_untag_thunk_ptr(module: &mut LlvmModule) {
+    let name = "flux_untag_thunk_ptr";
+    if has_function(module, name) {
+        return;
+    }
+    module.functions.push(LlvmFunction {
+        linkage: Linkage::Internal,
+        name: flux_prelude_symbol(name),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::ptr(),
+            params: vec![LlvmType::i64()],
+            varargs: false,
+            call_conv: CallConv::Fastcc,
+        },
+        params: vec![LlvmLocal("val".into())],
+        attrs: helper_attrs(),
+        blocks: vec![LlvmBlock {
+            label: LabelId("entry".into()),
+            instrs: vec![
+                LlvmInstr::Binary {
+                    dst: LlvmLocal("payload".into()),
+                    op: LlvmValueKind::And,
+                    ty: LlvmType::i64(),
+                    lhs: local("val"),
+                    rhs: const_i64_operand(FluxNanboxLayout::payload_mask_i64()),
+                },
+                LlvmInstr::Binary {
+                    dst: LlvmLocal("addr".into()),
+                    op: LlvmValueKind::Shl,
+                    ty: LlvmType::i64(),
+                    lhs: local("payload"),
+                    rhs: const_i64_operand(3),
+                },
+                LlvmInstr::Cast {
+                    dst: LlvmLocal("ptr".into()),
+                    op: LlvmValueKind::IntToPtr,
+                    from_ty: LlvmType::i64(),
+                    operand: local("addr"),
+                    to_ty: LlvmType::ptr(),
+                },
+            ],
+            term: LlvmTerminator::Ret {
+                ty: LlvmType::ptr(),
+                value: local("ptr"),
+            },
+        }],
+    });
 }
 
 pub fn helper_attrs() -> Vec<String> {
