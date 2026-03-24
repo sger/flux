@@ -43,7 +43,7 @@ pub fn closure_type() -> LlvmType {
 pub fn closure_entry_sig() -> LlvmFunctionSig {
     LlvmFunctionSig {
         ret: LlvmType::i64(),
-        params: vec![LlvmType::ptr(), LlvmType::ptr(), LlvmType::i32()],
+        params: vec![LlvmType::i64(), LlvmType::ptr(), LlvmType::i32()],
         varargs: false,
         call_conv: CallConv::Fastcc,
     }
@@ -594,7 +594,7 @@ fn emit_call_closure(module: &mut LlvmModule) {
                     ret_ty: LlvmType::i64(),
                     callee: local("fn_ptr"),
                     args: vec![
-                        (LlvmType::ptr(), local("closure")),
+                        (LlvmType::i64(), local("closure_value")),
                         (LlvmType::ptr(), local("args")),
                         (LlvmType::i32(), local("nargs")),
                     ],
@@ -700,7 +700,7 @@ fn emit_call_closure(module: &mut LlvmModule) {
                         ret_ty: LlvmType::i64(),
                         callee: local("fn_ptr"),
                         args: vec![
-                            (LlvmType::ptr(), local("closure")),
+                            (LlvmType::i64(), local("closure_value")),
                             (LlvmType::ptr(), local("args")),
                             (LlvmType::i32(), local("remaining_arity")),
                         ],
