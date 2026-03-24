@@ -23,6 +23,36 @@ use super::{
     prelude::FluxNanboxLayout,
 };
 
+/// Recorded continuation block for the unwind switch (Phase 3 CPS).
+pub(super) struct CpsContBlock {
+    /// Integer tag for this continuation in the unwind switch.
+    pub tag: u8,
+    /// Label of the continuation block (already generated during body lowering).
+    pub label: LabelId,
+}
+
+/// State for Phase 3 CPS driver loop.
+pub(super) struct CpsState {
+    /// Label of the main eval loop.
+    pub loop_header: LabelId,
+    /// Label of the unwind loop (continuation application).
+    pub unwind_header: LabelId,
+    /// Alloca slot for the continuation stack head pointer (ptr, initially null).
+    pub head_slot: LlvmLocal,
+    /// Alloca slots for the current function arguments (one per param).
+    pub arg_slots: Vec<LlvmLocal>,
+    /// Alloca slot for the current result value.
+    pub result_slot: LlvmLocal,
+    /// Alloca slot for the most recently popped frame pointer (set by unwind, read by cont blocks).
+    pub frame_slot: LlvmLocal,
+    /// Continuation blocks (populated during body lowering, used to generate the unwind switch).
+    pub cont_blocks: Vec<CpsContBlock>,
+    /// Counter for continuation tags.
+    pub next_cont_tag: u8,
+    /// The function's own binder ID (for detecting self-calls).
+    pub self_binder: CoreBinderId,
+}
+
 pub(super) struct FunctionLowering<'a, 'p> {
     pub state: FunctionState<'a>,
     pub program: &'p mut ProgramState<'a>,
@@ -33,6 +63,8 @@ pub(super) struct FunctionLowering<'a, 'p> {
     /// If this function belongs to a mutual tail-recursion group (Phase 2),
     /// stores (this function's binder, the group).
     pub mutual_group: Option<(CoreBinderId, std::sync::Arc<super::function::MutualRecGroup>)>,
+    /// Phase 3 CPS state — present when the function has non-tail self-recursion.
+    pub cps_state: Option<CpsState>,
 }
 
 struct BindingRestore {
@@ -70,6 +102,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             program,
             is_tail_position: true,
             mutual_group: None,
+            cps_state: None,
         }
     }
 
@@ -158,6 +191,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             program,
             is_tail_position: false,
             mutual_group: None,
+            cps_state: None,
         })
     }
 
@@ -207,6 +241,543 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         });
 
         self.is_tail_position = true;
+    }
+
+    /// Set up the Phase 3 CPS driver loop for a function with non-tail
+    /// self-recursion.  Creates the loop/unwind structure and alloca slots
+    /// for the continuation stack head, arguments, and result.
+    pub fn setup_cps_driver(&mut self, self_binder: CoreBinderId) {
+        let loop_header = self.state.new_block_label("cps.loop");
+        let loop_idx = self.state.push_block(loop_header.clone());
+        let unwind_header = self.state.new_block_label("cps.unwind");
+
+        // Alloca for continuation stack head pointer (initially null).
+        let head_slot = self.state.new_slot();
+        self.state.emit_entry_alloca(LlvmInstr::Alloca {
+            dst: head_slot.clone(),
+            ty: LlvmType::ptr(),
+            count: None,
+            align: Some(8),
+        });
+        self.state.emit(LlvmInstr::Store {
+            ty: LlvmType::ptr(),
+            value: LlvmOperand::Const(LlvmConst::Null),
+            ptr: LlvmOperand::Local(head_slot.clone()),
+            align: Some(8),
+        });
+
+        // Alloca for result value (used during unwind).
+        let result_slot = self.state.new_slot();
+        self.state.emit_entry_alloca(LlvmInstr::Alloca {
+            dst: result_slot.clone(),
+            ty: LlvmType::i64(),
+            count: None,
+            align: Some(8),
+        });
+
+        // Alloca for popped frame pointer (set by unwind pop, read by cont blocks).
+        let frame_slot = self.state.new_slot();
+        self.state.emit_entry_alloca(LlvmInstr::Alloca {
+            dst: frame_slot.clone(),
+            ty: LlvmType::ptr(),
+            count: None,
+            align: Some(8),
+        });
+
+        // Collect parameter alloca slots (same as Phase 1 TCO).
+        let arg_slots: Vec<LlvmLocal> = self
+            .state
+            .param_bindings
+            .clone()
+            .iter()
+            .map(|(binder, _)| self.state.local_slots[&binder.id].clone())
+            .collect();
+
+        // Branch entry → loop.
+        self.state.set_terminator(LlvmTerminator::Br {
+            target: loop_header.clone(),
+        });
+        self.state.switch_to_block(loop_idx);
+
+        // Also set up Phase 1 TCO loop state so tail self-calls still work
+        // as `store args + br loop`.
+        self.state.tco_loop = Some(super::function::TcoLoopState {
+            loop_header: loop_header.clone(),
+            param_slots: arg_slots.clone(),
+        });
+
+        self.cps_state = Some(CpsState {
+            loop_header,
+            unwind_header,
+            head_slot,
+            arg_slots,
+            result_slot,
+            frame_slot,
+            cont_blocks: Vec::new(),
+            next_cont_tag: 0,
+            self_binder,
+        });
+
+        self.is_tail_position = true;
+    }
+
+    /// Finish CPS lowering: store the body result, branch to unwind, then
+    /// generate the unwind switch from collected continuation blocks.
+    pub fn finalize_cps(
+        &mut self,
+        body_result: LlvmOperand,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        let cps = self.cps_state.as_ref().ok_or_else(|| CoreToLlvmError::Malformed {
+            message: "finalize_cps called without CPS state".into(),
+        })?;
+        let unwind_header = cps.unwind_header.clone();
+        let result_slot = cps.result_slot.clone();
+        let head_slot = cps.head_slot.clone();
+
+        // Store result and branch to unwind.
+        if self.state.current_block_open() {
+            self.state.emit(LlvmInstr::Store {
+                ty: LlvmType::i64(),
+                value: body_result,
+                ptr: LlvmOperand::Local(result_slot.clone()),
+                align: Some(8),
+            });
+            self.state.set_terminator(LlvmTerminator::Br {
+                target: unwind_header.clone(),
+            });
+        }
+
+        // Generate unwind block: check if stack empty, pop frame, switch on tag.
+        let unwind_idx = self.state.push_block(unwind_header.clone());
+        self.state.switch_to_block(unwind_idx);
+
+        // Load result.
+        let result_val = self.state.temp_local("cps.result");
+        self.state.emit(LlvmInstr::Load {
+            dst: result_val.clone(),
+            ty: LlvmType::i64(),
+            ptr: LlvmOperand::Local(result_slot.clone()),
+            align: Some(8),
+        });
+
+        // Load stack head.
+        let head_val = self.state.temp_local("cps.head");
+        self.state.emit(LlvmInstr::Load {
+            dst: head_val.clone(),
+            ty: LlvmType::ptr(),
+            ptr: LlvmOperand::Local(head_slot),
+            align: Some(8),
+        });
+
+        // Check if null (stack empty).
+        let is_empty = self.state.temp_local("cps.empty");
+        self.state.emit(LlvmInstr::Icmp {
+            dst: is_empty.clone(),
+            op: LlvmCmpOp::Eq,
+            ty: LlvmType::ptr(),
+            lhs: LlvmOperand::Local(head_val.clone()),
+            rhs: LlvmOperand::Const(LlvmConst::Null),
+        });
+
+        let done_label = self.state.new_block_label("cps.done");
+        let pop_label = self.state.new_block_label("cps.pop");
+
+        self.state.set_terminator(LlvmTerminator::CondBr {
+            cond_ty: LlvmType::i1(),
+            cond: LlvmOperand::Local(is_empty),
+            then_label: done_label.clone(),
+            else_label: pop_label.clone(),
+        });
+
+        // Pop block: unlink head, load tag, switch to cont blocks.
+        let pop_idx = self.state.push_block(pop_label);
+        self.state.switch_to_block(pop_idx);
+
+        // Load next pointer (offset 0).
+        let next_ptr = self.state.temp_local("cps.next");
+        self.state.emit(LlvmInstr::Load {
+            dst: next_ptr.clone(),
+            ty: LlvmType::ptr(),
+            ptr: LlvmOperand::Local(head_val.clone()),
+            align: Some(8),
+        });
+
+        // Store next as new head.
+        let cps = self.cps_state.as_ref().unwrap();
+        let head_slot2 = cps.head_slot.clone();
+        let frame_slot2 = cps.frame_slot.clone();
+        self.state.emit(LlvmInstr::Store {
+            ty: LlvmType::ptr(),
+            value: LlvmOperand::Local(next_ptr),
+            ptr: LlvmOperand::Local(head_slot2),
+            align: Some(8),
+        });
+
+        // Store the popped frame pointer so continuation blocks can access it.
+        self.state.emit(LlvmInstr::Store {
+            ty: LlvmType::ptr(),
+            value: LlvmOperand::Local(head_val.clone()),
+            ptr: LlvmOperand::Local(frame_slot2),
+            align: Some(8),
+        });
+
+        // Load tag (i8 at offset 8, after the ptr).
+        let tag_ptr = self.state.temp_local("cps.tag_ptr");
+        self.state.emit(LlvmInstr::GetElementPtr {
+            dst: tag_ptr.clone(),
+            inbounds: true,
+            element_ty: LlvmType::i64(),
+            base: LlvmOperand::Local(head_val),
+            indices: vec![(LlvmType::i32(), const_i32(1))],
+        });
+        let tag_val = self.state.temp_local("cps.tag");
+        self.state.emit(LlvmInstr::Load {
+            dst: tag_val.clone(),
+            ty: LlvmType::i8(),
+            ptr: LlvmOperand::Local(tag_ptr),
+            align: Some(1),
+        });
+
+        // Build switch cases from collected cont_blocks.
+        let cps = self.cps_state.as_ref().unwrap();
+        let switch_cases: Vec<(LlvmConst, LabelId)> = cps
+            .cont_blocks
+            .iter()
+            .map(|cb| {
+                (
+                    LlvmConst::Int { bits: 8, value: cb.tag as i128 },
+                    cb.label.clone(),
+                )
+            })
+            .collect();
+
+        let unreachable_label = self.state.new_block_label("cps.unreachable");
+        self.state.set_terminator(LlvmTerminator::Switch {
+            ty: LlvmType::i8(),
+            scrutinee: LlvmOperand::Local(tag_val),
+            default: unreachable_label.clone(),
+            cases: switch_cases,
+        });
+
+        // Unreachable block.
+        let unr_idx = self.state.push_block(unreachable_label);
+        self.state.switch_to_block(unr_idx);
+        self.state.set_terminator(LlvmTerminator::Unreachable);
+
+        // Done block: return result.
+        let done_idx = self.state.push_block(done_label);
+        self.state.switch_to_block(done_idx);
+
+        Ok(LlvmOperand::Local(result_val))
+    }
+
+    /// Check if a Let RHS is a non-tail self-recursive call that should be
+    /// intercepted by the CPS driver (Phase 3).
+    /// Returns `true` if the call was handled (frame pushed, branched to loop,
+    /// continuation block generated).
+    fn try_lower_cps_let(
+        &mut self,
+        binder: CoreBinder,
+        rhs: &CoreExpr,
+        body: &CoreExpr,
+    ) -> Result<Option<LlvmOperand>, CoreToLlvmError> {
+        // Only active when CPS state exists and we're NOT in tail position.
+        if self.is_tail_position || self.cps_state.is_none() {
+            return Ok(None);
+        }
+
+        // Check if RHS is a direct self-recursive call.
+        let (func_expr, call_args) = match rhs {
+            CoreExpr::App { func, args, .. } => (func.as_ref(), args.as_slice()),
+            CoreExpr::AetherCall { func, args, .. } => (func.as_ref(), args.as_slice()),
+            _ => return Ok(None),
+        };
+
+        let callee_binder = match func_expr {
+            CoreExpr::Var { var, .. } => var.binder,
+            _ => return Ok(None),
+        };
+
+        let cps = self.cps_state.as_ref().unwrap();
+        if callee_binder != Some(cps.self_binder) {
+            return Ok(None);
+        }
+
+        // This IS a non-tail self-recursive call. Intercept it.
+        let tag = cps.next_cont_tag;
+        let loop_header = cps.loop_header.clone();
+        let unwind_header = cps.unwind_header.clone();
+        let head_slot = cps.head_slot.clone();
+        let arg_slots = cps.arg_slots.clone();
+        let result_slot = cps.result_slot.clone();
+
+        // Increment tag counter.
+        self.cps_state.as_mut().unwrap().next_cont_tag = tag + 1;
+
+        // Evaluate the call arguments.
+        let lowered_args: Vec<LlvmOperand> = call_args
+            .iter()
+            .map(|a| self.lower_expr_not_tail(a))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Find live variables that the continuation body needs.
+        let free = crate::core::to_ir::free_vars::collect_free_vars_core(body);
+        let live_vars: Vec<(CoreBinder, LlvmLocal)> = self
+            .state
+            .local_slots
+            .iter()
+            .filter(|(id, _)| free.contains(id) && **id != binder.id)
+            .map(|(id, slot)| {
+                let name = self.state.binder_names.get(id).copied().unwrap_or(binder.name);
+                (CoreBinder::new(*id, name), slot.clone())
+            })
+            .collect();
+        let nfields = live_vars.len() as i32;
+
+        // Allocate continuation frame: {ptr next, i8 tag, pad[7], i64 fields[]}
+        // Size: 8 (next) + 8 (tag+pad) + 8*nfields
+        let alloc_size = 16 + 8 * nfields;
+        let node = self.state.temp_local("cps.frame");
+        self.state.emit(LlvmInstr::Call {
+            dst: Some(node.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Ccc),
+            ret_ty: LlvmType::ptr(),
+            callee: LlvmOperand::Global(GlobalId("flux_gc_alloc".into())),
+            args: vec![(LlvmType::i32(), const_i32(alloc_size))],
+            attrs: vec![],
+        });
+
+        // Write next pointer = current head.
+        let cur_head = self.state.temp_local("cps.cur_head");
+        self.state.emit(LlvmInstr::Load {
+            dst: cur_head.clone(),
+            ty: LlvmType::ptr(),
+            ptr: LlvmOperand::Local(head_slot.clone()),
+            align: Some(8),
+        });
+        self.state.emit(LlvmInstr::Store {
+            ty: LlvmType::ptr(),
+            value: LlvmOperand::Local(cur_head),
+            ptr: LlvmOperand::Local(node.clone()),
+            align: Some(8),
+        });
+
+        // Write tag (i8 at offset 8 — we treat this as i64 offset 1 for the tag byte).
+        let tag_ptr = self.state.temp_local("cps.frame.tag_ptr");
+        self.state.emit(LlvmInstr::GetElementPtr {
+            dst: tag_ptr.clone(),
+            inbounds: true,
+            element_ty: LlvmType::i64(),
+            base: LlvmOperand::Local(node.clone()),
+            indices: vec![(LlvmType::i32(), const_i32(1))],
+        });
+        self.state.emit(LlvmInstr::Store {
+            ty: LlvmType::i8(),
+            value: LlvmOperand::Const(LlvmConst::Int { bits: 8, value: tag as i128 }),
+            ptr: LlvmOperand::Local(tag_ptr),
+            align: Some(1),
+        });
+
+        // Write captured fields (i64[] starting at offset 16, i.e., i64 offset 2).
+        let fields_base = self.state.temp_local("cps.frame.fields");
+        self.state.emit(LlvmInstr::GetElementPtr {
+            dst: fields_base.clone(),
+            inbounds: true,
+            element_ty: LlvmType::i64(),
+            base: LlvmOperand::Local(node.clone()),
+            indices: vec![(LlvmType::i32(), const_i32(2))],
+        });
+        for (i, (_binder, slot)) in live_vars.iter().enumerate() {
+            let val = self.state.temp_local(&format!("cps.cap.{i}"));
+            self.state.emit(LlvmInstr::Load {
+                dst: val.clone(),
+                ty: LlvmType::i64(),
+                ptr: LlvmOperand::Local(slot.clone()),
+                align: Some(8),
+            });
+            // Dup the value since it's now captured in the frame.
+            self.state.emit(LlvmInstr::Call {
+                dst: None,
+                tail: false,
+                call_conv: Some(CallConv::Fastcc),
+                ret_ty: LlvmType::Void,
+                callee: LlvmOperand::Global(flux_prelude_symbol("flux_dup")),
+                args: vec![(LlvmType::i64(), LlvmOperand::Local(val.clone()))],
+                attrs: vec![],
+            });
+            let field_ptr = self.state.temp_local(&format!("cps.field.{i}"));
+            self.state.emit(LlvmInstr::GetElementPtr {
+                dst: field_ptr.clone(),
+                inbounds: true,
+                element_ty: LlvmType::i64(),
+                base: LlvmOperand::Local(fields_base.clone()),
+                indices: vec![(LlvmType::i32(), const_i32(i as i32))],
+            });
+            self.state.emit(LlvmInstr::Store {
+                ty: LlvmType::i64(),
+                value: LlvmOperand::Local(val),
+                ptr: LlvmOperand::Local(field_ptr),
+                align: Some(8),
+            });
+        }
+
+        // Update head = node.
+        self.state.emit(LlvmInstr::Store {
+            ty: LlvmType::ptr(),
+            value: LlvmOperand::Local(node),
+            ptr: LlvmOperand::Local(head_slot),
+            align: Some(8),
+        });
+
+        // Store the recursive call's arguments into arg_slots.
+        for (slot, arg_val) in arg_slots.iter().zip(lowered_args.iter()) {
+            self.state.emit(LlvmInstr::Store {
+                ty: LlvmType::i64(),
+                value: arg_val.clone(),
+                ptr: LlvmOperand::Local(slot.clone()),
+                align: Some(8),
+            });
+        }
+
+        // Branch to loop header.
+        self.state.set_terminator(LlvmTerminator::Br {
+            target: loop_header,
+        });
+
+        // === Generate the continuation block ===
+        // This block is entered from the unwind switch when this frame is popped.
+        let cont_label = self.state.new_block_label(&format!("cps.cont.{tag}"));
+        let cont_idx = self.state.push_block(cont_label.clone());
+        self.state.switch_to_block(cont_idx);
+
+        // The unwind block has already popped the frame into `cps.head` local.
+        // We need to reload the frame pointer from what was the head at pop time.
+        // Actually, the unwind block loads the frame ptr — we need to pass it here.
+        // For simplicity, re-read head_slot to get the popped frame.
+        // Wait — the unwind block already updated head_slot to next. The popped
+        // node pointer was in the `cps.head` local of the pop block. We can't
+        // access that from here.
+        //
+        // Solution: store the popped frame ptr in result_slot (reuse as temp).
+        // Actually, let's use a separate alloca for the popped frame pointer.
+        //
+        // Better: the unwind block stores the popped frame ptr into a well-known slot.
+        // Let me add a `frame_slot` to CpsState.
+
+        // For now, we'll load fields by re-accessing the frame. The unwind block
+        // stores the popped frame pointer into a known alloca. Let me add that.
+        // Actually, the simplest approach: the continuation block receives the
+        // result value and the frame fields through allocas.
+        //
+        // The unwind pop block will store the popped frame ptr into a frame_slot
+        // alloca, and the result is in result_slot. Each cont block loads from those.
+
+        // Load result value (the return value from the recursive call).
+        let result_val = self.state.temp_local("cps.cont.result");
+        self.state.emit(LlvmInstr::Load {
+            dst: result_val.clone(),
+            ty: LlvmType::i64(),
+            ptr: LlvmOperand::Local(result_slot.clone()),
+            align: Some(8),
+        });
+
+        // Bind the result to the Let variable.
+        let result_slot_var = self.state.new_slot();
+        self.state.emit_entry_alloca(LlvmInstr::Alloca {
+            dst: result_slot_var.clone(),
+            ty: LlvmType::i64(),
+            count: None,
+            align: Some(8),
+        });
+        self.state.emit(LlvmInstr::Store {
+            ty: LlvmType::i64(),
+            value: LlvmOperand::Local(result_val),
+            ptr: LlvmOperand::Local(result_slot_var.clone()),
+            align: Some(8),
+        });
+        self.state.bind_local(binder, result_slot_var);
+
+        // Load captured variables from the popped frame.
+        {
+            let cps = self.cps_state.as_ref().unwrap();
+            let frame_slot_ref = cps.frame_slot.clone();
+            let frame_ptr = self.state.temp_local("cps.cont.frame");
+            self.state.emit(LlvmInstr::Load {
+                dst: frame_ptr.clone(),
+                ty: LlvmType::ptr(),
+                ptr: LlvmOperand::Local(frame_slot_ref),
+                align: Some(8),
+            });
+
+            // Fields start at byte offset 16 (= i64 index 2 from base).
+            let cont_fields_base = self.state.temp_local("cps.cont.fields");
+            self.state.emit(LlvmInstr::GetElementPtr {
+                dst: cont_fields_base.clone(),
+                inbounds: true,
+                element_ty: LlvmType::i64(),
+                base: LlvmOperand::Local(frame_ptr),
+                indices: vec![(LlvmType::i32(), const_i32(2))],
+            });
+
+            for (i, (cap_binder, _original_slot)) in live_vars.iter().enumerate() {
+                let field_ptr = self.state.temp_local(&format!("cps.cont.fp.{i}"));
+                self.state.emit(LlvmInstr::GetElementPtr {
+                    dst: field_ptr.clone(),
+                    inbounds: true,
+                    element_ty: LlvmType::i64(),
+                    base: LlvmOperand::Local(cont_fields_base.clone()),
+                    indices: vec![(LlvmType::i32(), const_i32(i as i32))],
+                });
+                let field_val = self.state.temp_local(&format!("cps.cont.fv.{i}"));
+                self.state.emit(LlvmInstr::Load {
+                    dst: field_val.clone(),
+                    ty: LlvmType::i64(),
+                    ptr: LlvmOperand::Local(field_ptr),
+                    align: Some(8),
+                });
+                // Re-bind the captured variable to a fresh alloca with the restored value.
+                let restored_slot = self.state.new_slot();
+                self.state.emit_entry_alloca(LlvmInstr::Alloca {
+                    dst: restored_slot.clone(),
+                    ty: LlvmType::i64(),
+                    count: None,
+                    align: Some(8),
+                });
+                self.state.emit(LlvmInstr::Store {
+                    ty: LlvmType::i64(),
+                    value: LlvmOperand::Local(field_val),
+                    ptr: LlvmOperand::Local(restored_slot.clone()),
+                    align: Some(8),
+                });
+                self.state.bind_local(*cap_binder, restored_slot);
+            }
+        }
+
+        // Lower the continuation body.
+        let cont_result = self.lower_expr(body)?;
+
+        // Store result and branch to unwind.
+        if self.state.current_block_open() {
+            self.state.emit(LlvmInstr::Store {
+                ty: LlvmType::i64(),
+                value: cont_result,
+                ptr: LlvmOperand::Local(result_slot),
+                align: Some(8),
+            });
+            self.state.set_terminator(LlvmTerminator::Br {
+                target: unwind_header,
+            });
+        }
+
+        // Record this continuation block.
+        self.cps_state.as_mut().unwrap().cont_blocks.push(CpsContBlock {
+            tag,
+            label: cont_label,
+        });
+
+        // Return a dummy — the original block was already terminated by the br to loop.
+        Ok(Some(const_i64(0)))
     }
 
     /// Lower an expression in a non-tail context (its result is used by
@@ -609,6 +1180,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         rhs: &CoreExpr,
         body: &CoreExpr,
     ) -> Result<LlvmOperand, CoreToLlvmError> {
+        // Phase 3 CPS: intercept non-tail self-recursive calls.
+        if let Some(result) = self.try_lower_cps_let(binder, rhs, body)? {
+            return Ok(result);
+        }
         let rhs_value = self.lower_expr_not_tail(rhs)?;
         let slot = self.state.new_slot();
         self.state.emit_entry_alloca(LlvmInstr::Alloca {
