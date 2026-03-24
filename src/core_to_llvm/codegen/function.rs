@@ -1,4 +1,8 @@
-use std::{collections::{HashMap, HashSet}, fmt, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    sync::Arc,
+};
 
 use crate::{
     core::{CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreProgram},
@@ -187,13 +191,17 @@ fn has_nontail_self_call(expr: &CoreExpr, self_id: CoreBinderId, in_tail: bool) 
             }
             // Check subexpressions (all non-tail).
             has_nontail_self_call(func, self_id, false)
-                || args.iter().any(|a| has_nontail_self_call(a, self_id, false))
+                || args
+                    .iter()
+                    .any(|a| has_nontail_self_call(a, self_id, false))
         }
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
             has_nontail_self_call(rhs, self_id, false)
                 || has_nontail_self_call(body, self_id, in_tail)
         }
-        CoreExpr::Case { scrutinee, alts, .. } => {
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
             has_nontail_self_call(scrutinee, self_id, false)
                 || alts.iter().any(|alt| {
                     alt.guard
@@ -202,13 +210,13 @@ fn has_nontail_self_call(expr: &CoreExpr, self_id: CoreBinderId, in_tail: bool) 
                         || has_nontail_self_call(&alt.rhs, self_id, in_tail)
                 })
         }
-        CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
-            fields.iter().any(|f| has_nontail_self_call(f, self_id, false))
-        }
+        CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => fields
+            .iter()
+            .any(|f| has_nontail_self_call(f, self_id, false)),
         CoreExpr::Return { value, .. } => has_nontail_self_call(value, self_id, in_tail),
-        CoreExpr::Perform { args, .. } => {
-            args.iter().any(|a| has_nontail_self_call(a, self_id, false))
-        }
+        CoreExpr::Perform { args, .. } => args
+            .iter()
+            .any(|a| has_nontail_self_call(a, self_id, false)),
         CoreExpr::Handle { body, handlers, .. } => {
             has_nontail_self_call(body, self_id, false)
                 || handlers
@@ -218,9 +226,9 @@ fn has_nontail_self_call(expr: &CoreExpr, self_id: CoreBinderId, in_tail: bool) 
         CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
             has_nontail_self_call(body, self_id, in_tail)
         }
-        CoreExpr::Reuse { fields, .. } => {
-            fields.iter().any(|f| has_nontail_self_call(f, self_id, false))
-        }
+        CoreExpr::Reuse { fields, .. } => fields
+            .iter()
+            .any(|f| has_nontail_self_call(f, self_id, false)),
         CoreExpr::DropSpecialized {
             unique_body,
             shared_body,
@@ -279,7 +287,9 @@ fn collect_tail_callees(
             collect_tail_callees(rhs, def_ids, out, false);
             collect_tail_callees(body, def_ids, out, in_tail); // body inherits tail
         }
-        CoreExpr::Case { scrutinee, alts, .. } => {
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
             collect_tail_callees(scrutinee, def_ids, out, false);
             for alt in alts {
                 if let Some(guard) = &alt.guard {
@@ -378,7 +388,9 @@ fn compute_mutual_rec_groups(
 
         for w in adjacency.get(&v).into_iter().flatten().copied() {
             if !indices.contains_key(&w) {
-                strongconnect(w, adjacency, index, stack, on_stack, indices, lowlinks, components);
+                strongconnect(
+                    w, adjacency, index, stack, on_stack, indices, lowlinks, components,
+                );
                 let low_v = lowlinks[&v];
                 let low_w = lowlinks[&w];
                 lowlinks.insert(v, low_v.min(low_w));
@@ -405,8 +417,14 @@ fn compute_mutual_rec_groups(
     for def in &core.defs {
         if !indices.contains_key(&def.binder.id) {
             strongconnect(
-                def.binder.id, &adjacency, &mut index, &mut stack, &mut on_stack,
-                &mut indices, &mut lowlinks, &mut components,
+                def.binder.id,
+                &adjacency,
+                &mut index,
+                &mut stack,
+                &mut on_stack,
+                &mut indices,
+                &mut lowlinks,
+                &mut components,
             );
         }
     }
@@ -512,11 +530,7 @@ pub fn compile_program_with_interner(
 
         if has_nontail_self_recursion(def) {
             // Phase 3: CPS driver loop for non-tail self-recursion.
-            let function = lower_top_level_function_cps(
-                def,
-                info.symbol.clone(),
-                &mut program,
-            )?;
+            let function = lower_top_level_function_cps(def, info.symbol.clone(), &mut program)?;
             module.functions.push(function);
         } else if let Some(ref group) = mutual_group {
             // Phase 2: mutual tail-call trampoline.
@@ -547,12 +561,8 @@ pub fn compile_program_with_interner(
             }
         } else {
             // Phase 1 or normal lowering.
-            let function = lower_top_level_function(
-                def,
-                info.symbol.clone(),
-                def.is_recursive,
-                &mut program,
-            )?;
+            let function =
+                lower_top_level_function(def, info.symbol.clone(), def.is_recursive, &mut program)?;
             module.functions.push(function);
         }
     }
@@ -742,12 +752,9 @@ fn lower_top_level_function_with_mutual(
 ///   check: if is_thunk → unpack, loop; else → ret
 /// }
 /// ```
-fn build_trampoline_function(
-    group: &MutualRecGroup,
-    program: &ProgramState<'_>,
-) -> LlvmFunction {
-    use crate::core_to_llvm::LlvmConst;
+fn build_trampoline_function(group: &MutualRecGroup, program: &ProgramState<'_>) -> LlvmFunction {
     use super::prelude::flux_prelude_symbol;
+    use crate::core_to_llvm::LlvmConst;
 
     let trampoline_sym = GlobalId(group.trampoline_name.clone());
 
@@ -769,24 +776,42 @@ fn build_trampoline_function(
             dst: LlvmLocal("cur.fn".into()),
             ty: LlvmType::i8(),
             incoming: vec![
-                (LlvmOperand::Local(LlvmLocal("fn_index".into())), LabelId("entry".into())),
-                (LlvmOperand::Local(LlvmLocal("next.fn".into())), LabelId("continue".into())),
+                (
+                    LlvmOperand::Local(LlvmLocal("fn_index".into())),
+                    LabelId("entry".into()),
+                ),
+                (
+                    LlvmOperand::Local(LlvmLocal("next.fn".into())),
+                    LabelId("continue".into()),
+                ),
             ],
         },
         LlvmInstr::Phi {
             dst: LlvmLocal("cur.args".into()),
             ty: LlvmType::ptr(),
             incoming: vec![
-                (LlvmOperand::Local(LlvmLocal("args".into())), LabelId("entry".into())),
-                (LlvmOperand::Local(LlvmLocal("next.args".into())), LabelId("continue".into())),
+                (
+                    LlvmOperand::Local(LlvmLocal("args".into())),
+                    LabelId("entry".into()),
+                ),
+                (
+                    LlvmOperand::Local(LlvmLocal("next.args".into())),
+                    LabelId("continue".into()),
+                ),
             ],
         },
         LlvmInstr::Phi {
             dst: LlvmLocal("cur.nargs".into()),
             ty: LlvmType::i32(),
             incoming: vec![
-                (LlvmOperand::Local(LlvmLocal("nargs".into())), LabelId("entry".into())),
-                (LlvmOperand::Local(LlvmLocal("next.nargs".into())), LabelId("continue".into())),
+                (
+                    LlvmOperand::Local(LlvmLocal("nargs".into())),
+                    LabelId("entry".into()),
+                ),
+                (
+                    LlvmOperand::Local(LlvmLocal("next.nargs".into())),
+                    LabelId("continue".into()),
+                ),
             ],
         },
     ];
@@ -796,7 +821,10 @@ fn build_trampoline_function(
     for (i, _member_id) in group.members.iter().enumerate() {
         let label = LabelId(format!("call.{i}"));
         switch_cases.push((
-            LlvmConst::Int { bits: 8, value: i as i128 },
+            LlvmConst::Int {
+                bits: 8,
+                value: i as i128,
+            },
             label,
         ));
     }
@@ -815,7 +843,10 @@ fn build_trampoline_function(
     // Generate call blocks: each loads args and calls the .impl function
     let mut check_incoming = Vec::new();
     for (i, &member_id) in group.members.iter().enumerate() {
-        let info = program.top_level.get(&member_id).expect("mutual group member in top_level");
+        let info = program
+            .top_level
+            .get(&member_id)
+            .expect("mutual group member in top_level");
         let impl_symbol = GlobalId(format!("{}.impl", info.symbol.0));
         let arity = info.arity;
         let label = LabelId(format!("call.{i}"));
@@ -831,7 +862,13 @@ fn build_trampoline_function(
                 inbounds: true,
                 element_ty: LlvmType::i64(),
                 base: LlvmOperand::Local(LlvmLocal("cur.args".into())),
-                indices: vec![(LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: j as i128 }))],
+                indices: vec![(
+                    LlvmType::i32(),
+                    LlvmOperand::Const(LlvmConst::Int {
+                        bits: 32,
+                        value: j as i128,
+                    }),
+                )],
             });
             let arg = LlvmLocal(format!("call.{i}.arg.{j}"));
             instrs.push(LlvmInstr::Load {
@@ -881,7 +918,10 @@ fn build_trampoline_function(
                 call_conv: Some(CallConv::Fastcc),
                 ret_ty: LlvmType::i1(),
                 callee: LlvmOperand::Global(flux_prelude_symbol("flux_is_thunk")),
-                args: vec![(LlvmType::i64(), LlvmOperand::Local(LlvmLocal("result".into())))],
+                args: vec![(
+                    LlvmType::i64(),
+                    LlvmOperand::Local(LlvmLocal("result".into())),
+                )],
                 attrs: vec![],
             },
         ],
@@ -904,7 +944,10 @@ fn build_trampoline_function(
                 call_conv: Some(CallConv::Fastcc),
                 ret_ty: LlvmType::ptr(),
                 callee: LlvmOperand::Global(flux_prelude_symbol("flux_untag_thunk_ptr")),
-                args: vec![(LlvmType::i64(), LlvmOperand::Local(LlvmLocal("result".into())))],
+                args: vec![(
+                    LlvmType::i64(),
+                    LlvmOperand::Local(LlvmLocal("result".into())),
+                )],
                 attrs: vec![],
             },
             // Load fn_index (i8 at offset 0)
@@ -920,7 +963,10 @@ fn build_trampoline_function(
                 inbounds: true,
                 element_ty: LlvmType::i32(),
                 base: LlvmOperand::Local(LlvmLocal("thunk.ptr".into())),
-                indices: vec![(LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 1 }))],
+                indices: vec![(
+                    LlvmType::i32(),
+                    LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 1 }),
+                )],
             },
             LlvmInstr::Load {
                 dst: LlvmLocal("next.nargs".into()),
@@ -934,7 +980,10 @@ fn build_trampoline_function(
                 inbounds: true,
                 element_ty: LlvmType::i64(),
                 base: LlvmOperand::Local(LlvmLocal("thunk.ptr".into())),
-                indices: vec![(LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 1 }))],
+                indices: vec![(
+                    LlvmType::i32(),
+                    LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 1 }),
+                )],
             },
         ],
         term: LlvmTerminator::Br {
@@ -1001,9 +1050,7 @@ fn build_trampoline_entry_wrapper(
     let fn_index = group.member_index[&binder];
     let trampoline_sym = GlobalId(group.trampoline_name.clone());
 
-    let params: Vec<LlvmLocal> = (0..arity)
-        .map(|i| LlvmLocal(format!("arg{i}")))
-        .collect();
+    let params: Vec<LlvmLocal> = (0..arity).map(|i| LlvmLocal(format!("arg{i}"))).collect();
     let param_types: Vec<LlvmType> = (0..arity).map(|_| LlvmType::i64()).collect();
 
     let mut instrs = Vec::new();
@@ -1014,7 +1061,13 @@ fn build_trampoline_entry_wrapper(
     instrs.push(LlvmInstr::Alloca {
         dst: args_ptr.clone(),
         ty: LlvmType::i64(),
-        count: Some((LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: count as i128 }))),
+        count: Some((
+            LlvmType::i32(),
+            LlvmOperand::Const(LlvmConst::Int {
+                bits: 32,
+                value: count as i128,
+            }),
+        )),
         align: Some(8),
     });
 
@@ -1026,7 +1079,13 @@ fn build_trampoline_entry_wrapper(
             inbounds: true,
             element_ty: LlvmType::i64(),
             base: LlvmOperand::Local(args_ptr.clone()),
-            indices: vec![(LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: i as i128 }))],
+            indices: vec![(
+                LlvmType::i32(),
+                LlvmOperand::Const(LlvmConst::Int {
+                    bits: 32,
+                    value: i as i128,
+                }),
+            )],
         });
         instrs.push(LlvmInstr::Store {
             ty: LlvmType::i64(),
@@ -1045,9 +1104,21 @@ fn build_trampoline_entry_wrapper(
         ret_ty: LlvmType::i64(),
         callee: LlvmOperand::Global(trampoline_sym),
         args: vec![
-            (LlvmType::i8(), LlvmOperand::Const(LlvmConst::Int { bits: 8, value: fn_index as i128 })),
+            (
+                LlvmType::i8(),
+                LlvmOperand::Const(LlvmConst::Int {
+                    bits: 8,
+                    value: fn_index as i128,
+                }),
+            ),
             (LlvmType::ptr(), LlvmOperand::Local(args_ptr)),
-            (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: arity as i128 })),
+            (
+                LlvmType::i32(),
+                LlvmOperand::Const(LlvmConst::Int {
+                    bits: 32,
+                    value: arity as i128,
+                }),
+            ),
         ],
         attrs: vec![],
     });
