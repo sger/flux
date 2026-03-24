@@ -798,8 +798,9 @@ mod tests {
             "define internal fastcc ptr @flux_drop_reuse(i64 %val, i32 %size) alwaysinline"
         ));
         // flux_rc_is_unique: checks if RC == 1
-        assert!(rendered.contains(
-            "define internal fastcc i1 @flux_rc_is_unique(i64 %val) alwaysinline"
-        ));
+        assert!(
+            rendered
+                .contains("define internal fastcc i1 @flux_rc_is_unique(i64 %val) alwaysinline")
+        );
     }
 }

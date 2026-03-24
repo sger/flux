@@ -34,3 +34,7 @@ Cannot call non-function value (got Int).
   |
 3 |     let ignored = f(2)
   |                   ^^^^
+
+Stack trace:
+  at main (examples/runtime_errors/indirect_call_not_callable.flx:3:19)
+  at <main>

@@ -110,10 +110,7 @@ fn emit_ineg(module: &mut LlvmModule) {
                     dst: LlvmLocal("neg".into()),
                     op: LlvmValueKind::Sub,
                     ty: LlvmType::i64(),
-                    lhs: LlvmOperand::Const(LlvmConst::Int {
-                        bits: 64,
-                        value: 0,
-                    }),
+                    lhs: LlvmOperand::Const(LlvmConst::Int { bits: 64, value: 0 }),
                     rhs: local("a_raw"),
                 },
                 call_i64("result", "flux_tag_int", vec![local("neg")]),
@@ -192,12 +189,7 @@ fn emit_fmod(module: &mut LlvmModule) {
 
 /// Emit a binary dispatch wrapper: check if the first arg is a NaN-boxed int
 /// (sentinel bits set) and call the int helper, otherwise call the float helper.
-fn emit_dispatch_binary(
-    module: &mut LlvmModule,
-    name: &str,
-    int_helper: &str,
-    float_helper: &str,
-) {
+fn emit_dispatch_binary(module: &mut LlvmModule, name: &str, int_helper: &str, float_helper: &str) {
     if has_function(module, name) {
         return;
     }
@@ -250,10 +242,7 @@ fn emit_dispatch_binary(
                     call_conv: Some(CallConv::Fastcc),
                     ret_ty: LlvmType::i64(),
                     callee: LlvmOperand::Global(flux_prelude_symbol(int_helper)),
-                    args: vec![
-                        (LlvmType::i64(), local("a")),
-                        (LlvmType::i64(), local("b")),
-                    ],
+                    args: vec![(LlvmType::i64(), local("a")), (LlvmType::i64(), local("b"))],
                     attrs: vec![],
                 }],
                 term: LlvmTerminator::Ret {
@@ -269,10 +258,7 @@ fn emit_dispatch_binary(
                     call_conv: Some(CallConv::Fastcc),
                     ret_ty: LlvmType::i64(),
                     callee: LlvmOperand::Global(flux_prelude_symbol(float_helper)),
-                    args: vec![
-                        (LlvmType::i64(), local("a")),
-                        (LlvmType::i64(), local("b")),
-                    ],
+                    args: vec![(LlvmType::i64(), local("a")), (LlvmType::i64(), local("b"))],
                     attrs: vec![],
                 }],
                 term: LlvmTerminator::Ret {
@@ -286,12 +272,7 @@ fn emit_dispatch_binary(
 
 /// Emit a unary dispatch wrapper: check if the arg is NaN-boxed int
 /// and call the int helper, otherwise call the float helper.
-fn emit_dispatch_unary(
-    module: &mut LlvmModule,
-    name: &str,
-    int_helper: &str,
-    float_helper: &str,
-) {
+fn emit_dispatch_unary(module: &mut LlvmModule, name: &str, int_helper: &str, float_helper: &str) {
     if has_function(module, name) {
         return;
     }

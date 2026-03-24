@@ -62,7 +62,11 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             });
             state.bind_local(binder, slot);
         }
-        Self { state, program, is_tail_position: true }
+        Self {
+            state,
+            program,
+            is_tail_position: true,
+        }
     }
 
     fn new_closure_entry(
@@ -145,7 +149,11 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             state.bind_local(*binder, slot);
         }
 
-        Ok(Self { state, program, is_tail_position: false })
+        Ok(Self {
+            state,
+            program,
+            is_tail_position: false,
+        })
     }
 
     pub fn finish_with_return(
@@ -199,7 +207,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
     /// Lower an expression in a non-tail context (its result is used by
     /// subsequent computation, so a self-recursive call here cannot be
     /// converted to a loop branch).
-    pub(super) fn lower_expr_not_tail(&mut self, expr: &CoreExpr) -> Result<LlvmOperand, CoreToLlvmError> {
+    pub(super) fn lower_expr_not_tail(
+        &mut self,
+        expr: &CoreExpr,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
         let saved = self.is_tail_position;
         self.is_tail_position = false;
         let result = self.lower_expr(expr);
@@ -379,10 +390,9 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         let global_name = GlobalId(format!("flux.str.{str_idx}"));
 
         // Emit a global string constant: @flux.str.N = private constant [N x i8] c"..."
-        self.program.generated_string_globals.push((
-            global_name.clone(),
-            s.to_string(),
-        ));
+        self.program
+            .generated_string_globals
+            .push((global_name.clone(), s.to_string()));
 
         // Get pointer to the string data.
         let ptr_local = self.state.temp_local("str.ptr");
@@ -830,7 +840,8 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             if is_print_fn && lowered_args.len() > 1 {
                 // Multi-arg print: space-separated on one line, matching VM semantics.
                 // Use flux_print_space for all but the last, flux_print for the last.
-                self.program.ensure_c_decl("flux_print_space", &[LlvmType::i64()], LlvmType::Void);
+                self.program
+                    .ensure_c_decl("flux_print_space", &[LlvmType::i64()], LlvmType::Void);
                 let last_idx = lowered_args.len() - 1;
                 for (i, arg) in lowered_args.into_iter().enumerate() {
                     let callee_name = if i < last_idx {
@@ -1086,9 +1097,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                         | CoreTag::Left
                         | CoreTag::Right
                         | CoreTag::Cons
-                        | CoreTag::Named(_) => {
-                            self.program.adt_metadata.tag_for(tag)
-                        }
+                        | CoreTag::Named(_) => self.program.adt_metadata.tag_for(tag),
                         // None/Nil are immediate values, not boxed — can't switch on ADT tag
                         CoreTag::None | CoreTag::Nil => return Ok(None),
                     };
@@ -1691,10 +1700,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
     }
 
     /// Lower `Concat` (string `++`) to a C runtime call.
-    fn lower_concat_primop(
-        &mut self,
-        args: &[CoreExpr],
-    ) -> Result<LlvmOperand, CoreToLlvmError> {
+    fn lower_concat_primop(&mut self, args: &[CoreExpr]) -> Result<LlvmOperand, CoreToLlvmError> {
         self.lower_c_runtime_call("flux_string_concat", args, true)
     }
 
@@ -1719,17 +1725,18 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
     }
 
     /// Lower `MakeArray` to `flux_array_new(ptr, len)`.
-    fn lower_make_array(
-        &mut self,
-        args: &[CoreExpr],
-    ) -> Result<LlvmOperand, CoreToLlvmError> {
+    fn lower_make_array(&mut self, args: &[CoreExpr]) -> Result<LlvmOperand, CoreToLlvmError> {
         let lowered: Vec<LlvmOperand> = args
             .iter()
             .map(|a| self.lower_expr(a))
             .collect::<Result<Vec<_>, _>>()?;
         let arr_ptr = self.emit_operand_array(&lowered, "arr.elems")?;
         let dst = self.state.temp_local("arr.new");
-        self.ensure_c_decl("flux_array_new", &[LlvmType::ptr(), LlvmType::i32()], LlvmType::i64());
+        self.ensure_c_decl(
+            "flux_array_new",
+            &[LlvmType::ptr(), LlvmType::i32()],
+            LlvmType::i64(),
+        );
         self.state.emit(LlvmInstr::Call {
             dst: Some(dst.clone()),
             tail: false,
@@ -1746,10 +1753,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
     }
 
     /// Lower `MakeHash` to sequential `flux_hamt_set` calls.
-    fn lower_make_hash(
-        &mut self,
-        args: &[CoreExpr],
-    ) -> Result<LlvmOperand, CoreToLlvmError> {
+    fn lower_make_hash(&mut self, args: &[CoreExpr]) -> Result<LlvmOperand, CoreToLlvmError> {
         // MakeHash args come in key-value pairs.
         let mut map = self.emit_c_call_no_args("flux_hamt_empty", true)?;
         let mut i = 0;
@@ -1763,10 +1767,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
     }
 
     /// Lower `Index` (e.g., `arr[i]` or `map[k]`) to a C runtime call.
-    fn lower_index_primop(
-        &mut self,
-        args: &[CoreExpr],
-    ) -> Result<LlvmOperand, CoreToLlvmError> {
+    fn lower_index_primop(&mut self, args: &[CoreExpr]) -> Result<LlvmOperand, CoreToLlvmError> {
         if args.len() != 2 {
             return Err(CoreToLlvmError::Malformed {
                 message: format!("Index expects 2 args, got {}", args.len()),
@@ -1800,7 +1801,11 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         returns_value: bool,
     ) -> Result<LlvmOperand, CoreToLlvmError> {
         let params: Vec<LlvmType> = args.iter().map(|_| LlvmType::i64()).collect();
-        let ret = if returns_value { LlvmType::i64() } else { LlvmType::Void };
+        let ret = if returns_value {
+            LlvmType::i64()
+        } else {
+            LlvmType::Void
+        };
         self.ensure_c_decl(name, &params, ret.clone());
 
         if returns_value {
@@ -1931,7 +1936,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                     // Try as a builtin.
                     if let Some(result) = self.try_lower_builtin_call(
                         &CoreExpr::Var {
-                            var: crate::core::CoreVarRef { name: *member, binder: None },
+                            var: crate::core::CoreVarRef {
+                                name: *member,
+                                binder: None,
+                            },
                             span: crate::diagnostics::position::Span::default(),
                         },
                         &[],
@@ -2041,7 +2049,8 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         }
         let left = self.lower_expr_not_tail(&args[0])?;
         let right = self.lower_expr_not_tail(&args[1])?;
-        self.program.ensure_c_decl(name, &[LlvmType::i64(), LlvmType::i64()], LlvmType::i64());
+        self.program
+            .ensure_c_decl(name, &[LlvmType::i64(), LlvmType::i64()], LlvmType::i64());
         let dst = self.state.temp_local("primop");
         self.state.emit(LlvmInstr::Call {
             dst: Some(dst.clone()),
@@ -2066,7 +2075,8 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             });
         }
         let operand = self.lower_expr_not_tail(&args[0])?;
-        self.program.ensure_c_decl(name, &[LlvmType::i64()], LlvmType::i64());
+        self.program
+            .ensure_c_decl(name, &[LlvmType::i64()], LlvmType::i64());
         let dst = self.state.temp_local("primop");
         self.state.emit(LlvmInstr::Call {
             dst: Some(dst.clone()),

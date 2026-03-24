@@ -588,4 +588,3 @@ fn all_errors_flag_reveals_effect_diagnostics_after_type_errors() {
         all_text
     );
 }
-

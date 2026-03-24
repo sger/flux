@@ -730,9 +730,7 @@ fn run_file(
                 // See Proposal 0120 for the full design.
                 if false {
                     let base_dir = locate_base_lib_dir().unwrap();
-                    let base_files = [
-                        "List.flx",
-                    ];
+                    let base_files = ["List.flx"];
                     for file in base_files {
                         let base_path = base_dir.join(file);
                         if let Ok(base_source) = std::fs::read_to_string(&base_path) {
@@ -752,8 +750,7 @@ fn run_file(
 
                 if enable_optimize {
                     let desugared = desugar(c2l_program);
-                    let optimized =
-                        constant_fold_with_interner(desugared, &compiler.interner);
+                    let optimized = constant_fold_with_interner(desugared, &compiler.interner);
                     c2l_program = rename(optimized, HashMap::new());
                 }
 
@@ -761,8 +758,7 @@ fn run_file(
                 // (Currently disabled — see above.)
 
                 // Lower AST → Core IR (with Aether passes).
-                let core = match compiler
-                    .lower_aether_report_program(&c2l_program, enable_optimize)
+                let core = match compiler.lower_aether_report_program(&c2l_program, enable_optimize)
                 {
                     Ok(core) => core,
                     Err(diag) => {
@@ -780,7 +776,10 @@ fn run_file(
                     }
                 };
 
-                eprintln!("[c2l] Core IR done ({} defs). Starting LLVM codegen...", core.defs.len());
+                eprintln!(
+                    "[c2l] Core IR done ({} defs). Starting LLVM codegen...",
+                    core.defs.len()
+                );
                 // Core IR → LLVM IR AST → text.
                 let llvm_module = match flux::core_to_llvm::compile_program_with_interner(
                     &core,
@@ -795,10 +794,8 @@ fn run_file(
 
                 // Inject target triple and data layout.
                 let mut llvm_module = llvm_module;
-                llvm_module.target_triple =
-                    Some(flux::core_to_llvm::target::host_triple());
-                llvm_module.data_layout =
-                    flux::core_to_llvm::target::host_data_layout();
+                llvm_module.target_triple = Some(flux::core_to_llvm::target::host_triple());
+                llvm_module.data_layout = flux::core_to_llvm::target::host_data_layout();
 
                 let ll_text = flux::core_to_llvm::render_module(&llvm_module);
 
@@ -820,9 +817,7 @@ fn run_file(
                     let out = output_path
                         .map(std::path::PathBuf::from)
                         .unwrap_or_else(|| {
-                            std::path::PathBuf::from(
-                                path.strip_suffix(".flx").unwrap_or(path),
-                            )
+                            std::path::PathBuf::from(path.strip_suffix(".flx").unwrap_or(path))
                         });
                     let config = flux::core_to_llvm::pipeline::PipelineConfig {
                         ll_text,
@@ -830,15 +825,11 @@ fn run_file(
                         output_path: Some(out.clone()),
                         runtime_lib_dir,
                     };
-                    match flux::core_to_llvm::pipeline::compile_to_binary(&config)
-                    {
+                    match flux::core_to_llvm::pipeline::compile_to_binary(&config) {
                         Ok(flux::core_to_llvm::pipeline::PipelineResult::EmittedBinary {
                             path: bin_path,
                         }) => {
-                            println!(
-                                "Emitted binary: {}",
-                                bin_path.display()
-                            );
+                            println!("Emitted binary: {}", bin_path.display());
                         }
                         Ok(_) => {}
                         Err(e) => {
@@ -858,9 +849,7 @@ fn run_file(
                     runtime_lib_dir,
                 };
                 match flux::core_to_llvm::pipeline::compile_and_run(&config) {
-                    Ok(flux::core_to_llvm::pipeline::PipelineResult::Executed {
-                        exit_code,
-                    }) => {
+                    Ok(flux::core_to_llvm::pipeline::PipelineResult::Executed { exit_code }) => {
                         if exit_code != 0 {
                             std::process::exit(exit_code);
                         }
@@ -1215,10 +1204,7 @@ fn print_stats(stats: &RunStats) {
         eprintln!("  {:<20} {:>8.2} ms  [bytecode]", "compile", ms);
     }
 
-    eprintln!(
-        "  {:<20} {:>8.2} ms  [vm]",
-        "execute", stats.execute_ms
-    );
+    eprintln!("  {:<20} {:>8.2} ms  [vm]", "execute", stats.execute_ms);
     eprintln!("  {:<20} {:>8.2} ms", "total", total_ms);
     eprintln!();
 

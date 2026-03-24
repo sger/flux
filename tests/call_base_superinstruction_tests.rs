@@ -126,4 +126,3 @@ fn vm_allowlisted_base_function_wrong_arity_error_is_preserved() {
         err
     );
 }
-

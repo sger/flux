@@ -81,7 +81,6 @@ pub fn run_tests(vm: &mut VM, tests: Vec<(String, usize)>) -> Vec<TestResult> {
     run_test_fns(vm, fns)
 }
 
-
 /// Prints the test report and returns `true` if all tests passed.
 pub fn print_test_report(file_name: &str, results: &[TestResult]) -> bool {
     println!("Running tests in {}\n", file_name);

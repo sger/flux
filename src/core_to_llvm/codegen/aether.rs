@@ -5,9 +5,7 @@
 //! `AetherCall` with per-argument borrow modes.
 
 use crate::core::{CoreExpr, CoreTag, CoreVarRef};
-use crate::core_to_llvm::{
-    CallConv, LlvmInstr, LlvmOperand, LlvmTerminator, LlvmType,
-};
+use crate::core_to_llvm::{CallConv, LlvmInstr, LlvmOperand, LlvmTerminator, LlvmType};
 
 use super::function::CoreToLlvmError;
 use super::prelude::flux_prelude_symbol;
@@ -161,9 +159,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             tail: false,
             call_conv: Some(CallConv::Fastcc),
             ret_ty: LlvmType::i64(),
-            callee: LlvmOperand::Global(
-                super::closure::flux_closure_symbol("flux_tag_boxed_ptr"),
-            ),
+            callee: LlvmOperand::Global(super::closure::flux_closure_symbol("flux_tag_boxed_ptr")),
             args: vec![(LlvmType::ptr(), LlvmOperand::Local(mem_ptr))],
             attrs: vec![],
         });

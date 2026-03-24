@@ -1,6 +1,5 @@
 ---
 source: tests/runtime_error_fixtures_snapshots.rs
-assertion_line: 147
 ---
 Fixture: examples/runtime_errors/list_boundary_string_into_list.flx
 == vm ==
@@ -52,3 +51,6 @@ Note:
 
 Help:
   Check the value flowing into this operation or add a conversion before this point.
+
+Stack trace:
+  at <main> (examples/runtime_errors/list_boundary_string_into_list.flx:8:1)

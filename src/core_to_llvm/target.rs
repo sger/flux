@@ -25,7 +25,10 @@ pub fn host_data_layout() -> Option<String> {
     // Common default for x86_64.
     #[cfg(target_arch = "x86_64")]
     {
-        Some("e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128".into())
+        Some(
+            "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+                .into(),
+        )
     }
     #[cfg(target_arch = "aarch64")]
     {
@@ -46,7 +49,11 @@ fn llvm_config_triple() -> Option<String> {
         return None;
     }
     let triple = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if triple.is_empty() { None } else { Some(triple) }
+    if triple.is_empty() {
+        None
+    } else {
+        Some(triple)
+    }
 }
 
 fn compile_time_triple() -> String {
