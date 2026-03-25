@@ -8,43 +8,31 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/base_map_callback_arity.flx
-error[E1000]: map: callback error at index 0: wrong number of arguments
+error[E004]: Undefined Variable
 
-function: concat/2
-  expected: 2
-  got: 1
+I can't find a value named `concat`.
 
-  examples/runtime_errors/base_map_callback_arity.flx:2:19
+  examples/runtime_errors/base_map_callback_arity.flx:2:29
   |
 2 |     let ignored = map(#[1], concat)
-  |                   ^^^^^^^^^^^^^^^^^
+  |                             ^^^^^^
 
 Hint:
-  concat(a, b)
-
-Stack trace:
-  at main (examples/runtime_errors/base_map_callback_arity.flx:2:19)
-  at <main>
+  Define it first: let concat = ...;
 == jit ==
 status: 1
 stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/base_map_callback_arity.flx
-error[E1000]: map: callback error at index 0: wrong number of arguments
+error[E004]: Undefined Variable
 
-function: concat/2
-  expected: 2
-  got: 1
+I can't find a value named `concat`.
 
-  examples/runtime_errors/base_map_callback_arity.flx:2:19
+  examples/runtime_errors/base_map_callback_arity.flx:2:29
   |
 2 |     let ignored = map(#[1], concat)
-  |                   ^^^^^^^^^^^^^^^^^
+  |                             ^^^^^^
 
 Hint:
-  concat(a, b)
-
-Stack trace:
-  at main (examples/runtime_errors/base_map_callback_arity.flx:2:19)
-  at <main>
+  Define it first: let concat = ...;

@@ -1052,7 +1052,7 @@ fn run_test_file(
     // --- Parse ---
     let lexer = Lexer::new(&source);
     let mut parser = Parser::new(lexer);
-    let program = parser.parse_program();
+    let mut program = parser.parse_program();
 
     let mut all_diagnostics: Vec<Diagnostic> = Vec::new();
     let mut parse_warnings = parser.take_warnings();
@@ -1084,6 +1084,9 @@ fn run_test_file(
         std::process::exit(1);
     }
 
+    // Auto-import Base library for test mode too.
+    inject_base_prelude(&mut program, &mut parser, false);
+
     let interner = parser.take_interner();
 
     // --- Build module graph ---
@@ -1108,9 +1111,17 @@ fn run_test_file(
         }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
+        let is_base_library = node.path.to_string_lossy().contains("lib/Base/")
+            || node.path.to_string_lossy().contains("lib\\Base\\");
         compiler.set_strict_require_main(is_entry_module);
+        if is_base_library {
+            compiler.set_strict_mode(false);
+        }
         let compile_result =
             compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
+        if is_base_library {
+            compiler.set_strict_mode(strict_mode);
+        }
         let mut compiler_warnings = compiler.take_warnings();
         tag_diagnostics(&mut compiler_warnings, DiagnosticPhase::Validation);
         for diag in &mut compiler_warnings {

@@ -75,12 +75,6 @@ impl SymbolTable {
         }
     }
 
-    pub fn define_base_function(&mut self, index: usize, name: Symbol) -> Binding {
-        let symbol = Binding::new(name, SymbolScope::Base, index, Span::default());
-        self.store.insert(name, symbol.clone());
-        symbol
-    }
-
     pub fn define_function_name(&mut self, name: Symbol, span: Span) -> Binding {
         let symbol = Binding::new(name, SymbolScope::Function, 0, span);
         self.store.insert(name, symbol.clone());
@@ -109,9 +103,7 @@ impl SymbolTable {
             None => {
                 if let Some(outer) = &mut self.outer {
                     let obj = outer.resolve(name)?;
-                    if obj.symbol_scope == SymbolScope::Global
-                        || obj.symbol_scope == SymbolScope::Base
-                    {
+                    if obj.symbol_scope == SymbolScope::Global {
                         return Some(obj);
                     }
                     if self.allow_free {

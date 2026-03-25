@@ -11,12 +11,6 @@ I found the wrong type in the 1st argument to `sum`.
 
   examples/compiler_errors/adversarial/common_dev_mistakes/CollectionsConfusion.flx:7:13
   |
-1 | module CollectionsConfusion {
-2 |     fn sum(xs: List<Int>) -> Int {
-3 |         len(xs)
-4 |     }
-5 | 
-6 |     fn bad() -> Int {
 7 |         sum([|1, 2, 3|])
   |             ^^^^^^^^^^^
   |             ----------- this argument has type `Array<Int>`
@@ -25,7 +19,6 @@ Note:
   expected argument type: List<Int>
   found argument type: Array<Int>
   the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
 
 Help:
   Pass a `List<Int>` value as the 1st argument.
@@ -65,9 +58,9 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-error[E080]: Unknown Base Member
+error[E013]: Module Not Imported
 
-Base has no member named `prnit`.
+Module `Base` is not imported.
 
   examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMemberTypo.flx:3:9
   |
@@ -75,7 +68,7 @@ Base has no member named `prnit`.
   |         ^^^^^^^^^^
 
 Hint:
-  Check the Base surface or remove this name from `except`.
+  Add an import statement at the top of your file: `import Base`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
 
 
 error[E407]: Unknown Effect
@@ -103,9 +96,6 @@ I can't find a value named `prnit`.
 
 Hint:
   Define it first: let prnit = ...;
-
-Help:
-  Did you mean `print`?
 
 
 error[E056]: Wrong Number Of Arguments

@@ -84,7 +84,7 @@ letrec drain_sum : Int =
       _ →
         total#31
 
-letrec main : Unit =
+letrec main : Any =
 λ.
     let #2000002[synthetic]#37 = Print("Queue workload")
     drop #2000002[synthetic]#37

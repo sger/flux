@@ -5,62 +5,6 @@ Fixture: examples/aoc/2025/aoc_day1_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 2nd argument to `count_zeros_right`.
-
-  examples/aoc/2025/aoc_day1_part2.flx:45:44
-   |
-30 | fn count_zeros_right(pos, distance) {
-31 |     let first_zero_click = if pos == 0 { 100 } else { 100 - pos }
-32 |     count_hits_for_rotation(first_zero_click, distance)
-33 | }
-34 | 
-35 | fn count_zeros_left(pos, distance) {
-36 |     let first_zero_click = if pos == 0 { 100 } else { pos }
-37 |     count_hits_for_rotation(first_zero_click, distance)
-38 | }
-39 | 
-40 | fn apply_rotation(step, rest, pos, hits) {
-41 |     let dir = substring(step, 0, 1)
-42 |     let distance = parse_int(substring(step, 1, len(step)))
-43 | 
-44 |     if dir == "R" {
-45 |         let zeros = count_zeros_right(pos, distance)
-   |                                            ^^^^^^^^
-   |                                            -------- this argument has type `Option<Int>`
-
-Note:
-  expected argument type: Int
-  found argument type: Option<Int>
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
-
-Help:
-  This value might be `None`. Use `match` to unwrap it before using it here.
-
-
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/aoc/2025/aoc_day1_part2.flx:46:39
-   |
-46 |         let next_pos_right = wrap_100(pos + distance)
-   |                                       ^^^^^^^^^^^^^^
-   |                                       -------------- this expression has type `Int and Option<Int>`
-
-   |                                       -------------- operator operands are known at compile time
-
-Note:
-  expected type: matching '+' operands (Int+Int, Float+Float, or String+String)
-  found type: Int and Option<Int>
-
-Help:
-  These two types are not compatible.
-  adjust operand types or add explicit conversion
-
-
 error[E004]: Undefined Variable
 
 I can't find a value named `solve`.
@@ -74,39 +18,18 @@ Hint:
   Define it first: let solve = ...;
 
 
-error[E300]: Argument Type Mismatch
+error[E004]: Undefined Variable
 
-I found the wrong type in the 2nd argument to `count_zeros_left`.
+I can't find a value named `map`.
 
-  examples/aoc/2025/aoc_day1_part2.flx:49:44
+  examples/aoc/2025/aoc_day1_part2.flx:63:13
    |
-35 | fn count_zeros_left(pos, distance) {
-36 |     let first_zero_click = if pos == 0 { 100 } else { pos }
-37 |     count_hits_for_rotation(first_zero_click, distance)
-38 | }
-39 | 
-40 | fn apply_rotation(step, rest, pos, hits) {
-41 |     let dir = substring(step, 0, 1)
-42 |     let distance = parse_int(substring(step, 1, len(step)))
-43 | 
-44 |     if dir == "R" {
-45 |         let zeros = count_zeros_right(pos, distance)
-46 |         let next_pos_right = wrap_100(pos + distance)
-47 |         solve(rest, next_pos_right, hits + zeros)
-48 |     } else {
-49 |     let zeros_left = count_zeros_left(pos, distance)
-   |                                            ^^^^^^^^
-   |                                            -------- this argument has type `Option<Int>`
+63 | let steps = [trim(line) | line <- lines, trim(line) != ""]
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Note:
-  expected argument type: Int
-  found argument type: Option<Int>
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
+Hint:
+  Define it first: let map = ...;
 
-Help:
-  This value might be `None`. Use `match` to unwrap it before using it here.
-
-Found 4 errors.
+Found 2 errors.
 == stdout ==
 <not executed>

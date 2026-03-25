@@ -91,15 +91,24 @@ fn test_string_replace() {
 }
 
 fn test_string_split() {
-    assert_eq(split("a,b,c", ","), [|"a", "b", "c"|])
+    let result = split("a,b,c", ",")
+    assert_eq(len(result), 3)
+    assert_eq(result[0], Some("a"))
+    assert_eq(result[1], Some("b"))
+    assert_eq(result[2], Some("c"))
 }
 
 fn test_string_join() {
-    assert_eq(join([|"a", "b", "c"|], "-"), "a-b-c")
+    let result = join([|"a", "b", "c"|], "-")
+    assert_eq(to_string(result), "a-b-c")
 }
 
 fn test_string_chars() {
-    assert_eq(chars("abc"), [|"a", "b", "c"|])
+    let result = chars("abc")
+    assert_eq(len(result), 3)
+    assert_eq(result[0], Some("a"))
+    assert_eq(result[1], Some("b"))
+    assert_eq(result[2], Some("c"))
 }
 
 fn test_string_substring() {

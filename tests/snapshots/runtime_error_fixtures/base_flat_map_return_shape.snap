@@ -7,30 +7,34 @@ status: 1
 stdout:
 <empty>
 stderr:
-• 1 error • examples/runtime_errors/base_flat_map_return_shape.flx
-error[E1009]: flat_map: callback must return an Array when input is Array, got Int
+• 1 error • lib/Base/List.flx
+error[E1004]: primop concat expected Array, got Int
 
-  examples/runtime_errors/base_flat_map_return_shape.flx:2:19
-  |
-2 |     let ignored = flat_map(#[1], /x -> x)
-  |                   ^^^^^^^^^^^^^^^^^^^^^^^
+  lib/Base/List.flx:54:32
+   |
+54 |                     Some(v) -> flatmap_go(i + 1, concat(result, f(v))),
+   |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Stack trace:
-  at main (examples/runtime_errors/base_flat_map_return_shape.flx:2:19)
+  at flatmap_go (lib/Base/List.flx:54:32)
+  at Base.List.flat_map
+  at main (examples/runtime_errors/base_flat_map_return_shape.flx:2:5)
   at <main>
 == jit ==
 status: 1
 stdout:
 <empty>
 stderr:
-• 1 error • examples/runtime_errors/base_flat_map_return_shape.flx
-error[E1009]: flat_map: callback must return an Array when input is Array, got Int
+• 1 error • lib/Base/List.flx
+error[E1004]: primop concat expected Array, got Int
 
-  examples/runtime_errors/base_flat_map_return_shape.flx:2:19
-  |
-2 |     let ignored = flat_map(#[1], /x -> x)
-  |                   ^^^^^^^^^^^^^^^^^^^^^^^
+  lib/Base/List.flx:54:32
+   |
+54 |                     Some(v) -> flatmap_go(i + 1, concat(result, f(v))),
+   |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Stack trace:
-  at main (examples/runtime_errors/base_flat_map_return_shape.flx:2:19)
+  at flatmap_go (lib/Base/List.flx:54:32)
+  at Base.List.flat_map
+  at main (examples/runtime_errors/base_flat_map_return_shape.flx:2:5)
   at <main>

@@ -5,90 +5,62 @@ Fixture: examples/basics/mini_database.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Type Mismatch
+error[E004]: Undefined Variable
 
-I found a type mismatch.
+I can't find a value named `first`.
 
-  examples/basics/mini_database.flx:43:11
+  examples/basics/mini_database.flx:13:18
    |
-43 |     print(first_record["name"])
-   |           ^^^^^^^^^^^^
-   |           ------------ this expression has type `Option<Map<String, Int>>`
+13 |     let record = first(records)
+   |                  ^^^^^
 
-   |           ------------ indexed value is known at compile time
+Hint:
+  Define it first: let first = ...;
 
-Note:
-  expected type: indexable value (Array/List/Tuple/Map)
-  found type: Option<Map<String, Int>>
+
+error[E004]: Undefined Variable
+
+I can't find a value named `rest`.
+
+  examples/basics/mini_database.flx:17:14
+   |
+17 |     findById(rest(records), id)
+   |              ^^^^
+
+Hint:
+  Define it first: let rest = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
+
+  examples/basics/mini_database.flx:42:24
+   |
+42 |     let first_record = first(db)
+   |                        ^^^^^
+
+Hint:
+  Define it first: let first = ...;
 
 Help:
-  This value might be `None`. Use `match` to unwrap it before using it here.
-  index only arrays, lists, tuples, or maps
-  Suppressed 1 nearby duplicate E300 diagnostic(s).
+  Did you mean `first_record`?
 
 
-error[E300]: Type Mismatch
+error[E004]: Undefined Variable
 
-I found a type mismatch.
+I can't find a value named `first`.
 
-  examples/basics/mini_database.flx:47:11
+  examples/basics/mini_database.flx:46:25
    |
-47 |     print(second_record["name"])
-   |           ^^^^^^^^^^^^^
-   |           ------------- this expression has type `Option<Map<String, Int>>`
+46 |     let second_record = first(rest(db))
+   |                         ^^^^^
 
-   |           ------------- indexed value is known at compile time
-
-Note:
-  expected type: indexable value (Array/List/Tuple/Map)
-  found type: Option<Map<String, Int>>
+Hint:
+  Define it first: let first = ...;
 
 Help:
-  This value might be `None`. Use `match` to unwrap it before using it here.
-  index only arrays, lists, tuples, or maps
-  Suppressed 1 nearby duplicate E300 diagnostic(s).
-
-
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/basics/mini_database.flx:54:11
-   |
-54 |     print(found["name"])
-   |           ^^^^^
-   |           ----- this expression has type `Option<Map<String, Int>>`
-
-   |           ----- indexed value is known at compile time
-
-Note:
-  expected type: indexable value (Array/List/Tuple/Map)
-  found type: Option<Map<String, Int>>
-
-Help:
-  This value might be `None`. Use `match` to unwrap it before using it here.
-  index only arrays, lists, tuples, or maps
-
-
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/basics/mini_database.flx:57:11
-   |
-57 |     print(maybe_charlie["name"])
-   |           ^^^^^^^^^^^^^
-   |           ------------- this expression has type `Option<Map<String, Int>>`
-
-   |           ------------- indexed value is known at compile time
-
-Note:
-  expected type: indexable value (Array/List/Tuple/Map)
-  found type: Option<Map<String, Int>>
-
-Help:
-  This value might be `None`. Use `match` to unwrap it before using it here.
-  index only arrays, lists, tuples, or maps
+  Did you mean `first_record`?
 
 Found 4 errors.
 == stdout ==

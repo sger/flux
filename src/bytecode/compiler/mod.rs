@@ -23,11 +23,10 @@ use crate::{
     },
     diagnostics::{
         CIRCULAR_DEPENDENCY, Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase,
-        ErrorType, UNKNOWN_BASE_MEMBER, lookup_error_code,
+        ErrorType, lookup_error_code,
         position::{Position, Span},
     },
     runtime::{
-        base::{BaseModule, scheme_for_signature_id},
         function_contract::FunctionContract,
         runtime_type::RuntimeType,
         value::Value,
@@ -148,7 +147,6 @@ pub struct Compiler {
     analyze_enabled: bool,
     // Conservative per-block local-use counts used to emit consume-style local reads.
     pub(super) consumable_local_use_counts: Vec<HashMap<Symbol, usize>>,
-    pub(super) excluded_base_symbols: HashSet<Symbol>,
     pub module_contracts: ModuleContractTable,
     pub module_function_visibility: HashMap<(Symbol, Symbol), bool>,
     pub(super) module_adt_constructors: HashMap<(Symbol, Symbol), Symbol>,
@@ -185,11 +183,8 @@ impl Compiler {
     }
 
     pub fn new_with_interner(file_path: impl Into<String>, interner: Interner) -> Self {
-        let mut interner = interner;
-        let mut symbol_table = SymbolTable::new();
-        for (index, name) in BaseModule::new().names().enumerate() {
-            symbol_table.define_base_function(index, interner.intern(name));
-        }
+        let interner = interner;
+        let symbol_table = SymbolTable::new();
 
         Self {
             constants: Vec::new(),
@@ -221,7 +216,6 @@ impl Compiler {
             tail_calls: Vec::new(),
             analyze_enabled: false,
             consumable_local_use_counts: Vec::new(),
-            excluded_base_symbols: HashSet::new(),
             module_contracts: HashMap::new(),
             module_function_visibility: HashMap::new(),
             module_adt_constructors: HashMap::new(),
@@ -268,9 +262,12 @@ impl Compiler {
         self.import_aliases.clear();
         self.imported_module_exclusions.clear();
         self.exposed_bindings.clear();
+        // Auto-expose all Base library module members (Proposal 0120).
+        // This ensures every compilation unit has access to the Flux stdlib
+        // without explicit imports, replacing the old base function registry.
+        self.auto_expose_base_modules();
         self.current_module_prefix = None;
         self.current_span = None;
-        self.excluded_base_symbols.clear();
         self.static_type_scopes.clear();
         self.static_type_scopes.push(HashMap::new());
         self.effect_alias_scopes.clear();
@@ -282,6 +279,38 @@ impl Compiler {
         self.handled_effects.clear();
         self.effect_ops_registry.clear();
         self.effect_op_signatures.clear();
+    }
+
+    /// Auto-expose all public members of Base library modules.
+    ///
+    /// Replaces the old base function registry — every compilation unit
+    /// gets unqualified access to `map`, `filter`, `assert_eq`, etc.
+    /// from `lib/Base/*.flx` without needing explicit `import ... exposing`.
+    fn auto_expose_base_modules(&mut self) {
+        let base_prefixes: Vec<&str> = vec![
+            "Base.Option",
+            "Base.List",
+            "Base.String",
+            "Base.Numeric",
+            "Base.IO",
+            "Base.Assert",
+        ];
+        // Collect all public members for Base modules.
+        let entries: Vec<(Symbol, Symbol)> = self
+            .module_function_visibility
+            .iter()
+            .filter(|((mod_name, _), is_public)| {
+                **is_public && {
+                    let name = self.interner.try_resolve(*mod_name).unwrap_or("");
+                    base_prefixes.iter().any(|p| name == *p)
+                }
+            })
+            .map(|((mod_name, member), _)| (*mod_name, *member))
+            .collect();
+        for (mod_name, member) in entries {
+            let qualified = self.interner.intern_join(mod_name, member);
+            self.exposed_bindings.insert(member, qualified);
+        }
     }
 
     pub fn set_strict_mode(&mut self, strict_mode: bool) {
@@ -307,7 +336,6 @@ impl Compiler {
         self.exposed_bindings.clear();
         self.current_module_prefix = None;
         self.current_span = None;
-        self.excluded_base_symbols.clear();
         self.static_type_scopes.clear();
         self.static_type_scopes.push(HashMap::new());
         self.effect_alias_scopes.clear();
@@ -512,9 +540,6 @@ impl Compiler {
             let Statement::Import { name, alias, .. } = statement else {
                 continue;
             };
-            if self.is_base_module_symbol(*name) {
-                continue;
-            }
             let binding = alias.unwrap_or(*name);
             bindings.insert(binding, *name);
         }
@@ -617,10 +642,6 @@ impl Compiler {
                 continue;
             };
 
-            if self.is_base_module_symbol(*module_name) {
-                continue;
-            }
-
             let members_to_expose: Vec<Symbol> = match exposing {
                 ImportExposing::None => continue,
                 ImportExposing::All => self
@@ -656,124 +677,22 @@ impl Compiler {
         exposed
     }
 
-    fn build_preloaded_base_schemes(&mut self) -> HashMap<Symbol, Scheme> {
-        let mut preloaded = HashMap::new();
-        for base_fn in BaseModule::new().names() {
-            let base_name = self.interner.intern(base_fn);
-            let Some(entry) = BaseModule::new()
-                .index_of(base_fn)
-                .and_then(|i| BaseModule::new().by_index(i))
-            else {
-                continue;
-            };
-            match scheme_for_signature_id(entry.hm_signature, &mut self.interner) {
-                Ok(scheme) => {
-                    preloaded.insert(base_name, scheme);
-                }
-                Err(message) => {
-                    let span = Span::new(Position::new(1, 0), Position::new(1, 0));
-                    self.errors.push(
-                        Diagnostic::make_error_dynamic(
-                            "E426",
-                            "BASE HM SIGNATURE MISSING",
-                            ErrorType::Compiler,
-                            format!(
-                                "Base function `{}` has invalid or missing HM metadata: {}",
-                                base_fn, message
-                            ),
-                            Some(
-                                "Fix the Base HM signature in src/runtime/base/base_hm_signature.rs."
-                                    .to_string(),
-                            ),
-                            self.file_path.clone(),
-                            span,
-                        )
-                        .with_display_title("Missing Base HM Signature")
-                        .with_category(DiagnosticCategory::Internal)
-                        .with_primary_label(span, "invalid Base HM metadata"),
-                    );
-                }
-            }
-        }
-        preloaded
-    }
-
-    fn build_preload_base_member_schemes(&mut self) -> HashMap<(Symbol, Symbol), Scheme> {
-        let mut preloaded = HashMap::new();
-        let base_module = self.interner.intern("Base");
-
-        for base_fn in BaseModule::new().names() {
-            let member = self.interner.intern(base_fn);
-            let Some(entry) = BaseModule::new()
-                .index_of(base_fn)
-                .and_then(|i| BaseModule::new().by_index(i))
-            else {
-                continue;
-            };
-
-            match scheme_for_signature_id(entry.hm_signature, &mut self.interner) {
-                Ok(scheme) => {
-                    preloaded.insert((base_module, member), scheme);
-                }
-                Err(message) => {
-                    let span = Span::new(Position::new(1, 0), Position::new(1, 0));
-                    self.errors.push(
-                        Diagnostic::make_error_dynamic(
-                            "E426",
-                            "BASE HM SIGNATURE MISSING",
-                            ErrorType::Compiler,
-                            format!(
-                                "Base member `Base.{}` has invalid or missing HM metadata: {}",
-                                base_fn, message
-                            ),
-                            Some(
-                                "Fix the Base HM signature in src/runtime/base/base_hm_signature.rs."
-                                    .to_string(),
-                            ),
-                            self.file_path.clone(),
-                            span,
-                        )
-                        .with_display_title("Missing Base HM Signature")
-                        .with_category(DiagnosticCategory::Internal)
-                        .with_primary_label(span, "invalid Base HM metadata"),
-                    );
-                }
-            }
-        }
-        preloaded
-    }
-
-    fn known_base_name_set(&mut self) -> HashSet<Symbol> {
-        BaseModule::new()
-            .names()
-            .map(|name| self.interner.intern(name))
-            .collect()
-    }
-
     /// Build the `InferProgramConfig` needed by `infer_program`.
     ///
-    /// Collects base schemes, module member schemes, and effect signatures.
+    /// Collects module member schemes and effect signatures.
     /// Can be called multiple times (e.g. for two-phase inference).
     fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
-        let base_schemes = self.build_preloaded_base_schemes();
         let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
-        let base_member_schemes = self.build_preload_base_member_schemes();
-        let known_base_names = self.known_base_name_set();
         let base_module_symbol = self.interner.intern("Base");
-        let mut merged_member_schemes = preloaded_member_schemes;
-        merged_member_schemes.extend(base_member_schemes);
 
-        // Merge exposed import schemes into base schemes so HM inference
-        // resolves them as unqualified identifiers.
+        // Exposed import schemes are used as unqualified identifiers by HM inference.
         let exposed_schemes = self.build_exposed_hm_schemes(program);
-        let mut merged_base_schemes = base_schemes;
-        merged_base_schemes.extend(exposed_schemes);
 
         InferProgramConfig {
             file_path: Some(self.file_path.as_str().into()),
-            preloaded_base_schemes: merged_base_schemes,
-            preloaded_module_member_schemes: merged_member_schemes,
-            known_base_names,
+            preloaded_base_schemes: exposed_schemes,
+            preloaded_module_member_schemes: preloaded_member_schemes,
+            known_base_names: HashSet::new(),
             base_module_symbol,
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
         }
@@ -1302,9 +1221,6 @@ impl Compiler {
                     }
                 }
                 if !resolved {
-                    if self.excluded_base_symbols.contains(name) {
-                        return effects;
-                    }
                     let name = self.sym(*name);
                     if matches!(name, "print" | "read_file" | "read_lines" | "read_stdin") {
                         effects.insert(io_effect);
@@ -2094,27 +2010,7 @@ impl Compiler {
 
         if let Some(effect) = self.lookup_effect_alias(*name) {
             self.bind_effect_alias(binding, effect);
-            return;
         }
-
-        let Some(symbol) = self.resolve_visible_symbol(*name) else {
-            return;
-        };
-        if symbol.symbol_scope != crate::bytecode::symbol_scope::SymbolScope::Base {
-            return;
-        }
-
-        let base_name = self.sym(*name).to_string();
-        let required_name = match base_name.as_str() {
-            "print" | "read_file" | "read_lines" | "read_stdin" => Some("IO"),
-            "now" | "clock_now" | "now_ms" | "time" => Some("Time"),
-            _ => None,
-        };
-        let Some(required_name) = required_name else {
-            return;
-        };
-        let effect = self.interner.intern(required_name);
-        self.bind_effect_alias(binding, effect);
     }
 
     /// Compile with optional optimization and analysis passes.
@@ -2962,61 +2858,7 @@ impl Compiler {
     }
 
     pub(super) fn resolve_visible_symbol(&mut self, name: Symbol) -> Option<Binding> {
-        let binding = self.symbol_table.resolve(name)?;
-        if binding.symbol_scope == crate::bytecode::symbol_scope::SymbolScope::Base
-            && self.excluded_base_symbols.contains(&name)
-        {
-            return None;
-        }
-        Some(binding)
-    }
-
-    fn process_base_directives(&mut self, program: &Program) {
-        let mut seen = HashSet::new();
-
-        for statement in &program.statements {
-            let Statement::Import {
-                name,
-                alias,
-                except,
-                exposing: _,
-                span,
-            } = statement
-            else {
-                continue;
-            };
-
-            if !self.is_base_module_symbol(*name) {
-                continue;
-            }
-
-            if let Some(alias) = alias {
-                let alias_name = self.sym(*alias);
-                self.errors
-                    .push(self.make_base_alias_error(alias_name, *span));
-            }
-
-            for excluded in except {
-                let excluded_name = self.sym(*excluded);
-                if !seen.insert(*excluded) {
-                    self.errors
-                        .push(self.make_duplicate_base_exclusion_error(excluded_name, *span));
-                    continue;
-                }
-
-                if BaseModule::new().index_of(excluded_name).is_none() {
-                    self.errors.push(Diagnostic::make_error(
-                        &UNKNOWN_BASE_MEMBER,
-                        &[excluded_name],
-                        self.file_path.clone(),
-                        *span,
-                    ));
-                    continue;
-                }
-
-                self.excluded_base_symbols.insert(*excluded);
-            }
-        }
+        self.symbol_table.resolve(name)
     }
 }
 

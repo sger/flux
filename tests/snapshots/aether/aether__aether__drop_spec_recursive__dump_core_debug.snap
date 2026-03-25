@@ -27,7 +27,7 @@ letrec rec_copy_or_keep : List<Any> =
       _ →
         []
 
-letrec main : Unit =
+letrec main : Any =
 λ.
     let #4000010[synthetic]#10 = (let #4000009[synthetic]#9 = MakeList(1, 2, 3)
     aether_call[borrowed, borrowed] rec_copy_or_keep#0(#4000009[synthetic]#9, false))

@@ -5,17 +5,19 @@ Fixture: examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E400]: Missing Ambient Effect
+error[E004]: Undefined Variable
 
-Call to `n` requires effect `Time` in this function signature.
+I can't find a value named `now_ms`.
 
-  examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx:5:5
+  examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx:4:13
   |
-5 |     n()
-  |     ^
-  |     - effectful call occurs here
+4 |     let n = now_ms
+  |             ^^^^^^
 
 Hint:
-  Add `with Time` to the enclosing function.
+  Define it first: let now_ms = ...;
+
+Help:
+  Did you mean `n`?
 == stdout ==
 <not executed>

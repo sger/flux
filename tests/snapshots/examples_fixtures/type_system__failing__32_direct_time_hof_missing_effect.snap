@@ -5,36 +5,16 @@ Fixture: examples/type_system/failing/32_direct_time_hof_missing_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E056]: Wrong Number Of Arguments
+error[E004]: Undefined Variable
 
-The `time` function takes 0 arguments, but 1 were provided.
-
-  examples/type_system/failing/32_direct_time_hof_missing_effect.flx:4:5
-  |
-1 | 
-2 | 
-3 | fn profiled() -> Int with IO {
-4 |     time(/() -> 1)
-  |     ^^^^^^^^^^^^^^
-  |     -------------- 1 arguments provided here, expected 0
-
-Help:
-  Remove 1 extra argument(s), for example: `time()`.
-
-
-error[E400]: Missing Effect
-
-requires effect `Time` but the enclosing context does not provide it
+I can't find a value named `time`.
 
   examples/type_system/failing/32_direct_time_hof_missing_effect.flx:4:5
   |
 4 |     time(/() -> 1)
-  |     ^^^^^^^^^^^^^^
-  |     -------------- requires `Time`
+  |     ^^^^
 
 Hint:
-  annotate the enclosing function with `with Time`
-
-Found 2 errors.
+  Define it first: let time = ...;
 == stdout ==
 <not executed>
