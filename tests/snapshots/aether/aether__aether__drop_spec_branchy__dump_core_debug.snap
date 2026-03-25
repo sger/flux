@@ -1,6 +1,5 @@
 ---
 source: tests/aether_cli_snapshots.rs
-assertion_line: 75
 ---
 letrec copy_or_keep_head : List<Any> =
 λxs#1, copy#2.

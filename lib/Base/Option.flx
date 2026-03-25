@@ -1,36 +1,51 @@
-// Base.Option — Option type helpers.
+// Base.Option — Option type helpers for the Flux base library.
 
-fn unwrap(opt) {
-    match opt {
-        Some(v) -> v,
-        None -> panic("unwrap called on None")
+module Base.Option {
+    /// Extract the value from Some, or panic on None.
+    public fn unwrap(opt) {
+        match opt {
+            Some(v) -> v,
+            _ -> panic("unwrap called on None"),
+        }
     }
-}
 
-fn unwrap_or(opt, default) {
-    match opt {
-        Some(v) -> v,
-        None -> default
+    /// Extract the value from Some, or return a default on None.
+    public fn unwrap_or(opt, default) {
+        match opt {
+            Some(v) -> v,
+            _ -> default,
+        }
     }
-}
 
-fn map_option(opt, f) {
-    match opt {
-        Some(v) -> Some(f(v)),
-        None -> None
+    /// Apply a function to the value inside Some, or pass None through.
+    public fn map_option(opt, f) {
+        match opt {
+            Some(v) -> Some(f(v)),
+            _ -> None,
+        }
     }
-}
 
-fn flat_map_option(opt, f) {
-    match opt {
-        Some(v) -> f(v),
-        None -> None
+    /// Apply a function that returns Option to the value inside Some.
+    public fn flat_map_option(opt, f) {
+        match opt {
+            Some(v) -> f(v),
+            _ -> None,
+        }
     }
-}
 
-fn is_some(opt) {
-    match opt {
-        Some(_) -> true,
-        None -> false
+    /// Check if an Option contains a value.
+    public fn is_some(opt) {
+        match opt {
+            Some(_) -> true,
+            _ -> false,
+        }
+    }
+
+    /// Check if an Option is None.
+    public fn is_none_opt(opt) {
+        match opt {
+            Some(_) -> false,
+            _ -> true,
+        }
     }
 }

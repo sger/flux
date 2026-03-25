@@ -1,6 +1,5 @@
 ---
 source: tests/aether_cli_snapshots.rs
-assertion_line: 75
 ---
 letrec my_map =
 λxs, f.

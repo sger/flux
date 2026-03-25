@@ -1,6 +1,5 @@
 ---
 source: tests/aether_cli_snapshots.rs
-assertion_line: 47
 ---
 letrec my_len =
 λxs.
