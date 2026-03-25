@@ -1,6 +1,6 @@
 - Feature Name: LLVM Native Backend
 - Start Date: 2026-03-18
-- Status: Draft
+- Status: Implemented (superseded by core_to_llvm text IR backend)
 - Proposal PR:
 - Flux Issue:
 

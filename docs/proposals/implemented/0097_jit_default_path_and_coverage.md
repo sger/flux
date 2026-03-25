@@ -1,6 +1,6 @@
 - Feature Name: JIT Default Path and Coverage
 - Start Date: 2026-03-10
-- Status: Draft
+- Status: Obsolete (Cranelift JIT backend removed; superseded by core_to_llvm)
 - Proposal PR:
 - Flux Issue:
 
