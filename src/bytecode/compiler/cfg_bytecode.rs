@@ -116,7 +116,10 @@ impl Compiler {
                 IrInstr::Call { target, .. } => {
                     matches!(
                         target,
-                        IrCallTarget::Named(_) | IrCallTarget::Direct(_) | IrCallTarget::Var(_)
+                        IrCallTarget::Named(_)
+                            | IrCallTarget::Direct(_)
+                            | IrCallTarget::Var(_)
+                            | IrCallTarget::Builtin(_)
                     )
                 }
                 IrInstr::HandleScope { .. } => true,
@@ -1018,9 +1021,15 @@ impl Compiler {
                 Ok(())
             }
             IrTerminator::TailCall { callee, args, .. } => {
+                // Resolve the function name for named or builtin targets.
+                let callee_name_str: Option<String> = match callee {
+                    IrCallTarget::Named(name) => Some(this.sym(*name).to_string()),
+                    IrCallTarget::Builtin(name) => Some(name.to_string()),
+                    _ => None,
+                };
+
                 // Effect checking for named tail calls.
-                if let IrCallTarget::Named(name) = callee {
-                    let name_str = this.sym(*name);
+                if let Some(ref name_str) = callee_name_str {
                     if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
                         let required = match primop.effect_kind() {
                             crate::primop::PrimEffect::Io => Some("IO"),
@@ -1053,8 +1062,7 @@ impl Compiler {
                 }
 
                 // Try PrimOp emission for named tail calls.
-                if let IrCallTarget::Named(name) = callee {
-                    let name_str = this.sym(*name);
+                if let Some(ref name_str) = callee_name_str {
                     if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
                         for arg in args {
                             this.load_symbol(bindings.get(arg).ok_or_else(|| {
@@ -1076,6 +1084,17 @@ impl Compiler {
                             let symbol = this.symbol_table.resolve(*name).ok_or_else(|| {
                                 Self::boxed(Diagnostic::warning(
                                     "missing CFG bytecode tail-call target binding",
+                                ))
+                            })?;
+                            this.load_symbol(&symbol);
+                        }
+                        IrCallTarget::Builtin(name) => {
+                            // Builtin targets are resolved by the base function
+                            // registry — intern the name and look up the symbol.
+                            let sym = this.interner.intern(name);
+                            let symbol = this.symbol_table.resolve(sym).ok_or_else(|| {
+                                Self::boxed(Diagnostic::warning(
+                                    "missing CFG bytecode builtin tail-call target binding",
                                 ))
                             })?;
                             this.load_symbol(&symbol);
@@ -1133,11 +1152,17 @@ impl Compiler {
         bindings: &HashMap<IrVar, crate::bytecode::binding::Binding>,
         current_name: Symbol,
     ) -> CompileResult<()> {
+        // Resolve the function name for named or builtin targets.
+        let target_name_str: Option<String> = match target {
+            IrCallTarget::Named(name) => Some(self.sym(*name).to_string()),
+            IrCallTarget::Builtin(name) => Some(name.to_string()),
+            _ => None,
+        };
+
         // Effect checking for named calls: verify that effectful base
         // functions (e.g. print, read_file) have the required effect
         // available in the surrounding scope.
-        if let IrCallTarget::Named(name) = target {
-            let name_str = self.sym(*name);
+        if let Some(ref name_str) = target_name_str {
             if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
                 let required = match primop.effect_kind() {
                     crate::primop::PrimEffect::Io => Some("IO"),
@@ -1170,8 +1195,7 @@ impl Compiler {
         }
 
         // Try PrimOp emission for named base function calls.
-        if let IrCallTarget::Named(name) = target {
-            let name_str = self.sym(*name);
+        if let Some(ref name_str) = target_name_str {
             if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
                 for arg in args {
                     self.load_symbol(bindings.get(arg).ok_or_else(|| {
@@ -1190,6 +1214,15 @@ impl Compiler {
                     let symbol = self.symbol_table.resolve(*name).ok_or_else(|| {
                         Self::boxed(Diagnostic::warning(
                             "missing CFG bytecode call target binding",
+                        ))
+                    })?;
+                    self.load_symbol(&symbol);
+                }
+                IrCallTarget::Builtin(name) => {
+                    let sym = self.interner.intern(name);
+                    let symbol = self.symbol_table.resolve(sym).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode builtin call target binding",
                         ))
                     })?;
                     self.load_symbol(&symbol);

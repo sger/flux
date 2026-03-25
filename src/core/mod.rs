@@ -225,6 +225,83 @@ pub enum CorePrimOp {
     Index,
     MemberAccess(Identifier),
     TupleField(usize),
+
+    // ── Promoted base-function primops (Proposal 0120 Phase 1) ───────────
+    //
+    // True primitives that need hardware access, memory layout knowledge,
+    // or OS syscalls.  Everything else will be rewritten in Flux
+    // (`lib/Base/*.flx`) using these primops.
+
+    // I/O
+    Print,
+    Println,
+    ReadFile,
+    WriteFile,
+    ReadStdin,
+
+    // String memory operations
+    StringLength,
+    StringConcat,
+    StringSlice,
+    ToString,
+    Split,
+    Join,
+    Trim,
+    Upper,
+    Lower,
+    StartsWith,
+    EndsWith,
+    Replace,
+    Substring,
+    Chars,
+    StrContains,
+
+    // Array memory operations
+    ArrayLen,
+    ArrayGet,
+    ArraySet,
+    ArrayPush,
+    ArrayConcat,
+    ArraySlice,
+    ArraySort,
+
+    // HAMT operations
+    HamtGet,
+    HamtSet,
+    HamtDelete,
+    HamtKeys,
+    HamtValues,
+    HamtMerge,
+    HamtSize,
+    HamtContains,
+
+    // Type tag inspection
+    TypeOf,
+    IsInt,
+    IsFloat,
+    IsString,
+    IsBool,
+    IsArray,
+    IsNone,
+    IsSome,
+    IsList,
+    IsMap,
+
+    // Control
+    Panic,
+    ClockNow,
+
+    // Parsing
+    ParseInt,
+
+    // List / cons cell operations
+    Hd,
+    Tl,
+    ToList,
+    ToArray,
+
+    // Polymorphic length (dispatches on type tag: string/array/list)
+    Len,
 }
 
 // ── Case alternatives ─────────────────────────────────────────────────────────

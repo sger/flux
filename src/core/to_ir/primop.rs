@@ -1,8 +1,73 @@
 use crate::{
-    cfg::{IrBinaryOp, IrConst, IrExpr, IrInstr, IrMetadata, IrStringPart, IrVar},
+    cfg::{IrBinaryOp, IrCallTarget, IrConst, IrExpr, IrInstr, IrMetadata, IrStringPart, IrVar},
     core::{CoreExpr, CoreLit, CorePrimOp},
     diagnostics::position::Span,
 };
+
+/// Map a promoted primop back to its original function name for CFG lowering.
+///
+/// The CFG/bytecode path doesn't benefit from the promotion — the bytecode
+/// compiler already dispatches these names via `resolve_primop_call` and
+/// `OpCallBase`.  This function reverses the promotion so the CFG IR emits a
+/// normal named call.
+fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
+    match op {
+        CorePrimOp::Print => "print",
+        CorePrimOp::Println => "println",
+        CorePrimOp::ReadFile => "read_file",
+        CorePrimOp::WriteFile => "write_file",
+        CorePrimOp::ReadStdin => "read_stdin",
+        CorePrimOp::StringLength => "string_length",
+        CorePrimOp::StringConcat => "string_concat",
+        CorePrimOp::StringSlice => "string_slice",
+        CorePrimOp::ToString => "to_string",
+        CorePrimOp::Split => "split",
+        CorePrimOp::Join => "join",
+        CorePrimOp::Trim => "trim",
+        CorePrimOp::Upper => "upper",
+        CorePrimOp::Lower => "lower",
+        CorePrimOp::StartsWith => "starts_with",
+        CorePrimOp::EndsWith => "ends_with",
+        CorePrimOp::Replace => "replace",
+        CorePrimOp::Substring => "substring",
+        CorePrimOp::Chars => "chars",
+        CorePrimOp::StrContains => "str_contains",
+        CorePrimOp::ArrayLen => "array_len",
+        CorePrimOp::ArrayGet => "array_get",
+        CorePrimOp::ArraySet => "array_set",
+        CorePrimOp::ArrayPush => "push",
+        CorePrimOp::ArrayConcat => "concat",
+        CorePrimOp::ArraySlice => "slice",
+        CorePrimOp::ArraySort => "sort",
+        CorePrimOp::HamtGet => "get",
+        CorePrimOp::HamtSet => "put",
+        CorePrimOp::HamtDelete => "delete",
+        CorePrimOp::HamtKeys => "keys",
+        CorePrimOp::HamtValues => "values",
+        CorePrimOp::HamtMerge => "merge",
+        CorePrimOp::HamtSize => "size",
+        CorePrimOp::HamtContains => "has_key",
+        CorePrimOp::TypeOf => "type_of",
+        CorePrimOp::IsInt => "is_int",
+        CorePrimOp::IsFloat => "is_float",
+        CorePrimOp::IsString => "is_string",
+        CorePrimOp::IsBool => "is_bool",
+        CorePrimOp::IsArray => "is_array",
+        CorePrimOp::IsNone => "is_none",
+        CorePrimOp::IsSome => "is_some",
+        CorePrimOp::IsList => "is_list",
+        CorePrimOp::IsMap => "is_map",
+        CorePrimOp::Panic => "panic",
+        CorePrimOp::ClockNow => "now_ms",
+        CorePrimOp::ParseInt => "parse_int",
+        CorePrimOp::Hd => "hd",
+        CorePrimOp::Tl => "tl",
+        CorePrimOp::ToList => "to_list",
+        CorePrimOp::ToArray => "to_array",
+        CorePrimOp::Len => "len",
+        _ => unreachable!("not a promoted primop"),
+    }
+}
 
 impl<'a> super::fn_ctx::FnCtx<'a> {
     /// Lower a `PrimOp` node.
@@ -142,6 +207,73 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                         object,
                         index: *idx,
                     },
+                    metadata: meta,
+                });
+            }
+            // Promoted primops — lower back to named function calls.
+            // The bytecode compiler already handles these via
+            // resolve_primop_call / OpCallBase dispatch.
+            CorePrimOp::Print
+            | CorePrimOp::Println
+            | CorePrimOp::ReadFile
+            | CorePrimOp::WriteFile
+            | CorePrimOp::ReadStdin
+            | CorePrimOp::StringLength
+            | CorePrimOp::StringConcat
+            | CorePrimOp::StringSlice
+            | CorePrimOp::ToString
+            | CorePrimOp::Split
+            | CorePrimOp::Join
+            | CorePrimOp::Trim
+            | CorePrimOp::Upper
+            | CorePrimOp::Lower
+            | CorePrimOp::StartsWith
+            | CorePrimOp::EndsWith
+            | CorePrimOp::Replace
+            | CorePrimOp::Substring
+            | CorePrimOp::Chars
+            | CorePrimOp::StrContains
+            | CorePrimOp::ArrayLen
+            | CorePrimOp::ArrayGet
+            | CorePrimOp::ArraySet
+            | CorePrimOp::ArrayPush
+            | CorePrimOp::ArrayConcat
+            | CorePrimOp::ArraySlice
+            | CorePrimOp::ArraySort
+            | CorePrimOp::HamtGet
+            | CorePrimOp::HamtSet
+            | CorePrimOp::HamtDelete
+            | CorePrimOp::HamtKeys
+            | CorePrimOp::HamtValues
+            | CorePrimOp::HamtMerge
+            | CorePrimOp::HamtSize
+            | CorePrimOp::HamtContains
+            | CorePrimOp::TypeOf
+            | CorePrimOp::IsInt
+            | CorePrimOp::IsFloat
+            | CorePrimOp::IsString
+            | CorePrimOp::IsBool
+            | CorePrimOp::IsArray
+            | CorePrimOp::IsNone
+            | CorePrimOp::IsSome
+            | CorePrimOp::IsList
+            | CorePrimOp::IsMap
+            | CorePrimOp::Panic
+            | CorePrimOp::ClockNow
+            | CorePrimOp::ParseInt
+            | CorePrimOp::Hd
+            | CorePrimOp::Tl
+            | CorePrimOp::ToList
+            | CorePrimOp::ToArray
+            | CorePrimOp::Len => {
+                let name_str = promoted_primop_name(op);
+                let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
+                // Emit as a named builtin call using the BuiltinCall target
+                // which carries the string name directly without interning.
+                self.emit(IrInstr::Call {
+                    dest,
+                    target: IrCallTarget::Builtin(name_str),
+                    args: arg_vars,
                     metadata: meta,
                 });
             }

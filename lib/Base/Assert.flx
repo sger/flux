@@ -1,58 +1,67 @@
-// Base.Assert — Test assertion helpers.
+// Base.Assert — Test assertion helpers for Flux programs.
 
-fn assert_eq(a, b) with IO {
-    if a == b { () }
-    else {
-        println("ASSERTION FAILED: assert_eq");
-        println(a);
-        println(b);
-        panic("assert_eq failed")
+module Base.Assert {
+
+    public fn assert_eq(a, b) with IO {
+        if a == b { () }
+        else {
+            println("ASSERTION FAILED: assert_eq")
+            println(a)
+            println(b)
+            panic("assert_eq failed")
+        }
     }
-}
 
-fn assert_neq(a, b) with IO {
-    if a != b { () }
-    else {
-        println("ASSERTION FAILED: assert_neq");
-        panic("assert_neq failed")
+    public fn assert_neq(a, b) with IO {
+        if a != b { () }
+        else {
+            println("ASSERTION FAILED: assert_neq")
+            panic("assert_neq failed")
+        }
     }
-}
 
-fn assert_true(x) with IO {
-    if x { () }
-    else { panic("assert_true failed") }
-}
-
-fn assert_false(x) with IO {
-    if !x { () }
-    else { panic("assert_false failed") }
-}
-
-fn assert_gt(a, b) with IO {
-    if a > b { () }
-    else { panic("assert_gt failed") }
-}
-
-fn assert_lt(a, b) with IO {
-    if a < b { () }
-    else { panic("assert_lt failed") }
-}
-
-fn assert_gte(a, b) with IO {
-    if a >= b { () }
-    else { panic("assert_gte failed") }
-}
-
-fn assert_lte(a, b) with IO {
-    if a <= b { () }
-    else { panic("assert_lte failed") }
-}
-
-fn assert_len(list, expected) with IO {
-    let actual = len(list);
-    if actual == expected { () }
-    else {
-        println("ASSERTION FAILED: assert_len");
-        panic("assert_len failed")
+    public fn assert_true(x) with IO {
+        if x { () }
+        else { panic("assert_true failed") }
     }
+
+    public fn assert_false(x) with IO {
+        if !x { () }
+        else { panic("assert_false failed") }
+    }
+
+    public fn assert_gt(a, b) with IO {
+        if a > b { () }
+        else { panic("assert_gt failed") }
+    }
+
+    public fn assert_lt(a, b) with IO {
+        if a < b { () }
+        else { panic("assert_lt failed") }
+    }
+
+    public fn assert_gte(a, b) with IO {
+        if a >= b { () }
+        else { panic("assert_gte failed") }
+    }
+
+    public fn assert_lte(a, b) with IO {
+        if a <= b { () }
+        else { panic("assert_lte failed") }
+    }
+
+    public fn assert_len(collection, expected) with IO {
+        let actual = len(collection)
+        if actual == expected { () }
+        else {
+            println("ASSERTION FAILED: assert_len")
+            panic("assert_len failed")
+        }
+    }
+
+    public fn assert_msg(condition, message) with IO {
+        if condition { () }
+        else { panic(message) }
+    }
+
 }

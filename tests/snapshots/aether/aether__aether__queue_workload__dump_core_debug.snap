@@ -86,19 +86,19 @@ letrec drain_sum : Int =
 
 letrec main : Unit =
 λ.
-    let #2000002[synthetic]#37 = aether_call[borrowed] print#?[external]("Queue workload")
+    let #2000002[synthetic]#37 = Print("Queue workload")
     drop #2000002[synthetic]#37
-    let #2000001[synthetic]#36 = aether_call[borrowed] print#?[external]("==============")
+    let #2000001[synthetic]#36 = Print("==============")
     drop #2000001[synthetic]#36
     let #2000000[synthetic]#35 = (let #4000066[synthetic]#66 = (let #4000065[synthetic]#65 = (let #4000064[synthetic]#64 = aether_call[owned] build_queue#18(2000)
     aether_call[owned, borrowed, owned] rotate_sum#23(#4000064[synthetic]#64, 3000, 0))
     Interpolate("rotated total = ", #4000065[synthetic]#65))
-    aether_call[borrowed] print#?[external](#4000066[synthetic]#66))
+    Print(#4000066[synthetic]#66))
     drop #2000000[synthetic]#35
     let #4000069[synthetic]#69 = (let #4000068[synthetic]#68 = (let #4000067[synthetic]#67 = aether_call[owned] build_queue#18(2000)
     aether_call[owned, owned] drain_sum#29(#4000067[synthetic]#67, 0))
     Interpolate("drained total = ", #4000068[synthetic]#68))
-    aether_call[borrowed] print#?[external](#4000069[synthetic]#69)
+    Print(#4000069[synthetic]#69)
 
 ── Aether stats ──
 Dups: 0  Drops: 5  Reuses: 2  DropSpecs: 0  FBIP: fbip(2)

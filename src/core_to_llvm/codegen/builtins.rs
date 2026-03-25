@@ -490,6 +490,12 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
         returns_value: true,
     },
     BuiltinMapping {
+        flux_name: "array_get",
+        c_name: "flux_array_get",
+        arity: 2,
+        returns_value: true,
+    },
+    BuiltinMapping {
         flux_name: "array_set",
         c_name: "flux_array_set",
         arity: 3,

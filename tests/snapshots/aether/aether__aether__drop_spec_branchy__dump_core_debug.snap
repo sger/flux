@@ -49,11 +49,11 @@ letrec main : Unit =
 λ.
     let #2000000[synthetic]#13 = (let #4000016[synthetic]#16 = (let #4000015[synthetic]#15 = MakeList(1, 2, 3)
     aether_call[borrowed, borrowed] copy_or_keep_head#0(#4000015[synthetic]#15, true))
-    aether_call[borrowed] print#?[external](#4000016[synthetic]#16))
+    Print(#4000016[synthetic]#16))
     drop #2000000[synthetic]#13
     let #4000018[synthetic]#18 = (let #4000017[synthetic]#17 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
     aether_call[owned, borrowed] keep_or_dup_left#5(#4000017[synthetic]#17, false))
-    aether_call[borrowed] print#?[external](#4000018[synthetic]#18)
+    Print(#4000018[synthetic]#18)
 
 ── Aether stats ──
 Dups: 2  Drops: 3  Reuses: 4  DropSpecs: 2  FBIP: fbip(4)
