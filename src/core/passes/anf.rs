@@ -97,7 +97,7 @@ fn rep_of_expr(expr: &CoreExpr) -> FluxRep {
 }
 
 /// Determine the result representation of a primop.
-fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
+pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
     match op {
         // Typed integer arithmetic → IntRep
         CorePrimOp::IAdd | CorePrimOp::ISub | CorePrimOp::IMul
