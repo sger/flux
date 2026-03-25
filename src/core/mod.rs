@@ -31,6 +31,10 @@ pub struct CoreBinder {
     pub id: CoreBinderId,
     /// Source/debug name retained as metadata.
     pub name: Identifier,
+    /// Runtime representation (Proposal 0119).
+    /// Determined by HM type inference during AST→Core lowering.
+    /// Defaults to `TaggedRep` (NaN-boxed) when type is unknown.
+    pub rep: FluxRep,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -43,7 +47,16 @@ pub struct CoreVarRef {
 
 impl CoreBinder {
     pub fn new(id: CoreBinderId, name: Identifier) -> Self {
-        Self { id, name }
+        Self {
+            id,
+            name,
+            rep: FluxRep::TaggedRep,
+        }
+    }
+
+    /// Create a binder with a known runtime representation.
+    pub fn with_rep(id: CoreBinderId, name: Identifier, rep: FluxRep) -> Self {
+        Self { id, name, rep }
     }
 }
 
@@ -147,6 +160,70 @@ impl CoreType {
                 CoreType::Tuple(elems.iter().map(CoreType::from_infer).collect())
             }
         }
+    }
+}
+
+// ── Runtime representation ───────────────────────────────────────────────────
+
+/// Runtime representation of a Flux value (Proposal 0119).
+///
+/// Determined by HM type inference and carried through Core IR on binders.
+/// The `core_to_llvm` backend uses this to choose between boxed (NaN-boxed)
+/// and unboxed (raw register) code generation.
+///
+/// Analogous to GHC's `PrimRep`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FluxRep {
+    /// Raw signed 64-bit integer. No NaN-boxing.
+    IntRep,
+    /// Raw IEEE 754 double. No NaN-boxing.
+    FloatRep,
+    /// Raw boolean (i1). No NaN-boxing.
+    BoolRep,
+    /// Heap-allocated boxed value (NaN-boxed pointer).
+    /// Used for: String, Array, Closure, ADT, Cons, HashMap.
+    BoxedRep,
+    /// NaN-boxed value with unknown or polymorphic type.
+    /// Fallback when the type is not statically known.
+    TaggedRep,
+    /// Unit `()`. Minimal runtime representation (tagged None).
+    UnitRep,
+}
+
+impl FluxRep {
+    /// Derive the runtime representation from a `CoreType`.
+    pub fn from_core_type(ty: &CoreType) -> Self {
+        match ty {
+            CoreType::Int => FluxRep::IntRep,
+            CoreType::Float => FluxRep::FloatRep,
+            CoreType::Bool => FluxRep::BoolRep,
+            CoreType::Unit | CoreType::Never => FluxRep::UnitRep,
+            CoreType::String
+            | CoreType::List(_)
+            | CoreType::Array(_)
+            | CoreType::Tuple(_)
+            | CoreType::Function(_, _)
+            | CoreType::Option(_)
+            | CoreType::Either(_, _)
+            | CoreType::Map(_, _)
+            | CoreType::Adt(_) => FluxRep::BoxedRep,
+            CoreType::Any => FluxRep::TaggedRep,
+        }
+    }
+
+    /// Derive the runtime representation from an HM `InferType`.
+    pub fn from_infer_type(ty: &crate::types::infer_type::InferType) -> Self {
+        FluxRep::from_core_type(&CoreType::from_infer(ty))
+    }
+
+    /// Whether this rep is unboxed (no NaN-boxing overhead).
+    pub fn is_unboxed(self) -> bool {
+        matches!(self, FluxRep::IntRep | FluxRep::FloatRep | FluxRep::BoolRep)
+    }
+
+    /// Whether this rep needs reference counting (Aether dup/drop).
+    pub fn needs_rc(self) -> bool {
+        matches!(self, FluxRep::BoxedRep | FluxRep::TaggedRep)
     }
 }
 

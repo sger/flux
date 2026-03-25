@@ -577,8 +577,39 @@ pub fn compile_program_with_interner(
                 let trampoline = build_trampoline_function(group, &program);
                 module.functions.push(trampoline);
             }
+        } else if qualifies_for_int_worker_wrapper(def)
+            && info.symbol.0 != "flux_main"
+        {
+            // Proposal 0119 Phase 3: worker/wrapper for typed integer functions.
+            // Worker uses raw i64 (no NaN-boxing); wrapper untags/retags at boundary.
+            let worker_symbol = GlobalId(format!("{}.w", info.symbol.0));
+
+            // Temporarily remap this def's symbol to the worker so self-recursive
+            // calls inside the worker target the worker directly (raw args).
+            let original_symbol = program.top_level.get(&def.binder.id)
+                .map(|info| info.symbol.clone());
+            if let Some(info) = program.top_level.get_mut(&def.binder.id) {
+                info.symbol = worker_symbol.clone();
+            }
+
+            let worker =
+                lower_top_level_function(def, worker_symbol.clone(), def.is_recursive, &mut program)?;
+            module.functions.push(worker);
+
+            // Restore original symbol for external callers.
+            if let (Some(orig), Some(info)) = (original_symbol, program.top_level.get_mut(&def.binder.id)) {
+                info.symbol = orig;
+            }
+
+            let wrapper = build_int_wrapper(
+                &info.symbol,
+                &worker_symbol,
+                info.arity,
+                &program,
+            );
+            module.functions.push(wrapper);
         } else {
-            // Phase 1 or normal lowering.
+            // Normal lowering.
             let function =
                 lower_top_level_function(def, info.symbol.clone(), def.is_recursive, &mut program)?;
             module.functions.push(function);
@@ -694,6 +725,130 @@ fn trace_name_for_def(def: &CoreDef, program: &ProgramState<'_>) -> String {
         qualified.clone()
     } else {
         display_ident(def.name, program.interner)
+    }
+}
+
+/// Check if a function qualifies for worker/wrapper unboxing (Proposal 0119 Phase 3).
+///
+/// Qualifies when all params are IntRep and result is Int. The worker operates
+/// on raw i64 values; the wrapper untags/retags at the NaN-box boundary.
+fn qualifies_for_int_worker_wrapper(def: &CoreDef) -> bool {
+    let CoreExpr::Lam { params, .. } = &def.expr else {
+        return false;
+    };
+    if params.is_empty() {
+        return false;
+    }
+    let all_int_params = params
+        .iter()
+        .all(|p| p.rep == crate::core::FluxRep::IntRep);
+    let int_result = matches!(def.result_ty, Some(crate::core::CoreType::Int));
+    all_int_params && int_result
+}
+
+/// Generate a NaN-boxed wrapper that untags args, calls the raw worker, retags result.
+fn build_int_wrapper(
+    wrapper_symbol: &GlobalId,
+    worker_symbol: &GlobalId,
+    arity: usize,
+    program: &ProgramState<'_>,
+) -> LlvmFunction {
+    use crate::core_to_llvm::{
+        CallConv, LlvmBlock, LlvmFunction, LlvmFunctionSig, Linkage, LlvmTerminator,
+    };
+
+    let params: Vec<LlvmLocal> = (0..arity).map(|i| LlvmLocal(format!("arg{i}"))).collect();
+    let param_types: Vec<LlvmType> = (0..arity).map(|_| LlvmType::i64()).collect();
+
+    let mut instrs = Vec::new();
+
+    // Untag each NaN-boxed arg to raw i64.
+    let payload_mask = super::prelude::FluxNanboxLayout::payload_mask_i64();
+    let shift: i64 = 64 - 46;
+    let mut raw_args = Vec::new();
+
+    for i in 0..arity {
+        let payload = LlvmLocal(format!("w.p{i}"));
+        instrs.push(LlvmInstr::Binary {
+            dst: payload.clone(),
+            op: LlvmValueKind::And,
+            ty: LlvmType::i64(),
+            lhs: LlvmOperand::Local(params[i].clone()),
+            rhs: super::expr::const_i64_op(payload_mask),
+        });
+        let shifted = LlvmLocal(format!("w.s{i}"));
+        instrs.push(LlvmInstr::Binary {
+            dst: shifted.clone(),
+            op: LlvmValueKind::Shl,
+            ty: LlvmType::i64(),
+            lhs: LlvmOperand::Local(payload),
+            rhs: super::expr::const_i64_op(shift),
+        });
+        let raw = LlvmLocal(format!("w.r{i}"));
+        instrs.push(LlvmInstr::Binary {
+            dst: raw.clone(),
+            op: LlvmValueKind::AShr,
+            ty: LlvmType::i64(),
+            lhs: LlvmOperand::Local(shifted),
+            rhs: super::expr::const_i64_op(shift),
+        });
+        raw_args.push(raw);
+    }
+
+    // Call the worker with raw args.
+    let worker_result = LlvmLocal("w.result".into());
+    instrs.push(LlvmInstr::Call {
+        dst: Some(worker_result.clone()),
+        tail: false,
+        call_conv: Some(CallConv::Fastcc),
+        ret_ty: LlvmType::i64(),
+        callee: LlvmOperand::Global(worker_symbol.clone()),
+        args: raw_args
+            .iter()
+            .map(|r| (LlvmType::i64(), LlvmOperand::Local(r.clone())))
+            .collect(),
+        attrs: vec![],
+    });
+
+    // Retag the raw result.
+    let masked = LlvmLocal("w.masked".into());
+    instrs.push(LlvmInstr::Binary {
+        dst: masked.clone(),
+        op: LlvmValueKind::And,
+        ty: LlvmType::i64(),
+        lhs: LlvmOperand::Local(worker_result),
+        rhs: super::expr::const_i64_op(payload_mask),
+    });
+    let tagged = LlvmLocal("w.tagged".into());
+    instrs.push(LlvmInstr::Binary {
+        dst: tagged.clone(),
+        op: LlvmValueKind::Or,
+        ty: LlvmType::i64(),
+        lhs: LlvmOperand::Local(masked),
+        rhs: super::expr::const_i64_op(super::prelude::FluxNanboxLayout::nanbox_sentinel_i64()),
+    });
+
+    let _ = program; // available for future use (e.g., trace calls)
+
+    LlvmFunction {
+        linkage: Linkage::Internal,
+        name: wrapper_symbol.clone(),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::i64(),
+            params: param_types,
+            varargs: false,
+            call_conv: CallConv::Fastcc,
+        },
+        params,
+        attrs: vec![],
+        blocks: vec![LlvmBlock {
+            label: LabelId("entry".into()),
+            instrs,
+            term: LlvmTerminator::Ret {
+                ty: LlvmType::i64(),
+                value: LlvmOperand::Local(tagged),
+            },
+        }],
     }
 }
 
