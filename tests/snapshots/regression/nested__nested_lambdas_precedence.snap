@@ -4,6 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/nested/nested_lambdas_precedence.flx
 exit_code: 1
 
+• 4 errors • tests/fixtures/nested/nested_lambdas_precedence.flx
 error[E415]: Missing Main Function (strict)
 
 Strict mode requires `fn main()` for all programs.
