@@ -14,7 +14,7 @@ mod inliner;
 mod primop_promote;
 mod tail_resumptive;
 
-pub use anf::anf_normalize;
+pub use anf::{anf_normalize, primop_result_rep};
 pub use beta::beta_reduce;
 pub use case_of_case::case_of_case;
 pub use cokc::case_of_known_constructor;

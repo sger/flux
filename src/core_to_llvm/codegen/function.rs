@@ -767,13 +767,13 @@ fn build_int_wrapper(
     let shift: i64 = 64 - 46;
     let mut raw_args = Vec::new();
 
-    for i in 0..arity {
+    for (i, param) in params.iter().enumerate() {
         let payload = LlvmLocal(format!("w.p{i}"));
         instrs.push(LlvmInstr::Binary {
             dst: payload.clone(),
             op: LlvmValueKind::And,
             ty: LlvmType::i64(),
-            lhs: LlvmOperand::Local(params[i].clone()),
+            lhs: LlvmOperand::Local(param.clone()),
             rhs: super::expr::const_i64_op(payload_mask),
         });
         let shifted = LlvmLocal(format!("w.s{i}"));

@@ -14,25 +14,35 @@ use super::expr::FunctionLowering;
 
 impl<'a, 'p> FunctionLowering<'a, 'p> {
     /// Lower a `Dup { var, body }` node: emit `flux_dup(%var)` then lower body.
+    ///
+    /// Phase 5 (Proposal 0119): skip dup for unboxed values (IntRep, FloatRep,
+    /// BoolRep) — they are immediate scalars that don't need reference counting.
     pub(super) fn lower_dup(
         &mut self,
         var: CoreVarRef,
         body: &CoreExpr,
     ) -> Result<LlvmOperand, CoreToLlvmError> {
-        if let Ok(val) = self.load_var_value(var) {
-            self.emit_dup_call(val);
+        if !self.var_is_unboxed(var) {
+            if let Ok(val) = self.load_var_value(var) {
+                self.emit_dup_call(val);
+            }
         }
         self.lower_expr(body)
     }
 
     /// Lower a `Drop { var, body }` node: emit `flux_drop(%var)` then lower body.
+    ///
+    /// Phase 5 (Proposal 0119): skip drop for unboxed values (IntRep, FloatRep,
+    /// BoolRep) — they are immediate scalars that don't need reference counting.
     pub(super) fn lower_drop(
         &mut self,
         var: CoreVarRef,
         body: &CoreExpr,
     ) -> Result<LlvmOperand, CoreToLlvmError> {
-        if let Ok(val) = self.load_var_value(var) {
-            self.emit_drop_call(val);
+        if !self.var_is_unboxed(var) {
+            if let Ok(val) = self.load_var_value(var) {
+                self.emit_drop_call(val);
+            }
         }
         self.lower_expr(body)
     }
@@ -61,10 +71,15 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         })?;
 
         // Lower all field values first.
-        let field_values: Vec<LlvmOperand> = fields
-            .iter()
-            .map(|f| self.lower_expr_not_tail(f))
-            .collect::<Result<Vec<_>, _>>()?;
+        // Phase 4: tag raw int fields for ADT storage (NaN-boxed context).
+        let field_values: Vec<LlvmOperand> = {
+            let mut vals = Vec::with_capacity(fields.len());
+            for f in fields {
+                let val = self.lower_expr_not_tail(f)?;
+                vals.push(self.ensure_tagged_if_raw(val, f)?);
+            }
+            vals
+        };
 
         // Load the token value.
         let token_val = self.load_var_value(token)?;
@@ -272,6 +287,15 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             args: vec![(LlvmType::i64(), val)],
             attrs: vec![],
         });
+    }
+
+    /// Check if a variable has an unboxed representation (IntRep, FloatRep,
+    /// BoolRep).  Unboxed values are immediate scalars — no heap allocation,
+    /// no RC.  Dup/drop on them is a no-op.
+    fn var_is_unboxed(&self, var: CoreVarRef) -> bool {
+        var.binder
+            .and_then(|b| self.local_reps.get(&b).copied())
+            .map_or(false, |rep| rep.is_unboxed())
     }
 
     /// Load a variable's current value from its local slot.
