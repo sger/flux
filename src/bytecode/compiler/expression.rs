@@ -25,7 +25,7 @@ use crate::{
         ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
         ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
         ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED,
-        NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER, UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR,
+        NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER, UNKNOWN_CONSTRUCTOR,
         UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
         compiler_errors::{
             UNREACHABLE_PATTERN_ARM, call_arg_type_mismatch, constructor_pattern_arity_mismatch,
@@ -39,7 +39,6 @@ use crate::{
     },
     primop::{PrimEffect, resolve_primop_call},
     runtime::{
-        base::{BaseModule, is_base_fastcall_allowlisted},
         compiled_function::CompiledFunction,
         handler_descriptor::HandlerDescriptor,
         perform_descriptor::PerformDescriptor,
@@ -544,7 +543,20 @@ impl Compiler {
             }
             Expression::Identifier { name, span, .. } => {
                 let name = *name;
-                if let Some(symbol) = self.resolve_visible_symbol(name) {
+                // Exposed bindings from `import M exposing (..)` are checked
+                // first so that `lib/Base/*.flx` Flux implementations take
+                // priority.
+                if self.exposed_bindings.contains_key(&name) {
+                    let qualified = self.exposed_bindings[&name];
+                    if let Some(symbol) = self.resolve_visible_symbol(qualified) {
+                        self.load_symbol(&symbol);
+                    } else {
+                        let name_str = self.sym(name);
+                        return Err(Self::boxed(
+                            self.make_undefined_variable_error(name_str, *span),
+                        ));
+                    }
+                } else if let Some(symbol) = self.resolve_visible_symbol(name) {
                     if !self.try_emit_consumed_local(name) {
                         self.load_symbol(&symbol);
                     }
@@ -775,18 +787,15 @@ impl Compiler {
                 )?;
             }
             Expression::ListLiteral { elements, .. } => {
-                // Lower list literals through base `list(...)` to avoid deep
-                // recursive lowering for large literals.
-                let list_sym = self.interner.intern("list");
-                let symbol = self
-                    .symbol_table
-                    .resolve(list_sym)
-                    .expect("base list must be defined");
-                self.load_symbol(&symbol);
+                // Build cons-list: push elements forward, then EmptyList,
+                // then OpCons N times (right-to-left construction).
                 for element in elements {
                     self.compile_non_tail_expression(element)?;
                 }
-                self.emit(OpCode::OpCall, &[elements.len()]);
+                self.emit_constant_value(Value::EmptyList);
+                for _ in 0..elements.len() {
+                    self.emit(OpCode::OpCons, &[]);
+                }
             }
             Expression::ArrayLiteral { elements, .. } => {
                 for element in elements {
@@ -801,13 +810,7 @@ impl Compiler {
                 self.emit_tuple_count(elements.len());
             }
             Expression::EmptyList { .. } => {
-                let list_sym = self.interner.intern("list");
-                let symbol = self
-                    .symbol_table
-                    .resolve(list_sym)
-                    .expect("base list must be defined");
-                self.load_symbol(&symbol);
-                self.emit(OpCode::OpCall, &[0]);
+                self.emit_constant_value(Value::EmptyList);
             }
             Expression::Hash { pairs, .. } => {
                 let mut sorted_pairs: Vec<_> = pairs.iter().collect();
@@ -845,11 +848,6 @@ impl Compiler {
                     self.current_span = previous_span;
                     return Ok(());
                 }
-                if self.try_emit_call_base(function, arguments)? {
-                    self.current_span = previous_span;
-                    return Ok(());
-                }
-
                 let is_direct_self_call = self.is_self_call(function);
                 let is_self_tail_call = self.in_tail_position && is_direct_self_call;
                 let is_self_non_tail_call = !self.in_tail_position && is_direct_self_call;
@@ -886,22 +884,6 @@ impl Compiler {
             Expression::MemberAccess { object, member, .. } => {
                 let expr_span = expression.span();
                 let member = *member;
-
-                if let Expression::Identifier { name, .. } = object.as_ref()
-                    && self.is_base_module_symbol(*name)
-                {
-                    let member_name = self.sym(member);
-                    if let Some(index) = BaseModule::new().index_of(member_name) {
-                        self.emit(OpCode::OpGetBase, &[index]);
-                        return Ok(());
-                    }
-                    return Err(Self::boxed(Diagnostic::make_error(
-                        &UNKNOWN_BASE_MEMBER,
-                        &[member_name],
-                        self.file_path.clone(),
-                        expr_span,
-                    )));
-                }
 
                 let module_binding_name = match object.as_ref() {
                     Expression::Identifier { name, .. } => Some(*name),
@@ -1470,14 +1452,7 @@ impl Compiler {
                 if let Some(effect) = self.lookup_effect_alias(*name) {
                     Some(self.sym(effect).to_string())
                 } else {
-                    let Some(binding) = self.resolve_visible_symbol(*name) else {
-                        return Ok(());
-                    };
-                    if binding.symbol_scope != SymbolScope::Base {
-                        return Ok(());
-                    }
-                    self.required_effect_for_base_name(self.sym(*name))
-                        .map(str::to_string)
+                    None
                 }
             }
             _ => None,
@@ -2927,15 +2902,28 @@ impl Compiler {
         let Expression::Identifier { name, .. } = function else {
             return Ok(false);
         };
-        if self.excluded_base_symbols.contains(name) {
+
+        // Exposed Flux stdlib functions shadow primops.
+        if self.exposed_bindings.contains_key(name) {
             return Ok(false);
         }
 
         // Shadowed names must resolve through the regular call path.
-        if let Some(symbol) = self.resolve_visible_symbol(*name)
-            && symbol.symbol_scope != SymbolScope::Base
-        {
+        if self.resolve_visible_symbol(*name).is_some() {
             return Ok(false);
+        }
+
+        // Special case: `list(a, b, c)` → cons-list construction.
+        // Variadic, so can't be in the fixed-arity primop table.
+        if self.sym(*name) == "list" {
+            for arg in arguments {
+                self.compile_non_tail_expression(arg)?;
+            }
+            self.emit_constant_value(Value::EmptyList);
+            for _ in 0..arguments.len() {
+                self.emit(OpCode::OpCons, &[]);
+            }
+            return Ok(true);
         }
 
         let primop = resolve_primop_call(self.sym(*name), arguments.len());
@@ -2981,60 +2969,6 @@ impl Compiler {
         }
 
         self.emit(OpCode::OpPrimOp, &[primop.id() as usize, arguments.len()]);
-        Ok(true)
-    }
-
-    fn try_emit_call_base(
-        &mut self,
-        function: &Expression,
-        arguments: &[Expression],
-    ) -> CompileResult<bool> {
-        let Expression::Identifier { name, .. } = function else {
-            return Ok(false);
-        };
-
-        let base_name = self.sym(*name).to_string();
-        if !is_base_fastcall_allowlisted(base_name.as_str()) {
-            return Ok(false);
-        }
-
-        let Some(symbol) = self.resolve_visible_symbol(*name) else {
-            return Ok(false);
-        };
-        if symbol.symbol_scope != SymbolScope::Base {
-            return Ok(false);
-        }
-
-        if let Some(required_name) = self.required_effect_for_base_name(base_name.as_str())
-            && !self.is_effect_available_name(required_name)
-        {
-            return Err(Self::boxed(
-                Diagnostic::make_error_dynamic(
-                    "E400",
-                    "MISSING EFFECT",
-                    ErrorType::Compiler,
-                    format!(
-                        "Call to `{}` requires effect `{}` in this function signature.",
-                        base_name, required_name
-                    ),
-                    Some(format!(
-                        "Add `with {}` to the enclosing function.",
-                        required_name
-                    )),
-                    self.file_path.clone(),
-                    function.span(),
-                )
-                .with_display_title("Missing Ambient Effect")
-                .with_category(DiagnosticCategory::Effects)
-                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
-                .with_primary_label(function.span(), "effectful call occurs here"),
-            ));
-        }
-
-        for argument in arguments {
-            self.compile_non_tail_expression(argument)?;
-        }
-        self.emit(OpCode::OpCallBase, &[symbol.index, arguments.len()]);
         Ok(true)
     }
 
@@ -3463,6 +3397,13 @@ impl Compiler {
                 arguments,
                 ..
             } => {
+                // Check primop first — if the callee is a known primop, emit
+                // the primop instruction directly instead of compiling it as
+                // a function+call.
+                if self.try_emit_primop_call(function, arguments)? {
+                    return Ok(());
+                }
+
                 self.compile_non_tail_expression(function)?;
 
                 for arg in arguments {

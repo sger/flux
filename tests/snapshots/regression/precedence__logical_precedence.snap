@@ -4,7 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/precedence/logical_precedence.flx
 exit_code: 1
 
-• 6 errors • tests/fixtures/precedence/logical_precedence.flx
+• 4 errors • tests/fixtures/precedence/logical_precedence.flx
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -48,20 +48,6 @@ Hint:
   Add `fn main() { ... }` as the program entrypoint.
 
 
-error[E400]: Missing Effect
-
-requires effect `IO` but the enclosing context does not provide it
-
-  tests/fixtures/precedence/logical_precedence.flx:1:1
-  |
-1 | print(true || false && false);
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ----------------------------- requires `IO`
-
-Hint:
-  annotate the enclosing function with `with IO`
-
-
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -75,18 +61,4 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-
-error[E400]: Missing Effect
-
-requires effect `IO` but the enclosing context does not provide it
-
-  tests/fixtures/precedence/logical_precedence.flx:2:1
-  |
-2 | print(!true == false);
-  | ^^^^^^^^^^^^^^^^^^^^^
-  | --------------------- requires `IO`
-
-Hint:
-  annotate the enclosing function with `with IO`
-
-Found 6 errors.
+Found 4 errors.

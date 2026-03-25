@@ -30,9 +30,6 @@ I can't find a value named `missing`.
 Hint:
   Define it first: let missing = ...;
 
-Help:
-  Did you mean `is_int`?
-
 
 error[E004]: Undefined Variable
 

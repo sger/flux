@@ -5,9 +5,9 @@ Fixture: examples/base/base_unknown_member_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E080]: Unknown Base Member
+error[E013]: Module Not Imported
 
-Base has no member named `not_real`.
+Module `Base` is not imported.
 
   examples/base/base_unknown_member_error.flx:3:1
   |
@@ -15,6 +15,6 @@ Base has no member named `not_real`.
   | ^^^^^^^^^^^^^
 
 Hint:
-  Check the Base surface or remove this name from `except`.
+  Add an import statement at the top of your file: `import Base`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
 == stdout ==
 <not executed>

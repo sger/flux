@@ -16,8 +16,5 @@ I can't find a value named `c`.
 
 Hint:
   Define it first: let c = ...;
-
-Help:
-  Did you mean one of: `chars`, `count`, `concat`?
 == stdout ==
 <not executed>

@@ -5,22 +5,115 @@ Fixture: examples/primop/all_primops.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Argument Type Mismatch
+error[E004]: Undefined Variable
 
-I found the wrong type in the 3rd argument to `put`.
+I can't find a value named `first`.
 
-  examples/primop/all_primops.flx:56:30
+  examples/primop/all_primops.flx:40:11
    |
-56 |     let m2 = put(m1, "year", 2026);
-   |                              ^^^^
-   |                              ---- this argument has type `Int`
+40 |     print(first(arr2));
+   |           ^^^^^
 
-Note:
-  expected argument type: String
-  found argument type: Int
-  the actual argument type is inferred from this expression
+Hint:
+  Define it first: let first = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `last`.
+
+  examples/primop/all_primops.flx:41:11
+   |
+41 |     print(last(arr2));
+   |           ^^^^
+
+Hint:
+  Define it first: let last = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `rest`.
+
+  examples/primop/all_primops.flx:42:11
+   |
+42 |     print(rest(arr2));
+   |           ^^^^
+
+Hint:
+  Define it first: let rest = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `contains`.
+
+  examples/primop/all_primops.flx:43:11
+   |
+43 |     print(contains(arr2, 99));
+   |           ^^^^^^^^
+
+Hint:
+  Define it first: let contains = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
+
+  examples/primop/all_primops.flx:48:11
+   |
+48 |     print(first(lst));
+   |           ^^^^^
+
+Hint:
+  Define it first: let first = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `last`.
+
+  examples/primop/all_primops.flx:49:11
+   |
+49 |     print(last(lst));
+   |           ^^^^
+
+Hint:
+  Define it first: let last = ...;
 
 Help:
-  Try `to_string(...)` to convert a `Int` into a `String`.
+  Did you mean `lst`?
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `rest`.
+
+  examples/primop/all_primops.flx:50:11
+   |
+50 |     print(rest(lst));
+   |           ^^^^
+
+Hint:
+  Define it first: let rest = ...;
+
+Help:
+  Did you mean `lst`?
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `contains`.
+
+  examples/primop/all_primops.flx:51:11
+   |
+51 |     print(contains(lst, 2));
+   |           ^^^^^^^^
+
+Hint:
+  Define it first: let contains = ...;
+
+Found 8 errors.
 == stdout ==
 <not executed>

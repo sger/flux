@@ -29,7 +29,7 @@ letrec option_map : Option<Any> =
       _ →
         None
 
-letrec main : Unit =
+letrec main : Any =
 λ.
     let #2000001[synthetic]#18 = (let #4000021[synthetic]#21 = (let #4000020[synthetic]#20 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
     aether_call[owned] set_black#0(#4000020[synthetic]#20))

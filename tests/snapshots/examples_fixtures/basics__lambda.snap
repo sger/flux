@@ -5,24 +5,60 @@ Fixture: examples/basics/lambda.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Parameter Type Mismatch
+error[E004]: Undefined Variable
 
-Parameter 2 has the wrong type.
+I can't find a value named `first`.
 
-  examples/basics/lambda.flx:64:15
+  examples/basics/lambda.flx:59:20
    |
-64 | let tripled = myMap(nums, /x -> x * 3);
-   |               ^^^^^^^^^^^^^^^^^^^^^^^^
-   |               ------------------------ parameter 2 has type `Int`
+59 |         concat([|f(first(arr))|], myMap(rest(arr), f))
+   |                    ^^^^^
 
-   |               ------------------------ this type mismatch is reported here
-
-Note:
-  expected parameter type: Option<Int>
-  found parameter type: Int
-  the conflicting types meet at this expression
+Hint:
+  Define it first: let first = ...;
 
 Help:
-  Wrap this value in `Some(...)` or return `None`.
+  Did you mean `f`?
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
+
+  examples/basics/lambda.flx:65:7
+   |
+65 | print(first(tripled));
+   |       ^^^^^
+
+Hint:
+  Define it first: let first = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
+
+  examples/basics/lambda.flx:66:7
+   |
+66 | print(first(rest(tripled)));
+   |       ^^^^^
+
+Hint:
+  Define it first: let first = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
+
+  examples/basics/lambda.flx:67:7
+   |
+67 | print(first(rest(rest(tripled))));
+   |       ^^^^^
+
+Hint:
+  Define it first: let first = ...;
+
+Found 4 errors.
 == stdout ==
 <not executed>

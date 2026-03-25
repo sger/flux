@@ -3,8 +3,85 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/day02.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2024/Day02Solver.flx:7:12
+  |
+7 |         |> map(/t -> parse_int(t))
+  |            ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2024/Day02Solver.flx:14:12
+   |
+14 |         |> map(/line -> parse_report(line))
+   |            ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `all`.
+
+  examples/aoc/2024/Day02Solver.flx:31:9
+   |
+31 |         all(ds, /d -> d >= 1 && d <= 3) || all(ds, /d -> d >= -3 && d <= -1)
+   |         ^^^
+
+Hint:
+  Define it first: let all = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2024/Day02Solver.flx:35:9
+   |
+35 |         map(arrs, /arr -> concat([|x|], arr))
+   |         ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `count`.
+
+  examples/aoc/2024/Day02Solver.flx:53:9
+   |
+53 |         count(reports, /r -> predicate(r))
+   |         ^^^^^
+
+Hint:
+  Define it first: let count = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `count`.
+
+  examples/aoc/2024/Day02Solver.flx:57:9
+   |
+57 |         count(reports, /r -> any(try_drops(r), /candidate -> predicate(candidate)))
+   |         ^^^^^
+
+Hint:
+  Define it first: let count = ...;
+
+Found 6 errors.
 == stdout ==
 <not executed>

@@ -3,8 +3,111 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/day01.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2024/day01.flx:18:12
+   |
+18 |         |> map(/t -> parse_int(t))
+   |            ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2024/day01.flx:26:8
+   |
+26 |     |> map(/s -> parse_pair(s))
+   |        ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2024/day01.flx:35:8
+   |
+35 |     |> fold(0, /(acc, p) -> acc + abs(p.0 - p.1))
+   |        ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `sort_by`.
+
+  examples/aoc/2024/day01.flx:36:52
+   |
+36 |     where left  = day_pairs_a |> map(/p -> p.0) |> sort_by(/x -> x)
+   |                                                    ^^^^^^^
+
+Hint:
+  Define it first: let sort_by = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `sort_by`.
+
+  examples/aoc/2024/day01.flx:37:52
+   |
+37 |     where right = day_pairs_a |> map(/p -> p.1) |> sort_by(/x -> x)
+   |                                                    ^^^^^^^
+
+Hint:
+  Define it first: let sort_by = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2024/day01.flx:47:8
+   |
+47 |     |> fold(0, /(acc, x) -> {
+   |        ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2024/day01.flx:50:34
+   |
+50 |     where left  = day_pairs_b |> map(/p -> p.0)
+   |                                  ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2024/day01.flx:53:12
+   |
+53 |         |> fold({}, /(m, x) -> match get(m, x) {
+   |            ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+Found 8 errors.
 == stdout ==
 <not executed>

@@ -610,10 +610,20 @@ impl Compiler {
     fn expr_has_undefined_ident(&mut self, expr: &Expression, locals: &[Symbol]) -> bool {
         match expr {
             Expression::Identifier { name, .. } => {
-                // Check: local binding, symbol table, or base function
-                !locals.contains(name)
-                    && self.symbol_table.resolve(*name).is_none()
-                    && crate::runtime::base::get_base_function_index(self.sym(*name)).is_none()
+                // Check: local binding, symbol table, exposed bindings,
+                // known primop name (any arity), or variadic builtins.
+                if locals.contains(name) || self.exposed_bindings.contains_key(name) {
+                    return false;
+                }
+                if self.symbol_table.resolve(*name).is_some() {
+                    return false;
+                }
+                let name_str = self.sym(*name).to_string();
+                name_str != "list"
+                    && crate::primop::resolve_primop_call(&name_str, 0).is_none()
+                    && crate::primop::resolve_primop_call(&name_str, 1).is_none()
+                    && crate::primop::resolve_primop_call(&name_str, 2).is_none()
+                    && crate::primop::resolve_primop_call(&name_str, 3).is_none()
             }
             Expression::If {
                 condition,
@@ -831,7 +841,6 @@ impl Compiler {
                     // Check for duplicate in current scope FIRST (takes precedence)
                     if let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
-                        && existing.symbol_scope != SymbolScope::Base
                     {
                         let name_str = self.sym(name);
                         return Err(Self::boxed(self.make_redeclaration_error(
@@ -999,7 +1008,6 @@ impl Compiler {
                     if self.scope_index > 0
                         && let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
-                        && existing.symbol_scope != SymbolScope::Base
                         && existing.symbol_scope != SymbolScope::Function
                     {
                         let name_str = self.sym(name);
@@ -1674,6 +1682,20 @@ impl Compiler {
     }
 
     pub(super) fn compile_block(&mut self, block: &Block) -> CompileResult<()> {
+        // If we already have consumable counts from a parent scope (e.g.,
+        // function body), don't override them with branch-local counts.
+        // Branch blocks (if/else, match arms) must use the parent's counts
+        // to avoid incorrectly consuming variables that are still needed
+        // after the branch.
+        if self.current_consumable_local_use_counts().is_some() {
+            for statement in &block.statements {
+                if let Some(err) = self.compile_statement_collect_error(statement) {
+                    return Err(err);
+                }
+            }
+            return Ok(());
+        }
+
         let mut consumable_counts = HashMap::new();
         for statement in &block.statements {
             self.collect_consumable_param_uses_statement(statement, &mut consumable_counts);

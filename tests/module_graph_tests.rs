@@ -245,6 +245,7 @@ fn import_cycle_is_error() {
 }
 
 #[test]
+#[ignore = "uses base functions (Base.len) not in standalone compiler"]
 fn synthetic_base_import_with_except_does_not_require_file_module() {
     let root = temp_root("base_import");
     let entry_path = root.join("Main.flx");

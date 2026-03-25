@@ -314,7 +314,7 @@ fn test_phase2_emits_consume_local_for_accumulator_tail_call() {
             if n == 0 {
                 acc
             } else {
-                build(n - 1, push(acc, n))
+                build(n - 1, [n | acc])
             }
         }
         build(3, []);
@@ -334,7 +334,7 @@ fn test_phase2_does_not_consume_captured_accumulator_parameter() {
             if n == 0 {
                 return get();
             } else {
-                return build(n - 1, push(acc, n));
+                return build(n - 1, [n | acc]);
             }
         }
         build(3, []);
@@ -357,7 +357,7 @@ fn test_phase2_still_consumes_when_nested_function_does_not_capture_accumulator(
             if n == 0 {
                 return acc;
             } else {
-                return build(n - 1, push(acc, const_one()));
+                return build(n - 1, [const_one() | acc]);
             }
         }
         build(3, []);

@@ -5,33 +5,57 @@ Fixture: examples/base/all_phase3.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E400]: Missing Effect
+error[E013]: Module Not Imported
 
-requires effect `IO` but the enclosing context does not provide it
+Module `Base` is not imported.
 
   examples/base/all_phase3.flx:5:1
   |
 5 | Base.print("== Base directives smoke ==");
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ----------------------------------------- requires `IO`
+  | ^^^^^^^^^^
 
 Hint:
-  annotate the enclosing function with `with IO`
+  Add an import statement at the top of your file: `import Base`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
 
 
-error[E400]: Missing Effect
+error[E013]: Module Not Imported
 
-requires effect `IO` but the enclosing context does not provide it
+Module `Base` is not imported.
 
   examples/base/all_phase3.flx:6:1
   |
 6 | Base.print("len([1,2,3]) = " + to_string(len([1, 2, 3])));
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | --------------------------------------------------------- requires `IO`
+  | ^^^^^^^^^^
 
 Hint:
-  annotate the enclosing function with `with IO`
+  Add an import statement at the top of your file: `import Base`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
 
-Found 2 errors.
+
+error[E013]: Module Not Imported
+
+Module `Base` is not imported.
+
+  examples/base/all_phase3.flx:12:3
+   |
+12 |   Base.print("local len(xs) = " + to_string(len(xs)));
+   |   ^^^^^^^^^^
+
+Hint:
+  Add an import statement at the top of your file: `import Base`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
+
+
+error[E013]: Module Not Imported
+
+Module `Base` is not imported.
+
+  examples/base/all_phase3.flx:13:3
+   |
+13 |   Base.print("Base.len(xs) = " + to_string(Base.len(xs)));
+   |   ^^^^^^^^^^
+
+Hint:
+  Add an import statement at the top of your file: `import Base`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
+
+Found 4 errors.
 == stdout ==
 <not executed>

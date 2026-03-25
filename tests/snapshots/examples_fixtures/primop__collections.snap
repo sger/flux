@@ -3,8 +3,117 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/primop/collections.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
+
+  examples/primop/collections.flx:4:11
+  |
+4 |     print(first(arr));
+  |           ^^^^^
+
+Hint:
+  Define it first: let first = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `last`.
+
+  examples/primop/collections.flx:5:11
+  |
+5 |     print(last(arr));
+  |           ^^^^
+
+Hint:
+  Define it first: let last = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `rest`.
+
+  examples/primop/collections.flx:6:11
+  |
+6 |     print(rest(arr));
+  |           ^^^^
+
+Hint:
+  Define it first: let rest = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `contains`.
+
+  examples/primop/collections.flx:7:11
+  |
+7 |     print(contains(arr, 20));
+  |           ^^^^^^^^
+
+Hint:
+  Define it first: let contains = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
+
+  examples/primop/collections.flx:10:11
+   |
+10 |     print(first(lst));
+   |           ^^^^^
+
+Hint:
+  Define it first: let first = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `last`.
+
+  examples/primop/collections.flx:11:11
+   |
+11 |     print(last(lst));
+   |           ^^^^
+
+Hint:
+  Define it first: let last = ...;
+
+Help:
+  Did you mean `lst`?
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `rest`.
+
+  examples/primop/collections.flx:12:11
+   |
+12 |     print(rest(lst));
+   |           ^^^^
+
+Hint:
+  Define it first: let rest = ...;
+
+Help:
+  Did you mean `lst`?
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `contains`.
+
+  examples/primop/collections.flx:13:11
+   |
+13 |     print(contains(lst, 2));
+   |           ^^^^^^^^
+
+Hint:
+  Define it first: let contains = ...;
+
+Found 8 errors.
 == stdout ==
 <not executed>

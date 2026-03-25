@@ -5,9 +5,9 @@ Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMem
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E080]: Unknown Base Member
+error[E013]: Module Not Imported
 
-Base has no member named `prnit`.
+Module `Base` is not imported.
 
   examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMemberTypo.flx:3:9
   |
@@ -15,6 +15,6 @@ Base has no member named `prnit`.
   |         ^^^^^^^^^^
 
 Hint:
-  Check the Base surface or remove this name from `except`.
+  Add an import statement at the top of your file: `import Base`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
 == stdout ==
 <not executed>

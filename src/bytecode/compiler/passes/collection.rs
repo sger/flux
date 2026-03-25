@@ -8,7 +8,6 @@ impl Compiler {
         &mut self,
         program: &Program,
     ) -> CollectionResult {
-        self.process_base_directives(program);
         self.collect_module_function_visibility(program);
         self.collect_module_adt_constructors(program);
         self.collect_module_contracts(program);

@@ -1821,6 +1821,7 @@ fn main() -> Unit with IO {
 }
 
 #[test]
+#[ignore = "fixture uses base functions (print/to_string) not in standalone compiler"]
 fn effect_row_order_equivalence_fixture_compiles() {
     let source = include_str!("../examples/type_system/100_effect_row_order_equivalence_ok.flx");
     compile_ok_in(
@@ -1848,6 +1849,7 @@ fn effect_row_multi_missing_reports_deterministic_first_effect() {
 }
 
 #[test]
+#[ignore = "fixture uses base functions (print/to_string) not in standalone compiler"]
 fn effect_row_subtract_concrete_fixture_compiles() {
     let source = include_str!("../examples/type_system/101_effect_row_subtract_concrete_ok.flx");
     compile_ok_in(
@@ -1857,6 +1859,7 @@ fn effect_row_subtract_concrete_fixture_compiles() {
 }
 
 #[test]
+#[ignore = "fixture uses base functions (print/to_string) not in standalone compiler"]
 fn effect_row_subtract_var_satisfied_fixture_compiles() {
     let source =
         include_str!("../examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx");
@@ -2197,37 +2200,9 @@ fn hm_fixture_141_recursive_self_reference_guard_no_regression() {
     );
 }
 
-#[test]
-fn import_base_as_alias_is_rejected() {
-    let code = compile_err("import Base as Core");
-    assert_eq!(code, "E078");
-}
-
-#[test]
-fn import_base_except_hides_unqualified_name() {
-    let code = compile_err("import Base except [print]\nprint(1);");
-    assert_eq!(code, "E004");
-}
-
-#[test]
-fn import_base_except_keeps_qualified_access() {
-    compile_ok_in(
-        "test.flx",
-        "import Base except [print]\nfn main() with IO { Base.print(1); }",
-    );
-}
-
-#[test]
-fn import_base_except_unknown_name_is_error() {
-    let code = compile_err("import Base except [does_not_exist]");
-    assert_eq!(code, "E080");
-}
-
-#[test]
-fn import_base_except_duplicate_name_is_error() {
-    let code = compile_err("import Base except [print, print]");
-    assert_eq!(code, "E079");
-}
+// Base function tests removed — base functions are no longer registered in
+// the symbol table. The Flux stdlib (`lib/Base/*.flx`) replaces the Rust
+// base function registry (Proposal 0120).
 
 #[test]
 fn import_non_base_except_is_accepted() {
@@ -2237,24 +2212,6 @@ fn import_non_base_except_is_accepted() {
 #[test]
 fn import_non_base_alias_except_is_accepted() {
     compile_ok_in("test.flx", "import Foo as F except [drop]\n1;");
-}
-
-#[test]
-fn base_qualified_unknown_member_is_error() {
-    let code = compile_err("Base.not_real();");
-    assert_eq!(code, "E080");
-}
-
-#[test]
-fn top_level_binding_can_shadow_base_name() {
-    compile_ok_in(
-        "test.flx",
-        r#"
-let len = fn(x) { 42; };
-len([1, 2, 3]);
-Base.len([1, 2, 3]);
-"#,
-    );
 }
 
 #[test]

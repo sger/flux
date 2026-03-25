@@ -193,8 +193,10 @@ module Base.List {
         fn zip_go(i, result) {
             if i >= n { result }
             else {
-                match a[i] {
-                    Some(x) -> match b[i] {
+                let va = a[i]
+                let vb = b[i]
+                match va {
+                    Some(x) -> match vb {
                         Some(y) -> zip_go(i + 1, push(result, (x, y))),
                         _ -> zip_go(i + 1, result)
                     },
