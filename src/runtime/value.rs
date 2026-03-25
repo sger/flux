@@ -524,6 +524,85 @@ impl Value {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Rich value formatting (recursive, handles compound types)
+// ---------------------------------------------------------------------------
+
+/// Collect a cons-list Value into a Vec.
+fn collect_cons_list(value: &Value) -> Option<Vec<Value>> {
+    let mut elements = Vec::new();
+    let mut current = value.clone();
+    loop {
+        match &current {
+            Value::None | Value::EmptyList => return Some(elements),
+            Value::Cons(cell) => {
+                elements.push(cell.head.clone());
+                current = cell.tail.clone();
+            }
+            _ => return None,
+        }
+    }
+}
+
+/// Format a value for display (used by print, to_string, assertions, etc.).
+///
+/// Unlike `Value::Display`, this recursively formats compound values with
+/// proper delimiters: arrays as `[|1, 2|]`, tuples as `(1, 2)`,
+/// ADTs as `Foo(1, 2)`, cons lists as `[1, 2, 3]`, HAMT maps as `{"k": v}`.
+pub fn format_value(value: &Value) -> String {
+    match value {
+        Value::Array(elements) => {
+            let items: Vec<String> = elements.iter().map(|e| format_value(e)).collect();
+            format!("[|{}|]", items.join(", "))
+        }
+        Value::Tuple(elements) => {
+            let items: Vec<String> = elements.iter().map(|e| format_value(e)).collect();
+            match items.len() {
+                0 => "()".to_string(),
+                1 => format!("({},)", items[0]),
+                _ => format!("({})", items.join(", ")),
+            }
+        }
+        Value::Adt(_) => {
+            if let Some(adt) = value.as_adt() {
+                let items: Vec<String> =
+                    adt.fields().iter().map(|v| format_value(v)).collect();
+                format!("{}({})", adt.constructor(), items.join(", "))
+            } else {
+                value.to_string()
+            }
+        }
+        Value::AdtUnit(name) => name.to_string(),
+        Value::Cons(_) => {
+            match collect_cons_list(value) {
+                Some(elements) => {
+                    let items: Vec<String> = elements.iter().map(|e| format_value(e)).collect();
+                    format!("[{}]", items.join(", "))
+                }
+                None => "<malformed list>".to_string(),
+            }
+        }
+        Value::HashMap(node) => crate::runtime::hamt::format_hamt(node),
+        _ => value.to_string(),
+    }
+}
+
+/// Count the length of a cons-list Value.
+pub fn cons_list_len(value: &Value) -> Option<usize> {
+    let mut count = 0;
+    let mut current = value.clone();
+    loop {
+        match &current {
+            Value::None | Value::EmptyList => return Some(count),
+            Value::Cons(cell) => {
+                count += 1;
+                current = cell.tail.clone();
+            }
+            _ => return None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

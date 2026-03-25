@@ -289,6 +289,11 @@ int64_t flux_clock_now(void);
 
 int64_t flux_read_lines(int64_t path);
 int64_t flux_trim(int64_t s);
+int64_t flux_upper(int64_t s);
+int64_t flux_lower(int64_t s);
+int64_t flux_replace(int64_t s, int64_t from, int64_t to);
+int64_t flux_chars(int64_t s);
+int64_t flux_str_contains(int64_t haystack, int64_t needle);
 int64_t flux_split(int64_t s, int64_t delim);
 int64_t flux_join(int64_t list, int64_t sep);
 int64_t flux_substring(int64_t s, int64_t start, int64_t end);

@@ -174,6 +174,36 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
         returns_value: true,
     },
     BuiltinMapping {
+        flux_name: "upper",
+        c_name: "flux_upper",
+        arity: 1,
+        returns_value: true,
+    },
+    BuiltinMapping {
+        flux_name: "lower",
+        c_name: "flux_lower",
+        arity: 1,
+        returns_value: true,
+    },
+    BuiltinMapping {
+        flux_name: "replace",
+        c_name: "flux_replace",
+        arity: 3,
+        returns_value: true,
+    },
+    BuiltinMapping {
+        flux_name: "chars",
+        c_name: "flux_chars",
+        arity: 1,
+        returns_value: true,
+    },
+    BuiltinMapping {
+        flux_name: "str_contains",
+        c_name: "flux_str_contains",
+        arity: 2,
+        returns_value: true,
+    },
+    BuiltinMapping {
         flux_name: "substring",
         c_name: "flux_substring",
         arity: 3,
@@ -391,6 +421,36 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
         flux_name: "trim",
         c_name: "flux_trim",
         arity: 1,
+        returns_value: true,
+    },
+    BuiltinMapping {
+        flux_name: "upper",
+        c_name: "flux_upper",
+        arity: 1,
+        returns_value: true,
+    },
+    BuiltinMapping {
+        flux_name: "lower",
+        c_name: "flux_lower",
+        arity: 1,
+        returns_value: true,
+    },
+    BuiltinMapping {
+        flux_name: "replace",
+        c_name: "flux_replace",
+        arity: 3,
+        returns_value: true,
+    },
+    BuiltinMapping {
+        flux_name: "chars",
+        c_name: "flux_chars",
+        arity: 1,
+        returns_value: true,
+    },
+    BuiltinMapping {
+        flux_name: "str_contains",
+        c_name: "flux_str_contains",
+        arity: 2,
         returns_value: true,
     },
     BuiltinMapping {

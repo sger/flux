@@ -313,10 +313,26 @@ pub fn infer_program(
     // Solve any deferred constraints (no-op under current eager model).
     ctx.solve_deferred_constraints();
     let constraint_count = ctx.contraint_log.len();
+    // Apply the final substitution to module member schemes so type
+    // variables are resolved to their concrete types before being cached
+    // for downstream modules.
+    let resolved_schemes: HashMap<(Identifier, Identifier), Scheme> = ctx
+        .module_member_schemes
+        .into_iter()
+        .map(|(key, scheme)| {
+            let resolved_type = scheme.infer_type.apply_type_subst(&ctx.subst);
+            let mut forall = resolved_type.free_vars().into_iter().collect::<Vec<_>>();
+            forall.sort_unstable();
+            forall.dedup();
+            (key, Scheme { forall, infer_type: resolved_type })
+        })
+        .collect();
+
     InferProgramResult {
         type_env: ctx.env,
         diagnostics: ctx.errors,
         expr_types: ctx.expr_types,
+        module_member_schemes: resolved_schemes,
         constraint_count,
     }
 }
@@ -329,6 +345,12 @@ pub struct InferProgramResult {
     pub diagnostics: Vec<Diagnostic>,
     /// Inferred type for each recorded expression, keyed by parser-assigned `ExprId`.
     pub expr_types: HashMap<ExprId, InferType>,
+    /// Inferred type schemes for public module members.
+    ///
+    /// Keyed by `(module_name, member_name)`. Includes both preloaded schemes
+    /// from previously-compiled modules and newly-inferred schemes from the
+    /// current module's `module { ... }` blocks.
+    pub module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     /// Total number of type/effect constraints generated during inference.
     pub constraint_count: usize,
 }

@@ -878,13 +878,19 @@ impl Compiler {
                                     &actual_str,
                                 )));
                             }
+                            // Use non-strict policy for typed let initializers:
+                            // when the annotation is concrete (e.g., Array<Int>)
+                            // but HM can't fully resolve the RHS type (e.g., because
+                            // it involves polymorphic Base library functions), trust
+                            // the annotation and emit a runtime check rather than
+                            // blocking compilation with E425.
                             self.validate_expr_expected_type_with_policy(
                                 &expected_infer,
                                 value,
                                 "initializer type is known at compile time",
                                 "binding initializer does not match type annotation".to_string(),
                                 "typed let initializer",
-                                true,
+                                false,
                             )?;
                         } else if self.strict_mode {
                             return Err(Self::boxed(

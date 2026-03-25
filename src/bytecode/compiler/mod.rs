@@ -158,6 +158,12 @@ pub struct Compiler {
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     pub(super) hm_expr_types: HashMap<ExprId, InferType>,
+    /// Accumulated HM-inferred type schemes for public module members.
+    ///
+    /// Persists across `set_file_path()` calls so that downstream modules
+    /// can use type schemes from previously-compiled modules. Keyed by
+    /// `(module_name, member_name)`.
+    pub(super) cached_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
     /// True when HM type inference produced diagnostics. Used to block CFG path
     /// for functions in files with type errors (the Core IR may be degenerate).
     pub(super) has_hm_diagnostics: bool,
@@ -226,6 +232,7 @@ impl Compiler {
             effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
+            cached_member_schemes: HashMap::new(),
             has_hm_diagnostics: false,
             ir_function_symbols: HashMap::new(),
             inferred_function_effects: HashMap::new(),
@@ -351,6 +358,8 @@ impl Compiler {
         self.collect_module_function_visibility(program);
         self.collect_module_contracts(program);
         self.collect_effect_declarations(program);
+        // Auto-expose Base library modules so HM can resolve Base functions.
+        self.auto_expose_base_modules();
 
         let hm_config = self.build_infer_config(program);
         let hm = infer_program(program, &self.interner, hm_config);
@@ -603,6 +612,21 @@ impl Compiler {
 
         let mut preloaded = HashMap::new();
         for (binding, target_module) in import_bindings {
+            // First populate from cached HM-inferred schemes.
+            for ((mod_name, member), scheme) in &self.cached_member_schemes {
+                if *mod_name != target_module {
+                    continue;
+                }
+                if self
+                    .module_function_visibility
+                    .get(&(target_module, *member))
+                    != Some(&true)
+                {
+                    continue;
+                }
+                preloaded.insert((binding, *member), scheme.clone());
+            }
+            // Then supplement with contract-based schemes (for annotated functions).
             for (key, contract) in &self.module_contracts {
                 if key.module_name != Some(target_module) {
                     continue;
@@ -612,6 +636,10 @@ impl Compiler {
                     .get(&(target_module, key.function_name))
                     != Some(&true)
                 {
+                    continue;
+                }
+                // Don't override cached scheme if already present.
+                if preloaded.contains_key(&(binding, key.function_name)) {
                     continue;
                 }
                 if let Some(scheme) = Self::scheme_from_contract(contract, &self.interner) {
@@ -664,6 +692,14 @@ impl Compiler {
                 {
                     continue;
                 }
+
+                // First try cached HM-inferred schemes (direct, no roundtrip).
+                if let Some(scheme) = self.cached_member_schemes.get(&(*module_name, member)) {
+                    exposed.insert(member, scheme.clone());
+                    continue;
+                }
+
+                // Fallback to contract-based schemes (for annotated functions).
                 for (key, contract) in &self.module_contracts {
                     if key.module_name != Some(*module_name) || key.function_name != member {
                         continue;
@@ -686,7 +722,22 @@ impl Compiler {
         let base_module_symbol = self.interner.intern("Base");
 
         // Exposed import schemes are used as unqualified identifiers by HM inference.
-        let exposed_schemes = self.build_exposed_hm_schemes(program);
+        let mut exposed_schemes = self.build_exposed_hm_schemes(program);
+
+        // Inject primop type schemes so HM can resolve types for functions
+        // that call primops (e.g., lib/Base/*.flx functions like read_lines).
+        self.inject_primop_hm_schemes(&mut exposed_schemes);
+
+        // Auto-inject all cached Base module member schemes so that every
+        // module has access to Base functions without explicit imports
+        // (like Haskell's implicit Prelude import).
+        for ((mod_name, member), scheme) in &self.cached_member_schemes {
+            let mod_str = self.interner.resolve(*mod_name);
+            if mod_str.starts_with("Base.") {
+                // Only inject if not already present (explicit imports take priority).
+                exposed_schemes.entry(*member).or_insert_with(|| scheme.clone());
+            }
+        }
 
         InferProgramConfig {
             file_path: Some(self.file_path.as_str().into()),
@@ -695,6 +746,113 @@ impl Compiler {
             known_base_names: HashSet::new(),
             base_module_symbol,
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
+        }
+    }
+
+    /// Inject HM type schemes for primops so that HM inference can resolve
+    /// types in modules that call primops directly (e.g., `lib/Base/*.flx`).
+    ///
+    /// Only injects schemes for names not already present in the map
+    /// (module-defined functions take priority over primops).
+    fn inject_primop_hm_schemes(&mut self, schemes: &mut HashMap<Symbol, Scheme>) {
+        use crate::types::infer_effect_row::InferEffectRow;
+        use crate::types::type_constructor::TypeConstructor as TC;
+
+        let io_sym = self.interner.intern("IO");
+
+        // Helper closures for common type patterns.
+        let con = |tc: TC| InferType::Con(tc);
+        let app = |tc: TC, args: Vec<InferType>| InferType::App(tc, args);
+        let fun =
+            |params: Vec<InferType>, ret: InferType, eff: InferEffectRow| -> InferType {
+                InferType::Fun(params, Box::new(ret), eff)
+            };
+        let pure = || InferEffectRow::closed_empty();
+        let io = || InferEffectRow::closed_from_symbols(vec![io_sym]);
+
+        // (name, params, ret, effects, forall_count)
+        let primop_sigs: Vec<(&str, Vec<InferType>, InferType, InferEffectRow, usize)> = vec![
+            // I/O
+            ("print", vec![con(TC::Any)], con(TC::Any), io(), 0),
+            ("println", vec![con(TC::Any)], con(TC::Any), io(), 0),
+            ("read_file", vec![con(TC::String)], con(TC::String), io(), 0),
+            ("read_stdin", vec![], con(TC::String), io(), 0),
+            ("read_lines", vec![con(TC::String)], app(TC::Array, vec![con(TC::String)]), io(), 0),
+            ("write_file", vec![con(TC::String), con(TC::String)], con(TC::Unit), io(), 0),
+            ("panic", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            // String ops
+            ("split", vec![con(TC::String), con(TC::String)], app(TC::Array, vec![con(TC::String)]), pure(), 0),
+            ("join", vec![app(TC::Array, vec![con(TC::String)]), con(TC::String)], con(TC::String), pure(), 0),
+            ("trim", vec![con(TC::String)], con(TC::String), pure(), 0),
+            ("upper", vec![con(TC::String)], con(TC::String), pure(), 0),
+            ("lower", vec![con(TC::String)], con(TC::String), pure(), 0),
+            ("starts_with", vec![con(TC::String), con(TC::String)], con(TC::Bool), pure(), 0),
+            ("ends_with", vec![con(TC::String), con(TC::String)], con(TC::Bool), pure(), 0),
+            ("replace", vec![con(TC::String), con(TC::String), con(TC::String)], con(TC::String), pure(), 0),
+            ("chars", vec![con(TC::String)], app(TC::Array, vec![con(TC::String)]), pure(), 0),
+            ("substring", vec![con(TC::String), con(TC::Int), con(TC::Int)], con(TC::String), pure(), 0),
+            ("str_contains", vec![con(TC::String), con(TC::String)], con(TC::Bool), pure(), 0),
+            ("to_string", vec![con(TC::Any)], con(TC::String), pure(), 0),
+            // Numeric
+            ("abs", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("min", vec![con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
+            ("max", vec![con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
+            ("parse_int", vec![con(TC::String)], app(TC::Option, vec![con(TC::Int)]), pure(), 0),
+            ("parse_ints", vec![app(TC::Array, vec![con(TC::String)])], app(TC::Array, vec![con(TC::Int)]), pure(), 0),
+            ("split_ints", vec![con(TC::String), con(TC::String)], app(TC::Array, vec![con(TC::Int)]), pure(), 0),
+            // Collection ops
+            ("len", vec![con(TC::Any)], con(TC::Int), pure(), 0),
+            ("push", vec![con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
+            ("concat", vec![con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
+            ("slice", vec![con(TC::Any), con(TC::Int), con(TC::Int)], con(TC::Any), pure(), 0),
+            ("sort", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("reverse", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("contains", vec![con(TC::Any), con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("range", vec![con(TC::Int), con(TC::Int)], app(TC::Array, vec![con(TC::Int)]), pure(), 0),
+            // Type checks
+            ("type_of", vec![con(TC::Any)], con(TC::String), pure(), 0),
+            ("is_int", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_float", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_string", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_bool", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_array", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_none", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_some", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_list", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_hash", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_map", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            // List ops
+            ("hd", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("tl", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("to_list", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("to_array", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            // Map ops
+            ("keys", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("values", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("has_key", vec![con(TC::Any), con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("merge", vec![con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
+            ("delete", vec![con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
+            ("put", vec![con(TC::Any), con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
+            ("get", vec![con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
+            // Time
+            ("now_ms", vec![], con(TC::Int), pure(), 0),
+            ("time", vec![fun(vec![], con(TC::Any), pure())], con(TC::Int), pure(), 0),
+            // Sum/Product
+            ("sum", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("product", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+        ];
+
+        for (name, params, ret, effects, _forall) in primop_sigs {
+            let sym = self.interner.intern(name);
+            // Don't override module-defined functions.
+            if schemes.contains_key(&sym) {
+                continue;
+            }
+            let infer_type = fun(params, ret, effects);
+            let mut forall = infer_type.free_vars().into_iter().collect::<Vec<_>>();
+            forall.sort_unstable();
+            forall.dedup();
+            schemes.insert(sym, Scheme { forall, infer_type });
         }
     }
 

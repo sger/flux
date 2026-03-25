@@ -225,17 +225,13 @@ fn register_explicit_named_fallbacks(
 
     for (name, arity) in unresolved_callees {
         if let Some(interner) = interner
-            && let Some(metadata) =
-                crate::runtime::base::get_base_borrow_metadata(interner.resolve(name))
+            && let Some((primop_arity, borrows)) =
+                crate::primop::resolve_primop_borrow_info(interner.resolve(name))
         {
-            let mode = match metadata.arg_mode {
-                crate::runtime::base_function::BaseFunctionArgMode::BorrowedOnly
-                | crate::runtime::base_function::BaseFunctionArgMode::BorrowedPreferredWithOwnedFallback => BorrowMode::Borrowed,
-                crate::runtime::base_function::BaseFunctionArgMode::OwnedOnly => BorrowMode::Owned,
-            };
+            let mode = if borrows { BorrowMode::Borrowed } else { BorrowMode::Owned };
             registry.insert_named_if_absent(
                 name,
-                BorrowSignature::all(mode, metadata.arity, BorrowProvenance::BaseRuntime),
+                BorrowSignature::all(mode, primop_arity, BorrowProvenance::BaseRuntime),
             );
             continue;
         }
