@@ -556,6 +556,16 @@ fn run_file(
                 all_diagnostics.append(&mut parser.errors);
             }
 
+            // Auto-import Base library modules (Proposal 0120/0121 Phase 4).
+            // Inject `import Base.Option exposing (..)` into the program AST
+            // so Option helpers are available without explicit import.
+            // Skip for --dump-aether/--dump-core/--trace-aether to keep
+            // diagnostic output focused on user code.
+            let mut program = program;
+            if !dump_aether && !trace_aether && matches!(dump_core, CoreDumpMode::None) {
+                inject_base_prelude(&mut program, &mut parser);
+            }
+
             let interner = parser.take_interner();
             let entry_path = Path::new(path);
             let roots = collect_roots(entry_path, extra_roots, roots_only);
@@ -610,9 +620,19 @@ fn run_file(
 
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
+                let is_base_library = node.path.to_string_lossy().contains("lib/Base/")
+                    || node.path.to_string_lossy().contains("lib\\Base\\");
                 compiler.set_strict_require_main(is_entry_module);
+                // Disable strict mode for Base library modules — they use
+                // polymorphic signatures that strict mode can't validate yet.
+                if is_base_library {
+                    compiler.set_strict_mode(false);
+                }
                 let compile_result =
                     compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
+                if is_base_library {
+                    compiler.set_strict_mode(strict_mode);
+                }
                 let mut compiler_warnings = compiler.take_warnings();
                 tag_diagnostics(&mut compiler_warnings, DiagnosticPhase::Validation);
                 for diag in &mut compiler_warnings {
@@ -1541,6 +1561,53 @@ fn emit_diagnostics(
     }
 }
 
+/// Inject auto-imports for Base library modules into the program AST.
+///
+/// Currently injects: `import Base.Option exposing (..)`
+///
+/// Uses a mini-parser to parse the synthetic import so symbols are
+/// correctly interned in the same interner used for the rest of compilation.
+fn inject_base_prelude(
+    program: &mut Program,
+    parser: &mut flux::syntax::parser::Parser,
+) {
+    // Only inject if lib/Base/ exists.
+    let base_option_path = Path::new("lib").join("Base").join("Option.flx");
+    if !base_option_path.exists() {
+        return;
+    }
+
+    // Check if the user already has an explicit `import Base.Option`.
+    let interner = parser.interner();
+    let has_base_option_import = program.statements.iter().any(|stmt| {
+        if let flux::syntax::statement::Statement::Import { name, .. } = stmt {
+            interner.try_resolve(*name) == Some("Base.Option")
+        } else {
+            false
+        }
+    });
+    if has_base_option_import {
+        return;
+    }
+
+    // Parse synthetic import using a mini-parser that shares the interner.
+    let prelude_source = "import Base.Option exposing (..)";
+    let main_interner = parser.take_interner();
+    let prelude_lexer =
+        flux::syntax::lexer::Lexer::new_with_interner(prelude_source, main_interner);
+    let mut prelude_parser = flux::syntax::parser::Parser::new(prelude_lexer);
+    let prelude_program = prelude_parser.parse_program();
+
+    // Give the interner back to the main parser.
+    let enriched_interner = prelude_parser.take_interner();
+    parser.restore_interner(enriched_interner);
+
+    // Prepend the synthetic import to the program.
+    let mut new_statements = prelude_program.statements;
+    new_statements.extend(program.statements.drain(..));
+    program.statements = new_statements;
+}
+
 /// Extract the module name and symbol from a program's top-level `module Name { ... }` statement.
 fn extract_module_name_and_sym(
     program: &Program,
@@ -1608,6 +1675,12 @@ fn collect_roots(entry_path: &Path, extra_roots: &[PathBuf], roots_only: bool) -
         let project_src = Path::new("src");
         if project_src.exists() {
             roots.push(project_src.to_path_buf());
+        }
+        // Add lib/ as a root for Base library resolution (Proposal 0120).
+        // Searches: relative to cwd, then up from the executable.
+        let project_lib = Path::new("lib");
+        if project_lib.exists() {
+            roots.push(project_lib.to_path_buf());
         }
     }
     roots

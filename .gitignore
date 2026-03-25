@@ -30,6 +30,9 @@ Thumbs.db
 /test_imports/
 *.tmp
 
+# Module interface cache
+*.flxi
+
 # C runtime build artifacts
 runtime/c/*.a
 runtime/c/*.dylib

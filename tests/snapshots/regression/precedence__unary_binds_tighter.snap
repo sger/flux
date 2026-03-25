@@ -4,6 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/precedence/unary_binds_tighter.flx
 exit_code: 1
 
+• 6 errors • tests/fixtures/precedence/unary_binds_tighter.flx
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
