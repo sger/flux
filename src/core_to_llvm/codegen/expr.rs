@@ -72,12 +72,17 @@ pub(super) struct FunctionLowering<'a, 'p> {
     /// are raw i64 — no NaN-boxing. Typed integer primops (IAdd, ISub, etc.)
     /// emit bare LLVM instructions without untag/retag.
     pub unboxed_int_mode: bool,
+    /// Proposal 0119 Phase 4: tracks runtime representation per binder ID.
+    /// Populated when binding variables (params, Let, pattern match).
+    /// Used by `expr_produces_raw_int` to determine if a Var reference is raw.
+    pub local_reps: HashMap<CoreBinderId, crate::core::FluxRep>,
 }
 
 struct BindingRestore {
     binder: CoreBinderId,
     old_slot: Option<LlvmLocal>,
     old_name: Option<crate::syntax::Identifier>,
+    old_rep: Option<crate::core::FluxRep>,
 }
 
 impl<'a, 'p> FunctionLowering<'a, 'p> {
@@ -112,6 +117,12 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         let all_int_params = params.iter().all(|p| p.rep == crate::core::FluxRep::IntRep);
         let unboxed = all_int_params && !params.is_empty();
 
+        // Phase 4: record param reps for box/unbox coercion.
+        let mut local_reps = HashMap::new();
+        for p in params {
+            local_reps.insert(p.id, p.rep);
+        }
+
         Self {
             state,
             program,
@@ -119,6 +130,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             mutual_group: None,
             cps_state: None,
             unboxed_int_mode: unboxed,
+            local_reps,
         }
     }
 
@@ -209,6 +221,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             mutual_group: None,
             cps_state: None,
             unboxed_int_mode: false, // closures always use NaN-boxed params
+            local_reps: HashMap::new(),
         })
     }
 
@@ -1236,7 +1249,9 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                     });
                 }
                 let head = self.lower_expr_not_tail(&fields[0])?;
+                let head = self.ensure_tagged_if_raw(head, &fields[0])?;
                 let tail = self.lower_expr_not_tail(&fields[1])?;
+                let tail = self.ensure_tagged_if_raw(tail, &fields[1])?;
                 self.emit_make_cons_value(head, tail)
             }
             CoreTag::Some | CoreTag::Left | CoreTag::Right | CoreTag::Named(_) => {
@@ -1262,7 +1277,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 })?;
                 let lowered = fields
                     .iter()
-                    .map(|field| self.lower_expr_not_tail(field))
+                    .map(|field| {
+                        let val = self.lower_expr_not_tail(field)?;
+                        self.ensure_tagged_if_raw(val, field)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 self.emit_make_adt_value(ctor_tag, lowered)
             }
@@ -1280,6 +1298,25 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             return Ok(result);
         }
         let rhs_value = self.lower_expr_not_tail(rhs)?;
+        // Phase 4: coerce at rep boundaries in unboxed mode.
+        // If binder is IntRep but RHS is tagged → untag.
+        // If binder is not IntRep but RHS is raw → tag.
+        let rhs_value = if self.unboxed_int_mode {
+            let rhs_is_raw = self.expr_produces_raw_int(rhs);
+            let binder_is_int = binder.rep == crate::core::FluxRep::IntRep;
+            if binder_is_int && !rhs_is_raw {
+                // Tagged → raw (e.g., call returning NaN-boxed int → IntRep binder)
+                let raw = self.emit_untag_int(rhs_value)?;
+                LlvmOperand::Local(raw)
+            } else if !binder_is_int && rhs_is_raw {
+                // Raw → tagged (e.g., raw int → BoxedRep binder)
+                self.emit_tag_int(rhs_value)?
+            } else {
+                rhs_value
+            }
+        } else {
+            rhs_value
+        };
         let slot = self.state.new_slot();
         self.state.emit_entry_alloca(LlvmInstr::Alloca {
             dst: slot.clone(),
@@ -1296,8 +1333,14 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
 
         let old_slot = self.state.local_slots.insert(binder.id, slot);
         let old_name = self.state.binder_names.insert(binder.id, binder.name);
+        let old_rep = self.local_reps.insert(binder.id, binder.rep);
         let result = self.lower_expr(body);
         restore_local_binding(&mut self.state, binder.id, old_slot, old_name);
+        if let Some(rep) = old_rep {
+            self.local_reps.insert(binder.id, rep);
+        } else {
+            self.local_reps.remove(&binder.id);
+        }
         result
     }
 
@@ -1400,7 +1443,13 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                     .ok_or_else(|| CoreToLlvmError::MissingSymbol {
                         message: format!("missing capture slot for binder {:?}", binder.id),
                     })?;
-                self.load_slot_value(slot, "capture.load")
+                let val = self.load_slot_value(slot, "capture.load")?;
+                // Phase 4: tag raw IntRep captures for closure (NaN-boxed context).
+                if self.unboxed_int_mode && binder.rep == crate::core::FluxRep::IntRep {
+                    self.emit_tag_int(val)
+                } else {
+                    Ok(val)
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -1435,6 +1484,17 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 return result;
             }
             let is_self_recursive = callee.0 == self.state.symbol.0;
+            // Phase 4: tag raw int args when calling non-self functions
+            // (non-worker callees expect NaN-boxed values).
+            let lowered_args = if self.unboxed_int_mode && !is_self_recursive {
+                lowered_args
+                    .into_iter()
+                    .zip(args.iter())
+                    .map(|(val, expr)| self.ensure_tagged_if_raw(val, expr))
+                    .collect::<Result<Vec<_>, _>>()?
+            } else {
+                lowered_args
+            };
             let dst = self.state.temp_local("call");
             self.state.emit(LlvmInstr::Call {
                 dst: Some(dst.clone()),
@@ -1452,9 +1512,13 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         }
 
         let callee = self.lower_expr_not_tail(func)?;
+        // Phase 4: tag raw int args for closure calls (always NaN-boxed).
         let lowered_args = args
             .iter()
-            .map(|arg| self.lower_expr_not_tail(arg))
+            .map(|arg| {
+                let val = self.lower_expr_not_tail(arg)?;
+                self.ensure_tagged_if_raw(val, arg)
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let args_ptr = self.emit_operand_array(&lowered_args, "call.args")?;
         let dst = self.state.temp_local("closure.call");
@@ -1505,8 +1569,12 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 .map(|arg| self.lower_expr_not_tail(arg))
                 .collect::<Result<Vec<_>, _>>()?;
             // Emit dup for Owned args that need it.
-            for (i, val) in lowered_args.iter().enumerate() {
-                if i < arg_modes.len() && arg_modes[i] == BorrowMode::Owned {
+            // Phase 5: skip dup for unboxed args (IntRep/FloatRep/BoolRep).
+            for (i, (val, arg_expr)) in lowered_args.iter().zip(args.iter()).enumerate() {
+                if i < arg_modes.len()
+                    && arg_modes[i] == BorrowMode::Owned
+                    && !self.arg_is_unboxed(arg_expr)
+                {
                     self.state.emit(LlvmInstr::Call {
                         dst: None,
                         tail: false,
@@ -1527,6 +1595,16 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 return result;
             }
             let is_self_recursive = callee.0 == self.state.symbol.0;
+            // Phase 4: tag raw int args when calling non-self functions.
+            let lowered_args = if self.unboxed_int_mode && !is_self_recursive {
+                lowered_args
+                    .into_iter()
+                    .zip(args.iter())
+                    .map(|(val, expr)| self.ensure_tagged_if_raw(val, expr))
+                    .collect::<Result<Vec<_>, _>>()?
+            } else {
+                lowered_args
+            };
             let dst = self.state.temp_local("acall");
             self.state.emit(LlvmInstr::Call {
                 dst: Some(dst.clone()),
@@ -1545,13 +1623,21 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
 
         // Closure call path.
         let callee = self.lower_expr_not_tail(func)?;
+        // Phase 4: tag raw int args for closure calls (always NaN-boxed).
         let lowered_args = args
             .iter()
-            .map(|arg| self.lower_expr_not_tail(arg))
+            .map(|arg| {
+                let val = self.lower_expr_not_tail(arg)?;
+                self.ensure_tagged_if_raw(val, arg)
+            })
             .collect::<Result<Vec<_>, _>>()?;
         // Emit dup for Owned args.
-        for (i, val) in lowered_args.iter().enumerate() {
-            if i < arg_modes.len() && arg_modes[i] == BorrowMode::Owned {
+        // Phase 5: skip dup for unboxed args (IntRep/FloatRep/BoolRep).
+        for (i, (val, arg_expr)) in lowered_args.iter().zip(args.iter()).enumerate() {
+            if i < arg_modes.len()
+                && arg_modes[i] == BorrowMode::Owned
+                && !self.arg_is_unboxed(arg_expr)
+            {
                 self.state.emit(LlvmInstr::Call {
                     dst: None,
                     tail: false,
@@ -2013,7 +2099,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         if let Some(alt) = default_alt {
             let mut restores = Vec::new();
             if let CorePat::Var(binder) = &alt.pat {
-                self.bind_pattern_var(*binder, scrutinee_val.clone(), &mut restores);
+                self.bind_pattern_var(*binder, scrutinee_val.clone(), &mut restores)?;
             }
             let value = self.lower_expr(&alt.rhs)?;
             if self.state.current_block_open() {
@@ -2117,7 +2203,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 });
             }
             CorePat::Var(binder) => {
-                self.bind_pattern_var(*binder, value, restores);
+                self.bind_pattern_var(*binder, value, restores)?;
                 self.state.set_terminator(LlvmTerminator::Br {
                     target: success_label,
                 });
@@ -2648,7 +2734,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         binder: CoreBinder,
         value: LlvmOperand,
         restores: &mut Vec<BindingRestore>,
-    ) {
+    ) -> Result<(), CoreToLlvmError> {
+        // Phase 4: if in unboxed_int_mode and binder has IntRep, the value
+        // from ADT field extraction is NaN-boxed — untag to raw i64.
+        let value = self.ensure_raw_if_int_binder(value, &binder)?;
         let slot = self.state.new_slot();
         self.state.emit_entry_alloca(LlvmInstr::Alloca {
             dst: slot.clone(),
@@ -2666,7 +2755,9 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             binder: binder.id,
             old_slot: self.state.local_slots.insert(binder.id, slot),
             old_name: self.state.binder_names.insert(binder.id, binder.name),
+            old_rep: self.local_reps.insert(binder.id, binder.rep),
         });
+        Ok(())
     }
 
     fn restore_bindings(&mut self, restores: Vec<BindingRestore>) {
@@ -2677,6 +2768,12 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 restore.old_slot,
                 restore.old_name,
             );
+            // Restore rep mapping.
+            if let Some(old_rep) = restore.old_rep {
+                self.local_reps.insert(restore.binder, old_rep);
+            } else {
+                self.local_reps.remove(&restore.binder);
+            }
         }
     }
 
@@ -3075,6 +3172,93 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             rhs: const_i64_op(super::prelude::FluxNanboxLayout::nanbox_sentinel_i64()),
         });
         Ok(LlvmOperand::Local(tagged))
+    }
+
+    // ── Proposal 0119 Phase 4: box/unbox coercion helpers ──────────────
+
+    /// Check whether lowering `expr` in the current context produces a raw
+    /// (untagged) integer value.  Only true in `unboxed_int_mode` for
+    /// expressions whose result is an integer.
+    fn expr_produces_raw_int(&self, expr: &CoreExpr) -> bool {
+        if !self.unboxed_int_mode {
+            return false;
+        }
+        match expr {
+            CoreExpr::Lit(CoreLit::Int(_), _) => true,
+            CoreExpr::Var { var, .. } => var.binder.is_some_and(|b| {
+                self.local_reps
+                    .get(&b)
+                    .copied()
+                    .unwrap_or(crate::core::FluxRep::TaggedRep)
+                    == crate::core::FluxRep::IntRep
+            }),
+            CoreExpr::PrimOp { op, .. } => matches!(
+                op,
+                CorePrimOp::IAdd
+                    | CorePrimOp::ISub
+                    | CorePrimOp::IMul
+                    | CorePrimOp::IDiv
+                    | CorePrimOp::IMod
+                    | CorePrimOp::StringLength
+                    | CorePrimOp::ArrayLen
+            ),
+            CoreExpr::Let { body, .. } | CoreExpr::LetRec { body, .. } => {
+                self.expr_produces_raw_int(body)
+            }
+            _ => false,
+        }
+    }
+
+    /// In `unboxed_int_mode`, if `expr` produces a raw integer, tag the
+    /// already-lowered `value` to NaN-boxed form for use in a boxed context
+    /// (ADT field, closure capture, non-worker call argument).
+    pub(super) fn ensure_tagged_if_raw(
+        &mut self,
+        value: LlvmOperand,
+        expr: &CoreExpr,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        if self.expr_produces_raw_int(expr) {
+            self.emit_tag_int(value)
+        } else {
+            Ok(value)
+        }
+    }
+
+    /// In `unboxed_int_mode`, if `binder` has `IntRep`, untag a NaN-boxed
+    /// value to raw i64.  Used when extracting ADT fields or receiving
+    /// results from non-worker function calls.
+    fn ensure_raw_if_int_binder(
+        &mut self,
+        value: LlvmOperand,
+        binder: &crate::core::CoreBinder,
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        if self.unboxed_int_mode && binder.rep == crate::core::FluxRep::IntRep {
+            let raw = self.emit_untag_int(value)?;
+            Ok(LlvmOperand::Local(raw))
+        } else {
+            Ok(value)
+        }
+    }
+
+    /// Phase 5: check if an argument expression has an unboxed representation.
+    /// Used to skip `flux_dup` for immediate scalar values (Int, Float, Bool).
+    fn arg_is_unboxed(&self, expr: &CoreExpr) -> bool {
+        match expr {
+            CoreExpr::Lit(CoreLit::Int(_), _) => true,
+            CoreExpr::Lit(CoreLit::Float(_), _) => true,
+            CoreExpr::Lit(CoreLit::Bool(_), _) => true,
+            CoreExpr::Var { var, .. } => var.binder.map_or(false, |b| {
+                self.local_reps
+                    .get(&b)
+                    .copied()
+                    .unwrap_or(crate::core::FluxRep::TaggedRep)
+                    .is_unboxed()
+            }),
+            CoreExpr::PrimOp { op, .. } => {
+                crate::core::passes::primop_result_rep(op).is_unboxed()
+            }
+            _ => false,
+        }
     }
 
     fn lower_rt_call(
