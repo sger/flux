@@ -563,7 +563,7 @@ fn run_file(
             // diagnostic output focused on user code.
             let mut program = program;
             if !dump_aether && !trace_aether && matches!(dump_core, CoreDumpMode::None) {
-                inject_base_prelude(&mut program, &mut parser);
+                inject_base_prelude(&mut program, &mut parser, use_core_to_llvm);
             }
 
             let interner = parser.take_interner();
@@ -1567,42 +1567,75 @@ fn emit_diagnostics(
 ///
 /// Uses a mini-parser to parse the synthetic import so symbols are
 /// correctly interned in the same interner used for the rest of compilation.
+/// Base library modules to auto-import.  Each entry is
+/// `(module_name, file_name)` — the file is checked for existence before
+/// injecting `import <module_name> exposing (..)`.
+const BASE_PRELUDE_MODULES: &[(&str, &str)] = &[
+    ("Base.Option", "Option.flx"),
+    ("Base.List", "List.flx"),
+    ("Base.String", "String.flx"),
+    ("Base.Numeric", "Numeric.flx"),
+    ("Base.IO", "IO.flx"),
+    ("Base.Assert", "Assert.flx"),
+];
+
 fn inject_base_prelude(
     program: &mut Program,
     parser: &mut flux::syntax::parser::Parser,
+    native_mode: bool,
 ) {
-    // Only inject if lib/Base/ exists.
-    let base_option_path = Path::new("lib").join("Base").join("Option.flx");
-    if !base_option_path.exists() {
+    let base_dir = Path::new("lib").join("Base");
+    if !base_dir.exists() {
         return;
     }
 
-    // Check if the user already has an explicit `import Base.Option`.
+    // Both VM and native backends inject all Base modules.
+    // The native/LLVM backend compiles lib/Base/*.flx through Core IR
+    // alongside user code, enabling cross-module inlining.
+    let _ = native_mode; // used by both paths now
+    let modules: &[(&str, &str)] = BASE_PRELUDE_MODULES;
+
+    // Collect the set of already-imported Base modules.
     let interner = parser.interner();
-    let has_base_option_import = program.statements.iter().any(|stmt| {
-        if let flux::syntax::statement::Statement::Import { name, .. } = stmt {
-            interner.try_resolve(*name) == Some("Base.Option")
-        } else {
-            false
+    let existing_imports: Vec<String> = program
+        .statements
+        .iter()
+        .filter_map(|stmt| {
+            if let flux::syntax::statement::Statement::Import { name, .. } = stmt {
+                interner.try_resolve(*name).map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Build the synthetic import source for all missing modules.
+    let mut imports = Vec::new();
+    for &(module_name, file_name) in modules {
+        if existing_imports.iter().any(|s| s == module_name) {
+            continue;
         }
-    });
-    if has_base_option_import {
+        if !base_dir.join(file_name).exists() {
+            continue;
+        }
+        imports.push(format!("import {module_name} exposing (..)"));
+    }
+
+    if imports.is_empty() {
         return;
     }
 
-    // Parse synthetic import using a mini-parser that shares the interner.
-    let prelude_source = "import Base.Option exposing (..)";
+    let prelude_source = imports.join("\n");
     let main_interner = parser.take_interner();
     let prelude_lexer =
-        flux::syntax::lexer::Lexer::new_with_interner(prelude_source, main_interner);
+        flux::syntax::lexer::Lexer::new_with_interner(&prelude_source, main_interner);
     let mut prelude_parser = flux::syntax::parser::Parser::new(prelude_lexer);
     let prelude_program = prelude_parser.parse_program();
 
-    // Give the interner back to the main parser.
     let enriched_interner = prelude_parser.take_interner();
     parser.restore_interner(enriched_interner);
 
-    // Prepend the synthetic import to the program.
+    // Prepend the synthetic imports to the program.
     let mut new_statements = prelude_program.statements;
     new_statements.extend(program.statements.drain(..));
     program.statements = new_statements;

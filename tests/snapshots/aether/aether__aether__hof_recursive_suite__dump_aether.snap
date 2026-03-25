@@ -42,20 +42,20 @@ Aether Memory Model Report
   let %t4 = (λx.
     Add(x, 1))
   aether_call[borrowed, borrowed] map_reuse(%t3, %t4))
-  aether_call[borrowed] print(%t2))
+  Print(%t2))
   drop %t1
   let %t5 = (let %t6 = (let %t7 = MakeList(1, 2, 3, 4, 5, 6)
   let %t8 = (λx.
     let %t9 = Mod(x, 2)
     Eq(%t9, 0))
   aether_call[borrowed, borrowed] count_if(%t7, %t8))
-  aether_call[borrowed] print(%t6))
+  Print(%t6))
   drop %t5
   let %t10 = (let %t11 = Some(10)
   let %t12 = (λx.
     Add(x, 1))
   aether_call[borrowed, borrowed] option_chain(%t11, %t12))
-  aether_call[borrowed] print(%t10)
+  Print(%t10)
 
 ── Total ──
   Dups: 0  Drops: 2  Reuses: 2  DropSpecs: 0  FBIP: fbip(1)

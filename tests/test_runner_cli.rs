@@ -427,8 +427,8 @@ fn dump_core_debug_preserves_raw_identity_details() {
         text
     );
     assert!(
-        text.contains("print#?[external]"),
-        "expected explicit external marker in debug dump, output:\n{}",
+        text.contains("Print("),
+        "expected Print() primop after promotion in debug dump, output:\n{}",
         text
     );
     assert!(

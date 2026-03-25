@@ -565,7 +565,13 @@ int64_t flux_type_of(int64_t val) {
 
 int64_t flux_is_int(int64_t val) {
     if (!flux_is_nanbox(val)) return flux_make_bool(0);
-    return flux_make_bool(flux_nanbox_tag(val) == FLUX_TAG_INTEGER);
+    if (flux_nanbox_tag(val) == FLUX_TAG_INTEGER) return flux_make_bool(1);
+    /* Heap-boxed BigInt is also an integer. */
+    if (flux_nanbox_tag(val) == FLUX_TAG_BOXED_VALUE) {
+        void *ptr = flux_untag_ptr(val);
+        if (ptr && flux_obj_tag(ptr) == FLUX_OBJ_BIGINT) return flux_make_bool(1);
+    }
+    return flux_make_bool(0);
 }
 
 int64_t flux_is_float(int64_t val) {

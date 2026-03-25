@@ -2700,6 +2700,102 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CorePrimOp::MakeArray => self.lower_make_array(args),
             CorePrimOp::MakeHash => self.lower_make_hash(args),
             CorePrimOp::Index => self.lower_index_primop(args),
+            // Promoted primops — map each variant to its C runtime function
+            // via the builtin mapping table.
+            CorePrimOp::Print
+            | CorePrimOp::Println
+            | CorePrimOp::ReadFile
+            | CorePrimOp::WriteFile
+            | CorePrimOp::ReadStdin
+            | CorePrimOp::StringLength
+            | CorePrimOp::StringConcat
+            | CorePrimOp::StringSlice
+            | CorePrimOp::ToString
+            | CorePrimOp::Split
+            | CorePrimOp::Join
+            | CorePrimOp::Trim
+            | CorePrimOp::Upper
+            | CorePrimOp::Lower
+            | CorePrimOp::StartsWith
+            | CorePrimOp::EndsWith
+            | CorePrimOp::Replace
+            | CorePrimOp::Substring
+            | CorePrimOp::Chars
+            | CorePrimOp::StrContains
+            | CorePrimOp::ArrayLen
+            | CorePrimOp::ArrayGet
+            | CorePrimOp::ArraySet
+            | CorePrimOp::ArrayPush
+            | CorePrimOp::ArrayConcat
+            | CorePrimOp::ArraySlice
+            | CorePrimOp::ArraySort
+            | CorePrimOp::HamtGet
+            | CorePrimOp::HamtSet
+            | CorePrimOp::HamtDelete
+            | CorePrimOp::HamtKeys
+            | CorePrimOp::HamtValues
+            | CorePrimOp::HamtMerge
+            | CorePrimOp::HamtSize
+            | CorePrimOp::HamtContains
+            | CorePrimOp::TypeOf
+            | CorePrimOp::IsInt
+            | CorePrimOp::IsFloat
+            | CorePrimOp::IsString
+            | CorePrimOp::IsBool
+            | CorePrimOp::IsArray
+            | CorePrimOp::IsNone
+            | CorePrimOp::IsSome
+            | CorePrimOp::IsList
+            | CorePrimOp::IsMap
+            | CorePrimOp::Panic
+            | CorePrimOp::ClockNow
+            | CorePrimOp::ParseInt
+            | CorePrimOp::Hd
+            | CorePrimOp::Tl
+            | CorePrimOp::ToList
+            | CorePrimOp::ToArray
+            | CorePrimOp::Len => {
+                let flux_name = promoted_primop_flux_name(op);
+                let Some(mapping) = super::builtins::find_builtin(flux_name) else {
+                    return Err(self.unsupported(
+                        "primop",
+                        format!("promoted primop `{flux_name}` not found in builtin mapping table"),
+                    ));
+                };
+                self.program.register_builtin(mapping);
+                let lowered_args: Vec<LlvmOperand> = args
+                    .iter()
+                    .map(|arg| self.lower_expr_not_tail(arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let call_args: Vec<(LlvmType, LlvmOperand)> = lowered_args
+                    .into_iter()
+                    .map(|a| (LlvmType::i64(), a))
+                    .collect();
+                if mapping.returns_value {
+                    let dst = self.state.temp_local("builtin");
+                    self.state.emit(LlvmInstr::Call {
+                        dst: Some(dst.clone()),
+                        tail: false,
+                        call_conv: Some(CallConv::Ccc),
+                        ret_ty: LlvmType::i64(),
+                        callee: LlvmOperand::Global(GlobalId(mapping.c_name.into())),
+                        args: call_args,
+                        attrs: vec![],
+                    });
+                    Ok(LlvmOperand::Local(dst))
+                } else {
+                    self.state.emit(LlvmInstr::Call {
+                        dst: None,
+                        tail: false,
+                        call_conv: Some(CallConv::Ccc),
+                        ret_ty: LlvmType::Void,
+                        callee: LlvmOperand::Global(GlobalId(mapping.c_name.into())),
+                        args: call_args,
+                        attrs: vec![],
+                    });
+                    Ok(const_i64(tagged_none_bits()))
+                }
+            }
             CorePrimOp::MemberAccess(member) => {
                 // Module member access: resolve to the function by name.
                 // Must use ensure_top_level_wrapper to get a closure entry
@@ -2989,4 +3085,65 @@ pub(super) fn const_i64(value: i64) -> LlvmOperand {
         bits: 64,
         value: value.into(),
     })
+}
+
+/// Map a promoted `CorePrimOp` variant to its Flux function name so
+/// `find_builtin()` can resolve the C runtime mapping.
+fn promoted_primop_flux_name(op: &CorePrimOp) -> &'static str {
+    match op {
+        CorePrimOp::Print => "print",
+        CorePrimOp::Println => "println",
+        CorePrimOp::ReadFile => "read_file",
+        CorePrimOp::WriteFile => "write_file",
+        CorePrimOp::ReadStdin => "read_stdin",
+        CorePrimOp::StringLength => "string_length",
+        CorePrimOp::StringConcat => "str_concat",
+        CorePrimOp::StringSlice => "str_slice",
+        CorePrimOp::ToString => "to_string",
+        CorePrimOp::Split => "split",
+        CorePrimOp::Join => "join",
+        CorePrimOp::Trim => "trim",
+        CorePrimOp::Upper => "upper",
+        CorePrimOp::Lower => "lower",
+        CorePrimOp::StartsWith => "starts_with",
+        CorePrimOp::EndsWith => "ends_with",
+        CorePrimOp::Replace => "replace",
+        CorePrimOp::Substring => "substring",
+        CorePrimOp::Chars => "chars",
+        CorePrimOp::StrContains => "str_contains",
+        CorePrimOp::ArrayLen => "array_len",
+        CorePrimOp::ArrayGet => "array_get",
+        CorePrimOp::ArraySet => "array_set",
+        CorePrimOp::ArrayPush => "push",
+        CorePrimOp::ArrayConcat => "concat",
+        CorePrimOp::ArraySlice => "slice",
+        CorePrimOp::ArraySort => "sort",
+        CorePrimOp::HamtGet => "get",
+        CorePrimOp::HamtSet => "put",
+        CorePrimOp::HamtDelete => "delete",
+        CorePrimOp::HamtKeys => "keys",
+        CorePrimOp::HamtValues => "values",
+        CorePrimOp::HamtMerge => "merge",
+        CorePrimOp::HamtSize => "size",
+        CorePrimOp::HamtContains => "has_key",
+        CorePrimOp::TypeOf => "type_of",
+        CorePrimOp::IsInt => "is_int",
+        CorePrimOp::IsFloat => "is_float",
+        CorePrimOp::IsString => "is_string",
+        CorePrimOp::IsBool => "is_bool",
+        CorePrimOp::IsArray => "is_array",
+        CorePrimOp::IsNone => "is_none",
+        CorePrimOp::IsSome => "is_some",
+        CorePrimOp::IsList => "is_list",
+        CorePrimOp::IsMap => "is_map",
+        CorePrimOp::Panic => "panic",
+        CorePrimOp::ClockNow => "now_ms",
+        CorePrimOp::ParseInt => "parse_int",
+        CorePrimOp::Hd => "hd",
+        CorePrimOp::Tl => "tl",
+        CorePrimOp::ToList => "to_list",
+        CorePrimOp::ToArray => "to_array",
+        CorePrimOp::Len => "len",
+        _ => unreachable!("not a promoted primop"),
+    }
 }

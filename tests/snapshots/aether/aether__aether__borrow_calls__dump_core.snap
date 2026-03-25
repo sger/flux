@@ -3,7 +3,7 @@ source: tests/aether_cli_snapshots.rs
 ---
 letrec my_len =
 λxs.
-    aether_call[borrowed] len(xs)
+    Len(xs)
 
 letrec len_twice =
 λxs.
@@ -13,7 +13,7 @@ letrec len_twice =
 
 letrec borrow_then_return =
 λxs, y.
-    let %t3 = (let %t4 = aether_call[borrowed] len(xs)
+    let %t3 = (let %t4 = Len(xs)
     Gt(%t4, 0))
     case %t3 of
       true →
@@ -24,11 +24,11 @@ letrec borrow_then_return =
 def main =
 let %t5 = (let %t6 = (let %t7 = MakeList(1, 2, 3)
   aether_call[borrowed] len_twice(%t7))
-  aether_call[borrowed] print(%t6))
+  Print(%t6))
   drop %t5
   let %t8 = (let %t9 = MakeList(1, 2, 3)
   aether_call[borrowed, owned] borrow_then_return(%t9, 42))
-  aether_call[borrowed] print(%t8)
+  Print(%t8)
 
 ── Aether stats ──
 Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0

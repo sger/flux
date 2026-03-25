@@ -50,20 +50,20 @@ Aether Memory Model Report
 λ.
   let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
   aether_call[borrowed] blocked_list(%t3))
-  aether_call[borrowed] print(%t2))
+  Print(%t2))
   drop %t1
   let %t4 = (let %t5 = (let %t6 = MakeList(1, 2, 3)
   aether_call[borrowed] borrowed_len(%t6))
-  aether_call[borrowed] print(%t5))
+  Print(%t5))
   drop %t4
   let %t7 = (let %t8 = (let %t9 = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
   aether_call[borrowed] fresh_tree(%t9))
-  aether_call[borrowed] print(%t8))
+  Print(%t8))
   drop %t7
   let %t10 = (let %t11 = MakeList(1, 2, 3)
   let %t12 = MakeList(10, 20)
   aether_call[owned, owned] forwarded_child_near_miss(%t11, %t12))
-  aether_call[borrowed] print(%t10)
+  Print(%t10)
 
 ── Total ──
   Dups: 3  Drops: 6  Reuses: 1  DropSpecs: 1  FBIP: fbip(4)
