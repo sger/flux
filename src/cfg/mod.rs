@@ -609,6 +609,7 @@ pub enum IrTopLevelItem {
         name: Identifier,
         alias: Option<Identifier>,
         except: Vec<Identifier>,
+        exposing: crate::syntax::statement::ImportExposing,
         span: Span,
     },
     Data {

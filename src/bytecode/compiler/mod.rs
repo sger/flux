@@ -117,6 +117,9 @@ pub struct Compiler {
     pub(super) imported_modules: HashSet<Symbol>,
     pub(super) import_aliases: HashMap<Symbol, Symbol>,
     pub(super) imported_module_exclusions: HashMap<Symbol, HashSet<Symbol>>,
+    /// Maps unqualified member name → qualified "Module.member" symbol
+    /// for `import Module exposing (member)` or `exposing (..)`.
+    pub(super) exposed_bindings: HashMap<Symbol, Symbol>,
     pub(super) current_module_prefix: Option<Symbol>,
     pub(super) current_span: Option<Span>,
     // Module Constants - stores compile-time evaluated module constants
@@ -200,6 +203,7 @@ impl Compiler {
             imported_modules: HashSet::new(),
             import_aliases: HashMap::new(),
             imported_module_exclusions: HashMap::new(),
+            exposed_bindings: HashMap::new(),
             current_module_prefix: None,
             current_span: None,
             // Module Constants
@@ -262,6 +266,7 @@ impl Compiler {
         self.imported_modules.clear();
         self.import_aliases.clear();
         self.imported_module_exclusions.clear();
+        self.exposed_bindings.clear();
         self.current_module_prefix = None;
         self.current_span = None;
         self.excluded_base_symbols.clear();
@@ -298,6 +303,7 @@ impl Compiler {
         self.imported_modules.clear();
         self.import_aliases.clear();
         self.imported_module_exclusions.clear();
+        self.exposed_bindings.clear();
         self.current_module_prefix = None;
         self.current_span = None;
         self.excluded_base_symbols.clear();
@@ -591,6 +597,64 @@ impl Compiler {
         preloaded
     }
 
+    /// Build unqualified type schemes for `exposing` imports.
+    ///
+    /// Returns a map from unqualified member name → Scheme so HM inference
+    /// can resolve exposed names without module qualification.
+    fn build_exposed_hm_schemes(&self, program: &Program) -> HashMap<Symbol, Scheme> {
+        use crate::syntax::statement::ImportExposing;
+
+        let mut exposed = HashMap::new();
+
+        for stmt in &program.statements {
+            let Statement::Import {
+                name: module_name,
+                exposing,
+                ..
+            } = stmt
+            else {
+                continue;
+            };
+
+            if self.is_base_module_symbol(*module_name) {
+                continue;
+            }
+
+            let members_to_expose: Vec<Symbol> = match exposing {
+                ImportExposing::None => continue,
+                ImportExposing::All => self
+                    .module_function_visibility
+                    .iter()
+                    .filter(|((mod_name, _), is_public)| {
+                        *mod_name == *module_name && **is_public
+                    })
+                    .map(|((_, member), _)| *member)
+                    .collect(),
+                ImportExposing::Names(names) => names.clone(),
+            };
+
+            for member in members_to_expose {
+                // Only expose if public
+                if self
+                    .module_function_visibility
+                    .get(&(*module_name, member))
+                    != Some(&true)
+                {
+                    continue;
+                }
+                for (key, contract) in &self.module_contracts {
+                    if key.module_name != Some(*module_name) || key.function_name != member {
+                        continue;
+                    }
+                    if let Some(scheme) = Self::scheme_from_contract(contract, &self.interner) {
+                        exposed.insert(member, scheme);
+                    }
+                }
+            }
+        }
+        exposed
+    }
+
     fn build_preloaded_base_schemes(&mut self) -> HashMap<Symbol, Scheme> {
         let mut preloaded = HashMap::new();
         for base_fn in BaseModule::new().names() {
@@ -698,9 +762,15 @@ impl Compiler {
         let mut merged_member_schemes = preloaded_member_schemes;
         merged_member_schemes.extend(base_member_schemes);
 
+        // Merge exposed import schemes into base schemes so HM inference
+        // resolves them as unqualified identifiers.
+        let exposed_schemes = self.build_exposed_hm_schemes(program);
+        let mut merged_base_schemes = base_schemes;
+        merged_base_schemes.extend(exposed_schemes);
+
         InferProgramConfig {
             file_path: Some(self.file_path.as_str().into()),
-            preloaded_base_schemes: base_schemes,
+            preloaded_base_schemes: merged_base_schemes,
             preloaded_module_member_schemes: merged_member_schemes,
             known_base_names,
             base_module_symbol,
@@ -2908,6 +2978,7 @@ impl Compiler {
                 name,
                 alias,
                 except,
+                exposing: _,
                 span,
             } = statement
             else {

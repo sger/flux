@@ -1,0 +1,5 @@
+import ExposingTarget exposing (secret)
+
+fn main() with IO {
+    print(secret())
+}

@@ -224,6 +224,96 @@ fn parses_import_non_base_with_except() {
 }
 
 #[test]
+fn parses_import_exposing_all() {
+    let (program, interner) = parse_ok("import Math exposing (..)");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Import {
+            name,
+            alias,
+            except,
+            exposing,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "Math");
+            assert!(alias.is_none());
+            assert!(except.is_empty());
+            assert_eq!(*exposing, crate::syntax::statement::ImportExposing::All);
+        }
+        _ => panic!("expected import statement"),
+    }
+}
+
+#[test]
+fn parses_import_exposing_selective() {
+    let (program, interner) = parse_ok("import Math exposing (square, cube)");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Import {
+            name,
+            exposing,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "Math");
+            match exposing {
+                crate::syntax::statement::ImportExposing::Names(names) => {
+                    let resolved: Vec<&str> =
+                        names.iter().map(|n| interner.resolve(*n)).collect();
+                    assert_eq!(resolved, vec!["square", "cube"]);
+                }
+                _ => panic!("expected Names exposing"),
+            }
+        }
+        _ => panic!("expected import statement"),
+    }
+}
+
+#[test]
+fn parses_import_alias_with_exposing() {
+    let (program, interner) = parse_ok("import Math as M exposing (square)");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Import {
+            name,
+            alias,
+            exposing,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "Math");
+            assert_eq!(alias.map(|a| interner.resolve(a)), Some("M"));
+            match exposing {
+                crate::syntax::statement::ImportExposing::Names(names) => {
+                    let resolved: Vec<&str> =
+                        names.iter().map(|n| interner.resolve(*n)).collect();
+                    assert_eq!(resolved, vec!["square"]);
+                }
+                _ => panic!("expected Names exposing"),
+            }
+        }
+        _ => panic!("expected import statement"),
+    }
+}
+
+#[test]
+fn parses_import_exposing_empty_list() {
+    let (program, _interner) = parse_ok("import Math exposing ()");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Import { exposing, .. } => {
+            assert_eq!(
+                *exposing,
+                crate::syntax::statement::ImportExposing::Names(vec![])
+            );
+        }
+        _ => panic!("expected import statement"),
+    }
+}
+
+#[test]
 fn fn_keyword_parses_function_statement() {
     let (program, interner) = parse_ok("fn add() { }");
     assert_eq!(program.statements.len(), 1);
