@@ -43,18 +43,18 @@ type EvidenceMap = HashMap<(Identifier, Identifier), CoreBinder>;
 fn fresh_binder(next_id: &mut u32, name_hint: Identifier) -> CoreBinder {
     let id = *next_id;
     *next_id += 1;
-    // Use the 6_000_000 range for evidence synthetic symbols.
     let sym = crate::syntax::symbol::Symbol::new(6_000_000 + id);
-    // Use the hint name for debugging, but the ID is the synthetic one.
     let _ = name_hint;
-    CoreBinder::new(CoreBinderId(id), sym)
+    // Evidence variables are closures (handler functions) → BoxedRep.
+    CoreBinder::with_rep(CoreBinderId(id), sym, crate::core::FluxRep::BoxedRep)
 }
 
 fn fresh_identity_binder(next_id: &mut u32) -> CoreBinder {
     let id = *next_id;
     *next_id += 1;
     let sym = crate::syntax::symbol::Symbol::new(6_000_000 + id);
-    CoreBinder::new(CoreBinderId(id), sym)
+    // Identity lambdas are closures → BoxedRep.
+    CoreBinder::with_rep(CoreBinderId(id), sym, crate::core::FluxRep::BoxedRep)
 }
 
 /// Build an identity lambda `Lam([x], Var(x))` for the resume parameter.
