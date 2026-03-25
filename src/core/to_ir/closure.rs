@@ -177,10 +177,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             .into_iter()
             .filter(|binder| used.contains(binder))
             .filter_map(|binder| {
-                self.env.get(&binder).map(|_| CoreBinder {
-                    id: binder,
-                    name: self.binder_names[&binder],
-                })
+                self.env.get(&binder).map(|_| CoreBinder::new(binder, self.binder_names[&binder]))
             })
             .collect();
         captures.sort_by_key(|b| b.name.as_u32());
@@ -284,10 +281,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             .filter(|binder| Some(*binder) != recursive_binder)
             .filter(|binder| used.contains(binder))
             .filter_map(|binder| {
-                self.env.get(&binder).map(|_| CoreBinder {
-                    id: binder,
-                    name: self.binder_names[&binder],
-                })
+                self.env.get(&binder).map(|_| CoreBinder::new(binder, self.binder_names[&binder]))
             })
             .collect();
         captures.sort_by_key(|b| b.name.as_u32());

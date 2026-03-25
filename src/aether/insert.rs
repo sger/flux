@@ -243,7 +243,7 @@ fn plan_expr(
             span,
         } => {
             let scrutinee_var = match scrutinee.as_ref() {
-                CoreExpr::Var { var, .. } => var.binder.map(|id| CoreBinder { id, name: var.name }),
+                CoreExpr::Var { var, .. } => var.binder.map(|id| CoreBinder::new(id, var.name)),
                 _ => None,
             };
 

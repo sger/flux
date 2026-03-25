@@ -411,10 +411,13 @@ impl<'a> Formatter<'a> {
                     format!("%t{}", self.temp_name(binder.id))
                 }
             }
-            CoreDisplayMode::Debug => match name {
-                Some(name) => format!("{name}#{}", binder.id.0),
-                None => format!("#{}[synthetic]#{}", binder.name.as_u32(), binder.id.0),
-            },
+            CoreDisplayMode::Debug => {
+                let rep = format_rep(binder.rep);
+                match name {
+                    Some(name) => format!("{name}#{}{rep}", binder.id.0),
+                    None => format!("%t{}{rep}", self.temp_name(binder.id)),
+                }
+            }
         }
     }
 
@@ -576,6 +579,18 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
 fn push_indent(out: &mut String, n: usize) {
     for _ in 0..n {
         out.push(' ');
+    }
+}
+
+fn format_rep(rep: super::FluxRep) -> &'static str {
+    use super::FluxRep;
+    match rep {
+        FluxRep::IntRep => ":Int",
+        FluxRep::FloatRep => ":Float",
+        FluxRep::BoolRep => ":Bool",
+        FluxRep::BoxedRep => ":Box",
+        FluxRep::TaggedRep => "",  // default — don't clutter output
+        FluxRep::UnitRep => ":Unit",
     }
 }
 

@@ -7,8 +7,8 @@ use crate::{
     },
     core_to_llvm::{
         CallConv, GlobalId, LabelId, LlvmCmpOp, LlvmConst, LlvmInstr, LlvmLocal, LlvmOperand,
-        LlvmTerminator, LlvmType, flux_adt_symbol, flux_arith_symbol, flux_closure_symbol,
-        flux_prelude_symbol,
+        LlvmTerminator, LlvmType, LlvmValueKind, flux_adt_symbol, flux_arith_symbol,
+        flux_closure_symbol, flux_prelude_symbol,
     },
     runtime::nanbox::NanTag,
 };
@@ -68,6 +68,10 @@ pub(super) struct FunctionLowering<'a, 'p> {
     )>,
     /// Phase 3 CPS state — present when the function has non-tail self-recursion.
     pub cps_state: Option<CpsState>,
+    /// Proposal 0119 Phase 3: when true, all IntRep values in this function
+    /// are raw i64 — no NaN-boxing. Typed integer primops (IAdd, ISub, etc.)
+    /// emit bare LLVM instructions without untag/retag.
+    pub unboxed_int_mode: bool,
 }
 
 struct BindingRestore {
@@ -84,6 +88,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
     ) -> Self {
         let symbols = top_level_symbols(program);
         let mut state = FunctionState::new_top_level(symbol, params, symbols, program.interner);
+
         for (binder, param_local) in state.param_bindings.clone() {
             let slot = state.new_slot();
             state.emit_entry_alloca(LlvmInstr::Alloca {
@@ -100,12 +105,20 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             });
             state.bind_local(binder, slot);
         }
+
+        // Proposal 0119 Phase 3: enable unboxed int mode when all params are IntRep.
+        // The worker/wrapper split in function.rs ensures only the worker runs
+        // in unboxed mode; external callers go through the NaN-boxed wrapper.
+        let all_int_params = params.iter().all(|p| p.rep == crate::core::FluxRep::IntRep);
+        let unboxed = all_int_params && !params.is_empty();
+
         Self {
             state,
             program,
             is_tail_position: true,
             mutual_group: None,
             cps_state: None,
+            unboxed_int_mode: unboxed,
         }
     }
 
@@ -195,6 +208,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             is_tail_position: false,
             mutual_group: None,
             cps_state: None,
+            unboxed_int_mode: false, // closures always use NaN-boxed params
         })
     }
 
@@ -1124,6 +1138,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
     fn lower_lit(&mut self, lit: &CoreLit) -> Result<LlvmOperand, CoreToLlvmError> {
         match lit {
             CoreLit::Int(n) => {
+                if self.unboxed_int_mode {
+                    // In unboxed mode, integer literals are raw i64.
+                    return Ok(const_i64_op(*n));
+                }
                 if !(FluxNanboxLayout::MIN_INLINE_INT..=FluxNanboxLayout::MAX_INLINE_INT)
                     .contains(n)
                 {
@@ -1354,7 +1372,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                     .ok_or_else(|| CoreToLlvmError::MissingSymbol {
                         message: format!("missing capture name for binder {:?}", binder),
                     })?;
-                Ok(CoreBinder { id: binder, name })
+                Ok(CoreBinder::new(binder, name))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -2672,20 +2690,29 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CorePrimOp::Sub => self.lower_rt_call("flux_rt_sub", args),
             CorePrimOp::Mul => self.lower_rt_call("flux_rt_mul", args),
             CorePrimOp::Div => self.lower_rt_call("flux_rt_div", args),
-            CorePrimOp::IAdd => self.lower_rt_call("flux_rt_add", args),
-            CorePrimOp::ISub => self.lower_rt_call("flux_rt_sub", args),
-            CorePrimOp::IMul => self.lower_rt_call("flux_rt_mul", args),
-            CorePrimOp::IDiv => self.lower_rt_call("flux_rt_div", args),
+            // Typed integer arithmetic — inline untag → op → retag.
+            // Avoids C function call overhead; values are still NaN-boxed at
+            // boundaries (full unboxing is Phase 3 of Proposal 0119).
+            CorePrimOp::IAdd => self.lower_typed_int_binop(LlvmValueKind::Add, args),
+            CorePrimOp::ISub => self.lower_typed_int_binop(LlvmValueKind::Sub, args),
+            CorePrimOp::IMul => self.lower_typed_int_binop(LlvmValueKind::Mul, args),
+            CorePrimOp::IDiv => self.lower_typed_int_binop(LlvmValueKind::SDiv, args),
+            CorePrimOp::IMod => self.lower_typed_int_binop(LlvmValueKind::SRem, args),
             CorePrimOp::FAdd => self.lower_helper_call("flux_fadd", args),
             CorePrimOp::FSub => self.lower_helper_call("flux_fsub", args),
             CorePrimOp::FMul => self.lower_helper_call("flux_fmul", args),
             CorePrimOp::FDiv => self.lower_helper_call("flux_fdiv", args),
             CorePrimOp::Mod => self.lower_rt_call("flux_rt_mod", args),
-            CorePrimOp::IMod => self.lower_rt_call("flux_rt_mod", args),
             CorePrimOp::Neg => self.lower_rt_unary_call("flux_rt_neg", args),
             CorePrimOp::Not => self.lower_unary_helper_call("flux_not", args),
             CorePrimOp::And => self.lower_helper_call("flux_and", args),
             CorePrimOp::Or => self.lower_helper_call("flux_or", args),
+            CorePrimOp::Eq if self.unboxed_int_mode => self.lower_typed_int_cmp(LlvmCmpOp::Eq, args),
+            CorePrimOp::NEq if self.unboxed_int_mode => self.lower_typed_int_cmp(LlvmCmpOp::Ne, args),
+            CorePrimOp::Lt if self.unboxed_int_mode => self.lower_typed_int_cmp(LlvmCmpOp::Slt, args),
+            CorePrimOp::Le if self.unboxed_int_mode => self.lower_typed_int_cmp(LlvmCmpOp::Sle, args),
+            CorePrimOp::Gt if self.unboxed_int_mode => self.lower_typed_int_cmp(LlvmCmpOp::Sgt, args),
+            CorePrimOp::Ge if self.unboxed_int_mode => self.lower_typed_int_cmp(LlvmCmpOp::Sge, args),
             CorePrimOp::Eq => self.lower_rt_call("flux_rt_eq", args),
             CorePrimOp::NEq => self.lower_rt_call("flux_rt_neq", args),
             CorePrimOp::Lt => self.lower_rt_call("flux_rt_lt", args),
@@ -2909,6 +2936,147 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
     }
 
     /// Call a C runtime dispatch function (Ccc calling convention).
+    /// Emit inline unboxed integer arithmetic: untag → op → retag.
+    ///
+    /// Instead of calling a C runtime function (flux_rt_add etc.), this emits
+    /// the NaN-box untag, raw LLVM binary op, and retag inline. Saves function
+    /// call overhead while maintaining NaN-box format at boundaries.
+    fn lower_typed_int_binop(
+        &mut self,
+        llvm_op: LlvmValueKind,
+        args: &[CoreExpr],
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        if args.len() != 2 {
+            return Err(CoreToLlvmError::Malformed {
+                message: format!("typed int binop expected 2 args, got {}", args.len()),
+            });
+        }
+        let left = self.lower_expr_not_tail(&args[0])?;
+        let right = self.lower_expr_not_tail(&args[1])?;
+
+        if self.unboxed_int_mode {
+            // Phase 3: values are already raw i64 — just emit the op.
+            let result = self.state.temp_local("raw");
+            self.state.emit(LlvmInstr::Binary {
+                dst: result.clone(),
+                op: llvm_op,
+                ty: LlvmType::i64(),
+                lhs: left,
+                rhs: right,
+            });
+            return Ok(LlvmOperand::Local(result));
+        }
+
+        // Phase 2: untag → op → retag (values are NaN-boxed).
+        let left_raw = self.emit_untag_int(left)?;
+        let right_raw = self.emit_untag_int(right)?;
+
+        let result_raw = self.state.temp_local("raw");
+        self.state.emit(LlvmInstr::Binary {
+            dst: result_raw.clone(),
+            op: llvm_op,
+            ty: LlvmType::i64(),
+            lhs: LlvmOperand::Local(left_raw),
+            rhs: LlvmOperand::Local(right_raw),
+        });
+
+        self.emit_tag_int(LlvmOperand::Local(result_raw))
+    }
+
+    /// Emit unboxed integer comparison: raw icmp → NaN-boxed boolean result.
+    ///
+    /// In unboxed_int_mode, operands are raw i64. The comparison produces i1,
+    /// which is then tagged as a NaN-boxed boolean for downstream use
+    /// (branches expect NaN-boxed bools).
+    fn lower_typed_int_cmp(
+        &mut self,
+        cmp_op: LlvmCmpOp,
+        args: &[CoreExpr],
+    ) -> Result<LlvmOperand, CoreToLlvmError> {
+        if args.len() != 2 {
+            return Err(CoreToLlvmError::Malformed {
+                message: format!("typed int cmp expected 2 args, got {}", args.len()),
+            });
+        }
+        let left = self.lower_expr_not_tail(&args[0])?;
+        let right = self.lower_expr_not_tail(&args[1])?;
+
+        // Raw integer comparison.
+        let cmp_result = self.state.temp_local("cmp");
+        self.state.emit(LlvmInstr::Icmp {
+            dst: cmp_result.clone(),
+            op: cmp_op,
+            ty: LlvmType::i64(),
+            lhs: left,
+            rhs: right,
+        });
+
+        // Convert i1 → NaN-boxed boolean using select.
+        let tagged = self.state.temp_local("bool");
+        self.state.emit(LlvmInstr::Select {
+            dst: tagged.clone(),
+            cond_ty: LlvmType::i1(),
+            cond: LlvmOperand::Local(cmp_result),
+            value_ty: LlvmType::i64(),
+            then_value: const_i64_op(tagged_bool_bits(true)),
+            else_value: const_i64_op(tagged_bool_bits(false)),
+        });
+        Ok(LlvmOperand::Local(tagged))
+    }
+
+    /// Emit inline NaN-box untag for an integer value.
+    /// Returns the local holding the raw i64.
+    fn emit_untag_int(&mut self, value: LlvmOperand) -> Result<LlvmLocal, CoreToLlvmError> {
+        let payload = self.state.temp_local("payload");
+        self.state.emit(LlvmInstr::Binary {
+            dst: payload.clone(),
+            op: LlvmValueKind::And,
+            ty: LlvmType::i64(),
+            lhs: value,
+            rhs: const_i64_op(super::prelude::FluxNanboxLayout::payload_mask_i64()),
+        });
+        let shift = 64 - 46;
+        let shifted = self.state.temp_local("shl");
+        self.state.emit(LlvmInstr::Binary {
+            dst: shifted.clone(),
+            op: LlvmValueKind::Shl,
+            ty: LlvmType::i64(),
+            lhs: LlvmOperand::Local(payload),
+            rhs: const_i64_op(shift),
+        });
+        let raw = self.state.temp_local("raw");
+        self.state.emit(LlvmInstr::Binary {
+            dst: raw.clone(),
+            op: LlvmValueKind::AShr,
+            ty: LlvmType::i64(),
+            lhs: LlvmOperand::Local(shifted),
+            rhs: const_i64_op(shift),
+        });
+        Ok(raw)
+    }
+
+    /// Emit inline NaN-box tag for an integer value.
+    /// Returns the operand holding the tagged i64.
+    fn emit_tag_int(&mut self, raw: LlvmOperand) -> Result<LlvmOperand, CoreToLlvmError> {
+        let masked = self.state.temp_local("masked");
+        self.state.emit(LlvmInstr::Binary {
+            dst: masked.clone(),
+            op: LlvmValueKind::And,
+            ty: LlvmType::i64(),
+            lhs: raw,
+            rhs: const_i64_op(super::prelude::FluxNanboxLayout::payload_mask_i64()),
+        });
+        let tagged = self.state.temp_local("tagged");
+        self.state.emit(LlvmInstr::Binary {
+            dst: tagged.clone(),
+            op: LlvmValueKind::Or,
+            ty: LlvmType::i64(),
+            lhs: LlvmOperand::Local(masked),
+            rhs: const_i64_op(super::prelude::FluxNanboxLayout::nanbox_sentinel_i64()),
+        });
+        Ok(LlvmOperand::Local(tagged))
+    }
+
     fn lower_rt_call(
         &mut self,
         name: &str,
@@ -3029,6 +3197,14 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             context: context.into(),
         }
     }
+}
+
+/// Create a constant i64 operand for LLVM IR.
+pub(super) fn const_i64_op(value: i64) -> LlvmOperand {
+    LlvmOperand::Const(LlvmConst::Int {
+        bits: 64,
+        value: value as i128,
+    })
 }
 
 fn top_level_symbols(program: &ProgramState<'_>) -> HashMap<CoreBinderId, GlobalId> {
