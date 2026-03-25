@@ -917,14 +917,9 @@ impl Compiler {
                 Ok(())
             }
             IrExpr::LoadName(name) => {
-                // Try to resolve as a known symbol (global, base function, or ADT constructor)
+                // Try to resolve as a known symbol (global or ADT constructor)
                 if let Some(binding) = self.symbol_table.resolve(*name) {
                     self.load_symbol(&binding);
-                    Ok(())
-                } else if let Some(idx) =
-                    crate::runtime::base::get_base_function_index(self.sym(*name))
-                {
-                    self.emit(OpCode::OpGetBase, &[idx]);
                     Ok(())
                 } else {
                     Err(Self::boxed(Diagnostic::warning(

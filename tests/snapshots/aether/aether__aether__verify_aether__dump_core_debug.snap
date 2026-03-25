@@ -72,7 +72,7 @@ letrec my_sum : Any =
       _ →
         0
 
-letrec main : Unit =
+letrec main : Any =
 λ.
     let #2000004[synthetic]#40 = (let #4000052[synthetic]#52 = (let #4000050[synthetic]#50 = MakeList(1, 2, 3)
     let #4000051[synthetic]#51 = (λx#42.

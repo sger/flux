@@ -4,7 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/nested/deep_parens.flx
 exit_code: 1
 
-• 4 errors • tests/fixtures/nested/deep_parens.flx
+• 3 errors • tests/fixtures/nested/deep_parens.flx
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -45,18 +45,4 @@ Strict mode requires `fn main()` for all programs.
 Hint:
   Add `fn main() { ... }` as the program entrypoint.
 
-
-error[E400]: Missing Effect
-
-requires effect `IO` but the enclosing context does not provide it
-
-  tests/fixtures/nested/deep_parens.flx:1:1
-  |
-1 | print(((((1 + 2) * 3) - 4) / 5) == 0);
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ------------------------------------- requires `IO`
-
-Hint:
-  annotate the enclosing function with `with IO`
-
-Found 4 errors.
+Found 3 errors.

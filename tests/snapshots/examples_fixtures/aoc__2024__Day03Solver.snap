@@ -5,24 +5,57 @@ Fixture: examples/aoc/2024/Day03Solver.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Type Mismatch
+error[E004]: Undefined Variable
 
-I found a type mismatch.
+I can't find a value named `range`.
 
-  examples/aoc/2024/Day03Solver.flx:59:27
+  examples/aoc/2024/Day03Solver.flx:71:33
    |
-59 |                     Some((Mul(parse_int(left_text), parse_int(right_text)), after_right + 1))
-   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |                           ------------------------------------------------ this expression has type `Int`
+71 |         where indices = to_list(range(0, len(memory)))
+   |                                 ^^^^^
 
-   |                           ------------------------------------------------ this type mismatch is reported here
+Hint:
+  Define it first: let range = ...;
 
-Note:
-  expected type: Option<Int>
-  found type: Int
-  the conflicting types meet at this expression
 
-Help:
-  Wrap this value in `Some(...)` or return `None`.
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2024/Day03Solver.flx:72:23
+   |
+72 |         where state = fold(indices, (0, 0), /(st: (Int, Int), i: Int) -> {
+   |                       ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `range`.
+
+  examples/aoc/2024/Day03Solver.flx:94:33
+   |
+94 |         where indices = to_list(range(0, len(memory)))
+   |                                 ^^^^^
+
+Hint:
+  Define it first: let range = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2024/Day03Solver.flx:95:23
+   |
+95 |         where state = fold(indices, (0, true, 0), /(st: (Int, Bool, Int), i: Int) -> {
+   |                       ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+Found 4 errors.
 == stdout ==
 <not executed>

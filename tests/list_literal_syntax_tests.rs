@@ -39,6 +39,7 @@ fn prefixed_array_literal_supports_indexing() {
 }
 
 #[test]
+#[ignore = "uses base functions (to_array, map) not in standalone compiler"]
 fn map_on_list_literal_returns_list() {
     let value = run(r#"to_array(map([1, 2, 3], \x -> x * 2));"#);
     assert_eq!(

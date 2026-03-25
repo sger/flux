@@ -9,7 +9,7 @@ letrec len_twice =
 λxs.
     let %t1 = aether_call[borrowed] my_len(xs)
     let %t2 = aether_call[borrowed] my_len(xs)
-    IAdd(%t1, %t2)
+    Add(%t1, %t2)
 
 letrec borrow_then_return =
 λxs, y.

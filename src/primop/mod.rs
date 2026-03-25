@@ -51,6 +51,94 @@ pub enum PrimOp {
     Min = 37,
     Max = 38,
     ConcatArray = 39,
+    /// Polymorphic length: string/array/list → Int.
+    Len = 40,
+    /// Array push: (Array, elem) → Array.
+    Push = 41,
+    /// String split: (String, String) → Array<String>.
+    Split = 42,
+    /// Type check: is_int(value) → Bool.
+    IsInt = 43,
+    /// Convert to string: to_string(value) → String.
+    ToString = 44,
+    /// Write file: write_file(path, content) → None.
+    WriteFile = 45,
+    /// Read stdin: read_stdin() → String.
+    ReadStdin = 46,
+    /// String join: join(array, sep) → String.
+    Join = 47,
+    /// String trim: trim(string) → String.
+    Trim = 48,
+    /// String starts_with: starts_with(string, prefix) → Bool.
+    StartsWith = 49,
+    /// String ends_with: ends_with(string, suffix) → Bool.
+    EndsWith = 50,
+    /// String chars: chars(string) → Array<String>.
+    Chars = 51,
+    /// Array sort: sort(array) → Array.
+    Sort = 52,
+    /// Array slice: slice(array, start, end) → Array.
+    Slice = 53,
+    /// HAMT delete: delete(map, key) → Map.
+    MapDelete = 54,
+    /// HAMT keys: keys(map) → Array.
+    MapKeys = 55,
+    /// HAMT values: values(map) → Array.
+    MapValues = 56,
+    /// HAMT merge: merge(map, map) → Map.
+    MapMerge = 57,
+    /// HAMT size: size(map) → Int.
+    MapSize = 58,
+    /// type_of: type_of(value) → String.
+    TypeOf = 59,
+    /// is_float: is_float(value) → Bool.
+    IsFloat = 60,
+    /// is_string: is_string(value) → Bool.
+    IsString = 61,
+    /// is_bool: is_bool(value) → Bool.
+    IsBool = 62,
+    /// is_array: is_array(value) → Bool.
+    IsArray = 63,
+    /// is_none: is_none(value) → Bool.
+    IsNone = 64,
+    /// is_some: is_some_v(value) → Bool.
+    IsSomeV = 65,
+    /// is_list: is_list(value) → Bool.
+    IsList = 66,
+    /// is_map/is_hash: is_hash(value) → Bool.
+    IsHash = 67,
+    /// Cons-list head: hd(list) → value.
+    Hd = 68,
+    /// Cons-list tail: tl(list) → list.
+    Tl = 69,
+    /// Array to cons-list: to_list(array) → list.
+    ToList = 70,
+    /// Cons-list to array: to_array(list) → array.
+    ToArray = 71,
+    /// Parse int: parse_int(string) → Option<Int>.
+    ParseInt = 72,
+    /// Print (no newline): print_no_nl(value) → None.
+    Print = 73,
+    /// Time alias: time() → Int (alias for ClockNow).
+    Time = 74,
+    /// String replace: replace(str, from, to) → String.
+    Replace = 75,
+    /// String contains: str_contains(str, sub) → Bool.
+    StrContains = 76,
+    /// Read lines: read_lines(path) → Array<String>.
+    ReadLines = 77,
+    /// Parse ints: parse_ints(array) → Array<Int>.
+    ParseInts = 78,
+    /// Split ints: split_ints(str, sep) → Array<Int>.
+    SplitInts = 79,
+    /// String upper: upper(string) → String.
+    Upper = 80,
+    /// String lower: lower(string) → String.
+    Lower = 81,
+    /// Try: try(closure) → Result (catches runtime errors).
+    Try = 82,
+    /// Assert throws: assert_throws(closure) → Bool.
+    AssertThrows = 83,
 }
 
 /// Side-effect classification for primitive operations.
@@ -70,7 +158,7 @@ pub enum PrimEffect {
 
 impl PrimOp {
     /// Upper bound reserved for bytecode decoding tables.
-    pub const COUNT: usize = 40;
+    pub const COUNT: usize = 84;
 
     /// Returns the bytecode ID for this primitive op.
     pub fn id(self) -> u8 {
@@ -120,6 +208,50 @@ impl PrimOp {
             37 => Self::Min,
             38 => Self::Max,
             39 => Self::ConcatArray,
+            40 => Self::Len,
+            41 => Self::Push,
+            42 => Self::Split,
+            43 => Self::IsInt,
+            44 => Self::ToString,
+            45 => Self::WriteFile,
+            46 => Self::ReadStdin,
+            47 => Self::Join,
+            48 => Self::Trim,
+            49 => Self::StartsWith,
+            50 => Self::EndsWith,
+            51 => Self::Chars,
+            52 => Self::Sort,
+            53 => Self::Slice,
+            54 => Self::MapDelete,
+            55 => Self::MapKeys,
+            56 => Self::MapValues,
+            57 => Self::MapMerge,
+            58 => Self::MapSize,
+            59 => Self::TypeOf,
+            60 => Self::IsFloat,
+            61 => Self::IsString,
+            62 => Self::IsBool,
+            63 => Self::IsArray,
+            64 => Self::IsNone,
+            65 => Self::IsSomeV,
+            66 => Self::IsList,
+            67 => Self::IsHash,
+            68 => Self::Hd,
+            69 => Self::Tl,
+            70 => Self::ToList,
+            71 => Self::ToArray,
+            72 => Self::ParseInt,
+            73 => Self::Print,
+            74 => Self::Time,
+            75 => Self::Replace,
+            76 => Self::StrContains,
+            77 => Self::ReadLines,
+            78 => Self::ParseInts,
+            79 => Self::SplitInts,
+            80 => Self::Upper,
+            81 => Self::Lower,
+            82 => Self::Try,
+            83 => Self::AssertThrows,
             _ => return None,
         })
     }
@@ -127,13 +259,43 @@ impl PrimOp {
     /// Returns the fixed argument count for this operation.
     pub fn arity(self) -> usize {
         match self {
-            Self::ClockNow => 0,
+            Self::ClockNow | Self::ReadStdin | Self::Time => 0,
             Self::ArrayLen
             | Self::StringLen
             | Self::ReadFile
             | Self::Panic
             | Self::Println
-            | Self::Abs => 1,
+            | Self::Abs
+            | Self::Len
+            | Self::IsInt
+            | Self::ToString
+            | Self::Trim
+            | Self::Chars
+            | Self::Sort
+            | Self::TypeOf
+            | Self::IsFloat
+            | Self::IsString
+            | Self::IsBool
+            | Self::IsArray
+            | Self::IsNone
+            | Self::IsSomeV
+            | Self::IsList
+            | Self::IsHash
+            | Self::Hd
+            | Self::Tl
+            | Self::ToList
+            | Self::ToArray
+            | Self::ParseInt
+            | Self::Print
+            | Self::ReadLines
+            | Self::MapKeys
+            | Self::MapValues
+            | Self::MapSize
+            | Self::ParseInts
+            | Self::Upper
+            | Self::Lower
+            | Self::Try
+            | Self::AssertThrows => 1,
             Self::IAdd
             | Self::ISub
             | Self::IMul
@@ -163,16 +325,27 @@ impl PrimOp {
             | Self::StringConcat
             | Self::Min
             | Self::Max
-            | Self::ConcatArray => 2,
-            Self::ArraySet | Self::MapSet | Self::StringSlice => 3,
+            | Self::ConcatArray
+            | Self::Push
+            | Self::Split
+            | Self::Join
+            | Self::StartsWith
+            | Self::EndsWith
+            | Self::MapDelete
+            | Self::MapMerge
+            | Self::WriteFile
+            | Self::StrContains
+            | Self::SplitInts => 2,
+            Self::ArraySet | Self::MapSet | Self::StringSlice | Self::Slice | Self::Replace => 3,
         }
     }
 
     /// Returns the effect classification for this primitive operation.
     pub fn effect_kind(self) -> PrimEffect {
         match self {
-            Self::Println | Self::ReadFile => PrimEffect::Io,
-            Self::ClockNow => PrimEffect::Time,
+            Self::Println | Self::ReadFile | Self::WriteFile | Self::ReadStdin | Self::Print
+            | Self::ReadLines => PrimEffect::Io,
+            Self::ClockNow | Self::Time => PrimEffect::Time,
             Self::Panic => PrimEffect::Control,
             _ => PrimEffect::Pure,
         }
@@ -226,21 +399,69 @@ impl PrimOp {
             Self::Min => "min",
             Self::Max => "max",
             Self::ConcatArray => "concat",
+            Self::Len => "len",
+            Self::Push => "push",
+            Self::Split => "split",
+            Self::IsInt => "is_int",
+            Self::ToString => "to_string",
+            Self::WriteFile => "write_file",
+            Self::ReadStdin => "read_stdin",
+            Self::Join => "join",
+            Self::Trim => "trim",
+            Self::StartsWith => "starts_with",
+            Self::EndsWith => "ends_with",
+            Self::Chars => "chars",
+            Self::Sort => "sort",
+            Self::Slice => "slice",
+            Self::MapDelete => "delete",
+            Self::MapKeys => "keys",
+            Self::MapValues => "values",
+            Self::MapMerge => "merge",
+            Self::MapSize => "size",
+            Self::TypeOf => "type_of",
+            Self::IsFloat => "is_float",
+            Self::IsString => "is_string",
+            Self::IsBool => "is_bool",
+            Self::IsArray => "is_array",
+            Self::IsNone => "is_none",
+            Self::IsSomeV => "is_some",
+            Self::IsList => "is_list",
+            Self::IsHash => "is_hash",
+            Self::Hd => "hd",
+            Self::Tl => "tl",
+            Self::ToList => "to_list",
+            Self::ToArray => "to_array",
+            Self::ParseInt => "parse_int",
+            Self::Print => "print",
+            Self::Time => "time",
+            Self::Replace => "replace",
+            Self::StrContains => "str_contains",
+            Self::ReadLines => "read_lines",
+            Self::ParseInts => "parse_ints",
+            Self::SplitInts => "split_ints",
+            Self::Upper => "upper",
+            Self::Lower => "lower",
+            Self::Try => "try",
+            Self::AssertThrows => "assert_throws",
         }
     }
 }
 
-const _: [(); PrimOp::COUNT] = [(); PrimOp::ConcatArray as usize + 1];
+const _: [(); PrimOp::COUNT] = [(); PrimOp::AssertThrows as usize + 1];
 
 const PRIMOP_CALL_MAPPINGS: &[(&str, usize, PrimOp)] = &[
     ("abs", 1, PrimOp::Abs),
     ("array_get", 2, PrimOp::ArrayGet),
     ("array_len", 1, PrimOp::ArrayLen),
     ("array_set", 3, PrimOp::ArraySet),
+    ("assert_throws", 1, PrimOp::AssertThrows),
+    ("chars", 1, PrimOp::Chars),
     ("clock_now", 0, PrimOp::ClockNow),
     ("cmp_eq", 2, PrimOp::CmpEq),
     ("cmp_ne", 2, PrimOp::CmpNe),
     ("concat", 2, PrimOp::ConcatArray),
+    ("delete", 2, PrimOp::MapDelete),
+    ("ends_with", 2, PrimOp::EndsWith),
     ("fadd", 2, PrimOp::FAdd),
     ("fcmp_eq", 2, PrimOp::FCmpEq),
     ("fcmp_ge", 2, PrimOp::FCmpGe),
@@ -253,6 +474,7 @@ const PRIMOP_CALL_MAPPINGS: &[(&str, usize, PrimOp)] = &[
     ("fsub", 2, PrimOp::FSub),
     ("get", 2, PrimOp::MapGet),
     ("has_key", 2, PrimOp::MapHas),
+    ("hd", 1, PrimOp::Hd),
     ("iadd", 2, PrimOp::IAdd),
     ("icmp_eq", 2, PrimOp::ICmpEq),
     ("icmp_ge", 2, PrimOp::ICmpGe),
@@ -263,22 +485,61 @@ const PRIMOP_CALL_MAPPINGS: &[(&str, usize, PrimOp)] = &[
     ("idiv", 2, PrimOp::IDiv),
     ("imod", 2, PrimOp::IMod),
     ("imul", 2, PrimOp::IMul),
+    ("is_array", 1, PrimOp::IsArray),
+    ("is_bool", 1, PrimOp::IsBool),
+    ("is_float", 1, PrimOp::IsFloat),
+    ("is_hash", 1, PrimOp::IsHash),
+    ("is_int", 1, PrimOp::IsInt),
+    ("is_list", 1, PrimOp::IsList),
+    ("is_map", 1, PrimOp::IsHash),
+    ("is_none", 1, PrimOp::IsNone),
+    ("is_some", 1, PrimOp::IsSomeV),
+    ("is_string", 1, PrimOp::IsString),
     ("isub", 2, PrimOp::ISub),
+    ("join", 2, PrimOp::Join),
+    ("keys", 1, PrimOp::MapKeys),
+    ("len", 1, PrimOp::Len),
+    ("lower", 1, PrimOp::Lower),
     ("map_get", 2, PrimOp::MapGet),
     ("map_has", 2, PrimOp::MapHas),
     ("map_set", 3, PrimOp::MapSet),
     ("max", 2, PrimOp::Max),
+    ("merge", 2, PrimOp::MapMerge),
     ("min", 2, PrimOp::Min),
     ("now_ms", 0, PrimOp::ClockNow),
     ("panic", 1, PrimOp::Panic),
-    ("print", 1, PrimOp::Println),
+    ("parse_int", 1, PrimOp::ParseInt),
+    ("parse_ints", 1, PrimOp::ParseInts),
+    ("print", 1, PrimOp::Print),
     ("println", 1, PrimOp::Println),
+    ("push", 2, PrimOp::Push),
     ("put", 3, PrimOp::MapSet),
     ("read_file", 1, PrimOp::ReadFile),
+    ("read_lines", 1, PrimOp::ReadLines),
+    ("read_stdin", 0, PrimOp::ReadStdin),
+    ("replace", 3, PrimOp::Replace),
+    ("size", 1, PrimOp::MapSize),
+    ("slice", 3, PrimOp::Slice),
+    ("sort", 1, PrimOp::Sort),
+    ("split", 2, PrimOp::Split),
+    ("split_ints", 2, PrimOp::SplitInts),
+    ("starts_with", 2, PrimOp::StartsWith),
+    ("str_contains", 2, PrimOp::StrContains),
     ("string_concat", 2, PrimOp::StringConcat),
     ("string_len", 1, PrimOp::StringLen),
     ("string_slice", 3, PrimOp::StringSlice),
     ("substring", 3, PrimOp::StringSlice),
+    ("time", 0, PrimOp::Time),
+    ("tl", 1, PrimOp::Tl),
+    ("to_array", 1, PrimOp::ToArray),
+    ("to_list", 1, PrimOp::ToList),
+    ("to_string", 1, PrimOp::ToString),
+    ("trim", 1, PrimOp::Trim),
+    ("try", 1, PrimOp::Try),
+    ("type_of", 1, PrimOp::TypeOf),
+    ("upper", 1, PrimOp::Upper),
+    ("values", 1, PrimOp::MapValues),
+    ("write_file", 2, PrimOp::WriteFile),
 ];
 
 pub fn resolve_primop_call(name: &str, arity: usize) -> Option<PrimOp> {
@@ -342,6 +603,51 @@ pub fn execute_primop(
             execute_effect_primop(ctx, op, args)
         }
         PrimOp::ConcatArray => execute_concat_array_primop(args),
+        // New primops — delegate to runtime::base implementations.
+        PrimOp::Len
+        | PrimOp::Push
+        | PrimOp::Split
+        | PrimOp::IsInt
+        | PrimOp::ToString
+        | PrimOp::WriteFile
+        | PrimOp::ReadStdin
+        | PrimOp::Join
+        | PrimOp::Trim
+        | PrimOp::StartsWith
+        | PrimOp::EndsWith
+        | PrimOp::Chars
+        | PrimOp::Sort
+        | PrimOp::Slice
+        | PrimOp::MapDelete
+        | PrimOp::MapKeys
+        | PrimOp::MapValues
+        | PrimOp::MapMerge
+        | PrimOp::MapSize
+        | PrimOp::TypeOf
+        | PrimOp::IsFloat
+        | PrimOp::IsString
+        | PrimOp::IsBool
+        | PrimOp::IsArray
+        | PrimOp::IsNone
+        | PrimOp::IsSomeV
+        | PrimOp::IsList
+        | PrimOp::IsHash
+        | PrimOp::Hd
+        | PrimOp::Tl
+        | PrimOp::ToList
+        | PrimOp::ToArray
+        | PrimOp::ParseInt
+        | PrimOp::Print
+        | PrimOp::Time
+        | PrimOp::Replace
+        | PrimOp::StrContains
+        | PrimOp::ReadLines
+        | PrimOp::ParseInts
+        | PrimOp::SplitInts
+        | PrimOp::Upper
+        | PrimOp::Lower
+        | PrimOp::Try
+        | PrimOp::AssertThrows => execute_new_primop(ctx, op, args),
     }
 }
 
@@ -632,6 +938,24 @@ fn execute_concat_array_primop(args: Vec<Value>) -> Result<Value, String> {
     let mut out = left.clone();
     Rc::make_mut(&mut out).extend(right.iter().cloned());
     Ok(Value::Array(out))
+}
+
+/// Dispatches new primop variants to their runtime::base function implementations.
+fn execute_new_primop(
+    ctx: &mut dyn RuntimeContext,
+    op: PrimOp,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    use crate::runtime::base::get_base_function;
+    let name = op.display_name();
+    if let Some(base_fn) = get_base_function(name) {
+        base_fn.call_owned(ctx, args)
+    } else {
+        Err(format!(
+            "primop {} has no base function implementation",
+            name
+        ))
+    }
 }
 
 /// Helper for binary integer primops.
@@ -1039,7 +1363,7 @@ mod tests {
             resolve_primop_call("string_slice", 3),
             Some(PrimOp::StringSlice)
         );
-        assert_eq!(resolve_primop_call("print", 1), Some(PrimOp::Println));
+        assert_eq!(resolve_primop_call("print", 1), Some(PrimOp::Print));
         assert_eq!(resolve_primop_call("concat", 2), Some(PrimOp::ConcatArray));
     }
 
@@ -1094,25 +1418,23 @@ mod tests {
     }
 
     #[test]
-    fn removed_mirrored_names_do_not_resolve_to_primops() {
-        let removed = [
-            ("len", 1),
-            ("type_of", 1),
-            ("is_int", 1),
-            ("to_string", 1),
-            ("first", 1),
-            ("contains", 2),
-            ("trim", 1),
-            ("keys", 1),
-            ("delete", 2),
-            ("parse_int", 1),
-            ("split_ints", 2),
+    fn promoted_names_resolve_to_primops() {
+        let promoted = [
+            ("len", 1, PrimOp::Len),
+            ("type_of", 1, PrimOp::TypeOf),
+            ("is_int", 1, PrimOp::IsInt),
+            ("to_string", 1, PrimOp::ToString),
+            ("trim", 1, PrimOp::Trim),
+            ("keys", 1, PrimOp::MapKeys),
+            ("delete", 2, PrimOp::MapDelete),
+            ("parse_int", 1, PrimOp::ParseInt),
+            ("split_ints", 2, PrimOp::SplitInts),
         ];
-        for (name, arity) in removed {
+        for (name, arity, expected) in promoted {
             assert_eq!(
                 resolve_primop_call(name, arity),
-                None,
-                "expected {name}/{arity} to stop resolving as primop"
+                Some(expected),
+                "expected {name}/{arity} to resolve to primop"
             );
         }
     }

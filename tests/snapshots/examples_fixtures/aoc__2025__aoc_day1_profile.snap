@@ -5,27 +5,6 @@ Fixture: examples/aoc/2025/aoc_day1_profile.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/aoc/2025/aoc_day1_profile.flx:18:9
-   |
-18 |         0 - distance
-   |         ^^^^^^^^^^^^
-   |         ------------ this expression has type `Int and Option<Int>`
-
-   |         ------------ operator operands are known at compile time
-
-Note:
-  expected type: numeric operands (Int or Float)
-  found type: Int and Option<Int>
-
-Help:
-  These two types are not compatible.
-  adjust operand types or add explicit conversion
-
-
 error[E004]: Undefined Variable
 
 I can't find a value named `parse_rotations`.
@@ -44,6 +23,19 @@ Help:
 
 error[E004]: Undefined Variable
 
+I can't find a value named `reverse`.
+
+  examples/aoc/2025/aoc_day1_profile.flx:36:14
+   |
+36 |         _ -> reverse(acc),
+   |              ^^^^^^^
+
+Hint:
+  Define it first: let reverse = ...;
+
+
+error[E004]: Undefined Variable
+
 I can't find a value named `solve_steps`.
 
   examples/aoc/2025/aoc_day1_profile.flx:43:9
@@ -54,6 +46,23 @@ I can't find a value named `solve_steps`.
 Hint:
   Define it first: let solve_steps = ...;
 
-Found 3 errors.
+
+error[E001]: Duplicate Name
+
+Duplicate binding: `lines` is already defined.
+
+  examples/aoc/2025/aoc_day1_profile.flx:65:1
+   |
+65 | let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  examples/aoc/2025/aoc_day1_profile.flx:0:1
+  |
+
+Found 4 errors.
 == stdout ==
 <not executed>

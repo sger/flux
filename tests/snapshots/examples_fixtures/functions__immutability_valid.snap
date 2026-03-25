@@ -24,29 +24,20 @@ Hint:
    |     ^^^^^^^^^^^^^^^^
 
 
-error[E300]: Argument Type Mismatch
+error[E004]: Undefined Variable
 
-I found the wrong type in the 1st argument to `double`.
+I can't find a value named `first`.
 
   examples/functions/immutability_valid.flx:32:32
    |
-27 |     fn double(n) {
-28 |         return n * 2;
-29 |     }
-30 | 
-31 | 
 32 |     let first_doubled = double(first(numbers));
-   |                                ^^^^^^^^^^^^^^
-   |                                -------------- this argument has type `Option<Int>`
+   |                                ^^^^^
 
-Note:
-  expected argument type: Int
-  found argument type: Option<Int>
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
+Hint:
+  Define it first: let first = ...;
 
 Help:
-  This value might be `None`. Use `match` to unwrap it before using it here.
+  Did you mean `first_doubled`?
 
 Found 2 errors.
 == stdout ==

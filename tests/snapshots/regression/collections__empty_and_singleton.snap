@@ -36,9 +36,6 @@ I can't find a value named `f`.
 Hint:
   Define it first: let f = ...;
 
-Help:
-  Did you mean one of: `find`, `fold`, `first`?
-
 
 error[E004]: Undefined Variable
 
@@ -51,8 +48,5 @@ I can't find a value named `f`.
 
 Hint:
   Define it first: let f = ...;
-
-Help:
-  Did you mean one of: `find`, `fold`, `first`?
 
 Found 3 errors.

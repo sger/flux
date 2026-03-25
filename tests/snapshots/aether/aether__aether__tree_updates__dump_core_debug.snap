@@ -67,7 +67,7 @@ letrec churn_tree : Tree =
           aether_call[owned, owned] go#24(#4000041[synthetic]#41, #4000045[synthetic]#45))
     aether_call[owned, owned] go#24(iterations#23, t#22)
 
-letrec main : Unit =
+letrec main : Any =
 λ.
     let #2000005[synthetic]#37 = Print("Tree workload")
     drop #2000005[synthetic]#37

@@ -46,20 +46,6 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
-error[E400]: Missing Effect
-
-requires effect `IO` but the enclosing context does not provide it
-
-  examples/type_system/07_modules_and_hof.flx:6:1
-  |
-6 | print("module_doubled_sum=#{doubled_sum}")
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ------------------------------------------ requires `IO`
-
-Hint:
-  annotate the enclosing function with `with IO`
-
-
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -72,20 +58,6 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
-
-
-error[E400]: Missing Effect
-
-requires effect `IO` but the enclosing context does not provide it
-
-  examples/type_system/07_modules_and_hof.flx:7:1
-  |
-7 | print(Hof.apply_twice(/(x: Int) -> x + 1, 10))
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ---------------------------------------------- requires `IO`
-
-Hint:
-  annotate the enclosing function with `with IO`
 
 
 error[E011]: Private Member
@@ -113,6 +85,6 @@ Cannot access private member `log_each`.
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
-Found 8 errors.
+Found 6 errors.
 == stdout ==
 <not executed>

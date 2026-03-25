@@ -35,7 +35,7 @@ Hint:
   Define it first: let f = ...;
 
 Help:
-  Did you mean one of: `find`, `fold`, `first`?
+  Did you mean `g`?
 
 
 error[E418]: Strict Effect Annotation Required
