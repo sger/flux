@@ -632,6 +632,43 @@ fn run_file(
                     all_diagnostics.append(&mut diags);
                     continue;
                 }
+
+                // Save module interface (.flxi) for non-entry modules.
+                // Entry module doesn't need an interface — it's the consumer.
+                if !is_entry_module {
+                    if let Some((module_name, module_sym)) =
+                        extract_module_name_and_sym(&node.program, &compiler.interner)
+                    {
+                        let module_source =
+                            std::fs::read_to_string(&node.path).unwrap_or_default();
+                        let source_hash =
+                            flux::bytecode::bytecode_cache::hash_bytes(module_source.as_bytes());
+                        let interface =
+                            flux::bytecode::compiler::module_interface::build_interface(
+                                &module_name,
+                                module_sym,
+                                &source_hash,
+                                &compiler.module_contracts,
+                                &compiler.module_function_visibility,
+                                &compiler.interner,
+                            );
+                        let iface_path =
+                            flux::bytecode::compiler::module_interface::interface_path(&node.path);
+                        if let Err(e) =
+                            flux::bytecode::compiler::module_interface::save_interface(
+                                &iface_path,
+                                &interface,
+                            )
+                        {
+                            if verbose {
+                                eprintln!(
+                                    "warning: could not write interface file {}: {e}",
+                                    iface_path.display()
+                                );
+                            }
+                        }
+                    }
+                }
             }
 
             // --- One unified report ---
@@ -770,8 +807,11 @@ fn run_file(
                     c2l_program = rename(optimized, HashMap::new());
                 }
 
-                // Re-run HM type inference when Base library is loaded.
-                // (Currently disabled — see above.)
+                // Re-run HM type inference on the merged program so all
+                // modules' types are available for Core IR lowering.
+                // Without this, hm_expr_types only contains the last
+                // VM-compiled module's types (Proposal 0121 Phase 2).
+                compiler.infer_expr_types_for_program(&c2l_program);
 
                 // Lower AST → Core IR (with Aether passes).
                 let core = match compiler.lower_aether_report_program(&c2l_program, enable_optimize)
@@ -1499,6 +1539,19 @@ fn emit_diagnostics(
             eprintln!("{}", rendered);
         }
     }
+}
+
+/// Extract the module name and symbol from a program's top-level `module Name { ... }` statement.
+fn extract_module_name_and_sym(
+    program: &Program,
+    interner: &flux::syntax::interner::Interner,
+) -> Option<(String, flux::syntax::Identifier)> {
+    for stmt in &program.statements {
+        if let flux::syntax::statement::Statement::Module { name, .. } = stmt {
+            return Some((interner.resolve(*name).to_string(), *name));
+        }
+    }
+    None
 }
 
 fn extract_test_filter(args: &mut Vec<String>) -> Option<Option<String>> {
