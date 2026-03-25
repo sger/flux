@@ -1,21 +1,66 @@
 // Base.IO — I/O helper functions.
 
-fn print_all(list) with IO {
-    match list {
-        [] -> (),
-        [h | t] -> {
-            print(h);
-            print_all(t)
-        }
-    }
-}
+module Base.IO {
 
-fn println_all(list) with IO {
-    match list {
-        [] -> (),
-        [h | t] -> {
-            println(h);
-            println_all(t)
+    public fn print_all(arr) with IO {
+        fn pa_go(i) with IO {
+            if i < len(arr) {
+                match arr[i] {
+                    Some(v) -> print(v),
+                    _ -> print("")
+                }
+                pa_go(i + 1)
+            } else { () }
+        }
+        pa_go(0)
+    }
+
+    public fn println_all(arr) with IO {
+        fn pla_go(i) with IO {
+            if i < len(arr) {
+                match arr[i] {
+                    Some(v) -> println(v),
+                    _ -> println("")
+                }
+                pla_go(i + 1)
+            } else { () }
+        }
+        pla_go(0)
+    }
+
+    public fn read_lines(path) with IO {
+        let content = read_file(path)
+        split(content, "\n")
+    }
+
+    // safe_int: extract Int from parse_int result.
+    // parse_int returns bare Int on native, Option<Int> on VM.
+    fn safe_int(val, fallback) {
+        if is_int(val) { val }
+        else {
+            match val {
+                Some(n) -> n,
+                _ -> fallback
+            }
         }
     }
+
+    public fn parse_ints(arr) {
+        fn pi_go(i, result) {
+            if i >= len(arr) { result }
+            else {
+                match arr[i] {
+                    Some(s) -> pi_go(i + 1, push(result, safe_int(parse_int(s), 0))),
+                    _ -> pi_go(i + 1, result)
+                }
+            }
+        }
+        pi_go(0, [||])
+    }
+
+    public fn split_ints(s, sep) {
+        let parts = split(s, sep)
+        parse_ints(parts)
+    }
+
 }

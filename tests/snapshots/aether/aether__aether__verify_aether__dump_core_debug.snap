@@ -78,32 +78,32 @@ letrec main : Unit =
     let #4000051[synthetic]#51 = (λx#42.
       Mul(x#42, 2))
     aether_call[borrowed, borrowed] my_map#0(#4000050[synthetic]#50, #4000051[synthetic]#51))
-    aether_call[borrowed] print#?[external](#4000052[synthetic]#52))
+    Print(#4000052[synthetic]#52))
     drop #2000004[synthetic]#40
     let #2000003[synthetic]#37 = (let #4000055[synthetic]#55 = (let #4000053[synthetic]#53 = Some(42)
     let #4000054[synthetic]#54 = (λx#39.
       Add(x#39, 1))
     aether_call[borrowed, borrowed] option_map#5(#4000053[synthetic]#53, #4000054[synthetic]#54))
-    aether_call[borrowed] print#?[external](#4000055[synthetic]#55))
+    Print(#4000055[synthetic]#55))
     drop #2000003[synthetic]#37
     let #2000002[synthetic]#34 = (let #4000057[synthetic]#57 = (let #4000056[synthetic]#56 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
     aether_call[owned] set_black#9(#4000056[synthetic]#56))
-    aether_call[borrowed] print#?[external](#4000057[synthetic]#57))
+    Print(#4000057[synthetic]#57))
     drop #2000002[synthetic]#34
     let #2000001[synthetic]#31 = (let #4000059[synthetic]#59 = (let #4000058[synthetic]#58 = MakeList(1, 2, 3, 4, 5)
     aether_call[borrowed] my_len#14(#4000058[synthetic]#58))
-    aether_call[borrowed] print#?[external](#4000059[synthetic]#59))
+    Print(#4000059[synthetic]#59))
     drop #2000001[synthetic]#31
     let #2000000[synthetic]#28 = (let #4000063[synthetic]#63 = (let #4000060[synthetic]#60 = MakeList(1, 2, 3, 4, 5, 6)
     let #4000062[synthetic]#62 = (λx#30.
       let #4000061[synthetic]#61 = Mod(x#30, 2)
       Eq(#4000061[synthetic]#61, 0))
     aether_call[borrowed, borrowed] my_filter#17(#4000060[synthetic]#60, #4000062[synthetic]#62))
-    aether_call[borrowed] print#?[external](#4000063[synthetic]#63))
+    Print(#4000063[synthetic]#63))
     drop #2000000[synthetic]#28
     let #4000065[synthetic]#65 = (let #4000064[synthetic]#64 = MakeList(1, 2, 3, 4, 5)
     aether_call[borrowed] my_sum#22(#4000064[synthetic]#64))
-    aether_call[borrowed] print#?[external](#4000065[synthetic]#65)
+    Print(#4000065[synthetic]#65)
 
 ── Aether stats ──
 Dups: 1  Drops: 7  Reuses: 4  DropSpecs: 1  FBIP: fbip(2)

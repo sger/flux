@@ -1,31 +1,43 @@
-// Base.Numeric — Numeric list operations.
+// Base.Numeric — Numeric list aggregation operations.
 
-fn sum(list) {
-    fold(list, 0, \(acc, x) -> acc + x)
-}
+module Base.Numeric {
 
-fn product(list) {
-    fold(list, 1, \(acc, x) -> acc * x)
-}
-
-fn max_list(list) {
-    match list {
-        [x] -> x,
-        [x | xs] -> {
-            let m = max_list(xs);
-            if x > m { x } else { m }
-        },
-        _ -> 0
+    public fn max_list(arr) {
+        fn maxl_go(i, best) {
+            if i >= len(arr) { best }
+            else {
+                match arr[i] {
+                    Some(v) -> maxl_go(i + 1, if v > best { v } else { best }),
+                    _ -> maxl_go(i + 1, best)
+                }
+            }
+        }
+        if len(arr) == 0 { 0 }
+        else {
+            match arr[0] {
+                Some(first) -> maxl_go(1, first),
+                _ -> 0
+            }
+        }
     }
-}
 
-fn min_list(list) {
-    match list {
-        [x] -> x,
-        [x | xs] -> {
-            let m = min_list(xs);
-            if x < m { x } else { m }
-        },
-        _ -> 0
+    public fn min_list(arr) {
+        fn minl_go(i, best) {
+            if i >= len(arr) { best }
+            else {
+                match arr[i] {
+                    Some(v) -> minl_go(i + 1, if v < best { v } else { best }),
+                    _ -> minl_go(i + 1, best)
+                }
+            }
+        }
+        if len(arr) == 0 { 0 }
+        else {
+            match arr[0] {
+                Some(first) -> minl_go(1, first),
+                _ -> 0
+            }
+        }
     }
+
 }

@@ -456,6 +456,9 @@ pub enum IrCallTarget {
     Direct(FunctionId),
     Named(Identifier),
     Var(IrVar),
+    /// A promoted primop lowered back to a named call, carrying the function
+    /// name as a static string (avoids needing an interner during CFG lowering).
+    Builtin(&'static str),
 }
 
 #[derive(Debug, Clone)]
@@ -711,6 +714,7 @@ fn ir_fmt_call_target(target: &IrCallTarget) -> String {
         IrCallTarget::Direct(fid) => format!("fn{}", fid.0),
         IrCallTarget::Named(name) => format!("#{}", name.as_u32()),
         IrCallTarget::Var(v) => ir_fmt_var(*v),
+        IrCallTarget::Builtin(name) => format!("@{name}"),
     }
 }
 
@@ -1013,6 +1017,7 @@ impl IrProgram {
             IrCallTarget::Direct(fid) => format!("fn{}", fid.0),
             IrCallTarget::Named(name) => sym(*name),
             IrCallTarget::Var(v) => format!("v{}", v.0),
+            IrCallTarget::Builtin(name) => format!("@{name}"),
         };
         let fmt_term = |t: &IrTerminator| {
             let fv = |v: IrVar| format!("v{}", v.0);

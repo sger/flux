@@ -77,32 +77,32 @@ let %t8 = (let %t9 = (let %t10 = MakeList(1, 2, 3)
   let %t11 = (λx.
     Mul(x, 2))
   aether_call[borrowed, borrowed] my_map(%t10, %t11))
-  aether_call[borrowed] print(%t9))
+  Print(%t9))
   drop %t8
   let %t12 = (let %t13 = (let %t14 = Some(42)
   let %t15 = (λx.
     Add(x, 1))
   aether_call[borrowed, borrowed] option_map(%t14, %t15))
-  aether_call[borrowed] print(%t13))
+  Print(%t13))
   drop %t12
   let %t16 = (let %t17 = (let %t18 = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
   aether_call[owned] set_black(%t18))
-  aether_call[borrowed] print(%t17))
+  Print(%t17))
   drop %t16
   let %t19 = (let %t20 = (let %t21 = MakeList(1, 2, 3, 4, 5)
   aether_call[borrowed] my_len(%t21))
-  aether_call[borrowed] print(%t20))
+  Print(%t20))
   drop %t19
   let %t22 = (let %t23 = (let %t24 = MakeList(1, 2, 3, 4, 5, 6)
   let %t25 = (λx.
     let %t26 = Mod(x, 2)
     Eq(%t26, 0))
   aether_call[borrowed, borrowed] my_filter(%t24, %t25))
-  aether_call[borrowed] print(%t23))
+  Print(%t23))
   drop %t22
   let %t27 = (let %t28 = MakeList(1, 2, 3, 4, 5)
   aether_call[borrowed] my_sum(%t28))
-  aether_call[borrowed] print(%t27)
+  Print(%t27)
 
 ── Aether stats ──
 Dups: 1  Drops: 7  Reuses: 4  DropSpecs: 1  FBIP: fbip(2)

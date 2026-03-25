@@ -198,7 +198,7 @@ impl<'a> Formatter<'a> {
                 }
             }
             CoreExpr::PrimOp { op, args, .. } => {
-                write_primop_name(out, op);
+                write_primop_name(out, op, self.interner);
                 out.push('(');
                 for (i, a) in args.iter().enumerate() {
                     if i > 0 {
@@ -481,7 +481,7 @@ fn write_lit(out: &mut String, lit: &CoreLit) {
     }
 }
 
-fn write_primop_name(out: &mut String, op: &CorePrimOp) {
+fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
     match op {
         CorePrimOp::Add => out.push_str("Add"),
         CorePrimOp::Sub => out.push_str("Sub"),
@@ -516,6 +516,60 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp) {
         CorePrimOp::Index => out.push_str("Index"),
         CorePrimOp::MemberAccess(name) => write!(out, "MemberAccess({})", name.as_u32()).unwrap(),
         CorePrimOp::TupleField(index) => write!(out, "TupleField({index})").unwrap(),
+        // Promoted primops (Proposal 0120)
+        CorePrimOp::Print => out.push_str("Print"),
+        CorePrimOp::Println => out.push_str("Println"),
+        CorePrimOp::ReadFile => out.push_str("ReadFile"),
+        CorePrimOp::WriteFile => out.push_str("WriteFile"),
+        CorePrimOp::ReadStdin => out.push_str("ReadStdin"),
+        CorePrimOp::StringLength => out.push_str("StringLength"),
+        CorePrimOp::StringConcat => out.push_str("StringConcat"),
+        CorePrimOp::StringSlice => out.push_str("StringSlice"),
+        CorePrimOp::ToString => out.push_str("ToString"),
+        CorePrimOp::Split => out.push_str("Split"),
+        CorePrimOp::Join => out.push_str("Join"),
+        CorePrimOp::Trim => out.push_str("Trim"),
+        CorePrimOp::Upper => out.push_str("Upper"),
+        CorePrimOp::Lower => out.push_str("Lower"),
+        CorePrimOp::StartsWith => out.push_str("StartsWith"),
+        CorePrimOp::EndsWith => out.push_str("EndsWith"),
+        CorePrimOp::Replace => out.push_str("Replace"),
+        CorePrimOp::Substring => out.push_str("Substring"),
+        CorePrimOp::Chars => out.push_str("Chars"),
+        CorePrimOp::StrContains => out.push_str("StrContains"),
+        CorePrimOp::ArrayLen => out.push_str("ArrayLen"),
+        CorePrimOp::ArrayGet => out.push_str("ArrayGet"),
+        CorePrimOp::ArraySet => out.push_str("ArraySet"),
+        CorePrimOp::ArrayPush => out.push_str("ArrayPush"),
+        CorePrimOp::ArrayConcat => out.push_str("ArrayConcat"),
+        CorePrimOp::ArraySlice => out.push_str("ArraySlice"),
+        CorePrimOp::ArraySort => out.push_str("ArraySort"),
+        CorePrimOp::HamtGet => out.push_str("HamtGet"),
+        CorePrimOp::HamtSet => out.push_str("HamtSet"),
+        CorePrimOp::HamtDelete => out.push_str("HamtDelete"),
+        CorePrimOp::HamtKeys => out.push_str("HamtKeys"),
+        CorePrimOp::HamtValues => out.push_str("HamtValues"),
+        CorePrimOp::HamtMerge => out.push_str("HamtMerge"),
+        CorePrimOp::HamtSize => out.push_str("HamtSize"),
+        CorePrimOp::HamtContains => out.push_str("HamtContains"),
+        CorePrimOp::TypeOf => out.push_str("TypeOf"),
+        CorePrimOp::IsInt => out.push_str("IsInt"),
+        CorePrimOp::IsFloat => out.push_str("IsFloat"),
+        CorePrimOp::IsString => out.push_str("IsString"),
+        CorePrimOp::IsBool => out.push_str("IsBool"),
+        CorePrimOp::IsArray => out.push_str("IsArray"),
+        CorePrimOp::IsNone => out.push_str("IsNone"),
+        CorePrimOp::IsSome => out.push_str("IsSome"),
+        CorePrimOp::IsList => out.push_str("IsList"),
+        CorePrimOp::IsMap => out.push_str("IsMap"),
+        CorePrimOp::Panic => out.push_str("Panic"),
+        CorePrimOp::ClockNow => out.push_str("ClockNow"),
+        CorePrimOp::ParseInt => out.push_str("ParseInt"),
+        CorePrimOp::Hd => out.push_str("Hd"),
+        CorePrimOp::Tl => out.push_str("Tl"),
+        CorePrimOp::ToList => out.push_str("ToList"),
+        CorePrimOp::ToArray => out.push_str("ToArray"),
+        CorePrimOp::Len => out.push_str("Len"),
     }
 }
 

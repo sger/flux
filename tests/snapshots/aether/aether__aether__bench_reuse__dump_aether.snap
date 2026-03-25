@@ -41,34 +41,34 @@ Aether Memory Model Report
   FreshAllocs: 0
   verifier: ok
 λ.
-  let %t1 = aether_call[borrowed] print("Aether Reuse Benchmark")
+  let %t1 = Print("Aether Reuse Benchmark")
   drop %t1
-  let %t2 = aether_call[borrowed] print("======================")
+  let %t2 = Print("======================")
   drop %t2
   let %t3 = (let %t4 = Interpolate("List size: ", 5000, ", Iterations: ", 100)
-  aether_call[borrowed] print(%t4))
+  Print(%t4))
   drop %t3
-  let %t5 = aether_call[borrowed] print("")
+  let %t5 = Print("")
   drop %t5
   let %t6 = (let %t7 = (let %t8 = (let %t9 = (let %t10 = aether_call[owned] build_list(5000)
   aether_call[owned, owned] bench_map(%t10, 100))
-  aether_call[borrowed] hd(%t9))
+  Hd(%t9))
   Interpolate("map: result head = ", %t8))
-  aether_call[borrowed] print(%t7))
+  Print(%t7))
   drop %t6
   let %t11 = (let %t12 = (let %t13 = (let %t14 = aether_call[owned] build_list(5000)
   aether_call[borrowed, owned] bench_len(%t14, 100))
   Interpolate("len: total = ", %t13))
-  aether_call[borrowed] print(%t12))
+  Print(%t12))
   drop %t11
   let %t15 = (let %t16 = (let %t17 = (let %t18 = aether_call[owned] build_list(5000)
   aether_call[borrowed, owned] bench_fold(%t18, 100))
   Interpolate("fold: total = ", %t17))
-  aether_call[borrowed] print(%t16))
+  Print(%t16))
   drop %t15
-  let %t19 = aether_call[borrowed] print("")
+  let %t19 = Print("")
   drop %t19
-  aether_call[borrowed] print("Done.")
+  Print("Done.")
 
 ── Total ──
   Dups: 0  Drops: 9  Reuses: 1  DropSpecs: 0  FBIP: fbip(1)

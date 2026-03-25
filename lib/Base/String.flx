@@ -1,46 +1,59 @@
 // Base.String — String helper operations.
-// Only includes functions that can be expressed in Flux
-// using existing primops (len, substring, to_string, ++).
 
-fn starts_with(s, prefix) {
-    let plen = len(prefix);
-    if plen > len(s) { false }
-    else { substring(s, 0, plen) == prefix }
-}
+module Base.String {
 
-fn ends_with(s, suffix) {
-    let slen = len(s);
-    let plen = len(suffix);
-    if plen > slen { false }
-    else { substring(s, slen - plen, slen) == suffix }
-}
-
-fn chars(s) {
-    fn go(i) {
-        if i >= len(s) { [] }
-        else { [substring(s, i, i + 1) | go(i + 1)] }
+    public fn starts_with(s, prefix) {
+        let plen = len(prefix)
+        if plen > len(s) { false }
+        else { substring(s, 0, plen) == prefix }
     }
-    go(0)
-}
 
-fn join(list, sep) {
-    match list {
-        [] -> "",
-        [x] -> to_string(x),
-        [x | xs] -> to_string(x) ++ sep ++ join(xs, sep)
+    public fn ends_with(s, suffix) {
+        let slen = len(s)
+        let plen = len(suffix)
+        if plen > slen { false }
+        else { substring(s, slen - plen, slen) == suffix }
     }
-}
 
-fn str_contains(s, needle) {
-    let slen = len(s);
-    let nlen = len(needle);
-    if nlen > slen { false }
-    else {
-        fn go(i) {
-            if i + nlen > slen { false }
-            else if substring(s, i, i + nlen) == needle { true }
-            else { go(i + 1) }
+    public fn chars(s) {
+        fn chars_go(i, result) {
+            if i >= len(s) { result }
+            else { chars_go(i + 1, push(result, substring(s, i, i + 1))) }
         }
-        go(0)
+        chars_go(0, [||])
     }
+
+    public fn join(arr, sep) {
+        if len(arr) == 0 { "" }
+        else {
+            fn join_go(i, result) {
+                if i >= len(arr) { result }
+                else {
+                    match arr[i] {
+                        Some(v) -> join_go(i + 1, result + sep + to_string(v)),
+                        _ -> join_go(i + 1, result)
+                    }
+                }
+            }
+            match arr[0] {
+                Some(first_val) -> join_go(1, to_string(first_val)),
+                _ -> ""
+            }
+        }
+    }
+
+    public fn str_contains(s, needle) {
+        let slen = len(s)
+        let nlen = len(needle)
+        if nlen > slen { false }
+        else {
+            fn sc_go(i) {
+                if i + nlen > slen { false }
+                else if substring(s, i, i + nlen) == needle { true }
+                else { sc_go(i + 1) }
+            }
+            sc_go(0)
+        }
+    }
+
 }
