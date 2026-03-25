@@ -281,6 +281,8 @@ int64_t flux_is_none(int64_t val);
 /* ── Control ────────────────────────────────────────────────────────── */
 
 void    flux_panic(int64_t msg);
+void    flux_trace_push(const char *name, const char *file, int32_t line);
+void    flux_trace_pop(void);
 int64_t flux_clock_now(void);
 
 /* ── Extended I/O ───────────────────────────────────────────────────── */

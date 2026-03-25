@@ -14,6 +14,21 @@ use crate::{
     },
 };
 
+/// Specifies which members an `import` statement exposes unqualified.
+///
+/// - `None` — default: members require qualified access (`Module.member`).
+/// - `All` — `exposing (..)`: all public members are unqualified.
+/// - `Names(vec)` — `exposing (a, b)`: only listed members are unqualified.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImportExposing {
+    /// No unqualified exposure (default).
+    None,
+    /// `exposing (..)` — all public members.
+    All,
+    /// `exposing (name, name, ...)` — selective.
+    Names(Vec<Identifier>),
+}
+
 /// FBIP annotation on a function (Perceus Section 2.6).
 ///
 /// - `@fip` — the function performs zero heap allocations on the unique path
@@ -76,6 +91,7 @@ pub enum Statement {
         name: Identifier,
         alias: Option<Identifier>,
         except: Vec<Identifier>,
+        exposing: ImportExposing,
         span: Span,
     },
     Data {
@@ -228,26 +244,31 @@ impl fmt::Display for Statement {
             Statement::Module { name, body, .. } => {
                 write!(f, "module {} {}", name, body)
             }
-            Statement::Import { name, except, .. } => {
+            Statement::Import {
+                name,
+                except,
+                exposing,
+                ..
+            } => {
+                let mut s = String::from("import ");
+                s.push_str(&name.to_string());
                 if let Some(alias) = &self.get_import_alias() {
-                    if except.is_empty() {
-                        write!(f, "import {} as {}", name, alias)
-                    } else {
-                        let names: Vec<String> = except.iter().map(ToString::to_string).collect();
-                        write!(
-                            f,
-                            "import {} as {} except [{}]",
-                            name,
-                            alias,
-                            names.join(", ")
-                        )
-                    }
-                } else if except.is_empty() {
-                    write!(f, "import {}", name)
-                } else {
-                    let names: Vec<String> = except.iter().map(ToString::to_string).collect();
-                    write!(f, "import {} except [{}]", name, names.join(", "))
+                    s.push_str(&format!(" as {}", alias));
                 }
+                if !except.is_empty() {
+                    let names: Vec<String> = except.iter().map(ToString::to_string).collect();
+                    s.push_str(&format!(" except [{}]", names.join(", ")));
+                }
+                match exposing {
+                    ImportExposing::All => s.push_str(" exposing (..)"),
+                    ImportExposing::Names(names) => {
+                        let names: Vec<String> =
+                            names.iter().map(ToString::to_string).collect();
+                        s.push_str(&format!(" exposing ({})", names.join(", ")));
+                    }
+                    ImportExposing::None => {}
+                }
+                write!(f, "{}", s)
             }
             Statement::Data { name, variants, .. } => {
                 write!(f, "data {} {{", name)?;
@@ -409,29 +430,28 @@ impl Statement {
                 name,
                 alias,
                 except,
+                exposing,
                 ..
             } => {
+                let mut text = format!("import {}", interner.resolve(*name));
                 if let Some(alias) = alias {
-                    let mut text = format!(
-                        "import {} as {}",
-                        interner.resolve(*name),
-                        interner.resolve(*alias)
-                    );
-                    if !except.is_empty() {
-                        let except_names: Vec<&str> =
-                            except.iter().map(|n| interner.resolve(*n)).collect();
-                        text.push_str(&format!(" except [{}]", except_names.join(", ")));
-                    }
-                    text
-                } else {
-                    let mut text = format!("import {}", interner.resolve(*name));
-                    if !except.is_empty() {
-                        let except_names: Vec<&str> =
-                            except.iter().map(|n| interner.resolve(*n)).collect();
-                        text.push_str(&format!(" except [{}]", except_names.join(", ")));
-                    }
-                    text
+                    text.push_str(&format!(" as {}", interner.resolve(*alias)));
                 }
+                if !except.is_empty() {
+                    let except_names: Vec<&str> =
+                        except.iter().map(|n| interner.resolve(*n)).collect();
+                    text.push_str(&format!(" except [{}]", except_names.join(", ")));
+                }
+                match exposing {
+                    ImportExposing::All => text.push_str(" exposing (..)"),
+                    ImportExposing::Names(names) => {
+                        let exposed: Vec<&str> =
+                            names.iter().map(|n| interner.resolve(*n)).collect();
+                        text.push_str(&format!(" exposing ({})", exposed.join(", ")));
+                    }
+                    ImportExposing::None => {}
+                }
+                text
             }
             Statement::Data { name, variants, .. } => {
                 let mut text = format!("data {} {{", interner.resolve(*name));

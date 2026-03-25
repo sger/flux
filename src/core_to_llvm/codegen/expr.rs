@@ -198,11 +198,67 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         })
     }
 
+    /// Emit a `flux_trace_push(name, file, line)` call at function entry.
+    pub fn emit_trace_push(&mut self, name: &str, file: &str, line: i32) {
+        let name_global = self.add_trace_string_global("trace.name", name);
+        let file_global = self.add_trace_string_global("trace.file", file);
+
+        self.program.ensure_c_decl(
+            "flux_trace_push",
+            &[LlvmType::ptr(), LlvmType::ptr(), LlvmType::i32()],
+            LlvmType::Void,
+        );
+        self.state.emit(LlvmInstr::Call {
+            dst: None,
+            tail: false,
+            call_conv: Some(crate::core_to_llvm::CallConv::Ccc),
+            ret_ty: LlvmType::Void,
+            callee: LlvmOperand::Global(GlobalId("flux_trace_push".into())),
+            args: vec![
+                (LlvmType::ptr(), LlvmOperand::Global(name_global)),
+                (LlvmType::ptr(), LlvmOperand::Global(file_global)),
+                (LlvmType::i32(), const_i32(line)),
+            ],
+            attrs: vec![],
+        });
+    }
+
+    /// Emit a `flux_trace_pop()` call before function return.
+    pub fn emit_trace_pop(&mut self) {
+        self.program.ensure_c_decl(
+            "flux_trace_pop",
+            &[],
+            LlvmType::Void,
+        );
+        self.state.emit(LlvmInstr::Call {
+            dst: None,
+            tail: false,
+            call_conv: Some(crate::core_to_llvm::CallConv::Ccc),
+            ret_ty: LlvmType::Void,
+            callee: LlvmOperand::Global(GlobalId("flux_trace_pop".into())),
+            args: vec![],
+            attrs: vec![],
+        });
+    }
+
+    fn add_trace_string_global(&mut self, prefix: &str, value: &str) -> GlobalId {
+        let idx = self.program.generated_string_globals.len();
+        let name = format!("{prefix}.{idx}");
+        // Include null terminator for C string compatibility.
+        let mut content = value.to_string();
+        content.push('\0');
+        self.program
+            .generated_string_globals
+            .push((GlobalId(name.clone()), content));
+        GlobalId(name)
+    }
+
     pub fn finish_with_return(
         mut self,
         result: LlvmOperand,
     ) -> Result<crate::core_to_llvm::LlvmFunction, CoreToLlvmError> {
         if self.state.current_block_open() {
+            self.emit_trace_pop();
             self.state.set_terminator(LlvmTerminator::Ret {
                 ty: LlvmType::i64(),
                 value: result,

@@ -1,0 +1,3 @@
+import Foo expose (bar)
+
+fn main() {}

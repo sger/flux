@@ -70,6 +70,8 @@ pub(super) struct ProgramState<'a> {
     pub needed_c_decls: Vec<(String, Vec<LlvmType>, LlvmType)>,
     /// Mutual tail-recursion groups (Phase 2 TCO).
     pub mutual_rec_groups: HashMap<CoreBinderId, Arc<MutualRecGroup>>,
+    /// Module-qualified names for stack traces: fn_name → "Module.fn_name".
+    pub trace_qualified_names: HashMap<Identifier, String>,
 }
 
 impl<'a> ProgramState<'a> {
@@ -89,6 +91,7 @@ impl<'a> ProgramState<'a> {
             generated_string_globals: Vec::new(),
             needed_c_decls: Vec::new(),
             mutual_rec_groups: HashMap::new(),
+            trace_qualified_names: HashMap::new(),
         }
     }
 
@@ -508,8 +511,23 @@ pub fn compile_program_with_interner(
         );
     }
 
+    // Build module membership: function name → "Module.function" for trace.
+    let mut trace_qualified_names: HashMap<Identifier, String> = HashMap::new();
+    for item in &core.top_level_items {
+        if let crate::core::CoreTopLevelItem::Module { name: mod_name, body, .. } = item {
+            let mod_str = display_ident(*mod_name, interner);
+            for child in body {
+                if let crate::core::CoreTopLevelItem::Function { name: fn_name, .. } = child {
+                    let fn_str = display_ident(*fn_name, interner);
+                    trace_qualified_names.insert(*fn_name, format!("{mod_str}.{fn_str}"));
+                }
+            }
+        }
+    }
+
     let mut program = ProgramState::new(top_level, adt_metadata, interner);
     program.mutual_rec_groups = compute_mutual_rec_groups(core, interner);
+    program.trace_qualified_names = trace_qualified_names;
 
     // Track which groups we've already generated trampolines for.
     let mut generated_trampolines: HashSet<String> = HashSet::new();
@@ -670,6 +688,15 @@ pub(super) fn sanitize_symbol_fragment(raw: &str) -> String {
     if out.is_empty() { "_anon".into() } else { out }
 }
 
+/// Get the display name for a function, qualified with module name if available.
+fn trace_name_for_def(def: &CoreDef, program: &ProgramState<'_>) -> String {
+    if let Some(qualified) = program.trace_qualified_names.get(&def.name) {
+        qualified.clone()
+    } else {
+        display_ident(def.name, program.interner)
+    }
+}
+
 fn lower_top_level_function(
     def: &CoreDef,
     symbol: GlobalId,
@@ -685,7 +712,10 @@ fn lower_top_level_function(
         });
     };
 
+    let fn_name = trace_name_for_def(def, program);
+    let fn_line = def.span.start.line as i32;
     let mut lowering = FunctionLowering::new_top_level(symbol.clone(), params, program);
+    lowering.emit_trace_push(&fn_name, "", fn_line);
     if is_recursive {
         lowering.setup_tco_loop();
     }
@@ -709,7 +739,10 @@ fn lower_top_level_function_cps(
         });
     };
 
+    let fn_name = trace_name_for_def(def, program);
+    let fn_line = def.span.start.line as i32;
     let mut lowering = FunctionLowering::new_top_level(symbol.clone(), params, program);
+    lowering.emit_trace_push(&fn_name, "", fn_line);
     lowering.setup_cps_driver(def.binder.id);
     let body_result = lowering.lower_expr(body)?;
     let final_result = lowering.finalize_cps(body_result)?;
@@ -735,7 +768,10 @@ fn lower_top_level_function_with_mutual(
         });
     };
 
+    let fn_name = trace_name_for_def(def, program);
+    let fn_line = def.span.start.line as i32;
     let mut lowering = FunctionLowering::new_top_level(symbol.clone(), params, program);
+    lowering.emit_trace_push(&fn_name, "", fn_line);
     lowering.mutual_group = Some((binder, group));
     if is_recursive {
         lowering.setup_tco_loop();

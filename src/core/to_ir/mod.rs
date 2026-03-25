@@ -301,11 +301,13 @@ fn lower_core_top_level_item(item: &CoreTopLevelItem) -> IrTopLevelItem {
             name,
             alias,
             except,
+            exposing,
             span,
         } => IrTopLevelItem::Import {
             name: *name,
             alias: *alias,
             except: except.clone(),
+            exposing: exposing.clone(),
             span: *span,
         },
         CoreTopLevelItem::Data {

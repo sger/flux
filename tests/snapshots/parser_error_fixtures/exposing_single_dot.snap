@@ -1,0 +1,20 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/exposing_single_dot.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Invalid Exposing Clause
+
+Expected `..` for wildcard exposing.
+
+  examples/parser_errors/exposing_single_dot.flx:1:23
+  |
+1 | import Foo exposing (.)
+  |                       ^
+
+Hint:
+  Use `exposing (..)` to expose all public members.
+== stdout ==
+<not executed>

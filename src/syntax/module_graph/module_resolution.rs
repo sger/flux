@@ -100,6 +100,7 @@ pub(super) fn resolve_imports(
                 name,
                 alias,
                 except: _,
+                exposing: _,
                 span,
             } => {
                 let name_str = interner.resolve(*name).to_string();

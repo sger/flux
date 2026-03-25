@@ -296,11 +296,13 @@ impl<'a> AstLowerer<'a> {
                 name,
                 alias,
                 except,
+                exposing,
                 span,
             } => Some(CoreTopLevelItem::Import {
                 name: *name,
                 alias: *alias,
                 except: except.clone(),
+                exposing: exposing.clone(),
                 span: *span,
             }),
             Statement::Data {

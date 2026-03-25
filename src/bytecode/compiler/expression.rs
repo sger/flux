@@ -548,6 +548,16 @@ impl Compiler {
                     if !self.try_emit_consumed_local(name) {
                         self.load_symbol(&symbol);
                     }
+                } else if let Some(&qualified) = self.exposed_bindings.get(&name) {
+                    // Unqualified access to an exposed module member.
+                    if let Some(symbol) = self.resolve_visible_symbol(qualified) {
+                        self.load_symbol(&symbol);
+                    } else {
+                        let name_str = self.sym(name);
+                        return Err(Self::boxed(
+                            self.make_undefined_variable_error(name_str, *span),
+                        ));
+                    }
                 } else if let Some(prefix) = self.current_module_prefix {
                     let qualified = self.interner.intern_join(prefix, name);
                     if let Some(symbol) = self.resolve_visible_symbol(qualified) {

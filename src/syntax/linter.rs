@@ -360,6 +360,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
                 name,
                 alias,
                 except: _,
+                exposing: _,
                 span,
             } => {
                 let name_str = self.sym(*name);
