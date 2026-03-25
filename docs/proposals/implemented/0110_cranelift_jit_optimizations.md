@@ -1,6 +1,6 @@
 - Feature Name: Cranelift JIT Backend Optimizations
 - Start Date: 2026-03-19
-- Status: Not Implemented
+- Status: Obsolete (Cranelift JIT backend removed)
 - Proposal PR:
 - Flux Issue:
 

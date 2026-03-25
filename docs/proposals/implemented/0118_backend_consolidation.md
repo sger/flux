@@ -1,5 +1,6 @@
 - Feature Name: Backend Consolidation — Two-Backend Architecture
 - Start Date: 2026-03-24
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 

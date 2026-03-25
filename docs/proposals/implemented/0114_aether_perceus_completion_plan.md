@@ -1,6 +1,6 @@
 - Feature Name: Aether Perceus Completion Plan
 - Start Date: 2026-03-20
-- Status: Draft, Extended
+- Status: Implemented (Phases A-U complete; Phase S deferred by design)
 - Proposal PR:
 - Flux Issue:
 - Depends on: 0084 (Aether memory model), 0086 (backend-neutral core IR)

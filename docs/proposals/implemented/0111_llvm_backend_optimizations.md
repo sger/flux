@@ -1,6 +1,6 @@
 - Feature Name: LLVM Backend Optimizations
 - Start Date: 2026-03-19
-- Status: Not Implemented
+- Status: Superseded (LLVM backend replaced by core_to_llvm text IR backend)
 - Proposal PR:
 - Flux Issue:
 

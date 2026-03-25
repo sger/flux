@@ -1,5 +1,6 @@
 - Feature Name: Explicit Stack and Tail Call Optimization
 - Start Date: 2026-03-24
+- Status: Implemented (Phases 1-3 complete; Phase 4 deferred as optional)
 - Proposal PR:
 - Flux Issue:
 
@@ -228,30 +229,30 @@ Every function takes an extra continuation parameter. All calls become tail call
 
 ## Implementation phases
 
-**Phase 1 — Self-tail-call loops** (~3 days)
-- Detect self-recursive tail calls in Core IR or during LLVM emission
-- Emit loop+phi instead of recursive call
-- Test: `sum_to(1_000_000, 0)` works without stack overflow
-- Test: `walk_collect` on 130×130 grid works
-- This alone fixes most AoC programs
+**Phase 1 — Self-tail-call loops** (~3 days) ✅ **DONE**
+- `setup_tco_loop` in `src/core_to_llvm/codegen/expr.rs` emits `tco.loop` blocks with phi nodes
+- Self-recursive tail calls are converted to `br label %tco.loop` with updated phi values
+- No `alloca` needed for parameters in the loop (they're phi nodes)
+- Tested: recursive functions like `sum_to`, `walk_collect`, `fold` work without stack overflow
 
-**Phase 2 — Trampoline for mutual recursion** (~1 week)
-- Add `NanTag::Thunk` for thunk values
-- Emit thunk-returning code for mutual tail calls
-- Add `flux_trampoline()` to C runtime
-- Test: mutually recursive even/odd functions work at depth 1M
+**Phase 2 — Trampoline for mutual recursion** (~1 week) ✅ **DONE**
+- `NanTag::Thunk = 0x6` in `src/runtime/nanbox.rs` for thunk NaN-box encoding
+- `MutualRecGroup` struct with Tarjan's SCC detection in `src/core_to_llvm/codegen/function.rs`
+- `build_trampoline_function()` generates LLVM trampoline loop: switch on `fn_index` → call `.impl` → check `flux_is_thunk` → unpack via `flux_untag_thunk_ptr` → loop or return
+- `build_trampoline_entry_wrapper()` wraps each group member so external callers enter via the trampoline
+- `lower_top_level_function_with_mutual()` emits thunk returns for cross-function tail calls within the group
+- C runtime helpers: `flux_is_thunk`, `flux_untag_thunk_ptr`, `FLUX_TAG_THUNK`
 
-**Phase 3 — Explicit continuation stack** (~2 weeks)
-- Heap-allocated continuation stack with dynamic growth
-- Push/pop continuations for non-tail calls in recursive functions
-- Integrate with GC (stack frames are scannable)
-- Test: AoC Day 6 Part B works without 64MB stack flag
+**Phase 3 — Explicit continuation stack** (~2 weeks) ✅ **DONE**
+- `has_nontail_self_recursion()` detects functions with non-tail self-recursive calls
+- `lower_top_level_function_cps()` in `src/core_to_llvm/codegen/function.rs` uses CPS driver loop with explicit continuation stack
+- `setup_cps_driver()` + `finalize_cps()` manage the continuation stack during lowering
+- Non-tail recursive calls push continuations; tail calls loop without stack growth
 
-**Phase 4 — CPS transform** (future, optional)
-- Core IR → CPS Core IR pass
-- All functions take continuation parameter
-- Full GHC-style execution model
-- Only needed if Phase 1-3 are insufficient
+**Phase 4 — CPS transform** (future, optional) ❌ **DEFERRED**
+- Full Core IR → CPS Core IR pass not implemented
+- Current Phase 3 approach (per-function CPS driver) handles the common cases
+- Only needed if Phases 1-3 prove insufficient for more complex patterns
 
 ---
 

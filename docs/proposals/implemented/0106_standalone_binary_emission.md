@@ -1,6 +1,6 @@
 - Feature Name: Standalone Binary Emission
 - Start Date: 2026-03-18
-- Status: Draft
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 - Depends on: 0105 (LLVM backend)
