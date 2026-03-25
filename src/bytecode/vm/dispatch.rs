@@ -3,8 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     bytecode::op_code::OpCode,
     runtime::{
-        base::get_base_function_by_index,
-        base::list_ops::format_value,
+        value::format_value,
         closure::Closure,
         cons_cell::ConsCell,
         continuation::Continuation,
@@ -200,7 +199,7 @@ impl VM {
                 {
                     let expected_name = expected.type_name();
                     let actual_type = return_value.type_name();
-                    let value_preview = format_value(self, &return_value);
+                    let value_preview = format_value(&return_value);
                     if let Some((file, span)) = self.function_boundary_location() {
                         return Err(self.runtime_type_error_at_location(
                             &expected_name,
@@ -227,7 +226,7 @@ impl VM {
                     && !expected.matches_value(&Value::None, self)
                 {
                     let expected_name = expected.type_name();
-                    let value_preview = format_value(self, &Value::None);
+                    let value_preview = format_value(&Value::None);
                     if let Some((file, span)) = self.function_boundary_location() {
                         return Err(self.runtime_type_error_at_location(
                             &expected_name,
@@ -524,11 +523,9 @@ impl VM {
                 Ok(1)
             }
             OpCode::OpGetBase => {
-                let idx = Self::read_u8_fast(instructions, ip + 1);
-                let _ = get_base_function_by_index(idx)
-                    .ok_or_else(|| format!("invalid Base function index {}", idx))?;
-                self.push(Value::BaseFunction(idx as u8))?;
-                Ok(2)
+                // OpGetBase is no longer emitted by the compiler.
+                // Base functions are resolved as module members from lib/Base/.
+                return Err("OpGetBase is deprecated; base functions are now compiled from lib/Base/".to_string());
             }
             OpCode::OpCall => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
@@ -550,12 +547,9 @@ impl VM {
                 Ok(2)
             }
             OpCode::OpCallBase => {
-                // Encoded as [OpCallBase, base_fn_idx, arity]; callee is implicit.
-                // Stack before: [..., arg0, ..., argN]. After: [..., result].
-                let base_fn_idx = Self::read_u8_fast(instructions, ip + 1);
-                let arity = Self::read_u8_fast(instructions, ip + 2);
-                self.execute_call_base_direct(base_fn_idx, arity)?;
-                Ok(3)
+                // OpCallBase is no longer emitted by the compiler.
+                // Base functions are resolved as module members from lib/Base/.
+                return Err("OpCallBase is deprecated; base functions are now compiled from lib/Base/".to_string());
             }
             OpCode::OpPrimOp => {
                 // Encoded as [OpPrimOp, primop_id, arity].

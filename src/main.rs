@@ -593,7 +593,18 @@ fn run_file(
             let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
             compiler.set_strict_mode(strict_mode);
             let entry_canonical = std::fs::canonicalize(entry_path).ok();
-            for node in graph.topo_order() {
+
+            // Sort topo_order to compile Base library modules first.
+            // This ensures all modules can access Base functions (map, filter, etc.)
+            // without explicit imports — like Haskell's implicit Prelude.
+            let mut ordered_nodes = graph.topo_order();
+            ordered_nodes.sort_by_key(|node| {
+                let is_base = node.path.to_string_lossy().contains("lib/Base/")
+                    || node.path.to_string_lossy().contains("lib\\Base\\");
+                if is_base { 0 } else { 1 }
+            });
+
+            for node in ordered_nodes {
                 // Skip entry if it had parse errors (it is in topo_order but
                 // should not be compiled).
                 if entry_has_errors

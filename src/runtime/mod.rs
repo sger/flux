@@ -15,8 +15,6 @@
 //! Any future cyclic data feature must use cycle-aware memory management.
 use crate::runtime::value::Value;
 
-pub mod base;
-pub mod base_function;
 pub mod closure;
 pub mod compiled_function;
 pub mod cons_cell;
@@ -61,5 +59,3 @@ pub trait RuntimeContext {
     }
 }
 
-pub type BaseFn = fn(&mut dyn RuntimeContext, Vec<Value>) -> Result<Value, String>;
-pub type BorrowedBaseFn = fn(&mut dyn RuntimeContext, &[&Value]) -> Result<Value, String>;

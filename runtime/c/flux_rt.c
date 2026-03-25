@@ -672,6 +672,95 @@ int64_t flux_trim(int64_t s) {
     return flux_string_new(data + start, end - start);
 }
 
+int64_t flux_upper(int64_t s) {
+    const char *data = flux_string_data(s);
+    uint32_t len = flux_string_len(s);
+    char *buf = (char *)malloc(len + 1);
+    for (uint32_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)data[i];
+        buf[i] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : (char)c;
+    }
+    buf[len] = '\0';
+    int64_t result = flux_string_new(buf, len);
+    free(buf);
+    return result;
+}
+
+int64_t flux_lower(int64_t s) {
+    const char *data = flux_string_data(s);
+    uint32_t len = flux_string_len(s);
+    char *buf = (char *)malloc(len + 1);
+    for (uint32_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)data[i];
+        buf[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;
+    }
+    buf[len] = '\0';
+    int64_t result = flux_string_new(buf, len);
+    free(buf);
+    return result;
+}
+
+int64_t flux_replace(int64_t s, int64_t from, int64_t to) {
+    const char *src = flux_string_data(s);
+    uint32_t src_len = flux_string_len(s);
+    const char *from_str = flux_string_data(from);
+    uint32_t from_len = flux_string_len(from);
+    const char *to_str = flux_string_data(to);
+    uint32_t to_len = flux_string_len(to);
+
+    if (from_len == 0) return s;
+
+    /* Count occurrences to pre-allocate. */
+    uint32_t count = 0;
+    const char *p = src;
+    const char *end = src + src_len;
+    while (p <= end - from_len) {
+        if (memcmp(p, from_str, from_len) == 0) { count++; p += from_len; }
+        else { p++; }
+    }
+    if (count == 0) return s;
+
+    uint32_t new_len = src_len + count * (to_len - from_len);
+    char *buf = (char *)malloc(new_len + 1);
+    char *dst = buf;
+    p = src;
+    while (p <= end - from_len) {
+        if (memcmp(p, from_str, from_len) == 0) {
+            memcpy(dst, to_str, to_len); dst += to_len; p += from_len;
+        } else { *dst++ = *p++; }
+    }
+    while (p < end) *dst++ = *p++;
+    *dst = '\0';
+    int64_t result = flux_string_new(buf, new_len);
+    free(buf);
+    return result;
+}
+
+int64_t flux_chars(int64_t s) {
+    const char *data = flux_string_data(s);
+    uint32_t len = flux_string_len(s);
+    int64_t *elems = (int64_t *)malloc(len * sizeof(int64_t));
+    for (uint32_t i = 0; i < len; i++) {
+        elems[i] = flux_string_new(data + i, 1);
+    }
+    int64_t result = flux_array_new(elems, (int32_t)len);
+    free(elems);
+    return result;
+}
+
+int64_t flux_str_contains(int64_t haystack, int64_t needle) {
+    const char *h = flux_string_data(haystack);
+    uint32_t h_len = flux_string_len(haystack);
+    const char *n = flux_string_data(needle);
+    uint32_t n_len = flux_string_len(needle);
+    if (n_len > h_len) return flux_make_bool(0);
+    if (n_len == 0) return flux_make_bool(1);
+    for (uint32_t i = 0; i <= h_len - n_len; i++) {
+        if (memcmp(h + i, n, n_len) == 0) return flux_make_bool(1);
+    }
+    return flux_make_bool(0);
+}
+
 int64_t flux_substring(int64_t s, int64_t start_val, int64_t end_val) {
     return flux_string_slice(s, start_val, end_val);
 }
