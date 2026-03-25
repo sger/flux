@@ -55,6 +55,7 @@ mod effect_rows;
 mod errors;
 mod expression;
 mod hm_expr_typer;
+pub mod module_interface;
 mod passes;
 pub(crate) mod pipeline;
 mod statement;
@@ -149,7 +150,7 @@ pub struct Compiler {
     pub(super) consumable_local_use_counts: Vec<HashMap<Symbol, usize>>,
     pub(super) excluded_base_symbols: HashSet<Symbol>,
     pub module_contracts: ModuleContractTable,
-    pub(super) module_function_visibility: HashMap<(Symbol, Symbol), bool>,
+    pub module_function_visibility: HashMap<(Symbol, Symbol), bool>,
     pub(super) module_adt_constructors: HashMap<(Symbol, Symbol), Symbol>,
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
     pub(super) effect_alias_scopes: Vec<HashMap<Symbol, Symbol>>,
