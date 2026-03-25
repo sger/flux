@@ -1,5 +1,6 @@
 - Feature Name: Separate Module Compilation and Base Prelude
 - Start Date: 2026-03-24
+- Status: Partially Implemented (Phases 1 & 4 complete; Phases 2, 3, 5 in progress)
 - Proposal PR:
 - Flux Issue:
 
@@ -222,34 +223,34 @@ Dead code elimination (already in Core passes) removes unused Base functions so 
 
 ## Implementation phases
 
-**Phase 1 — `exposing` syntax** (~3 days)
-- Add `ImportExposing` to `Statement::Import`
-- Parse `exposing *` and `exposing (name, name, ...)`
-- Update name resolution to add unqualified names to scope
-- Test: `import Base.List exposing *` makes `map` available
+**Phase 1 — `exposing` syntax** (~3 days) ✅ **DONE**
+- `ImportExposing` enum added to `Statement::Import` in `src/syntax/statement.rs`
+- Parser supports `exposing (..)` (all public members) and `exposing (name, name, ...)`
+- Name resolution adds unqualified names to scope when `exposing` is used
+- Test: `import Base.List exposing (..)` makes `map` available
 
-**Phase 2 — Per-module compilation** (~1 week)
-- Each module in the topo order gets a fresh `Compiler` instance
-- Type signatures from imported modules are loaded before inference
-- Core IR is produced per-module
-- Test: Base.List compiles independently, user code uses its types
+**Phase 2 — Per-module compilation** (~1 week) 🔧 **PARTIAL**
+- Modules compile in topological order via the module graph
+- Each module gets its own parse + type inference pass
+- **Not yet done**: fully independent `Compiler` instance per module (currently modules share state through the prelude injection approach)
+- **Not yet done**: isolated Core IR production per module
 
-**Phase 3 — Interface files** (~3 days)
-- Serialize exported type schemes to `.flxi` JSON
-- Load `.flxi` instead of re-compiling when source hasn't changed
-- Cache stored alongside source in `lib/Base/.cache/`
-- Test: second compilation is faster (cache hit)
+**Phase 3 — Interface files** (~3 days) 🔧 **PARTIAL**
+- `src/bytecode/compiler/module_interface.rs` exists with initial infrastructure
+- **Not yet done**: full `.flxi` serialization of exported type schemes
+- **Not yet done**: cache invalidation based on source hash
+- **Not yet done**: loading `.flxi` instead of re-compiling
 
-**Phase 4 — Auto-prelude** (~2 days)
-- Compiler auto-adds `import Base.List exposing *` etc.
-- `--no-prelude` flag to disable
-- Test: `map(...)` works without explicit import
+**Phase 4 — Auto-prelude** (~2 days) ✅ **DONE**
+- `inject_base_prelude()` in `src/main.rs` auto-adds `import Base.* exposing (..)` for all Base modules
+- Skipped for `--dump-aether`/`--dump-core`/`--trace-aether` diagnostic modes
+- Test: `map(...)` works without explicit import in all user programs
 
-**Phase 5 — Core IR merge** (~2 days)
-- `core_to_llvm` collects Core IRs from all compiled modules
-- Merges into single `CoreProgram` before LLVM lowering
-- Dead code elimination removes unused Base functions
-- Test: native binary only contains used functions
+**Phase 5 — Core IR merge** (~2 days) 🔧 **PARTIAL**
+- Both VM and LLVM backends compile Base modules alongside user code
+- Currently merging happens at source level (prelude injection) rather than Core IR level
+- **Not yet done**: per-module Core IR cache + merge step
+- **Not yet done**: dead code elimination of unused Base functions at the Core IR merge boundary
 
 ---
 

@@ -1,6 +1,6 @@
 - Feature Name: CoreToLlvm — Text IR Code Generation Backend
 - Start Date: 2026-03-23
-- Status: Draft
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 

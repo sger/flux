@@ -1,5 +1,6 @@
 - Feature Name: CoreToLlvm Primop Expansion and Flux Prelude
 - Start Date: 2026-03-24
+- Status: Superseded by Proposal 0120 (Unified Base Library)
 - Proposal PR:
 - Flux Issue:
 
