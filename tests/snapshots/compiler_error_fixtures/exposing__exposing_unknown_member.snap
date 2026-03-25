@@ -1,0 +1,35 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/exposing/exposing_unknown_member.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E421]: Unknown Member in Exposing
+
+`nonexistent` is not defined in module `ExposingTarget`.
+
+  examples/compiler_errors/exposing/exposing_unknown_member.flx:1:1
+  |
+1 | import ExposingTarget exposing (nonexistent)
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Check the public members of `ExposingTarget` or remove `nonexistent` from the exposing list.
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `nonexistent`.
+
+  examples/compiler_errors/exposing/exposing_unknown_member.flx:4:11
+  |
+4 |     print(nonexistent())
+  |           ^^^^^^^^^^^
+
+Hint:
+  Define it first: let nonexistent = ...;
+
+Found 2 errors.
+== stdout ==
+<not executed>

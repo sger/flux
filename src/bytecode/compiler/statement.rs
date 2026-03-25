@@ -1075,6 +1075,7 @@ impl Compiler {
                     name,
                     alias,
                     except,
+                    exposing,
                     span,
                 } => {
                     let name = *name;
@@ -1106,6 +1107,9 @@ impl Compiler {
                     // Reserve the name for this file so later declarations can't collide.
                     self.file_scope_symbols.insert(binding_name);
                     self.compile_import_statement(name, *alias, except)?;
+
+                    // Register exposed bindings for unqualified access.
+                    self.register_exposed_bindings(name, exposing, *span)?;
                 }
                 Statement::Data { name, variants, .. } => {
                     self.compile_data_statement(*name, variants)?;
@@ -1580,6 +1584,91 @@ impl Compiler {
             self.import_aliases.insert(alias, name);
         } else {
             self.imported_modules.insert(name);
+        }
+        Ok(())
+    }
+
+    /// Register exposed bindings so module members can be used unqualified.
+    ///
+    /// For `exposing (..)`, all public members of the module are registered.
+    /// For `exposing (a, b)`, only the named members are registered.
+    pub(super) fn register_exposed_bindings(
+        &mut self,
+        module_name: Symbol,
+        exposing: &crate::syntax::statement::ImportExposing,
+        span: Span,
+    ) -> CompileResult<()> {
+        use crate::syntax::statement::ImportExposing;
+
+        match exposing {
+            ImportExposing::None => {}
+            ImportExposing::All => {
+                // Expose all public members of the module.
+                let public_members: Vec<Symbol> = self
+                    .module_function_visibility
+                    .iter()
+                    .filter(|((mod_name, _), is_public)| *mod_name == module_name && **is_public)
+                    .map(|((_, member), _)| *member)
+                    .collect();
+                for member in public_members {
+                    let qualified = self.interner.intern_join(module_name, member);
+                    self.exposed_bindings.insert(member, qualified);
+                }
+            }
+            ImportExposing::Names(names) => {
+                for &member in names {
+                    // Validate the member exists and is public.
+                    let is_public = self
+                        .module_function_visibility
+                        .get(&(module_name, member))
+                        .copied();
+                    match is_public {
+                        Some(true) => {
+                            let qualified = self.interner.intern_join(module_name, member);
+                            self.exposed_bindings.insert(member, qualified);
+                        }
+                        Some(false) => {
+                            let member_str = self.sym(member).to_string();
+                            let module_str = self.sym(module_name).to_string();
+                            return Err(Self::boxed(
+                                Diagnostic::make_error_dynamic(
+                                    "E420",
+                                    "Private Member in Exposing",
+                                    ErrorType::Compiler,
+                                    format!(
+                                        "Cannot expose `{}` because it is not a public member of `{}`.",
+                                        member_str, module_str
+                                    ),
+                                    Some("Mark the function as `public fn` in the module to expose it.".to_string()),
+                                    self.file_path.clone(),
+                                    span,
+                                ),
+                            ));
+                        }
+                        None => {
+                            let member_str = self.sym(member).to_string();
+                            let module_str = self.sym(module_name).to_string();
+                            return Err(Self::boxed(
+                                Diagnostic::make_error_dynamic(
+                                    "E421",
+                                    "Unknown Member in Exposing",
+                                    ErrorType::Compiler,
+                                    format!(
+                                        "`{}` is not defined in module `{}`.",
+                                        member_str, module_str
+                                    ),
+                                    Some(format!(
+                                        "Check the public members of `{}` or remove `{}` from the exposing list.",
+                                        module_str, member_str
+                                    )),
+                                    self.file_path.clone(),
+                                    span,
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
         }
         Ok(())
     }

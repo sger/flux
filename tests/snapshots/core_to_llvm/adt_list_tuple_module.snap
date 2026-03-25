@@ -24,11 +24,25 @@ expression: render_module(&module)
 
 @flux.nanbox.max_inline_int = private constant i64 35184372088831
 
+@trace.name.0 = private constant [5 x i8] [i8 102, i8 111, i8 108, i8 100, i8 0]
+
+@trace.file.1 = private constant [1 x i8] [i8 0]
+
+@trace.name.2 = private constant [5 x i8] [i8 109, i8 97, i8 105, i8 110, i8 0]
+
+@trace.file.3 = private constant [1 x i8] [i8 0]
+
 declare ccc void @flux_gc_free(ptr) nounwind
 
 declare ccc ptr @flux_gc_alloc(i32) nounwind
 
+declare ccc void @flux_trace_push(ptr, ptr, i32) nounwind
+
 declare ccc i64 @flux_rt_add(i64, i64) nounwind
+
+declare ccc void @flux_trace_pop() nounwind
+
+declare ccc i64 @flux_string_new(ptr, i32) nounwind
 
 define internal fastcc i64 @flux_tag_int(i64 %raw) alwaysinline {
 entry:
@@ -553,6 +567,7 @@ entry:
   %slot.5 = alloca i64, align 8
   %slot.6 = alloca i64, align 8
   store i64 %arg0, ptr %slot.0, align 8
+  call ccc void @flux_trace_push(ptr @trace.name.0, ptr @trace.file.1, i32 7)
   store ptr null, ptr %slot.1, align 8
   br label %cps.loop.0
 cps.loop.0:
@@ -607,6 +622,7 @@ cps.pop.11:
 cps.unreachable.12:
   unreachable
 cps.done.10:
+  call ccc void @flux_trace_pop()
   ret i64 %cps.result.15
 }
 
@@ -618,6 +634,7 @@ entry:
   %slot.3 = alloca i64, align 8
   %slot.4 = alloca i64, align 8
   %slot.5 = alloca i64, align 8
+  call ccc void @flux_trace_push(ptr @trace.name.2, ptr @trace.file.3, i32 14)
   br label %tco.loop.0
 tco.loop.0:
   %cons.make.0 = call fastcc i64 @flux_make_cons(i64 9222246136947933186, i64 9222527611924643840)
@@ -645,6 +662,7 @@ tco.loop.0:
   br i1 %case.tuple.is_ptr.14, label %case.tuple.len.5, label %case.else.3
 case.join.1:
   %case.result.39 = phi i64 [ %primop.28, %case.then.2 ], [ 9222246136947933184, %case.then.9 ]
+  call ccc void @flux_trace_pop()
   ret i64 %case.result.39
 case.then.2:
   %load.26 = load i64, ptr %slot.4, align 8

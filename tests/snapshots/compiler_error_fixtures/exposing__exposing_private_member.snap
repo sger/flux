@@ -1,0 +1,35 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/exposing/exposing_private_member.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E420]: Private Member in Exposing
+
+Cannot expose `secret` because it is not a public member of `ExposingTarget`.
+
+  examples/compiler_errors/exposing/exposing_private_member.flx:1:1
+  |
+1 | import ExposingTarget exposing (secret)
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Mark the function as `public fn` in the module to expose it.
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `secret`.
+
+  examples/compiler_errors/exposing/exposing_private_member.flx:4:11
+  |
+4 |     print(secret())
+  |           ^^^^^^
+
+Hint:
+  Define it first: let secret = ...;
+
+Found 2 errors.
+== stdout ==
+<not executed>

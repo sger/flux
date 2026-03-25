@@ -359,7 +359,10 @@ int64_t flux_rt_div(int64_t a, int64_t b) {
         return flux_from_double(flux_as_double(a) / flux_as_double(b));
     }
     int64_t rb = flux_untag_int(b);
-    if (rb == 0) return flux_tag_int(0);
+    if (rb == 0) {
+        flux_panic(flux_string_new("Division by zero", 16));
+        return flux_tag_int(0); /* unreachable */
+    }
     return flux_tag_int(flux_untag_int(a) / rb);
 }
 
@@ -368,7 +371,10 @@ int64_t flux_rt_mod(int64_t a, int64_t b) {
         return flux_from_double(fmod(flux_as_double(a), flux_as_double(b)));
     }
     int64_t rb = flux_untag_int(b);
-    if (rb == 0) return flux_tag_int(0);
+    if (rb == 0) {
+        flux_panic(flux_string_new("Division by zero", 16));
+        return flux_tag_int(0); /* unreachable */
+    }
     return flux_tag_int(flux_untag_int(a) % rb);
 }
 
@@ -581,6 +587,47 @@ int64_t flux_is_none(int64_t val) {
     return flux_make_bool(flux_nanbox_tag(val) == FLUX_TAG_NONE);
 }
 
+/* ── Shadow stack for native stack traces ───────────────────────────── */
+
+#define FLUX_TRACE_MAX 256
+
+typedef struct {
+    const char *name;
+    const char *file;
+    int32_t     line;
+} FluxTraceFrame;
+
+static FluxTraceFrame flux_trace_stack[FLUX_TRACE_MAX];
+static int32_t        flux_trace_depth = 0;
+
+void flux_trace_push(const char *name, const char *file, int32_t line) {
+    if (flux_trace_depth < FLUX_TRACE_MAX) {
+        flux_trace_stack[flux_trace_depth].name = name;
+        flux_trace_stack[flux_trace_depth].file = file;
+        flux_trace_stack[flux_trace_depth].line = line;
+    }
+    flux_trace_depth++;
+}
+
+void flux_trace_pop(void) {
+    if (flux_trace_depth > 0) flux_trace_depth--;
+}
+
+static void flux_trace_print(void) {
+    int32_t depth = flux_trace_depth < FLUX_TRACE_MAX
+                  ? flux_trace_depth : FLUX_TRACE_MAX;
+    if (depth == 0) return;
+    fprintf(stderr, "\nStack trace:\n");
+    for (int32_t i = depth - 1; i >= 0; i--) {
+        FluxTraceFrame *f = &flux_trace_stack[i];
+        if (f->file && f->file[0] != '\0') {
+            fprintf(stderr, "  at %s (%s:%d)\n", f->name, f->file, f->line);
+        } else {
+            fprintf(stderr, "  at %s\n", f->name);
+        }
+    }
+}
+
 /* ── Control ────────────────────────────────────────────────────────── */
 
 void flux_panic(int64_t msg) {
@@ -593,6 +640,7 @@ void flux_panic(int64_t msg) {
         flux_print(msg);
         fprintf(stderr, "\n");
     }
+    flux_trace_print();
     abort();
 }
 
