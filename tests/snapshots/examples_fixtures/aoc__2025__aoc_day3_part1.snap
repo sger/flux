@@ -37,13 +37,7 @@ I found the wrong type in the 2nd argument to `max2`.
  7 |     }
  8 | 
  9 |     fn digit_at(line, idx) {
-10 |         parse_int(substring(line, idx, idx + 1))
-11 |     }
-12 | 
-13 |     fn max_bank_scan(line, idx, best_right, best_pair) {
-14 |         if idx < 0 {
-15 |             best_pair
-16 |         } else {
+... |
 17 |         let d = digit_at(line, idx)
 18 |         let pair_here = if best_right < 0 { best_pair } else { max2(best_pair, d * 10 + best_right) }
 19 |         let next_right = max2(best_right, d)

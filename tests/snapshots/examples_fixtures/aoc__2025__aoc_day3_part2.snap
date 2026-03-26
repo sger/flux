@@ -26,9 +26,7 @@ I found the wrong type in the 4th argument to `best_digit_pos`.
 21 | }
 22 | 
 23 | fn max_k_value(line, start, k, acc) {
-24 |     if k == 0 {
-25 |         acc
-26 |     } else {
+... |
 27 |     let n = len(line)
 28 |     let end = n - k
 29 |     let pos = best_digit_pos(line, start, end, -1, start)

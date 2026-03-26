@@ -59,22 +59,7 @@ I found the wrong type in the 2nd argument to `weighted_sum`.
 106 | }
 107 | 
 108 | fn area_at(arr, idx) {
-109 |     match arr[idx] {
-110 |         Some(v) -> v,
-111 |         _ -> [||]
-112 |     }
-113 | }
-114 | 
-115 | fn count_valid_areas(block_sizes, areas, idx, acc) {
-116 |     if idx >= len(areas) {
-117 |         acc
-118 |     } else {
-119 |     let area = area_at(areas, idx)
-120 |     let w = int_at(area, 0)
-121 |     let h = int_at(area, 1)
-122 |     let counts = match area[2] {
-123 |         Some(v) -> v,
-124 |         _ -> [||]
+... |
 125 |     }
 126 |     let lhs = w * h
 127 |     let rhs = weighted_sum(block_sizes, counts, 0, 0)
