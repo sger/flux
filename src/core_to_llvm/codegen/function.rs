@@ -150,25 +150,29 @@ impl<'a> ProgramState<'a> {
         // Try module-scoped lookup first.
         if let Some(mod_name) = module_name {
             // Resolve import alias: "Array" → "Flow.Array"
-            let resolved = self.import_aliases.get(&mod_name).copied().unwrap_or(mod_name);
+            let resolved = self
+                .import_aliases
+                .get(&mod_name)
+                .copied()
+                .unwrap_or(mod_name);
             if let Some(members) = self.module_members.get(&resolved) {
                 for (fn_name, binder_id) in members {
-                    if *fn_name == member {
-                        if let Some(info) = self.top_level.get(binder_id) {
-                            return Some((*binder_id, info.clone()));
-                        }
+                    if *fn_name == member
+                        && let Some(info) = self.top_level.get(binder_id)
+                    {
+                        return Some((*binder_id, info.clone()));
                     }
                 }
             }
             // Also try the original name (for modules without aliases).
-            if resolved != mod_name {
-                if let Some(members) = self.module_members.get(&mod_name) {
-                    for (fn_name, binder_id) in members {
-                        if *fn_name == member {
-                            if let Some(info) = self.top_level.get(binder_id) {
-                                return Some((*binder_id, info.clone()));
-                            }
-                        }
+            if resolved != mod_name
+                && let Some(members) = self.module_members.get(&mod_name)
+            {
+                for (fn_name, binder_id) in members {
+                    if *fn_name == member
+                        && let Some(info) = self.top_level.get(binder_id)
+                    {
+                        return Some((*binder_id, info.clone()));
                     }
                 }
             }
@@ -194,10 +198,7 @@ impl<'a> ProgramState<'a> {
                 .ok_or_else(|| CoreToLlvmError::MissingSymbol {
                     message: format!("missing wrapper target for binder {:?}", binder),
                 })?;
-        let wrapper = GlobalId(format!(
-            "{}.closure_wrapper",
-            info.symbol.0
-        ));
+        let wrapper = GlobalId(format!("{}.closure_wrapper", info.symbol.0));
         let function = build_top_level_wrapper(&wrapper, &info.symbol, info.arity);
         self.generated_functions.push(function);
         self.top_level_wrappers.insert(binder, wrapper.clone());
@@ -545,18 +546,14 @@ pub fn compile_program_with_interner(
                 let mod_str = display_ident(*mod_name, interner);
                 let members = module_members.entry(*mod_name).or_default();
                 for child in body {
-                    if let crate::core::CoreTopLevelItem::Function { name: fn_name, .. } = child
-                    {
+                    if let crate::core::CoreTopLevelItem::Function { name: fn_name, .. } = child {
                         let fn_str = display_ident(*fn_name, interner);
-                        trace_qualified_names
-                            .insert(*fn_name, format!("{mod_str}.{fn_str}"));
+                        trace_qualified_names.insert(*fn_name, format!("{mod_str}.{fn_str}"));
                         // Find the CoreDef for this module function.
                         // Use the first unclaimed def with this name to handle
                         // multiple modules exporting the same function name.
                         for def in &core.defs {
-                            if def.name == *fn_name
-                                && !claimed_binders.contains(&def.binder.id)
-                            {
+                            if def.name == *fn_name && !claimed_binders.contains(&def.binder.id) {
                                 members.push((*fn_name, def.binder.id));
                                 claimed_binders.insert(def.binder.id);
                                 break;
@@ -566,11 +563,11 @@ pub fn compile_program_with_interner(
                 }
             }
             crate::core::CoreTopLevelItem::Import {
-                name, alias, ..
+                name,
+                alias: Some(alias_id),
+                ..
             } => {
-                if let Some(alias_id) = alias {
-                    import_aliases.insert(*alias_id, *name);
-                }
+                import_aliases.insert(*alias_id, *name);
             }
             _ => {}
         }

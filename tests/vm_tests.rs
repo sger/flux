@@ -979,7 +979,9 @@ fn test_map_type_error_not_function() {
     // map now operates on cons lists; passing a non-function as callback triggers a runtime error
     let err = run_error("map([1, 2], 42);");
     assert!(
-        err.contains("not a function") || err.contains("wrong number of arguments") || err.contains("Cannot call"),
+        err.contains("not a function")
+            || err.contains("wrong number of arguments")
+            || err.contains("Cannot call"),
         "Expected function call error, got: {}",
         err
     );
