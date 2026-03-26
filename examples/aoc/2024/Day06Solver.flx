@@ -1,3 +1,5 @@
+import Flow.Array as Array
+
 module Day06Solver {
     // AoC 2024 Day 6 - Guard Gallivant
     //
@@ -72,7 +74,7 @@ module Day06Solver {
     }
 
     fn build_grid(lines) {
-        map(lines, \line -> line_to_row(line, 0, [||]))
+        Array.map(lines, \line -> line_to_row(line, 0, [||]))
     }
 
     // ── Guard finder ──────────────────────────────────────────────────

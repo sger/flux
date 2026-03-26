@@ -72,6 +72,11 @@ pub(super) struct ProgramState<'a> {
     pub mutual_rec_groups: HashMap<CoreBinderId, Arc<MutualRecGroup>>,
     /// Module-qualified names for stack traces: fn_name → "Module.fn_name".
     pub trace_qualified_names: HashMap<Identifier, String>,
+    /// Module membership: module_name → list of (fn_name, CoreBinderId) pairs.
+    /// Used to resolve MemberAccess when multiple modules export the same name.
+    pub module_members: HashMap<Identifier, Vec<(Identifier, CoreBinderId)>>,
+    /// Import aliases: alias_name → module_name (e.g., "Array" → "Flow.Array").
+    pub import_aliases: HashMap<Identifier, Identifier>,
 }
 
 impl<'a> ProgramState<'a> {
@@ -92,6 +97,8 @@ impl<'a> ProgramState<'a> {
             needed_c_decls: Vec::new(),
             mutual_rec_groups: HashMap::new(),
             trace_qualified_names: HashMap::new(),
+            module_members: HashMap::new(),
+            import_aliases: HashMap::new(),
         }
     }
 
@@ -127,15 +134,49 @@ impl<'a> ProgramState<'a> {
         self.top_level.get(&binder)
     }
 
-    /// Look up a top-level function by its Identifier (name), for MemberAccess resolution.
-    /// Returns (CoreBinderId, &TopLevelFunctionInfo) so the caller can use ensure_top_level_wrapper.
-    pub fn top_level_by_name_with_binder(
+    /// Resolve a module member access to a specific top-level function.
+    ///
+    /// When `module_name` is provided, looks up the member within that module's
+    /// scope using `module_members`. Falls back to global name lookup when the
+    /// module is unknown or the member isn't found in the module.
+    ///
+    /// This avoids non-deterministic HashMap iteration when multiple modules
+    /// export the same function name (e.g., Flow.List.map vs Flow.Array.map).
+    pub fn top_level_member_in_module(
         &self,
-        name: Identifier,
+        member: Identifier,
+        module_name: Option<Identifier>,
     ) -> Option<(CoreBinderId, TopLevelFunctionInfo)> {
+        // Try module-scoped lookup first.
+        if let Some(mod_name) = module_name {
+            // Resolve import alias: "Array" → "Flow.Array"
+            let resolved = self.import_aliases.get(&mod_name).copied().unwrap_or(mod_name);
+            if let Some(members) = self.module_members.get(&resolved) {
+                for (fn_name, binder_id) in members {
+                    if *fn_name == member {
+                        if let Some(info) = self.top_level.get(binder_id) {
+                            return Some((*binder_id, info.clone()));
+                        }
+                    }
+                }
+            }
+            // Also try the original name (for modules without aliases).
+            if resolved != mod_name {
+                if let Some(members) = self.module_members.get(&mod_name) {
+                    for (fn_name, binder_id) in members {
+                        if *fn_name == member {
+                            if let Some(info) = self.top_level.get(binder_id) {
+                                return Some((*binder_id, info.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Fall back to global name lookup (first match).
         self.top_level
             .iter()
-            .find(|(_, info)| info.name == name)
+            .find(|(_, info)| info.name == member)
             .map(|(k, v)| (*k, v.clone()))
     }
 
@@ -155,7 +196,7 @@ impl<'a> ProgramState<'a> {
                 })?;
         let wrapper = GlobalId(format!(
             "{}.closure_wrapper",
-            sanitize_symbol_name(info.name, self.interner)
+            info.symbol.0
         ));
         let function = build_top_level_wrapper(&wrapper, &info.symbol, info.arity);
         self.generated_functions.push(function);
@@ -483,6 +524,66 @@ pub fn compile_program_with_interner(
     let adt_metadata = AdtMetadata::collect(core, interner)?;
     emit_adt_support(&mut module, &adt_metadata);
 
+    // Build module membership for three purposes:
+    // 1. trace_qualified_names: function name → "Module.function" for stack traces.
+    // 2. module_members: module_name → [(fn_name, CoreBinderId)] for disambiguating
+    //    MemberAccess when multiple modules export the same name.
+    // 3. import_aliases: alias_name → module_name for resolving import aliases
+    //    (e.g., "Array" → "Flow.Array").
+    let mut trace_qualified_names: HashMap<Identifier, String> = HashMap::new();
+    let mut module_members: HashMap<Identifier, Vec<(Identifier, CoreBinderId)>> = HashMap::new();
+    let mut import_aliases: HashMap<Identifier, Identifier> = HashMap::new();
+    // Track which binder IDs have been claimed by modules to avoid duplicates.
+    let mut claimed_binders: HashSet<CoreBinderId> = HashSet::new();
+    for item in &core.top_level_items {
+        match item {
+            crate::core::CoreTopLevelItem::Module {
+                name: mod_name,
+                body,
+                ..
+            } => {
+                let mod_str = display_ident(*mod_name, interner);
+                let members = module_members.entry(*mod_name).or_default();
+                for child in body {
+                    if let crate::core::CoreTopLevelItem::Function { name: fn_name, .. } = child
+                    {
+                        let fn_str = display_ident(*fn_name, interner);
+                        trace_qualified_names
+                            .insert(*fn_name, format!("{mod_str}.{fn_str}"));
+                        // Find the CoreDef for this module function.
+                        // Use the first unclaimed def with this name to handle
+                        // multiple modules exporting the same function name.
+                        for def in &core.defs {
+                            if def.name == *fn_name
+                                && !claimed_binders.contains(&def.binder.id)
+                            {
+                                members.push((*fn_name, def.binder.id));
+                                claimed_binders.insert(def.binder.id);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            crate::core::CoreTopLevelItem::Import {
+                name, alias, ..
+            } => {
+                if let Some(alias_id) = alias {
+                    import_aliases.insert(*alias_id, *name);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Count how many defs share the same sanitized name so we can detect
+    // collisions (e.g., Flow.List.map and Flow.Array.map both resolve to "map").
+    let mut name_counts: HashMap<String, u32> = HashMap::new();
+    for def in &core.defs {
+        let raw = sanitize_symbol_name(def.name, interner);
+        *name_counts.entry(raw).or_insert(0) += 1;
+    }
+
     let mut top_level = HashMap::new();
     for def in &core.defs {
         let CoreExpr::Lam { params, .. } = &def.expr else {
@@ -495,9 +596,14 @@ pub fn compile_program_with_interner(
             });
         };
         let raw_name = sanitize_symbol_name(def.name, interner);
-        // Rename user's `main` to `flux_main` so the C runtime can call it.
+        // Disambiguate duplicate names with the binder ID to avoid LLVM
+        // "invalid redefinition" errors when two modules export the same
+        // function name (e.g., Flow.List.map vs Flow.Array.map).
         let symbol_name = if raw_name == "main" {
+            // Rename user's `main` to `flux_main` so the C runtime can call it.
             "flux_main".to_string()
+        } else if name_counts.get(&raw_name).copied().unwrap_or(0) > 1 {
+            format!("{raw_name}.{}", def.binder.id.0)
         } else {
             raw_name
         };
@@ -511,28 +617,11 @@ pub fn compile_program_with_interner(
         );
     }
 
-    // Build module membership: function name → "Module.function" for trace.
-    let mut trace_qualified_names: HashMap<Identifier, String> = HashMap::new();
-    for item in &core.top_level_items {
-        if let crate::core::CoreTopLevelItem::Module {
-            name: mod_name,
-            body,
-            ..
-        } = item
-        {
-            let mod_str = display_ident(*mod_name, interner);
-            for child in body {
-                if let crate::core::CoreTopLevelItem::Function { name: fn_name, .. } = child {
-                    let fn_str = display_ident(*fn_name, interner);
-                    trace_qualified_names.insert(*fn_name, format!("{mod_str}.{fn_str}"));
-                }
-            }
-        }
-    }
-
     let mut program = ProgramState::new(top_level, adt_metadata, interner);
     program.mutual_rec_groups = compute_mutual_rec_groups(core, interner);
     program.trace_qualified_names = trace_qualified_names;
+    program.module_members = module_members;
+    program.import_aliases = import_aliases;
 
     // Track which groups we've already generated trampolines for.
     let mut generated_trampolines: HashSet<String> = HashSet::new();

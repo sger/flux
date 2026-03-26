@@ -3,18 +3,19 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/day06_test.flx
 == compile ==
-failed (compile)
+failed (module)
 == diagnostics ==
-error[E004]: Undefined Variable
+error[E018]: Import Not Found
 
-I can't find a value named `map`.
+Cannot find module `Flow.Array` to import.
 
-  examples/aoc/2024/Day06Solver.flx:75:9
-   |
-75 |         map(lines, /line -> line_to_row(line, 0, [||]))
-   |         ^^^
+  examples/aoc/2024/Day06Solver.flx:1:1
+  |
+1 | import Flow.Array as Array
+  | ^
 
 Hint:
-  Define it first: let map = ...;
+  Check that: 1) The module file exists (e.g., `Flow.Array.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Flow.Array` under roots: examples/aoc/2024, src (imported from examples/aoc/2024/Day06Solver.flx).
 == stdout ==
 <not executed>
