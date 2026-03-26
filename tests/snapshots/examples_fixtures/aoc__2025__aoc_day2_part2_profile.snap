@@ -5,269 +5,104 @@ Fixture: examples/aoc/2025/aoc_day2_part2_profile.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E011]: Private Member
+error[E004]: Undefined Variable
 
-Cannot access private member `solve_parsed_ranges`.
+I can't find a value named `first`.
 
-  examples/aoc/2025/aoc_day2_part2_profile.flx:10:21
-   |
-10 |         let total = Day2.solve_parsed_ranges(parsed_ranges)
-   |                     ^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-
-error[E011]: Private Member
-
-Cannot access private member `parse_ranges`.
-
-  examples/aoc/2025/aoc_day2_part2_profile.flx:15:21
-   |
-15 | let parsed_ranges = Day2.parse_ranges("examples/io/aoc_day2.txt")
-   |                     ^^^^^^^^^^^^^^^^^
+  examples/aoc/2025/Day2Part2.flx:7:9
+  |
+7 |         first(parsed_range)
+  |         ^^^^^
 
 Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
+  Define it first: let first = ...;
 
 
-error[E413]: Top-Level Effect
+error[E004]: Undefined Variable
 
-Effectful operation is not allowed at top level (requires: Time).
+I can't find a value named `last`.
 
-  examples/aoc/2025/aoc_day2_part2_profile.flx:18:1
+  examples/aoc/2025/Day2Part2.flx:11:9
    |
-18 | let t0 = now_ms()
-   | ^^^^^^^^^^^^^^^^^
-   | ----------------- top-level effectful expression
+11 |         last(parsed_range)
+   |         ^^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
+  Define it first: let last = ...;
 
 
-error[E414]: Missing Main Function
+error[E004]: Undefined Variable
 
-Effectful program is missing `fn main` root effect handler.
+I can't find a value named `fold`.
 
-  examples/aoc/2025/aoc_day2_part2_profile.flx:18:1
+  examples/aoc/2025/Day2Part2.flx:68:16
    |
-18 | let t0 = now_ms()
-   | ^^^^^^^^^^^^^^^^^
-   | ----------------- effectful top-level execution
+68 |             |> fold(false, /(found, r) -> if found { true } else { id_in_range(id, r) })
+   |                ^^^^
 
 Hint:
-  Define `fn main() with ... { ... }` and move execution there.
+  Define it first: let fold = ...;
 
 
-error[E400]: Missing Effect
+error[E004]: Undefined Variable
 
-requires effect `Time` but the enclosing context does not provide it
+I can't find a value named `fold`.
 
-  examples/aoc/2025/aoc_day2_part2_profile.flx:18:10
+  examples/aoc/2025/Day2Part2.flx:98:16
    |
-18 | let t0 = now_ms()
-   |          ^^^^^^^^
-   |          -------- requires `Time`
+98 |             |> fold(0, /(acc, seed) ->
+   |                ^^^^
 
 Hint:
-  annotate the enclosing function with `with Time`
+  Define it first: let fold = ...;
 
 
-error[E413]: Top-Level Effect
+error[E004]: Undefined Variable
 
-Effectful operation is not allowed at top level (requires: Time).
+I can't find a value named `map`.
 
-  examples/aoc/2025/aoc_day2_part2_profile.flx:20:1
-   |
-20 | let t1 = now_ms()
-   | ^^^^^^^^^^^^^^^^^
-   | ----------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
-error[E400]: Missing Effect
-
-requires effect `Time` but the enclosing context does not provide it
-
-  examples/aoc/2025/aoc_day2_part2_profile.flx:20:10
-   |
-20 | let t1 = now_ms()
-   |          ^^^^^^^^
-   |          -------- requires `Time`
+  examples/aoc/2025/Day2Part2.flx:117:9
+    |
+117 |         [parse_range_token(t)
+    |         ^^^^^^^^^^^^^^^^^^^^^
+118 |             | t <- read_file(path)
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+119 |                 |> trim
+    | ^^^^^^^^^^^^^^^^^^^^^^^
+120 |                 |> split(","),
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+121 |               trim(t) != ""]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
-  annotate the enclosing function with `with Time`
+  Define it first: let map = ...;
 
 
-error[E413]: Top-Level Effect
+error[E004]: Undefined Variable
 
-Effectful operation is not allowed at top level (requires: IO).
+I can't find a value named `map`.
 
-  examples/aoc/2025/aoc_day2_part2_profile.flx:22:1
-   |
-22 | print("iterations:")
-   | ^^^^^^^^^^^^^^^^^^^^
-   | -------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
-error[E400]: Missing Effect
-
-requires effect `IO` but the enclosing context does not provide it
-
-  examples/aoc/2025/aoc_day2_part2_profile.flx:22:1
-   |
-22 | print("iterations:")
-   | ^^^^^^^^^^^^^^^^^^^^
-   | -------------------- requires `IO`
+  examples/aoc/2025/Day2Part2.flx:125:20
+    |
+125 |         let ends = [range_end(r) | r <- parsed_ranges]
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
-  annotate the enclosing function with `with IO`
+  Define it first: let map = ...;
 
 
-error[E413]: Top-Level Effect
+error[E004]: Undefined Variable
 
-Effectful operation is not allowed at top level (requires: IO).
+I can't find a value named `fold`.
 
-  examples/aoc/2025/aoc_day2_part2_profile.flx:23:1
-   |
-23 | print(iterations)
-   | ^^^^^^^^^^^^^^^^^
-   | ----------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
-error[E400]: Missing Effect
-
-requires effect `IO` but the enclosing context does not provide it
-
-  examples/aoc/2025/aoc_day2_part2_profile.flx:23:1
-   |
-23 | print(iterations)
-   | ^^^^^^^^^^^^^^^^^
-   | ----------------- requires `IO`
+  examples/aoc/2025/Day2Part2.flx:126:17
+    |
+126 |         ends |> fold(0, /(acc, x) -> if x > acc { x } else { acc })
+    |                 ^^^^
 
 Hint:
-  annotate the enclosing function with `with IO`
+  Define it first: let fold = ...;
 
-
-error[E413]: Top-Level Effect
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  examples/aoc/2025/aoc_day2_part2_profile.flx:24:1
-   |
-24 | print("checksum:")
-   | ^^^^^^^^^^^^^^^^^^
-   | ------------------ top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
-error[E400]: Missing Effect
-
-requires effect `IO` but the enclosing context does not provide it
-
-  examples/aoc/2025/aoc_day2_part2_profile.flx:24:1
-   |
-24 | print("checksum:")
-   | ^^^^^^^^^^^^^^^^^^
-   | ------------------ requires `IO`
-
-Hint:
-  annotate the enclosing function with `with IO`
-
-
-error[E413]: Top-Level Effect
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  examples/aoc/2025/aoc_day2_part2_profile.flx:25:1
-   |
-25 | print(checksum)
-   | ^^^^^^^^^^^^^^^
-   | --------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
-error[E400]: Missing Effect
-
-requires effect `IO` but the enclosing context does not provide it
-
-  examples/aoc/2025/aoc_day2_part2_profile.flx:25:1
-   |
-25 | print(checksum)
-   | ^^^^^^^^^^^^^^^
-   | --------------- requires `IO`
-
-Hint:
-  annotate the enclosing function with `with IO`
-
-
-error[E413]: Top-Level Effect
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  examples/aoc/2025/aoc_day2_part2_profile.flx:26:1
-   |
-26 | print("elapsed_ms:")
-   | ^^^^^^^^^^^^^^^^^^^^
-   | -------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
-error[E400]: Missing Effect
-
-requires effect `IO` but the enclosing context does not provide it
-
-  examples/aoc/2025/aoc_day2_part2_profile.flx:26:1
-   |
-26 | print("elapsed_ms:")
-   | ^^^^^^^^^^^^^^^^^^^^
-   | -------------------- requires `IO`
-
-Hint:
-  annotate the enclosing function with `with IO`
-
-
-error[E413]: Top-Level Effect
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  examples/aoc/2025/aoc_day2_part2_profile.flx:27:1
-   |
-27 | print(t1 - t0)
-   | ^^^^^^^^^^^^^^
-   | -------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
-error[E400]: Missing Effect
-
-requires effect `IO` but the enclosing context does not provide it
-
-  examples/aoc/2025/aoc_day2_part2_profile.flx:27:1
-   |
-27 | print(t1 - t0)
-   | ^^^^^^^^^^^^^^
-   | -------------- requires `IO`
-
-Hint:
-  annotate the enclosing function with `with IO`
-
-Found 19 errors.
+Found 7 errors.
 == stdout ==
 <not executed>

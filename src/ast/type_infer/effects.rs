@@ -52,34 +52,31 @@ impl<'a> InferCtx<'a> {
             .unwrap_or_else(|_| InferEffectRow::closed_empty())
     }
 
-    /// Emit diagnostic `E426` when a referenced Base function has no HM metadata.
+    /// Emit diagnostic `E426` when a referenced Flow function has no HM metadata.
     ///
-    /// This is raised when inference needs a Base function scheme but cannot
-    /// obtain one from the preloaded Base signature registry. The diagnostic
+    /// This is raised when inference needs a Flow function scheme but cannot
+    /// obtain one from the preloaded Flow signature registry. The diagnostic
     /// points at the use site (`span`) and includes a fix hint directing
-    /// contributors to the Base HM signature definitions.
+    /// contributors to the Flow HM signature definitions.
     ///
     /// Parameters:
-    /// - `base_name`: interned symbol of the missing Base function.
+    /// - `flow_name`: interned symbol of the missing Flow function.
     /// - `span`: source location where the missing metadata was required.
-    pub(super) fn emit_missing_base_hm_signature(&mut self, base_name: Identifier, span: Span) {
+    pub(super) fn emit_missing_flow_hm_signature(&mut self, flow_name: Identifier, span: Span) {
         self.errors.push(
             Diagnostic::make_error_dynamic(
                 "E426",
-                "BASE HM SIGNATURE MISSING",
+                "FLOW HM SIGNATURE MISSING",
                 crate::diagnostics::ErrorType::Compiler,
                 format!(
-                    "Base function `{}` is missing HM metadata and cannot be typed.",
-                    self.interner.resolve(base_name)
+                    "Flow function `{}` is missing HM metadata and cannot be typed.",
+                    self.interner.resolve(flow_name)
                 ),
-                Some(
-                    "Add an HM signature for this Base function in src/runtime/base/base_hm_signature.rs."
-                        .to_string(),
-                ),
+                Some("Add an HM signature for this Flow function in the Flow library.".to_string()),
                 self.file_path.clone(),
                 span,
             )
-            .with_primary_label(span, "missing Base HM metadata"),
+            .with_primary_label(span, "missing Flow HM metadata"),
         );
     }
 

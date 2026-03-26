@@ -17,9 +17,6 @@ I can't find a value named `greet`.
 Hint:
   Define it first: let greet = ...;
 
-Help:
-  Did you mean one of: `get`, `rest`?
-
 
 error[E004]: Undefined Variable
 

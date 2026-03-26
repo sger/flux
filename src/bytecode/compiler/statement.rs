@@ -610,10 +610,20 @@ impl Compiler {
     fn expr_has_undefined_ident(&mut self, expr: &Expression, locals: &[Symbol]) -> bool {
         match expr {
             Expression::Identifier { name, .. } => {
-                // Check: local binding, symbol table, or base function
-                !locals.contains(name)
-                    && self.symbol_table.resolve(*name).is_none()
-                    && crate::runtime::base::get_base_function_index(self.sym(*name)).is_none()
+                // Check: local binding, symbol table, exposed bindings,
+                // known primop name (any arity), or variadic builtins.
+                if locals.contains(name) || self.exposed_bindings.contains_key(name) {
+                    return false;
+                }
+                if self.symbol_table.resolve(*name).is_some() {
+                    return false;
+                }
+                let name_str = self.sym(*name).to_string();
+                name_str != "list"
+                    && crate::primop::resolve_primop_call(&name_str, 0).is_none()
+                    && crate::primop::resolve_primop_call(&name_str, 1).is_none()
+                    && crate::primop::resolve_primop_call(&name_str, 2).is_none()
+                    && crate::primop::resolve_primop_call(&name_str, 3).is_none()
             }
             Expression::If {
                 condition,
@@ -831,7 +841,6 @@ impl Compiler {
                     // Check for duplicate in current scope FIRST (takes precedence)
                     if let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
-                        && existing.symbol_scope != SymbolScope::Base
                     {
                         let name_str = self.sym(name);
                         return Err(Self::boxed(self.make_redeclaration_error(
@@ -999,7 +1008,6 @@ impl Compiler {
                     if self.scope_index > 0
                         && let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
-                        && existing.symbol_scope != SymbolScope::Base
                         && existing.symbol_scope != SymbolScope::Function
                     {
                         let name_str = self.sym(name);
@@ -1075,6 +1083,7 @@ impl Compiler {
                     name,
                     alias,
                     except,
+                    exposing,
                     span,
                 } => {
                     let name = *name;
@@ -1087,7 +1096,7 @@ impl Compiler {
                             *span,
                         )));
                     }
-                    if self.is_base_module_symbol(name) {
+                    if self.is_flow_module_symbol(name) {
                         self.compile_import_statement(name, *alias, except)?;
                         return Ok(());
                     }
@@ -1106,6 +1115,9 @@ impl Compiler {
                     // Reserve the name for this file so later declarations can't collide.
                     self.file_scope_symbols.insert(binding_name);
                     self.compile_import_statement(name, *alias, except)?;
+
+                    // Register exposed bindings for unqualified access.
+                    self.register_exposed_bindings(name, exposing, *span)?;
                 }
                 Statement::Data { name, variants, .. } => {
                     self.compile_data_statement(*name, variants)?;
@@ -1565,7 +1577,7 @@ impl Compiler {
         alias: Option<Symbol>,
         except: &[Symbol],
     ) -> CompileResult<()> {
-        if self.is_base_module_symbol(name) {
+        if self.is_flow_module_symbol(name) {
             return Ok(());
         }
 
@@ -1584,7 +1596,105 @@ impl Compiler {
         Ok(())
     }
 
+    /// Register exposed bindings so module members can be used unqualified.
+    ///
+    /// For `exposing (..)`, all public members of the module are registered.
+    /// For `exposing (a, b)`, only the named members are registered.
+    pub(super) fn register_exposed_bindings(
+        &mut self,
+        module_name: Symbol,
+        exposing: &crate::syntax::statement::ImportExposing,
+        span: Span,
+    ) -> CompileResult<()> {
+        use crate::syntax::statement::ImportExposing;
+
+        match exposing {
+            ImportExposing::None => {}
+            ImportExposing::All => {
+                // Expose all public members of the module.
+                let public_members: Vec<Symbol> = self
+                    .module_function_visibility
+                    .iter()
+                    .filter(|((mod_name, _), is_public)| *mod_name == module_name && **is_public)
+                    .map(|((_, member), _)| *member)
+                    .collect();
+                for member in public_members {
+                    let qualified = self.interner.intern_join(module_name, member);
+                    self.exposed_bindings.insert(member, qualified);
+                }
+            }
+            ImportExposing::Names(names) => {
+                for &member in names {
+                    // Validate the member exists and is public.
+                    let is_public = self
+                        .module_function_visibility
+                        .get(&(module_name, member))
+                        .copied();
+                    match is_public {
+                        Some(true) => {
+                            let qualified = self.interner.intern_join(module_name, member);
+                            self.exposed_bindings.insert(member, qualified);
+                        }
+                        Some(false) => {
+                            let member_str = self.sym(member).to_string();
+                            let module_str = self.sym(module_name).to_string();
+                            return Err(Self::boxed(Diagnostic::make_error_dynamic(
+                                "E420",
+                                "Private Member in Exposing",
+                                ErrorType::Compiler,
+                                format!(
+                                    "Cannot expose `{}` because it is not a public member of `{}`.",
+                                    member_str, module_str
+                                ),
+                                Some(
+                                    "Mark the function as `public fn` in the module to expose it."
+                                        .to_string(),
+                                ),
+                                self.file_path.clone(),
+                                span,
+                            )));
+                        }
+                        None => {
+                            let member_str = self.sym(member).to_string();
+                            let module_str = self.sym(module_name).to_string();
+                            return Err(Self::boxed(Diagnostic::make_error_dynamic(
+                                "E421",
+                                "Unknown Member in Exposing",
+                                ErrorType::Compiler,
+                                format!(
+                                    "`{}` is not defined in module `{}`.",
+                                    member_str, module_str
+                                ),
+                                Some(format!(
+                                    "Check the public members of `{}` or remove `{}` from the exposing list.",
+                                    module_str, member_str
+                                )),
+                                self.file_path.clone(),
+                                span,
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn compile_block(&mut self, block: &Block) -> CompileResult<()> {
+        // If we already have consumable counts from a parent scope (e.g.,
+        // function body), don't override them with branch-local counts.
+        // Branch blocks (if/else, match arms) must use the parent's counts
+        // to avoid incorrectly consuming variables that are still needed
+        // after the branch.
+        if self.current_consumable_local_use_counts().is_some() {
+            for statement in &block.statements {
+                if let Some(err) = self.compile_statement_collect_error(statement) {
+                    return Err(err);
+                }
+            }
+            return Ok(());
+        }
+
         let mut consumable_counts = HashMap::new();
         for statement in &block.statements {
             self.collect_consumable_param_uses_statement(statement, &mut consumable_counts);

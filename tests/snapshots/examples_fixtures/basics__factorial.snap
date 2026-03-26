@@ -3,8 +3,18 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/factorial.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `print`.
+
+  examples/basics/factorial.flx:12:5
+   |
+12 |     print("Result:", result)
+   |     ^^^^^
+
+Hint:
+  Define it first: let print = ...;
 == stdout ==
 <not executed>

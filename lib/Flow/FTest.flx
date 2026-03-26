@@ -59,10 +59,20 @@ module Flow.FTest {
 
     // Run a list of cases with a test function
     public fn for_each(cases, test_fn) {
-        let results = map(cases, \c -> try(\() -> test_fn(c)))
-        let failures = filter(results, \r -> r.0 == "error")
-        let n = len(failures)
-        assert_msg(n == 0, to_string(n) + " case(s) failed in for_each")
+        fn run_case(test_fn, c, fail_count) {
+            if try(\() -> test_fn(c)).0 == "error" { fail_count + 1 } else { fail_count }
+        }
+        fn for_each_go(arr, i, fail_count) {
+            if i >= len(arr) { fail_count }
+            else {
+                match arr[i] {
+                    Some(c) -> for_each_go(arr, i + 1, run_case(test_fn, c, fail_count)),
+                    _ -> for_each_go(arr, i + 1, fail_count)
+                }
+            }
+        }
+        fn for_each_n() { for_each_go(cases, 0, 0) }
+        assert_msg(for_each_n() == 0, to_string(for_each_n()) + " case(s) failed in for_each")
     }
 
     // Build fixture once and pass it to the provided test function

@@ -3,8 +3,111 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day2_part1.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
+
+  examples/aoc/2025/aoc_day2_part1.flx:10:9
+   |
+10 |         first(parsed_range)
+   |         ^^^^^
+
+Hint:
+  Define it first: let first = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `last`.
+
+  examples/aoc/2025/aoc_day2_part1.flx:14:9
+   |
+14 |         last(parsed_range)
+   |         ^^^^
+
+Hint:
+  Define it first: let last = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `filter`.
+
+  examples/aoc/2025/aoc_day2_part1.flx:53:4
+   |
+53 | |> filter(/t -> trim(t) != "")
+   |    ^^^^^^
+
+Hint:
+  Define it first: let filter = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day2_part1.flx:55:21
+   |
+55 | let parsed_ranges = [parse_range_token(t) | t <- range_tokens]
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day2_part1.flx:59:4
+   |
+59 | |> fold(0, /(acc, x) -> if x > acc { x } else { acc })
+   |    ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day2_part1.flx:61:26
+   |
+61 | let invalid_candidates = [invalid_from_seed(seed) | seed <- range(1, seed_limit_for_max_id(max_end))]
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day2_part1.flx:65:4
+   |
+65 | |> fold(false, /(found, r) -> if found { true } else { id_in_range(id, r) })
+   |    ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `sum`.
+
+  examples/aoc/2025/aoc_day2_part1.flx:67:66
+   |
+67 | let total = [id | id <- invalid_candidates, in_any_range(id)] |> sum
+   |                                                                  ^^^
+
+Hint:
+  Define it first: let sum = ...;
+
+Found 8 errors.
 == stdout ==
 <not executed>

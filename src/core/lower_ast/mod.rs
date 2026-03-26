@@ -83,6 +83,26 @@ impl<'a> AstLowerer<'a> {
         CoreBinder::new(id, name)
     }
 
+    /// Create a binder with a known runtime representation from HM type info.
+    pub(super) fn bind_name_with_expr_type(
+        &mut self,
+        name: crate::syntax::Identifier,
+        expr_id: ExprId,
+    ) -> CoreBinder {
+        let id = super::CoreBinderId(self.next_binder_id);
+        self.next_binder_id += 1;
+        let rep = self.rep_for_expr(expr_id);
+        CoreBinder::with_rep(id, name, rep)
+    }
+
+    /// Get the `FluxRep` for an expression from HM type info.
+    pub(super) fn rep_for_expr(&self, id: ExprId) -> super::FluxRep {
+        self.hm_expr_types
+            .get(&id)
+            .map(super::FluxRep::from_infer_type)
+            .unwrap_or(super::FluxRep::TaggedRep)
+    }
+
     pub(super) fn fresh_binder(&mut self, name: crate::syntax::Identifier) -> CoreBinder {
         self.bind_name(name)
     }
@@ -167,8 +187,8 @@ impl<'a> AstLowerer<'a> {
                 name, value, span, ..
             } => {
                 let result_ty = self.infer_core_type(value.expr_id());
-                let mut def =
-                    CoreDef::new(self.bind_name(*name), self.lower_expr(value), false, *span);
+                let binder = self.bind_name_with_expr_type(*name, value.expr_id());
+                let mut def = CoreDef::new(binder, self.lower_expr(value), false, *span);
                 def.result_ty = result_ty;
                 out.push(def);
             }
@@ -176,8 +196,8 @@ impl<'a> AstLowerer<'a> {
             // Assignment (mutable rebind) → treat as a new CoreDef.
             Statement::Assign { name, value, span } => {
                 let result_ty = self.infer_core_type(value.expr_id());
-                let mut def =
-                    CoreDef::new(self.bind_name(*name), self.lower_expr(value), false, *span);
+                let binder = self.bind_name_with_expr_type(*name, value.expr_id());
+                let mut def = CoreDef::new(binder, self.lower_expr(value), false, *span);
                 def.result_ty = result_ty;
                 out.push(def);
             }
@@ -296,11 +316,13 @@ impl<'a> AstLowerer<'a> {
                 name,
                 alias,
                 except,
+                exposing,
                 span,
             } => Some(CoreTopLevelItem::Import {
                 name: *name,
                 alias: *alias,
                 except: except.clone(),
+                exposing: exposing.clone(),
                 span: *span,
             }),
             Statement::Data {
@@ -383,7 +405,7 @@ impl<'a> AstLowerer<'a> {
                 span: s,
                 ..
             } => CoreExpr::Let {
-                var: self.bind_name(*name),
+                var: self.bind_name_with_expr_type(*name, value.expr_id()),
                 rhs: Box::new(self.lower_expr(value)),
                 body: Box::new(tail),
                 span: *s,
@@ -420,7 +442,7 @@ impl<'a> AstLowerer<'a> {
                 value,
                 span: s,
             } => CoreExpr::Let {
-                var: self.bind_name(*name),
+                var: self.bind_name_with_expr_type(*name, value.expr_id()),
                 rhs: Box::new(self.lower_expr(value)),
                 body: Box::new(tail),
                 span: *s,
@@ -572,7 +594,7 @@ mod tests {
         let mut parser = Parser::new(Lexer::new(src));
         let program = parser.parse_program();
         let mut interner = parser.take_interner();
-        let base_sym = interner.intern("base");
+        let flow_sym = interner.intern("Flow");
         let hm = infer_program(
             &program,
             &interner,
@@ -580,8 +602,8 @@ mod tests {
                 file_path: None,
                 preloaded_base_schemes: HashMap::new(),
                 preloaded_module_member_schemes: HashMap::new(),
-                known_base_names: std::collections::HashSet::new(),
-                base_module_symbol: base_sym,
+                known_flow_names: std::collections::HashSet::new(),
+                flow_module_symbol: flow_sym,
                 preloaded_effect_op_signatures: HashMap::new(),
             },
         );

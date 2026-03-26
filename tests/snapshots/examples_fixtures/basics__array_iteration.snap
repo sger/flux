@@ -3,8 +3,59 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/array_iteration.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
+
+  examples/basics/array_iteration.flx:5:11
+  |
+5 |     print(first(arr))
+  |           ^^^^^
+
+Hint:
+  Define it first: let first = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `rest`.
+
+  examples/basics/array_iteration.flx:6:14
+  |
+6 |     printAll(rest(arr))
+  |              ^^^^
+
+Hint:
+  Define it first: let rest = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
+
+  examples/basics/array_iteration.flx:14:5
+   |
+14 |     first(arr) + mySum(rest(arr))
+   |     ^^^^^
+
+Hint:
+  Define it first: let first = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `rest`.
+
+  examples/basics/array_iteration.flx:22:20
+   |
+22 |     1 + countItems(rest(arr))
+   |                    ^^^^
+
+Hint:
+  Define it first: let rest = ...;
+
+Found 4 errors.
 == stdout ==
 <not executed>

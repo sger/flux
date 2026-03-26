@@ -4,6 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/recovery/type_annotation_recovery.flx
 exit_code: 1
 
+• 3 errors • tests/fixtures/recovery/type_annotation_recovery.flx
 error[E034]: Unexpected Token
 
 I was expecting a type here, but I found `=`.

@@ -16,8 +16,5 @@ I can't find a value named `prnit`.
 
 Hint:
   Define it first: let prnit = ...;
-
-Help:
-  Did you mean `print`?
 == stdout ==
 <not executed>

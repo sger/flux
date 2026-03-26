@@ -401,6 +401,65 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         CorePrimOp::Neg => false,
         // Access ops — may fail (out of bounds, missing key)
         CorePrimOp::Index | CorePrimOp::MemberAccess(_) | CorePrimOp::TupleField(_) => false,
+        // Promoted primops — most are impure (I/O, side effects) or may fail.
+        // Pure type-inspection primops could be true, but conservatively false.
+        CorePrimOp::Print
+        | CorePrimOp::Println
+        | CorePrimOp::ReadFile
+        | CorePrimOp::WriteFile
+        | CorePrimOp::ReadStdin
+        | CorePrimOp::StringLength
+        | CorePrimOp::StringConcat
+        | CorePrimOp::StringSlice
+        | CorePrimOp::ToString
+        | CorePrimOp::Split
+        | CorePrimOp::Join
+        | CorePrimOp::Trim
+        | CorePrimOp::Upper
+        | CorePrimOp::Lower
+        | CorePrimOp::StartsWith
+        | CorePrimOp::EndsWith
+        | CorePrimOp::Replace
+        | CorePrimOp::Substring
+        | CorePrimOp::Chars
+        | CorePrimOp::StrContains
+        | CorePrimOp::ArrayLen
+        | CorePrimOp::ArrayGet
+        | CorePrimOp::ArraySet
+        | CorePrimOp::ArrayPush
+        | CorePrimOp::ArrayConcat
+        | CorePrimOp::ArraySlice
+        | CorePrimOp::ArraySort
+        | CorePrimOp::HamtGet
+        | CorePrimOp::HamtSet
+        | CorePrimOp::HamtDelete
+        | CorePrimOp::HamtKeys
+        | CorePrimOp::HamtValues
+        | CorePrimOp::HamtMerge
+        | CorePrimOp::HamtSize
+        | CorePrimOp::HamtContains
+        | CorePrimOp::TypeOf
+        | CorePrimOp::IsInt
+        | CorePrimOp::IsFloat
+        | CorePrimOp::IsString
+        | CorePrimOp::IsBool
+        | CorePrimOp::IsArray
+        | CorePrimOp::IsNone
+        | CorePrimOp::IsSome
+        | CorePrimOp::IsList
+        | CorePrimOp::IsMap
+        | CorePrimOp::Panic
+        | CorePrimOp::ClockNow
+        | CorePrimOp::ParseInt
+        | CorePrimOp::Hd
+        | CorePrimOp::Tl
+        | CorePrimOp::ToList
+        | CorePrimOp::ToArray
+        | CorePrimOp::Len
+        | CorePrimOp::CmpEq
+        | CorePrimOp::CmpNe
+        | CorePrimOp::Try
+        | CorePrimOp::AssertThrows => false,
     }
 }
 

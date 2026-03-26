@@ -34,7 +34,7 @@ pub const BASE_FUNCTION_ERROR: ErrorCode = ErrorCode {
     code: "E1003",
     title: "BASE FUNCTION ERROR",
     error_type: ErrorType::Runtime,
-    message: "Error in Base function `{}`: {}.",
+    message: "Error in Flow function `{}`: {}.",
     hint: None,
 };
 

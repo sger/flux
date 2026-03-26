@@ -1,0 +1,5 @@
+import ExposingTarget exposing (nonexistent)
+
+fn main() with IO {
+    print(nonexistent())
+}

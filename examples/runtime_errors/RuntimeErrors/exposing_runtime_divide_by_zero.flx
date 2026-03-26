@@ -1,0 +1,5 @@
+import ExposingRuntimeTarget exposing (boom)
+
+fn main() with IO {
+    print(boom(42))
+}

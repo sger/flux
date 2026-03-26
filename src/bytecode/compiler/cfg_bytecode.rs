@@ -116,7 +116,10 @@ impl Compiler {
                 IrInstr::Call { target, .. } => {
                     matches!(
                         target,
-                        IrCallTarget::Named(_) | IrCallTarget::Direct(_) | IrCallTarget::Var(_)
+                        IrCallTarget::Named(_)
+                            | IrCallTarget::Direct(_)
+                            | IrCallTarget::Var(_)
+                            | IrCallTarget::Builtin(_)
                     )
                 }
                 IrInstr::HandleScope { .. } => true,
@@ -914,14 +917,9 @@ impl Compiler {
                 Ok(())
             }
             IrExpr::LoadName(name) => {
-                // Try to resolve as a known symbol (global, base function, or ADT constructor)
+                // Try to resolve as a known symbol (global or ADT constructor)
                 if let Some(binding) = self.symbol_table.resolve(*name) {
                     self.load_symbol(&binding);
-                    Ok(())
-                } else if let Some(idx) =
-                    crate::runtime::base::get_base_function_index(self.sym(*name))
-                {
-                    self.emit(OpCode::OpGetBase, &[idx]);
                     Ok(())
                 } else {
                     Err(Self::boxed(Diagnostic::warning(
@@ -1018,55 +1016,52 @@ impl Compiler {
                 Ok(())
             }
             IrTerminator::TailCall { callee, args, .. } => {
-                // Effect checking for named tail calls.
-                if let IrCallTarget::Named(name) = callee {
-                    let name_str = this.sym(*name);
-                    if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
-                        let required = match primop.effect_kind() {
-                            crate::primop::PrimEffect::Io => Some("IO"),
-                            crate::primop::PrimEffect::Time => Some("Time"),
-                            _ => None,
-                        };
-                        if let Some(required_name) = required
-                            && !this.is_effect_available_name(required_name)
-                        {
-                            return Err(Self::boxed(
-                                Diagnostic::make_error_dynamic(
-                                    "E400",
-                                    "MISSING EFFECT",
-                                    crate::diagnostics::ErrorType::Compiler,
-                                    format!(
-                                        "Call to `{}` requires effect `{}` in this function signature.",
-                                        name_str, required_name
-                                    ),
-                                    Some(format!(
-                                        "Add `with {}` to the enclosing function.",
-                                        required_name
-                                    )),
-                                    this.file_path.clone(),
-                                    crate::diagnostics::position::Span::default(),
-                                )
-                                .with_display_title("Missing Ambient Effect"),
-                            ));
-                        }
-                    }
-                }
+                // Resolve the function name for named or builtin targets.
+                let callee_name_str: Option<String> = match callee {
+                    IrCallTarget::Named(name) => Some(this.sym(*name).to_string()),
+                    IrCallTarget::Builtin(name) => Some(name.to_string()),
+                    _ => None,
+                };
 
-                // Try PrimOp emission for named tail calls.
-                if let IrCallTarget::Named(name) = callee {
-                    let name_str = this.sym(*name);
-                    if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
-                        for arg in args {
-                            this.load_symbol(bindings.get(arg).ok_or_else(|| {
-                                Self::boxed(Diagnostic::warning(
-                                    "missing CFG tail-call arg binding",
-                                ))
-                            })?);
-                        }
-                        this.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
-                        this.emit(OpCode::OpReturnValue, &[]);
-                        return Ok(());
+                // Effect checking and PrimOp emission for named tail calls.
+                if let Some(ref name_str) = callee_name_str
+                    && let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len())
+                {
+                    let required = match primop.effect_kind() {
+                        crate::primop::PrimEffect::Io => Some("IO"),
+                        crate::primop::PrimEffect::Time => Some("Time"),
+                        _ => None,
+                    };
+                    if let Some(required_name) = required
+                        && !this.is_effect_available_name(required_name)
+                    {
+                        return Err(Self::boxed(
+                            Diagnostic::make_error_dynamic(
+                                "E400",
+                                "MISSING EFFECT",
+                                crate::diagnostics::ErrorType::Compiler,
+                                format!(
+                                    "Call to `{}` requires effect `{}` in this function signature.",
+                                    name_str, required_name
+                                ),
+                                Some(format!(
+                                    "Add `with {}` to the enclosing function.",
+                                    required_name
+                                )),
+                                this.file_path.clone(),
+                                crate::diagnostics::position::Span::default(),
+                            )
+                            .with_display_title("Missing Ambient Effect"),
+                        ));
                     }
+                    for arg in args {
+                        this.load_symbol(bindings.get(arg).ok_or_else(|| {
+                            Self::boxed(Diagnostic::warning("missing CFG tail-call arg binding"))
+                        })?);
+                    }
+                    this.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
+                    this.emit(OpCode::OpReturnValue, &[]);
+                    return Ok(());
                 }
 
                 let is_self = matches!(callee, IrCallTarget::Named(name) if *name == current_name);
@@ -1076,6 +1071,17 @@ impl Compiler {
                             let symbol = this.symbol_table.resolve(*name).ok_or_else(|| {
                                 Self::boxed(Diagnostic::warning(
                                     "missing CFG bytecode tail-call target binding",
+                                ))
+                            })?;
+                            this.load_symbol(&symbol);
+                        }
+                        IrCallTarget::Builtin(name) => {
+                            // Builtin targets are resolved by the builtin function
+                            // registry — intern the name and look up the symbol.
+                            let sym = this.interner.intern(name);
+                            let symbol = this.symbol_table.resolve(sym).ok_or_else(|| {
+                                Self::boxed(Diagnostic::warning(
+                                    "missing CFG bytecode builtin tail-call target binding",
                                 ))
                             })?;
                             this.load_symbol(&symbol);
@@ -1133,54 +1139,53 @@ impl Compiler {
         bindings: &HashMap<IrVar, crate::bytecode::binding::Binding>,
         current_name: Symbol,
     ) -> CompileResult<()> {
-        // Effect checking for named calls: verify that effectful base
-        // functions (e.g. print, read_file) have the required effect
-        // available in the surrounding scope.
-        if let IrCallTarget::Named(name) = target {
-            let name_str = self.sym(*name);
-            if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
-                let required = match primop.effect_kind() {
-                    crate::primop::PrimEffect::Io => Some("IO"),
-                    crate::primop::PrimEffect::Time => Some("Time"),
-                    _ => None,
-                };
-                if let Some(required_name) = required
-                    && !self.is_effect_available_name(required_name)
-                {
-                    return Err(Self::boxed(
-                        Diagnostic::make_error_dynamic(
-                            "E400",
-                            "MISSING EFFECT",
-                            crate::diagnostics::ErrorType::Compiler,
-                            format!(
-                                "Call to `{}` requires effect `{}` in this function signature.",
-                                name_str, required_name
-                            ),
-                            Some(format!(
-                                "Add `with {}` to the enclosing function.",
-                                required_name
-                            )),
-                            self.file_path.clone(),
-                            crate::diagnostics::position::Span::default(),
-                        )
-                        .with_display_title("Missing Ambient Effect"),
-                    ));
-                }
-            }
-        }
+        // Resolve the function name for named or builtin targets.
+        let target_name_str: Option<String> = match target {
+            IrCallTarget::Named(name) => Some(self.sym(*name).to_string()),
+            IrCallTarget::Builtin(name) => Some(name.to_string()),
+            _ => None,
+        };
 
-        // Try PrimOp emission for named base function calls.
-        if let IrCallTarget::Named(name) = target {
-            let name_str = self.sym(*name);
-            if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
-                for arg in args {
-                    self.load_symbol(bindings.get(arg).ok_or_else(|| {
-                        Self::boxed(Diagnostic::warning("missing CFG call arg binding"))
-                    })?);
-                }
-                self.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
-                return Ok(());
+        // Effect checking and PrimOp emission for named calls: verify that
+        // effectful base functions (e.g. print, read_file) have the required
+        // effect available in the surrounding scope.
+        if let Some(ref name_str) = target_name_str
+            && let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len())
+        {
+            let required = match primop.effect_kind() {
+                crate::primop::PrimEffect::Io => Some("IO"),
+                crate::primop::PrimEffect::Time => Some("Time"),
+                _ => None,
+            };
+            if let Some(required_name) = required
+                && !self.is_effect_available_name(required_name)
+            {
+                return Err(Self::boxed(
+                    Diagnostic::make_error_dynamic(
+                        "E400",
+                        "MISSING EFFECT",
+                        crate::diagnostics::ErrorType::Compiler,
+                        format!(
+                            "Call to `{}` requires effect `{}` in this function signature.",
+                            name_str, required_name
+                        ),
+                        Some(format!(
+                            "Add `with {}` to the enclosing function.",
+                            required_name
+                        )),
+                        self.file_path.clone(),
+                        crate::diagnostics::position::Span::default(),
+                    )
+                    .with_display_title("Missing Ambient Effect"),
+                ));
             }
+            for arg in args {
+                self.load_symbol(bindings.get(arg).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG call arg binding"))
+                })?);
+            }
+            self.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
+            return Ok(());
         }
 
         let is_self = matches!(target, IrCallTarget::Named(name) if *name == current_name);
@@ -1190,6 +1195,15 @@ impl Compiler {
                     let symbol = self.symbol_table.resolve(*name).ok_or_else(|| {
                         Self::boxed(Diagnostic::warning(
                             "missing CFG bytecode call target binding",
+                        ))
+                    })?;
+                    self.load_symbol(&symbol);
+                }
+                IrCallTarget::Builtin(name) => {
+                    let sym = self.interner.intern(name);
+                    let symbol = self.symbol_table.resolve(sym).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode builtin call target binding",
                         ))
                     })?;
                     self.load_symbol(&symbol);
