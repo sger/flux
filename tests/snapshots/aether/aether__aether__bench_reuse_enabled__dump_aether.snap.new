@@ -1,0 +1,39 @@
+---
+source: tests/aether_cli_snapshots.rs
+assertion_line: 114
+---
+Warning: FBIP Contract Not Proven
+
+@fip on `map_enabled` analysis result NotProvable:
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+- control-flow join loses a precise allocation bound across paths
+
+  examples/aether/bench_reuse_enabled.flx:17:6
+   |
+17 | @fip fn map_enabled(xs, f) {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^
+18 |     match xs {
+   | ^^^^^^^^^^^^^^
+19 |         [h | t] -> [f(h) | map_enabled(t, f)],
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+20 |         _ -> [],
+   | ^^^^^^^^^^^^^^^^
+21 |     }
+   | ^^^^^
+22 | }
+   | ^
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `unwrap`.
+
+  examples/aether/bench_reuse_enabled.flx:37:37
+   |
+37 |     print("enabled: result head = #{unwrap(first(mapped))}")
+   |                                     ^^^^^^
+
+Hint:
+  Define it first: let unwrap = ...;
+
+Found 1 error and 1 warning.

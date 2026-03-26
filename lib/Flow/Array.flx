@@ -202,18 +202,38 @@ module Flow.Array {
         range_go(start, [||])
     }
 
+    public fn sort(arr) {
+        sort_by(arr, \v -> v)
+    }
+
     public fn sort_by(arr, f) {
+        fn insert_tagged(sorted, pair, idx) {
+            if idx >= len(sorted) {
+                push(sorted, pair)
+            } else {
+                match sorted[idx] {
+                    Some(current) -> if pair.0 <= current.0 {
+                        let left = slice(sorted, 0, idx)
+                        let right = slice(sorted, idx, len(sorted))
+                        concat(concat(left, [|pair|]), right)
+                    } else {
+                        insert_tagged(sorted, pair, idx + 1)
+                    },
+                    _ -> push(sorted, pair)
+                }
+            }
+        }
+
         fn sort_by_go(idx, pairs) {
             if idx >= len(arr) { pairs }
             else {
                 match arr[idx] {
-                    Some(v) -> sort_by_go(idx + 1, push(pairs, (f(v), v))),
+                    Some(v) -> sort_by_go(idx + 1, insert_tagged(pairs, (f(v), v), 0)),
                     _ -> sort_by_go(idx + 1, pairs)
                 }
             }
         }
-        let tagged = sort(sort_by_go(0, [||]))
-        map(tagged, \p -> p.1)
+        map(sort_by_go(0, [||]), \p -> p.1)
     }
 
 }

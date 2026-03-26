@@ -28,6 +28,20 @@ module Flow.List {
         }
     }
 
+    public fn foldr(xs, acc, f) {
+        match xs {
+            [h | t] -> f(h, foldr(t, acc, f)),
+            _ -> acc
+        }
+    }
+
+    public fn fold1(xs, f) {
+        match xs {
+            [h | t] -> fold(t, h, f),
+            _ -> panic("fold1 called on empty list")
+        }
+    }
+
     public fn flat_map(xs, f) {
         match xs {
             [h | t] -> append(f(h), flat_map(t, f)),
@@ -40,6 +54,10 @@ module Flow.List {
             [h | t] -> append(h, flatten(t)),
             _ -> []
         }
+    }
+
+    public fn concat(xss) {
+        flatten(xss)
     }
 
     public fn any(xs, pred) {
@@ -83,48 +101,82 @@ module Flow.List {
         }
     }
 
-    public fn sort_by(xs, f) {
-        fn list_len(ys) {
-            match ys {
-                [h | t] -> 1 + list_len(t),
-                _ -> 0
-            }
-        }
-        fn take(ys, n) {
-            if n <= 0 { [] }
-            else {
-                match ys {
-                    [h | t] -> [h | take(t, n - 1)],
-                    _ -> []
-                }
-            }
-        }
-        fn drop_n(ys, n) {
-            if n <= 0 { ys }
-            else {
-                match ys {
-                    [h | t] -> drop_n(t, n - 1),
-                    _ -> []
-                }
-            }
-        }
-        fn merge_by(left, right) {
-            match left {
-                [a | at] -> match right {
-                    [b | bt] -> if f(a) <= f(b) { [a | merge_by(at, right)] } else { [b | merge_by(left, bt)] },
-                    _ -> left
-                },
-                _ -> right
-            }
-        }
-        if list_len(xs) <= 1 { xs }
+    public fn take(xs, n) {
+        if n <= 0 { [] }
         else {
-            fn sort_split(ys) {
-                let mid = list_len(ys) / 2
-                merge_by(sort_by(take(ys, mid), f), sort_by(drop_n(ys, mid), f))
+            match xs {
+                [h | t] -> [h | take(t, n - 1)],
+                _ -> []
             }
-            sort_split(xs)
         }
+    }
+
+    public fn drop(xs, n) {
+        if n <= 0 { xs }
+        else {
+            match xs {
+                [h | t] -> drop(t, n - 1),
+                _ -> []
+            }
+        }
+    }
+
+    public fn take_while(xs, pred) {
+        match xs {
+            [h | t] -> if pred(h) { [h | take_while(t, pred)] } else { [] },
+            _ -> []
+        }
+    }
+
+    public fn drop_while(xs, pred) {
+        match xs {
+            [h | t] -> if pred(h) { drop_while(t, pred) } else { xs },
+            _ -> []
+        }
+    }
+
+    public fn split_at(xs, n) {
+        if n <= 0 { ([], xs) }
+        else {
+            match xs {
+                [h | t] -> match split_at(t, n - 1) {
+                    (left, right) -> ([h | left], right),
+                    _ -> ([], xs)
+                },
+                _ -> ([], [])
+            }
+        }
+    }
+
+    public fn span(xs, pred) {
+        match xs {
+            [h | t] -> if pred(h) {
+                match span(t, pred) {
+                    (left, right) -> ([h | left], right),
+                    _ -> ([], xs)
+                }
+            } else { ([], xs) },
+            _ -> ([], [])
+        }
+    }
+
+    public fn scanl(xs, acc, f) {
+        [acc | scanl_rest(xs, acc, f)]
+    }
+
+    public fn scanr(xs, acc, f) {
+        match scanr_go(xs, acc, f) {
+            (result, last_acc) -> result,
+            _ -> [acc]
+        }
+    }
+
+    public fn sort(xs) {
+        merge_sort_by(xs, fn(x) { x })
+    }
+
+    public fn sort_by(xs, f) {
+        merge_sort_by(xs, f)
     }
 
     public fn first(xs) {
@@ -149,6 +201,33 @@ module Flow.List {
             [h | t] -> t,
             _ -> []
         }
+    }
+
+    public fn init(xs) {
+        match xs {
+            [h | t] -> match t {
+                [h2 | t2] -> [h | init(t)],
+                _ -> []
+            },
+            _ -> panic("init called on empty list")
+        }
+    }
+
+    public fn null(xs) {
+        match xs {
+            [h | t] -> false,
+            _ -> true
+        }
+    }
+
+    public fn length(xs) {
+        fn length_go(ys, n) {
+            match ys {
+                [h | t] -> length_go(t, n + 1),
+                _ -> n
+            }
+        }
+        length_go(xs, 0)
     }
 
     public fn range(start, stop) {
@@ -176,8 +255,140 @@ module Flow.List {
         }
     }
 
+    public fn zip_with(xs, ys, f) {
+        match xs {
+            [a | at] -> match ys {
+                [b | bt] -> [f(a, b) | zip_with(at, bt, f)],
+                _ -> []
+            },
+            _ -> []
+        }
+    }
+
+    public fn unzip(xs) {
+        match xs {
+            [(a, b) | t] -> match unzip(t) {
+                (left, right) -> ([a | left], [b | right]),
+                _ -> ([], [])
+            },
+            _ -> ([], [])
+        }
+    }
+
+    public fn enumerate(xs) {
+        enumerate_go(xs, 0)
+    }
+
     public fn contains(xs, x) {
-        any(xs, fn(item) { cmp_eq(item, x) })
+        match xs {
+            [h | t] -> if cmp_eq(h, x) { true } else { contains(t, x) },
+            _ -> false
+        }
+    }
+
+    public fn nub(xs) {
+        unique_by(xs, fn(x) { x })
+    }
+
+    public fn partition(xs, pred) {
+        match xs {
+            [h | t] -> match partition(t, pred) {
+                (yes, no) -> if pred(h) { ([h | yes], no) } else { (yes, [h | no]) },
+                _ -> ([], [])
+            },
+            _ -> ([], [])
+        }
+    }
+
+    public fn delete(xs, x) {
+        delete_go(xs, x)
+    }
+
+    fn delete_go(xs, x) {
+        match xs {
+            [h | t] -> if cmp_eq(h, x) { t } else { [h | delete_go(t, x)] },
+            _ -> []
+        }
+    }
+
+    public fn intersperse(xs, sep) {
+        match xs {
+            [h | t] -> [h | intersperse_rest(t, sep)],
+            _ -> []
+        }
+    }
+
+    public fn intercalate(xss, sep) {
+        match xss {
+            [h | t] -> append(h, intercalate_rest(t, sep)),
+            _ -> []
+        }
+    }
+
+    public fn is_prefix(prefix, xs) {
+        match prefix {
+            [p | pt] -> match xs {
+                [x | xt] -> if cmp_eq(p, x) { is_prefix(pt, xt) } else { false },
+                _ -> false
+            },
+            _ -> true
+        }
+    }
+
+    public fn is_suffix(suffix, xs) {
+        is_prefix(reverse(suffix), reverse(xs))
+    }
+
+    public fn nth(xs, n) {
+        if n < 0 { None }
+        else {
+            match xs {
+                [h | t] -> if n == 0 { Some(h) } else { nth(t, n - 1) },
+                _ -> None
+            }
+        }
+    }
+
+    public fn replicate(n, x) {
+        if n <= 0 { [] }
+        else { [x | replicate(n - 1, x)] }
+    }
+
+    public fn iterate(x, f, n) {
+        if n <= 0 { [] }
+        else { [x | iterate(f(x), f, n - 1)] }
+    }
+
+    public fn unfold(seed, f) {
+        match f(seed) {
+            Some(step) -> [step.0 | unfold(step.1, f)],
+            _ -> []
+        }
+    }
+
+    public fn group_by(xs, eq) {
+        match xs {
+            [h | t] -> group_by_head(h, t, eq),
+            _ -> []
+        }
+    }
+
+    public fn unique_by(xs, f) {
+        reverse(unique_by_go(xs, f, [], []))
+    }
+
+    public fn maximum(xs) {
+        match xs {
+            [h | t] -> Some(maximum_go(t, h)),
+            _ -> None
+        }
+    }
+
+    public fn minimum(xs) {
+        match xs {
+            [h | t] -> Some(minimum_go(t, h)),
+            _ -> None
+        }
     }
 
     public fn sum(xs) {
@@ -200,22 +411,124 @@ module Flow.List {
         product_go(xs, 1)
     }
 
-    public fn abs(x) {
-        if x < 0 { 0 - x } else { x }
-    }
-
-    public fn min(a, b) {
-        if a < b { a } else { b }
-    }
-
-    public fn max(a, b) {
-        if a > b { a } else { b }
-    }
-
     fn append(xs, ys) {
         match xs {
             [h | t] -> [h | append(t, ys)],
             _ -> ys
+        }
+    }
+
+    fn enumerate_go(xs, i) {
+        match xs {
+            [h | t] -> [(i, h) | enumerate_go(t, i + 1)],
+            _ -> []
+        }
+    }
+
+    fn intersperse_rest(xs, sep) {
+        match xs {
+            [h | t] -> [sep | [h | intersperse_rest(t, sep)]],
+            _ -> []
+        }
+    }
+
+    fn intercalate_rest(xss, sep) {
+        match xss {
+            [h | t] -> append(sep, append(h, intercalate_rest(t, sep))),
+            _ -> []
+        }
+    }
+
+    fn scanl_rest(xs, acc, f) {
+        match xs {
+            [h | t] -> scanl_emit(t, f(acc, h), f),
+            _ -> []
+        }
+    }
+
+    fn scanl_emit(xs, next, f) {
+        [next | scanl_rest(xs, next, f)]
+    }
+
+    fn unique_by_go(xs, f, seen, acc) {
+        match xs {
+            [h | t] -> unique_by_step(t, h, f(h), f, seen, acc),
+            _ -> acc
+        }
+    }
+
+    fn unique_by_step(xs, value, key, f, seen, acc) {
+        if contains(seen, key) {
+            unique_by_go(xs, f, seen, acc)
+        } else {
+            unique_by_go(xs, f, [key | seen], [value | acc])
+        }
+    }
+
+    fn scanr_go(xs, acc, f) {
+        match xs {
+            [h | t] -> scanr_step(h, scanr_go(t, acc, f), acc, f),
+            _ -> ([acc], acc)
+        }
+    }
+
+    fn scanr_step(h, state, acc, f) {
+        match state {
+            (rest, next_acc) -> scanr_finish(rest, next_acc, h, f),
+            _ -> ([acc], acc)
+        }
+    }
+
+    fn scanr_finish(rest, next_acc, h, f) {
+        let current = f(h, next_acc);
+        ([current | rest], current)
+    }
+
+    fn merge_sort_by(xs, key_fn) {
+        let n = length(xs)
+        if n <= 1 { xs }
+        else { merge_sort_split(xs, key_fn, n / 2) }
+    }
+
+    fn merge_sort_split(xs, key_fn, mid) {
+        match split_at(xs, mid) {
+            (left, right) -> merge_by_key(merge_sort_by(left, key_fn), merge_sort_by(right, key_fn), key_fn),
+            _ -> xs
+        }
+    }
+
+    fn merge_by_key(left, right, key_fn) {
+        match left {
+            [a | at] -> match right {
+                [b | bt] -> if key_fn(a) <= key_fn(b) {
+                    [a | merge_by_key(at, right, key_fn)]
+                } else {
+                    [b | merge_by_key(left, bt, key_fn)]
+                },
+                _ -> left
+            },
+            _ -> right
+        }
+    }
+
+    fn group_by_head(h, t, eq) {
+        match span(t, fn(x) { eq(h, x) }) {
+            (prefix, rest) -> [[h | prefix] | group_by(rest, eq)],
+            _ -> [[h] | group_by(t, eq)]
+        }
+    }
+
+    fn maximum_go(xs, best) {
+        match xs {
+            [h | t] -> maximum_go(t, if h > best { h } else { best }),
+            _ -> best
+        }
+    }
+
+    fn minimum_go(xs, best) {
+        match xs {
+            [h | t] -> minimum_go(t, if h < best { h } else { best }),
+            _ -> best
         }
     }
 

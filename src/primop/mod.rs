@@ -11,8 +11,6 @@ use crate::runtime::{
 };
 
 /// Primitive operations that can be invoked directly from VM bytecode.
-///
-/// IDs are encoded in bytecode, so existing discriminants must remain stable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PrimOp {
@@ -81,70 +79,64 @@ pub enum PrimOp {
     EndsWith = 50,
     /// String chars: chars(string) → Array<String>.
     Chars = 51,
-    /// Array sort: sort(array) → Array.
-    Sort = 52,
     /// Array slice: slice(array, start, end) → Array.
-    Slice = 53,
+    Slice = 52,
     /// HAMT delete: delete(map, key) → Map.
-    MapDelete = 54,
+    MapDelete = 53,
     /// HAMT keys: keys(map) → Array.
-    MapKeys = 55,
+    MapKeys = 54,
     /// HAMT values: values(map) → Array.
-    MapValues = 56,
+    MapValues = 55,
     /// HAMT merge: merge(map, map) → Map.
-    MapMerge = 57,
+    MapMerge = 56,
     /// HAMT size: size(map) → Int.
-    MapSize = 58,
+    MapSize = 57,
     /// type_of: type_of(value) → String.
-    TypeOf = 59,
+    TypeOf = 58,
     /// is_float: is_float(value) → Bool.
-    IsFloat = 60,
+    IsFloat = 59,
     /// is_string: is_string(value) → Bool.
-    IsString = 61,
+    IsString = 60,
     /// is_bool: is_bool(value) → Bool.
-    IsBool = 62,
+    IsBool = 61,
     /// is_array: is_array(value) → Bool.
-    IsArray = 63,
+    IsArray = 62,
     /// is_none: is_none(value) → Bool.
-    IsNone = 64,
+    IsNone = 63,
     /// is_some: is_some_v(value) → Bool.
-    IsSomeV = 65,
+    IsSomeV = 64,
     /// is_list: is_list(value) → Bool.
-    IsList = 66,
+    IsList = 65,
     /// is_map/is_hash: is_hash(value) → Bool.
-    IsHash = 67,
-    /// Cons-list head: hd(list) → value.
-    Hd = 68,
-    /// Cons-list tail: tl(list) → list.
-    Tl = 69,
+    IsHash = 66,
     /// Array to cons-list: to_list(array) → list.
-    ToList = 70,
+    ToList = 67,
     /// Cons-list to array: to_array(list) → array.
-    ToArray = 71,
+    ToArray = 68,
     /// Parse int: parse_int(string) → Option<Int>.
-    ParseInt = 72,
+    ParseInt = 69,
     /// Print (no newline): print_no_nl(value) → None.
-    Print = 73,
+    Print = 70,
     /// Time alias: time() → Int (alias for ClockNow).
-    Time = 74,
+    Time = 71,
     /// String replace: replace(str, from, to) → String.
-    Replace = 75,
+    Replace = 72,
     /// String contains: str_contains(str, sub) → Bool.
-    StrContains = 76,
+    StrContains = 73,
     /// Read lines: read_lines(path) → Array<String>.
-    ReadLines = 77,
+    ReadLines = 74,
     /// Parse ints: parse_ints(array) → Array<Int>.
-    ParseInts = 78,
+    ParseInts = 75,
     /// Split ints: split_ints(str, sep) → Array<Int>.
-    SplitInts = 79,
+    SplitInts = 76,
     /// String upper: upper(string) → String.
-    Upper = 80,
+    Upper = 77,
     /// String lower: lower(string) → String.
-    Lower = 81,
+    Lower = 78,
     /// Try: try(closure) → Result (catches runtime errors).
-    Try = 82,
+    Try = 79,
     /// Assert throws: assert_throws(closure) → Bool.
-    AssertThrows = 83,
+    AssertThrows = 80,
 }
 
 /// Side-effect classification for primitive operations.
@@ -164,7 +156,7 @@ pub enum PrimEffect {
 
 impl PrimOp {
     /// Upper bound reserved for bytecode decoding tables.
-    pub const COUNT: usize = 84;
+    pub const COUNT: usize = 81;
 
     /// Returns the bytecode ID for this primitive op.
     pub fn id(self) -> u8 {
@@ -226,38 +218,35 @@ impl PrimOp {
             49 => Self::StartsWith,
             50 => Self::EndsWith,
             51 => Self::Chars,
-            52 => Self::Sort,
-            53 => Self::Slice,
-            54 => Self::MapDelete,
-            55 => Self::MapKeys,
-            56 => Self::MapValues,
-            57 => Self::MapMerge,
-            58 => Self::MapSize,
-            59 => Self::TypeOf,
-            60 => Self::IsFloat,
-            61 => Self::IsString,
-            62 => Self::IsBool,
-            63 => Self::IsArray,
-            64 => Self::IsNone,
-            65 => Self::IsSomeV,
-            66 => Self::IsList,
-            67 => Self::IsHash,
-            68 => Self::Hd,
-            69 => Self::Tl,
-            70 => Self::ToList,
-            71 => Self::ToArray,
-            72 => Self::ParseInt,
-            73 => Self::Print,
-            74 => Self::Time,
-            75 => Self::Replace,
-            76 => Self::StrContains,
-            77 => Self::ReadLines,
-            78 => Self::ParseInts,
-            79 => Self::SplitInts,
-            80 => Self::Upper,
-            81 => Self::Lower,
-            82 => Self::Try,
-            83 => Self::AssertThrows,
+            52 => Self::Slice,
+            53 => Self::MapDelete,
+            54 => Self::MapKeys,
+            55 => Self::MapValues,
+            56 => Self::MapMerge,
+            57 => Self::MapSize,
+            58 => Self::TypeOf,
+            59 => Self::IsFloat,
+            60 => Self::IsString,
+            61 => Self::IsBool,
+            62 => Self::IsArray,
+            63 => Self::IsNone,
+            64 => Self::IsSomeV,
+            65 => Self::IsList,
+            66 => Self::IsHash,
+            67 => Self::ToList,
+            68 => Self::ToArray,
+            69 => Self::ParseInt,
+            70 => Self::Print,
+            71 => Self::Time,
+            72 => Self::Replace,
+            73 => Self::StrContains,
+            74 => Self::ReadLines,
+            75 => Self::ParseInts,
+            76 => Self::SplitInts,
+            77 => Self::Upper,
+            78 => Self::Lower,
+            79 => Self::Try,
+            80 => Self::AssertThrows,
             _ => return None,
         })
     }
@@ -277,7 +266,6 @@ impl PrimOp {
             | Self::ToString
             | Self::Trim
             | Self::Chars
-            | Self::Sort
             | Self::TypeOf
             | Self::IsFloat
             | Self::IsString
@@ -287,8 +275,6 @@ impl PrimOp {
             | Self::IsSomeV
             | Self::IsList
             | Self::IsHash
-            | Self::Hd
-            | Self::Tl
             | Self::ToList
             | Self::ToArray
             | Self::ParseInt
@@ -421,7 +407,6 @@ impl PrimOp {
             Self::StartsWith => "starts_with",
             Self::EndsWith => "ends_with",
             Self::Chars => "chars",
-            Self::Sort => "sort",
             Self::Slice => "slice",
             Self::MapDelete => "delete",
             Self::MapKeys => "keys",
@@ -437,8 +422,6 @@ impl PrimOp {
             Self::IsSomeV => "is_some",
             Self::IsList => "is_list",
             Self::IsHash => "is_hash",
-            Self::Hd => "hd",
-            Self::Tl => "tl",
             Self::ToList => "to_list",
             Self::ToArray => "to_array",
             Self::ParseInt => "parse_int",
@@ -485,7 +468,6 @@ const PRIMOP_CALL_MAPPINGS: &[(&str, usize, PrimOp)] = &[
     ("fsub", 2, PrimOp::FSub),
     ("get", 2, PrimOp::MapGet),
     ("has_key", 2, PrimOp::MapHas),
-    ("hd", 1, PrimOp::Hd),
     ("iadd", 2, PrimOp::IAdd),
     ("icmp_eq", 2, PrimOp::ICmpEq),
     ("icmp_ge", 2, PrimOp::ICmpGe),
@@ -531,7 +513,6 @@ const PRIMOP_CALL_MAPPINGS: &[(&str, usize, PrimOp)] = &[
     ("replace", 3, PrimOp::Replace),
     ("size", 1, PrimOp::MapSize),
     ("slice", 3, PrimOp::Slice),
-    ("sort", 1, PrimOp::Sort),
     ("split", 2, PrimOp::Split),
     ("split_ints", 2, PrimOp::SplitInts),
     ("starts_with", 2, PrimOp::StartsWith),
@@ -541,7 +522,6 @@ const PRIMOP_CALL_MAPPINGS: &[(&str, usize, PrimOp)] = &[
     ("string_slice", 3, PrimOp::StringSlice),
     ("substring", 3, PrimOp::StringSlice),
     ("time", 0, PrimOp::Time),
-    ("tl", 1, PrimOp::Tl),
     ("to_array", 1, PrimOp::ToArray),
     ("to_list", 1, PrimOp::ToList),
     ("to_string", 1, PrimOp::ToString),
@@ -565,9 +545,9 @@ pub fn resolve_primop_call(name: &str, arity: usize) -> Option<PrimOp> {
 ///
 /// Used by Aether's borrowing elision to decide whether callers need Dup.
 /// Most primops only inspect arguments and are borrowed; the few that mutate
-/// in place (Push, Sort, ConcatArray) are owned.
+/// in place (Push, ConcatArray) are owned.
 pub fn primop_borrows_args(op: PrimOp) -> bool {
-    !matches!(op, PrimOp::Push | PrimOp::Sort | PrimOp::ConcatArray)
+    !matches!(op, PrimOp::Push | PrimOp::ConcatArray)
 }
 
 /// Look up borrow mode for a named function that may be a primop.
@@ -861,39 +841,7 @@ pub fn execute_primop(
                 Ok(Value::Array(arr[start..end].to_vec().into()))
             }
         }
-        PrimOp::Sort => {
-            let mut args = args;
-            let mut arr = match args.swap_remove(0) {
-                Value::Array(arr) => arr,
-                other => return Err(type_error(op, "Array", &other)),
-            };
-            Rc::make_mut(&mut arr).sort_by(|a, b| {
-                use std::cmp::Ordering;
-                match (a, b) {
-                    (Value::Integer(i1), Value::Integer(i2)) => i1.cmp(i2),
-                    (Value::Float(f1), Value::Float(f2)) => {
-                        f1.partial_cmp(f2).unwrap_or(Ordering::Equal)
-                    }
-                    (Value::Integer(i), Value::Float(f)) => {
-                        (*i as f64).partial_cmp(f).unwrap_or(Ordering::Equal)
-                    }
-                    (Value::Float(f), Value::Integer(i)) => {
-                        f.partial_cmp(&(*i as f64)).unwrap_or(Ordering::Equal)
-                    }
-                    _ => Ordering::Equal,
-                }
-            });
-            Ok(Value::Array(arr))
-        }
         // List operations
-        PrimOp::Hd => match &args[0] {
-            Value::Cons(cell) => Ok(cell.head.clone()),
-            other => Err(type_error(op, "List", other)),
-        },
-        PrimOp::Tl => match &args[0] {
-            Value::Cons(cell) => Ok(cell.tail.clone()),
-            other => Err(type_error(op, "List", other)),
-        },
         PrimOp::ToList => match &args[0] {
             Value::Array(arr) => {
                 let mut list = Value::EmptyList;

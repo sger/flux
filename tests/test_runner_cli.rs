@@ -141,6 +141,124 @@ fn test_mode_flow_test_wrappers_work() {
 }
 
 #[test]
+fn test_mode_flow_list_module_fixture_passes() {
+    let file = fixture_path("Flow/List_test.flx");
+    let output = run_flux(&[
+        "--test",
+        file.to_str().unwrap(),
+        "--root",
+        workspace_root().join("lib").to_str().unwrap(),
+    ]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_core_hofs"),
+        "expected core HOFs test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_accessors_and_predicates"),
+        "expected accessors test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_sort_and_reverse"),
+        "expected sort/reverse test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_numeric_reductions"),
+        "expected numeric reductions test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_slicing_helpers"),
+        "expected slicing helper test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_zip_and_group_helpers"),
+        "expected zip/group helper test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_set_like_operations"),
+        "expected set-like operations test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("8 tests: 8 passed, 0 failed"),
+        "unexpected summary, output:\n{}",
+        text
+    );
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn test_mode_flow_list_module_fixture_passes_on_native_llvm() {
+    let file = fixture_path("Flow/List_test.flx");
+    let output = run_flux(&[
+        "--test",
+        "--native",
+        file.to_str().unwrap(),
+        "--root",
+        workspace_root().join("lib").to_str().unwrap(),
+    ]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_core_hofs"),
+        "expected core HOFs test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_accessors_and_predicates"),
+        "expected accessors test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_sort_and_reverse"),
+        "expected sort/reverse test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_numeric_reductions"),
+        "expected numeric reductions test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_slicing_helpers"),
+        "expected slicing helper test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_zip_and_group_helpers"),
+        "expected zip/group helper test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_set_like_operations"),
+        "expected set-like operations test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("8 tests: 8 passed, 0 failed"),
+        "unexpected native summary, output:\n{}",
+        text
+    );
+}
+
+#[test]
 fn test_mode_test_filter_runs_subset() {
     let file = fixture_path("all_pass.flx");
     let output = run_flux(&["--test", file.to_str().unwrap(), "--test-filter", "test_a"]);

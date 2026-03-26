@@ -1,0 +1,113 @@
+import Flow.List as List
+
+fn test_core_hofs() {
+    assert_eq(to_string(map([1, 2, 3], fn(x) { x * 10 })), "[10, 20, 30]")
+    assert_eq(to_string(map([], fn(x) { x })), "[]")
+    assert_eq(to_string(filter([1, 2, 3, 4, 5], fn(x) { x % 2 == 0 })), "[2, 4]")
+    assert_eq(to_string(filter([], fn(x) { true })), "[]")
+    assert_eq(fold([1, 2, 3], 0, fn(acc, x) { acc + x }), 6)
+    assert_eq(fold([], 42, fn(acc, x) { acc + x }), 42)
+    assert_eq(to_string(flat_map([1, 2, 3], fn(x) { [x, x * 10] })), "[1, 10, 2, 20, 3, 30]")
+    assert_eq(to_string(flatten([[1, 2], [], [3]])), "[1, 2, 3]")
+    assert_eq(any([1, 2, 3], fn(x) { x > 2 }), true)
+    assert_eq(any([], fn(x) { true }), false)
+    assert_eq(all([2, 4, 6], fn(x) { x % 2 == 0 }), true)
+    assert_eq(all([2, 3, 6], fn(x) { x % 2 == 0 }), false)
+    assert_eq(all([], fn(x) { false }), true)
+    assert_eq(to_string(find([1, 2, 3], fn(x) { x > 1 })), "Some(2)")
+    assert_eq(to_string(find([], fn(x) { true })), "None")
+    assert_eq(count([1, 2, 3, 4], fn(x) { x > 2 }), 2)
+    assert_eq(count([], fn(x) { true }), 0)
+}
+
+fn test_accessors_and_predicates() {
+    assert_eq(to_string(first([10, 20, 30])), "Some(10)")
+    assert_eq(to_string(first([])), "None")
+    assert_eq(to_string(last([10, 20, 30])), "Some(30)")
+    assert_eq(to_string(last([])), "None")
+    assert_eq(to_string(rest([1, 2, 3])), "[2, 3]")
+    assert_eq(to_string(rest([])), "[]")
+    assert_eq(to_string(init([1, 2, 3])), "[1, 2]")
+    assert_eq(null([]), true)
+    assert_eq(null([1]), false)
+    assert_eq(length([1, 2, 3]), 3)
+    assert_eq(length([]), 0)
+    assert_eq(to_string(nth([10, 20, 30], 1)), "Some(20)")
+    assert_eq(to_string(nth([10, 20, 30], 5)), "None")
+    assert_eq(to_string(nth([], 0)), "None")
+    assert_eq(contains([1, 2, 3], 2), true)
+    assert_eq(contains([1, 2, 3], 9), false)
+    assert_eq(contains([], 1), false)
+}
+
+fn test_sort_and_reverse() {
+    assert_eq(to_string(sort([3, 1, 4, 1, 5])), "[1, 1, 3, 4, 5]")
+    assert_eq(to_string(sort([])), "[]")
+    assert_eq(to_string(sort([1])), "[1]")
+    assert_eq(to_string(sort_by(["bb", "a", "ccc"], fn(s) { string_len(s) })), "[\"a\", \"bb\", \"ccc\"]")
+    assert_eq(to_string(reverse([1, 2, 3])), "[3, 2, 1]")
+    assert_eq(to_string(reverse([])), "[]")
+    assert_eq(to_string(range(0, 4)), "[0, 1, 2, 3]")
+    assert_eq(to_string(range(5, 5)), "[]")
+}
+
+fn test_numeric_reductions() {
+    assert_eq(sum([1, 2, 3, 4]), 10)
+    assert_eq(sum([]), 0)
+    assert_eq(product([1, 2, 3, 4]), 24)
+    assert_eq(product([]), 1)
+    assert_eq(to_string(maximum([3, 1, 4, 1, 5])), "Some(5)")
+    assert_eq(to_string(maximum([])), "None")
+    assert_eq(to_string(minimum([3, 1, 4, 1, 5])), "Some(1)")
+    assert_eq(to_string(minimum([])), "None")
+}
+
+fn test_slicing_helpers() {
+    assert_eq(to_string(take([1, 2, 3, 4], 2)), "[1, 2]")
+    assert_eq(to_string(take([], 3)), "[]")
+    assert_eq(to_string(drop([1, 2, 3, 4], 2)), "[3, 4]")
+    assert_eq(to_string(drop([], 3)), "[]")
+    assert_eq(to_string(take_while([1, 2, 3, 1], fn(x) { x < 3 })), "[1, 2]")
+    assert_eq(to_string(drop_while([1, 2, 3, 1], fn(x) { x < 3 })), "[3, 1]")
+    assert_eq(to_string(split_at([1, 2, 3, 4], 2)), "([1, 2], [3, 4])")
+    assert_eq(to_string(span([1, 2, 3, 1], fn(x) { x < 3 })), "([1, 2], [3, 1])")
+}
+
+fn test_fold_scan_and_builders() {
+    assert_eq(foldr(["a", "b", "c"], "", fn(x, acc) { x + acc }), "abc")
+    assert_eq(fold1([2, 3, 4], fn(a, b) { a * b }), 24)
+    assert_eq(to_string(scanl([1, 2, 3], 0, fn(acc, x) { acc + x })), "[0, 1, 3, 6]")
+    assert_eq(to_string(scanr([1, 2, 3], 0, fn(x, acc) { x + acc })), "[6, 5, 3, 0]")
+    assert_eq(to_string(replicate(3, 9)), "[9, 9, 9]")
+    assert_eq(to_string(replicate(0, 9)), "[]")
+    assert_eq(to_string(iterate(1, fn(x) { x * 2 }, 4)), "[1, 2, 4, 8]")
+    assert_eq(to_string(unfold(0, fn(n) { if n < 4 { Some((n * 2, n + 1)) } else { None } })), "[0, 2, 4, 6]")
+    assert_eq(to_string(List.concat([[1, 2], [3], [], [4, 5]])), "[1, 2, 3, 4, 5]")
+    assert_eq(to_string(List.concat([])), "[]")
+}
+
+fn test_zip_and_group_helpers() {
+    assert_eq(to_string(zip([1, 2, 3], [10, 20])), "[(1, 10), (2, 20)]")
+    assert_eq(to_string(zip([], [1])), "[]")
+    assert_eq(to_string(zip_with([1, 2, 3], [10, 20], fn(a, b) { a + b })), "[11, 22]")
+    assert_eq(to_string(unzip([(1, "a"), (2, "b")])), "([1, 2], [\"a\", \"b\"])")
+    assert_eq(to_string(enumerate([10, 20, 30])), "[(0, 10), (1, 20), (2, 30)]")
+    assert_eq(to_string(partition([1, 2, 3, 4, 5], fn(x) { x % 2 == 0 })), "([2, 4], [1, 3, 5])")
+    assert_eq(to_string(group_by([1, 1, 2, 2, 1], fn(a, b) { a == b })), "[[1, 1], [2, 2], [1]]")
+    assert_eq(to_string(unique_by([1, 3, 2, 4, 5], fn(x) { x % 2 })), "[1, 2]")
+    assert_eq(to_string(nub([1, 2, 1, 3, 2])), "[1, 2, 3]")
+}
+
+fn test_set_like_operations() {
+    assert_eq(to_string(List.delete([1, 2, 3, 2], 2)), "[1, 3, 2]")
+    assert_eq(to_string(List.delete([], 1)), "[]")
+    assert_eq(to_string(intersperse([1, 2, 3], 0)), "[1, 0, 2, 0, 3]")
+    assert_eq(to_string(intersperse([], 0)), "[]")
+    assert_eq(to_string(intercalate([[1, 2], [3, 4], [5]], [0])), "[1, 2, 0, 3, 4, 0, 5]")
+    assert_eq(is_prefix([1, 2], [1, 2, 3]), true)
+    assert_eq(is_prefix([1, 3], [1, 2, 3]), false)
+    assert_eq(is_prefix([], [1, 2]), true)
+    assert_eq(is_suffix([2, 3], [1, 2, 3]), true)
+    assert_eq(is_suffix([1, 3], [1, 2, 3]), false)
+    assert_eq(is_suffix([], [1, 2]), true)
+}

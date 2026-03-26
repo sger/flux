@@ -358,20 +358,8 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
         returns_value: true,
     },
     BuiltinMapping {
-        flux_name: "tl",
-        c_name: "flux_rest",
-        arity: 1,
-        returns_value: true,
-    },
-    BuiltinMapping {
         flux_name: "values",
         c_name: "flux_hamt_values",
-        arity: 1,
-        returns_value: true,
-    },
-    BuiltinMapping {
-        flux_name: "hd",
-        c_name: "flux_first",
         arity: 1,
         returns_value: true,
     },
@@ -590,12 +578,6 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
         flux_name: "filter",
         c_name: "flux_ho_filter",
         arity: 2,
-        returns_value: true,
-    },
-    BuiltinMapping {
-        flux_name: "sort",
-        c_name: "flux_sort_default",
-        arity: 1,
         returns_value: true,
     },
     BuiltinMapping {

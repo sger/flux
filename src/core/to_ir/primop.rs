@@ -38,7 +38,6 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::ArrayPush => "push",
         CorePrimOp::ArrayConcat => "concat",
         CorePrimOp::ArraySlice => "slice",
-        CorePrimOp::ArraySort => "sort",
         CorePrimOp::HamtGet => "get",
         CorePrimOp::HamtSet => "put",
         CorePrimOp::HamtDelete => "delete",
@@ -64,8 +63,6 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Try => "try",
         CorePrimOp::AssertThrows => "assert_throws",
         CorePrimOp::ParseInt => "parse_int",
-        CorePrimOp::Hd => "hd",
-        CorePrimOp::Tl => "tl",
         CorePrimOp::ToList => "to_list",
         CorePrimOp::ToArray => "to_array",
         CorePrimOp::Len => "len",
@@ -243,7 +240,6 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::ArrayPush
             | CorePrimOp::ArrayConcat
             | CorePrimOp::ArraySlice
-            | CorePrimOp::ArraySort
             | CorePrimOp::HamtGet
             | CorePrimOp::HamtSet
             | CorePrimOp::HamtDelete
@@ -265,8 +261,6 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::Panic
             | CorePrimOp::ClockNow
             | CorePrimOp::ParseInt
-            | CorePrimOp::Hd
-            | CorePrimOp::Tl
             | CorePrimOp::ToList
             | CorePrimOp::ToArray
             | CorePrimOp::Len
