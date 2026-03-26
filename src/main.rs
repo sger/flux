@@ -62,8 +62,7 @@ fn main() {
     let enable_analyze = args.iter().any(|arg| arg == "--analyze" || arg == "-A");
     let show_stats = args.iter().any(|arg| arg == "--stats");
     let test_mode = args.iter().any(|arg| arg == "--test");
-    let explicit_no_strict = args.iter().any(|arg| arg == "--no-strict");
-    let strict_mode = !explicit_no_strict;
+    let strict_mode = args.iter().any(|arg| arg == "--strict");
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
     let dump_aether = args.iter().any(|arg| arg == "--dump-aether");
     #[cfg(feature = "native")]
@@ -108,9 +107,7 @@ fn main() {
     if args.iter().any(|arg| arg == "--strict") {
         args.retain(|arg| arg != "--strict");
     }
-    if explicit_no_strict {
-        args.retain(|arg| arg != "--no-strict");
-    }
+    args.retain(|arg| arg != "--no-strict");
     if all_errors {
         args.retain(|arg| arg != "--all-errors");
     }
@@ -422,8 +419,7 @@ Flags:
   --root <path>      Add a module root (can be repeated)
   --roots-only       Use only explicitly provided --root values
   --stats            Print execution analytics (parse/compile/execute times, module info)
-  --strict           Enable strict type/effect boundary checks (default)
-  --no-strict        Disable strict type/effect boundary checks
+  --strict           Enable strict type/effect boundary checks
   --all-errors       Show diagnostics from all phases (disable stage-aware filtering)
   --dump-core        Lower to Flux Core IR, print a readable dump, and exit
   --dump-core=debug  Lower to Flux Core IR, print a raw debug dump, and exit
