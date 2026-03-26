@@ -2,18 +2,23 @@
 # check_core_to_llvm_parity.sh — Compare VM and core_to_llvm native output.
 #
 # Usage:
-#   scripts/check_core_to_llvm_parity.sh [dir]
+#   scripts/check_core_to_llvm_parity.sh [dir] [--root dir ...]
 #
 # Runs each .flx file through both backends and reports parity.
-# Requires: cargo build --features core_to_llvm
+# Requires: cargo build --features native
 
 DIR="${1:-examples/basics}"
+shift 2>/dev/null || true
+
+# Collect extra args (e.g. --root lib --root examples/aoc/2024)
+EXTRA_ARGS=("$@")
+
 TMPBIN="/tmp/flux_parity_test_$$"
 FLUX="target/debug/flux"
 TIMEOUT=15
 
 if [ ! -f "$FLUX" ]; then
-    echo "Build first: cargo build --features core_to_llvm"
+    echo "Build first: cargo build --all --all-features"
     exit 1
 fi
 
@@ -25,9 +30,11 @@ total=0
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 for f in "$DIR"/*.flx; do
+    [ -f "$f" ] || continue
     name=$(basename "$f")
     total=$((total + 1))
 
@@ -35,20 +42,31 @@ for f in "$DIR"/*.flx; do
     fxc="${f%.flx}.fxc"
     rm -f "$fxc"
 
-    # Try to compile to native binary
-    native_compile=$(timeout $TIMEOUT "$FLUX" "$f" --core-to-llvm --emit-binary -o "$TMPBIN" 2>&1)
-    if ! echo "$native_compile" | grep -q "Emitted binary"; then
+    # Build the command arrays
+    vm_cmd=("$FLUX" "$f" --no-cache "${EXTRA_ARGS[@]}")
+    native_cmd=("$FLUX" "$f" --native --no-cache "${EXTRA_ARGS[@]}")
+
+    # Print full cargo run commands for easy copy-paste
+    vm_cargo="cargo run -- $f --no-cache${EXTRA_ARGS[*]:+ ${EXTRA_ARGS[*]}}"
+    native_cargo="cargo run --features native -- $f --native --no-cache${EXTRA_ARGS[*]:+ ${EXTRA_ARGS[*]}}"
+    echo -e "${CYAN}vm:${NC}     ${vm_cargo}"
+    echo -e "${CYAN}native:${NC} ${native_cargo}"
+
+    # Run VM (capture stdout only; stderr goes to /dev/null)
+    vm_out=$(timeout $TIMEOUT "${vm_cmd[@]}" 2>/dev/null || true)
+
+    # Run native (capture stdout; save stderr separately for error detection)
+    native_err=$(mktemp)
+    native_out=$(timeout $TIMEOUT "${native_cmd[@]}" 2>"$native_err" || true)
+
+    # Check if native compilation failed
+    if grep -q "core_to_llvm compilation failed\|unsupported CoreToLlvm" "$native_err"; then
         skip=$((skip + 1))
-        reason=$(echo "$native_compile" | grep -E "failed|unsupported|error|panic" | head -1 | sed 's/.*: //')
+        reason=$(grep -E "failed|unsupported" "$native_err" | head -1 | sed 's/.*: //')
         echo -e "${YELLOW}SKIP${NC} $name${reason:+ ($reason)}"
+        echo ""
         continue
     fi
-
-    # Run native binary
-    native_out=$(timeout $TIMEOUT "$TMPBIN" 2>&1 || true)
-
-    # Run VM with --no-cache to ensure fresh bytecode
-    vm_out=$(timeout $TIMEOUT "$FLUX" "$f" --no-cache 2>&1 || true)
 
     # Compare
     if [ "$vm_out" = "$native_out" ]; then
@@ -60,11 +78,11 @@ for f in "$DIR"/*.flx; do
         diff_out=$(diff <(echo "$vm_out") <(echo "$native_out") | head -8)
         echo "  $diff_out"
     fi
+    echo ""
 
-    rm -f "$TMPBIN"
+    rm -f "$TMPBIN" "$native_err"
 done
 
-echo ""
 echo "=== Parity Results ==="
 echo "Total:    $total"
 echo -e "Pass:     ${GREEN}$pass${NC}"
