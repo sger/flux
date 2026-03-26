@@ -182,8 +182,8 @@ fn parses_import_without_alias() {
 }
 
 #[test]
-fn parses_import_base_with_except() {
-    let (program, interner) = parse_ok("import Base except [print, len]");
+fn parses_import_flow_with_except() {
+    let (program, interner) = parse_ok("import Flow except [print, len]");
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
@@ -193,7 +193,7 @@ fn parses_import_base_with_except() {
             except,
             ..
         } => {
-            assert_eq!(interner.resolve(*name), "Base");
+            assert_eq!(interner.resolve(*name), "Flow");
             assert!(alias.is_none());
             let names: Vec<&str> = except.iter().map(|sym| interner.resolve(*sym)).collect();
             assert_eq!(names, vec!["print", "len"]);
@@ -251,16 +251,11 @@ fn parses_import_exposing_selective() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
-        Statement::Import {
-            name,
-            exposing,
-            ..
-        } => {
+        Statement::Import { name, exposing, .. } => {
             assert_eq!(interner.resolve(*name), "Math");
             match exposing {
                 crate::syntax::statement::ImportExposing::Names(names) => {
-                    let resolved: Vec<&str> =
-                        names.iter().map(|n| interner.resolve(*n)).collect();
+                    let resolved: Vec<&str> = names.iter().map(|n| interner.resolve(*n)).collect();
                     assert_eq!(resolved, vec!["square", "cube"]);
                 }
                 _ => panic!("expected Names exposing"),
@@ -286,8 +281,7 @@ fn parses_import_alias_with_exposing() {
             assert_eq!(alias.map(|a| interner.resolve(a)), Some("M"));
             match exposing {
                 crate::syntax::statement::ImportExposing::Names(names) => {
-                    let resolved: Vec<&str> =
-                        names.iter().map(|n| interner.resolve(*n)).collect();
+                    let resolved: Vec<&str> = names.iter().map(|n| interner.resolve(*n)).collect();
                     assert_eq!(resolved, vec!["square"]);
                 }
                 _ => panic!("expected Names exposing"),

@@ -252,11 +252,8 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
 
     /// Emit a `flux_trace_pop()` call before function return.
     pub fn emit_trace_pop(&mut self) {
-        self.program.ensure_c_decl(
-            "flux_trace_pop",
-            &[],
-            LlvmType::Void,
-        );
+        self.program
+            .ensure_c_decl("flux_trace_pop", &[], LlvmType::Void);
         self.state.emit(LlvmInstr::Call {
             dst: None,
             tail: false,
@@ -1131,14 +1128,14 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             ));
         }
 
-        // Check if it's a known base function — return an error indicating it
+        // Check if it's a known built-in function — return an error indicating it
         // should be called directly, not used as a first-class value (yet).
         let name_str = super::function::display_ident(var.name, self.state.interner);
         if super::builtins::find_builtin(&name_str).is_some() {
             return Err(self.unsupported(
-                "first-class base functions",
+                "first-class built-in functions",
                 format!(
-                    "base function `{name_str}` cannot be used as a value yet; call it directly"
+                    "built-in function `{name_str}` cannot be used as a value yet; call it directly"
                 ),
             ));
         }
@@ -1549,7 +1546,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
     ) -> Result<LlvmOperand, CoreToLlvmError> {
         use crate::aether::borrow_infer::BorrowMode;
 
-        // Check if it's a direct base function call first.
+        // Check if it's a direct built-in function call first.
         if let Some(result) = self.try_lower_builtin_call(func, args)? {
             return Ok(result);
         }
@@ -1667,8 +1664,8 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         Ok(LlvmOperand::Local(dst))
     }
 
-    /// Try to resolve a call as a base function (e.g., `print`, `println`).
-    /// Returns the lowered result if successful, None if not a base function.
+    /// Try to resolve a call as a built-in function (e.g., `print`, `println`).
+    /// Returns the lowered result if successful, None if not a built-in function.
     fn try_lower_builtin_call(
         &mut self,
         func: &CoreExpr,
@@ -1677,7 +1674,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         let CoreExpr::Var { var, .. } = func else {
             return Ok(None);
         };
-        // Base functions have binder = None (not user-defined).
+        // Built-in functions have binder = None (not user-defined).
         if var.binder.is_some() {
             return Ok(None);
         }
@@ -2804,12 +2801,24 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CorePrimOp::Not => self.lower_unary_helper_call("flux_not", args),
             CorePrimOp::And => self.lower_helper_call("flux_and", args),
             CorePrimOp::Or => self.lower_helper_call("flux_or", args),
-            CorePrimOp::Eq if self.unboxed_int_mode => self.lower_typed_int_cmp(LlvmCmpOp::Eq, args),
-            CorePrimOp::NEq if self.unboxed_int_mode => self.lower_typed_int_cmp(LlvmCmpOp::Ne, args),
-            CorePrimOp::Lt if self.unboxed_int_mode => self.lower_typed_int_cmp(LlvmCmpOp::Slt, args),
-            CorePrimOp::Le if self.unboxed_int_mode => self.lower_typed_int_cmp(LlvmCmpOp::Sle, args),
-            CorePrimOp::Gt if self.unboxed_int_mode => self.lower_typed_int_cmp(LlvmCmpOp::Sgt, args),
-            CorePrimOp::Ge if self.unboxed_int_mode => self.lower_typed_int_cmp(LlvmCmpOp::Sge, args),
+            CorePrimOp::Eq if self.unboxed_int_mode => {
+                self.lower_typed_int_cmp(LlvmCmpOp::Eq, args)
+            }
+            CorePrimOp::NEq if self.unboxed_int_mode => {
+                self.lower_typed_int_cmp(LlvmCmpOp::Ne, args)
+            }
+            CorePrimOp::Lt if self.unboxed_int_mode => {
+                self.lower_typed_int_cmp(LlvmCmpOp::Slt, args)
+            }
+            CorePrimOp::Le if self.unboxed_int_mode => {
+                self.lower_typed_int_cmp(LlvmCmpOp::Sle, args)
+            }
+            CorePrimOp::Gt if self.unboxed_int_mode => {
+                self.lower_typed_int_cmp(LlvmCmpOp::Sgt, args)
+            }
+            CorePrimOp::Ge if self.unboxed_int_mode => {
+                self.lower_typed_int_cmp(LlvmCmpOp::Sge, args)
+            }
             CorePrimOp::Eq => self.lower_rt_call("flux_rt_eq", args),
             CorePrimOp::NEq => self.lower_rt_call("flux_rt_neq", args),
             CorePrimOp::Lt => self.lower_rt_call("flux_rt_lt", args),
@@ -3254,9 +3263,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                     .unwrap_or(crate::core::FluxRep::TaggedRep)
                     .is_unboxed()
             }),
-            CoreExpr::PrimOp { op, .. } => {
-                crate::core::passes::primop_result_rep(op).is_unboxed()
-            }
+            CoreExpr::PrimOp { op, .. } => crate::core::passes::primop_result_rep(op).is_unboxed(),
             _ => false,
         }
     }

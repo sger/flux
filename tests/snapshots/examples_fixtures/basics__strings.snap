@@ -5,16 +5,17 @@ Fixture: examples/basics/strings.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E004]: Undefined Variable
+error[E056]: Wrong Number Of Arguments
 
-I can't find a value named `substring`.
+The `substring` function takes 3 arguments, but 2 were provided.
 
   examples/basics/strings.flx:29:11
    |
 29 |     print(substring("HELLO world", 0));
-   |           ^^^^^^^^^
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |           --------------------------- 2 arguments provided here, expected 3
 
-Hint:
-  Define it first: let substring = ...;
+Help:
+  Add 1 missing argument(s), for example: `substring(arg1, arg2, arg3)`.
 == stdout ==
 <not executed>

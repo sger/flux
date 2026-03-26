@@ -36,7 +36,7 @@ Hint:
   Add `-> Type` to the function signature.
 
 
-• 1 error, 3 warnings • examples/aether/fbip_failure_cases.flx
+• 3 warnings • examples/aether/fbip_failure_cases.flx
 Warning: FBIP Contract Not Proven
 
 @fip on `fail_indirect` analysis result NotProvable:
@@ -67,20 +67,6 @@ Warning: FBIP Contract Not Proven
    | ^
 
 
-error[E425]: Unresolved Boundary Type
-
-Strict mode cannot enforce runtime boundary check for unresolved expression type in function return expression.
-
-  examples/aether/fbip_failure_cases.flx:16:5
-   |
-16 |     Imported.imported_inc(x)
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^
-   |     ------------------------ expression type is unresolved in strict mode
-
-Hint:
-  Use concrete types (or additional annotations) so HM can resolve this expression.
-
-
 Warning: FBIP Contract Not Proven
 
 @fip on `fail_fresh` analysis result Fbip { bound: 1 }:
@@ -95,4 +81,4 @@ Warning: FBIP Contract Not Proven
 21 | }
    | ^
 
-Found 3 errors and 3 warnings across 2 modules.
+Found 2 errors and 3 warnings across 2 modules.

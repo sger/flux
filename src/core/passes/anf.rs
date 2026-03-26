@@ -100,35 +100,61 @@ fn rep_of_expr(expr: &CoreExpr) -> FluxRep {
 pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
     match op {
         // Typed integer arithmetic → IntRep
-        CorePrimOp::IAdd | CorePrimOp::ISub | CorePrimOp::IMul
-        | CorePrimOp::IDiv | CorePrimOp::IMod => FluxRep::IntRep,
+        CorePrimOp::IAdd
+        | CorePrimOp::ISub
+        | CorePrimOp::IMul
+        | CorePrimOp::IDiv
+        | CorePrimOp::IMod => FluxRep::IntRep,
 
         // Typed float arithmetic → FloatRep
-        CorePrimOp::FAdd | CorePrimOp::FSub | CorePrimOp::FMul
-        | CorePrimOp::FDiv => FluxRep::FloatRep,
+        CorePrimOp::FAdd | CorePrimOp::FSub | CorePrimOp::FMul | CorePrimOp::FDiv => {
+            FluxRep::FloatRep
+        }
 
         // Comparisons → BoolRep
-        CorePrimOp::Eq | CorePrimOp::NEq | CorePrimOp::Lt
-        | CorePrimOp::Le | CorePrimOp::Gt | CorePrimOp::Ge
-        | CorePrimOp::And | CorePrimOp::Or | CorePrimOp::Not
-        | CorePrimOp::StartsWith | CorePrimOp::EndsWith
+        CorePrimOp::Eq
+        | CorePrimOp::NEq
+        | CorePrimOp::Lt
+        | CorePrimOp::Le
+        | CorePrimOp::Gt
+        | CorePrimOp::Ge
+        | CorePrimOp::And
+        | CorePrimOp::Or
+        | CorePrimOp::Not
+        | CorePrimOp::StartsWith
+        | CorePrimOp::EndsWith
         | CorePrimOp::StrContains => FluxRep::BoolRep,
 
         // String operations → BoxedRep
-        CorePrimOp::Concat | CorePrimOp::Interpolate
-        | CorePrimOp::StringConcat | CorePrimOp::StringSlice
-        | CorePrimOp::ToString | CorePrimOp::Split | CorePrimOp::Join
-        | CorePrimOp::Trim | CorePrimOp::Upper | CorePrimOp::Lower
-        | CorePrimOp::Replace | CorePrimOp::Substring | CorePrimOp::Chars => FluxRep::BoxedRep,
+        CorePrimOp::Concat
+        | CorePrimOp::Interpolate
+        | CorePrimOp::StringConcat
+        | CorePrimOp::StringSlice
+        | CorePrimOp::ToString
+        | CorePrimOp::Split
+        | CorePrimOp::Join
+        | CorePrimOp::Trim
+        | CorePrimOp::Upper
+        | CorePrimOp::Lower
+        | CorePrimOp::Replace
+        | CorePrimOp::Substring
+        | CorePrimOp::Chars => FluxRep::BoxedRep,
 
         // Collection constructors → BoxedRep
-        CorePrimOp::MakeList | CorePrimOp::MakeArray | CorePrimOp::MakeTuple
+        CorePrimOp::MakeList
+        | CorePrimOp::MakeArray
+        | CorePrimOp::MakeTuple
         | CorePrimOp::MakeHash => FluxRep::BoxedRep,
 
         // Array/HAMT operations that return collections → BoxedRep
-        CorePrimOp::ArrayConcat | CorePrimOp::ArraySlice | CorePrimOp::ArraySort
-        | CorePrimOp::ArrayPush | CorePrimOp::HamtSet | CorePrimOp::HamtDelete
-        | CorePrimOp::HamtKeys | CorePrimOp::HamtValues => FluxRep::BoxedRep,
+        CorePrimOp::ArrayConcat
+        | CorePrimOp::ArraySlice
+        | CorePrimOp::ArraySort
+        | CorePrimOp::ArrayPush
+        | CorePrimOp::HamtSet
+        | CorePrimOp::HamtDelete
+        | CorePrimOp::HamtKeys
+        | CorePrimOp::HamtValues => FluxRep::BoxedRep,
 
         // Length operations → IntRep
         CorePrimOp::StringLength | CorePrimOp::ArrayLen => FluxRep::IntRep,

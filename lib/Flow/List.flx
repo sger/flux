@@ -1,11 +1,11 @@
-// Base.List — Array and list operations for the Flux standard library.
+// Flow.List — Array and list operations for the Flux standard library.
 //
 // Functions operate on arrays ([|...|]) using index-based tail recursion
 // with primops (len, push, arr[i]).
 //
 // Argument order follows Flux convention: collection first, function second.
 
-module Base.List {
+module Flow.List {
 
     public fn map(arr, f) {
         fn map_go(i, result) {

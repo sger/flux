@@ -36,6 +36,9 @@ I can't find a value named `f`.
 Hint:
   Define it first: let f = ...;
 
+Help:
+  Did you mean one of: `Flow.List.abs`, `Flow.List.all`, `Flow.List.any`?
+
 
 error[E004]: Undefined Variable
 
@@ -48,5 +51,8 @@ I can't find a value named `f`.
 
 Hint:
   Define it first: let f = ...;
+
+Help:
+  Did you mean one of: `Flow.List.abs`, `Flow.List.all`, `Flow.List.any`?
 
 Found 3 errors.

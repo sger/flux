@@ -5,6 +5,27 @@ Fixture: examples/aoc/2025/aoc_day1_profile.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/aoc/2025/aoc_day1_profile.flx:18:9
+   |
+18 |         0 - distance
+   |         ^^^^^^^^^^^^
+   |         ------------ this expression has type `Int and Option<Int>`
+
+   |         ------------ operator operands are known at compile time
+
+Note:
+  expected type: numeric operands (Int or Float)
+  found type: Int and Option<Int>
+
+Help:
+  These two types are not compatible.
+  adjust operand types or add explicit conversion
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `parse_rotations`.
@@ -63,6 +84,6 @@ Hint:
   examples/aoc/2025/aoc_day1_profile.flx:0:1
   |
 
-Found 4 errors.
+Found 5 errors.
 == stdout ==
 <not executed>

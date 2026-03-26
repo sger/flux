@@ -1,6 +1,6 @@
-// Base.Option — Option type helpers for the Flux base library.
+// Flow.Option — Option type helpers for the Flux standard library.
 
-module Base.Option {
+module Flow.Option {
     /// Extract the value from Some, or panic on None.
     public fn unwrap(opt) {
         match opt {

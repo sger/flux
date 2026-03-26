@@ -4,7 +4,7 @@
 //! borrow metadata that survives past inference and is available at every
 //! Aether call site. Borrow facts come from three sources:
 //! - inferred signatures for user-defined Core definitions
-//! - explicit Base/runtime metadata
+//! - explicit Flow/runtime metadata
 //! - conservative imported/unknown fallbacks
 
 use std::collections::{HashMap, HashSet};
@@ -228,7 +228,11 @@ fn register_explicit_named_fallbacks(
             && let Some((primop_arity, borrows)) =
                 crate::primop::resolve_primop_borrow_info(interner.resolve(name))
         {
-            let mode = if borrows { BorrowMode::Borrowed } else { BorrowMode::Owned };
+            let mode = if borrows {
+                BorrowMode::Borrowed
+            } else {
+                BorrowMode::Owned
+            };
             registry.insert_named_if_absent(
                 name,
                 BorrowSignature::all(mode, primop_arity, BorrowProvenance::BaseRuntime),

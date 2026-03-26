@@ -85,6 +85,20 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:43:1
+   |
+43 | print("=== Grade Report ===")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -99,6 +113,20 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:44:1
+   |
+44 | print("")
+   | ^^^^^^^^^
+   | --------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -111,6 +139,20 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:45:1
+   |
+45 | print("Scores by student:")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 
 error[E011]: Private Member
@@ -140,6 +182,20 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:52:1
+   |
+52 | print("")
+   | ^^^^^^^^^
+   | --------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -152,6 +208,20 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:53:1
+   |
+53 | print("=== Statistics ===")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 
 error[E011]: Private Member
@@ -207,6 +277,20 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:58:1
+   |
+58 | print("  Passing (>=60) : " + to_string(Stats.list_len(passing)))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E011]: Private Member
 
 Cannot access private member `list_len`.
@@ -232,6 +316,20 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:59:1
+   |
+59 | print("  Failing (<60)  : " + to_string(Stats.list_len(failing)))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 
 error[E011]: Private Member
@@ -261,6 +359,20 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:63:1
+   |
+63 | print("")
+   | ^^^^^^^^^
+   | --------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -273,6 +385,20 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:64:1
+   |
+64 | print("=== Ranking (best to worst) ===")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 
 error[E011]: Private Member
@@ -315,6 +441,20 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:73:1
+   |
+73 | print("")
+   | ^^^^^^^^^
+   | --------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -327,6 +467,20 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:74:1
+   |
+74 | print("=== Grade Distribution ===")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 
 error[E011]: Private Member
@@ -356,6 +510,20 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:76:1
+   |
+76 | print("  A (4pts): " + to_string(dist.0))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -368,6 +536,20 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:77:1
+   |
+77 | print("  B (3pts): " + to_string(dist.1))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 
 error[E413]: Top-Level Effect
@@ -384,6 +566,20 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:78:1
+   |
+78 | print("  C (2pts): " + to_string(dist.2))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -396,6 +592,20 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:79:1
+   |
+79 | print("  D (1pts): " + to_string(dist.3))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 
 error[E413]: Top-Level Effect
@@ -412,6 +622,20 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:80:1
+   |
+80 | print("  F (0pts): " + to_string(dist.4))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -424,6 +648,20 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:84:1
+   |
+84 | print("")
+   | ^^^^^^^^^
+   | --------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 
 error[E413]: Top-Level Effect
@@ -440,6 +678,20 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/15_complete_program.flx:85:1
+   |
+85 | print("=== GPA per Student ===")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | -------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E011]: Private Member
 
 Cannot access private member `fold_list`.
@@ -452,6 +704,6 @@ Cannot access private member `fold_list`.
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
-Found 33 errors.
+Found 51 errors.
 == stdout ==
 <not executed>

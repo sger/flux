@@ -54,8 +54,8 @@ impl<'a> InferCtx<'a> {
                     }
                     ty
                 } else {
-                    if self.known_base_names.contains(name) {
-                        self.emit_missing_base_hm_signature(*name, expr.span());
+                    if self.known_flow_names.contains(name) {
+                        self.emit_missing_flow_hm_signature(*name, expr.span());
                     }
                     InferType::Con(TypeConstructor::Any)
                 }

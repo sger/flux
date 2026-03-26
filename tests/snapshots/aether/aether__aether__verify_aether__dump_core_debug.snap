@@ -5,8 +5,8 @@ letrec my_map : List<Any> =
 λxs#1, f#2.
     case xs#1 of
       ::(h#3, t#4) →
-        let #4000043[synthetic]#43 = aether_call[owned] f#2(h#3)
-        let #4000044[synthetic]#44 = aether_call[borrowed, borrowed] my_map#0(t#4, f#2)
+        let %t1 = aether_call[owned] f#2(h#3)
+        let %t2 = aether_call[borrowed, borrowed] my_map#0(t#4, f#2)
         reuse xs#1 ::(#4000043[synthetic]#43, #4000044[synthetic]#44)
       _ →
         []
@@ -15,7 +15,7 @@ letrec option_map : Option<Any> =
 λopt#6, f#7.
     case opt#6 of
       Some(x#8) →
-        let #4000045[synthetic]#45 = aether_call[owned] f#7(x#8)
+        let %t3 = aether_call[owned] f#7(x#8)
         reuse opt#6 Some(#4000045[synthetic]#45)
       _ →
         None
@@ -32,7 +32,7 @@ letrec my_len : Int =
 λxs#15.
     case xs#15 of
       ::(_, t#16) →
-        let #4000046[synthetic]#46 = aether_call[borrowed] my_len#14(t#16)
+        let %t4 = aether_call[borrowed] my_len#14(t#16)
         Add(1, #4000046[synthetic]#46)
       _ →
         0
@@ -42,19 +42,19 @@ letrec my_filter : List<Any> =
     case xs#18 of
       ::(h#20, t#21) →
         drop_spec xs#18 {
-          unique -> let #4000047[synthetic]#47 = aether_call[owned] f#19(h#20)
+          unique -> let %t5 = aether_call[owned] f#19(h#20)
             case #4000047[synthetic]#47 of
               true →
-                let #4000048[synthetic]#48 = aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
+                let %t6 = aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
                 reuse xs#18 ::(h#20, #4000048[synthetic]#48) @mask=0b10
               _ →
                 drop h#20
                 aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
-          shared -> let #4000047[synthetic]#47 = aether_call[owned] f#19(dup h#20
+          shared -> let %t5 = aether_call[owned] f#19(dup h#20
             h#20)
             case #4000047[synthetic]#47 of
               true →
-                let #4000048[synthetic]#48 = aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
+                let %t6 = aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
                 ::(h#20, #4000048[synthetic]#48)
               _ →
                 drop h#20
@@ -67,41 +67,41 @@ letrec my_sum : Any =
 λxs#23.
     case xs#23 of
       ::(h#24, t#25) →
-        let #4000049[synthetic]#49 = aether_call[borrowed] my_sum#22(t#25)
+        let %t7 = aether_call[borrowed] my_sum#22(t#25)
         Add(h#24, #4000049[synthetic]#49)
       _ →
         0
 
 letrec main : Any =
 λ.
-    let #2000004[synthetic]#40 = (let #4000052[synthetic]#52 = (let #4000050[synthetic]#50 = MakeList(1, 2, 3)
-    let #4000051[synthetic]#51 = (λx#42.
+    let %t8 = (let %t9 = (let %t10:Box = MakeList(1, 2, 3)
+    let %t11:Box = (λx#42.
       Mul(x#42, 2))
     aether_call[borrowed, borrowed] my_map#0(#4000050[synthetic]#50, #4000051[synthetic]#51))
     Print(#4000052[synthetic]#52))
     drop #2000004[synthetic]#40
-    let #2000003[synthetic]#37 = (let #4000055[synthetic]#55 = (let #4000053[synthetic]#53 = Some(42)
-    let #4000054[synthetic]#54 = (λx#39.
+    let %t12 = (let %t13 = (let %t14:Box = Some(42)
+    let %t15:Box = (λx#39.
       Add(x#39, 1))
     aether_call[borrowed, borrowed] option_map#5(#4000053[synthetic]#53, #4000054[synthetic]#54))
     Print(#4000055[synthetic]#55))
     drop #2000003[synthetic]#37
-    let #2000002[synthetic]#34 = (let #4000057[synthetic]#57 = (let #4000056[synthetic]#56 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+    let %t16 = (let %t17 = (let %t18 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
     aether_call[owned] set_black#9(#4000056[synthetic]#56))
     Print(#4000057[synthetic]#57))
     drop #2000002[synthetic]#34
-    let #2000001[synthetic]#31 = (let #4000059[synthetic]#59 = (let #4000058[synthetic]#58 = MakeList(1, 2, 3, 4, 5)
+    let %t19 = (let %t20 = (let %t21:Box = MakeList(1, 2, 3, 4, 5)
     aether_call[borrowed] my_len#14(#4000058[synthetic]#58))
     Print(#4000059[synthetic]#59))
     drop #2000001[synthetic]#31
-    let #2000000[synthetic]#28 = (let #4000063[synthetic]#63 = (let #4000060[synthetic]#60 = MakeList(1, 2, 3, 4, 5, 6)
-    let #4000062[synthetic]#62 = (λx#30.
-      let #4000061[synthetic]#61 = Mod(x#30, 2)
+    let %t22 = (let %t23 = (let %t24:Box = MakeList(1, 2, 3, 4, 5, 6)
+    let %t25:Box = (λx#30.
+      let %t26 = Mod(x#30, 2)
       Eq(#4000061[synthetic]#61, 0))
     aether_call[borrowed, borrowed] my_filter#17(#4000060[synthetic]#60, #4000062[synthetic]#62))
     Print(#4000063[synthetic]#63))
     drop #2000000[synthetic]#28
-    let #4000065[synthetic]#65 = (let #4000064[synthetic]#64 = MakeList(1, 2, 3, 4, 5)
+    let %t27 = (let %t28:Box = MakeList(1, 2, 3, 4, 5)
     aether_call[borrowed] my_sum#22(#4000064[synthetic]#64))
     Print(#4000065[synthetic]#65)
 

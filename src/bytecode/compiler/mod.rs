@@ -26,11 +26,7 @@ use crate::{
         ErrorType, lookup_error_code,
         position::{Position, Span},
     },
-    runtime::{
-        function_contract::FunctionContract,
-        runtime_type::RuntimeType,
-        value::Value,
-    },
+    runtime::{function_contract::FunctionContract, runtime_type::RuntimeType, value::Value},
     syntax::{
         block::Block,
         effect_expr::EffectExpr,
@@ -269,10 +265,10 @@ impl Compiler {
         self.import_aliases.clear();
         self.imported_module_exclusions.clear();
         self.exposed_bindings.clear();
-        // Auto-expose all Base library module members (Proposal 0120).
+        // Auto-expose all Flow library module members (Proposal 0120).
         // This ensures every compilation unit has access to the Flux stdlib
         // without explicit imports, replacing the old base function registry.
-        self.auto_expose_base_modules();
+        self.auto_expose_flow_modules();
         self.current_module_prefix = None;
         self.current_span = None;
         self.static_type_scopes.clear();
@@ -288,28 +284,28 @@ impl Compiler {
         self.effect_op_signatures.clear();
     }
 
-    /// Auto-expose all public members of Base library modules.
+    /// Auto-expose all public members of Flow library modules.
     ///
     /// Replaces the old base function registry — every compilation unit
     /// gets unqualified access to `map`, `filter`, `assert_eq`, etc.
-    /// from `lib/Base/*.flx` without needing explicit `import ... exposing`.
-    fn auto_expose_base_modules(&mut self) {
-        let base_prefixes: Vec<&str> = vec![
-            "Base.Option",
-            "Base.List",
-            "Base.String",
-            "Base.Numeric",
-            "Base.IO",
-            "Base.Assert",
+    /// from `lib/Flow/*.flx` without needing explicit `import ... exposing`.
+    fn auto_expose_flow_modules(&mut self) {
+        let flow_prefixes: Vec<&str> = vec![
+            "Flow.Option",
+            "Flow.List",
+            "Flow.String",
+            "Flow.Numeric",
+            "Flow.IO",
+            "Flow.Assert",
         ];
-        // Collect all public members for Base modules.
+        // Collect all public members for Flow modules.
         let entries: Vec<(Symbol, Symbol)> = self
             .module_function_visibility
             .iter()
             .filter(|((mod_name, _), is_public)| {
                 **is_public && {
                     let name = self.interner.try_resolve(*mod_name).unwrap_or("");
-                    base_prefixes.iter().any(|p| name == *p)
+                    flow_prefixes.iter().any(|p| name == *p)
                 }
             })
             .map(|((mod_name, member), _)| (*mod_name, *member))
@@ -358,8 +354,8 @@ impl Compiler {
         self.collect_module_function_visibility(program);
         self.collect_module_contracts(program);
         self.collect_effect_declarations(program);
-        // Auto-expose Base library modules so HM can resolve Base functions.
-        self.auto_expose_base_modules();
+        // Auto-expose Flow library modules so HM can resolve Flow functions.
+        self.auto_expose_flow_modules();
 
         let hm_config = self.build_infer_config(program);
         let hm = infer_program(program, &self.interner, hm_config);
@@ -675,9 +671,7 @@ impl Compiler {
                 ImportExposing::All => self
                     .module_function_visibility
                     .iter()
-                    .filter(|((mod_name, _), is_public)| {
-                        *mod_name == *module_name && **is_public
-                    })
+                    .filter(|((mod_name, _), is_public)| *mod_name == *module_name && **is_public)
                     .map(|((_, member), _)| *member)
                     .collect(),
                 ImportExposing::Names(names) => names.clone(),
@@ -685,11 +679,7 @@ impl Compiler {
 
             for member in members_to_expose {
                 // Only expose if public
-                if self
-                    .module_function_visibility
-                    .get(&(*module_name, member))
-                    != Some(&true)
-                {
+                if self.module_function_visibility.get(&(*module_name, member)) != Some(&true) {
                     continue;
                 }
 
@@ -719,23 +709,25 @@ impl Compiler {
     /// Can be called multiple times (e.g. for two-phase inference).
     fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
         let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
-        let base_module_symbol = self.interner.intern("Base");
+        let flow_module_symbol = self.interner.intern("Flow");
 
         // Exposed import schemes are used as unqualified identifiers by HM inference.
         let mut exposed_schemes = self.build_exposed_hm_schemes(program);
 
         // Inject primop type schemes so HM can resolve types for functions
-        // that call primops (e.g., lib/Base/*.flx functions like read_lines).
+        // that call primops (e.g., lib/Flow/*.flx functions like read_lines).
         self.inject_primop_hm_schemes(&mut exposed_schemes);
 
-        // Auto-inject all cached Base module member schemes so that every
-        // module has access to Base functions without explicit imports
+        // Auto-inject all cached Flow module member schemes so that every
+        // module has access to Flow functions without explicit imports
         // (like Haskell's implicit Prelude import).
         for ((mod_name, member), scheme) in &self.cached_member_schemes {
             let mod_str = self.interner.resolve(*mod_name);
-            if mod_str.starts_with("Base.") {
+            if mod_str.starts_with("Flow.") {
                 // Only inject if not already present (explicit imports take priority).
-                exposed_schemes.entry(*member).or_insert_with(|| scheme.clone());
+                exposed_schemes
+                    .entry(*member)
+                    .or_insert_with(|| scheme.clone());
             }
         }
 
@@ -743,14 +735,14 @@ impl Compiler {
             file_path: Some(self.file_path.as_str().into()),
             preloaded_base_schemes: exposed_schemes,
             preloaded_module_member_schemes: preloaded_member_schemes,
-            known_base_names: HashSet::new(),
-            base_module_symbol,
+            known_flow_names: HashSet::new(),
+            flow_module_symbol,
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
         }
     }
 
     /// Inject HM type schemes for primops so that HM inference can resolve
-    /// types in modules that call primops directly (e.g., `lib/Base/*.flx`).
+    /// types in modules that call primops directly (e.g., `lib/Flow/*.flx`).
     ///
     /// Only injects schemes for names not already present in the map
     /// (module-defined functions take priority over primops).
@@ -763,10 +755,9 @@ impl Compiler {
         // Helper closures for common type patterns.
         let con = |tc: TC| InferType::Con(tc);
         let app = |tc: TC, args: Vec<InferType>| InferType::App(tc, args);
-        let fun =
-            |params: Vec<InferType>, ret: InferType, eff: InferEffectRow| -> InferType {
-                InferType::Fun(params, Box::new(ret), eff)
-            };
+        let fun = |params: Vec<InferType>, ret: InferType, eff: InferEffectRow| -> InferType {
+            InferType::Fun(params, Box::new(ret), eff)
+        };
         let pure = || InferEffectRow::closed_empty();
         let io = || InferEffectRow::closed_from_symbols(vec![io_sym]);
 
@@ -777,38 +768,158 @@ impl Compiler {
             ("println", vec![con(TC::Any)], con(TC::Any), io(), 0),
             ("read_file", vec![con(TC::String)], con(TC::String), io(), 0),
             ("read_stdin", vec![], con(TC::String), io(), 0),
-            ("read_lines", vec![con(TC::String)], app(TC::Array, vec![con(TC::String)]), io(), 0),
-            ("write_file", vec![con(TC::String), con(TC::String)], con(TC::Unit), io(), 0),
+            (
+                "read_lines",
+                vec![con(TC::String)],
+                app(TC::Array, vec![con(TC::String)]),
+                io(),
+                0,
+            ),
+            (
+                "write_file",
+                vec![con(TC::String), con(TC::String)],
+                con(TC::Unit),
+                io(),
+                0,
+            ),
             ("panic", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             // String ops
-            ("split", vec![con(TC::String), con(TC::String)], app(TC::Array, vec![con(TC::String)]), pure(), 0),
-            ("join", vec![app(TC::Array, vec![con(TC::String)]), con(TC::String)], con(TC::String), pure(), 0),
+            (
+                "split",
+                vec![con(TC::String), con(TC::String)],
+                app(TC::Array, vec![con(TC::String)]),
+                pure(),
+                0,
+            ),
+            (
+                "join",
+                vec![app(TC::Array, vec![con(TC::String)]), con(TC::String)],
+                con(TC::String),
+                pure(),
+                0,
+            ),
             ("trim", vec![con(TC::String)], con(TC::String), pure(), 0),
             ("upper", vec![con(TC::String)], con(TC::String), pure(), 0),
             ("lower", vec![con(TC::String)], con(TC::String), pure(), 0),
-            ("starts_with", vec![con(TC::String), con(TC::String)], con(TC::Bool), pure(), 0),
-            ("ends_with", vec![con(TC::String), con(TC::String)], con(TC::Bool), pure(), 0),
-            ("replace", vec![con(TC::String), con(TC::String), con(TC::String)], con(TC::String), pure(), 0),
-            ("chars", vec![con(TC::String)], app(TC::Array, vec![con(TC::String)]), pure(), 0),
-            ("substring", vec![con(TC::String), con(TC::Int), con(TC::Int)], con(TC::String), pure(), 0),
-            ("str_contains", vec![con(TC::String), con(TC::String)], con(TC::Bool), pure(), 0),
+            (
+                "starts_with",
+                vec![con(TC::String), con(TC::String)],
+                con(TC::Bool),
+                pure(),
+                0,
+            ),
+            (
+                "ends_with",
+                vec![con(TC::String), con(TC::String)],
+                con(TC::Bool),
+                pure(),
+                0,
+            ),
+            (
+                "replace",
+                vec![con(TC::String), con(TC::String), con(TC::String)],
+                con(TC::String),
+                pure(),
+                0,
+            ),
+            (
+                "chars",
+                vec![con(TC::String)],
+                app(TC::Array, vec![con(TC::String)]),
+                pure(),
+                0,
+            ),
+            (
+                "substring",
+                vec![con(TC::String), con(TC::Int), con(TC::Int)],
+                con(TC::String),
+                pure(),
+                0,
+            ),
+            (
+                "str_contains",
+                vec![con(TC::String), con(TC::String)],
+                con(TC::Bool),
+                pure(),
+                0,
+            ),
             ("to_string", vec![con(TC::Any)], con(TC::String), pure(), 0),
             // Numeric
             ("abs", vec![con(TC::Any)], con(TC::Any), pure(), 0),
-            ("min", vec![con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
-            ("max", vec![con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
-            ("parse_int", vec![con(TC::String)], app(TC::Option, vec![con(TC::Int)]), pure(), 0),
-            ("parse_ints", vec![app(TC::Array, vec![con(TC::String)])], app(TC::Array, vec![con(TC::Int)]), pure(), 0),
-            ("split_ints", vec![con(TC::String), con(TC::String)], app(TC::Array, vec![con(TC::Int)]), pure(), 0),
+            (
+                "min",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            (
+                "max",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            (
+                "parse_int",
+                vec![con(TC::String)],
+                app(TC::Option, vec![con(TC::Int)]),
+                pure(),
+                0,
+            ),
+            (
+                "parse_ints",
+                vec![app(TC::Array, vec![con(TC::String)])],
+                app(TC::Array, vec![con(TC::Int)]),
+                pure(),
+                0,
+            ),
+            (
+                "split_ints",
+                vec![con(TC::String), con(TC::String)],
+                app(TC::Array, vec![con(TC::Int)]),
+                pure(),
+                0,
+            ),
             // Collection ops
             ("len", vec![con(TC::Any)], con(TC::Int), pure(), 0),
-            ("push", vec![con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
-            ("concat", vec![con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
-            ("slice", vec![con(TC::Any), con(TC::Int), con(TC::Int)], con(TC::Any), pure(), 0),
+            (
+                "push",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            (
+                "concat",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            (
+                "slice",
+                vec![con(TC::Any), con(TC::Int), con(TC::Int)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
             ("sort", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             ("reverse", vec![con(TC::Any)], con(TC::Any), pure(), 0),
-            ("contains", vec![con(TC::Any), con(TC::Any)], con(TC::Bool), pure(), 0),
-            ("range", vec![con(TC::Int), con(TC::Int)], app(TC::Array, vec![con(TC::Int)]), pure(), 0),
+            (
+                "contains",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Bool),
+                pure(),
+                0,
+            ),
+            (
+                "range",
+                vec![con(TC::Int), con(TC::Int)],
+                app(TC::Array, vec![con(TC::Int)]),
+                pure(),
+                0,
+            ),
             // Type checks
             ("type_of", vec![con(TC::Any)], con(TC::String), pure(), 0),
             ("is_int", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
@@ -829,14 +940,50 @@ impl Compiler {
             // Map ops
             ("keys", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             ("values", vec![con(TC::Any)], con(TC::Any), pure(), 0),
-            ("has_key", vec![con(TC::Any), con(TC::Any)], con(TC::Bool), pure(), 0),
-            ("merge", vec![con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
-            ("delete", vec![con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
-            ("put", vec![con(TC::Any), con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
-            ("get", vec![con(TC::Any), con(TC::Any)], con(TC::Any), pure(), 0),
+            (
+                "has_key",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Bool),
+                pure(),
+                0,
+            ),
+            (
+                "merge",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            (
+                "delete",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            (
+                "put",
+                vec![con(TC::Any), con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            (
+                "get",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
             // Time
             ("now_ms", vec![], con(TC::Int), pure(), 0),
-            ("time", vec![fun(vec![], con(TC::Any), pure())], con(TC::Int), pure(), 0),
+            (
+                "time",
+                vec![fun(vec![], con(TC::Any), pure())],
+                con(TC::Int),
+                pure(),
+                0,
+            ),
             // Sum/Product
             ("sum", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             ("product", vec![con(TC::Any)], con(TC::Any), pure(), 0),
@@ -3011,8 +3158,8 @@ impl Compiler {
         self.captured_local_indices[current_idx].insert(local_index);
     }
 
-    pub(super) fn is_base_module_symbol(&self, name: Symbol) -> bool {
-        self.sym(name) == "Base"
+    pub(super) fn is_flow_module_symbol(&self, name: Symbol) -> bool {
+        self.sym(name) == "Flow"
     }
 
     pub(super) fn resolve_visible_symbol(&mut self, name: Symbol) -> Option<Binding> {

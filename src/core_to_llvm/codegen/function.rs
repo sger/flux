@@ -514,7 +514,12 @@ pub fn compile_program_with_interner(
     // Build module membership: function name → "Module.function" for trace.
     let mut trace_qualified_names: HashMap<Identifier, String> = HashMap::new();
     for item in &core.top_level_items {
-        if let crate::core::CoreTopLevelItem::Module { name: mod_name, body, .. } = item {
+        if let crate::core::CoreTopLevelItem::Module {
+            name: mod_name,
+            body,
+            ..
+        } = item
+        {
             let mod_str = display_ident(*mod_name, interner);
             for child in body {
                 if let crate::core::CoreTopLevelItem::Function { name: fn_name, .. } = child {
@@ -577,36 +582,37 @@ pub fn compile_program_with_interner(
                 let trampoline = build_trampoline_function(group, &program);
                 module.functions.push(trampoline);
             }
-        } else if qualifies_for_int_worker_wrapper(def)
-            && info.symbol.0 != "flux_main"
-        {
+        } else if qualifies_for_int_worker_wrapper(def) && info.symbol.0 != "flux_main" {
             // Proposal 0119 Phase 3: worker/wrapper for typed integer functions.
             // Worker uses raw i64 (no NaN-boxing); wrapper untags/retags at boundary.
             let worker_symbol = GlobalId(format!("{}.w", info.symbol.0));
 
             // Temporarily remap this def's symbol to the worker so self-recursive
             // calls inside the worker target the worker directly (raw args).
-            let original_symbol = program.top_level.get(&def.binder.id)
+            let original_symbol = program
+                .top_level
+                .get(&def.binder.id)
                 .map(|info| info.symbol.clone());
             if let Some(info) = program.top_level.get_mut(&def.binder.id) {
                 info.symbol = worker_symbol.clone();
             }
 
-            let worker =
-                lower_top_level_function(def, worker_symbol.clone(), def.is_recursive, &mut program)?;
+            let worker = lower_top_level_function(
+                def,
+                worker_symbol.clone(),
+                def.is_recursive,
+                &mut program,
+            )?;
             module.functions.push(worker);
 
             // Restore original symbol for external callers.
-            if let (Some(orig), Some(info)) = (original_symbol, program.top_level.get_mut(&def.binder.id)) {
+            if let (Some(orig), Some(info)) =
+                (original_symbol, program.top_level.get_mut(&def.binder.id))
+            {
                 info.symbol = orig;
             }
 
-            let wrapper = build_int_wrapper(
-                &info.symbol,
-                &worker_symbol,
-                info.arity,
-                &program,
-            );
+            let wrapper = build_int_wrapper(&info.symbol, &worker_symbol, info.arity, &program);
             module.functions.push(wrapper);
         } else {
             // Normal lowering.
@@ -739,9 +745,7 @@ fn qualifies_for_int_worker_wrapper(def: &CoreDef) -> bool {
     if params.is_empty() {
         return false;
     }
-    let all_int_params = params
-        .iter()
-        .all(|p| p.rep == crate::core::FluxRep::IntRep);
+    let all_int_params = params.iter().all(|p| p.rep == crate::core::FluxRep::IntRep);
     let int_result = matches!(def.result_ty, Some(crate::core::CoreType::Int));
     all_int_params && int_result
 }
@@ -754,7 +758,7 @@ fn build_int_wrapper(
     program: &ProgramState<'_>,
 ) -> LlvmFunction {
     use crate::core_to_llvm::{
-        CallConv, LlvmBlock, LlvmFunction, LlvmFunctionSig, Linkage, LlvmTerminator,
+        CallConv, Linkage, LlvmBlock, LlvmFunction, LlvmFunctionSig, LlvmTerminator,
     };
 
     let params: Vec<LlvmLocal> = (0..arity).map(|i| LlvmLocal(format!("arg{i}"))).collect();

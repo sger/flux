@@ -1,5 +1,5 @@
-// Verify that typed let bindings work with lib/Base/ functions.
-// Covers: primop types, Base module types, cross-module inference,
+// Verify that typed let bindings work with lib/Flow/ functions.
+// Covers: primop types, Flow module types, cross-module inference,
 // and polymorphic function return types.
 
 fn main() with IO {
@@ -22,7 +22,7 @@ fn main() with IO {
     let replaced: String = replace("hello world", "world", "flux")
     assert_eq(replaced, "hello flux")
 
-    // === Base.List function return types ===
+    // === Flow.List function return types ===
     let nums: Array<Int> = range(1, 6)
     assert_eq(len(nums), 5)
 
@@ -47,14 +47,14 @@ fn main() with IO {
     let zipped: Array<(Int, Int)> = zip(nums, doubled)
     assert_eq(len(zipped), 5)
 
-    // === Base.Option functions ===
+    // === Flow.Option functions ===
     let val: Int = unwrap_or(Some(42), 0)
     assert_eq(val, 42)
 
     let none_val: Int = unwrap_or(None, 99)
     assert_eq(none_val, 99)
 
-    // === Base.IO functions ===
+    // === Flow.IO functions ===
     let ints: Array<Int> = split_ints("1,2,3", ",")
     assert_eq(len(ints), 3)
     assert_eq(sum(ints), 6)
@@ -65,5 +65,5 @@ fn main() with IO {
     let long_count: Int = fold(lengths, 0, \(acc, l) -> if l > 3 { acc + 1 } else { acc })
     assert_eq(long_count, 3)
 
-    print("All typed let with Base assertions passed!")
+    print("All typed let with Flow assertions passed!")
 }

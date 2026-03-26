@@ -1084,7 +1084,7 @@ impl Compiler {
                             this.load_symbol(&symbol);
                         }
                         IrCallTarget::Builtin(name) => {
-                            // Builtin targets are resolved by the base function
+                            // Builtin targets are resolved by the builtin function
                             // registry — intern the name and look up the symbol.
                             let sym = this.interner.intern(name);
                             let symbol = this.symbol_table.resolve(sym).ok_or_else(|| {
@@ -1189,7 +1189,7 @@ impl Compiler {
             }
         }
 
-        // Try PrimOp emission for named base function calls.
+        // Try PrimOp emission for named built-in function calls.
         if let Some(ref name_str) = target_name_str {
             if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
                 for arg in args {

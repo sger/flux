@@ -589,7 +589,7 @@ fn format_rep(rep: super::FluxRep) -> &'static str {
         FluxRep::FloatRep => ":Float",
         FluxRep::BoolRep => ":Bool",
         FluxRep::BoxedRep => ":Box",
-        FluxRep::TaggedRep => "",  // default — don't clutter output
+        FluxRep::TaggedRep => "", // default — don't clutter output
         FluxRep::UnitRep => ":Unit",
     }
 }

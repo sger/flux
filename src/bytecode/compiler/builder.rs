@@ -44,9 +44,7 @@ impl Compiler {
                     None => EffectSummary::HasEffects,
                 }
             }
-            OpCode::OpCall | OpCode::OpCallSelf | OpCode::OpTailCall => {
-                EffectSummary::Unknown
-            }
+            OpCode::OpCall | OpCode::OpCallSelf | OpCode::OpTailCall => EffectSummary::Unknown,
             _ => EffectSummary::Pure,
         };
 
