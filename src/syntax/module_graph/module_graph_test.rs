@@ -115,6 +115,7 @@ fn resolve_imports_invalid_name() {
             name: foo_sym,
             alias: None,
             except: vec![],
+            exposing: crate::syntax::statement::ImportExposing::None,
             span: span(1, 0),
         }],
         span: Span::default(),
@@ -138,6 +139,7 @@ fn resolve_imports_invalid_alias() {
             name: foo_sym,
             alias: Some(bar_sym),
             except: vec![],
+            exposing: crate::syntax::statement::ImportExposing::None,
             span: span(1, 0),
         }],
         span: Span::default(),
@@ -160,6 +162,7 @@ fn resolve_imports_missing_module() {
             name: foo_bar_sym,
             alias: None,
             except: vec![],
+            exposing: crate::syntax::statement::ImportExposing::None,
             span: span(1, 0),
         }],
         span: Span::default(),
@@ -198,9 +201,9 @@ fn resolve_imports_no_imports_returns_empty() {
 }
 
 #[test]
-fn resolve_imports_ignores_synthetic_base_import() {
+fn resolve_imports_ignores_synthetic_flow_import() {
     let mut interner = Interner::new();
-    let base_sym = interner.intern("Base");
+    let base_sym = interner.intern("Flow");
     let print_sym = interner.intern("print");
 
     let program = Program {
@@ -208,6 +211,7 @@ fn resolve_imports_ignores_synthetic_base_import() {
             name: base_sym,
             alias: None,
             except: vec![print_sym],
+            exposing: crate::syntax::statement::ImportExposing::None,
             span: span(1, 0),
         }],
         span: Span::default(),

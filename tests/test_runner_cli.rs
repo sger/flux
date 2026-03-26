@@ -14,7 +14,15 @@ fn example_path(rel: &str) -> PathBuf {
 }
 
 fn run_flux(args: &[&str]) -> Output {
-    let mut full_args = vec!["--no-strict"];
+    Command::new(env!("CARGO_BIN_EXE_flux"))
+        .args(args)
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run flux with args {:?}: {e}", args))
+}
+
+fn run_flux_strict(args: &[&str]) -> Output {
+    let mut full_args = vec!["--strict"];
     full_args.extend_from_slice(args);
     Command::new(env!("CARGO_BIN_EXE_flux"))
         .args(&full_args)
@@ -180,49 +188,6 @@ fn test_mode_test_filter_no_match_reports_empty() {
         text.contains("No test functions found matching filter"),
         "expected no-match message, output:\n{}",
         text
-    );
-}
-
-#[cfg(feature = "jit")]
-#[test]
-fn test_mode_jit_matches_vm_summary() {
-    let file = fixture_path("all_pass.flx");
-    let vm = run_flux(&["--test", file.to_str().unwrap()]);
-    let vm_text = combined_output(&vm);
-    assert!(vm.status.success(), "vm run failed:\n{}", vm_text);
-
-    let jit = run_flux(&["--test", file.to_str().unwrap(), "--jit"]);
-    let jit_text = combined_output(&jit);
-    assert!(jit.status.success(), "jit run failed:\n{}", jit_text);
-
-    assert!(
-        vm_text.contains("2 tests: 2 passed, 0 failed"),
-        "unexpected vm summary:\n{}",
-        vm_text
-    );
-    assert!(
-        jit_text.contains("2 tests: 2 passed, 0 failed"),
-        "unexpected jit summary:\n{}",
-        jit_text
-    );
-
-    let jit_filtered = run_flux(&[
-        "--test",
-        file.to_str().unwrap(),
-        "--test-filter",
-        "test_a",
-        "--jit",
-    ]);
-    let jit_filtered_text = combined_output(&jit_filtered);
-    assert!(
-        jit_filtered.status.success(),
-        "jit filtered run failed:\n{}",
-        jit_filtered_text
-    );
-    assert!(
-        jit_filtered_text.contains("1 tests: 1 passed, 0 failed"),
-        "unexpected jit filtered summary:\n{}",
-        jit_filtered_text
     );
 }
 
@@ -470,8 +435,8 @@ fn dump_core_debug_preserves_raw_identity_details() {
         text
     );
     assert!(
-        text.contains("print#?[external]"),
-        "expected explicit external marker in debug dump, output:\n{}",
+        text.contains("Print("),
+        "expected Print() primop after promotion in debug dump, output:\n{}",
         text
     );
     assert!(
@@ -547,61 +512,6 @@ fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
         all_text.contains("error[E300]"),
         "expected downstream type diagnostic visible with --all-errors, output:\n{}",
         all_text
-    );
-}
-
-#[cfg(feature = "jit")]
-#[test]
-fn jit_runtime_error_json_matches_text_metadata() {
-    let file = example_path("runtime_errors/indirect_call_wrong_arity.flx");
-
-    let text_output = run_flux(&["--no-cache", file.to_str().unwrap(), "--jit"]);
-    let text = combined_output(&text_output);
-    assert!(
-        !text_output.status.success(),
-        "expected JIT text run to fail, output:\n{}",
-        text
-    );
-    assert!(
-        text.contains("error[E1000]: wrong number of arguments: want=2, got=1"),
-        "expected structured text diagnostic, output:\n{}",
-        text
-    );
-
-    let json_output = run_flux(&[
-        "--no-cache",
-        file.to_str().unwrap(),
-        "--jit",
-        "--format",
-        "json",
-    ]);
-    let json_text = combined_output(&json_output);
-    assert!(
-        !json_output.status.success(),
-        "expected JIT json run to fail, output:\n{}",
-        json_text
-    );
-
-    let parsed: serde_json::Value =
-        serde_json::from_str(&json_text).expect("expected valid JSON diagnostics output");
-    let first = parsed
-        .as_array()
-        .and_then(|arr| arr.first())
-        .expect("expected at least one runtime diagnostic");
-
-    assert_eq!(first.get("code").and_then(|v| v.as_str()), Some("E1000"));
-    assert_eq!(first.get("phase").and_then(|v| v.as_str()), Some("runtime"));
-    assert_eq!(
-        first.get("category").and_then(|v| v.as_str()),
-        Some("runtime_execution")
-    );
-    assert_eq!(
-        first.get("title").and_then(|v| v.as_str()),
-        Some("wrong number of arguments: want=2, got=1")
-    );
-    assert_eq!(
-        first.get("file").and_then(|v| v.as_str()),
-        Some("examples/runtime_errors/indirect_call_wrong_arity.flx")
     );
 }
 
@@ -687,27 +597,384 @@ fn all_errors_flag_reveals_effect_diagnostics_after_type_errors() {
     );
 }
 
-#[cfg(feature = "jit")]
-#[test]
-fn test_mode_primops_fixture_passes_on_jit() {
-    let file = fixture_path("primops_all.flx");
-    let output = run_flux(&[
-        "--test",
-        file.to_str().unwrap(),
-        "--root",
-        workspace_root().join("lib").to_str().unwrap(),
-        "--jit",
-    ]);
-    let text = combined_output(&output);
+// ---------------------------------------------------------------------------
+// Example manifest cases (previously in ci/examples_manifest.tsv)
+// ---------------------------------------------------------------------------
 
+/// Helper: run an example file with optional roots, expect success.
+fn assert_example_ok(path: &str, roots: &[&str]) {
+    let file = workspace_root().join(path);
+    let mut args: Vec<&str> = vec!["--no-cache"];
+    let root_paths: Vec<String> = roots
+        .iter()
+        .map(|r| workspace_root().join(r).to_string_lossy().into_owned())
+        .collect();
+    for r in &root_paths {
+        args.push("--root");
+        args.push(r);
+    }
+    args.push(file.to_str().unwrap());
+    let output = run_flux(&args);
+    let text = combined_output(&output);
     assert!(
         output.status.success(),
-        "expected success, output:\n{}",
-        text
+        "expected success for {path}, output:\n{text}"
+    );
+}
+
+/// Helper: run an example file with optional roots in strict mode, expect success.
+fn assert_example_ok_strict(path: &str, roots: &[&str]) {
+    let file = workspace_root().join(path);
+    let mut args: Vec<&str> = vec!["--no-cache"];
+    let root_paths: Vec<String> = roots
+        .iter()
+        .map(|r| workspace_root().join(r).to_string_lossy().into_owned())
+        .collect();
+    for r in &root_paths {
+        args.push("--root");
+        args.push(r);
+    }
+    args.push(file.to_str().unwrap());
+    let output = run_flux_strict(&args);
+    let text = combined_output(&output);
+    assert!(
+        output.status.success(),
+        "expected success (strict) for {path}, output:\n{text}"
+    );
+}
+
+/// Helper: run an example, expect failure with a specific error code.
+fn assert_example_error(path: &str, roots: &[&str], expected_code: &str) {
+    let file = workspace_root().join(path);
+    let mut args: Vec<&str> = vec!["--no-cache"];
+    let root_paths: Vec<String> = roots
+        .iter()
+        .map(|r| workspace_root().join(r).to_string_lossy().into_owned())
+        .collect();
+    for r in &root_paths {
+        args.push("--root");
+        args.push(r);
+    }
+    args.push(file.to_str().unwrap());
+    let output = run_flux(&args);
+    let text = combined_output(&output);
+    assert!(
+        !output.status.success(),
+        "expected failure for {path}, output:\n{text}"
     );
     assert!(
-        text.contains("8 tests: 8 passed, 0 failed"),
-        "unexpected summary, output:\n{}",
-        text
+        text.contains(expected_code),
+        "expected {expected_code} for {path}, output:\n{text}"
+    );
+}
+
+/// Helper: run an example in strict mode, expect failure with a specific error code.
+fn assert_example_error_strict(path: &str, roots: &[&str], expected_code: &str) {
+    let file = workspace_root().join(path);
+    let mut args: Vec<&str> = vec!["--no-cache"];
+    let root_paths: Vec<String> = roots
+        .iter()
+        .map(|r| workspace_root().join(r).to_string_lossy().into_owned())
+        .collect();
+    for r in &root_paths {
+        args.push("--root");
+        args.push(r);
+    }
+    args.push(file.to_str().unwrap());
+    let output = run_flux_strict(&args);
+    let text = combined_output(&output);
+    assert!(
+        !output.status.success(),
+        "expected failure (strict) for {path}, output:\n{text}"
+    );
+    assert!(
+        text.contains(expected_code),
+        "expected {expected_code} (strict) for {path}, output:\n{text}"
+    );
+}
+
+// --- Smoke tests ---
+
+#[test]
+fn example_aoc_day05_part1() {
+    assert_example_ok(
+        "examples/aoc/2024/day05_part1_test.flx",
+        &["lib", "examples/aoc/2024"],
+    );
+}
+
+#[test]
+fn example_contextual_boundary_ok_161() {
+    assert_example_ok(
+        "examples/type_system/99_contextual_boundary_effect_module_ok.flx",
+        &["examples/type_system"],
+    );
+}
+
+#[test]
+fn example_contextual_boundary_e425_189() {
+    assert_example_error_strict(
+        "examples/type_system/failing/189_contextual_boundary_unresolved_strict_e425.flx",
+        &["examples/type_system"],
+        "E425",
+    );
+}
+
+#[test]
+fn example_perform_arg_e425_192() {
+    assert_example_error_strict(
+        "examples/type_system/failing/192_perform_arg_unresolved_strict_e425.flx",
+        &[],
+        "E425",
+    );
+}
+
+#[test]
+fn example_contextual_boundary_e300_190() {
+    assert_example_error(
+        "examples/type_system/failing/190_contextual_boundary_arg_runtime_e1004.flx",
+        &["examples/type_system"],
+        "E300",
+    );
+}
+
+#[test]
+fn example_contextual_effect_e400_191() {
+    assert_example_error(
+        "examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx",
+        &["examples/type_system"],
+        "E400",
+    );
+}
+
+#[test]
+fn example_flow_wrapper() {
+    assert_example_ok("tests/flux/flow_wrapper.flx", &["lib"]);
+}
+
+// --- Parser error tests ---
+
+#[test]
+fn example_parser_perform_missing_dot_173() {
+    assert_example_error(
+        "examples/type_system/failing/173_perform_missing_dot.flx",
+        &[],
+        "E034",
+    );
+}
+
+#[test]
+fn example_parser_handle_missing_lbrace_174() {
+    assert_example_error(
+        "examples/type_system/failing/174_handle_missing_lbrace.flx",
+        &[],
+        "E034",
+    );
+}
+
+#[test]
+fn example_parser_handle_missing_arrow_175() {
+    assert_example_error(
+        "examples/type_system/failing/175_handle_arm_missing_arrow.flx",
+        &[],
+        "E034",
+    );
+}
+
+#[test]
+fn example_parser_module_missing_brace_177() {
+    assert_example_error(
+        "examples/type_system/failing/177_module_missing_open_brace.flx",
+        &[],
+        "E034",
+    );
+}
+
+// --- Type system tests ---
+
+#[test]
+fn example_strict_public_checked_60() {
+    assert_example_ok_strict(
+        "examples/type_system/60_strict_module_public_checked.flx",
+        &["examples/type_system"],
+    );
+}
+
+#[test]
+fn example_strict_private_allowed_61() {
+    assert_example_ok_strict(
+        "examples/type_system/61_strict_module_private_unannotated_allowed.flx",
+        &["examples/type_system"],
+    );
+}
+
+#[test]
+fn example_effect_row_order_ok_162() {
+    assert_example_ok(
+        "examples/type_system/100_effect_row_order_equivalence_ok.flx",
+        &[],
+    );
+}
+
+#[test]
+fn example_effect_row_multi_missing_e400_194() {
+    assert_example_error(
+        "examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx",
+        &[],
+        "E400",
+    );
+}
+
+#[test]
+fn example_effect_row_subtract_ok_163() {
+    assert_example_ok(
+        "examples/type_system/101_effect_row_subtract_concrete_ok.flx",
+        &[],
+    );
+}
+
+#[test]
+fn example_effect_row_subtract_var_ok_164() {
+    assert_example_ok(
+        "examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx",
+        &[],
+    );
+}
+
+#[test]
+fn example_effect_row_multivar_ok_165() {
+    assert_example_ok(
+        "examples/type_system/103_effect_row_multivar_disambiguated_ok.flx",
+        &[],
+    );
+}
+
+#[test]
+fn example_effect_row_invalid_subtract_e300_195() {
+    assert_example_error(
+        "examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx",
+        &[],
+        "E300",
+    );
+}
+
+#[test]
+fn example_effect_row_unresolved_single_e419_196() {
+    assert_example_error(
+        "examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx",
+        &[],
+        "E419",
+    );
+}
+
+#[test]
+fn example_effect_row_unresolved_multi_e420_197() {
+    assert_example_error(
+        "examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx",
+        &[],
+        "E420",
+    );
+}
+
+#[test]
+fn example_effect_row_subset_unsatisfied_e300_198() {
+    assert_example_error(
+        "examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx",
+        &[],
+        "E300",
+    );
+}
+
+#[test]
+fn example_effect_row_subset_sorted_e300_199() {
+    assert_example_error(
+        "examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx",
+        &[],
+        "E300",
+    );
+}
+
+#[test]
+fn example_effect_row_absent_ordering_ok_166() {
+    assert_example_ok(
+        "examples/type_system/104_effect_row_absent_ordering_linked_ok.flx",
+        &[],
+    );
+}
+
+#[test]
+fn example_base_hof_effect_row_ok_167() {
+    assert_example_ok(
+        "examples/type_system/105_base_hof_callback_effect_row_ok.flx",
+        &[],
+    );
+}
+
+#[test]
+fn example_effect_row_absent_ordering_violation_e421_200() {
+    assert_example_error(
+        "examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx",
+        &[],
+        "E421",
+    );
+}
+
+#[test]
+fn example_base_hof_effect_missing_e400_201() {
+    assert_example_error(
+        "examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx",
+        &[],
+        "E400",
+    );
+}
+
+#[test]
+fn example_runtime_boundary_list_e300_187() {
+    assert_example_error(
+        "examples/type_system/failing/187_runtime_list_boundary_e1004.flx",
+        &["examples/type_system"],
+        "E300",
+    );
+}
+
+// --- Full program tests ---
+
+#[test]
+fn example_real_program_domain() {
+    assert_example_ok(
+        "examples/type_system/67_real_program_domain_module_test.flx",
+        &["lib", "examples/type_system"],
+    );
+}
+
+#[test]
+fn example_real_program_effects() {
+    assert_example_ok(
+        "examples/type_system/68_real_program_effects_module_test.flx",
+        &["lib", "examples/type_system"],
+    );
+}
+
+#[test]
+fn example_real_program_public_api() {
+    assert_example_ok(
+        "examples/type_system/69_real_program_public_api_test.flx",
+        &["lib", "examples/type_system"],
+    );
+}
+
+#[test]
+fn example_real_program_primops() {
+    assert_example_ok(
+        "examples/type_system/70_real_program_primops_module_test.flx",
+        &["lib", "examples/type_system"],
+    );
+}
+
+#[test]
+fn example_real_program_base_interop() {
+    assert_example_ok(
+        "examples/type_system/71_real_program_base_interop_module_test.flx",
+        &["lib", "examples/type_system"],
     );
 }

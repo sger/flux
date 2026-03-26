@@ -1,0 +1,9 @@
+module ExposingTarget {
+    public fn greet(name: String) -> String {
+        "Hello, " + name
+    }
+
+    fn secret() -> Int {
+        42
+    }
+}

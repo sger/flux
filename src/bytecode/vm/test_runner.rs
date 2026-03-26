@@ -81,22 +81,6 @@ pub fn run_tests(vm: &mut VM, tests: Vec<(String, usize)>) -> Vec<TestResult> {
     run_test_fns(vm, fns)
 }
 
-/// JIT convenience: extract test values from `ctx.globals` then run them.
-/// Only available when the `jit` feature is enabled.
-#[cfg(feature = "jit")]
-pub fn run_tests_jit(
-    ctx: &mut crate::jit::context::JitContext,
-    tests: Vec<(String, usize)>,
-) -> Vec<TestResult> {
-    // Use global_get to decode JitGlobalSlot → Value, supporting both
-    // nan-boxing and non-nan-boxing builds.
-    let fns: Vec<(String, Value)> = tests
-        .into_iter()
-        .map(|(name, idx)| (name, ctx.global_get(idx)))
-        .collect();
-    run_test_fns(ctx, fns)
-}
-
 /// Prints the test report and returns `true` if all tests passed.
 pub fn print_test_report(file_name: &str, results: &[TestResult]) -> bool {
     println!("Running tests in {}\n", file_name);

@@ -45,12 +45,12 @@ Aether Memory Model Report
   let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
   let %t4 = MakeList(10, 20)
   aether_call[owned, owned] forwarded_child(%t3, %t4))
-  aether_call[borrowed] print(%t2))
+  Print(%t2))
   drop %t1
   let %t5 = (let %t6 = MakeList(1, 2, 3)
   let %t7 = MakeList(10, 20)
   aether_call[owned, owned] forwarded_child_near_miss(%t6, %t7))
-  aether_call[borrowed] print(%t5)
+  Print(%t5)
 
 ── Total ──
   Dups: 3  Drops: 3  Reuses: 1  DropSpecs: 1  FBIP: fbip(5)

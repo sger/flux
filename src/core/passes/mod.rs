@@ -11,9 +11,10 @@ mod evidence;
 mod helpers;
 mod inline;
 mod inliner;
+mod primop_promote;
 mod tail_resumptive;
 
-pub use anf::anf_normalize;
+pub use anf::{anf_normalize, primop_result_rep};
 pub use beta::beta_reduce;
 pub use case_of_case::case_of_case;
 pub use cokc::case_of_known_constructor;
@@ -21,6 +22,7 @@ pub use dead_let::elim_dead_let;
 pub use evidence::evidence_pass;
 pub use inline::inline_trivial_lets;
 pub use inliner::inline_lets;
+pub use primop_promote::promote_builtins;
 
 use crate::core::{CoreExpr, CoreLit, CoreProgram};
 use crate::diagnostics::{
@@ -88,6 +90,13 @@ fn run_core_passes_with_optional_interner(
         collect_max_binder_id(&def.expr, &mut max_binder_id);
     }
     let mut next_id = max_binder_id + 1;
+
+    // ── Stage 0: Promote known builtin calls to PrimOp ─────────────────
+    // Must run after binder resolution (so `binder: None` is reliable) and
+    // before simplification (so Core passes see PrimOp, not App).
+    if let Some(interner) = interner {
+        promote_builtins(program, interner);
+    }
 
     let sentinel = CoreExpr::Lit(CoreLit::Unit, Default::default());
 

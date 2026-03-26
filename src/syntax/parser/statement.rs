@@ -757,12 +757,40 @@ impl Parser {
             except = self.parse_import_except_list()?;
         }
 
+        let mut exposing = crate::syntax::statement::ImportExposing::None;
+        if self.peek_token.token_type == TokenType::Ident && self.peek_token.literal == "exposing" {
+            self.next_token(); // consume `exposing`
+            exposing = self.parse_import_exposing()?;
+        } else if self.peek_token.token_type == TokenType::Ident
+            && matches!(
+                self.peek_token.literal.as_ref(),
+                "expose" | "exports" | "exporting" | "using" | "open"
+            )
+        {
+            let typo = self.peek_token.literal.to_string();
+            self.emit_parser_diagnostic(
+                unexpected_token_with_details(
+                    self.peek_token.span(),
+                    "Unknown Import Clause",
+                    DiagnosticCategory::ParserDeclaration,
+                    format!(
+                        "Unknown keyword `{}` in import statement.",
+                        typo
+                    ),
+                )
+                .with_hint_text(
+                    "Did you mean `exposing`? Use `import Module exposing (..)` or `import Module exposing (name1, name2)`."),
+            );
+            return None;
+        }
+
         // No semicolon required for import statements
 
         Some(Statement::Import {
             name,
             alias,
             except,
+            exposing,
             span: self.span_from(start),
         })
     }
@@ -827,6 +855,96 @@ impl Parser {
         }
 
         Some(names)
+    }
+
+    /// Parses the `exposing (..)` or `exposing (name, name)` clause of an import.
+    fn parse_import_exposing(&mut self) -> Option<crate::syntax::statement::ImportExposing> {
+        use crate::syntax::statement::ImportExposing;
+
+        if !self.expect_peek_context_with_details(
+            TokenType::LParen,
+            "Missing Exposing List",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected `(` after `exposing` in import.".to_string(),
+            "Use `exposing (..)` for all members or `exposing (name1, name2)` for selective."
+                .to_string(),
+        ) {
+            return None;
+        }
+
+        // Check for `(..)` — wildcard: two Dot tokens followed by RParen
+        if self.is_peek_token(TokenType::Dot) {
+            self.next_token(); // consume first `.`
+            if !self.expect_peek_context_with_details(
+                TokenType::Dot,
+                "Invalid Exposing Clause",
+                DiagnosticCategory::ParserDeclaration,
+                "Expected `..` for wildcard exposing.".to_string(),
+                "Use `exposing (..)` to expose all public members.".to_string(),
+            ) {
+                return None;
+            }
+            if !self.expect_peek_context_with_details(
+                TokenType::RParen,
+                "Missing Closing Paren",
+                DiagnosticCategory::ParserDeclaration,
+                "Expected `)` after `..` in exposing clause.".to_string(),
+                "Wildcard exposing uses `exposing (..)`.".to_string(),
+            ) {
+                return None;
+            }
+            return Some(ImportExposing::All);
+        }
+
+        // Parse selective list: `(name1, name2, ...)`
+        let mut names = Vec::new();
+        if self.is_peek_token(TokenType::RParen) {
+            self.next_token();
+            return Some(ImportExposing::Names(names));
+        }
+
+        loop {
+            if !self.expect_peek_context_with_details(
+                TokenType::Ident,
+                "Invalid Exposing List",
+                DiagnosticCategory::ParserDeclaration,
+                "Expected identifier in `exposing` list.".to_string(),
+                "Use `exposing (name1, name2)` to expose specific members.".to_string(),
+            ) {
+                return None;
+            }
+            names.push(
+                self.current_token
+                    .symbol
+                    .expect("ident token should have symbol"),
+            );
+
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token(); // consume comma
+                continue;
+            }
+
+            if self.is_peek_token(TokenType::RParen) {
+                self.next_token(); // consume closing paren
+                break;
+            }
+
+            self.emit_parser_diagnostic(
+                unexpected_token_with_details(
+                    self.peek_token.span(),
+                    "Invalid Exposing List",
+                    DiagnosticCategory::ParserDeclaration,
+                    format!(
+                        "Expected `,` or `)` in exposing list, but found {}.",
+                        self.describe_token_type_for_diagnostic(self.peek_token.token_type)
+                    ),
+                )
+                .with_hint_text("Use `exposing (name1, name2)` for selective imports."),
+            );
+            return None;
+        }
+
+        Some(ImportExposing::Names(names))
     }
 
     /// Parses a `data` declaration with optional type parameters and constructor

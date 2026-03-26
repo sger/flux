@@ -1,0 +1,243 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/aoc/2024/day07_test.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:20:5
+   |
+20 |     assert_eq(Day07.day07a(sample_lines()), 3749)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:25:5
+   |
+25 |     assert_eq(Day07.day07b(sample_lines()), 11387)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:30:5
+   |
+30 |     assert_eq(Day07.day07a([|"190: 10 19"|]), 190)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:35:5
+   |
+35 |     assert_eq(Day07.day07a([|"29: 10 19"|]), 29)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:40:5
+   |
+40 |     assert_eq(Day07.day07a([|"83: 17 5"|]), 0)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:46:5
+   |
+46 |     assert_eq(Day07.day07a([|"15: 10 5"|]), 15)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:48:5
+   |
+48 |     assert_eq(Day07.day07a([|"50: 10 5"|]), 50)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:50:5
+   |
+50 |     assert_eq(Day07.day07a([|"11: 10 5"|]), 0)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:55:5
+   |
+55 |     assert_eq(Day07.day07a([|"292: 11 6 16 20"|]), 292)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:61:5
+   |
+61 |     assert_eq(Day07.day07a([|"156: 15 6"|]), 0)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:62:5
+   |
+62 |     assert_eq(Day07.day07b([|"156: 15 6"|]), 156)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:67:5
+   |
+67 |     assert_eq(Day07.day07a([|"7290: 6 8 6 15"|]), 0)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:68:5
+   |
+68 |     assert_eq(Day07.day07b([|"7290: 6 8 6 15"|]), 7290)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:73:5
+   |
+73 |     assert_eq(Day07.day07a([|"192: 17 8 14"|]), 0)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:74:5
+   |
+74 |     assert_eq(Day07.day07b([|"192: 17 8 14"|]), 192)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:79:5
+   |
+79 |     assert_eq(Day07.day07a([|"5: 5"|]), 5)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:80:5
+   |
+80 |     assert_eq(Day07.day07a([|"5: 3"|]), 0)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `assert_eq`.
+
+  examples/aoc/2024/day07_test.flx:85:5
+   |
+85 |     assert_eq(Day07.day07a([|"190: 10 19", "", "29: 10 19"|]), 219)
+   |     ^^^^^^^^^
+
+Hint:
+  Define it first: let assert_eq = ...;
+
+Found 18 errors.
+== stdout ==
+<not executed>

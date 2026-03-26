@@ -8,53 +8,45 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/boundary_return_string_as_int.flx
-error[E1004]: Type Error
+error[E300]: Return Type Mismatch
 
-I found a value with the wrong runtime type.
+The body of `bad` does not match its declared return type.
 
-  examples/runtime_errors/boundary_return_string_as_int.flx:3:1
+  examples/runtime_errors/boundary_return_string_as_int.flx:4:5
   |
 3 | fn bad() -> Int {
-  | ^^^^^^^^^^^^^^^^^
+  |             --- `bad` was declared to return `Int`
 4 |     RuntimeErrors.BoundaryUnknown.dynamic_string()
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-5 | }
-  | ^
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     ---------------------------------------------- this expression has type `String`
 
 Note:
-  expected type: Int
-  found type:    String
-  runtime value:  "oops"
+  declared return type: Int
+  body type: String
 
 Help:
-  Check the value flowing into this operation or add a conversion before this point.
-
-Stack trace:
-  at bad
-  at <main> (examples/runtime_errors/boundary_return_string_as_int.flx:7:1)
+  Return a `Int` value from `bad` or change its annotation.
 == jit ==
 status: 1
 stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/boundary_return_string_as_int.flx
-error[E1004]: Type Error
+error[E300]: Return Type Mismatch
 
-I found a value with the wrong runtime type.
+The body of `bad` does not match its declared return type.
 
-  examples/runtime_errors/boundary_return_string_as_int.flx:3:1
+  examples/runtime_errors/boundary_return_string_as_int.flx:4:5
   |
 3 | fn bad() -> Int {
-  | ^^^^^^^^^^^^^^^^^
+  |             --- `bad` was declared to return `Int`
 4 |     RuntimeErrors.BoundaryUnknown.dynamic_string()
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-5 | }
-  | ^
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     ---------------------------------------------- this expression has type `String`
 
 Note:
-  expected type: Int
-  found type:    String
-  runtime value:  "oops"
+  declared return type: Int
+  body type: String
 
 Help:
-  Check the value flowing into this operation or add a conversion before this point.
+  Return a `Int` value from `bad` or change its annotation.

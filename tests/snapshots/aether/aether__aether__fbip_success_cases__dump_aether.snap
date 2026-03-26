@@ -47,15 +47,15 @@ Aether Memory Model Report
 λ.
   let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
   aether_call[borrowed] rebuild_list(%t3))
-  aether_call[borrowed] print(%t2))
+  Print(%t2))
   drop %t1
   let %t4 = (let %t5 = (let %t6 = Some(41)
   aether_call[borrowed] rebuild_some(%t6))
-  aether_call[borrowed] print(%t5))
+  Print(%t5))
   drop %t4
   let %t7 = (let %t8 = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
   aether_call[owned] set_black(%t8))
-  aether_call[borrowed] print(%t7)
+  Print(%t7)
 
 ── Total ──
   Dups: 0  Drops: 2  Reuses: 3  DropSpecs: 0  FBIP: fbip(1)

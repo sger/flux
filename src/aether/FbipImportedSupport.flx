@@ -1,5 +1,0 @@
-module Aether.FbipImportedSupport {
-    public fn imported_inc(x: Int) -> Int {
-        x + 1
-    }
-}

@@ -38,7 +38,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
 
             // Extract scrutinee binder for specialization.
             let scrut_binder = match scrutinee.as_ref() {
-                CoreExpr::Var { var, .. } => var.binder.map(|id| CoreBinder { id, name: var.name }),
+                CoreExpr::Var { var, .. } => var.binder.map(|id| CoreBinder::new(id, var.name)),
                 _ => None,
             };
 

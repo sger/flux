@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/aoc/2024/day06_test.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2024/Day06Solver.flx:75:9
+   |
+75 |         map(lines, /line -> line_to_row(line, 0, [||]))
+   |         ^^^
+
+Hint:
+  Define it first: let map = ...;
+== stdout ==
+<not executed>

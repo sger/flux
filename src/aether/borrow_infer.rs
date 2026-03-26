@@ -4,7 +4,7 @@
 //! borrow metadata that survives past inference and is available at every
 //! Aether call site. Borrow facts come from three sources:
 //! - inferred signatures for user-defined Core definitions
-//! - explicit Base/runtime metadata
+//! - explicit Flow/runtime metadata
 //! - conservative imported/unknown fallbacks
 
 use std::collections::{HashMap, HashSet};
@@ -162,7 +162,8 @@ pub fn infer_borrow_modes(
         .collect();
     let recursive_groups = compute_recursive_groups(program);
 
-    loop {
+    const MAX_BORROW_INFERENCE_ROUNDS: usize = 10;
+    for _round in 0..MAX_BORROW_INFERENCE_ROUNDS {
         let mut changed_any = false;
         for group in &recursive_groups {
             let group_set: HashSet<_> = group.iter().copied().collect();
@@ -224,17 +225,17 @@ fn register_explicit_named_fallbacks(
 
     for (name, arity) in unresolved_callees {
         if let Some(interner) = interner
-            && let Some(metadata) =
-                crate::runtime::base::get_base_borrow_metadata(interner.resolve(name))
+            && let Some((primop_arity, borrows)) =
+                crate::primop::resolve_primop_borrow_info(interner.resolve(name))
         {
-            let mode = match metadata.arg_mode {
-                crate::runtime::base_function::BaseFunctionArgMode::BorrowedOnly
-                | crate::runtime::base_function::BaseFunctionArgMode::BorrowedPreferredWithOwnedFallback => BorrowMode::Borrowed,
-                crate::runtime::base_function::BaseFunctionArgMode::OwnedOnly => BorrowMode::Owned,
+            let mode = if borrows {
+                BorrowMode::Borrowed
+            } else {
+                BorrowMode::Owned
             };
             registry.insert_named_if_absent(
                 name,
-                BorrowSignature::all(mode, metadata.arity, BorrowProvenance::BaseRuntime),
+                BorrowSignature::all(mode, primop_arity, BorrowProvenance::BaseRuntime),
             );
             continue;
         }

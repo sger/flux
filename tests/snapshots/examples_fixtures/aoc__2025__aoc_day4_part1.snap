@@ -3,8 +3,33 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day4_part1.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day4_part1.flx:54:18
+   |
+54 | let row_counts = [count_row(lines, rows, cols, r, 0, 0) | r <- range(0, rows)]
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `sum`.
+
+  examples/aoc/2025/aoc_day4_part1.flx:55:7
+   |
+55 | print(sum(row_counts))
+   |       ^^^
+
+Hint:
+  Define it first: let sum = ...;
+
+Found 2 errors.
 == stdout ==
 <not executed>

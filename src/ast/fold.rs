@@ -147,6 +147,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             name,
             alias,
             except,
+            exposing,
             span,
         } => Statement::Import {
             name: folder.fold_identifier(name),
@@ -155,6 +156,17 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
                 .into_iter()
                 .map(|name| folder.fold_identifier(name))
                 .collect(),
+            exposing: match exposing {
+                crate::syntax::statement::ImportExposing::Names(names) => {
+                    crate::syntax::statement::ImportExposing::Names(
+                        names
+                            .into_iter()
+                            .map(|n| folder.fold_identifier(n))
+                            .collect(),
+                    )
+                }
+                other => other,
+            },
             span,
         },
         Statement::Data {

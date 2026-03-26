@@ -3,8 +3,81 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day6_haskell_style.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `filter`.
+
+  examples/aoc/2025/aoc_day6_haskell_style.flx:55:31
+   |
+55 |     split(trim(line), " ") |> filter(/x -> x != "")
+   |                               ^^^^^^
+
+Hint:
+  Define it first: let filter = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day6_haskell_style.flx:59:14
+   |
+59 |     lines |> map(/line -> split_words_line(line))
+   |              ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `reverse`.
+
+  examples/aoc/2025/aoc_day6_haskell_style.flx:109:15
+    |
+109 |     let rev = reverse(tokens)
+    |               ^^^^^^^
+
+Hint:
+  Define it first: let reverse = ...;
+
+Help:
+  Did you mean `rev`?
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day6_haskell_style.flx:122:13
+    |
+122 |     cols |> fold(0, /(acc, col) -> acc + eval_day06a_col(col))
+    |             ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+Help:
+  Did you mean `cols`?
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day6_haskell_style.flx:237:15
+    |
+237 |     groups |> fold(0, /(acc, g) -> acc + eval_day06b_group(g))
+    |               ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+Help:
+  Did you mean `cols`?
+
+Found 5 errors.
 == stdout ==
 <not executed>

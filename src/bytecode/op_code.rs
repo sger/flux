@@ -74,7 +74,7 @@ pub enum OpCode {
     /// Generic primop dispatch: operands are `[primop_id: u8, arity: u8]`.
     /// Consumes `arity` arguments from the stack and pushes one result.
     OpPrimOp = 62,
-    /// Direct Base function call: operands are `[base_fn_index: u8, arity: u8]`.
+    /// Direct built-in function call: operands are `[base_fn_index: u8, arity: u8]`.
     /// Unlike `OpCall`, no callee value is read from the stack.
     /// Consumes `arity` arguments from the stack and pushes one result.
     OpCallBase = 63,
