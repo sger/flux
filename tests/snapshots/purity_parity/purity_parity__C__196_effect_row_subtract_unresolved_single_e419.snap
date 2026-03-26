@@ -7,11 +7,11 @@ Strict: false
 Expect compile error: true
 
 == vm command ==
-$ flux --no-cache examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx
+$ flux --no-cache --no-strict examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx
 exit_code: 1
 
 == jit command ==
-$ flux --no-cache examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx --jit
+$ flux --no-cache --no-strict examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx --jit
 exit_code: 1
 
 == vm tuples ==

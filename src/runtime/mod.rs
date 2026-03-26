@@ -15,28 +15,23 @@
 //! Any future cyclic data feature must use cycle-aware memory management.
 use crate::runtime::value::Value;
 
-pub mod base;
-pub mod base_function;
 pub mod closure;
 pub mod compiled_function;
+pub mod cons_cell;
 pub mod continuation;
 pub mod frame;
 pub mod function_contract;
-pub mod gc;
+pub mod hamt;
 pub mod handler_arm;
 pub mod handler_descriptor;
 pub mod handler_frame;
 pub mod hash_key;
-pub mod jit_closure;
 pub mod leak_detector;
 pub mod perform_descriptor;
 pub mod runtime_type;
 pub mod value;
 
 pub mod nanbox;
-pub mod native_context;
-pub mod native_helpers;
-pub mod value_arena;
 
 pub trait RuntimeContext {
     fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String>;
@@ -56,8 +51,6 @@ pub trait RuntimeContext {
     ) -> Result<Value, String> {
         self.invoke_value(callee.clone(), vec![left, right])
     }
-    fn gc_heap(&self) -> &gc::GcHeap;
-    fn gc_heap_mut(&mut self) -> &mut gc::GcHeap;
     fn callable_contract<'a>(
         &'a self,
         _callee: &'a Value,
@@ -65,6 +58,3 @@ pub trait RuntimeContext {
         None
     }
 }
-
-pub type BaseFn = fn(&mut dyn RuntimeContext, Vec<Value>) -> Result<Value, String>;
-pub type BorrowedBaseFn = fn(&mut dyn RuntimeContext, &[&Value]) -> Result<Value, String>;

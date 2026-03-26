@@ -134,41 +134,6 @@ mod tests {
     }
 
     #[test]
-    fn define_and_resolve_base() {
-        let mut interner = Interner::new();
-        let mut global = SymbolTable::new();
-        let sym_len = interner.intern("len");
-        let sym_first = interner.intern("first");
-        global.define_base_function(0, sym_len);
-        global.define_base_function(1, sym_first);
-
-        assert_symbol(
-            &interner,
-            global.resolve(sym_len).unwrap(),
-            "len",
-            SymbolScope::Base,
-            0,
-        );
-        assert_symbol(
-            &interner,
-            global.resolve(sym_first).unwrap(),
-            "first",
-            SymbolScope::Base,
-            1,
-        );
-
-        // base_functions should resolve through enclosed scopes too
-        let mut local = SymbolTable::new_enclosed(global);
-        assert_symbol(
-            &interner,
-            local.resolve(sym_len).unwrap(),
-            "len",
-            SymbolScope::Base,
-            0,
-        );
-    }
-
-    #[test]
     fn define_function_name() {
         let mut interner = Interner::new();
         let global = SymbolTable::new();

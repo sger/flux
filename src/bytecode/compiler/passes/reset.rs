@@ -11,7 +11,6 @@ impl Compiler {
         self.import_aliases.clear();
         self.imported_module_exclusions.clear();
         self.current_module_prefix = None;
-        self.excluded_base_symbols.clear();
         self.function_effects.clear();
         self.handled_effects.clear();
         self.effect_ops_registry.clear();

@@ -41,7 +41,7 @@ fn infer_program_perf_guard() {
         );
 
         let mut interner_for_base = parser.take_interner();
-        let base_symbol = interner_for_base.intern("Base");
+        let base_symbol = interner_for_base.intern("Flow");
         let result = infer_program(
             &program,
             &interner_for_base,
@@ -49,8 +49,8 @@ fn infer_program_perf_guard() {
                 file_path: Some("<perf_guard>".into()),
                 preloaded_base_schemes: HashMap::new(),
                 preloaded_module_member_schemes: HashMap::new(),
-                known_base_names: HashSet::new(),
-                base_module_symbol: base_symbol,
+                known_flow_names: HashSet::new(),
+                flow_module_symbol: base_symbol,
                 preloaded_effect_op_signatures: HashMap::new(),
             },
         );

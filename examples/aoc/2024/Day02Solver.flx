@@ -7,7 +7,7 @@ module Day02Solver {
         |> map(\t -> parse_int(t))
     }
 
-    fn parse_reports(lines) {
+    public fn parse_reports(lines) {
         lines
         |> map(\line -> trim(line))
         |> filter(\line -> line != "")
@@ -49,11 +49,11 @@ module Day02Solver {
         }
     }
 
-    fn day02a(reports) {
+    public fn day02a(reports) {
         count(reports, \r -> predicate(r))
     }
 
-    fn day02b(reports) {
+    public fn day02b(reports) {
         count(reports, \r -> any(try_drops(r), \candidate -> predicate(candidate)))
     }
 }

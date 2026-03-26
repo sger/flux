@@ -7,11 +7,11 @@ Strict: false
 Expect compile error: true
 
 == vm command ==
-$ flux --no-cache examples/type_system/failing/38_top_level_effect_rejected.flx
+$ flux --no-cache --no-strict examples/type_system/failing/38_top_level_effect_rejected.flx
 exit_code: 1
 
 == jit command ==
-$ flux --no-cache examples/type_system/failing/38_top_level_effect_rejected.flx --jit
+$ flux --no-cache --no-strict examples/type_system/failing/38_top_level_effect_rejected.flx --jit
 exit_code: 1
 
 == vm tuples ==

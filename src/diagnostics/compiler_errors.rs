@@ -674,24 +674,24 @@ pub const BASE_ALIAS_FORBIDDEN: ErrorCode = ErrorCode {
     code: "E078",
     title: "INVALID BASE DIRECTIVE",
     error_type: ErrorType::Compiler,
-    message: "`import Base as {}` is not allowed.",
-    hint: Some("Use `import Base` or `import Base except [...]`."),
+    message: "`import Flow as {}` is not allowed.",
+    hint: Some("Use `import Flow` or `import Flow except [...]`."),
 };
 
 pub const DUPLICATE_BASE_EXCLUSION: ErrorCode = ErrorCode {
     code: "E079",
     title: "INVALID BASE DIRECTIVE",
     error_type: ErrorType::Compiler,
-    message: "Duplicate Base exclusion `{}`.",
-    hint: Some("Each name in `import Base except [...]` must appear only once."),
+    message: "Duplicate Flow exclusion `{}`.",
+    hint: Some("Each name in `import Flow except [...]` must appear only once."),
 };
 
 pub const UNKNOWN_BASE_MEMBER: ErrorCode = ErrorCode {
     code: "E080",
-    title: "UNKNOWN BASE MEMBER",
+    title: "UNKNOWN FLOW MEMBER",
     error_type: ErrorType::Compiler,
-    message: "Base has no member named `{}`.",
-    hint: Some("Check the Base surface or remove this name from `except`."),
+    message: "Flow has no member named `{}`.",
+    hint: Some("Check the Flow surface or remove this name from `except`."),
 };
 
 // ============================================================================

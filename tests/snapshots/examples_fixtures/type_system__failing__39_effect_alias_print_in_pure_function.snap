@@ -5,17 +5,19 @@ Fixture: examples/type_system/failing/39_effect_alias_print_in_pure_function.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E400]: Missing Ambient Effect
+error[E004]: Undefined Variable
 
-Call to `p` requires effect `IO` in this function signature.
+I can't find a value named `print`.
 
-  examples/type_system/failing/39_effect_alias_print_in_pure_function.flx:5:5
+  examples/type_system/failing/39_effect_alias_print_in_pure_function.flx:4:13
   |
-5 |     p("hi")
-  |     ^
-  |     - effectful call occurs here
+4 |     let p = print
+  |             ^^^^^
 
 Hint:
-  Add `with IO` to the enclosing function.
+  Define it first: let print = ...;
+
+Help:
+  Did you mean `p`?
 == stdout ==
 <not executed>

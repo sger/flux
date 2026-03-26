@@ -28,6 +28,32 @@ Help:
 
 error[E004]: Undefined Variable
 
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day11_part2.flx:70:19
+   |
+70 |     let entries = [parse_entry(trim(line)) | line <- lines, trim(line) != "", find_char_from(trim(line), ":", 0) >= 0]
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day11_part2.flx:71:5
+   |
+71 |     fold(entries, {}, /(g, e) -> put(g, str_at(e, 0), arr_at(e, 1)))
+   |     ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
 I can't find a value named `dfs_count2`.
 
   examples/aoc/2025/aoc_day11_part2.flx:91:13
@@ -38,6 +64,6 @@ I can't find a value named `dfs_count2`.
 Hint:
   Define it first: let dfs_count2 = ...;
 
-Found 2 errors.
+Found 4 errors.
 == stdout ==
 <not executed>

@@ -1,0 +1,59 @@
+---
+source: tests/aether_cli_snapshots.rs
+---
+letrec copy_or_keep_head : List<Any> =
+λxs#1, copy#2.
+    case xs#1 of
+      ::(h#3, t#4) →
+        drop_spec xs#1 {
+          unique -> case copy#2 of
+              true →
+                let %t1:Box = ::(h#3, t#4)
+                reuse xs#1 ::(h#3, #4000014[synthetic]#14) @mask=0b10
+              _ →
+                reuse xs#1 ::(h#3, t#4) @mask=0b0
+          shared -> case copy#2 of
+              true →
+                let %t1:Box = ::(dup h#3
+                h#3, t#4)
+                ::(h#3, #4000014[synthetic]#14)
+              _ →
+                ::(h#3, t#4)
+        }
+      _ →
+        []
+
+letrec keep_or_dup_left : Tree =
+λt#6, keep#7.
+    case t#6 of
+      Node(color#8, left#9, key#10, right#11) →
+        drop_spec t#6 {
+          unique -> case keep#7 of
+              true →
+                reuse t#6 Node(color#8, left#9, key#10, right#11) @mask=0b0
+              _ →
+                drop right#11
+                reuse t#6 Node(color#8, left#9, key#10, left#9) @mask=0b1000
+          shared -> case keep#7 of
+              true →
+                aether_call[owned, owned, owned, owned] Node#?[external](color#8, left#9, key#10, right#11)
+              _ →
+                drop right#11
+                aether_call[owned, owned, owned, owned] Node#?[external](color#8, dup left#9
+                left#9, key#10, left#9)
+        }
+      _ →
+        t#6
+
+letrec main : Any =
+λ.
+    let %t2 = (let %t3 = (let %t4:Box = MakeList(1, 2, 3)
+    aether_call[borrowed, borrowed] copy_or_keep_head#0(#4000015[synthetic]#15, true))
+    Print(#4000016[synthetic]#16))
+    drop #2000000[synthetic]#13
+    let %t5 = (let %t6 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+    aether_call[owned, borrowed] keep_or_dup_left#5(#4000017[synthetic]#17, false))
+    Print(#4000018[synthetic]#18)
+
+── Aether stats ──
+Dups: 2  Drops: 3  Reuses: 4  DropSpecs: 2  FBIP: fbip(4)

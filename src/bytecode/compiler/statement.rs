@@ -22,7 +22,7 @@ use crate::{
         block::Block,
         data_variant::DataVariant,
         effect_expr::EffectExpr,
-        expression::Pattern,
+        expression::{Expression, Pattern},
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
         statement::Statement,
         symbol::Symbol,
@@ -48,10 +48,624 @@ impl Compiler {
         })
     }
 
-    fn block_contains_cfg_incompatible_statements_ast(body: &Block) -> bool {
-        body.statements
+    /// Quick pre-codegen validation to detect semantic errors that the CFG
+    /// path can't catch. Returns `true` if errors are present — caller should
+    /// skip CFG and fall through to the AST path for proper error reporting.
+    ///
+    /// Checks: E001 duplicate let, E002/E003 assignment, E056 wrong arg count,
+    /// E400/E419-E422 effect row violations.
+    fn quick_validate_function_body(
+        &mut self,
+        body: &Block,
+        parameters: &[crate::syntax::symbol::Symbol],
+        declared_effects: &[EffectExpr],
+        param_effect_rows: &HashMap<Symbol, super::effect_rows::EffectRow>,
+    ) -> bool {
+        Self::block_has_semantic_errors(body, parameters)
+            || self.block_has_call_arity_error(body)
+            || self.block_has_effect_row_error(body, declared_effects, param_effect_rows)
+            || self.block_has_typed_let_error(body)
+            || self.block_has_prefix_type_error(body)
+            || self.block_has_effectful_base_ref(body, declared_effects)
+            || self.block_has_index_type_error(body)
+            || self.block_has_undefined_identifier(body, parameters)
+    }
+
+    /// Check if any index expression uses a non-Int index (E300).
+    fn block_has_index_type_error(&self, body: &Block) -> bool {
+        body.statements.iter().any(|s| match s {
+            Statement::Expression { expression, .. }
+            | Statement::Let {
+                value: expression, ..
+            } => self.expr_has_index_type_error(expression),
+            _ => false,
+        })
+    }
+
+    fn expr_has_index_type_error(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::Index { left, index, .. } => {
+                use crate::types::type_constructor::TypeConstructor;
+                // Check index type is Int
+                if let super::hm_expr_typer::HmExprTypeResult::Known(idx_ty) =
+                    self.hm_expr_type_strict_path(index)
+                    && !matches!(idx_ty, InferType::Con(TypeConstructor::Int))
+                {
+                    return true;
+                }
+                // Check left type is indexable
+                if let super::hm_expr_typer::HmExprTypeResult::Known(left_ty) =
+                    self.hm_expr_type_strict_path(left)
+                {
+                    !matches!(
+                        left_ty,
+                        InferType::App(
+                            TypeConstructor::Array | TypeConstructor::List | TypeConstructor::Map,
+                            _,
+                        ) | InferType::Tuple(_)
+                            | InferType::Con(TypeConstructor::String)
+                    )
+                } else {
+                    false
+                }
+            }
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                self.expr_has_index_type_error(function)
+                    || arguments.iter().any(|a| self.expr_has_index_type_error(a))
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expr_has_index_type_error(condition)
+                    || self.block_has_index_type_error(consequence)
+                    || alternative
+                        .as_ref()
+                        .is_some_and(|b| self.block_has_index_type_error(b))
+            }
+            Expression::DoBlock { block, .. } => self.block_has_index_type_error(block),
+            Expression::Match { arms, .. } => arms
+                .iter()
+                .any(|arm| self.expr_has_index_type_error(&arm.body)),
+            _ => false,
+        }
+    }
+
+    /// Check if any identifier in the body references a base function with
+    /// effects not declared by this function. Catches aliased effectful calls
+    /// like `let p = print; p("hi")` in a pure function.
+    fn block_has_effectful_base_ref(
+        &mut self,
+        body: &Block,
+        declared_effects: &[EffectExpr],
+    ) -> bool {
+        body.statements.iter().any(|s| match s {
+            Statement::Let { value, .. }
+            | Statement::Expression {
+                expression: value, ..
+            } => self.expr_has_effectful_base_ref(value, declared_effects),
+            _ => false,
+        })
+    }
+
+    fn expr_has_effectful_base_ref(
+        &mut self,
+        expr: &Expression,
+        declared_effects: &[EffectExpr],
+    ) -> bool {
+        match expr {
+            Expression::Identifier { name, .. } => {
+                let name_str = self.sym(*name);
+                if let Some(required_effect) = self.required_effect_for_base_name(name_str) {
+                    let required_sym = self.interner.intern(required_effect);
+                    !Self::is_effect_in_declared(required_sym, declared_effects)
+                } else {
+                    false
+                }
+            }
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                self.expr_has_effectful_base_ref(function, declared_effects)
+                    || arguments
+                        .iter()
+                        .any(|a| self.expr_has_effectful_base_ref(a, declared_effects))
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expr_has_effectful_base_ref(condition, declared_effects)
+                    || self.block_has_effectful_base_ref(consequence, declared_effects)
+                    || alternative
+                        .as_ref()
+                        .is_some_and(|b| self.block_has_effectful_base_ref(b, declared_effects))
+            }
+            Expression::DoBlock { block, .. } => {
+                self.block_has_effectful_base_ref(block, declared_effects)
+            }
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
+                self.expr_has_effectful_base_ref(scrutinee, declared_effects)
+                    || arms
+                        .iter()
+                        .any(|arm| self.expr_has_effectful_base_ref(&arm.body, declared_effects))
+            }
+            _ => false,
+        }
+    }
+
+    /// Check if any prefix `-` expression has a non-numeric operand (E300).
+    fn block_has_prefix_type_error(&self, body: &Block) -> bool {
+        body.statements.iter().any(|s| match s {
+            Statement::Expression { expression, .. }
+            | Statement::Let {
+                value: expression, ..
+            } => self.expr_has_prefix_type_error(expression),
+            _ => false,
+        })
+    }
+
+    fn expr_has_prefix_type_error(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::Prefix {
+                operator, right, ..
+            } if operator == "-" => {
+                if let super::hm_expr_typer::HmExprTypeResult::Known(ty) =
+                    self.hm_expr_type_strict_path(right)
+                {
+                    !matches!(
+                        ty,
+                        InferType::Con(
+                            crate::types::type_constructor::TypeConstructor::Int
+                                | crate::types::type_constructor::TypeConstructor::Float
+                        )
+                    )
+                } else {
+                    false
+                }
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expr_has_prefix_type_error(condition)
+                    || self.block_has_prefix_type_error(consequence)
+                    || alternative
+                        .as_ref()
+                        .is_some_and(|b| self.block_has_prefix_type_error(b))
+            }
+            Expression::DoBlock { block, .. } => self.block_has_prefix_type_error(block),
+            Expression::Match { arms, .. } => arms
+                .iter()
+                .any(|arm| self.expr_has_prefix_type_error(&arm.body)),
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                self.expr_has_prefix_type_error(function)
+                    || arguments.iter().any(|a| self.expr_has_prefix_type_error(a))
+            }
+            _ => false,
+        }
+    }
+
+    /// Check if any typed let binding has a type annotation mismatch (E300).
+    fn block_has_typed_let_error(&self, body: &Block) -> bool {
+        body.statements.iter().any(|s| {
+            if let Statement::Let {
+                type_annotation: Some(annotation),
+                value,
+                ..
+            } = s
+            {
+                if let Some(expected) = crate::types::type_env::TypeEnv::infer_type_from_type_expr(
+                    annotation,
+                    &Default::default(),
+                    &self.interner,
+                ) {
+                    self.known_concrete_expr_type_mismatch(&expected, value)
+                        .is_some()
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        })
+    }
+
+    /// Check if any call expression has wrong argument count vs HM type (E056).
+    fn block_has_call_arity_error(&self, body: &Block) -> bool {
+        body.statements.iter().any(|s| match s {
+            Statement::Expression { expression, .. }
+            | Statement::Let {
+                value: expression, ..
+            } => self.expr_has_call_arity_error(expression),
+            _ => false,
+        })
+    }
+
+    fn expr_has_call_arity_error(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                // Use HM type to check expected arity
+                if let super::hm_expr_typer::HmExprTypeResult::Known(InferType::Fun(params, _, _)) =
+                    self.hm_expr_type_strict_path(function)
+                    && params.len() != arguments.len()
+                {
+                    return true;
+                }
+                // Recurse into subexpressions
+                self.expr_has_call_arity_error(function)
+                    || arguments.iter().any(|a| self.expr_has_call_arity_error(a))
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expr_has_call_arity_error(condition)
+                    || self.block_has_call_arity_error(consequence)
+                    || alternative
+                        .as_ref()
+                        .is_some_and(|b| self.block_has_call_arity_error(b))
+            }
+            Expression::DoBlock { block, .. } => self.block_has_call_arity_error(block),
+            Expression::Match { arms, .. } => arms
+                .iter()
+                .any(|arm| self.expr_has_call_arity_error(&arm.body)),
+            _ => false,
+        }
+    }
+
+    /// Check if any statement in the block (recursively) contains errors
+    /// that only the AST path catches: assignments (E002/E003) or duplicate
+    /// let bindings in the same scope (E001).
+    fn block_has_semantic_errors(body: &Block, parameters: &[Symbol]) -> bool {
+        // Check for assignments (Flux is purely immutable)
+        let has_assign = body
+            .statements
             .iter()
-            .any(|statement| matches!(statement, Statement::Module { .. }))
+            .any(|s| matches!(s, Statement::Assign { .. }));
+        if has_assign {
+            return true;
+        }
+        // Check for duplicate let bindings in the same scope (including params)
+        let mut seen: std::collections::HashSet<Symbol> = parameters.iter().copied().collect();
+        for stmt in &body.statements {
+            if let Statement::Let { name, .. } = stmt
+                && !seen.insert(*name)
+            {
+                return true;
+            }
+        }
+        // Recurse into nested blocks and let values
+        body.statements.iter().any(|s| match s {
+            Statement::Expression { expression, .. }
+            | Statement::Let {
+                value: expression, ..
+            } => Self::expr_has_semantic_errors(expression),
+            _ => false,
+        })
+    }
+
+    fn expr_has_semantic_errors(expr: &Expression) -> bool {
+        match expr {
+            Expression::If {
+                consequence,
+                alternative,
+                ..
+            } => {
+                Self::block_has_semantic_errors(consequence, &[])
+                    || alternative
+                        .as_ref()
+                        .is_some_and(|b| Self::block_has_semantic_errors(b, &[]))
+            }
+            Expression::DoBlock { block, .. } => Self::block_has_semantic_errors(block, &[]),
+            Expression::Match { arms, .. } => arms
+                .iter()
+                .any(|arm| Self::expr_has_semantic_errors(&arm.body)),
+            Expression::Function {
+                body, parameters, ..
+            } => Self::block_has_semantic_errors(body, parameters),
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                Self::expr_has_semantic_errors(function)
+                    || arguments.iter().any(Self::expr_has_semantic_errors)
+            }
+            _ => false,
+        }
+    }
+
+    /// Check if any call in the block would trigger effect row errors
+    /// (E400, E419-E422). Uses explicit `declared_effects` and `param_effect_rows`
+    /// instead of reading from the function context stack (which hasn't been pushed yet).
+    fn block_has_effect_row_error(
+        &mut self,
+        body: &Block,
+        declared_effects: &[EffectExpr],
+        param_effect_rows: &HashMap<Symbol, super::effect_rows::EffectRow>,
+    ) -> bool {
+        body.statements.iter().any(|s| match s {
+            Statement::Expression { expression, .. }
+            | Statement::Let {
+                value: expression, ..
+            } => self.expr_has_effect_row_error(expression, declared_effects, param_effect_rows),
+            _ => false,
+        })
+    }
+
+    fn expr_has_effect_row_error(
+        &mut self,
+        expr: &Expression,
+        declared_effects: &[EffectExpr],
+        param_effect_rows: &HashMap<Symbol, super::effect_rows::EffectRow>,
+    ) -> bool {
+        match expr {
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                if self.call_has_effect_row_error(
+                    function,
+                    arguments,
+                    declared_effects,
+                    param_effect_rows,
+                ) {
+                    return true;
+                }
+                // Recurse into subexpressions
+                self.expr_has_effect_row_error(function, declared_effects, param_effect_rows)
+                    || arguments.iter().any(|a| {
+                        self.expr_has_effect_row_error(a, declared_effects, param_effect_rows)
+                    })
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expr_has_effect_row_error(condition, declared_effects, param_effect_rows)
+                    || self.block_has_effect_row_error(
+                        consequence,
+                        declared_effects,
+                        param_effect_rows,
+                    )
+                    || alternative.as_ref().is_some_and(|b| {
+                        self.block_has_effect_row_error(b, declared_effects, param_effect_rows)
+                    })
+            }
+            Expression::DoBlock { block, .. } => {
+                self.block_has_effect_row_error(block, declared_effects, param_effect_rows)
+            }
+            Expression::Match { arms, .. } => arms.iter().any(|arm| {
+                self.expr_has_effect_row_error(&arm.body, declared_effects, param_effect_rows)
+            }),
+            // Check perform for unknown effects/operations (E404/E405)
+            Expression::Perform {
+                effect, operation, ..
+            } => {
+                // Check if the effect resolves
+                let resolved_effect = self.lookup_effect_alias(*effect).unwrap_or(*effect);
+                self.effect_op_signature(resolved_effect, *operation)
+                    .is_none()
+            }
+            // Don't recurse into nested function bodies — they have their own effect context
+            _ => false,
+        }
+    }
+
+    /// Check a single call expression for effect row errors.
+    /// Returns `true` if the call would trigger E400 or E419-E422.
+    fn call_has_effect_row_error(
+        &mut self,
+        function: &Expression,
+        arguments: &[Expression],
+        declared_effects: &[EffectExpr],
+        param_effect_rows: &HashMap<Symbol, super::effect_rows::EffectRow>,
+    ) -> bool {
+        use super::effect_rows::{EffectRow, solve_row_constraints};
+
+        // Check base function effect requirements (e.g., print requires IO)
+        if let Expression::Identifier { name, .. } = function {
+            let name_str = self.sym(*name);
+            if let Some(required_effect) = self.required_effect_for_base_name(name_str) {
+                let required_sym = self.interner.intern(required_effect);
+                if !Self::is_effect_in_declared(required_sym, declared_effects) {
+                    return true;
+                }
+            }
+        }
+
+        let Some(contract) = self
+            .resolve_call_contract(function, arguments.len())
+            .cloned()
+        else {
+            return false;
+        };
+
+        if contract.effects.is_empty() {
+            return false;
+        }
+
+        let required_row = EffectRow::from_effect_exprs(&contract.effects);
+        let constraints =
+            self.collect_effect_row_constraints_with_rows(&contract, arguments, param_effect_rows);
+        let solution = solve_row_constraints(&constraints);
+
+        // Check for constraint violations (E421, E422)
+        if !solution.violations.is_empty() {
+            return true;
+        }
+
+        // Check for unresolved effect variables (E419, E420)
+        let unresolved: Vec<Symbol> = required_row
+            .unresolved_vars(&solution)
+            .into_iter()
+            .filter(|effect_var| !Self::is_effect_in_declared(*effect_var, declared_effects))
+            .collect();
+        if !unresolved.is_empty() {
+            return true;
+        }
+
+        // Check for missing concrete effects (E400)
+        let required_effects = required_row.concrete_effects(&solution);
+        for required_name in required_effects {
+            if !Self::is_effect_in_declared(required_name, declared_effects) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if an effect is available in the declared effects list.
+    /// When no effects are declared (empty slice), no effects are available —
+    /// matching the AST path's behavior where `current_function_effects()` returns
+    /// `Some(&[])` and `is_effect_available()` returns false.
+    fn is_effect_in_declared(effect: Symbol, declared_effects: &[EffectExpr]) -> bool {
+        declared_effects
+            .iter()
+            .any(|e| e.normalized_names().contains(&effect))
+    }
+
+    fn block_contains_cfg_incompatible_statements_ast(body: &Block) -> bool {
+        body.statements.iter().any(|statement| {
+            matches!(
+                statement,
+                Statement::Module { .. } | Statement::Import { .. }
+            )
+        })
+    }
+
+    /// Returns `true` when the block contains a typed `let` binding whose
+    /// type annotation the AST path must validate. The CFG path does not yet
+    /// perform strict annotation checking, so we fall back to AST when
+    /// strict mode is active and annotated let-bindings are present.
+    fn block_contains_typed_let_ast(body: &Block) -> bool {
+        body.statements.iter().any(|statement| {
+            matches!(
+                statement,
+                Statement::Let {
+                    type_annotation: Some(_),
+                    ..
+                }
+            )
+        })
+    }
+
+    /// Check if the function body references identifiers that can't be resolved
+    /// against the symbol table, base functions, or local scope. These are truly
+    /// undefined variables (e.g. `mystery_value`) whose Core IR degenerates to
+    /// `()`, making the CFG path compile without error. The AST path must handle
+    /// these for proper E004 reporting.
+    fn block_has_undefined_identifier(&mut self, body: &Block, parameters: &[Symbol]) -> bool {
+        let mut local_names: Vec<Symbol> = parameters.to_vec();
+        for stmt in &body.statements {
+            if let Statement::Let { name, .. } = stmt {
+                local_names.push(*name);
+            }
+            if self.stmt_has_undefined_ident(stmt, &local_names) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn stmt_has_undefined_ident(&mut self, stmt: &Statement, locals: &[Symbol]) -> bool {
+        match stmt {
+            Statement::Expression { expression, .. } => {
+                self.expr_has_undefined_ident(expression, locals)
+            }
+            Statement::Let { value, .. } => self.expr_has_undefined_ident(value, locals),
+            _ => false,
+        }
+    }
+
+    fn expr_has_undefined_ident(&mut self, expr: &Expression, locals: &[Symbol]) -> bool {
+        match expr {
+            Expression::Identifier { name, .. } => {
+                // Check: local binding, symbol table, exposed bindings,
+                // known primop name (any arity), or variadic builtins.
+                if locals.contains(name) || self.exposed_bindings.contains_key(name) {
+                    return false;
+                }
+                if self.symbol_table.resolve(*name).is_some() {
+                    return false;
+                }
+                let name_str = self.sym(*name).to_string();
+                name_str != "list"
+                    && crate::primop::resolve_primop_call(&name_str, 0).is_none()
+                    && crate::primop::resolve_primop_call(&name_str, 1).is_none()
+                    && crate::primop::resolve_primop_call(&name_str, 2).is_none()
+                    && crate::primop::resolve_primop_call(&name_str, 3).is_none()
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expr_has_undefined_ident(condition, locals)
+                    || consequence
+                        .statements
+                        .iter()
+                        .any(|s| self.stmt_has_undefined_ident(s, locals))
+                    || alternative.as_ref().is_some_and(|b| {
+                        b.statements
+                            .iter()
+                            .any(|s| self.stmt_has_undefined_ident(s, locals))
+                    })
+            }
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
+                self.expr_has_undefined_ident(scrutinee, locals)
+                    || arms
+                        .iter()
+                        .any(|arm| self.expr_has_undefined_ident(&arm.body, locals))
+            }
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                self.expr_has_undefined_ident(function, locals)
+                    || arguments
+                        .iter()
+                        .any(|a| self.expr_has_undefined_ident(a, locals))
+            }
+            Expression::DoBlock { block, .. } => block
+                .statements
+                .iter()
+                .any(|s| self.stmt_has_undefined_ident(s, locals)),
+            _ => false,
+        }
     }
 
     #[allow(dead_code)]
@@ -227,7 +841,6 @@ impl Compiler {
                     // Check for duplicate in current scope FIRST (takes precedence)
                     if let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
-                        && existing.symbol_scope != SymbolScope::Base
                     {
                         let name_str = self.sym(name);
                         return Err(Self::boxed(self.make_redeclaration_error(
@@ -395,7 +1008,6 @@ impl Compiler {
                     if self.scope_index > 0
                         && let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
-                        && existing.symbol_scope != SymbolScope::Base
                         && existing.symbol_scope != SymbolScope::Function
                     {
                         let name_str = self.sym(name);
@@ -471,6 +1083,7 @@ impl Compiler {
                     name,
                     alias,
                     except,
+                    exposing,
                     span,
                 } => {
                     let name = *name;
@@ -483,7 +1096,7 @@ impl Compiler {
                             *span,
                         )));
                     }
-                    if self.is_base_module_symbol(name) {
+                    if self.is_flow_module_symbol(name) {
                         self.compile_import_statement(name, *alias, except)?;
                         return Ok(());
                     }
@@ -502,6 +1115,9 @@ impl Compiler {
                     // Reserve the name for this file so later declarations can't collide.
                     self.file_scope_symbols.insert(binding_name);
                     self.compile_import_statement(name, *alias, except)?;
+
+                    // Register exposed bindings for unqualified access.
+                    self.register_exposed_bindings(name, exposing, *span)?;
                 }
                 Statement::Data { name, variants, .. } => {
                     self.compile_data_statement(*name, variants)?;
@@ -616,12 +1232,50 @@ impl Compiler {
             }
 
             let param_effect_rows = self.build_param_effect_rows(parameters, parameter_types);
-            if let Some(ir_function) = ir_function
-                && !Self::block_contains_cfg_incompatible_statements_ast(body)
-                && let Some(cfg_result) = self.try_compile_ir_cfg_function_body(ir_function, name)
-            {
-                return cfg_result;
+
+            // ── CFG primary path ─────────────────────────────────────────
+            // Pre-validate semantic errors that CFG can't catch (E001, E002,
+            // E056, E300, E400/E419-E422). If errors exist, fall through to
+            // AST for proper diagnostic reporting.
+            let has_body_errors =
+                self.quick_validate_function_body(body, parameters, effects, &param_effect_rows);
+
+            // CFG handles all well-typed functions. AST fallback is used only
+            // for: (a) functions with pre-validation errors, (b) HM type errors,
+            // (c) module/import statements, (d) strict-mode typed-let.
+            let use_ast_path = has_body_errors
+                || self.has_hm_diagnostics
+                || ir_function.is_none()
+                || Self::block_contains_cfg_incompatible_statements_ast(body)
+                || (self.strict_mode && Self::block_contains_typed_let_ast(body));
+
+            if !use_ast_path {
+                let ir_function = ir_function.unwrap();
+                let scope_snapshot = self.scopes[self.scope_index].clone();
+                let const_len = self.constants.len();
+                match self.try_compile_ir_cfg_function_body(ir_function, name) {
+                    Some(Ok(())) => return Ok(()),
+                    Some(Err(_)) => {
+                        // CFG compilation error (e.g. unresolved name) — roll
+                        // back and fall through to AST for proper diagnostics.
+                        self.scopes[self.scope_index] = scope_snapshot;
+                        self.constants.truncate(const_len);
+                    }
+                    None => {
+                        // Unsupported expression — should be unreachable now
+                        // that all IrExpr variants are in supported_expr().
+                        // Fall through to AST as a safety net.
+                        debug_assert!(
+                            false,
+                            "CFG returned None for well-typed function '{}' — \
+                             all IrExpr variants should be supported",
+                            self.sym(name),
+                        );
+                    }
+                }
             }
+
+            // ── AST fallback path ──────────────────────────────────────────
             let body_errors = self.with_function_context_with_param_effect_rows(
                 parameters.len(),
                 effects,
@@ -633,6 +1287,18 @@ impl Compiler {
                     if self.is_last_instruction(OpCode::OpPop) {
                         self.replace_last_pop_with_return();
                     } else if self.replace_last_local_read_with_return() {
+                        // The replacement turned the last instruction into
+                        // OpReturnLocal in-place, so the alternative branch
+                        // returns directly.  However, if the body ends with
+                        // an if-else expression, the consequence branch's
+                        // OpJump was patched to `instructions.len()` (the
+                        // position right after the alternative).  Because the
+                        // replacement didn't grow the buffer, that jump now
+                        // targets one byte past the end.  Emit a landing-pad
+                        // OpReturnValue so the jump has a valid target.
+                        // It is dead code for the alternative path but
+                        // harmless (1 extra byte per affected function).
+                        self.emit(OpCode::OpReturnValue, &[]);
                     } else if !self.is_last_instruction(OpCode::OpReturnValue)
                         && !self.is_last_instruction(OpCode::OpReturnLocal)
                     {
@@ -911,7 +1577,7 @@ impl Compiler {
         alias: Option<Symbol>,
         except: &[Symbol],
     ) -> CompileResult<()> {
-        if self.is_base_module_symbol(name) {
+        if self.is_flow_module_symbol(name) {
             return Ok(());
         }
 
@@ -930,7 +1596,105 @@ impl Compiler {
         Ok(())
     }
 
+    /// Register exposed bindings so module members can be used unqualified.
+    ///
+    /// For `exposing (..)`, all public members of the module are registered.
+    /// For `exposing (a, b)`, only the named members are registered.
+    pub(super) fn register_exposed_bindings(
+        &mut self,
+        module_name: Symbol,
+        exposing: &crate::syntax::statement::ImportExposing,
+        span: Span,
+    ) -> CompileResult<()> {
+        use crate::syntax::statement::ImportExposing;
+
+        match exposing {
+            ImportExposing::None => {}
+            ImportExposing::All => {
+                // Expose all public members of the module.
+                let public_members: Vec<Symbol> = self
+                    .module_function_visibility
+                    .iter()
+                    .filter(|((mod_name, _), is_public)| *mod_name == module_name && **is_public)
+                    .map(|((_, member), _)| *member)
+                    .collect();
+                for member in public_members {
+                    let qualified = self.interner.intern_join(module_name, member);
+                    self.exposed_bindings.insert(member, qualified);
+                }
+            }
+            ImportExposing::Names(names) => {
+                for &member in names {
+                    // Validate the member exists and is public.
+                    let is_public = self
+                        .module_function_visibility
+                        .get(&(module_name, member))
+                        .copied();
+                    match is_public {
+                        Some(true) => {
+                            let qualified = self.interner.intern_join(module_name, member);
+                            self.exposed_bindings.insert(member, qualified);
+                        }
+                        Some(false) => {
+                            let member_str = self.sym(member).to_string();
+                            let module_str = self.sym(module_name).to_string();
+                            return Err(Self::boxed(Diagnostic::make_error_dynamic(
+                                "E420",
+                                "Private Member in Exposing",
+                                ErrorType::Compiler,
+                                format!(
+                                    "Cannot expose `{}` because it is not a public member of `{}`.",
+                                    member_str, module_str
+                                ),
+                                Some(
+                                    "Mark the function as `public fn` in the module to expose it."
+                                        .to_string(),
+                                ),
+                                self.file_path.clone(),
+                                span,
+                            )));
+                        }
+                        None => {
+                            let member_str = self.sym(member).to_string();
+                            let module_str = self.sym(module_name).to_string();
+                            return Err(Self::boxed(Diagnostic::make_error_dynamic(
+                                "E421",
+                                "Unknown Member in Exposing",
+                                ErrorType::Compiler,
+                                format!(
+                                    "`{}` is not defined in module `{}`.",
+                                    member_str, module_str
+                                ),
+                                Some(format!(
+                                    "Check the public members of `{}` or remove `{}` from the exposing list.",
+                                    module_str, member_str
+                                )),
+                                self.file_path.clone(),
+                                span,
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn compile_block(&mut self, block: &Block) -> CompileResult<()> {
+        // If we already have consumable counts from a parent scope (e.g.,
+        // function body), don't override them with branch-local counts.
+        // Branch blocks (if/else, match arms) must use the parent's counts
+        // to avoid incorrectly consuming variables that are still needed
+        // after the branch.
+        if self.current_consumable_local_use_counts().is_some() {
+            for statement in &block.statements {
+                if let Some(err) = self.compile_statement_collect_error(statement) {
+                    return Err(err);
+                }
+            }
+            return Ok(());
+        }
+
         let mut consumable_counts = HashMap::new();
         for statement in &block.statements {
             self.collect_consumable_param_uses_statement(statement, &mut consumable_counts);

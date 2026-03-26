@@ -5,6 +5,35 @@ Fixture: examples/aoc/2025/aoc_day4_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
+
+  examples/aoc/2025/aoc_day4_part2.flx:6:9
+  |
+6 |         first(arr)
+  |         ^^^^^
+
+Hint:
+  Define it first: let first = ...;
+
+Help:
+  Did you mean `first2`?
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `last`.
+
+  examples/aoc/2025/aoc_day4_part2.flx:10:9
+   |
+10 |         last(arr)
+   |         ^^^^
+
+Hint:
+  Define it first: let last = ...;
+
+
 error[E300]: Type Mismatch
 
 I found a type mismatch.
@@ -52,7 +81,7 @@ I found the wrong type in the 7th argument to `build_row_after_round`.
 62 | }
 63 | 
 64 | fn step_round(lines, rows, cols, r, next_lines, removed_total) {
-65 |     if r >= rows {
+... |
 66 |         [|next_lines, removed_total|]
 67 |     } else {
 68 |     let row_result = build_row_after_round(lines, rows, cols, r, 0, "", 0)
@@ -69,316 +98,18 @@ Help:
   Try `to_string(...)` to convert a `Int` into a `String`.
 
 
-error[E300]: Type Mismatch
+error[E004]: Undefined Variable
 
-I found a type mismatch.
+I can't find a value named `map`.
 
-  examples/aoc/2025/aoc_day4_part2.flx:71:71
+  examples/aoc/2025/aoc_day4_part2.flx:87:13
    |
-71 |     step_round(lines, rows, cols, r + 1, push(next_lines, next_line), removed_total + removed_row)
-   |                                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |                                                                       --------------------------- this expression has type `Array<Option<String>> and Option<String>`
-
-   |                                                                       --------------------------- operator operands are known at compile time
-
-Note:
-  expected type: matching '+' operands (Int+Int, Float+Float, or String+String)
-  found type: Array<Option<String>> and Option<String>
-
-Help:
-  These two types are not compatible.
-  adjust operand types or add explicit conversion
-
-
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 6th argument to `step_round`.
-
-  examples/aoc/2025/aoc_day4_part2.flx:76:55
-   |
-64 | fn step_round(lines, rows, cols, r, next_lines, removed_total) {
-65 |     if r >= rows {
-66 |         [|next_lines, removed_total|]
-67 |     } else {
-68 |     let row_result = build_row_after_round(lines, rows, cols, r, 0, "", 0)
-69 |     let next_line = first2(row_result)
-70 |     let removed_row = second2(row_result)
-71 |     step_round(lines, rows, cols, r + 1, push(next_lines, next_line), removed_total + removed_row)
-72 | }
-73 | }
-74 | 
-75 | fn remove_until_stable(lines, rows, cols, removed_acc) {
-76 |     let step = step_round(lines, rows, cols, 0, [||], 0)
-   |                                                       ^
-   |                                                       - this argument has type `Int`
-
-Note:
-  expected argument type: Array<Option<String>>
-  found argument type: Int
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
-
-Help:
-  Pass a `Array<Option<String>>` value as the 6th argument.
-
-
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 1st argument to `first2`.
-
-  examples/aoc/2025/aoc_day4_part2.flx:77:29
-   |
- 5 |     fn first2(arr) {
- 6 |         first(arr)
- 7 |     }
- 8 | 
- 9 |     fn second2(arr) {
-10 |         last(arr)
-11 |     }
-12 | 
-13 |     fn line_at(lines, idx) {
-14 |         match lines[idx] {
-15 |             Some(v) -> v,
-16 |             _ -> ""
-17 |         }
-18 |     }
-19 | 
-20 |     fn char_at(line, col) {
-21 |         substring(line, col, col + 1)
-22 |     }
-23 | 
-24 |     fn is_roll(lines, rows, cols, r, c) {
-25 |         if r < 0 || c < 0 || r >= rows || c >= cols {
-26 |             false
-27 |         } else {
-28 |         let line = line_at(lines, r)
-29 |         char_at(line, c) == "@"
-30 |     }
-31 | }
-32 | 
-33 | fn adjacent_rolls(lines, rows, cols, r, c) {
-34 |     let n1 = if is_roll(lines, rows, cols, r - 1, c - 1) { 1 } else { 0 }
-35 |     let n2 = if is_roll(lines, rows, cols, r - 1, c) { 1 } else { 0 }
-36 |     let n3 = if is_roll(lines, rows, cols, r - 1, c + 1) { 1 } else { 0 }
-37 |     let n4 = if is_roll(lines, rows, cols, r, c - 1) { 1 } else { 0 }
-38 |     let n5 = if is_roll(lines, rows, cols, r, c + 1) { 1 } else { 0 }
-39 |     let n6 = if is_roll(lines, rows, cols, r + 1, c - 1) { 1 } else { 0 }
-40 |     let n7 = if is_roll(lines, rows, cols, r + 1, c) { 1 } else { 0 }
-41 |     let n8 = if is_roll(lines, rows, cols, r + 1, c + 1) { 1 } else { 0 }
-42 |     n1 + n2 + n3 + n4 + n5 + n6 + n7 + n8
-43 | }
-44 | 
-45 | fn build_row_after_round(lines, rows, cols, r, c, acc_line, removed) {
-46 |     if c >= cols {
-47 |         [|acc_line, removed|]
-48 |     } else {
-49 |     let line = line_at(lines, r)
-50 |     let ch = char_at(line, c)
-51 |     if ch == "@" {
-52 |         let adj = adjacent_rolls(lines, rows, cols, r, c)
-53 |         if adj < 4 {
-54 |             build_row_after_round(lines, rows, cols, r, c + 1, acc_line + ".", removed + 1)
-55 |         } else {
-56 |         build_row_after_round(lines, rows, cols, r, c + 1, acc_line + "@", removed)
-57 |     }
-58 | } else {
-59 | build_row_after_round(lines, rows, cols, r, c + 1, acc_line + ch, removed)
-60 | }
-61 | }
-62 | }
-63 | 
-64 | fn step_round(lines, rows, cols, r, next_lines, removed_total) {
-65 |     if r >= rows {
-66 |         [|next_lines, removed_total|]
-67 |     } else {
-68 |     let row_result = build_row_after_round(lines, rows, cols, r, 0, "", 0)
-69 |     let next_line = first2(row_result)
-70 |     let removed_row = second2(row_result)
-71 |     step_round(lines, rows, cols, r + 1, push(next_lines, next_line), removed_total + removed_row)
-72 | }
-73 | }
-74 | 
-75 | fn remove_until_stable(lines, rows, cols, removed_acc) {
-76 |     let step = step_round(lines, rows, cols, 0, [||], 0)
-77 |     let next_lines = first2(step)
-   |                             ^^^^
-   |                             ---- this argument has type `Array<Array<Option<String>>>`
-
-Note:
-  expected argument type: Array<String>
-  found argument type: Array<Array<Option<String>>>
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
-
-Help:
-  Pass a `Array<String>` value as the 1st argument.
-
-
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 1st argument to `second2`.
-
-  examples/aoc/2025/aoc_day4_part2.flx:78:31
-   |
- 9 |     fn second2(arr) {
-10 |         last(arr)
-11 |     }
-12 | 
-13 |     fn line_at(lines, idx) {
-14 |         match lines[idx] {
-15 |             Some(v) -> v,
-16 |             _ -> ""
-17 |         }
-18 |     }
-19 | 
-20 |     fn char_at(line, col) {
-21 |         substring(line, col, col + 1)
-22 |     }
-23 | 
-24 |     fn is_roll(lines, rows, cols, r, c) {
-25 |         if r < 0 || c < 0 || r >= rows || c >= cols {
-26 |             false
-27 |         } else {
-28 |         let line = line_at(lines, r)
-29 |         char_at(line, c) == "@"
-30 |     }
-31 | }
-32 | 
-33 | fn adjacent_rolls(lines, rows, cols, r, c) {
-34 |     let n1 = if is_roll(lines, rows, cols, r - 1, c - 1) { 1 } else { 0 }
-35 |     let n2 = if is_roll(lines, rows, cols, r - 1, c) { 1 } else { 0 }
-36 |     let n3 = if is_roll(lines, rows, cols, r - 1, c + 1) { 1 } else { 0 }
-37 |     let n4 = if is_roll(lines, rows, cols, r, c - 1) { 1 } else { 0 }
-38 |     let n5 = if is_roll(lines, rows, cols, r, c + 1) { 1 } else { 0 }
-39 |     let n6 = if is_roll(lines, rows, cols, r + 1, c - 1) { 1 } else { 0 }
-40 |     let n7 = if is_roll(lines, rows, cols, r + 1, c) { 1 } else { 0 }
-41 |     let n8 = if is_roll(lines, rows, cols, r + 1, c + 1) { 1 } else { 0 }
-42 |     n1 + n2 + n3 + n4 + n5 + n6 + n7 + n8
-43 | }
-44 | 
-45 | fn build_row_after_round(lines, rows, cols, r, c, acc_line, removed) {
-46 |     if c >= cols {
-47 |         [|acc_line, removed|]
-48 |     } else {
-49 |     let line = line_at(lines, r)
-50 |     let ch = char_at(line, c)
-51 |     if ch == "@" {
-52 |         let adj = adjacent_rolls(lines, rows, cols, r, c)
-53 |         if adj < 4 {
-54 |             build_row_after_round(lines, rows, cols, r, c + 1, acc_line + ".", removed + 1)
-55 |         } else {
-56 |         build_row_after_round(lines, rows, cols, r, c + 1, acc_line + "@", removed)
-57 |     }
-58 | } else {
-59 | build_row_after_round(lines, rows, cols, r, c + 1, acc_line + ch, removed)
-60 | }
-61 | }
-62 | }
-63 | 
-64 | fn step_round(lines, rows, cols, r, next_lines, removed_total) {
-65 |     if r >= rows {
-66 |         [|next_lines, removed_total|]
-67 |     } else {
-68 |     let row_result = build_row_after_round(lines, rows, cols, r, 0, "", 0)
-69 |     let next_line = first2(row_result)
-70 |     let removed_row = second2(row_result)
-71 |     step_round(lines, rows, cols, r + 1, push(next_lines, next_line), removed_total + removed_row)
-72 | }
-73 | }
-74 | 
-75 | fn remove_until_stable(lines, rows, cols, removed_acc) {
-76 |     let step = step_round(lines, rows, cols, 0, [||], 0)
-77 |     let next_lines = first2(step)
-78 |     let removed_now = second2(step)
-   |                               ^^^^
-   |                               ---- this argument has type `Array<Array<Option<String>>>`
-
-Note:
-  expected argument type: Array<String>
-  found argument type: Array<Array<Option<String>>>
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
-
-Help:
-  Pass a `Array<String>` value as the 1st argument.
-
-
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/aoc/2025/aoc_day4_part2.flx:79:8
-   |
-79 |     if removed_now == 0 {
-   |        ^^^^^^^^^^^^^^^^
-   |        ---------------- this expression has type `Int`
-
-   |        ---------------- this type mismatch is reported here
-
-Note:
-  expected type: Option<String>
-  found type: Int
-  the conflicting types meet at this expression
-
-Help:
-  Wrap this value in `Some(...)` or return `None`.
-
-
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/aoc/2025/aoc_day4_part2.flx:82:49
-   |
-82 |     remove_until_stable(next_lines, rows, cols, removed_acc + removed_now)
-   |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^
-   |                                                 ------------------------- this expression has type `Option<String> and Option<String>`
-
-   |                                                 ------------------------- operator operands are known at compile time
-
-Note:
-  expected type: matching '+' operands (Int+Int, Float+Float, or String+String)
-  found type: Option<String> and Option<String>
-
-Help:
-  This value might be `None`. Use `match` to unwrap it before using it here.
-  adjust operand types or add explicit conversion
-
-
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 4th argument to `remove_until_stable`.
-
-  examples/aoc/2025/aoc_day4_part2.flx:90:46
-   |
-75 | fn remove_until_stable(lines, rows, cols, removed_acc) {
-76 |     let step = step_round(lines, rows, cols, 0, [||], 0)
-77 |     let next_lines = first2(step)
-78 |     let removed_now = second2(step)
-79 |     if removed_now == 0 {
-80 |         removed_acc
-81 |     } else {
-82 |     remove_until_stable(next_lines, rows, cols, removed_acc + removed_now)
-83 | }
-84 | }
-85 | 
-86 | let raw_lines = read_lines("examples/io/aoc_day4.txt")
 87 | let lines = [line | line <- raw_lines, line != ""]
-88 | let rows = len(lines)
-89 | let cols = if rows == 0 { 0 } else { len(line_at(lines, 0)) }
-90 | print(remove_until_stable(lines, rows, cols, 0))
-   |                                              ^
-   |                                              - this argument has type `Int`
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Note:
-  expected argument type: Option<String>
-  found argument type: Int
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
+Hint:
+  Define it first: let map = ...;
 
-Help:
-  Wrap this value in `Some(...)` or return `None`.
-
-Found 9 errors.
+Found 5 errors.
 == stdout ==
 <not executed>

@@ -1,0 +1,34 @@
+---
+source: tests/aether_cli_snapshots.rs
+---
+letrec my_len =
+λxs.
+    Len(xs)
+
+letrec len_twice =
+λxs.
+    let %t1 = aether_call[borrowed] my_len(xs)
+    let %t2 = aether_call[borrowed] my_len(xs)
+    IAdd(%t1, %t2)
+
+letrec borrow_then_return =
+λxs, y.
+    let %t3 = (let %t4 = Len(xs)
+    Gt(%t4, 0))
+    case %t3 of
+      true →
+        y
+      _ →
+        y
+
+def main =
+let %t5 = (let %t6 = (let %t7 = MakeList(1, 2, 3)
+  aether_call[borrowed] len_twice(%t7))
+  Print(%t6))
+  drop %t5
+  let %t8 = (let %t9 = MakeList(1, 2, 3)
+  aether_call[borrowed, owned] borrow_then_return(%t9, 42))
+  Print(%t8)
+
+── Aether stats ──
+Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0

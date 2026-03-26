@@ -50,7 +50,7 @@ This architecture document focuses on component layout; semantic truth for type/
                                        │
                     ┌──────────────────▼──────────────────┐
                     │    Core IR Lowering (core/lower_ast/) │
-                    │  AST → CoreExpr (~12 variants)        │
+                    │  AST → CoreExpr                        │
                     │  Type-directed: IAdd/FAdd from HM     │
                     └──────────────────┬──────────────────┘
                                        │
@@ -67,11 +67,24 @@ This architecture document focuses on component layout; semantic truth for type/
               └────────────────────────┬────────────────────────┘
                                        │
               ┌────────────────────────▼────────────────────────┐
+              │              Aether (aether/)                    │
+              │                                                  │
+              │  borrow_infer → insert → fusion →                │
+              │  drop_spec → reuse → reuse_spec →                │
+              │  verify / semantic FBIP                          │
+              │                                                  │
+              │  Emits explicit Core Aether nodes:               │
+              │  AetherCall / Dup / Drop / Reuse /               │
+              │  DropSpecialized                                 │
+              └────────────────────────┬────────────────────────┘
+                                       │
+              ┌────────────────────────▼────────────────────────┐
               │      Core → Backend IR (core/to_ir/)             │
               │  CoreExpr → IrFunction/IrBlock/IrInstr           │
               │  • Uncurrying (Lam chains → multi-param fns)     │
               │  • Closure detection (free var capture)           │
               │  • Case → branch blocks + join                   │
+              │  • Lower Aether nodes to backend-neutral IR      │
               │  • Typed IrParam from CoreType                   │
               └────────────────────────┬────────────────────────┘
                                        │
@@ -130,12 +143,12 @@ This architecture document focuses on component layout; semantic truth for type/
                           ┌───────────────────▼───────────────┐
                           │         Shared Runtime             │
                           │                                    │
-                          │  Value enum (25 variants)          │
-                          │  GC (mark & sweep)                 │
-                          │  Base functions (77)                │
+                          │  Value enum + Rc-based ownership   │
+                          │  No mark/sweep GC                  │
+                          │  Base functions                    │
                           │  Closures / Continuations          │
                           │  HAMT persistent maps              │
-                          │  JitContext + 50+ rt_* helpers     │
+                          │  JitContext + rt_* helpers         │
                           └────────────────────────────────────┘
 ```
 
@@ -148,19 +161,21 @@ This architecture document focuses on component layout; semantic truth for type/
 | **Frontend** | `syntax/` | 5K | Lexing, parsing, string interning |
 | **AST Transforms** | `ast/` | 3K | Desugar, constant fold, free vars, tail calls |
 | **Type Inference** | `ast/type_infer/` | 4K | HM Algorithm W + effect rows |
-| **Core IR** | `core/` | 5K | Semantic IR + 7 optimization passes |
+| **Core IR** | `core/` | 5K | Semantic IR + standard Core optimization passes |
+| **Aether** | `aether/` | 7K+ | Ownership, borrow, reuse, verification, FBIP on Core |
 | **Backend IR** | `cfg/` | 3K | CFG representation + 7 passes + `lower_program_to_ir()` |
 | **VM Backend** | `bytecode/` | 15K | `compiler/` (7-phase pipeline, CFG → opcodes) + `vm/` (stack-based executor) |
 | **JIT Backend** | `jit/` | 6K | CFG → Cranelift → machine code |
 | **LLVM Backend** | `llvm/` | 3K | CFG → LLVM IR → machine code / object files |
-| **Runtime** | `runtime/` | 8K | GC, base functions, values, closures — shared by all 3 backends |
+| **Runtime** | `runtime/` | 8K | Rc-based values, base functions, closures, helpers — shared by all 3 backends |
 | **Diagnostics** | `diagnostics/` | 3K | Elm-style error rendering |
 
 ---
 
 ## Intermediate Representations
 
-Flux uses four IRs in sequence:
+Flux uses four main compiler representations in sequence, with Aether as a
+Core-stage transformation layer between Core passes and CFG lowering:
 
 ### 1. AST (`syntax/expression.rs`)
 - Tree-shaped, close to source syntax
@@ -169,11 +184,49 @@ Flux uses four IRs in sequence:
 - Spans preserved on every node for diagnostics
 
 ### 2. Core IR (`core/mod.rs`)
-- ~12 expression variants — all syntactic sugar eliminated
-- `Var`, `Lit`, `Lam`, `App`, `Let`, `LetRec`, `Case`, `Con`, `PrimOp`, `Return`, `Perform`, `Handle`
+- semantic IR with source sugar eliminated
+- standard computation nodes plus explicit Aether nodes after the Aether stage
 - Binders use `CoreBinder` (stable ID + name)
 - `CoreType` carries HM-inferred types on definitions
 - Pattern matching preserved as `Case` with `CoreAlt` alternatives
+
+Important Aether-related Core nodes:
+
+- `AetherCall`
+- `Dup`
+- `Drop`
+- `Reuse`
+- `DropSpecialized`
+
+These remain explicit in Core until CFG lowering.
+
+### Aether stage (`src/aether/`)
+
+Aether is not a separate production IR. It is a Core-stage ownership and reuse
+pipeline that runs after the standard Core passes and before CFG lowering.
+
+Main responsibilities:
+
+- infer borrow signatures
+- insert `AetherCall`, `Dup`, and `Drop`
+- recognize `Reuse`
+- recognize `DropSpecialized`
+- verify the transformed Core
+- run semantic `@fip` / `@fbip` checks
+
+Primary modules:
+
+- `src/aether/borrow_infer.rs`
+- `src/aether/insert.rs`
+- `src/aether/drop_spec.rs`
+- `src/aether/reuse.rs`
+- `src/aether/reuse_spec.rs`
+- `src/aether/verify.rs`
+- `src/aether/check_fbip.rs`
+
+See also:
+
+- `docs/internals/aether.md`
 
 ### 3. Backend IR / CFG (`cfg/mod.rs`)
 - Function-oriented: `IrFunction` with `IrBlock` basic blocks
@@ -206,6 +259,9 @@ The Core IR optimization pipeline (`core/passes/`) runs 7 passes in order:
 
 Shared infrastructure in `helpers.rs`: substitution, tree walking, free-variable analysis, expression size counting.
 
+After those seven passes, `core/passes/mod.rs` runs Aether and only then lowers
+the resulting Core to CFG.
+
 ---
 
 ## CFG Passes
@@ -226,7 +282,9 @@ The backend IR optimization pipeline (`cfg/passes.rs`) runs 7 passes:
 
 ## Execution Backends
 
-All three backends consume the same `IrProgram` (from `cfg/`) and share the same `runtime/` (Value, GC, base functions, closures, `rt_*` helpers). Parity between backends is enforced by `scripts/release/check_parity.sh`.
+All three backends consume the same `IrProgram` (from `cfg/`) and share the same
+`runtime/` (Rc-based values, base functions, closures, `rt_*` helpers). Parity
+between backends is enforced by `scripts/release/check_parity.sh`.
 
 ### VM Backend (`bytecode/`)
 
@@ -262,7 +320,7 @@ Compiles CFG IR to native machine code via Cranelift, runs in-process. Enabled w
 
 **Runtime bridge** (`jit/runtime_helpers.rs`):
 - 50+ `rt_*` native callbacks shared with LLVM backend
-- Handles GC allocation, effect perform/handle, closure creation, base function dispatch
+- Handles value allocation/reuse helpers, effect perform/handle, closure creation, base function dispatch
 - `value_arena.rs` provides pointer-stable allocation for JIT values
 
 ### LLVM Backend (`llvm/`)
@@ -282,9 +340,9 @@ Pure infrastructure consumed by all three backends — no backend-specific code:
 
 | Component | What it provides |
 |-----------|-----------------|
-| `value.rs` | `Value` enum (25 variants) — the universal runtime representation |
+| `value.rs` | `Value` enum — the universal runtime representation |
 | `base/` | 77 base functions (IO, array, string, math, higher-order, assertions) |
-| `gc/` | Mark-and-sweep GC heap, HAMT persistent maps, cons lists |
+| `cons_cell.rs`, `hamt.rs`, `adt.rs` | Rc-based persistent data structures and sharing helpers |
 | `closure.rs` | Closure struct (compiled function + captured values) |
 | `continuation.rs` | Continuation struct (captured frames for effect resume) |
 | `handler_frame.rs` | HandlerFrame (effect name + arms + boundary info) |
@@ -425,11 +483,14 @@ src/
 │   └── bytecode_cache/      .fxc bytecode cache (SHA-2 content hashing)
 │
 ├── runtime/                 Shared runtime (all 3 backends)
-│   ├── value.rs             Value enum (25 variants)
+│   ├── value.rs             Value enum and Rc-based runtime representation
 │   ├── compiled_function.rs CompiledFunction struct
 │   ├── closure.rs           Closure struct (function + captured values)
 │   ├── continuation.rs      Continuation struct (captured frames for effects)
 │   ├── handler_frame.rs     HandlerFrame (effect + arms + boundary info)
+│   ├── cons_cell.rs         Rc-based cons list representation
+│   ├── hamt.rs              Rc-based HAMT persistent maps
+│   ├── adt.rs               Rc-based ADT field helpers
 │   ├── base/                75 base functions, registered via BASE_FUNCTIONS array
 │   │   ├── mod.rs           Registration and dispatch
 │   │   ├── helpers.rs       HM type signatures for all base functions
@@ -442,15 +503,11 @@ src/
 │   │   ├── io_ops.rs        IO operations (print, read_file, ...)
 │   │   ├── type_check.rs    Type checking (type_of, is_int, ...)
 │   │   └── assert_ops.rs    Test assertions (assert_eq, assert_throws, ...)
-│   └── gc/                  Mark-and-sweep GC heap
-│       ├── gc_heap.rs       Allocation, mark, sweep
-│       ├── cons.rs          HeapObject::Cons — immutable linked lists
-│       └── hamt.rs          HeapObject::HamtNode — persistent hash maps
 │
 ├── jit/                     Cranelift JIT backend (--features jit)
 │   ├── compiler.rs          CFG IR → Cranelift IR → machine code (~5.4K lines)
-│   ├── context.rs           JIT execution context, shares GC heap with VM
-│   ├── runtime_helpers.rs   Native callbacks: rt_perform, rt_push_handler, GC alloc
+│   ├── context.rs           JIT execution context
+│   ├── runtime_helpers.rs   Native callbacks: rt_perform, rt_push_handler, Aether/runtime helpers
 │   └── value_arena.rs       Pointer-stable allocation for JIT values
 │
 ├── llvm/                    LLVM backend (--features llvm, requires LLVM 18)
@@ -490,7 +547,10 @@ All identifiers go through `syntax::interner`. The `Identifier` type is `symbol:
 
 ### Rc-Based Values (No-Cycle Invariant)
 
-Runtime values use `Rc` for sharing. Values must form DAGs — no cycles allowed (would leak via Rc). The language enforces this through immutability. The GC heap handles cons lists and HAMT maps which can share structure.
+Runtime values use `Rc` for sharing. Values must form DAGs — no cycles allowed
+(would leak via `Rc`). The language enforces this through immutability.
+Persistent lists, ADTs, options/eithers, and HAMT maps are all represented
+through Rc-based runtime structures; there is no production mark-and-sweep heap.
 
 ### Value Enum
 
@@ -504,7 +564,8 @@ enum Value {
     Adt(Rc<str>, AdtFields), AdtUnit(Rc<str>),
     // Collections
     Array(Rc<Vec<Value>>),
-    Gc(GcHandle),           // cons cells and HAMT nodes
+    Cons(Rc<ConsCell>),
+    HashMap(Rc<HamtNode>),
     // Functions
     Function(Rc<CompiledFunction>), Closure(Rc<Closure>), BaseFunction(u8),
     JitClosure(Rc<JitClosure>),
@@ -548,13 +609,20 @@ Elm-style error messages with:
 
 Compiled bytecode cached as `.fxc` files under `target/flux/`. Cache keys are SHA-2 hashes of source content + dependency graph. `--no-cache` flag disables.
 
-### GC Heap
+### Aether and Runtime Ownership
 
-Mark-and-sweep GC (`runtime/gc/`) manages:
-- **Cons cells** — immutable linked lists, O(1) prepend
-- **HAMT maps** — Hash Array Mapped Trie with structural sharing
+Flux no longer uses a production mark-and-sweep heap. Instead:
 
-GC runs when `allocation_count >= gc_threshold` (default 10,000).
+- runtime sharing is Rc-based
+- Aether inserts explicit ownership/reuse nodes in Core
+- Core-to-CFG lowering turns those into backend-neutral operations
+- VM/JIT/LLVM realize the same Aether semantics through opcodes or `rt_*`
+  helpers
+
+See:
+
+- `docs/internals/aether.md`
+- `docs/proposals/implemented/0084_aether_memory_model.md`
 
 ---
 
@@ -582,6 +650,8 @@ Three-token lookahead. Error recovery via `sync_to_*` functions. Tokens defined 
 | `--all-errors` | Show diagnostics from all phases (disable stage filtering) |
 | `--dump-core` | Print Core IR (readable mode) and exit |
 | `--dump-core=debug` | Print Core IR with binder IDs and types |
+| `--dump-aether` | Print the Aether memory-model report and exit |
+| `--trace-aether` | Print Aether report plus backend path to `stderr`, then run |
 | `-O` | Enable AST-level optimizations |
 | `-A` | Enable analysis passes |
 | `bytecode <file>` | Show compiled bytecode disassembly |

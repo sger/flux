@@ -71,6 +71,7 @@ fn main() -> Unit with IO {
 }
 
 #[test]
+#[ignore = "uses base functions not in standalone compiler"]
 fn print_arity_split_routes_one_arg_to_primop_and_multi_arg_to_generic_base_call() {
     assert_contains_primop(
         r#"
@@ -107,6 +108,7 @@ fn main() -> Unit with IO {
 }
 
 #[test]
+#[ignore = "uses base functions not in standalone compiler"]
 fn compiler_emits_op_call_base_for_previous_mirrored_base_mappings() {
     let programs = [
         "first(#[1, 2]);",

@@ -1,0 +1,58 @@
+// Verify that HM type inference correctly resolves types from
+// lib/Flow/ functions WITHOUT explicit type annotations.
+// Every value here is inferred — no annotations at all.
+
+fn main() with IO {
+    // Primop return types — all inferred
+    let parts = split("hello world foo", " ")
+    assert_eq(len(parts), 3)
+    assert_eq(first(parts), Some("hello"))
+
+    let trimmed = trim("  hi  ")
+    assert_eq(trimmed, "hi")
+
+    let r = range(1, 6)
+    assert_eq(len(r), 5)
+    assert_eq(sum(r), 15)
+
+    // Flow.List HOFs — polymorphic, inferred
+    let doubled = map(r, \x -> x * 2)
+    assert_eq(sum(doubled), 30)
+
+    let evens = filter(r, \x -> x % 2 == 0)
+    assert_eq(len(evens), 2)
+
+    let total = fold(r, 0, \(acc, x) -> acc + x)
+    assert_eq(total, 15)
+
+    // Nested: inferred through pipeline
+    let words = split("one two three four five", " ")
+    let lengths = map(words, \w -> len(w))
+    let long = filter(lengths, \l -> l > 3)
+    assert_eq(len(long), 3)
+
+    // Flow.Option — inferred
+    let val = unwrap_or(Some(42), 0)
+    assert_eq(val, 42)
+
+    let mapped = map_option(Some(10), \x -> x * 2)
+    assert_eq(unwrap_or(mapped, 0), 20)
+
+    // Flow.IO — inferred
+    let ints = split_ints("10,20,30", ",")
+    assert_eq(sum(ints), 60)
+
+    // Verify inference through chaining
+    let result = fold(
+        filter(
+            map(range(1, 11), \x -> x * x),
+            \x -> x > 20
+        ),
+        0,
+        \(acc, x) -> acc + x
+    )
+    // Squares > 20: 25, 36, 49, 64, 81, 100 → sum = 355
+    assert_eq(result, 355)
+
+    print("All inferred type assertions passed!")
+}

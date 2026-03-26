@@ -104,7 +104,7 @@ fn infer_program_from_source(
     }
     collect_effect_sigs(&program.statements, &mut effect_op_sigs);
     let mut interner_for_base = interner.clone();
-    let base_symbol = interner_for_base.intern("Base");
+    let base_symbol = interner_for_base.intern("Flow");
     let result = infer_program(
         &program,
         &interner,
@@ -112,8 +112,8 @@ fn infer_program_from_source(
             file_path: Some("<test>".into()),
             preloaded_base_schemes: HashMap::new(),
             preloaded_module_member_schemes: HashMap::new(),
-            known_base_names: HashSet::new(),
-            base_module_symbol: base_symbol,
+            known_flow_names: HashSet::new(),
+            flow_module_symbol: base_symbol,
             preloaded_effect_op_signatures: effect_op_sigs,
         },
     );
@@ -1770,8 +1770,8 @@ fn main() -> Unit {
     let interner = parser.take_interner();
     let mut interner_for_base = interner.clone();
     let map = interner_for_base.intern("map");
-    let base = interner_for_base.intern("Base");
-    let known_base_names = HashSet::from([map]);
+    let base = interner_for_base.intern("Flow");
+    let known_flow_names = HashSet::from([map]);
     let result = infer_program(
         &program,
         &interner,
@@ -1779,8 +1779,8 @@ fn main() -> Unit {
             file_path: Some("<test>".into()),
             preloaded_base_schemes: HashMap::new(),
             preloaded_module_member_schemes: HashMap::new(),
-            known_base_names,
-            base_module_symbol: base,
+            known_flow_names,
+            flow_module_symbol: base,
             preloaded_effect_op_signatures: HashMap::new(),
         },
     );

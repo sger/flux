@@ -1,4 +1,0 @@
-// Expected compile error E078: invalid Base aliasing
-
-import Base as Core
-print(1);

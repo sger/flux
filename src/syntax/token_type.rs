@@ -110,6 +110,7 @@ define_tokens! {
         Colon     => ":",
         Dot       => ".",
         Hash      => "#",
+        At        => "@",
         Arrow     => "->",
         LeftArrow => "<-",
         Backslash => "\\",

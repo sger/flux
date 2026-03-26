@@ -43,18 +43,18 @@ type EvidenceMap = HashMap<(Identifier, Identifier), CoreBinder>;
 fn fresh_binder(next_id: &mut u32, name_hint: Identifier) -> CoreBinder {
     let id = *next_id;
     *next_id += 1;
-    // Use the 6_000_000 range for evidence synthetic symbols.
     let sym = crate::syntax::symbol::Symbol::new(6_000_000 + id);
-    // Use the hint name for debugging, but the ID is the synthetic one.
     let _ = name_hint;
-    CoreBinder::new(CoreBinderId(id), sym)
+    // Evidence variables are closures (handler functions) → BoxedRep.
+    CoreBinder::with_rep(CoreBinderId(id), sym, crate::core::FluxRep::BoxedRep)
 }
 
 fn fresh_identity_binder(next_id: &mut u32) -> CoreBinder {
     let id = *next_id;
     *next_id += 1;
     let sym = crate::syntax::symbol::Symbol::new(6_000_000 + id);
-    CoreBinder::new(CoreBinderId(id), sym)
+    // Identity lambdas are closures → BoxedRep.
+    CoreBinder::with_rep(CoreBinderId(id), sym, crate::core::FluxRep::BoxedRep)
 }
 
 /// Build an identity lambda `Lam([x], Var(x))` for the resume parameter.
@@ -190,6 +190,20 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
                 .collect(),
             span,
         },
+        CoreExpr::AetherCall {
+            func,
+            args,
+            arg_modes,
+            span,
+        } => CoreExpr::AetherCall {
+            func: Box::new(evidence_transform(*func, next_id, evidence)),
+            args: args
+                .into_iter()
+                .map(|a| evidence_transform(a, next_id, evidence))
+                .collect(),
+            arg_modes,
+            span,
+        },
 
         CoreExpr::Let {
             var,
@@ -252,6 +266,47 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
 
         CoreExpr::Return { value, span } => CoreExpr::Return {
             value: Box::new(evidence_transform(*value, next_id, evidence)),
+            span,
+        },
+
+        CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
+            var,
+            body: Box::new(evidence_transform(*body, next_id, evidence)),
+            span,
+        },
+
+        CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
+            var,
+            body: Box::new(evidence_transform(*body, next_id, evidence)),
+            span,
+        },
+
+        CoreExpr::Reuse {
+            token,
+            tag,
+            fields,
+            field_mask,
+            span,
+        } => CoreExpr::Reuse {
+            token,
+            tag,
+            fields: fields
+                .into_iter()
+                .map(|f| evidence_transform(f, next_id, evidence))
+                .collect(),
+            field_mask,
+            span,
+        },
+
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            span,
+        } => CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body: Box::new(evidence_transform(*unique_body, next_id, evidence)),
+            shared_body: Box::new(evidence_transform(*shared_body, next_id, evidence)),
             span,
         },
     }

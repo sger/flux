@@ -4,6 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/nested/call_index_member_chain.flx
 exit_code: 1
 
+• 1 error • tests/fixtures/nested/call_index_member_chain.flx
 error[E004]: Undefined Variable
 
 I can't find a value named `foo`.

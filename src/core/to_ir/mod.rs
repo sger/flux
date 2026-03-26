@@ -5,7 +5,7 @@
 ///
 /// Key design decisions:
 /// - **Uncurrying**: Top-level `Lam` chains become multi-param `IrFunction`s.
-/// - **Closures**: `Lam` inside expressions → `IrExpr::MakeClosure` + free-var capture.
+/// - **Closures**: `Lam` inside expressions → `IrExpr::MakeClosure` with only the used outer binders captured.
 /// - **Case compilation**: Patterns become sequences of tag/literal tests + jumps.
 use std::collections::HashMap;
 
@@ -22,7 +22,7 @@ use crate::{
 mod case;
 mod closure;
 pub(super) mod fn_ctx;
-mod free_vars;
+pub mod free_vars;
 mod primop;
 
 pub use free_vars::collect_free_vars_core;
@@ -301,11 +301,13 @@ fn lower_core_top_level_item(item: &CoreTopLevelItem) -> IrTopLevelItem {
             name,
             alias,
             except,
+            exposing,
             span,
         } => IrTopLevelItem::Import {
             name: *name,
             alias: *alias,
             except: except.clone(),
+            exposing: exposing.clone(),
             span: *span,
         },
         CoreTopLevelItem::Data {
@@ -388,8 +390,10 @@ fn find_function_decl_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cfg::{IrExpr, IrFunctionOrigin, IrInstr, IrTerminator};
     use crate::core::{
-        CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreLit, CorePrimOp, CoreProgram,
+        CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePrimOp, CoreProgram,
+        CoreVarRef,
     };
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
@@ -604,5 +608,253 @@ mod tests {
             ir.top_level_items.get(2),
             Some(IrTopLevelItem::EffectDecl { .. })
         ));
+    }
+
+    #[test]
+    fn lower_drop_specialized_emits_is_unique_and_branch() {
+        let mut interner = make_interner();
+        let f_name = interner.intern("spec");
+        let xs_name = interner.intern("xs");
+        let f_binder = binder(0, f_name);
+        let xs_binder = binder(1, xs_name);
+
+        let prog = CoreProgram {
+            defs: vec![CoreDef::new(
+                f_binder,
+                CoreExpr::Lam {
+                    params: vec![xs_binder],
+                    body: Box::new(CoreExpr::DropSpecialized {
+                        scrutinee: CoreVarRef::resolved(xs_binder),
+                        unique_body: Box::new(CoreExpr::Lit(CoreLit::Int(1), Span::default())),
+                        shared_body: Box::new(CoreExpr::Lit(CoreLit::Int(2), Span::default())),
+                        span: Span::default(),
+                    }),
+                    span: Span::default(),
+                },
+                false,
+                Span::default(),
+            )],
+            top_level_items: Vec::new(),
+        };
+
+        let ir = lower_core_to_ir(&prog);
+        let spec_fn = ir
+            .functions
+            .iter()
+            .find(|f| f.params.len() == 1 && f.params[0].name == xs_name)
+            .expect("expected lowered function for drop-specialized test");
+
+        let has_is_unique = spec_fn.blocks.iter().any(|b| {
+            b.instrs.iter().any(|instr| {
+                matches!(
+                    instr,
+                    crate::cfg::IrInstr::Assign {
+                        expr: IrExpr::IsUnique(_),
+                        ..
+                    }
+                )
+            })
+        });
+        assert!(
+            has_is_unique,
+            "DropSpecialized should lower to IrExpr::IsUnique"
+        );
+
+        let has_branch = spec_fn
+            .blocks
+            .iter()
+            .any(|b| matches!(b.terminator, IrTerminator::Branch { .. }));
+        assert!(
+            has_branch,
+            "DropSpecialized should lower to a Branch terminator"
+        );
+    }
+
+    #[test]
+    fn lower_closure_captures_only_used_outer_binders() {
+        let mut interner = make_interner();
+        let main_name = interner.intern("main");
+        let x_name = interner.intern("x");
+        let y_name = interner.intern("y");
+        let f_name = interner.intern("f");
+        let z_name = interner.intern("z");
+
+        let main_binder = binder(0, main_name);
+        let x_binder = binder(1, x_name);
+        let y_binder = binder(2, y_name);
+        let f_binder = binder(3, f_name);
+        let z_binder = binder(4, z_name);
+
+        let prog = CoreProgram {
+            defs: vec![CoreDef::new(
+                main_binder,
+                CoreExpr::Lam {
+                    params: vec![x_binder, y_binder],
+                    body: Box::new(CoreExpr::Let {
+                        var: f_binder,
+                        rhs: Box::new(CoreExpr::Lam {
+                            params: vec![z_binder],
+                            body: Box::new(CoreExpr::PrimOp {
+                                op: CorePrimOp::Add,
+                                args: vec![var_expr(x_binder), var_expr(z_binder)],
+                                span: Span::default(),
+                            }),
+                            span: Span::default(),
+                        }),
+                        body: Box::new(var_expr(f_binder)),
+                        span: Span::default(),
+                    }),
+                    span: Span::default(),
+                },
+                false,
+                Span::default(),
+            )],
+            top_level_items: Vec::new(),
+        };
+
+        let ir = lower_core_to_ir(&prog);
+        let closure_fn = ir
+            .functions
+            .iter()
+            .find(|func| {
+                matches!(func.origin, IrFunctionOrigin::FunctionLiteral)
+                    && func.name.is_none()
+                    && func.captures == vec![x_name]
+            })
+            .expect("expected function literal to capture only x");
+        assert_eq!(closure_fn.captures, vec![x_name]);
+
+        let make_closure_capture_len = ir
+            .functions
+            .iter()
+            .flat_map(|func| func.blocks.iter())
+            .flat_map(|block| block.instrs.iter())
+            .find_map(|instr| match instr {
+                IrInstr::Assign {
+                    expr: IrExpr::MakeClosure(fid, captures),
+                    ..
+                } if *fid == closure_fn.id => Some(captures.len()),
+                _ => None,
+            })
+            .expect("expected MakeClosure for inner lambda");
+        assert_eq!(make_closure_capture_len, 1);
+    }
+
+    #[test]
+    fn lower_recursive_closure_excludes_self_and_keeps_used_outer_capture() {
+        let mut interner = make_interner();
+        let main_name = interner.intern("main");
+        let x_name = interner.intern("x");
+        let f_name = interner.intern("f");
+        let n_name = interner.intern("n");
+        let tmp_name = interner.intern("tmp");
+
+        let main_binder = binder(10, main_name);
+        let x_binder = binder(11, x_name);
+        let f_binder = binder(12, f_name);
+        let n_binder = binder(13, n_name);
+        let tmp_binder = binder(14, tmp_name);
+
+        let prog = CoreProgram {
+            defs: vec![CoreDef::new(
+                main_binder,
+                CoreExpr::Lam {
+                    params: vec![x_binder],
+                    body: Box::new(CoreExpr::LetRec {
+                        var: f_binder,
+                        rhs: Box::new(CoreExpr::Lam {
+                            params: vec![n_binder],
+                            body: Box::new(CoreExpr::Let {
+                                var: tmp_binder,
+                                rhs: Box::new(CoreExpr::App {
+                                    func: Box::new(var_expr(f_binder)),
+                                    args: vec![var_expr(n_binder)],
+                                    span: Span::default(),
+                                }),
+                                body: Box::new(var_expr(x_binder)),
+                                span: Span::default(),
+                            }),
+                            span: Span::default(),
+                        }),
+                        body: Box::new(var_expr(f_binder)),
+                        span: Span::default(),
+                    }),
+                    span: Span::default(),
+                },
+                false,
+                Span::default(),
+            )],
+            top_level_items: Vec::new(),
+        };
+
+        let ir = lower_core_to_ir(&prog);
+        let closure_fn = ir
+            .functions
+            .iter()
+            .find(|func| {
+                matches!(func.origin, IrFunctionOrigin::FunctionLiteral)
+                    && func.name == Some(f_name)
+            })
+            .expect("expected named recursive function literal");
+        assert_eq!(closure_fn.captures, vec![x_name]);
+    }
+
+    #[test]
+    fn lower_handler_arm_captures_only_used_outer_binders() {
+        let mut interner = make_interner();
+        let main_name = interner.intern("main");
+        let x_name = interner.intern("x");
+        let y_name = interner.intern("y");
+        let resume_name = interner.intern("resume");
+        let arg_name = interner.intern("arg");
+        let effect_name = interner.intern("Config");
+        let op_name = interner.intern("get");
+
+        let main_binder = binder(20, main_name);
+        let x_binder = binder(21, x_name);
+        let y_binder = binder(22, y_name);
+        let resume_binder = binder(23, resume_name);
+        let arg_binder = binder(24, arg_name);
+
+        let prog = CoreProgram {
+            defs: vec![CoreDef::new(
+                main_binder,
+                CoreExpr::Lam {
+                    params: vec![x_binder, y_binder],
+                    body: Box::new(CoreExpr::Handle {
+                        body: Box::new(CoreExpr::Lit(CoreLit::Int(0), Span::default())),
+                        effect: effect_name,
+                        handlers: vec![CoreHandler {
+                            operation: op_name,
+                            params: vec![arg_binder],
+                            resume: resume_binder,
+                            body: CoreExpr::App {
+                                func: Box::new(var_expr(resume_binder)),
+                                args: vec![var_expr(x_binder)],
+                                span: Span::default(),
+                            },
+                            span: Span::default(),
+                        }],
+                        span: Span::default(),
+                    }),
+                    span: Span::default(),
+                },
+                false,
+                Span::default(),
+            )],
+            top_level_items: Vec::new(),
+        };
+
+        let ir = lower_core_to_ir(&prog);
+        let handler_fn = ir
+            .functions
+            .iter()
+            .find(|func| {
+                matches!(func.origin, IrFunctionOrigin::FunctionLiteral)
+                    && func.name.is_none()
+                    && func.captures == vec![x_name]
+            })
+            .expect("expected handler arm closure to capture only x");
+        assert_eq!(handler_fn.captures, vec![x_name]);
     }
 }

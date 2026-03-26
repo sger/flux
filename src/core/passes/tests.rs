@@ -1,8 +1,8 @@
 use super::*;
 use crate::{
     core::{
-        CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp,
-        CoreTag,
+        CoreAlt, CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat,
+        CorePrimOp, CoreProgram, CoreTag,
     },
     diagnostics::position::Span,
     syntax::interner::Interner,
@@ -232,6 +232,42 @@ fn inline_trivial_multiple_uses() {
         }
         other => panic!("expected PrimOp, got {other:?}"),
     }
+}
+
+#[test]
+fn run_core_passes_reports_aether_contract_stage() {
+    let mut interner = Interner::new();
+    let x = interner.intern("x");
+    let x_binder = binder(0, x);
+
+    let malformed = CoreExpr::Drop {
+        var: crate::core::CoreVarRef::resolved(x_binder),
+        body: Box::new(var_ref(x_binder)),
+        span: s(),
+    };
+    let mut program = CoreProgram {
+        defs: vec![CoreDef {
+            name: x,
+            binder: x_binder,
+            expr: malformed,
+            borrow_signature: None,
+            result_ty: None,
+            is_anonymous: false,
+            is_recursive: false,
+            fip: None,
+            span: s(),
+        }],
+        top_level_items: Vec::new(),
+    };
+
+    let err =
+        run_core_passes_with_interner(&mut program, &interner, false).expect_err("should fail");
+    let message = err.message.clone().unwrap_or_default();
+    assert!(
+        message.contains("after `beta_reduce`"),
+        "expected stage label in contract error, got: {}",
+        message
+    );
 }
 
 #[test]
@@ -837,4 +873,37 @@ fn anf_normalizes_app_func_and_args() {
         other => panic!("expected outer Let, got {other:?}"),
     }
     assert_eq!(next_id, 102, "should have allocated 2 fresh binders");
+}
+
+#[test]
+fn run_core_passes_rejects_malformed_aether_before_lowering() {
+    let mut interner = Interner::new();
+    let main_name = interner.intern("main");
+    let xs = binder(1, interner.intern("xs"));
+
+    let mut program = crate::core::CoreProgram {
+        defs: vec![crate::core::CoreDef {
+            name: main_name,
+            binder: binder(0, main_name),
+            expr: CoreExpr::Drop {
+                var: crate::core::CoreVarRef::resolved(xs),
+                body: Box::new(var_ref(xs)),
+                span: s(),
+            },
+            borrow_signature: None,
+            result_ty: None,
+            is_anonymous: false,
+            is_recursive: false,
+            fip: None,
+            span: s(),
+        }],
+        top_level_items: Vec::new(),
+    };
+
+    let err = run_core_passes(&mut program).expect_err("expected malformed Aether to fail");
+    assert!(
+        err.message()
+            .is_some_and(|message| message.contains("malformed Aether")),
+        "unexpected diagnostic: {err:?}"
+    );
 }

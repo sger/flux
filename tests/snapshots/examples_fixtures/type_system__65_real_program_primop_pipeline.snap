@@ -3,8 +3,18 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/65_real_program_primop_pipeline.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `reverse`.
+
+  examples/type_system/TypeSystem/RealProgramPrimops.flx:11:15
+   |
+11 |         slice(reverse(sort(xs)), 0, 2)
+   |               ^^^^^^^
+
+Hint:
+  Define it first: let reverse = ...;
 == stdout ==
 <not executed>

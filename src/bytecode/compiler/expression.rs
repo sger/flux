@@ -25,8 +25,8 @@ use crate::{
         ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
         ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
         ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED,
-        NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER, UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR,
-        UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
+        NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER, UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR,
+        UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
         compiler_errors::{
             UNREACHABLE_PATTERN_ARM, call_arg_type_mismatch, constructor_pattern_arity_mismatch,
             cross_module_constructor_access_error, cross_module_constructor_access_warning,
@@ -39,12 +39,8 @@ use crate::{
     },
     primop::{PrimEffect, resolve_primop_call},
     runtime::{
-        base::{BaseModule, is_base_fastcall_allowlisted},
-        compiled_function::CompiledFunction,
-        handler_descriptor::HandlerDescriptor,
-        perform_descriptor::PerformDescriptor,
-        runtime_type::RuntimeType,
-        value::Value,
+        compiled_function::CompiledFunction, handler_descriptor::HandlerDescriptor,
+        perform_descriptor::PerformDescriptor, runtime_type::RuntimeType, value::Value,
     },
     syntax::{
         block::Block,
@@ -544,9 +540,32 @@ impl Compiler {
             }
             Expression::Identifier { name, span, .. } => {
                 let name = *name;
-                if let Some(symbol) = self.resolve_visible_symbol(name) {
+                // Exposed bindings from `import M exposing (..)` are checked
+                // first so that `lib/Flow/*.flx` Flux implementations take
+                // priority.
+                if self.exposed_bindings.contains_key(&name) {
+                    let qualified = self.exposed_bindings[&name];
+                    if let Some(symbol) = self.resolve_visible_symbol(qualified) {
+                        self.load_symbol(&symbol);
+                    } else {
+                        let name_str = self.sym(name);
+                        return Err(Self::boxed(
+                            self.make_undefined_variable_error(name_str, *span),
+                        ));
+                    }
+                } else if let Some(symbol) = self.resolve_visible_symbol(name) {
                     if !self.try_emit_consumed_local(name) {
                         self.load_symbol(&symbol);
+                    }
+                } else if let Some(&qualified) = self.exposed_bindings.get(&name) {
+                    // Unqualified access to an exposed module member.
+                    if let Some(symbol) = self.resolve_visible_symbol(qualified) {
+                        self.load_symbol(&symbol);
+                    } else {
+                        let name_str = self.sym(name);
+                        return Err(Self::boxed(
+                            self.make_undefined_variable_error(name_str, *span),
+                        ));
                     }
                 } else if let Some(prefix) = self.current_module_prefix {
                     let qualified = self.interner.intern_join(prefix, name);
@@ -765,18 +784,15 @@ impl Compiler {
                 )?;
             }
             Expression::ListLiteral { elements, .. } => {
-                // Lower list literals through base `list(...)` to avoid deep
-                // recursive lowering for large literals.
-                let list_sym = self.interner.intern("list");
-                let symbol = self
-                    .symbol_table
-                    .resolve(list_sym)
-                    .expect("base list must be defined");
-                self.load_symbol(&symbol);
+                // Build cons-list: push elements forward, then EmptyList,
+                // then OpCons N times (right-to-left construction).
                 for element in elements {
                     self.compile_non_tail_expression(element)?;
                 }
-                self.emit(OpCode::OpCall, &[elements.len()]);
+                self.emit_constant_value(Value::EmptyList);
+                for _ in 0..elements.len() {
+                    self.emit(OpCode::OpCons, &[]);
+                }
             }
             Expression::ArrayLiteral { elements, .. } => {
                 for element in elements {
@@ -791,13 +807,7 @@ impl Compiler {
                 self.emit_tuple_count(elements.len());
             }
             Expression::EmptyList { .. } => {
-                let list_sym = self.interner.intern("list");
-                let symbol = self
-                    .symbol_table
-                    .resolve(list_sym)
-                    .expect("base list must be defined");
-                self.load_symbol(&symbol);
-                self.emit(OpCode::OpCall, &[0]);
+                self.emit_constant_value(Value::EmptyList);
             }
             Expression::Hash { pairs, .. } => {
                 let mut sorted_pairs: Vec<_> = pairs.iter().collect();
@@ -835,11 +845,6 @@ impl Compiler {
                     self.current_span = previous_span;
                     return Ok(());
                 }
-                if self.try_emit_call_base(function, arguments)? {
-                    self.current_span = previous_span;
-                    return Ok(());
-                }
-
                 let is_direct_self_call = self.is_self_call(function);
                 let is_self_tail_call = self.in_tail_position && is_direct_self_call;
                 let is_self_non_tail_call = !self.in_tail_position && is_direct_self_call;
@@ -876,22 +881,6 @@ impl Compiler {
             Expression::MemberAccess { object, member, .. } => {
                 let expr_span = expression.span();
                 let member = *member;
-
-                if let Expression::Identifier { name, .. } = object.as_ref()
-                    && self.is_base_module_symbol(*name)
-                {
-                    let member_name = self.sym(member);
-                    if let Some(index) = BaseModule::new().index_of(member_name) {
-                        self.emit(OpCode::OpGetBase, &[index]);
-                        return Ok(());
-                    }
-                    return Err(Self::boxed(Diagnostic::make_error(
-                        &UNKNOWN_BASE_MEMBER,
-                        &[member_name],
-                        self.file_path.clone(),
-                        expr_span,
-                    )));
-                }
 
                 let module_binding_name = match object.as_ref() {
                     Expression::Identifier { name, .. } => Some(*name),
@@ -1456,20 +1445,9 @@ impl Compiler {
 
     fn check_direct_builtin_effect_call(&mut self, function: &Expression) -> CompileResult<()> {
         let required_name = match function {
-            Expression::Identifier { name, .. } => {
-                if let Some(effect) = self.lookup_effect_alias(*name) {
-                    Some(self.sym(effect).to_string())
-                } else {
-                    let Some(binding) = self.resolve_visible_symbol(*name) else {
-                        return Ok(());
-                    };
-                    if binding.symbol_scope != SymbolScope::Base {
-                        return Ok(());
-                    }
-                    self.required_effect_for_base_name(self.sym(*name))
-                        .map(str::to_string)
-                }
-            }
+            Expression::Identifier { name, .. } => self
+                .lookup_effect_alias(*name)
+                .map(|effect| self.sym(effect).to_string()),
             _ => None,
         };
 
@@ -1508,7 +1486,7 @@ impl Compiler {
         ))
     }
 
-    fn required_effect_for_base_name(&self, base_name: &str) -> Option<&'static str> {
+    pub(super) fn required_effect_for_base_name(&self, base_name: &str) -> Option<&'static str> {
         match base_name {
             "print" | "read_file" | "read_lines" | "read_stdin" => Some("IO"),
             "now" | "clock_now" | "now_ms" | "time" => Some("Time"),
@@ -1584,6 +1562,77 @@ impl Compiler {
             Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
             Expression::Identifier { name, .. } => {
                 if let Some(local) = self.current_function_param_effect_row(*name) {
+                    return Some(local);
+                }
+                self.lookup_unqualified_contract(*name, expected_arity)
+                    .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                    .or_else(|| self.infer_argument_effect_row_from_hm(argument))
+            }
+            Expression::MemberAccess { object, member, .. } => {
+                let module_name = self.resolve_module_name_from_expr(object);
+                module_name
+                    .and_then(|module_name| {
+                        self.lookup_contract(Some(module_name), *member, expected_arity)
+                    })
+                    .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                    .or_else(|| self.infer_argument_effect_row_from_hm(argument))
+            }
+            _ => self.infer_argument_effect_row_from_hm(argument),
+        }
+    }
+
+    /// Like `collect_effect_row_constraints`, but uses explicit `param_effect_rows`
+    /// instead of reading from the function context stack. Used by pre-codegen
+    /// validation before the function context has been pushed.
+    pub(super) fn collect_effect_row_constraints_with_rows(
+        &mut self,
+        contract: &FnContract,
+        arguments: &[Expression],
+        param_effect_rows: &HashMap<Symbol, EffectRow>,
+    ) -> Vec<RowConstraint> {
+        let mut constraints = Vec::new();
+
+        for (idx, argument) in arguments.iter().enumerate() {
+            let Some(Some(TypeExpr::Function {
+                params,
+                effects: param_effects,
+                ..
+            })) = contract.params.get(idx)
+            else {
+                continue;
+            };
+
+            let expected = EffectRow::from_effect_exprs(param_effects);
+            let Some(actual) = self.infer_argument_function_effect_row_with_rows(
+                argument,
+                params.len(),
+                param_effect_rows,
+            ) else {
+                continue;
+            };
+
+            constraints.push(RowConstraint::Eq(expected.clone(), actual.clone()));
+            constraints.push(RowConstraint::Subset(expected, actual.clone()));
+            for effect in param_effects {
+                self.collect_effect_expr_absence_constraints(effect, &actual, &mut constraints);
+            }
+        }
+
+        constraints
+    }
+
+    /// Like `infer_argument_function_effect_row`, but uses explicit `param_effect_rows`
+    /// instead of reading from the function context stack.
+    fn infer_argument_function_effect_row_with_rows(
+        &mut self,
+        argument: &Expression,
+        expected_arity: usize,
+        param_effect_rows: &HashMap<Symbol, EffectRow>,
+    ) -> Option<EffectRow> {
+        match argument {
+            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Identifier { name, .. } => {
+                if let Some(local) = param_effect_rows.get(name).cloned() {
                     return Some(local);
                 }
                 self.lookup_unqualified_contract(*name, expected_arity)
@@ -2846,15 +2895,28 @@ impl Compiler {
         let Expression::Identifier { name, .. } = function else {
             return Ok(false);
         };
-        if self.excluded_base_symbols.contains(name) {
+
+        // Exposed Flux stdlib functions shadow primops.
+        if self.exposed_bindings.contains_key(name) {
             return Ok(false);
         }
 
         // Shadowed names must resolve through the regular call path.
-        if let Some(symbol) = self.resolve_visible_symbol(*name)
-            && symbol.symbol_scope != SymbolScope::Base
-        {
+        if self.resolve_visible_symbol(*name).is_some() {
             return Ok(false);
+        }
+
+        // Special case: `list(a, b, c)` → cons-list construction.
+        // Variadic, so can't be in the fixed-arity primop table.
+        if self.sym(*name) == "list" {
+            for arg in arguments {
+                self.compile_non_tail_expression(arg)?;
+            }
+            self.emit_constant_value(Value::EmptyList);
+            for _ in 0..arguments.len() {
+                self.emit(OpCode::OpCons, &[]);
+            }
+            return Ok(true);
         }
 
         let primop = resolve_primop_call(self.sym(*name), arguments.len());
@@ -2900,60 +2962,6 @@ impl Compiler {
         }
 
         self.emit(OpCode::OpPrimOp, &[primop.id() as usize, arguments.len()]);
-        Ok(true)
-    }
-
-    fn try_emit_call_base(
-        &mut self,
-        function: &Expression,
-        arguments: &[Expression],
-    ) -> CompileResult<bool> {
-        let Expression::Identifier { name, .. } = function else {
-            return Ok(false);
-        };
-
-        let base_name = self.sym(*name).to_string();
-        if !is_base_fastcall_allowlisted(base_name.as_str()) {
-            return Ok(false);
-        }
-
-        let Some(symbol) = self.resolve_visible_symbol(*name) else {
-            return Ok(false);
-        };
-        if symbol.symbol_scope != SymbolScope::Base {
-            return Ok(false);
-        }
-
-        if let Some(required_name) = self.required_effect_for_base_name(base_name.as_str())
-            && !self.is_effect_available_name(required_name)
-        {
-            return Err(Self::boxed(
-                Diagnostic::make_error_dynamic(
-                    "E400",
-                    "MISSING EFFECT",
-                    ErrorType::Compiler,
-                    format!(
-                        "Call to `{}` requires effect `{}` in this function signature.",
-                        base_name, required_name
-                    ),
-                    Some(format!(
-                        "Add `with {}` to the enclosing function.",
-                        required_name
-                    )),
-                    self.file_path.clone(),
-                    function.span(),
-                )
-                .with_display_title("Missing Ambient Effect")
-                .with_category(DiagnosticCategory::Effects)
-                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
-                .with_primary_label(function.span(), "effectful call occurs here"),
-            ));
-        }
-
-        for argument in arguments {
-            self.compile_non_tail_expression(argument)?;
-        }
-        self.emit(OpCode::OpCallBase, &[symbol.index, arguments.len()]);
         Ok(true)
     }
 
@@ -3324,9 +3332,13 @@ impl Compiler {
             None
         };
 
+        let is_discard =
+            !is_direct && crate::bytecode::compiler::tail_resumptive::is_handler_discard(arms);
+
         let desc = Value::HandlerDescriptor(Rc::new(HandlerDescriptor {
             effect,
             ops: operations,
+            is_discard,
         }));
 
         let desc_idx = self.add_constant(desc);
@@ -3378,6 +3390,13 @@ impl Compiler {
                 arguments,
                 ..
             } => {
+                // Check primop first — if the callee is a known primop, emit
+                // the primop instruction directly instead of compiling it as
+                // a function+call.
+                if self.try_emit_primop_call(function, arguments)? {
+                    return Ok(());
+                }
+
                 self.compile_non_tail_expression(function)?;
 
                 for arg in arguments {

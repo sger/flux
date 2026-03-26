@@ -3,16 +3,8 @@ use std::rc::Rc;
 use crate::{
     bytecode::{bytecode::Bytecode, op_code::OpCode},
     runtime::{
-        closure::Closure,
-        compiled_function::CompiledFunction,
-        frame::Frame,
-        gc::{
-            GcHandle, GcHeap, HeapObject,
-            hamt::{hamt_empty, hamt_insert},
-        },
-        handler_frame::HandlerFrame,
-        leak_detector,
-        value::Value,
+        closure::Closure, compiled_function::CompiledFunction, frame::Frame, hamt,
+        handler_frame::HandlerFrame, leak_detector, value::Value,
     },
 };
 
@@ -81,7 +73,6 @@ pub struct VM {
     frames: Vec<Frame>,
     frame_index: usize,
     trace: bool,
-    pub gc_heap: GcHeap,
     tail_arg_scratch: Vec<Slot>,
     /// Active effect handlers pushed by OpHandle / popped by OpEndHandle.
     pub(crate) handler_stack: Vec<HandlerFrame>,
@@ -102,7 +93,6 @@ impl VM {
             frames: vec![main_frame],
             frame_index: 0,
             trace: false,
-            gc_heap: GcHeap::new(),
             tail_arg_scratch: Vec::new(),
             handler_stack: Vec::new(),
         }
@@ -110,40 +100,6 @@ impl VM {
 
     pub fn set_trace(&mut self, enabled: bool) {
         self.trace = enabled;
-    }
-
-    pub fn set_gc_enabled(&mut self, enabled: bool) {
-        self.gc_heap.set_enabled(enabled);
-    }
-
-    pub fn set_gc_threshold(&mut self, threshold: usize) {
-        self.gc_heap.set_threshold(threshold);
-    }
-
-    /// Returns the GC telemetry report, if compiled with the `gc-telemetry` feature.
-    #[cfg(feature = "gc-telemetry")]
-    pub fn gc_telemetry_report(&self) -> String {
-        self.gc_heap.telemetry_report()
-    }
-
-    /// Allocates a heap object, triggering GC if the threshold is reached.
-    pub(crate) fn gc_alloc(&mut self, object: HeapObject) -> GcHandle {
-        if self.gc_heap.should_collect() {
-            self.collect_gc();
-        }
-        self.gc_heap.alloc(object)
-    }
-
-    fn collect_gc(&mut self) {
-        self.gc_heap.collect_nanboxed(
-            &self.stack,
-            self.sp,
-            &self.globals,
-            &self.constants,
-            &self.last_popped,
-            &self.frames,
-            self.frame_index,
-        );
     }
 
     /// Create a closure that acts as the identity function: `fn(x) -> x`.
@@ -192,6 +148,16 @@ impl VM {
         loop {
             let ip = self.frames[self.frame_index].ip;
             if ip >= instructions.len() {
+                if self.frame_index > 0 {
+                    let fn_name = "<function>";
+                    return Err(format!(
+                        "VM bug: IP {} overran instruction boundary ({} bytes) in function '{}' at frame depth {}",
+                        ip,
+                        instructions.len(),
+                        fn_name,
+                        self.frame_index,
+                    ));
+                }
                 break;
             }
 
@@ -297,7 +263,7 @@ impl VM {
     }
 
     fn build_hash(&mut self, start: usize, end: usize) -> Result<Value, String> {
-        let mut root = hamt_empty(&mut self.gc_heap);
+        let mut root = hamt::hamt_empty();
         let mut i = start;
         while i < end {
             let key = slot::from_slot(std::mem::replace(&mut self.stack[i], slot::uninit()));
@@ -307,11 +273,11 @@ impl VM {
                 .to_hash_key()
                 .ok_or_else(|| format!("unusable as hash key: {}", key.type_name()))?;
 
-            root = hamt_insert(&mut self.gc_heap, root, hash_key, value);
+            root = hamt::hamt_insert(&root, hash_key, value);
             i += 2;
         }
         leak_detector::record_hash();
-        Ok(Value::Gc(root))
+        Ok(Value::HashMap(root))
     }
 
     fn current_frame(&self) -> &Frame {
@@ -546,28 +512,6 @@ impl VM {
     /// Take the raw `Slot` at stack index `idx`, leaving `Uninit` in its place.
     ///
     /// Unlike [`stack_take`], this does NOT decode the slot to a [`Value`].
-    /// Use this in the NaN-boxing fast path to avoid an unnecessary decode/re-encode
-    /// round-trip when passing slots directly to [`BaseFunction::call_owned_nanboxed`].
-    #[inline(always)]
-    fn stack_slot_take(&mut self, idx: usize) -> Slot {
-        std::mem::replace(&mut self.stack[idx], slot::uninit())
-    }
-
-    /// Push a raw `Slot` onto the stack without encoding from [`Value`].
-    ///
-    /// Counterpart to [`stack_slot_take`]: used after [`BaseFunction::call_owned_nanboxed`]
-    /// returns a `Slot` so the result is stored without a decode/re-encode round-trip.
-    #[inline(always)]
-    fn push_slot(&mut self, s: Slot) -> Result<(), String> {
-        if self.sp < self.stack.len() {
-            self.stack[self.sp] = s;
-            self.sp += 1;
-            return Ok(());
-        }
-        // Slow path: grow stack. Must convert to Value to reuse push_slow's growth logic.
-        self.push_slow(slot::from_slot(s))
-    }
-
     /// Clone the Value at constants index `idx`.
     #[inline(always)]
     fn const_get(&self, idx: usize) -> Value {

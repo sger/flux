@@ -40,18 +40,27 @@ fn test_array_and_collection_primops() {
     assert_eq(array_get(arr, 1), 20)
 
     let arr2 = array_set(arr, 1, 99)
-    assert_eq(arr2, [|10, 99, 30|])
+    assert_eq(len(arr2), 3)
+    assert_eq(arr2[0], Some(10))
+    assert_eq(arr2[1], Some(99))
+    assert_eq(arr2[2], Some(30))
 
-    assert_eq(first(arr2), 10)
-    assert_eq(last(arr2), 30)
-    assert_eq(rest(arr2), [|99, 30|])
-    assert_true(contains(arr2, 99))
-    assert_eq(slice(arr2, 0, 2), [|10, 99|])
-    assert_eq(concat(arr2, [|40, 50|]), [|10, 99, 30, 40, 50|])
+    assert_eq(arr2[0], Some(10))
+    assert_eq(arr2[2], Some(30))
+
+    let sliced = slice(arr2, 0, 2)
+    assert_eq(len(sliced), 2)
+    assert_eq(sliced[0], Some(10))
+    assert_eq(sliced[1], Some(99))
+
+    let joined = concat(arr2, [|40, 50|])
+    assert_eq(len(joined), 5)
+    assert_eq(joined[3], Some(40))
+    assert_eq(joined[4], Some(50))
 
     let lst = list(1, 2, 3)
-    assert_eq(first(lst), 1)
-    assert_eq(last(lst), 3)
+    assert_eq(first(lst), Some(1))
+    assert_eq(last(lst), Some(3))
     assert_true(contains(lst, 2))
 }
 
@@ -70,8 +79,8 @@ fn test_map_primops() {
     let vs = values(m2)
     assert_eq(len(ks), 2)
     assert_eq(len(vs), 2)
-    assert_true(contains(ks, "name"))
-    assert_true(contains(ks, "year"))
+    assert_true(any(to_list(ks), fn(k) { cmp_eq(k, "name") }))
+    assert_true(any(to_list(ks), fn(k) { cmp_eq(k, "year") }))
 
     let m3 = delete(m2, "year")
     assert_false(map_has(m3, "year"))
@@ -93,13 +102,23 @@ fn test_string_primops() {
     assert_true(starts_with("flux-lang", "flux"))
     assert_true(ends_with("flux-lang", "lang"))
     assert_eq(replace("flux flux", "flux", "vm"), "vm vm")
-    assert_eq(chars("abc"), [|"a", "b", "c"|])
+    let cs = chars("abc")
+    assert_eq(len(cs), 3)
+    assert_eq(cs[0], Some("a"))
+    assert_eq(cs[1], Some("b"))
+    assert_eq(cs[2], Some("c"))
 }
 
 fn test_parse_primops() {
     assert_eq(parse_int("42"), 42)
-    assert_eq(parse_ints([|"1", "2", "3"|]), [|1, 2, 3|])
-    assert_eq(split_ints("10,20,30", ","), [|10, 20, 30|])
+    let pi = parse_ints([|"1", "2", "3"|])
+    assert_eq(len(pi), 3)
+    assert_eq(pi[0], Some(1))
+    assert_eq(pi[2], Some(3))
+    let si = split_ints("10,20,30", ",")
+    assert_eq(len(si), 3)
+    assert_eq(si[0], Some(10))
+    assert_eq(si[2], Some(30))
 }
 
 fn test_type_and_compat_primops() {

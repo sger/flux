@@ -1,0 +1,95 @@
+// Aether list workload fixture.
+// Run:   cargo run -- examples/aether/bench_reuse.flx
+// JIT:   cargo run -- --jit examples/aether/bench_reuse.flx
+// Stats: cargo run -- --dump-aether examples/aether/bench_reuse.flx
+
+fn build_list(n) {
+    fn build_go(i, acc) {
+        if i <= 0 { acc }
+        else { build_go(i - 1, [i | acc]) }
+    }
+    build_go(n, [])
+}
+
+// Map: current Aether shape demonstrates early scrutinee drop, borrowed
+// recursive traversal, and plain cons-cell reuse through precomputed field lets.
+@fip fn my_map(xs, f) {
+    match xs {
+        [h | t] -> [f(h) | my_map(t, f)],
+        _ -> [],
+    }
+}
+
+// Length: borrowed parameter — no Rc::clone for xs
+fn my_len(xs) {
+    match xs {
+        [_ | t] -> 1 + my_len(t),
+        _ -> 0,
+    }
+}
+
+// Fold: accumulation pattern
+fn fold_left(xs, acc, f) {
+    match xs {
+        [h | t] -> fold_left(t, f(acc, h), f),
+        _ -> acc,
+    }
+}
+
+// Repeated map to stress recursive borrow/ownership behavior in a workload,
+// not just a one-off micro fixture.
+fn bench_map(xs, iterations) {
+    fn map_go(i, current) {
+        if i <= 0 { current }
+        else { map_go(i - 1, my_map(current, \x -> x + 1)) }
+    }
+    map_go(iterations, xs)
+}
+
+// Repeated len to stress borrowed params in a maintained workload.
+fn bench_len(xs, iterations) {
+    fn len_go(i, total) {
+        if i <= 0 { total }
+        else { len_go(i - 1, total + my_len(xs)) }
+    }
+    len_go(iterations, 0)
+}
+
+// Repeated fold to stress accumulation on the same list workload.
+fn bench_fold(xs, iterations) {
+    fn fold_go(i, total) {
+        if i <= 0 { total }
+        else {
+            let sum = fold_left(xs, 0, \(acc, x) -> acc + x)
+            fold_go(i - 1, total + sum)
+        }
+    }
+    fold_go(iterations, 0)
+}
+
+fn main() with IO {
+    let size = 5000
+    let iterations = 100
+
+    print("Aether Reuse Benchmark")
+    print("======================")
+    print("List size: #{size}, Iterations: #{iterations}")
+    print("")
+
+    let xs = build_list(size)
+
+    // Benchmark 1: map (recursive borrow path with plain Reuse)
+    let mapped = bench_map(xs, iterations)
+    print("map: result head = #{hd(mapped)}")
+
+    // Benchmark 2: len (borrowed params — no Rc::clone)
+    let total_len = bench_len(xs, iterations)
+    print("len: total = #{total_len}")
+
+    // Benchmark 3: fold (accumulation, no reuse)
+    let total_sum = bench_fold(xs, iterations)
+    print("fold: total = #{total_sum}")
+
+    print("")
+    print("Done.")
+}

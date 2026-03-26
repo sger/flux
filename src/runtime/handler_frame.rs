@@ -15,4 +15,8 @@ pub struct HandlerFrame {
     /// When `true`, the handler is tail-resumptive: `OpPerformDirect` skips
     /// continuation capture and calls the arm closure directly.
     pub is_direct: bool,
+    /// When `true`, the handler never resumes — `OpPerform` skips continuation
+    /// capture entirely, unwinds the stack to handler entry, and calls the arm
+    /// directly. (Perceus Section 2.7.1: non-linear control flow safety.)
+    pub is_discard: bool,
 }

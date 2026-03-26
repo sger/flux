@@ -1,9 +1,7 @@
 use crate::{
     bytecode::compiler::Compiler,
     bytecode::op_code::OpCode,
-    bytecode::symbol_scope::SymbolScope,
     diagnostics::render_diagnostics,
-    runtime::base::BaseModule,
     runtime::value::Value,
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},
 };
@@ -187,54 +185,8 @@ fn compile_with_opts_skips_tail_call_analysis_without_optimization() {
     assert!(compiler.tail_calls.is_empty());
 }
 
-#[test]
-fn compiler_registers_base_functions_in_registry_order() {
-    let (_, interner) = parse_program("");
-    let mut compiler = Compiler::new_with_interner("<test>", interner);
-    let base = BaseModule::new();
-
-    for (expected_index, name) in base.names().enumerate() {
-        let symbol = compiler.interner.intern(name);
-        let binding = compiler
-            .symbol_table
-            .resolve(symbol)
-            .expect("base base should be pre-registered");
-        assert_eq!(binding.symbol_scope, SymbolScope::Base);
-        assert_eq!(binding.index, expected_index);
-    }
-}
-
-#[test]
-fn base_indices_are_deterministic_across_interner_state() {
-    let mut seeded_interner = Interner::new();
-    // Pre-seed unrelated symbols to prove base indices do not depend on interner history.
-    seeded_interner.intern("zzz");
-    seeded_interner.intern("another_symbol");
-
-    let mut compiler_a = Compiler::new_with_interner("<test-a>", Interner::new());
-    let mut compiler_b = Compiler::new_with_interner("<test-b>", seeded_interner);
-
-    for name in BaseModule::new().names() {
-        let sym_a = compiler_a.interner.intern(name);
-        let sym_b = compiler_b.interner.intern(name);
-        let binding_a = compiler_a
-            .symbol_table
-            .resolve(sym_a)
-            .expect("base must exist in compiler A");
-        let binding_b = compiler_b
-            .symbol_table
-            .resolve(sym_b)
-            .expect("base must exist in compiler B");
-
-        assert_eq!(binding_a.symbol_scope, SymbolScope::Base);
-        assert_eq!(binding_b.symbol_scope, SymbolScope::Base);
-        assert_eq!(
-            binding_a.index, binding_b.index,
-            "base index mismatch for `{}`",
-            name
-        );
-    }
-}
+// Base function registry tests removed — Proposal 0120 replaced
+// Rust base functions with Flux stdlib in lib/Flow/*.flx.
 
 #[test]
 fn typed_let_mismatch_is_checked_for_identifier_expression() {
@@ -263,7 +215,7 @@ let x: Int = y
 fn nested_function_can_shadow_base_name() {
     let (program, interner) = parse_program(
         r#"
-import Base except [flatten]
+import Flow except [flatten]
 
 fn main() {
     fn flatten(x) { x }
@@ -274,14 +226,14 @@ fn main() {
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler
         .compile(&program)
-        .expect("nested function should shadow excluded Base name");
+        .expect("nested function should shadow excluded Flow name");
 }
 
 #[test]
-fn local_let_can_shadow_base_name() {
+fn local_let_can_shadow_flow_name() {
     let (program, interner) = parse_program(
         r#"
-import Base except [len]
+import Flow except [len]
 
 fn main() {
     let len = 1
@@ -292,14 +244,14 @@ fn main() {
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler
         .compile(&program)
-        .expect("local let should shadow excluded Base name");
+        .expect("local let should shadow excluded Flow name");
 }
 
 #[test]
-fn match_pattern_can_shadow_base_name() {
+fn match_pattern_can_shadow_flow_name() {
     let (program, interner) = parse_program(
         r#"
-import Base except [len]
+import Flow except [len]
 
 fn main() {
     match Some(1) {
@@ -312,14 +264,14 @@ fn main() {
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler
         .compile(&program)
-        .expect("pattern binding should shadow excluded Base name");
+        .expect("pattern binding should shadow excluded Flow name");
 }
 
 #[test]
-fn parameter_can_shadow_base_name() {
+fn parameter_can_shadow_flow_name() {
     let (program, interner) = parse_program(
         r#"
-import Base except [len]
+import Flow except [len]
 
 fn id(len) { len }
 "#,
@@ -327,7 +279,7 @@ fn id(len) { len }
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler
         .compile(&program)
-        .expect("parameter binding should shadow excluded Base name");
+        .expect("parameter binding should shadow excluded Flow name");
 }
 
 #[test]
@@ -478,6 +430,103 @@ fn main() -> Unit {
         rendered
     );
 }
+
+#[test]
+fn strict_mode_requires_effect_annotation_for_non_public_effectful_function() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit {
+    print("x")
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected missing strict effect annotation");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("error[E418]: Strict Effect Annotation Required")
+            && rendered
+                .contains("Effectful function `main` must declare `with IO` in strict mode."),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn strict_mode_requires_time_annotation_for_non_public_effectful_function() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit {
+    let _t = now_ms()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected missing strict time annotation");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("error[E418]: Strict Effect Annotation Required")
+            && rendered
+                .contains("Effectful function `main` must declare `with Time` in strict mode."),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn strict_mode_reports_missing_time_when_only_io_is_declared() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit with IO {
+    let _t = now_ms()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected missing Time annotation");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("Effectful function `main` must declare `with Time` in strict mode."),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn strict_mode_reports_missing_io_when_only_time_is_declared() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit with Time {
+    print("x")
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected missing IO annotation");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("Effectful function `main` must declare `with IO` in strict mode."),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+// Strict-mode accept tests for `print`/`now_ms` removed — those relied on
+// base functions which are no longer registered in the symbol table.
+// Effect annotation acceptance is now validated via integration tests with
+// the Flux stdlib (`lib/Flow/*.flx`) loaded.
 
 #[test]
 fn function_compile_error_does_not_leak_scope() {

@@ -1,0 +1,222 @@
+// Flow.List — List operations for the Flux standard library.
+//
+// Functions operate on cons lists ([...]) using [h | t] pattern matching.
+// For array-specific operations, use Flow.Array (explicit import).
+//
+// Argument order follows Flux convention: collection first, function second.
+
+module Flow.List {
+
+    public fn map(xs, f) {
+        match xs {
+            [h | t] -> [f(h) | map(t, f)],
+            _ -> []
+        }
+    }
+
+    public fn filter(xs, pred) {
+        match xs {
+            [h | t] -> if pred(h) { [h | filter(t, pred)] } else { filter(t, pred) },
+            _ -> []
+        }
+    }
+
+    public fn fold(xs, acc, f) {
+        match xs {
+            [h | t] -> fold(t, f(acc, h), f),
+            _ -> acc
+        }
+    }
+
+    public fn flat_map(xs, f) {
+        match xs {
+            [h | t] -> append(f(h), flat_map(t, f)),
+            _ -> []
+        }
+    }
+
+    public fn flatten(xs) {
+        match xs {
+            [h | t] -> append(h, flatten(t)),
+            _ -> []
+        }
+    }
+
+    public fn any(xs, pred) {
+        match xs {
+            [h | t] -> if pred(h) { true } else { any(t, pred) },
+            _ -> false
+        }
+    }
+
+    public fn all(xs, pred) {
+        match xs {
+            [h | t] -> if pred(h) { all(t, pred) } else { false },
+            _ -> true
+        }
+    }
+
+    public fn find(xs, pred) {
+        match xs {
+            [h | t] -> if pred(h) { Some(h) } else { find(t, pred) },
+            _ -> None
+        }
+    }
+
+    public fn count(xs, pred) {
+        fn count_go(ys, n) {
+            match ys {
+                [h | t] -> if pred(h) { count_go(t, n + 1) } else { count_go(t, n) },
+                _ -> n
+            }
+        }
+        count_go(xs, 0)
+    }
+
+    public fn each(xs, f) with IO {
+        match xs {
+            [h | t] -> do {
+                f(h)
+                each(t, f)
+            },
+            _ -> ()
+        }
+    }
+
+    public fn sort_by(xs, f) {
+        fn list_len(ys) {
+            match ys {
+                [h | t] -> 1 + list_len(t),
+                _ -> 0
+            }
+        }
+        fn take(ys, n) {
+            if n <= 0 { [] }
+            else {
+                match ys {
+                    [h | t] -> [h | take(t, n - 1)],
+                    _ -> []
+                }
+            }
+        }
+        fn drop_n(ys, n) {
+            if n <= 0 { ys }
+            else {
+                match ys {
+                    [h | t] -> drop_n(t, n - 1),
+                    _ -> []
+                }
+            }
+        }
+        fn merge_by(left, right) {
+            match left {
+                [a | at] -> match right {
+                    [b | bt] -> if f(a) <= f(b) { [a | merge_by(at, right)] } else { [b | merge_by(left, bt)] },
+                    _ -> left
+                },
+                _ -> right
+            }
+        }
+        if list_len(xs) <= 1 { xs }
+        else {
+            fn sort_split(ys) {
+                let mid = list_len(ys) / 2
+                merge_by(sort_by(take(ys, mid), f), sort_by(drop_n(ys, mid), f))
+            }
+            sort_split(xs)
+        }
+    }
+
+    public fn first(xs) {
+        match xs {
+            [h | t] -> Some(h),
+            _ -> None
+        }
+    }
+
+    public fn last(xs) {
+        match xs {
+            [h | t] -> match t {
+                [h2 | t2] -> last(t),
+                _ -> Some(h)
+            },
+            _ -> None
+        }
+    }
+
+    public fn rest(xs) {
+        match xs {
+            [h | t] -> t,
+            _ -> []
+        }
+    }
+
+    public fn range(start, stop) {
+        if start >= stop { [] }
+        else { [start | range(start + 1, stop)] }
+    }
+
+    public fn reverse(xs) {
+        fn rev_acc(ys, acc) {
+            match ys {
+                [h | t] -> rev_acc(t, [h | acc]),
+                _ -> acc
+            }
+        }
+        rev_acc(xs, [])
+    }
+
+    public fn zip(xs, ys) {
+        match xs {
+            [a | at] -> match ys {
+                [b | bt] -> [(a, b) | zip(at, bt)],
+                _ -> []
+            },
+            _ -> []
+        }
+    }
+
+    public fn contains(xs, x) {
+        any(xs, fn(item) { cmp_eq(item, x) })
+    }
+
+    public fn sum(xs) {
+        fn sum_go(ys, acc) {
+            match ys {
+                [h | t] -> sum_go(t, acc + h),
+                _ -> acc
+            }
+        }
+        sum_go(xs, 0)
+    }
+
+    public fn product(xs) {
+        fn product_go(ys, acc) {
+            match ys {
+                [h | t] -> product_go(t, acc * h),
+                _ -> acc
+            }
+        }
+        product_go(xs, 1)
+    }
+
+    public fn abs(x) {
+        if x < 0 { 0 - x } else { x }
+    }
+
+    public fn min(a, b) {
+        if a < b { a } else { b }
+    }
+
+    public fn max(a, b) {
+        if a > b { a } else { b }
+    }
+
+    fn append(xs, ys) {
+        match xs {
+            [h | t] -> [h | append(t, ys)],
+            _ -> ys
+        }
+    }
+
+}

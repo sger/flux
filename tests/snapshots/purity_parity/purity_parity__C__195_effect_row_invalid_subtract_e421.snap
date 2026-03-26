@@ -7,11 +7,11 @@ Strict: false
 Expect compile error: true
 
 == vm command ==
-$ flux --no-cache examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx
+$ flux --no-cache --no-strict examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx
 exit_code: 1
 
 == jit command ==
-$ flux --no-cache examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx --jit
+$ flux --no-cache --no-strict examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx --jit
 exit_code: 1
 
 == vm tuples ==

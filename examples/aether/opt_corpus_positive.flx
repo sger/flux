@@ -1,0 +1,62 @@
+// Canonical Aether positive optimization corpus.
+// This maintained fixture records only optimization claims that are asserted in
+// transformed-Core tests:
+// - plain list `Reuse` on exact cons rebuild
+// - masked named-ADT `Reuse` on field-preserving update
+// - branch-sensitive `DropSpecialized` with asymmetric unique/shared behavior
+// - one forwarded-child `Reuse` inside a fresh wrapper rebuild
+// - one borrowed-only higher-order traversal
+
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Tree)
+type Pair2<T> = Pair2(T, T)
+
+fn list_rebuild(xs) {
+    match xs {
+        [h | t] -> [h | t],
+        _ -> [],
+    }
+}
+
+fn set_black(t) {
+    match t {
+        Node(_, left, key, right) -> Node(Black, left, key, right),
+        _ -> t,
+    }
+}
+
+fn keep_or_dup_left(t, keep) {
+    match t {
+        Node(color, left, key, right) ->
+            if keep { Node(color, left, key, right) }
+            else { Node(color, left, key, left) },
+        _ -> t,
+    }
+}
+
+fn forwarded_child(xs, acc) {
+    match xs {
+        [y | ys] -> Pair2([y | acc], ys),
+        _ -> Pair2(xs, acc),
+    }
+}
+
+fn sum_by(xs, f) {
+    match xs {
+        [h | t] -> f(h) + sum_by(t, f),
+        _ -> 0,
+    }
+}
+
+fn inc(x) { x + 1 }
+
+fn main() with IO {
+    let xs = [1, 2, 3]
+    let tree = Node(Red, Leaf, 5, Leaf)
+    let acc = [10, 20]
+    print(list_rebuild(xs))
+    print(set_black(tree))
+    print(keep_or_dup_left(tree, false))
+    print(forwarded_child(xs, acc))
+    print(sum_by(xs, inc))
+}

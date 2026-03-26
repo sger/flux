@@ -1,7 +1,4 @@
-use crate::runtime::{
-    gc::{GcHandle, HeapObject, hamt::hamt_lookup},
-    value::Value,
-};
+use crate::runtime::{hamt, value::Value};
 
 use super::VM;
 
@@ -18,18 +15,8 @@ impl VM {
             (Value::Tuple(elements), Value::Integer(idx)) => {
                 self.execute_array_index(elements, *idx)
             }
-            (Value::Gc(handle), _) => {
-                match &index {
-                    Value::Integer(idx) => {
-                        // Check if it's a list (Cons) or a map (HamtNode)
-                        match self.gc_heap.get(*handle) {
-                            HeapObject::Cons { .. } => self.execute_list_index(*handle, *idx),
-                            _ => self.execute_hamt_index(*handle, &index),
-                        }
-                    }
-                    _ => self.execute_hamt_index(*handle, &index),
-                }
-            }
+            (Value::Cons(_), Value::Integer(idx)) => self.execute_cons_list_index(&left, *idx),
+            (Value::HashMap(node), _) => self.execute_rc_hamt_index(node, &index),
             _ => Err(format!(
                 "index operator not supported: {}",
                 left.type_name()
@@ -47,38 +34,39 @@ impl VM {
         }
     }
 
-    /// Indexes into a cons-cell list by traversing the spine.
+    /// Indexes into a cons-cell list (Value::Cons) by traversing the spine.
     /// Returns Some(element) or None for out-of-bounds.
-    fn execute_list_index(&mut self, handle: GcHandle, index: i64) -> Result<(), String> {
+    fn execute_cons_list_index(&mut self, value: &Value, index: i64) -> Result<(), String> {
         if index < 0 {
             return self.push(Value::None);
         }
 
-        let mut current = Value::Gc(handle);
+        let mut current = value.clone();
         let mut remaining = index as usize;
 
         loop {
             match &current {
-                Value::Gc(h) => match self.gc_heap.get(*h) {
-                    HeapObject::Cons { head, tail } => {
-                        if remaining == 0 {
-                            return self.push(Value::Some(std::rc::Rc::new(head.clone())));
-                        }
-                        remaining -= 1;
-                        current = tail.clone();
+                Value::Cons(cell) => {
+                    if remaining == 0 {
+                        return self.push(Value::Some(std::rc::Rc::new(cell.head.clone())));
                     }
-                    _ => return self.push(Value::None),
-                },
+                    remaining -= 1;
+                    current = cell.tail.clone();
+                }
                 _ => return self.push(Value::None),
             }
         }
     }
 
-    fn execute_hamt_index(&mut self, handle: GcHandle, key: &Value) -> Result<(), String> {
+    fn execute_rc_hamt_index(
+        &mut self,
+        node: &crate::runtime::hamt::HamtNode,
+        key: &Value,
+    ) -> Result<(), String> {
         let hash_key = key
             .to_hash_key()
             .ok_or_else(|| format!("unusable as hash key: {}", key.type_name()))?;
-        match hamt_lookup(&self.gc_heap, handle, &hash_key) {
+        match hamt::hamt_lookup(node, &hash_key) {
             Some(value) => self.push(Value::Some(std::rc::Rc::new(value))),
             None => self.push(Value::None),
         }

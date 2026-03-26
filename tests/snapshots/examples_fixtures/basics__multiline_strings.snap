@@ -3,8 +3,85 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/multiline_strings.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `filter`.
+
+  examples/basics/multiline_strings.flx:30:8
+   |
+30 |     |> filter(/line -> trim(line) != "")
+   |        ^^^^^^
+
+Hint:
+  Define it first: let filter = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/basics/multiline_strings.flx:48:12
+   |
+48 |         |> map(/t -> parse_int(t))
+   |            ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/basics/multiline_strings.flx:54:12
+   |
+54 |         |> map(parse_row)
+   |            ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/basics/multiline_strings.flx:59:11
+   |
+59 |     print(map(grid_data, sum))
+   |           ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
+
+  examples/basics/multiline_strings.flx:63:26
+   |
+63 |     let cols_count = len(first(grid_data))
+   |                          ^^^^^
+
+Hint:
+  Define it first: let first = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/basics/multiline_strings.flx:67:17
+   |
+67 |     Row sums: #{map(grid_data, sum)}
+   |                 ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+Found 6 errors.
 == stdout ==
 <not executed>

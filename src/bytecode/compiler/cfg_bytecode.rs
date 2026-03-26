@@ -1,17 +1,32 @@
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use crate::cfg::{
     BlockId, IrBinaryOp, IrBlock, IrCallTarget, IrConst, IrExpr, IrFunction, IrInstr, IrListTest,
     IrTagTest, IrTerminator, IrVar,
 };
 use crate::{
-    bytecode::op_code::OpCode, diagnostics::Diagnostic, runtime::value::Value,
+    bytecode::op_code::OpCode,
+    diagnostics::{Diagnostic, DiagnosticBuilder},
+    runtime::{handler_descriptor::HandlerDescriptor, value::Value},
     syntax::symbol::Symbol,
 };
 
 use super::{CompileResult, Compiler};
 
 impl Compiler {
+    fn with_ir_span<T>(
+        &mut self,
+        metadata: &crate::cfg::IrMetadata,
+        f: impl FnOnce(&mut Self) -> CompileResult<T>,
+    ) -> CompileResult<T> {
+        let previous_span = self.current_span;
+        self.current_span = metadata.span;
+        let result = f(self);
+        self.current_span = previous_span;
+        result
+    }
+
     #[allow(dead_code)]
     pub(super) fn collect_tail_call_spans_for_ir_function(
         function: &IrFunction,
@@ -45,20 +60,35 @@ impl Compiler {
                 | IrExpr::ListHead { .. }
                 | IrExpr::ListTail { .. }
                 | IrExpr::AdtTagTest { .. }
-                | IrExpr::AdtField { .. } => true,
-                IrExpr::Binary(op, _, _) => matches!(
-                    op,
-                    IrBinaryOp::Add
-                        | IrBinaryOp::Sub
-                        | IrBinaryOp::Mul
-                        | IrBinaryOp::Div
-                        | IrBinaryOp::Eq
-                        | IrBinaryOp::NotEq
-                        | IrBinaryOp::Lt
-                        | IrBinaryOp::Gt
-                        | IrBinaryOp::Ge
-                        | IrBinaryOp::Le
-                ),
+                | IrExpr::AdtField { .. }
+                | IrExpr::MakeClosure(_, _)
+                | IrExpr::Perform { .. }
+                // Construction expressions
+                | IrExpr::Cons { .. }
+                | IrExpr::Some(_)
+                | IrExpr::Left(_)
+                | IrExpr::Right(_)
+                | IrExpr::EmptyList
+                | IrExpr::MakeAdt(_, _)
+                | IrExpr::MakeTuple(_)
+                // Aether reuse expressions
+                | IrExpr::DropReuse(_)
+                | IrExpr::ReuseCons { .. }
+                | IrExpr::ReuseAdt { .. }
+                | IrExpr::ReuseSome { .. }
+                | IrExpr::ReuseLeft { .. }
+                | IrExpr::ReuseRight { .. }
+                | IrExpr::IsUnique(_)
+                // General expressions (emission handlers in compile_ir_cfg_expr).
+                | IrExpr::Prefix { .. }
+                | IrExpr::LoadName(_)
+                | IrExpr::MakeArray(_)
+                | IrExpr::MakeHash(_)
+                | IrExpr::MakeList(_)
+                | IrExpr::Index { .. }
+                | IrExpr::InterpolatedString(_)
+                | IrExpr::MemberAccess { .. }
+                | IrExpr::Binary(_, _, _) => true,
                 _ => false,
             }
         }
@@ -86,10 +116,14 @@ impl Compiler {
                 IrInstr::Call { target, .. } => {
                     matches!(
                         target,
-                        IrCallTarget::Named(_) | IrCallTarget::Direct(_) | IrCallTarget::Var(_)
+                        IrCallTarget::Named(_)
+                            | IrCallTarget::Direct(_)
+                            | IrCallTarget::Var(_)
+                            | IrCallTarget::Builtin(_)
                     )
                 }
-                IrInstr::HandleScope { .. } => false,
+                IrInstr::HandleScope { .. } => true,
+                IrInstr::AetherDrop { .. } => true,
             }) {
                 return false;
             }
@@ -159,10 +193,31 @@ impl Compiler {
                     .or_insert_with(|| self.symbol_table.define_temp());
             }
             for instr in &block.instrs {
-                if let IrInstr::Assign { dest, .. } = instr {
-                    bindings
-                        .entry(*dest)
-                        .or_insert_with(|| self.symbol_table.define_temp());
+                match instr {
+                    IrInstr::Assign { dest, .. }
+                    | IrInstr::Call { dest, .. }
+                    | IrInstr::HandleScope { dest, .. } => {
+                        bindings
+                            .entry(*dest)
+                            .or_insert_with(|| self.symbol_table.define_temp());
+                    }
+                    IrInstr::AetherDrop { .. } => {}
+                }
+            }
+        }
+
+        // Identify continuation blocks for HandleScope instructions.
+        // The cont block is the block whose parameter matches HandleScope's dest.
+        let mut end_handle_blocks = HashSet::<BlockId>::new();
+        for block in &function.blocks {
+            for instr in &block.instrs {
+                if let IrInstr::HandleScope { dest, .. } = instr {
+                    // Find the block that has dest as a parameter
+                    for b in &function.blocks {
+                        if b.params.iter().any(|p| p.var == *dest) {
+                            end_handle_blocks.insert(b.id);
+                        }
+                    }
                 }
             }
         }
@@ -182,6 +237,11 @@ impl Compiler {
                 block_offsets.insert(block.id, self.current_instructions().len());
                 if false_target_blocks.remove(&block.id) {
                     self.emit(OpCode::OpPop, &[]);
+                }
+
+                // Emit OpEndHandle at the start of a handle-scope continuation block
+                if end_handle_blocks.contains(&block.id) {
+                    self.emit(OpCode::OpEndHandle, &[]);
                 }
 
                 for instr in &block.instrs {
@@ -241,33 +301,98 @@ impl Compiler {
         bindings: &HashMap<IrVar, crate::bytecode::binding::Binding>,
         current_name: Symbol,
     ) -> CompileResult<()> {
-        match instr {
+        let metadata = match instr {
+            IrInstr::Assign { metadata, .. }
+            | IrInstr::Call { metadata, .. }
+            | IrInstr::HandleScope { metadata, .. }
+            | IrInstr::AetherDrop { metadata, .. } => metadata,
+        };
+        self.with_ir_span(metadata, |this| match instr {
             IrInstr::Assign { dest, expr, .. } => {
-                self.compile_ir_cfg_expr(expr, bindings)?;
+                this.compile_ir_cfg_expr(expr, bindings)?;
                 let binding = bindings.get(dest).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning(
                         "missing CFG bytecode binding for IR var",
                     ))
                 })?;
-                self.emit_store_binding(binding);
+                this.emit_store_binding(binding);
                 Ok(())
             }
             IrInstr::Call {
                 dest, target, args, ..
             } => {
-                self.compile_ir_cfg_call(target, args, bindings, current_name)?;
+                this.compile_ir_cfg_call(target, args, bindings, current_name)?;
                 let binding = bindings.get(dest).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning(
                         "missing CFG bytecode binding for IR call dest",
                     ))
                 })?;
-                self.emit_store_binding(binding);
+                this.emit_store_binding(binding);
                 Ok(())
             }
-            IrInstr::HandleScope { .. } => Err(Self::boxed(Diagnostic::warning(
-                "unsupported HandleScope in bytecode CFG compatibility path",
-            ))),
-        }
+            IrInstr::HandleScope {
+                effect, arms, dest, ..
+            } => {
+                // 1. Emit arm closures (each arm is a MakeClosure)
+                for arm in arms {
+                    for cap in &arm.capture_vars {
+                        this.load_symbol(bindings.get(cap).ok_or_else(|| {
+                            Self::boxed(Diagnostic::warning(
+                                "missing CFG bytecode handle capture binding",
+                            ))
+                        })?);
+                    }
+                    let fn_symbol = this
+                        .lookup_ir_function_symbol_by_raw_id(arm.function_id.0)
+                        .ok_or_else(|| {
+                            Self::boxed(Diagnostic::warning(
+                                "missing CFG bytecode handle arm function symbol",
+                            ))
+                        })?;
+                    let fn_binding = this.symbol_table.resolve(fn_symbol).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode handle arm function binding",
+                        ))
+                    })?;
+                    this.emit_closure_index(fn_binding.index, arm.capture_vars.len());
+                }
+
+                // 2. Create HandlerDescriptor constant and emit OpHandle
+                let ops: Vec<_> = arms.iter().map(|a| a.operation_name).collect();
+                let descriptor = HandlerDescriptor {
+                    effect: *effect,
+                    ops,
+                    is_discard: false, // TODO: detect from evidence pass
+                };
+                let const_idx = this.add_constant(Value::HandlerDescriptor(Rc::new(descriptor)));
+                this.emit(OpCode::OpHandle, &[const_idx]);
+
+                // 3. Body blocks follow inline; OpEndHandle will be emitted at
+                //    the start of the continuation block (tracked by end_handle_blocks).
+                //    The dest binding is assigned when the cont block's param
+                //    receives the body result via jump args.
+                let _ = dest; // dest is handled by block param assignment
+                Ok(())
+            }
+            IrInstr::AetherDrop { var, .. } => {
+                // Aether early-release on the VM: boxed locals can be cleared
+                // eagerly, but immediate Int/Float/Bool locals must be left
+                // unchanged to match the JIT/LLVM behavior.
+                if let Some(binding) = bindings.get(var) {
+                    match binding.symbol_scope {
+                        crate::bytecode::symbol_scope::SymbolScope::Local => {
+                            this.emit(OpCode::OpAetherDropLocal, &[binding.index]);
+                        }
+                        crate::bytecode::symbol_scope::SymbolScope::Global => {
+                            this.emit(OpCode::OpNone, &[]);
+                            this.emit_store_binding(binding);
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(())
+            }
+        })
     }
 
     #[allow(dead_code)]
@@ -429,6 +554,23 @@ impl Compiler {
                 let rhs_binding = bindings.get(rhs).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning("missing CFG bytecode rhs binding"))
                 })?;
+
+                // Short-circuit And/Or: load LHS, conditionally skip RHS
+                if matches!(op, IrBinaryOp::And) {
+                    self.load_symbol(lhs_binding);
+                    let jump_pos = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
+                    self.load_symbol(rhs_binding);
+                    self.change_operand(jump_pos, self.current_instructions().len());
+                    return Ok(());
+                }
+                if matches!(op, IrBinaryOp::Or) {
+                    self.load_symbol(lhs_binding);
+                    let jump_pos = self.emit(OpCode::OpJumpTruthy, &[9999]);
+                    self.load_symbol(rhs_binding);
+                    self.change_operand(jump_pos, self.current_instructions().len());
+                    return Ok(());
+                }
+
                 if matches!(op, IrBinaryOp::Lt) {
                     self.load_symbol(rhs_binding);
                     self.load_symbol(lhs_binding);
@@ -437,24 +579,394 @@ impl Compiler {
                     self.load_symbol(rhs_binding);
                 }
                 match op {
-                    IrBinaryOp::Add => self.emit(OpCode::OpAdd, &[]),
-                    IrBinaryOp::Sub => self.emit(OpCode::OpSub, &[]),
-                    IrBinaryOp::Mul => self.emit(OpCode::OpMul, &[]),
-                    IrBinaryOp::Div => self.emit(OpCode::OpDiv, &[]),
+                    IrBinaryOp::Add | IrBinaryOp::IAdd | IrBinaryOp::FAdd => {
+                        self.emit(OpCode::OpAdd, &[])
+                    }
+                    IrBinaryOp::Sub | IrBinaryOp::ISub | IrBinaryOp::FSub => {
+                        self.emit(OpCode::OpSub, &[])
+                    }
+                    IrBinaryOp::Mul | IrBinaryOp::IMul | IrBinaryOp::FMul => {
+                        self.emit(OpCode::OpMul, &[])
+                    }
+                    IrBinaryOp::Div | IrBinaryOp::IDiv | IrBinaryOp::FDiv => {
+                        self.emit(OpCode::OpDiv, &[])
+                    }
+                    IrBinaryOp::Mod | IrBinaryOp::IMod => self.emit(OpCode::OpMod, &[]),
                     IrBinaryOp::Eq => self.emit(OpCode::OpEqual, &[]),
                     IrBinaryOp::NotEq => self.emit(OpCode::OpNotEqual, &[]),
                     IrBinaryOp::Lt => self.emit(OpCode::OpGreaterThan, &[]),
                     IrBinaryOp::Gt => self.emit(OpCode::OpGreaterThan, &[]),
                     IrBinaryOp::Ge => self.emit(OpCode::OpGreaterThanOrEqual, &[]),
                     IrBinaryOp::Le => self.emit(OpCode::OpLessThanOrEqual, &[]),
+                    IrBinaryOp::And | IrBinaryOp::Or => unreachable!("handled above"),
+                };
+                Ok(())
+            }
+            IrExpr::MakeClosure(fn_id, captures) => {
+                // Load each capture variable onto the stack
+                for cap in captures {
+                    self.load_symbol(bindings.get(cap).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode closure capture binding",
+                        ))
+                    })?);
+                }
+                // Resolve FunctionId → Symbol → Binding to get the constant index
+                let fn_symbol = self
+                    .lookup_ir_function_symbol_by_raw_id(fn_id.0)
+                    .ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode closure function symbol",
+                        ))
+                    })?;
+                let fn_binding = self.symbol_table.resolve(fn_symbol).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode closure function binding",
+                    ))
+                })?;
+                self.emit_closure_index(fn_binding.index, captures.len());
+                Ok(())
+            }
+            IrExpr::Perform {
+                effect,
+                operation,
+                args,
+            } => {
+                // Push arguments onto the stack
+                for arg in args {
+                    self.load_symbol(bindings.get(arg).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode perform arg binding",
+                        ))
+                    })?);
+                }
+                // Create PerformDescriptor constant
+                let effect_name = self.sym(*effect).to_string();
+                let op_name = self.sym(*operation).to_string();
+                let descriptor = crate::runtime::perform_descriptor::PerformDescriptor {
+                    effect: *effect,
+                    op: *operation,
+                    effect_name: effect_name.into(),
+                    op_name: op_name.into(),
+                };
+                let const_idx =
+                    self.add_constant(Value::PerformDescriptor(std::rc::Rc::new(descriptor)));
+                self.emit(OpCode::OpPerform, &[const_idx, args.len()]);
+                Ok(())
+            }
+            // ── Construction expressions ──────────────────────────────────
+            IrExpr::EmptyList => {
+                // Push empty list sentinel
+                self.emit_constant_value(Value::EmptyList);
+                Ok(())
+            }
+            IrExpr::Cons { head, tail } => {
+                self.load_symbol(bindings.get(head).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode cons head binding",
+                    ))
+                })?);
+                self.load_symbol(bindings.get(tail).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode cons tail binding",
+                    ))
+                })?);
+                self.emit(OpCode::OpCons, &[]);
+                Ok(())
+            }
+            IrExpr::Some(inner) => {
+                self.load_symbol(bindings.get(inner).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG bytecode Some binding"))
+                })?);
+                self.emit(OpCode::OpSome, &[]);
+                Ok(())
+            }
+            IrExpr::Left(inner) => {
+                self.load_symbol(bindings.get(inner).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG bytecode Left binding"))
+                })?);
+                self.emit(OpCode::OpLeft, &[]);
+                Ok(())
+            }
+            IrExpr::Right(inner) => {
+                self.load_symbol(bindings.get(inner).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG bytecode Right binding"))
+                })?);
+                self.emit(OpCode::OpRight, &[]);
+                Ok(())
+            }
+            IrExpr::MakeAdt(constructor, fields) => {
+                for field in fields {
+                    self.load_symbol(bindings.get(field).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode ADT field binding",
+                        ))
+                    })?);
+                }
+                let const_idx =
+                    self.add_constant(Value::String(self.sym(*constructor).to_string().into()));
+                self.emit(OpCode::OpMakeAdt, &[const_idx, fields.len()]);
+                Ok(())
+            }
+            IrExpr::MakeTuple(fields) => {
+                for field in fields {
+                    self.load_symbol(bindings.get(field).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode tuple field binding",
+                        ))
+                    })?);
+                }
+                self.emit(OpCode::OpTuple, &[fields.len()]);
+                Ok(())
+            }
+
+            // ── Aether reuse expressions ─────────────────────────────────
+            IrExpr::DropReuse(var) => {
+                self.load_symbol(bindings.get(var).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode DropReuse binding",
+                    ))
+                })?);
+                self.emit(OpCode::OpDropReuse, &[]);
+                Ok(())
+            }
+            IrExpr::ReuseCons {
+                token,
+                head,
+                tail,
+                field_mask,
+            } => {
+                // Push token, head, tail in order (token first = bottom of trio)
+                self.load_symbol(bindings.get(token).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseCons token binding",
+                    ))
+                })?);
+                self.load_symbol(bindings.get(head).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseCons head binding",
+                    ))
+                })?);
+                self.load_symbol(bindings.get(tail).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseCons tail binding",
+                    ))
+                })?);
+                let mask_byte = field_mask.unwrap_or(0xFF_u64) as usize;
+                self.emit(OpCode::OpReuseCons, &[mask_byte]);
+                Ok(())
+            }
+            IrExpr::ReuseAdt {
+                token,
+                constructor,
+                fields,
+                field_mask,
+            } => {
+                // Push token first, then fields
+                self.load_symbol(bindings.get(token).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseAdt token binding",
+                    ))
+                })?);
+                for field in fields {
+                    self.load_symbol(bindings.get(field).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode ReuseAdt field binding",
+                        ))
+                    })?);
+                }
+                let const_idx =
+                    self.add_constant(Value::String(self.sym(*constructor).to_string().into()));
+                let mask_byte = field_mask.unwrap_or(0xFF_u64) as usize;
+                self.emit(OpCode::OpReuseAdt, &[const_idx, fields.len(), mask_byte]);
+                Ok(())
+            }
+            IrExpr::ReuseSome { token, inner } => {
+                self.load_symbol(bindings.get(token).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseSome token binding",
+                    ))
+                })?);
+                self.load_symbol(bindings.get(inner).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseSome inner binding",
+                    ))
+                })?);
+                self.emit(OpCode::OpReuseSome, &[]);
+                Ok(())
+            }
+            IrExpr::ReuseLeft { token, inner } => {
+                self.load_symbol(bindings.get(token).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseLeft token binding",
+                    ))
+                })?);
+                self.load_symbol(bindings.get(inner).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseLeft inner binding",
+                    ))
+                })?);
+                self.emit(OpCode::OpReuseLeft, &[]);
+                Ok(())
+            }
+            IrExpr::ReuseRight { token, inner } => {
+                self.load_symbol(bindings.get(token).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseRight token binding",
+                    ))
+                })?);
+                self.load_symbol(bindings.get(inner).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode ReuseRight inner binding",
+                    ))
+                })?);
+                self.emit(OpCode::OpReuseRight, &[]);
+                Ok(())
+            }
+
+            IrExpr::IsUnique(var) => {
+                self.load_symbol(bindings.get(var).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG bytecode IsUnique binding"))
+                })?);
+                self.emit(OpCode::OpIsUnique, &[]);
+                Ok(())
+            }
+
+            // ── General expressions ────────────────────────────────────────
+            IrExpr::Prefix { operator, right } => {
+                self.load_symbol(bindings.get(right).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG bytecode prefix binding"))
+                })?);
+                match operator.as_str() {
+                    "-" => self.emit(OpCode::OpMinus, &[]),
+                    "!" => self.emit(OpCode::OpBang, &[]),
                     _ => {
                         return Err(Self::boxed(Diagnostic::warning(
-                            "unsupported CFG bytecode binary op",
+                            "unsupported CFG bytecode prefix operator",
                         )));
                     }
                 };
                 Ok(())
             }
+            IrExpr::MakeArray(elements) => {
+                for el in elements {
+                    self.load_symbol(bindings.get(el).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode array element binding",
+                        ))
+                    })?);
+                }
+                let len = elements.len();
+                if u16::try_from(len).is_ok() {
+                    self.emit(OpCode::OpArray, &[len]);
+                } else {
+                    self.emit(OpCode::OpArrayLong, &[len]);
+                }
+                Ok(())
+            }
+            IrExpr::MakeHash(pairs) => {
+                for (k, v) in pairs {
+                    self.load_symbol(bindings.get(k).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning("missing CFG bytecode hash key binding"))
+                    })?);
+                    self.load_symbol(bindings.get(v).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode hash value binding",
+                        ))
+                    })?);
+                }
+                let num_elements = pairs.len() * 2;
+                if u16::try_from(num_elements).is_ok() {
+                    self.emit(OpCode::OpHash, &[num_elements]);
+                } else {
+                    self.emit(OpCode::OpHashLong, &[num_elements]);
+                }
+                Ok(())
+            }
+            IrExpr::MakeList(elements) => {
+                // Load all elements forward, push EmptyList last, then OpCons N times.
+                // OpCons pops (head=sp-2, tail=sp-1):
+                //   stack [e_1, ..., e_n, EmptyList] → Cons(e_n, EmptyList)
+                //   stack [e_1, ..., e_{n-1}, result] → Cons(e_{n-1}, result)
+                //   ... → [e_1, e_2, ..., e_n]
+                for el in elements.iter() {
+                    self.load_symbol(bindings.get(el).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode list element binding",
+                        ))
+                    })?);
+                }
+                self.emit_constant_value(Value::EmptyList);
+                for _ in 0..elements.len() {
+                    self.emit(OpCode::OpCons, &[]);
+                }
+                Ok(())
+            }
+            IrExpr::Index { left, index } => {
+                self.load_symbol(bindings.get(left).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode index left binding",
+                    ))
+                })?);
+                self.load_symbol(bindings.get(index).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode index right binding",
+                    ))
+                })?);
+                self.emit(OpCode::OpIndex, &[]);
+                Ok(())
+            }
+            IrExpr::LoadName(name) => {
+                // Try to resolve as a known symbol (global or ADT constructor)
+                if let Some(binding) = self.symbol_table.resolve(*name) {
+                    self.load_symbol(&binding);
+                    Ok(())
+                } else {
+                    Err(Self::boxed(Diagnostic::warning(
+                        "unresolved CFG bytecode LoadName",
+                    )))
+                }
+            }
+            IrExpr::InterpolatedString(parts) => {
+                // Emit each part as a string and concatenate
+                let mut first = true;
+                for part in parts {
+                    match part {
+                        crate::cfg::IrStringPart::Literal(s) => {
+                            self.emit_constant_value(Value::String(std::rc::Rc::new(s.clone())));
+                        }
+                        crate::cfg::IrStringPart::Interpolation(var) => {
+                            self.load_symbol(bindings.get(var).ok_or_else(|| {
+                                Self::boxed(Diagnostic::warning(
+                                    "missing CFG bytecode interpolation binding",
+                                ))
+                            })?);
+                            self.emit(OpCode::OpToString, &[]);
+                        }
+                    }
+                    if !first {
+                        self.emit(OpCode::OpAdd, &[]);
+                    }
+                    first = false;
+                }
+                if first {
+                    self.emit_constant_value(Value::String(std::rc::Rc::new(String::new())));
+                }
+                Ok(())
+            }
+            IrExpr::MemberAccess { object, member, .. } => {
+                // Load object, emit member name as string, use OpIndex for runtime access
+                self.load_symbol(bindings.get(object).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning(
+                        "missing CFG bytecode member access binding",
+                    ))
+                })?);
+                let member_str = self.sym(*member).to_string();
+                self.emit_constant_value(Value::String(std::rc::Rc::new(member_str)));
+                self.emit(OpCode::OpIndex, &[]);
+                Ok(())
+            }
+
             _ => Err(Self::boxed(Diagnostic::warning(
                 "unsupported CFG bytecode expression lowering",
             ))),
@@ -488,28 +1000,94 @@ impl Compiler {
         bindings: &HashMap<IrVar, crate::bytecode::binding::Binding>,
         current_name: Symbol,
     ) -> CompileResult<()> {
-        match terminator {
+        let metadata = match terminator {
+            IrTerminator::Jump(_, _, metadata)
+            | IrTerminator::Return(_, metadata)
+            | IrTerminator::TailCall { metadata, .. }
+            | IrTerminator::Unreachable(metadata)
+            | IrTerminator::Branch { metadata, .. } => metadata,
+        };
+        self.with_ir_span(metadata, |this| match terminator {
             IrTerminator::Return(var, _) => {
-                self.load_symbol(bindings.get(var).ok_or_else(|| {
+                this.load_symbol(bindings.get(var).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning("missing CFG bytecode return binding"))
                 })?);
-                self.emit(OpCode::OpReturnValue, &[]);
+                this.emit(OpCode::OpReturnValue, &[]);
                 Ok(())
             }
             IrTerminator::TailCall { callee, args, .. } => {
+                // Resolve the function name for named or builtin targets.
+                let callee_name_str: Option<String> = match callee {
+                    IrCallTarget::Named(name) => Some(this.sym(*name).to_string()),
+                    IrCallTarget::Builtin(name) => Some(name.to_string()),
+                    _ => None,
+                };
+
+                // Effect checking and PrimOp emission for named tail calls.
+                if let Some(ref name_str) = callee_name_str
+                    && let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len())
+                {
+                    let required = match primop.effect_kind() {
+                        crate::primop::PrimEffect::Io => Some("IO"),
+                        crate::primop::PrimEffect::Time => Some("Time"),
+                        _ => None,
+                    };
+                    if let Some(required_name) = required
+                        && !this.is_effect_available_name(required_name)
+                    {
+                        return Err(Self::boxed(
+                            Diagnostic::make_error_dynamic(
+                                "E400",
+                                "MISSING EFFECT",
+                                crate::diagnostics::ErrorType::Compiler,
+                                format!(
+                                    "Call to `{}` requires effect `{}` in this function signature.",
+                                    name_str, required_name
+                                ),
+                                Some(format!(
+                                    "Add `with {}` to the enclosing function.",
+                                    required_name
+                                )),
+                                this.file_path.clone(),
+                                crate::diagnostics::position::Span::default(),
+                            )
+                            .with_display_title("Missing Ambient Effect"),
+                        ));
+                    }
+                    for arg in args {
+                        this.load_symbol(bindings.get(arg).ok_or_else(|| {
+                            Self::boxed(Diagnostic::warning("missing CFG tail-call arg binding"))
+                        })?);
+                    }
+                    this.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
+                    this.emit(OpCode::OpReturnValue, &[]);
+                    return Ok(());
+                }
+
                 let is_self = matches!(callee, IrCallTarget::Named(name) if *name == current_name);
                 if !is_self {
                     match callee {
                         IrCallTarget::Named(name) => {
-                            let symbol = self.symbol_table.resolve(*name).ok_or_else(|| {
+                            let symbol = this.symbol_table.resolve(*name).ok_or_else(|| {
                                 Self::boxed(Diagnostic::warning(
                                     "missing CFG bytecode tail-call target binding",
                                 ))
                             })?;
-                            self.load_symbol(&symbol);
+                            this.load_symbol(&symbol);
+                        }
+                        IrCallTarget::Builtin(name) => {
+                            // Builtin targets are resolved by the builtin function
+                            // registry — intern the name and look up the symbol.
+                            let sym = this.interner.intern(name);
+                            let symbol = this.symbol_table.resolve(sym).ok_or_else(|| {
+                                Self::boxed(Diagnostic::warning(
+                                    "missing CFG bytecode builtin tail-call target binding",
+                                ))
+                            })?;
+                            this.load_symbol(&symbol);
                         }
                         IrCallTarget::Var(var) => {
-                            self.load_symbol(bindings.get(var).ok_or_else(|| {
+                            this.load_symbol(bindings.get(var).ok_or_else(|| {
                                 Self::boxed(Diagnostic::warning(
                                     "missing CFG bytecode tail-call callee binding",
                                 ))
@@ -520,37 +1098,37 @@ impl Compiler {
                                 IrCallTarget::Direct(id) => id,
                                 _ => unreachable!(),
                             };
-                            let symbol = self
+                            let symbol = this
                                 .lookup_ir_function_symbol_by_raw_id(function_id.0)
-                                .and_then(|symbol| self.symbol_table.resolve(symbol))
+                                .and_then(|symbol| this.symbol_table.resolve(symbol))
                                 .ok_or_else(|| {
                                     Self::boxed(Diagnostic::warning(
                                         "missing direct CFG bytecode tail-call target binding",
                                     ))
                                 })?;
-                            self.load_symbol(&symbol);
+                            this.load_symbol(&symbol);
                         }
                     }
                 }
                 for arg in args {
-                    self.load_symbol(bindings.get(arg).ok_or_else(|| {
+                    this.load_symbol(bindings.get(arg).ok_or_else(|| {
                         Self::boxed(Diagnostic::warning(
                             "missing CFG bytecode tail-call arg binding",
                         ))
                     })?);
                 }
                 if is_self {
-                    self.emit(OpCode::OpTailCall, &[args.len()]);
+                    this.emit(OpCode::OpTailCall, &[args.len()]);
                 } else {
-                    self.emit(OpCode::OpCall, &[args.len()]);
-                    self.emit(OpCode::OpReturnValue, &[]);
+                    this.emit(OpCode::OpCall, &[args.len()]);
+                    this.emit(OpCode::OpReturnValue, &[]);
                 }
                 Ok(())
             }
             _ => Err(Self::boxed(Diagnostic::warning(
                 "unsupported CFG bytecode terminator lowering",
             ))),
-        }
+        })
     }
 
     #[allow(dead_code)]
@@ -561,6 +1139,55 @@ impl Compiler {
         bindings: &HashMap<IrVar, crate::bytecode::binding::Binding>,
         current_name: Symbol,
     ) -> CompileResult<()> {
+        // Resolve the function name for named or builtin targets.
+        let target_name_str: Option<String> = match target {
+            IrCallTarget::Named(name) => Some(self.sym(*name).to_string()),
+            IrCallTarget::Builtin(name) => Some(name.to_string()),
+            _ => None,
+        };
+
+        // Effect checking and PrimOp emission for named calls: verify that
+        // effectful base functions (e.g. print, read_file) have the required
+        // effect available in the surrounding scope.
+        if let Some(ref name_str) = target_name_str
+            && let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len())
+        {
+            let required = match primop.effect_kind() {
+                crate::primop::PrimEffect::Io => Some("IO"),
+                crate::primop::PrimEffect::Time => Some("Time"),
+                _ => None,
+            };
+            if let Some(required_name) = required
+                && !self.is_effect_available_name(required_name)
+            {
+                return Err(Self::boxed(
+                    Diagnostic::make_error_dynamic(
+                        "E400",
+                        "MISSING EFFECT",
+                        crate::diagnostics::ErrorType::Compiler,
+                        format!(
+                            "Call to `{}` requires effect `{}` in this function signature.",
+                            name_str, required_name
+                        ),
+                        Some(format!(
+                            "Add `with {}` to the enclosing function.",
+                            required_name
+                        )),
+                        self.file_path.clone(),
+                        crate::diagnostics::position::Span::default(),
+                    )
+                    .with_display_title("Missing Ambient Effect"),
+                ));
+            }
+            for arg in args {
+                self.load_symbol(bindings.get(arg).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG call arg binding"))
+                })?);
+            }
+            self.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
+            return Ok(());
+        }
+
         let is_self = matches!(target, IrCallTarget::Named(name) if *name == current_name);
         if !is_self {
             match target {
@@ -568,6 +1195,15 @@ impl Compiler {
                     let symbol = self.symbol_table.resolve(*name).ok_or_else(|| {
                         Self::boxed(Diagnostic::warning(
                             "missing CFG bytecode call target binding",
+                        ))
+                    })?;
+                    self.load_symbol(&symbol);
+                }
+                IrCallTarget::Builtin(name) => {
+                    let sym = self.interner.intern(name);
+                    let symbol = self.symbol_table.resolve(sym).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode builtin call target binding",
                         ))
                     })?;
                     self.load_symbol(&symbol);

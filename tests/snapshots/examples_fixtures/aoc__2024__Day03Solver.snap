@@ -24,5 +24,59 @@ Note:
 
 Help:
   Wrap this value in `Some(...)` or return `None`.
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `range`.
+
+  examples/aoc/2024/Day03Solver.flx:71:33
+   |
+71 |         where indices = to_list(range(0, len(memory)))
+   |                                 ^^^^^
+
+Hint:
+  Define it first: let range = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2024/Day03Solver.flx:72:23
+   |
+72 |         where state = fold(indices, (0, 0), /(st: (Int, Int), i: Int) -> {
+   |                       ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `range`.
+
+  examples/aoc/2024/Day03Solver.flx:94:33
+   |
+94 |         where indices = to_list(range(0, len(memory)))
+   |                                 ^^^^^
+
+Hint:
+  Define it first: let range = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2024/Day03Solver.flx:95:23
+   |
+95 |         where state = fold(indices, (0, true, 0), /(st: (Int, Bool, Int), i: Int) -> {
+   |                       ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+Found 5 errors.
 == stdout ==
 <not executed>

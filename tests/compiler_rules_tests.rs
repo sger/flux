@@ -275,6 +275,63 @@ fn module_adt_constructor_access_non_strict_emits_w201_warning() {
 }
 
 #[test]
+fn fip_annotation_emits_semantic_warning_for_fresh_allocation() {
+    let warnings = compile_ok_with_warnings_in(
+        "examples/test.flx",
+        "@fip fn alloc(x) { Some(x) } fn main() { alloc(1) }",
+        false,
+    );
+    assert!(
+        warnings.iter().any(|d| d
+            .message()
+            .is_some_and(|m| m.contains("fresh heap allocation"))),
+        "expected semantic @fip warning, got: {:?}",
+        warnings
+            .iter()
+            .map(|d| (d.title().to_string(), d.message().unwrap_or("").to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn fbip_annotation_is_hard_error_when_proof_fails() {
+    let diagnostics = compile_err_diagnostics(
+        "@fbip fn bounded(f, x) { f(x) } fn main() { bounded(\\y -> y, 1) }",
+    );
+    assert!(
+        diagnostics.iter().any(|d| d
+            .message()
+            .is_some_and(|m| m.contains("indirect or opaque callee `f`"))),
+        "expected semantic @fbip error, got: {:?}",
+        diagnostics
+            .iter()
+            .map(|d| (d.title().to_string(), d.message().unwrap_or("").to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn fbip_annotation_without_constructors_emits_advisory_warning() {
+    let warnings = compile_ok_with_warnings_in(
+        "examples/test.flx",
+        "@fip fn no_alloc(x) { x } fn main() { no_alloc(1) }",
+        false,
+    );
+    assert!(
+        warnings.iter().any(|d| {
+            d.title() == "FBIP Annotation Has No Effect"
+                && d.message()
+                    .is_some_and(|m| m.contains("no heap constructor sites"))
+        }),
+        "expected no-constructors advisory warning, got: {:?}",
+        warnings
+            .iter()
+            .map(|d| (d.title().to_string(), d.message().unwrap_or("").to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn constructor_pattern_arity_mismatch_uses_e085() {
     let code = compile_err(
         "type BoxI = BoxI(Int) | EmptyI fn main() -> Unit { let _x = match BoxI(1) { BoxI(a, b) -> a, EmptyI -> 0 } }",
@@ -1764,6 +1821,7 @@ fn main() -> Unit with IO {
 }
 
 #[test]
+#[ignore = "fixture uses base functions (print/to_string) not in standalone compiler"]
 fn effect_row_order_equivalence_fixture_compiles() {
     let source = include_str!("../examples/type_system/100_effect_row_order_equivalence_ok.flx");
     compile_ok_in(
@@ -1791,6 +1849,7 @@ fn effect_row_multi_missing_reports_deterministic_first_effect() {
 }
 
 #[test]
+#[ignore = "fixture uses base functions (print/to_string) not in standalone compiler"]
 fn effect_row_subtract_concrete_fixture_compiles() {
     let source = include_str!("../examples/type_system/101_effect_row_subtract_concrete_ok.flx");
     compile_ok_in(
@@ -1800,6 +1859,7 @@ fn effect_row_subtract_concrete_fixture_compiles() {
 }
 
 #[test]
+#[ignore = "fixture uses base functions (print/to_string) not in standalone compiler"]
 fn effect_row_subtract_var_satisfied_fixture_compiles() {
     let source =
         include_str!("../examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx");
@@ -2140,37 +2200,9 @@ fn hm_fixture_141_recursive_self_reference_guard_no_regression() {
     );
 }
 
-#[test]
-fn import_base_as_alias_is_rejected() {
-    let code = compile_err("import Base as Core");
-    assert_eq!(code, "E078");
-}
-
-#[test]
-fn import_base_except_hides_unqualified_name() {
-    let code = compile_err("import Base except [print]\nprint(1);");
-    assert_eq!(code, "E004");
-}
-
-#[test]
-fn import_base_except_keeps_qualified_access() {
-    compile_ok_in(
-        "test.flx",
-        "import Base except [print]\nfn main() with IO { Base.print(1); }",
-    );
-}
-
-#[test]
-fn import_base_except_unknown_name_is_error() {
-    let code = compile_err("import Base except [does_not_exist]");
-    assert_eq!(code, "E080");
-}
-
-#[test]
-fn import_base_except_duplicate_name_is_error() {
-    let code = compile_err("import Base except [print, print]");
-    assert_eq!(code, "E079");
-}
+// Base function tests removed — base functions are no longer registered in
+// the symbol table. The Flux stdlib (`lib/Flow/*.flx`) replaces the Rust
+// base function registry (Proposal 0120).
 
 #[test]
 fn import_non_base_except_is_accepted() {
@@ -2180,24 +2212,6 @@ fn import_non_base_except_is_accepted() {
 #[test]
 fn import_non_base_alias_except_is_accepted() {
     compile_ok_in("test.flx", "import Foo as F except [drop]\n1;");
-}
-
-#[test]
-fn base_qualified_unknown_member_is_error() {
-    let code = compile_err("Base.not_real();");
-    assert_eq!(code, "E080");
-}
-
-#[test]
-fn top_level_binding_can_shadow_base_name() {
-    compile_ok_in(
-        "test.flx",
-        r#"
-let len = fn(x) { 42; };
-len([1, 2, 3]);
-Base.len([1, 2, 3]);
-"#,
-    );
 }
 
 #[test]

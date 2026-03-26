@@ -1,0 +1,12 @@
+// Aether drop-spec recursive regression fixture.
+
+fn rec_copy_or_keep(xs, choose) {
+    match xs {
+        [h | t] -> if choose { [h | rec_copy_or_keep(t, choose)] } else { [h | [h | rec_copy_or_keep(t, choose)]] },
+        _ -> [],
+    }
+}
+
+fn main() with IO {
+    print(rec_copy_or_keep([1, 2, 3], false))
+}

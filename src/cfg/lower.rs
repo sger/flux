@@ -2530,11 +2530,13 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
             name,
             alias,
             except,
+            exposing,
             span,
         } => Ok(IrTopLevelItem::Import {
             name: *name,
             alias: *alias,
             except: except.clone(),
+            exposing: exposing.clone(),
             span: *span,
         }),
         Statement::Data {
@@ -2616,6 +2618,7 @@ pub(crate) fn ir_top_level_item_to_statement(
             effects: effects.clone(),
             body: body.clone(),
             span: *span,
+            fip: None,
         },
         IrTopLevelItem::Assign { name, value, span } => Statement::Assign {
             name: *name,
@@ -2637,11 +2640,13 @@ pub(crate) fn ir_top_level_item_to_statement(
             name,
             alias,
             except,
+            exposing,
             span,
         } => Statement::Import {
             name: *name,
             alias: *alias,
             except: except.clone(),
+            exposing: exposing.clone(),
             span: *span,
         },
         IrTopLevelItem::Data {
