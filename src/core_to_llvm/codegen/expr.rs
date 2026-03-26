@@ -2941,7 +2941,18 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 // Module member access: resolve to the function by name.
                 // Must use ensure_top_level_wrapper to get a closure entry
                 // with the correct (i64, ptr, i32) calling convention.
-                if let Some((binder, info)) = self.program.top_level_by_name_with_binder(*member) {
+                //
+                // When args[0] is a module variable, extract the module name
+                // to disambiguate members that share the same Identifier
+                // (e.g., Flow.List.map vs Flow.Array.map).
+                let module_name = args.first().and_then(|arg| {
+                    if let CoreExpr::Var { var, .. } = arg {
+                        Some(var.name)
+                    } else {
+                        None
+                    }
+                });
+                if let Some((binder, info)) = self.program.top_level_member_in_module(*member, module_name) {
                     let wrapper = self.program.ensure_top_level_wrapper(binder)?;
                     let arity = info.arity as i32;
                     self.emit_make_closure_value(wrapper, arity, vec![], vec![])
