@@ -686,8 +686,7 @@ fn run_file(
                     if let Err(e) = flux::bytecode::compiler::module_interface::save_interface(
                         &iface_path,
                         &interface,
-                    )
-                        && verbose
+                    ) && verbose
                     {
                         eprintln!(
                             "warning: could not write interface file {}: {e}",

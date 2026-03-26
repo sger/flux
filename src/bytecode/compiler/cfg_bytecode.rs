@@ -1056,9 +1056,7 @@ impl Compiler {
                     }
                     for arg in args {
                         this.load_symbol(bindings.get(arg).ok_or_else(|| {
-                            Self::boxed(Diagnostic::warning(
-                                "missing CFG tail-call arg binding",
-                            ))
+                            Self::boxed(Diagnostic::warning("missing CFG tail-call arg binding"))
                         })?);
                     }
                     this.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
