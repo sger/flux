@@ -60,17 +60,22 @@ fn run_flux_trace_snapshot(args: &[&str]) -> String {
 }
 
 fn normalize_transcript(text: &str) -> String {
+    let ws = workspace_root().to_string_lossy().to_string();
     let mut normalized = Vec::new();
     let mut pending_drops = Vec::new();
 
     for line in text.lines() {
-        if is_plain_drop_line(line) {
-            pending_drops.push(line.to_string());
+        // Replace absolute workspace path with a stable placeholder so
+        // snapshots don't break across machines (local vs CI).
+        let line = line.replace(&ws, "<workspace>");
+
+        if is_plain_drop_line(&line) {
+            pending_drops.push(line);
             continue;
         }
 
         flush_sorted_drops(&mut normalized, &mut pending_drops);
-        normalized.push(line.to_string());
+        normalized.push(line);
     }
 
     flush_sorted_drops(&mut normalized, &mut pending_drops);
