@@ -100,7 +100,7 @@ fn test_string_split() {
 
 fn test_string_join() {
     let result = join([|"a", "b", "c"|], "-")
-    assert_eq(to_string(result), "a-b-c")
+    assert_eq(result, "a-b-c")
 }
 
 fn test_string_chars() {

@@ -573,6 +573,10 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::ToList => out.push_str("ToList"),
         CorePrimOp::ToArray => out.push_str("ToArray"),
         CorePrimOp::Len => out.push_str("Len"),
+        CorePrimOp::CmpEq => out.push_str("CmpEq"),
+        CorePrimOp::CmpNe => out.push_str("CmpNe"),
+        CorePrimOp::Try => out.push_str("Try"),
+        CorePrimOp::AssertThrows => out.push_str("AssertThrows"),
     }
 }
 

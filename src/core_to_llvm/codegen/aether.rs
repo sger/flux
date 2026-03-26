@@ -22,10 +22,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         var: CoreVarRef,
         body: &CoreExpr,
     ) -> Result<LlvmOperand, CoreToLlvmError> {
-        if !self.var_is_unboxed(var) {
-            if let Ok(val) = self.load_var_value(var) {
-                self.emit_dup_call(val);
-            }
+        if !self.var_is_unboxed(var)
+            && let Ok(val) = self.load_var_value(var)
+        {
+            self.emit_dup_call(val);
         }
         self.lower_expr(body)
     }
@@ -39,10 +39,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         var: CoreVarRef,
         body: &CoreExpr,
     ) -> Result<LlvmOperand, CoreToLlvmError> {
-        if !self.var_is_unboxed(var) {
-            if let Ok(val) = self.load_var_value(var) {
-                self.emit_drop_call(val);
-            }
+        if !self.var_is_unboxed(var)
+            && let Ok(val) = self.load_var_value(var)
+        {
+            self.emit_drop_call(val);
         }
         self.lower_expr(body)
     }
@@ -295,7 +295,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
     fn var_is_unboxed(&self, var: CoreVarRef) -> bool {
         var.binder
             .and_then(|b| self.local_reps.get(&b).copied())
-            .map_or(false, |rep| rep.is_unboxed())
+            .is_some_and(|rep| rep.is_unboxed())
     }
 
     /// Load a variable's current value from its local slot.

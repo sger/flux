@@ -2887,7 +2887,11 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             | CorePrimOp::Tl
             | CorePrimOp::ToList
             | CorePrimOp::ToArray
-            | CorePrimOp::Len => {
+            | CorePrimOp::Len
+            | CorePrimOp::CmpEq
+            | CorePrimOp::CmpNe
+            | CorePrimOp::Try
+            | CorePrimOp::AssertThrows => {
                 let flux_name = promoted_primop_flux_name(op);
                 let Some(mapping) = super::builtins::find_builtin(flux_name) else {
                     return Err(self.unsupported(
@@ -3256,7 +3260,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CoreExpr::Lit(CoreLit::Int(_), _) => true,
             CoreExpr::Lit(CoreLit::Float(_), _) => true,
             CoreExpr::Lit(CoreLit::Bool(_), _) => true,
-            CoreExpr::Var { var, .. } => var.binder.map_or(false, |b| {
+            CoreExpr::Var { var, .. } => var.binder.is_some_and(|b| {
                 self.local_reps
                     .get(&b)
                     .copied()
@@ -3511,6 +3515,10 @@ fn promoted_primop_flux_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::ToList => "to_list",
         CorePrimOp::ToArray => "to_array",
         CorePrimOp::Len => "len",
+        CorePrimOp::CmpEq => "cmp_eq",
+        CorePrimOp::CmpNe => "cmp_ne",
+        CorePrimOp::Try => "try",
+        CorePrimOp::AssertThrows => "assert_throws",
         _ => unreachable!("not a promoted primop"),
     }
 }
