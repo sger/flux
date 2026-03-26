@@ -18,7 +18,7 @@
 /// This simplifies the Core→CFG lowering (`to_ir.rs`) because each `Let`
 /// maps directly to one IR instruction.
 use crate::{
-    core::{CoreBinder, CoreBinderId, CoreExpr},
+    core::{CoreBinder, CoreBinderId, CoreExpr, CorePrimOp, FluxRep},
     diagnostics::position::Span,
 };
 
@@ -36,13 +36,13 @@ fn is_trivial(expr: &CoreExpr) -> bool {
     matches!(expr, CoreExpr::Var { .. } | CoreExpr::Lit(_, _))
 }
 
-/// Allocate a fresh binder for an ANF temporary.
-fn fresh_anf_binder(next_id: &mut u32) -> CoreBinder {
+/// Allocate a fresh binder for an ANF temporary with a known rep.
+fn fresh_anf_binder(next_id: &mut u32, rep: FluxRep) -> CoreBinder {
     let id = *next_id;
     *next_id += 1;
     // Use the 4_000_000 range for ANF synthetic symbols.
     let sym = crate::syntax::symbol::Symbol::new(4_000_000 + id);
-    CoreBinder::new(CoreBinderId(id), sym)
+    CoreBinder::with_rep(CoreBinderId(id), sym, rep)
 }
 
 /// Ensure `expr` is trivial. If not, let-bind it and return the variable.
@@ -56,9 +56,115 @@ fn anf_atom(
         expr
     } else {
         let span = expr.span();
-        let binder = fresh_anf_binder(next_id);
+        let rep = rep_of_expr(&expr);
+        let binder = fresh_anf_binder(next_id, rep);
         bindings.push((binder, expr));
         CoreExpr::bound_var(binder, span)
+    }
+}
+
+/// Infer the `FluxRep` of a Core expression from its structure.
+///
+/// This is a best-effort analysis — typed primops give precise reps,
+/// while generic operations and function calls fall back to `TaggedRep`.
+fn rep_of_expr(expr: &CoreExpr) -> FluxRep {
+    match expr {
+        CoreExpr::Lit(lit, _) => match lit {
+            crate::core::CoreLit::Int(_) => FluxRep::IntRep,
+            crate::core::CoreLit::Float(_) => FluxRep::FloatRep,
+            crate::core::CoreLit::Bool(_) => FluxRep::BoolRep,
+            crate::core::CoreLit::String(_) => FluxRep::BoxedRep,
+            crate::core::CoreLit::Unit => FluxRep::UnitRep,
+        },
+        CoreExpr::Var { var, .. } => {
+            // If the variable has a resolved binder, we could look up its rep.
+            // For now, fall back to TaggedRep.
+            let _ = var;
+            FluxRep::TaggedRep
+        }
+        CoreExpr::PrimOp { op, .. } => primop_result_rep(op),
+        CoreExpr::Con { tag, .. } => {
+            use crate::core::CoreTag;
+            match tag {
+                CoreTag::None | CoreTag::Nil => FluxRep::UnitRep,
+                _ => FluxRep::BoxedRep,
+            }
+        }
+        CoreExpr::Lam { .. } => FluxRep::BoxedRep,
+        CoreExpr::Let { body, .. } | CoreExpr::LetRec { body, .. } => rep_of_expr(body),
+        _ => FluxRep::TaggedRep,
+    }
+}
+
+/// Determine the result representation of a primop.
+pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
+    match op {
+        // Typed integer arithmetic → IntRep
+        CorePrimOp::IAdd
+        | CorePrimOp::ISub
+        | CorePrimOp::IMul
+        | CorePrimOp::IDiv
+        | CorePrimOp::IMod => FluxRep::IntRep,
+
+        // Typed float arithmetic → FloatRep
+        CorePrimOp::FAdd | CorePrimOp::FSub | CorePrimOp::FMul | CorePrimOp::FDiv => {
+            FluxRep::FloatRep
+        }
+
+        // Comparisons → BoolRep
+        CorePrimOp::Eq
+        | CorePrimOp::NEq
+        | CorePrimOp::Lt
+        | CorePrimOp::Le
+        | CorePrimOp::Gt
+        | CorePrimOp::Ge
+        | CorePrimOp::And
+        | CorePrimOp::Or
+        | CorePrimOp::Not
+        | CorePrimOp::StartsWith
+        | CorePrimOp::EndsWith
+        | CorePrimOp::StrContains => FluxRep::BoolRep,
+
+        // String operations → BoxedRep
+        CorePrimOp::Concat
+        | CorePrimOp::Interpolate
+        | CorePrimOp::StringConcat
+        | CorePrimOp::StringSlice
+        | CorePrimOp::ToString
+        | CorePrimOp::Split
+        | CorePrimOp::Join
+        | CorePrimOp::Trim
+        | CorePrimOp::Upper
+        | CorePrimOp::Lower
+        | CorePrimOp::Replace
+        | CorePrimOp::Substring
+        | CorePrimOp::Chars => FluxRep::BoxedRep,
+
+        // Collection constructors → BoxedRep
+        CorePrimOp::MakeList
+        | CorePrimOp::MakeArray
+        | CorePrimOp::MakeTuple
+        | CorePrimOp::MakeHash => FluxRep::BoxedRep,
+
+        // Array/HAMT operations that return collections → BoxedRep
+        CorePrimOp::ArrayConcat
+        | CorePrimOp::ArraySlice
+        | CorePrimOp::ArraySort
+        | CorePrimOp::ArrayPush
+        | CorePrimOp::HamtSet
+        | CorePrimOp::HamtDelete
+        | CorePrimOp::HamtKeys
+        | CorePrimOp::HamtValues => FluxRep::BoxedRep,
+
+        // Length operations → IntRep
+        CorePrimOp::StringLength | CorePrimOp::ArrayLen => FluxRep::IntRep,
+
+        // I/O → UnitRep (print/println) or BoxedRep (read)
+        CorePrimOp::Print | CorePrimOp::Println | CorePrimOp::WriteFile => FluxRep::UnitRep,
+        CorePrimOp::ReadFile | CorePrimOp::ReadStdin => FluxRep::BoxedRep,
+
+        // Polymorphic / unknown → TaggedRep
+        _ => FluxRep::TaggedRep,
     }
 }
 
@@ -103,6 +209,30 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
             let app = CoreExpr::App {
                 func: Box::new(func),
                 args,
+                span,
+            };
+            wrap_lets(bindings, app, span)
+        }
+        CoreExpr::AetherCall {
+            func,
+            args,
+            arg_modes,
+            span,
+        } => {
+            let mut bindings = Vec::new();
+            let func = anf_expr(*func, next_id);
+            let func = anf_atom(func, next_id, &mut bindings);
+            let args: Vec<CoreExpr> = args
+                .into_iter()
+                .map(|a| {
+                    let a = anf_expr(a, next_id);
+                    anf_atom(a, next_id, &mut bindings)
+                })
+                .collect();
+            let app = CoreExpr::AetherCall {
+                func: Box::new(func),
+                args,
+                arg_modes,
                 span,
             };
             wrap_lets(bindings, app, span)
@@ -239,6 +369,57 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
                     h
                 })
                 .collect(),
+            span,
+        },
+
+        // Dup/Drop — recurse into body.
+        CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
+            var,
+            body: Box::new(anf_expr(*body, next_id)),
+            span,
+        },
+        CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
+            var,
+            body: Box::new(anf_expr(*body, next_id)),
+            span,
+        },
+
+        // Reuse — normalize fields to atoms (same as Con), keep token as-is.
+        CoreExpr::Reuse {
+            token,
+            tag,
+            fields,
+            field_mask,
+            span,
+        } => {
+            let mut bindings = Vec::new();
+            let fields: Vec<CoreExpr> = fields
+                .into_iter()
+                .map(|f| {
+                    let f = anf_expr(f, next_id);
+                    anf_atom(f, next_id, &mut bindings)
+                })
+                .collect();
+            let reuse = CoreExpr::Reuse {
+                token,
+                tag,
+                fields,
+                field_mask,
+                span,
+            };
+            wrap_lets(bindings, reuse, span)
+        }
+
+        // DropSpecialized — pass-through, recurse both branches.
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            span,
+        } => CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body: Box::new(anf_expr(*unique_body, next_id)),
+            shared_body: Box::new(anf_expr(*shared_body, next_id)),
             span,
         },
     }

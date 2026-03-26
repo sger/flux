@@ -6,6 +6,7 @@ Program {
     statements: [
         Function {
             is_public: false,
+            fip: None,
             name: Symbol(
                 0,
             ),

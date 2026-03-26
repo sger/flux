@@ -1,0 +1,76 @@
+// Aether queue workload fixture.
+// This is a runnable pair-of-lists queue workload used to measure Aether
+// behavior on wrapper-style list updates without claiming any unsupported
+// optimization beyond what the regression tests assert.
+// Run:   cargo run -- examples/aether/queue_workload.flx
+// JIT:   cargo run -- --jit examples/aether/queue_workload.flx
+// LLVM:  cargo run -- --llvm examples/aether/queue_workload.flx
+// Stats: cargo run -- --dump-aether examples/aether/queue_workload.flx
+
+type Queue<T> = Queue(List<T>, List<T>)
+type Pop<T> = EmptyQ | Popped(T, Queue<T>)
+
+fn rev_append(xs, acc) {
+    match xs {
+        [h | t] -> rev_append(t, [h | acc]),
+        _ -> acc,
+    }
+}
+
+fn normalize(q) {
+    match q {
+        Queue([], back) -> Queue(rev_append(back, []), []),
+        _ -> q,
+    }
+}
+
+fn push(q, value) {
+    match q {
+        Queue(front, back) -> Queue(front, [value | back]),
+    }
+}
+
+fn pop(q) {
+    match normalize(q) {
+        Queue([h | t], back) -> Popped(h, Queue(t, back)),
+        _ -> EmptyQ,
+    }
+}
+
+fn build_queue(n) {
+    fn go(i, q) {
+        if i <= 0 { q }
+        else { go(i - 1, push(q, i)) }
+    }
+    go(n, Queue([], []))
+}
+
+fn rotate_sum(q, rounds, total) {
+    if rounds <= 0 { total }
+    else {
+        match pop(q) {
+            Popped(value, rest) -> rotate_sum(push(rest, value + 1), rounds - 1, total + value),
+            _ -> total,
+        }
+    }
+}
+
+fn drain_sum(q, total) {
+    match pop(q) {
+        Popped(value, rest) -> drain_sum(rest, total + value),
+        _ -> total,
+    }
+}
+
+fn main() with IO {
+    let size = 2000
+    let work_rounds = 3000
+    let seed_queue = build_queue(size)
+    let rotated = rotate_sum(seed_queue, work_rounds, 0)
+    let drained = drain_sum(build_queue(size), 0)
+
+    print("Queue workload")
+    print("==============")
+    print("rotated total = #{rotated}")
+    print("drained total = #{drained}")
+}

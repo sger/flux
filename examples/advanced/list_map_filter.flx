@@ -124,20 +124,10 @@ fn main() with IO {
 
     print("=== Zip ===");
 
-    fn zip(a, b) {
-        match a {
-            [ha | ta] -> match b {
-                [hb | tb] -> [[ha, hb] | zip(ta, tb)],
-                _ -> None,
-            },
-            _ -> None,
-        }
-    }
-
     let labels = [1, 2, 3];
     let vals = [1, 2, 3];
     let pairs = zip(labels, vals);
-    print(pairs);  // [[1, 1], [2, 2], [3, 3]]
+    print(pairs);  // [(1, 1), (2, 2), (3, 3)]
 
     // =============================================================================
     // Part 7: Take / Drop

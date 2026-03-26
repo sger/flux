@@ -26,9 +26,7 @@ I found the wrong type in the 4th argument to `best_digit_pos`.
 21 | }
 22 | 
 23 | fn max_k_value(line, start, k, acc) {
-24 |     if k == 0 {
-25 |         acc
-26 |     } else {
+... |
 27 |     let n = len(line)
 28 |     let end = n - k
 29 |     let pos = best_digit_pos(line, start, end, -1, start)
@@ -65,6 +63,45 @@ Help:
   These two types are not compatible.
   adjust operand types or add explicit conversion
 
-Found 2 errors.
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day3_part2.flx:41:17
+   |
+41 | let non_empty = [trim(line) | line <- lines, trim(line) != ""]
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day3_part2.flx:42:19
+   |
+42 | let bank_values = [bank_value_k12(line) | line <- non_empty]
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `sum`.
+
+  examples/aoc/2025/aoc_day3_part2.flx:43:7
+   |
+43 | print(sum(bank_values))
+   |       ^^^
+
+Hint:
+  Define it first: let sum = ...;
+
+Found 5 errors.
 == stdout ==
 <not executed>

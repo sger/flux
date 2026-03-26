@@ -4,6 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/collections/error_limit_missing_commas.flx
 exit_code: 1
 
+• 12 errors, 1 note • tests/fixtures/collections/error_limit_missing_commas.flx
 error[E076]: Missing Closing Delimiter
 
 Expected a closing `)` to match this opening `(`.

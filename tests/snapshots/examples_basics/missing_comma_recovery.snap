@@ -3,8 +3,18 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/missing_comma_recovery.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `print`.
+
+  examples/basics/missing_comma_recovery.flx:17:5
+   |
+17 |     print(1, 2, 3);
+   |     ^^^^^
+
+Hint:
+  Define it first: let print = ...;
 == stdout ==
 <not executed>

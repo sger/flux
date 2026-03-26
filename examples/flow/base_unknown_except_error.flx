@@ -1,0 +1,7 @@
+// Expected compile error E080: unknown Flow member in except list
+
+import Flow except [does_not_exist]
+
+fn main() with IO {
+    print("unreachable");
+}

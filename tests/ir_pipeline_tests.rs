@@ -9,12 +9,11 @@
 
 use std::collections::HashMap;
 
-use flux::ast::type_infer::{InferProgramConfig, infer_program};
 use flux::bytecode::compiler::Compiler;
 use flux::bytecode::vm::VM;
 use flux::cfg::{IrBinaryOp, IrExpr, IrInstr, IrTerminator, lower_program_to_ir};
 use flux::core::{
-    CoreExpr, CorePrimOp, lower_ast::lower_program_ast, passes::run_core_passes,
+    CoreExpr, CorePrimOp, lower_ast::lower_program_ast, passes::run_core_passes_with_interner,
     to_ir::lower_core_to_ir,
 };
 use flux::diagnostics::render_diagnostics;
@@ -33,21 +32,10 @@ fn parse_and_infer(
 ) {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
-    let mut interner = parser.take_interner();
-    let base_sym = interner.intern("base");
-    let hm = infer_program(
-        &program,
-        &interner,
-        InferProgramConfig {
-            file_path: None,
-            preloaded_base_schemes: HashMap::new(),
-            preloaded_module_member_schemes: HashMap::new(),
-            known_base_names: std::collections::HashSet::new(),
-            base_module_symbol: base_sym,
-            preloaded_effect_op_signatures: HashMap::new(),
-        },
-    );
-    (program, hm.expr_types, interner)
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<test>", interner.clone());
+    let hm_expr_types = compiler.infer_expr_types_for_program(&program);
+    (program, hm_expr_types, interner)
 }
 
 fn run(input: &str) -> Value {
@@ -77,7 +65,7 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
     let mut out = vec![expr];
     match expr {
         CoreExpr::Lam { body, .. } => out.extend(collect_core_exprs(body)),
-        CoreExpr::App { func, args, .. } => {
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             out.extend(collect_core_exprs(func));
             for a in args {
                 out.extend(collect_core_exprs(a));
@@ -120,6 +108,22 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
             out.extend(collect_core_exprs(body));
         }
         CoreExpr::Var { .. } | CoreExpr::Lit(..) => {}
+        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
+            out.extend(collect_core_exprs(body));
+        }
+        CoreExpr::Reuse { fields, .. } => {
+            for f in fields {
+                out.extend(collect_core_exprs(f));
+            }
+        }
+        CoreExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            out.extend(collect_core_exprs(unique_body));
+            out.extend(collect_core_exprs(shared_body));
+        }
     }
     out
 }
@@ -167,9 +171,9 @@ fn main() {
 }
 "#;
     // Core IR: after passes, guard should still reference x correctly
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes(&mut core);
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
 
     // The Case should still have a guard expression after passes
     let main_def = &core.defs[0];
@@ -215,9 +219,9 @@ fn main() {
 }
 "#;
     // Core IR passes may inline `let n = 5` — guard must still work
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes(&mut core);
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
 
     assert_eq!(run(src), Value::String("small".to_string().into()));
 }
@@ -315,9 +319,9 @@ fn main() {
     f(5)
 }
 "#;
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes(&mut core);
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
 
     // After beta reduction, the application f(5) may be reduced
     // The final result should still be 6
@@ -334,7 +338,7 @@ fn main() {
     42
 }
 "#;
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
 
     // Before passes: should have a Let for `unused`
@@ -343,7 +347,7 @@ fn main() {
         .filter(|e| matches!(e, CoreExpr::Let { .. }))
         .count();
 
-    run_core_passes(&mut core);
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
 
     // After passes: dead let should be eliminated
     let after_lets = collect_core_exprs(&core.defs[0].expr)
@@ -476,9 +480,9 @@ fn main() {
     }
 }
 "#;
-    let (program, types, _interner) = parse_and_infer(src);
+    let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes(&mut core);
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
 
     // After COKC, the Case(Con(Some, [42]), ...) should reduce to just 42
     let main_exprs = collect_core_exprs(&core.defs[0].expr);

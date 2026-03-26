@@ -31,6 +31,10 @@ pub struct CoreBinder {
     pub id: CoreBinderId,
     /// Source/debug name retained as metadata.
     pub name: Identifier,
+    /// Runtime representation (Proposal 0119).
+    /// Determined by HM type inference during AST→Core lowering.
+    /// Defaults to `TaggedRep` (NaN-boxed) when type is unknown.
+    pub rep: FluxRep,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -43,7 +47,16 @@ pub struct CoreVarRef {
 
 impl CoreBinder {
     pub fn new(id: CoreBinderId, name: Identifier) -> Self {
-        Self { id, name }
+        Self {
+            id,
+            name,
+            rep: FluxRep::TaggedRep,
+        }
+    }
+
+    /// Create a binder with a known runtime representation.
+    pub fn with_rep(id: CoreBinderId, name: Identifier, rep: FluxRep) -> Self {
+        Self { id, name, rep }
     }
 }
 
@@ -150,6 +163,70 @@ impl CoreType {
     }
 }
 
+// ── Runtime representation ───────────────────────────────────────────────────
+
+/// Runtime representation of a Flux value (Proposal 0119).
+///
+/// Determined by HM type inference and carried through Core IR on binders.
+/// The `core_to_llvm` backend uses this to choose between boxed (NaN-boxed)
+/// and unboxed (raw register) code generation.
+///
+/// Analogous to GHC's `PrimRep`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FluxRep {
+    /// Raw signed 64-bit integer. No NaN-boxing.
+    IntRep,
+    /// Raw IEEE 754 double. No NaN-boxing.
+    FloatRep,
+    /// Raw boolean (i1). No NaN-boxing.
+    BoolRep,
+    /// Heap-allocated boxed value (NaN-boxed pointer).
+    /// Used for: String, Array, Closure, ADT, Cons, HashMap.
+    BoxedRep,
+    /// NaN-boxed value with unknown or polymorphic type.
+    /// Fallback when the type is not statically known.
+    TaggedRep,
+    /// Unit `()`. Minimal runtime representation (tagged None).
+    UnitRep,
+}
+
+impl FluxRep {
+    /// Derive the runtime representation from a `CoreType`.
+    pub fn from_core_type(ty: &CoreType) -> Self {
+        match ty {
+            CoreType::Int => FluxRep::IntRep,
+            CoreType::Float => FluxRep::FloatRep,
+            CoreType::Bool => FluxRep::BoolRep,
+            CoreType::Unit | CoreType::Never => FluxRep::UnitRep,
+            CoreType::String
+            | CoreType::List(_)
+            | CoreType::Array(_)
+            | CoreType::Tuple(_)
+            | CoreType::Function(_, _)
+            | CoreType::Option(_)
+            | CoreType::Either(_, _)
+            | CoreType::Map(_, _)
+            | CoreType::Adt(_) => FluxRep::BoxedRep,
+            CoreType::Any => FluxRep::TaggedRep,
+        }
+    }
+
+    /// Derive the runtime representation from an HM `InferType`.
+    pub fn from_infer_type(ty: &crate::types::infer_type::InferType) -> Self {
+        FluxRep::from_core_type(&CoreType::from_infer(ty))
+    }
+
+    /// Whether this rep is unboxed (no NaN-boxing overhead).
+    pub fn is_unboxed(self) -> bool {
+        matches!(self, FluxRep::IntRep | FluxRep::FloatRep | FluxRep::BoolRep)
+    }
+
+    /// Whether this rep needs reference counting (Aether dup/drop).
+    pub fn needs_rc(self) -> bool {
+        matches!(self, FluxRep::BoxedRep | FluxRep::TaggedRep)
+    }
+}
+
 // ── Literals ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
@@ -225,6 +302,89 @@ pub enum CorePrimOp {
     Index,
     MemberAccess(Identifier),
     TupleField(usize),
+
+    // ── Promoted base-function primops (Proposal 0120 Phase 1) ───────────
+    //
+    // True primitives that need hardware access, memory layout knowledge,
+    // or OS syscalls.  Everything else will be rewritten in Flux
+    // (`lib/Flow/*.flx`) using these primops.
+
+    // I/O
+    Print,
+    Println,
+    ReadFile,
+    WriteFile,
+    ReadStdin,
+
+    // String memory operations
+    StringLength,
+    StringConcat,
+    StringSlice,
+    ToString,
+    Split,
+    Join,
+    Trim,
+    Upper,
+    Lower,
+    StartsWith,
+    EndsWith,
+    Replace,
+    Substring,
+    Chars,
+    StrContains,
+
+    // Array memory operations
+    ArrayLen,
+    ArrayGet,
+    ArraySet,
+    ArrayPush,
+    ArrayConcat,
+    ArraySlice,
+    ArraySort,
+
+    // HAMT operations
+    HamtGet,
+    HamtSet,
+    HamtDelete,
+    HamtKeys,
+    HamtValues,
+    HamtMerge,
+    HamtSize,
+    HamtContains,
+
+    // Type tag inspection
+    TypeOf,
+    IsInt,
+    IsFloat,
+    IsString,
+    IsBool,
+    IsArray,
+    IsNone,
+    IsSome,
+    IsList,
+    IsMap,
+
+    // Deep structural comparison
+    CmpEq,
+    CmpNe,
+
+    // Control
+    Panic,
+    ClockNow,
+    Try,
+    AssertThrows,
+
+    // Parsing
+    ParseInt,
+
+    // List / cons cell operations
+    Hd,
+    Tl,
+    ToList,
+    ToArray,
+
+    // Polymorphic length (dispatches on type tag: string/array/list)
+    Len,
 }
 
 // ── Case alternatives ─────────────────────────────────────────────────────────
@@ -290,6 +450,15 @@ pub enum CoreExpr {
         args: Vec<CoreExpr>,
         span: Span,
     },
+    /// Aether: explicit call-site ownership contract.
+    /// Each argument position is marked as borrowed or owned after Aether
+    /// insertion so later passes do not need to rediscover call semantics.
+    AetherCall {
+        func: Box<CoreExpr>,
+        args: Vec<CoreExpr>,
+        arg_modes: Vec<crate::aether::borrow_infer::BorrowMode>,
+        span: Span,
+    },
     Let {
         var: CoreBinder,
         rhs: Box<CoreExpr>,
@@ -333,6 +502,45 @@ pub enum CoreExpr {
         handlers: Vec<CoreHandler>,
         span: Span,
     },
+    /// Aether: explicitly duplicate (Rc::clone) a variable reference.
+    /// Inserted by the dup/drop pass for variables used more than once.
+    Dup {
+        var: CoreVarRef,
+        body: Box<CoreExpr>,
+        span: Span,
+    },
+    /// Aether: explicitly drop (early release) a variable reference.
+    /// Inserted by the dup/drop pass for unused variables.
+    Drop {
+        var: CoreVarRef,
+        body: Box<CoreExpr>,
+        span: Span,
+    },
+    /// Aether: reuse a dropped value's allocation for a new constructor.
+    /// If the token's Rc is uniquely owned, writes fields in-place.
+    /// If shared, falls back to fresh allocation.
+    Reuse {
+        token: CoreVarRef,
+        tag: CoreTag,
+        fields: Vec<CoreExpr>,
+        /// Perceus reuse specialization (Section 2.5): bitmask of fields that
+        /// actually changed. Bit `i` set means field `i` must be written; clear
+        /// means it is unchanged from the destructured original and can be
+        /// skipped on the fast (unique-reuse) path. `None` = write all fields.
+        field_mask: Option<u64>,
+        span: Span,
+    },
+    /// Aether: Perceus drop specialization (Section 2.3).
+    /// Tests if a scrutinee's Rc is uniquely owned (strong_count == 1).
+    /// - unique_body: extracted fields are already owned, no dups needed, free shell only.
+    /// - shared_body: dup fields, decrement scrutinee refcount (don't free recursively).
+    ///   After dup/drop fusion, the unique path has zero RC operations.
+    DropSpecialized {
+        scrutinee: CoreVarRef,
+        unique_body: Box<CoreExpr>,
+        shared_body: Box<CoreExpr>,
+        span: Span,
+    },
 }
 
 // ── Top-level definitions ─────────────────────────────────────────────────────
@@ -342,10 +550,14 @@ pub struct CoreDef {
     pub name: Identifier,
     pub binder: CoreBinder,
     pub expr: CoreExpr,
+    /// Compiler-owned borrow metadata inferred/registered for this definition.
+    pub borrow_signature: Option<crate::aether::borrow_infer::BorrowSignature>,
     /// HM-inferred result type for this definition, if available.
     pub result_ty: Option<CoreType>,
     pub is_anonymous: bool,
     pub is_recursive: bool,
+    /// FBIP annotation from source: `@fip` or `@fbip` (Perceus Section 2.6).
+    pub fip: Option<crate::syntax::statement::FipAnnotation>,
     pub span: Span,
 }
 
@@ -370,6 +582,7 @@ pub enum CoreTopLevelItem {
         name: Identifier,
         alias: Option<Identifier>,
         except: Vec<Identifier>,
+        exposing: crate::syntax::statement::ImportExposing,
         span: Span,
     },
     Data {
@@ -413,6 +626,7 @@ impl CoreExpr {
             CoreExpr::Var { span, .. } | CoreExpr::Lit(_, span) => *span,
             CoreExpr::Lam { span, .. }
             | CoreExpr::App { span, .. }
+            | CoreExpr::AetherCall { span, .. }
             | CoreExpr::Let { span, .. }
             | CoreExpr::LetRec { span, .. }
             | CoreExpr::Case { span, .. }
@@ -420,7 +634,11 @@ impl CoreExpr {
             | CoreExpr::PrimOp { span, .. }
             | CoreExpr::Return { span, .. }
             | CoreExpr::Perform { span, .. }
-            | CoreExpr::Handle { span, .. } => *span,
+            | CoreExpr::Handle { span, .. }
+            | CoreExpr::Dup { span, .. }
+            | CoreExpr::Drop { span, .. }
+            | CoreExpr::Reuse { span, .. }
+            | CoreExpr::DropSpecialized { span, .. } => *span,
         }
     }
 
@@ -486,9 +704,11 @@ impl CoreDef {
             name: binder.name,
             binder,
             expr,
+            borrow_signature: None,
             result_ty: None,
             is_anonymous,
             is_recursive,
+            fip: None,
             span,
         }
     }
@@ -537,7 +757,7 @@ fn main() { inc(41) }
         );
 
         let mut core = super::lower_ast::lower_program_ast(&program, &HashMap::new());
-        super::passes::run_core_passes(&mut core);
+        super::passes::run_core_passes(&mut core).expect("core passes should succeed");
         let ir = super::to_ir::lower_core_to_ir(&core);
 
         assert!(!ir.functions.is_empty(), "expected backend IR functions");

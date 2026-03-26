@@ -4,7 +4,7 @@ module TypeSystem.EffectsChain {
         x + 1
     }
 
-    fn call_io_step(x: Int) -> Int with IO {
+    public fn call_io_step(x: Int) -> Int with IO {
         io_step(x)
     }
 }

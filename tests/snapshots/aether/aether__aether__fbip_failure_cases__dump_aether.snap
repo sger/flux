@@ -1,0 +1,97 @@
+---
+source: tests/aether_cli_snapshots.rs
+---
+Aether Memory Model Report
+==========================
+
+── fn fail_indirect @fip ──
+  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+  fbip: NotProvable
+    - calls indirect or opaque callee `f` whose FBIP behavior is unknown
+λf, x.
+  aether_call[owned] f(x)
+── fn fail_imported @fip ──
+  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+  fbip: NotProvable
+    - calls indirect or opaque callee `Symbol(4000013)` whose FBIP behavior is unknown
+λx.
+  let %t1 = MemberAccess(10)(Imported)
+  aether_call[owned] %t1(x)
+── fn fail_fresh @fip ──
+  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+  verifier: ok
+  fbip: proved (fbip(1))
+    - fresh heap allocation remains on at least one path
+λx.
+  Some(x)
+── fn main ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ.
+  let %t1 = (let %t2 = (let %t3 = (λy.
+    Add(y, 1))
+  aether_call[borrowed, owned] fail_indirect(%t3, 1))
+  Print(%t2))
+  drop %t1
+  let %t4 = (let %t5 = aether_call[owned] fail_imported(2)
+  Print(%t5))
+  drop %t4
+  let %t6 = aether_call[owned] fail_fresh(4)
+  Print(%t6)
+
+── Total ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+
+• 3 warnings • examples/aether/fbip_failure_cases.flx
+Warning: FBIP Contract Not Proven
+
+@fip on `fail_indirect` analysis result NotProvable:
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+
+  examples/aether/fbip_failure_cases.flx:11:6
+   |
+11 | @fip fn fail_indirect(f, x) {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^^
+12 |     f(x)
+   | ^^^^^^^^
+13 | }
+   | ^
+
+
+Warning: FBIP Contract Not Proven
+
+@fip on `fail_imported` analysis result NotProvable:
+- calls indirect or opaque callee `Symbol(4000011)` whose FBIP behavior is unknown
+
+  examples/aether/fbip_failure_cases.flx:15:6
+   |
+15 | @fip fn fail_imported(x: Int) -> Int {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+16 |     Imported.imported_inc(x)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17 | }
+   | ^
+
+
+Warning: FBIP Contract Not Proven
+
+@fip on `fail_fresh` analysis result Fbip { bound: 1 }:
+- fresh heap allocation remains on at least one path
+
+  examples/aether/fbip_failure_cases.flx:19:6
+   |
+19 | @fip fn fail_fresh(x: Int) {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^
+20 |     Some(x)
+   | ^^^^^^^^^^^
+21 | }
+   | ^
+
+Found 3 warnings.

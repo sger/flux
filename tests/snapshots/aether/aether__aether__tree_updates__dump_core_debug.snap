@@ -1,0 +1,97 @@
+---
+source: tests/aether_cli_snapshots.rs
+---
+letrec set_black : Tree =
+λt#1.
+    case t#1 of
+      Node(_, left#2, key#3, right#4) →
+        reuse t#1 Node(Black#?[external], left#2, key#3, right#4) @mask=0b1
+      _ →
+        t#1
+
+letrec rebuild_same : Tree =
+λt#6.
+    case t#6 of
+      Node(color#7, left#8, key#9, right#10) →
+        reuse t#6 Node(color#7, left#8, key#9, right#10) @mask=0b0
+      _ →
+        t#6
+
+letrec rewrite_many : Tree =
+λt#12.
+    case t#12 of
+      Node(_, left#13, _, _) →
+        drop_spec t#12 {
+          unique -> reuse t#12 Node(Black#?[external], left#13, 0, left#13)
+          shared -> aether_call[owned, owned, owned, owned] Node#?[external](Black#?[external], dup left#13
+            left#13, 0, left#13)
+        }
+      _ →
+        t#12
+
+letrec keep_or_dup_left : Tree =
+λt#15, keep#16.
+    case t#15 of
+      Node(color#17, left#18, key#19, right#20) →
+        drop_spec t#15 {
+          unique -> case keep#16 of
+              true →
+                reuse t#15 Node(color#17, left#18, key#19, right#20) @mask=0b0
+              _ →
+                drop right#20
+                reuse t#15 Node(color#17, left#18, key#19, left#18) @mask=0b1000
+          shared -> case keep#16 of
+              true →
+                aether_call[owned, owned, owned, owned] Node#?[external](color#17, left#18, key#19, right#20)
+              _ →
+                drop right#20
+                aether_call[owned, owned, owned, owned] Node#?[external](color#17, dup left#18
+                left#18, key#19, left#18)
+        }
+      _ →
+        t#15
+
+letrec churn_tree : Tree =
+λt#22, iterations#23.
+    letrec go#24 = (λi#25, current#26.
+      let %t1:Bool = Le(i#25, 0)
+      case #4000040[synthetic]#40 of
+        true →
+          current#26
+        _ →
+          let %t2:Int = ISub(i#25, 1)
+          let %t3 = (let %t4 = (let %t5 = (let %t6 = aether_call[owned] set_black#0(current#26)
+          aether_call[owned] rebuild_same#5(#4000042[synthetic]#42))
+          aether_call[owned] rewrite_many#11(#4000043[synthetic]#43))
+          aether_call[owned, borrowed] keep_or_dup_left#14(#4000044[synthetic]#44, false))
+          aether_call[owned, owned] go#24(#4000041[synthetic]#41, #4000045[synthetic]#45))
+    aether_call[owned, owned] go#24(iterations#23, t#22)
+
+letrec main : Any =
+λ.
+    let %t7 = Print("Tree workload")
+    drop #2000005[synthetic]#37
+    let %t8 = Print("=============")
+    drop #2000004[synthetic]#36
+    let %t9 = (let %t10 = (let %t11 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+    aether_call[owned] set_black#0(#4000046[synthetic]#46))
+    Print(#4000047[synthetic]#47))
+    drop #2000003[synthetic]#35
+    let %t12 = (let %t13 = (let %t14 = aether_call[owned, owned, owned, owned] Node#?[external](Black#?[external], Leaf#?[external], 9, Leaf#?[external])
+    aether_call[owned] rebuild_same#5(#4000048[synthetic]#48))
+    Print(#4000049[synthetic]#49))
+    drop #2000002[synthetic]#34
+    let %t15 = (let %t16 = (let %t17 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+    aether_call[owned] rewrite_many#11(#4000050[synthetic]#50))
+    Print(#4000051[synthetic]#51))
+    drop #2000001[synthetic]#33
+    let %t18 = (let %t19 = (let %t20 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+    aether_call[owned, borrowed] keep_or_dup_left#14(#4000052[synthetic]#52, false))
+    Print(#4000053[synthetic]#53))
+    drop #2000000[synthetic]#32
+    let %t21 = (let %t22 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+    aether_call[owned, owned] churn_tree#21(#4000054[synthetic]#54, 500))
+    Print(#4000055[synthetic]#55)
+
+── Aether stats ──
+Dups: 2  Drops: 8  Reuses: 5  DropSpecs: 2  FBIP: fip

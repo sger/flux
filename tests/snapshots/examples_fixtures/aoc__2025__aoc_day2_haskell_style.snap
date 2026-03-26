@@ -5,17 +5,86 @@ Fixture: examples/aoc/2025/aoc_day2_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E400]: Missing Ambient Effect
+error[E004]: Undefined Variable
 
-Call to `read_file` requires effect `IO` in this function signature.
+I can't find a value named `first`.
 
-  examples/aoc/2025/aoc_day2_haskell_style.flx:43:5
+  examples/aoc/2025/aoc_day2_haskell_style.flx:37:17
    |
-43 |     read_file(path)
-   |     ^^^^^^^^^
-   |     --------- effectful call occurs here
+37 |     let start = first(split_ints(trim(token), "-"));
+   |                 ^^^^^
 
 Hint:
-  Add `with IO` to the enclosing function.
+  Define it first: let first = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `last`.
+
+  examples/aoc/2025/aoc_day2_haskell_style.flx:38:15
+   |
+38 |     let end = last(split_ints(trim(token), "-"));
+   |               ^^^^
+
+Hint:
+  Define it first: let last = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day2_haskell_style.flx:47:8
+   |
+47 |     |> map(/t -> parse_range_token(t))
+   |        ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day2_haskell_style.flx:56:15
+   |
+56 |     ranges |> fold(false, /(found, r) -> if found { true } else { id_in_range(id, r) })
+   |               ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day2_haskell_style.flx:92:8
+   |
+92 |     |> fold(state, /(acc, s) ->
+   |        ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `range`.
+
+  examples/aoc/2025/aoc_day2_haskell_style.flx:126:28
+    |
+126 | let day02b = day02(to_list(range(2, 12)), ranges)
+    |                            ^^^^^
+
+Hint:
+  Define it first: let range = ...;
+
+Help:
+  Did you mean `ranges`?
+
+Found 6 errors.
 == stdout ==
 <not executed>

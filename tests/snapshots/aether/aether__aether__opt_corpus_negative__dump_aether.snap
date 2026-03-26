@@ -1,0 +1,70 @@
+---
+source: tests/aether_cli_snapshots.rs
+---
+Aether Memory Model Report
+==========================
+
+── fn touch_token ──
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λtoken, value.
+  drop token
+  value
+── fn fresh_tree ──
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+λt.
+  case t of
+    Node(_, left, _, right) →
+      reuse t Node(Black, left, 0, right) @mask=0b101
+    _ →
+      aether_call[owned, owned, owned, owned] Node(Black, Leaf, 0, Leaf)
+── fn forwarded_child_near_miss ──
+  Dups: 3  Drops: 2  Reuses: 0  DropSpecs: 1  FBIP: fbip(4)
+  FreshAllocs: 4
+  verifier: ok
+λxs, acc.
+  case xs of
+    ::(y, ys) →
+      drop_spec xs {
+        unique -> drop ys
+          let %t1 = ::(y, dup acc
+          acc)
+          let %t2 = ::(y, acc)
+          aether_call[owned, owned] Pair2(%t1, %t2)
+        shared -> drop ys
+          let %t1 = ::(dup y
+          y, dup acc
+          acc)
+          let %t2 = ::(y, acc)
+          aether_call[owned, owned] Pair2(%t1, %t2)
+      }
+    _ →
+      aether_call[owned, owned] Pair2(xs, acc)
+── fn main ──
+  Dups: 0  Drops: 3  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ.
+  let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
+  aether_call[borrowed] blocked_list(%t3))
+  Print(%t2))
+  drop %t1
+  let %t4 = (let %t5 = (let %t6 = MakeList(1, 2, 3)
+  aether_call[borrowed] borrowed_len(%t6))
+  Print(%t5))
+  drop %t4
+  let %t7 = (let %t8 = (let %t9 = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
+  aether_call[borrowed] fresh_tree(%t9))
+  Print(%t8))
+  drop %t7
+  let %t10 = (let %t11 = MakeList(1, 2, 3)
+  let %t12 = MakeList(10, 20)
+  aether_call[owned, owned] forwarded_child_near_miss(%t11, %t12))
+  Print(%t10)
+
+── Total ──
+  Dups: 3  Drops: 6  Reuses: 1  DropSpecs: 1  FBIP: fbip(4)
+  FreshAllocs: 4

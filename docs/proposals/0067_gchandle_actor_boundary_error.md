@@ -1,10 +1,21 @@
 - Feature Name: GcHandle Cross-Actor Boundary Error
 - Start Date: 2026-03-01
-- Status: Not Implemented
+- Status: Superseded
 - Proposal PR: pending
 - Flux Issue: pending
 
 # Proposal 0067: GcHandle Cross-Actor Boundary Error
+
+Status note:
+This proposal is superseded by the landed Aether memory model and the newer
+actor/concurrency roadmap. It was written for the pre-Aether `Value::Gc` /
+`GcHandle` runtime model, which no longer reflects current Flux after GC
+elimination.
+
+See instead:
+
+- `docs/proposals/implemented/0084_aether_memory_model.md`
+- `docs/proposals/0115_actor_concurrency_roadmap.md`
 
 ## Summary
 [summary]: #summary

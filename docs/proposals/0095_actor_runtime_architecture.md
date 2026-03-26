@@ -29,7 +29,7 @@ This proposal complements:
 
 - [0065](0065_actor_effect_stdlib.md) for the Flux-level `Actor` effect
 - [0066](0066_thread_per_actor_handler.md) for the thread-per-actor runtime MVP
-- [0084](0084_aether_memory_model.md) for actor-boundary memory rules
+- [0084](implemented/0084_aether_memory_model.md) for actor-boundary memory rules
 - [0086](0086_backend_neutral_core_ir.md) for backend-neutral lowering
 
 ## Motivation

@@ -202,10 +202,43 @@ pub fn render_source_snippet(
 
     let line_width = actual_end.to_string().len();
 
+    // Collect line ranges that have labels or are part of the primary span,
+    // with a small context window around each. Lines outside these ranges
+    // are elided with "..." to avoid dumping hundreds of lines between
+    // a function definition label and a distant call site.
+    const CONTEXT: usize = 2;
+    let mut visible = vec![false; (actual_end + 1).saturating_sub(actual_start)];
+    for line_no in start_line..=end_line {
+        let base = line_no.saturating_sub(actual_start);
+        for offset in base.saturating_sub(CONTEXT)..=(base + CONTEXT).min(visible.len() - 1) {
+            visible[offset] = true;
+        }
+    }
+    for label in labels {
+        let ls = label.span.start.line;
+        let le = label.span.end.line;
+        for line_no in ls..=le {
+            let base = line_no.saturating_sub(actual_start);
+            for offset in base.saturating_sub(CONTEXT)..=(base + CONTEXT).min(visible.len() - 1) {
+                visible[offset] = true;
+            }
+        }
+    }
+
     // Add separator line
     out.push_str(&format!("{:>width$} |\n", "", width = line_width));
 
+    let mut prev_visible = true;
     for line_no in actual_start..=actual_end {
+        let idx = line_no - actual_start;
+        if idx < visible.len() && !visible[idx] {
+            if prev_visible {
+                out.push_str(&format!("{:>width$} |\n", "...", width = line_width));
+            }
+            prev_visible = false;
+            continue;
+        }
+        prev_visible = true;
         if let Some(line_text) = source.and_then(|src| get_source_line(src, line_no)) {
             // Compute the maximum span column end on this line from the
             // primary span and all labels so we know whether any highlighted

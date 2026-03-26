@@ -74,10 +74,10 @@ impl<'a> InferCtx<'a> {
         if let Expression::Identifier {
             name: module_name, ..
         } = object
-            && *module_name == self.base_module_symbol
-            && self.known_base_names.contains(&member)
+            && *module_name == self.flow_module_symbol
+            && self.known_flow_names.contains(&member)
         {
-            self.emit_missing_base_hm_signature(member, expr.span());
+            self.emit_missing_flow_hm_signature(member, expr.span());
         }
         self.infer_expression(object);
         InferType::Con(TypeConstructor::Any)

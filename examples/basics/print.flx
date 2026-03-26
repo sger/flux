@@ -6,8 +6,8 @@ fn main() with IO {
     // true
     // false
 
-    print("hello world");
-    print(42);
-    print(true);
-    print(false);
+    println("hello world");
+    println(42);
+    println(true);
+    println(false);
 }

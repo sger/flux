@@ -36,6 +36,8 @@ impl Compiler {
                 let hm2 = infer_program(&optimized, &self.interner, hm_config2);
                 self.type_env = hm2.type_env;
                 self.hm_expr_types = hm2.expr_types;
+                // Cache HM-inferred module member schemes for downstream modules.
+                self.cached_member_schemes.extend(hm2.module_member_schemes);
                 type_optimized_program = Some(optimized);
 
                 let mut diags = hm2.diagnostics;
@@ -44,6 +46,8 @@ impl Compiler {
             } else {
                 self.type_env = hm.type_env;
                 self.hm_expr_types = hm.expr_types;
+                // Cache HM-inferred module member schemes for downstream modules.
+                self.cached_member_schemes.extend(hm.module_member_schemes);
                 type_optimized_program = None;
 
                 let mut diags = hm.diagnostics;
@@ -51,6 +55,8 @@ impl Compiler {
                 diags
             }
         };
+
+        self.has_hm_diagnostics = !hm_diagnostics.is_empty();
 
         TypeInferenceResult {
             type_optimized_program,

@@ -6,16 +6,19 @@ Constants:
   0: 1
   1: 2
   2: 3
-  3: 1
+  3: []
+  4: 1
 
 Instructions:
-0000 OpGetBase 50
-0002 OpConstant 0
-0005 OpConstant 1
-0008 OpConstant 2
-0011 OpCall 3
-0013 OpSetGlobal 0
-0016 OpGetGlobal 0
-0019 OpConstant 3
-0022 OpIndex 
-0023 OpPop
+0000 OpConstant 0
+0003 OpConstant 1
+0006 OpConstant 2
+0009 OpConstant 3
+0012 OpCons 
+0013 OpCons 
+0014 OpCons 
+0015 OpSetGlobal 0
+0018 OpGetGlobal 0
+0021 OpConstant 4
+0024 OpIndex 
+0025 OpPop

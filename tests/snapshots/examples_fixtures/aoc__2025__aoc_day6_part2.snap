@@ -5,6 +5,53 @@ Fixture: examples/aoc/2025/aoc_day6_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day6_part2.flx:82:18
+   |
+82 |     let digits = [
+   |                  ^
+83 |     char_at_pad(line_at(lines, row), col)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+84 |     | row <- range(0, num_rows),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+85 |     char_at_pad(line_at(lines, row), col) != " "
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+86 |     ]
+   | ^^^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `range`.
+
+  examples/aoc/2025/aoc_day6_part2.flx:93:16
+   |
+93 |     let cols = range(start, stop)
+   |                ^^^^^
+
+Hint:
+  Define it first: let range = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day6_part2.flx:95:23
+   |
+95 |         let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
 error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 4th argument to `col_value`.
@@ -21,8 +68,7 @@ I found the wrong type in the 4th argument to `col_value`.
 88 | }
 89 | 
 90 | fn eval_problem(lines, num_rows, start, stop) {
-91 |     let op_line = line_at(lines, num_rows)
-92 |     let op = trim(slice_padded(op_line, start, stop))
+... |
 93 |     let cols = range(start, stop)
 94 |     if op == "*" {
 95 |         let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
@@ -37,6 +83,19 @@ Note:
 
 Help:
   Wrap this value in `Some(...)` or return `None`.
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `product`.
+
+  examples/aoc/2025/aoc_day6_part2.flx:96:9
+   |
+96 |         product(factors)
+   |         ^^^^^^^
+
+Hint:
+  Define it first: let product = ...;
 
 
 error[E300]: Argument Type Mismatch
@@ -55,11 +114,7 @@ I found the wrong type in the 4th argument to `col_value`.
 88 | }
 89 | 
 90 | fn eval_problem(lines, num_rows, start, stop) {
-91 |     let op_line = line_at(lines, num_rows)
-92 |     let op = trim(slice_padded(op_line, start, stop))
-93 |     let cols = range(start, stop)
-94 |     if op == "*" {
-95 |         let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
+... |
 96 |         product(factors)
 97 |     } else {
 98 |     let terms = [col_value(lines, num_rows, col, 0) | col <- cols]
@@ -75,6 +130,6 @@ Note:
 Help:
   Wrap this value in `Some(...)` or return `None`.
 
-Found 2 errors.
+Found 6 errors.
 == stdout ==
 <not executed>

@@ -12,6 +12,7 @@ use crate::{
         effect_expr::EffectExpr,
         effect_ops::EffectOp,
         expression::{ExprId, Expression, Pattern},
+        interner::Interner,
         program::Program,
         type_expr::TypeExpr,
     },
@@ -34,12 +35,103 @@ pub fn lower_program_to_ir(
     program: &Program,
     hm_expr_types: &HashMap<ExprId, InferType>,
 ) -> Result<IrProgram, Diagnostic> {
+    lower_program_to_ir_with_interner(program, hm_expr_types, None)
+}
+
+#[allow(clippy::result_large_err)]
+pub fn lower_program_to_ir_with_interner(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&Interner>,
+) -> Result<IrProgram, Diagnostic> {
+    lower_program_to_ir_with_interner_and_warnings(program, hm_expr_types, interner)
+        .map(|(ir, _)| ir)
+}
+
+#[allow(clippy::result_large_err)]
+pub fn lower_program_to_ir_with_interner_and_warnings(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&Interner>,
+) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
+    lower_program_to_ir_impl(program, hm_expr_types, interner, false)
+}
+
+#[allow(clippy::result_large_err)]
+pub fn lower_program_to_ir_with_optimize(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&Interner>,
+    optimize: bool,
+) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
+    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize)
+}
+
+#[allow(clippy::result_large_err)]
+fn lower_program_to_ir_impl(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&Interner>,
+    optimize: bool,
+) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
     let mut core = lower_program_ast(program, hm_expr_types);
-    run_core_passes(&mut core);
+    let warnings = if let Some(interner) = interner {
+        crate::core::passes::run_core_passes_with_interner_and_warnings(
+            &mut core, interner, optimize,
+        )?
+    } else {
+        run_core_passes(&mut core)?;
+        Vec::new()
+    };
+
+    // Aether diagnostics (works for all backends: VM, JIT, LLVM).
+    // Uses a static flag to print only once even if called multiple times.
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static PRINTED: AtomicBool = AtomicBool::new(false);
+
+        let aether_stats = std::env::var("FLUX_AETHER_STATS").is_ok_and(|v| v == "1");
+        let aether_verify = std::env::var("FLUX_AETHER_VERIFY").is_ok_and(|v| v == "1");
+
+        if (aether_stats || aether_verify) && !PRINTED.swap(true, Ordering::SeqCst) {
+            let mut total = crate::aether::AetherStats::default();
+            let mut all_diags = Vec::new();
+
+            for def in &core.defs {
+                let s = crate::aether::collect_stats(&def.expr);
+                total.dups += s.dups;
+                total.drops += s.drops;
+                total.reuses += s.reuses;
+                total.drop_specs += s.drop_specs;
+                total.allocs += s.allocs;
+
+                if aether_verify {
+                    all_diags.extend(crate::aether::verify::verify_diagnostics(&def.expr));
+                }
+            }
+
+            if aether_stats {
+                eprintln!("── Aether stats ──");
+                eprintln!("{total}");
+            }
+
+            if aether_verify {
+                if all_diags.is_empty() {
+                    eprintln!("── Aether verify ── OK (no issues found)");
+                } else {
+                    eprintln!("── Aether verify ── {} issue(s) found:", all_diags.len());
+                    for d in &all_diags {
+                        eprintln!("  {:?}: {}", d.kind, d.message);
+                    }
+                }
+            }
+        }
+    }
+
     let mut ir = lower_core_to_ir(&core);
     ir.hm_expr_types = hm_expr_types.clone();
     ir.core = Some(core);
-    Ok(ir)
+    Ok((ir, warnings))
 }
 
 /// Update `function_id` in each `IrTopLevelItem::Function` of `items` to
@@ -318,6 +410,45 @@ pub enum IrExpr {
         effect: Identifier,
         arms: Vec<IrHandleArm>,
     },
+    /// Aether Phase 7 (Perceus): try to reuse token's allocation.
+    /// Returns non-null if uniquely owned, null if shared.
+    DropReuse(IrVar),
+    /// Aether Phase 7 (Perceus): construct Cons, reusing token if non-null.
+    ReuseCons {
+        token: IrVar,
+        head: IrVar,
+        tail: IrVar,
+        /// Reuse specialization: bit 0 = head changed, bit 1 = tail changed.
+        /// `None` = write all fields.
+        field_mask: Option<u64>,
+    },
+    /// Aether Phase 7 (Perceus): construct Some, reusing token if non-null.
+    ReuseSome {
+        token: IrVar,
+        inner: IrVar,
+    },
+    /// Aether Phase 7 (Perceus): construct Left, reusing token if non-null.
+    ReuseLeft {
+        token: IrVar,
+        inner: IrVar,
+    },
+    /// Aether Phase 7 (Perceus): construct Right, reusing token if non-null.
+    ReuseRight {
+        token: IrVar,
+        inner: IrVar,
+    },
+    /// Aether Phase 7 (Perceus): construct ADT, reusing token if non-null.
+    ReuseAdt {
+        token: IrVar,
+        constructor: Identifier,
+        fields: Vec<IrVar>,
+        /// Reuse specialization: bit `i` set = field `i` changed.
+        /// `None` = write all fields.
+        field_mask: Option<u64>,
+    },
+    /// Aether: test if a value's Rc is uniquely owned (strong_count == 1).
+    /// Returns a boolean (true = unique, false = shared).
+    IsUnique(IrVar),
 }
 
 #[derive(Debug, Clone)]
@@ -325,6 +456,9 @@ pub enum IrCallTarget {
     Direct(FunctionId),
     Named(Identifier),
     Var(IrVar),
+    /// A promoted primop lowered back to a named call, carrying the function
+    /// name as a static string (avoids needing an interner during CFG lowering).
+    Builtin(&'static str),
 }
 
 #[derive(Debug, Clone)]
@@ -356,6 +490,11 @@ pub enum IrInstr {
         dest: IrVar,
         metadata: IrMetadata,
     },
+    /// Aether: early release of a variable — signals that this variable's
+    /// last use has passed and its Rc refcount can be decremented now rather
+    /// than waiting for scope exit. In the VM this is a no-op (Rc drop is
+    /// automatic), but it enables future backends to reclaim memory sooner.
+    AetherDrop { var: IrVar, metadata: IrMetadata },
 }
 
 #[derive(Debug, Clone)]
@@ -473,6 +612,7 @@ pub enum IrTopLevelItem {
         name: Identifier,
         alias: Option<Identifier>,
         except: Vec<Identifier>,
+        exposing: crate::syntax::statement::ImportExposing,
         span: Span,
     },
     Data {
@@ -574,6 +714,7 @@ fn ir_fmt_call_target(target: &IrCallTarget) -> String {
         IrCallTarget::Direct(fid) => format!("fn{}", fid.0),
         IrCallTarget::Named(name) => format!("#{}", name.as_u32()),
         IrCallTarget::Var(v) => ir_fmt_var(*v),
+        IrCallTarget::Builtin(name) => format!("@{name}"),
     }
 }
 
@@ -732,6 +873,54 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
                 arms.len()
             )
         }
+        IrExpr::DropReuse(var) => format!("DropReuse({})", ir_fmt_var(*var)),
+        IrExpr::ReuseCons {
+            token,
+            head,
+            tail,
+            field_mask,
+        } => {
+            let base = format!(
+                "ReuseCons({}, {}, {})",
+                ir_fmt_var(*token),
+                ir_fmt_var(*head),
+                ir_fmt_var(*tail)
+            );
+            if let Some(mask) = field_mask {
+                format!("{} @mask=0b{:b}", base, mask)
+            } else {
+                base
+            }
+        }
+        IrExpr::ReuseSome { token, inner } => {
+            format!("ReuseSome({}, {})", ir_fmt_var(*token), ir_fmt_var(*inner))
+        }
+        IrExpr::ReuseLeft { token, inner } => {
+            format!("ReuseLeft({}, {})", ir_fmt_var(*token), ir_fmt_var(*inner))
+        }
+        IrExpr::ReuseRight { token, inner } => {
+            format!("ReuseRight({}, {})", ir_fmt_var(*token), ir_fmt_var(*inner))
+        }
+        IrExpr::ReuseAdt {
+            token,
+            constructor,
+            fields,
+            field_mask,
+        } => {
+            let s: Vec<_> = fields.iter().map(|v| ir_fmt_var(*v)).collect();
+            let base = format!(
+                "ReuseAdt({}, #{}, [{}])",
+                ir_fmt_var(*token),
+                constructor.as_u32(),
+                s.join(", ")
+            );
+            if let Some(mask) = field_mask {
+                format!("{} @mask=0b{:b}", base, mask)
+            } else {
+                base
+            }
+        }
+        IrExpr::IsUnique(var) => format!("IsUnique({})", ir_fmt_var(*var)),
     }
 }
 
@@ -808,6 +997,9 @@ impl IrProgram {
                                 arm_s.join(", ")
                             ));
                         }
+                        IrInstr::AetherDrop { var, .. } => {
+                            out.push_str(&format!("    drop v{}\n", var.0));
+                        }
                     }
                 }
                 out.push_str(&format!("    {}\n", ir_fmt_terminator(&block.terminator)));
@@ -825,6 +1017,7 @@ impl IrProgram {
             IrCallTarget::Direct(fid) => format!("fn{}", fid.0),
             IrCallTarget::Named(name) => sym(*name),
             IrCallTarget::Var(v) => format!("v{}", v.0),
+            IrCallTarget::Builtin(name) => format!("@{name}"),
         };
         let fmt_term = |t: &IrTerminator| {
             let fv = |v: IrVar| format!("v{}", v.0);
@@ -909,6 +1102,9 @@ impl IrProgram {
                                 body_entry.0,
                                 arm_s.join(", ")
                             ));
+                        }
+                        IrInstr::AetherDrop { var, .. } => {
+                            out.push_str(&format!("    drop v{}\n", var.0));
                         }
                     }
                 }

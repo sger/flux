@@ -1,0 +1,79 @@
+// Aether Memory Model Verification
+// Run with: cargo run -- --dump-aether examples/aether/verify_aether.flx
+// Execute: cargo run -- examples/aether/verify_aether.flx
+//
+// Exercises current Aether optimizations: dup/drop, drop spec, reuse, and borrowed params.
+// FBIP annotations remain intentionally conservative in higher-order map cases.
+
+// ── 1. Cons list map: borrowed recursive traversal + early drop (FBIP still conservative) ──
+@fip fn my_map(xs, f) {
+    match xs {
+        [h | t] -> [f(h) | my_map(t, f)],
+        _ -> [],
+    }
+}
+
+// ── 2. Option map: borrowed higher-order call path (FBIP still conservative) ──
+@fip fn option_map(opt, f) {
+    match opt {
+        Some(x) -> Some(f(x)),
+        _ -> None,
+    }
+}
+
+// ── 3. ADT update with masked reuse ──
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Tree)
+
+fn set_black(t) {
+    match t {
+        Node(_, left, key, right) -> Node(Black, left, key, right),
+        _ -> t,
+    }
+}
+
+// ── 4. List length: borrowed parameter (only reads) ──
+fn my_len(xs) {
+    match xs {
+        [_ | t] -> 1 + my_len(t),
+        _ -> 0,
+    }
+}
+
+// ── 5. Filter: unique-path reuse + drop specialization on cons cells ──
+fn my_filter(xs, f) {
+    match xs {
+        [h | t] -> if f(h) { [h | my_filter(t, f)] } else { my_filter(t, f) },
+        _ -> [],
+    }
+}
+
+// ── 6. Fold: borrowed accumulator pattern ──
+fn my_sum(xs) {
+    match xs {
+        [h | t] -> h + my_sum(t),
+        _ -> 0,
+    }
+}
+
+fn main() with IO {
+    let result = my_map([1, 2, 3], \x -> x * 2)
+    print(result)
+
+    let opt = option_map(Some(42), \x -> x + 1)
+    print(opt)
+
+    let tree = Node(Red, Leaf, 5, Leaf)
+    let blk = set_black(tree)
+    print(blk)
+
+    let xs = [1, 2, 3, 4, 5]
+    let n = my_len(xs)
+    print(n)
+
+    let evens = my_filter([1, 2, 3, 4, 5, 6], \x -> x % 2 == 0)
+    print(evens)
+
+    let total = my_sum([1, 2, 3, 4, 5])
+    print(total)
+}

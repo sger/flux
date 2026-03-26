@@ -96,9 +96,6 @@ I can't find a value named `Leaf`.
 Hint:
   Define it first: let Leaf = ...;
 
-Help:
-  Did you mean `len`?
-
 Found 4 errors.
 == stdout ==
 <not executed>

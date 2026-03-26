@@ -143,8 +143,8 @@ struct InferCtx<'a> {
     subst: TypeSubst,
     expr_types: HashMap<ExprId, InferType>,
     module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
-    known_base_names: HashSet<Identifier>,
-    base_module_symbol: Identifier,
+    known_flow_names: HashSet<Identifier>,
+    flow_module_symbol: Identifier,
     adt_constructor_types: HashMap<Identifier, AdtConstructorTypeInfo>,
     /// Reverse index: ADT name → type parameters. Avoids linear scan over
     /// `adt_constructor_types` when only per-ADT metadata is needed.
@@ -188,11 +188,11 @@ impl<'a> InferCtx<'a> {
     /// Parameters:
     /// - `interner`: shared symbol table used for display and name resolution.
     /// - `file_path`: source path to stamp diagnostics with origin metadata.
-    /// - `preloaded_base_schemes`: HM schemes for Base runtime bindings.
+    /// - `preloaded_base_schemes`: HM schemes for Flow runtime bindings.
     /// - `preloaded_module_member_schemes`: HM schemes for imported module
     ///   members, keyed by `(module, member)`.
-    /// - `known_base_names`: fast-membership set for names belonging to Base.
-    /// - `base_module_symbol`: canonical symbol identifying the Base module.
+    /// - `known_flow_names`: fast-membership set for names belonging to Flow.
+    /// - `flow_module_symbol`: canonical symbol identifying the Flow module.
     /// - `preloaded_effect_op_signatures`: signatures for effect operations,
     ///   keyed by `(effect, operation)`.
     fn new(
@@ -200,8 +200,8 @@ impl<'a> InferCtx<'a> {
         file_path: Rc<str>,
         preloaded_base_schemes: HashMap<Identifier, Scheme>,
         preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
-        known_base_names: HashSet<Identifier>,
-        base_module_symbol: Identifier,
+        known_flow_names: HashSet<Identifier>,
+        flow_module_symbol: Identifier,
         preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
     ) -> Self {
         let mut env = TypeEnv::new();
@@ -217,8 +217,8 @@ impl<'a> InferCtx<'a> {
             subst: TypeSubst::empty(),
             expr_types: HashMap::new(),
             module_member_schemes: preloaded_module_member_schemes,
-            known_base_names,
-            base_module_symbol,
+            known_flow_names,
+            flow_module_symbol,
             adt_constructor_types: HashMap::new(),
             adt_type_params: HashMap::new(),
             effect_op_signatures: preloaded_effect_op_signatures,
@@ -255,8 +255,8 @@ pub use display::{display_infer_type, suggest_type_name};
 ///     file_path: Some("examples/app.flx".into()),
 ///     preloaded_base_schemes: HashMap::new(),
 ///     preloaded_module_member_schemes: HashMap::new(),
-///     known_base_names: HashSet::new(),
-///     base_module_symbol,
+///     known_flow_names: HashSet::new(),
+///     flow_module_symbol,
 ///     preloaded_effect_op_signatures: HashMap::new(),
 /// };
 /// ```
@@ -264,8 +264,8 @@ pub struct InferProgramConfig {
     pub file_path: Option<Rc<str>>,
     pub preloaded_base_schemes: HashMap<Identifier, Scheme>,
     pub preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
-    pub known_base_names: HashSet<Identifier>,
-    pub base_module_symbol: Identifier,
+    pub known_flow_names: HashSet<Identifier>,
+    pub flow_module_symbol: Identifier,
     pub preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
 }
 
@@ -285,8 +285,8 @@ pub struct InferProgramConfig {
 ///     file_path: Some("main.flx".into()),
 ///     preloaded_base_schemes: base_schemes,
 ///     preloaded_module_member_schemes: module_member_schemes,
-///     known_base_names,
-///     base_module_symbol,
+///     known_flow_names,
+///     flow_module_symbol,
 ///     preloaded_effect_op_signatures: effect_op_signatures,
 /// });
 ///
@@ -305,18 +305,40 @@ pub fn infer_program(
         file,
         config.preloaded_base_schemes,
         config.preloaded_module_member_schemes,
-        config.known_base_names,
-        config.base_module_symbol,
+        config.known_flow_names,
+        config.flow_module_symbol,
         config.preloaded_effect_op_signatures,
     );
     ctx.infer_program(program);
     // Solve any deferred constraints (no-op under current eager model).
     ctx.solve_deferred_constraints();
     let constraint_count = ctx.contraint_log.len();
+    // Apply the final substitution to module member schemes so type
+    // variables are resolved to their concrete types before being cached
+    // for downstream modules.
+    let resolved_schemes: HashMap<(Identifier, Identifier), Scheme> = ctx
+        .module_member_schemes
+        .into_iter()
+        .map(|(key, scheme)| {
+            let resolved_type = scheme.infer_type.apply_type_subst(&ctx.subst);
+            let mut forall = resolved_type.free_vars().into_iter().collect::<Vec<_>>();
+            forall.sort_unstable();
+            forall.dedup();
+            (
+                key,
+                Scheme {
+                    forall,
+                    infer_type: resolved_type,
+                },
+            )
+        })
+        .collect();
+
     InferProgramResult {
         type_env: ctx.env,
         diagnostics: ctx.errors,
         expr_types: ctx.expr_types,
+        module_member_schemes: resolved_schemes,
         constraint_count,
     }
 }
@@ -329,6 +351,12 @@ pub struct InferProgramResult {
     pub diagnostics: Vec<Diagnostic>,
     /// Inferred type for each recorded expression, keyed by parser-assigned `ExprId`.
     pub expr_types: HashMap<ExprId, InferType>,
+    /// Inferred type schemes for public module members.
+    ///
+    /// Keyed by `(module_name, member_name)`. Includes both preloaded schemes
+    /// from previously-compiled modules and newly-inferred schemes from the
+    /// current module's `module { ... }` blocks.
+    pub module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     /// Total number of type/effect constraints generated during inference.
     pub constraint_count: usize,
 }

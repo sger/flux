@@ -1,0 +1,69 @@
+// Verify that typed let bindings work with lib/Flow/ functions.
+// Covers: primop types, Flow module types, cross-module inference,
+// and polymorphic function return types.
+
+fn main() with IO {
+    // === Primop return types ===
+    let parts: Array<String> = split("hello world foo", " ")
+    assert_eq(len(parts), 3)
+
+    let trimmed: String = trim("  hi  ")
+    assert_eq(trimmed, "hi")
+
+    let upper_s: String = upper("hello")
+    assert_eq(upper_s, "HELLO")
+
+    let has: Bool = starts_with("hello", "he")
+    assert_true(has)
+
+    let chars_arr: Array<String> = chars("abc")
+    assert_eq(len(chars_arr), 3)
+
+    let replaced: String = replace("hello world", "world", "flux")
+    assert_eq(replaced, "hello flux")
+
+    // === Flow.List function return types ===
+    let nums: Array<Int> = range(1, 6)
+    assert_eq(len(nums), 5)
+
+    let doubled: Array<Int> = map(nums, \x -> x * 2)
+    assert_eq(first(doubled), Some(2))
+
+    let evens: Array<Int> = filter(nums, \x -> x % 2 == 0)
+    assert_eq(len(evens), 2)
+
+    let total: Int = fold(nums, 0, \(acc, x) -> acc + x)
+    assert_eq(total, 15)
+
+    let found: Bool = any(nums, \x -> x == 3)
+    assert_true(found)
+
+    let all_pos: Bool = all(nums, \x -> x > 0)
+    assert_true(all_pos)
+
+    let rev: Array<Int> = reverse(nums)
+    assert_eq(first(rev), Some(5))
+
+    let zipped: Array<(Int, Int)> = zip(nums, doubled)
+    assert_eq(len(zipped), 5)
+
+    // === Flow.Option functions ===
+    let val: Int = unwrap_or(Some(42), 0)
+    assert_eq(val, 42)
+
+    let none_val: Int = unwrap_or(None, 99)
+    assert_eq(none_val, 99)
+
+    // === Flow.IO functions ===
+    let ints: Array<Int> = split_ints("1,2,3", ",")
+    assert_eq(len(ints), 3)
+    assert_eq(sum(ints), 6)
+
+    // === Chained pipeline with types ===
+    let words: Array<String> = split("the quick brown fox jumps", " ")
+    let lengths: Array<Int> = map(words, \w -> len(w))
+    let long_count: Int = fold(lengths, 0, \(acc, l) -> if l > 3 { acc + 1 } else { acc })
+    assert_eq(long_count, 3)
+
+    print("All typed let with Flow assertions passed!")
+}

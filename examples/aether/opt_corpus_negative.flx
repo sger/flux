@@ -1,0 +1,53 @@
+// Canonical Aether negative optimization corpus.
+// This maintained fixture records intentionally conservative shapes:
+// - token-touching precompute keeps plain `Reuse` disabled
+// - borrowed-only traversal stays non-reusing
+// - fresh rebuild remains fresh when no exact reuse proof exists
+// - forwarding near-miss stays fresh when two wrapper fields compete for the
+//   same child token
+
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Tree)
+type Pair2<T> = Pair2(T, T)
+
+fn touch_token(token, value) {
+    value
+}
+
+fn blocked_list(xs) {
+    match xs {
+        [h | t] -> [touch_token(xs, h) | t],
+        _ -> [],
+    }
+}
+
+fn borrowed_len(xs) {
+    match xs {
+        [_ | t] -> 1 + borrowed_len(t),
+        _ -> 0,
+    }
+}
+
+fn fresh_tree(t) {
+    match t {
+        Node(_, left, _, right) -> Node(Black, left, 0, right),
+        _ -> Node(Black, Leaf, 0, Leaf),
+    }
+}
+
+fn forwarded_child_near_miss(xs, acc) {
+    match xs {
+        [y | ys] -> Pair2([y | acc], [y | acc]),
+        _ -> Pair2(xs, acc),
+    }
+}
+
+fn main() with IO {
+    let xs = [1, 2, 3]
+    let tree = Node(Red, Leaf, 5, Leaf)
+    let acc = [10, 20]
+    print(blocked_list(xs))
+    print(borrowed_len(xs))
+    print(fresh_tree(tree))
+    print(forwarded_child_near_miss(xs, acc))
+}
