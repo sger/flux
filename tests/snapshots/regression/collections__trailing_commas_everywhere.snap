@@ -35,7 +35,7 @@ Hint:
   Define it first: let f = ...;
 
 Help:
-  Did you mean `g`?
+  Did you mean one of: `Flow.List.abs`, `Flow.List.all`, `Flow.List.any`?
 
 
 error[E418]: Strict Effect Annotation Required

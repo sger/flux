@@ -2201,7 +2201,7 @@ fn hm_fixture_141_recursive_self_reference_guard_no_regression() {
 }
 
 // Base function tests removed — base functions are no longer registered in
-// the symbol table. The Flux stdlib (`lib/Base/*.flx`) replaces the Rust
+// the symbol table. The Flux stdlib (`lib/Flow/*.flx`) replaces the Rust
 // base function registry (Proposal 0120).
 
 #[test]

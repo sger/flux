@@ -1,5 +1,5 @@
 module UnknownBaseMemberTypo {
     fn bad() -> Unit with IO {
-        Base.prnit("x")
+        Flow.prnit("x")
     }
 }

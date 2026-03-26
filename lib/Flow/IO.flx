@@ -1,6 +1,6 @@
-// Base.IO — I/O helper functions.
+// Flow.IO — I/O helper functions.
 
-module Base.IO {
+module Flow.IO {
 
     public fn print_all(arr) with IO {
         fn pa_go(i) with IO {

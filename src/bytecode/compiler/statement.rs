@@ -878,19 +878,13 @@ impl Compiler {
                                     &actual_str,
                                 )));
                             }
-                            // Use non-strict policy for typed let initializers:
-                            // when the annotation is concrete (e.g., Array<Int>)
-                            // but HM can't fully resolve the RHS type (e.g., because
-                            // it involves polymorphic Base library functions), trust
-                            // the annotation and emit a runtime check rather than
-                            // blocking compilation with E425.
                             self.validate_expr_expected_type_with_policy(
                                 &expected_infer,
                                 value,
                                 "initializer type is known at compile time",
                                 "binding initializer does not match type annotation".to_string(),
                                 "typed let initializer",
-                                false,
+                                true,
                             )?;
                         } else if self.strict_mode {
                             return Err(Self::boxed(
@@ -1102,7 +1096,7 @@ impl Compiler {
                             *span,
                         )));
                     }
-                    if self.is_base_module_symbol(name) {
+                    if self.is_flow_module_symbol(name) {
                         self.compile_import_statement(name, *alias, except)?;
                         return Ok(());
                     }
@@ -1583,7 +1577,7 @@ impl Compiler {
         alias: Option<Symbol>,
         except: &[Symbol],
     ) -> CompileResult<()> {
-        if self.is_base_module_symbol(name) {
+        if self.is_flow_module_symbol(name) {
             return Ok(());
         }
 
@@ -1644,41 +1638,40 @@ impl Compiler {
                         Some(false) => {
                             let member_str = self.sym(member).to_string();
                             let module_str = self.sym(module_name).to_string();
-                            return Err(Self::boxed(
-                                Diagnostic::make_error_dynamic(
-                                    "E420",
-                                    "Private Member in Exposing",
-                                    ErrorType::Compiler,
-                                    format!(
-                                        "Cannot expose `{}` because it is not a public member of `{}`.",
-                                        member_str, module_str
-                                    ),
-                                    Some("Mark the function as `public fn` in the module to expose it.".to_string()),
-                                    self.file_path.clone(),
-                                    span,
+                            return Err(Self::boxed(Diagnostic::make_error_dynamic(
+                                "E420",
+                                "Private Member in Exposing",
+                                ErrorType::Compiler,
+                                format!(
+                                    "Cannot expose `{}` because it is not a public member of `{}`.",
+                                    member_str, module_str
                                 ),
-                            ));
+                                Some(
+                                    "Mark the function as `public fn` in the module to expose it."
+                                        .to_string(),
+                                ),
+                                self.file_path.clone(),
+                                span,
+                            )));
                         }
                         None => {
                             let member_str = self.sym(member).to_string();
                             let module_str = self.sym(module_name).to_string();
-                            return Err(Self::boxed(
-                                Diagnostic::make_error_dynamic(
-                                    "E421",
-                                    "Unknown Member in Exposing",
-                                    ErrorType::Compiler,
-                                    format!(
-                                        "`{}` is not defined in module `{}`.",
-                                        member_str, module_str
-                                    ),
-                                    Some(format!(
-                                        "Check the public members of `{}` or remove `{}` from the exposing list.",
-                                        module_str, member_str
-                                    )),
-                                    self.file_path.clone(),
-                                    span,
+                            return Err(Self::boxed(Diagnostic::make_error_dynamic(
+                                "E421",
+                                "Unknown Member in Exposing",
+                                ErrorType::Compiler,
+                                format!(
+                                    "`{}` is not defined in module `{}`.",
+                                    member_str, module_str
                                 ),
-                            ));
+                                Some(format!(
+                                    "Check the public members of `{}` or remove `{}` from the exposing list.",
+                                    module_str, member_str
+                                )),
+                                self.file_path.clone(),
+                                span,
+                            )));
                         }
                     }
                 }

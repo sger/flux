@@ -7,14 +7,14 @@ failed (compile)
 == diagnostics ==
 error[E013]: Module Not Imported
 
-Module `Base` is not imported.
+Module `Flow` is not imported.
 
   examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMemberTypo.flx:3:9
   |
-3 |         Base.prnit("x")
+3 |         Flow.prnit("x")
   |         ^^^^^^^^^^
 
 Hint:
-  Add an import statement at the top of your file: `import Base`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
+  Add an import statement at the top of your file: `import Flow`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
 == stdout ==
 <not executed>

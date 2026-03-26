@@ -186,7 +186,7 @@ fn compile_with_opts_skips_tail_call_analysis_without_optimization() {
 }
 
 // Base function registry tests removed — Proposal 0120 replaced
-// Rust base functions with Flux stdlib in lib/Base/*.flx.
+// Rust base functions with Flux stdlib in lib/Flow/*.flx.
 
 #[test]
 fn typed_let_mismatch_is_checked_for_identifier_expression() {
@@ -215,7 +215,7 @@ let x: Int = y
 fn nested_function_can_shadow_base_name() {
     let (program, interner) = parse_program(
         r#"
-import Base except [flatten]
+import Flow except [flatten]
 
 fn main() {
     fn flatten(x) { x }
@@ -226,14 +226,14 @@ fn main() {
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler
         .compile(&program)
-        .expect("nested function should shadow excluded Base name");
+        .expect("nested function should shadow excluded Flow name");
 }
 
 #[test]
-fn local_let_can_shadow_base_name() {
+fn local_let_can_shadow_flow_name() {
     let (program, interner) = parse_program(
         r#"
-import Base except [len]
+import Flow except [len]
 
 fn main() {
     let len = 1
@@ -244,14 +244,14 @@ fn main() {
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler
         .compile(&program)
-        .expect("local let should shadow excluded Base name");
+        .expect("local let should shadow excluded Flow name");
 }
 
 #[test]
-fn match_pattern_can_shadow_base_name() {
+fn match_pattern_can_shadow_flow_name() {
     let (program, interner) = parse_program(
         r#"
-import Base except [len]
+import Flow except [len]
 
 fn main() {
     match Some(1) {
@@ -264,14 +264,14 @@ fn main() {
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler
         .compile(&program)
-        .expect("pattern binding should shadow excluded Base name");
+        .expect("pattern binding should shadow excluded Flow name");
 }
 
 #[test]
-fn parameter_can_shadow_base_name() {
+fn parameter_can_shadow_flow_name() {
     let (program, interner) = parse_program(
         r#"
-import Base except [len]
+import Flow except [len]
 
 fn id(len) { len }
 "#,
@@ -279,7 +279,7 @@ fn id(len) { len }
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler
         .compile(&program)
-        .expect("parameter binding should shadow excluded Base name");
+        .expect("parameter binding should shadow excluded Flow name");
 }
 
 #[test]
@@ -526,7 +526,7 @@ fn main() -> Unit with Time {
 // Strict-mode accept tests for `print`/`now_ms` removed — those relied on
 // base functions which are no longer registered in the symbol table.
 // Effect annotation acceptance is now validated via integration tests with
-// the Flux stdlib (`lib/Base/*.flx`) loaded.
+// the Flux stdlib (`lib/Flow/*.flx`) loaded.
 
 #[test]
 fn function_compile_error_does_not_leak_scope() {

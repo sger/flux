@@ -110,8 +110,8 @@ pub(super) fn resolve_imports(
             _ => continue,
         };
 
-        // `Base` is synthetic and does not resolve to a filesystem module.
-        if name == "Base" {
+        // `Flow` is synthetic and does not resolve to a filesystem module.
+        if name == "Flow" {
             continue;
         }
 

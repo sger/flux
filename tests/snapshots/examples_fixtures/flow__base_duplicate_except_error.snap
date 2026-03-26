@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/flow/base_duplicate_except_error.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E013]: Module Not Imported
+
+Module `Flow` is not imported.
+
+  examples/flow/base_duplicate_except_error.flx:4:1
+  |
+4 | Flow.print("unreachable");
+  | ^^^^^^^^^^
+
+Hint:
+  Add an import statement at the top of your file: `import Flow`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
+== stdout ==
+<not executed>

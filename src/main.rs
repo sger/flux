@@ -556,14 +556,14 @@ fn run_file(
                 all_diagnostics.append(&mut parser.errors);
             }
 
-            // Auto-import Base library modules (Proposal 0120/0121 Phase 4).
-            // Inject `import Base.Option exposing (..)` into the program AST
+            // Auto-import Flow library modules (Proposal 0120/0121 Phase 4).
+            // Inject `import Flow.Option exposing (..)` into the program AST
             // so Option helpers are available without explicit import.
             // Skip for --dump-aether/--dump-core/--trace-aether to keep
             // diagnostic output focused on user code.
             let mut program = program;
             if !dump_aether && !trace_aether && matches!(dump_core, CoreDumpMode::None) {
-                inject_base_prelude(&mut program, &mut parser, use_core_to_llvm);
+                inject_flow_prelude(&mut program, &mut parser, use_core_to_llvm);
             }
 
             let interner = parser.take_interner();
@@ -594,14 +594,14 @@ fn run_file(
             compiler.set_strict_mode(strict_mode);
             let entry_canonical = std::fs::canonicalize(entry_path).ok();
 
-            // Sort topo_order to compile Base library modules first.
-            // This ensures all modules can access Base functions (map, filter, etc.)
+            // Sort topo_order to compile Flow library modules first.
+            // This ensures all modules can access Flow functions (map, filter, etc.)
             // without explicit imports — like Haskell's implicit Prelude.
             let mut ordered_nodes = graph.topo_order();
             ordered_nodes.sort_by_key(|node| {
-                let is_base = node.path.to_string_lossy().contains("lib/Base/")
-                    || node.path.to_string_lossy().contains("lib\\Base\\");
-                if is_base { 0 } else { 1 }
+                let is_flow = node.path.to_string_lossy().contains("lib/Flow/")
+                    || node.path.to_string_lossy().contains("lib\\Flow\\");
+                if is_flow { 0 } else { 1 }
             });
 
             for node in ordered_nodes {
@@ -631,17 +631,17 @@ fn run_file(
 
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
-                let is_base_library = node.path.to_string_lossy().contains("lib/Base/")
-                    || node.path.to_string_lossy().contains("lib\\Base\\");
+                let is_flow_library = node.path.to_string_lossy().contains("lib/Flow/")
+                    || node.path.to_string_lossy().contains("lib\\Flow\\");
                 compiler.set_strict_require_main(is_entry_module);
-                // Disable strict mode for Base library modules — they use
+                // Disable strict mode for Flow library modules — they use
                 // polymorphic signatures that strict mode can't validate yet.
-                if is_base_library {
+                if is_flow_library {
                     compiler.set_strict_mode(false);
                 }
                 let compile_result =
                     compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
-                if is_base_library {
+                if is_flow_library {
                     compiler.set_strict_mode(strict_mode);
                 }
                 let mut compiler_warnings = compiler.take_warnings();
@@ -670,27 +670,23 @@ fn run_file(
                     if let Some((module_name, module_sym)) =
                         extract_module_name_and_sym(&node.program, &compiler.interner)
                     {
-                        let module_source =
-                            std::fs::read_to_string(&node.path).unwrap_or_default();
+                        let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
                         let source_hash =
                             flux::bytecode::bytecode_cache::hash_bytes(module_source.as_bytes());
-                        let interface =
-                            flux::bytecode::compiler::module_interface::build_interface(
-                                &module_name,
-                                module_sym,
-                                &source_hash,
-                                &compiler.module_contracts,
-                                &compiler.module_function_visibility,
-                                &compiler.interner,
-                            );
+                        let interface = flux::bytecode::compiler::module_interface::build_interface(
+                            &module_name,
+                            module_sym,
+                            &source_hash,
+                            &compiler.module_contracts,
+                            &compiler.module_function_visibility,
+                            &compiler.interner,
+                        );
                         let iface_path =
                             flux::bytecode::compiler::module_interface::interface_path(&node.path);
-                        if let Err(e) =
-                            flux::bytecode::compiler::module_interface::save_interface(
-                                &iface_path,
-                                &interface,
-                            )
-                        {
+                        if let Err(e) = flux::bytecode::compiler::module_interface::save_interface(
+                            &iface_path,
+                            &interface,
+                        ) {
                             if verbose {
                                 eprintln!(
                                     "warning: could not write interface file {}: {e}",
@@ -737,17 +733,16 @@ fn run_file(
 
             // Build merged program from all modules for dump-core / dump-aether.
             // This ensures module functions are visible in the output.
-            let merged_program = if is_multimodule
-                && (dump_aether || !matches!(dump_core, CoreDumpMode::None))
-            {
-                let mut merged = Program::new();
-                for node in graph.topo_order() {
-                    merged.statements.extend(node.program.statements.clone());
-                }
-                merged
-            } else {
-                program.clone()
-            };
+            let merged_program =
+                if is_multimodule && (dump_aether || !matches!(dump_core, CoreDumpMode::None)) {
+                    let mut merged = Program::new();
+                    for node in graph.topo_order() {
+                        merged.statements.extend(node.program.statements.clone());
+                    }
+                    merged
+                } else {
+                    program.clone()
+                };
 
             if dump_aether {
                 match compiler.dump_aether_report(&merged_program, enable_optimize) {
@@ -805,19 +800,19 @@ fn run_file(
 
                 let mut c2l_program = Program::new();
 
-                // Load Base library (stdlib) — parse prelude .flx files
+                // Load Flow library (stdlib) — parse prelude .flx files
                 // and prepend their definitions before user code.
-                // Base library auto-loading: disabled pending separate compilation
-                // support. The Base functions need their own type inference pass
-                // rather than being mixed into the user program. For now, base
+                // Flow library auto-loading: disabled pending separate compilation
+                // support. The Flow functions need their own type inference pass
+                // rather than being mixed into the user program. For now, builtin
                 // functions are handled via builtins.rs (C runtime FFI calls).
                 // See Proposal 0120 for the full design.
                 if false {
-                    let base_dir = locate_base_lib_dir().unwrap();
-                    let base_files = ["List.flx"];
-                    for file in base_files {
-                        let base_path = base_dir.join(file);
-                        if let Ok(base_source) = std::fs::read_to_string(&base_path) {
+                    let flow_dir = locate_flow_lib_dir().unwrap();
+                    let flow_files = ["List.flx"];
+                    for file in flow_files {
+                        let flow_path = flow_dir.join(file);
+                        if let Ok(base_source) = std::fs::read_to_string(&flow_path) {
                             let lexer = Lexer::new(&base_source);
                             let mut parser = Parser::new(lexer);
                             let base_prog = parser.parse_program();
@@ -1095,8 +1090,8 @@ fn run_test_file(
         std::process::exit(1);
     }
 
-    // Auto-import Base library for test mode too.
-    inject_base_prelude(&mut program, &mut parser, false);
+    // Auto-import Flow library for test mode too.
+    inject_flow_prelude(&mut program, &mut parser, false);
 
     let interner = parser.take_interner();
 
@@ -1122,15 +1117,15 @@ fn run_test_file(
         }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
-        let is_base_library = node.path.to_string_lossy().contains("lib/Base/")
-            || node.path.to_string_lossy().contains("lib\\Base\\");
+        let is_flow_library = node.path.to_string_lossy().contains("lib/Flow/")
+            || node.path.to_string_lossy().contains("lib\\Flow\\");
         compiler.set_strict_require_main(is_entry_module);
-        if is_base_library {
+        if is_flow_library {
             compiler.set_strict_mode(false);
         }
         let compile_result =
             compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
-        if is_base_library {
+        if is_flow_library {
             compiler.set_strict_mode(strict_mode);
         }
         let mut compiler_warnings = compiler.take_warnings();
@@ -1368,14 +1363,14 @@ fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
     None
 }
 
-/// Locate the Base library directory (`lib/Base/`).
+/// Locate the Flow library directory (`lib/Flow/`).
 #[cfg(feature = "native")]
-fn locate_base_lib_dir() -> Option<std::path::PathBuf> {
+fn locate_flow_lib_dir() -> Option<std::path::PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         let mut dir = exe.parent().map(Path::to_path_buf);
         for _ in 0..5 {
             if let Some(ref d) = dir {
-                let candidate = d.join("lib").join("Base");
+                let candidate = d.join("lib").join("Flow");
                 if candidate.join("List.flx").exists() {
                     return Some(candidate);
                 }
@@ -1383,7 +1378,7 @@ fn locate_base_lib_dir() -> Option<std::path::PathBuf> {
             }
         }
     }
-    let cwd = std::path::PathBuf::from("lib/Base");
+    let cwd = std::path::PathBuf::from("lib/Flow");
     if cwd.join("List.flx").exists() {
         return Some(cwd);
     }
@@ -1583,41 +1578,41 @@ fn emit_diagnostics(
     }
 }
 
-/// Inject auto-imports for Base library modules into the program AST.
+/// Inject auto-imports for Flow library modules into the program AST.
 ///
-/// Currently injects: `import Base.Option exposing (..)`
+/// Currently injects: `import Flow.Option exposing (..)`
 ///
 /// Uses a mini-parser to parse the synthetic import so symbols are
 /// correctly interned in the same interner used for the rest of compilation.
-/// Base library modules to auto-import.  Each entry is
+/// Flow library modules to auto-import.  Each entry is
 /// `(module_name, file_name)` — the file is checked for existence before
 /// injecting `import <module_name> exposing (..)`.
-const BASE_PRELUDE_MODULES: &[(&str, &str)] = &[
-    ("Base.Option", "Option.flx"),
-    ("Base.List", "List.flx"),
-    ("Base.String", "String.flx"),
-    ("Base.Numeric", "Numeric.flx"),
-    ("Base.IO", "IO.flx"),
-    ("Base.Assert", "Assert.flx"),
+const FLOW_PRELUDE_MODULES: &[(&str, &str)] = &[
+    ("Flow.Option", "Option.flx"),
+    ("Flow.List", "List.flx"),
+    ("Flow.String", "String.flx"),
+    ("Flow.Numeric", "Numeric.flx"),
+    ("Flow.IO", "IO.flx"),
+    ("Flow.Assert", "Assert.flx"),
 ];
 
-fn inject_base_prelude(
+fn inject_flow_prelude(
     program: &mut Program,
     parser: &mut flux::syntax::parser::Parser,
     native_mode: bool,
 ) {
-    let base_dir = Path::new("lib").join("Base");
-    if !base_dir.exists() {
+    let flow_dir = Path::new("lib").join("Flow");
+    if !flow_dir.exists() {
         return;
     }
 
-    // Both VM and native backends inject all Base modules.
-    // The native/LLVM backend compiles lib/Base/*.flx through Core IR
+    // Both VM and native backends inject all Flow modules.
+    // The native/LLVM backend compiles lib/Flow/*.flx through Core IR
     // alongside user code, enabling cross-module inlining.
     let _ = native_mode; // used by both paths now
-    let modules: &[(&str, &str)] = BASE_PRELUDE_MODULES;
+    let modules: &[(&str, &str)] = FLOW_PRELUDE_MODULES;
 
-    // Collect the set of already-imported Base modules.
+    // Collect the set of already-imported Flow modules.
     let interner = parser.interner();
     let existing_imports: Vec<String> = program
         .statements
@@ -1637,7 +1632,7 @@ fn inject_base_prelude(
         if existing_imports.iter().any(|s| s == module_name) {
             continue;
         }
-        if !base_dir.join(file_name).exists() {
+        if !flow_dir.join(file_name).exists() {
             continue;
         }
         imports.push(format!("import {module_name} exposing (..)"));
@@ -1731,7 +1726,7 @@ fn collect_roots(entry_path: &Path, extra_roots: &[PathBuf], roots_only: bool) -
         if project_src.exists() {
             roots.push(project_src.to_path_buf());
         }
-        // Add lib/ as a root for Base library resolution (Proposal 0120).
+        // Add lib/ as a root for Flow library resolution (Proposal 0120).
         // Searches: relative to cwd, then up from the executable.
         let project_lib = Path::new("lib");
         if project_lib.exists() {
@@ -2217,7 +2212,7 @@ fn repl(trace: bool) {
     let stdin = io::stdin();
     let mut reader = stdin.lock();
 
-    // Bootstrap compiler to register Base functions in the symbol table.
+    // Bootstrap compiler to register Flow functions in the symbol table.
     let bootstrap = Compiler::new_with_interner("<repl>", Interner::new());
     let (mut symbol_table, mut constants, mut interner) = bootstrap.take_state();
     let mut globals: Vec<Value> = vec![Value::None; 65536];

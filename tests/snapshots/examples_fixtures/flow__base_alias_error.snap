@@ -1,7 +1,7 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
 ---
-Fixture: examples/base/base_alias_error.flx
+Fixture: examples/flow/base_alias_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
@@ -9,7 +9,7 @@ error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  examples/base/base_alias_error.flx:4:1
+  examples/flow/base_alias_error.flx:4:1
   |
 4 | print(1);
   | ^^^^^^^^^
@@ -23,7 +23,7 @@ error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  examples/base/base_alias_error.flx:4:1
+  examples/flow/base_alias_error.flx:4:1
   |
 4 | print(1);
   | ^^^^^^^^^
@@ -32,6 +32,20 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-Found 2 errors.
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/flow/base_alias_error.flx:4:1
+  |
+4 | print(1);
+  | ^^^^^^^^
+  | -------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 3 errors.
 == stdout ==
 <not executed>

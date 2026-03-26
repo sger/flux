@@ -10,7 +10,7 @@
 /// (`let f = println; f(x)`) falls through to the existing `App(Var …)` path.
 ///
 /// Functions NOT promoted here (map, filter, fold, sort, reverse, abs, min,
-/// max, assert_*, etc.) will be rewritten in Flux (`lib/Base/*.flx`) using
+/// max, assert_*, etc.) will be rewritten in Flux (`lib/Flow/*.flx`) using
 /// these primops.
 use std::collections::HashMap;
 
@@ -82,7 +82,10 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         // Polymorphic length
         ("len", 1, CorePrimOp::Len),
     ];
-    entries.iter().map(|&(n, a, ref op)| ((n, a), op.clone())).collect()
+    entries
+        .iter()
+        .map(|&(n, a, ref op)| ((n, a), op.clone()))
+        .collect()
 }
 
 /// Run the primop promotion pass on a `CoreProgram`.
