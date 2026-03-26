@@ -126,8 +126,7 @@ pub fn interface_path(source_path: &Path) -> PathBuf {
 
 /// Save a module interface to disk as JSON.
 pub fn save_interface(path: &Path, interface: &ModuleInterface) -> std::io::Result<()> {
-    let json = serde_json::to_string_pretty(interface)
-        .map_err(std::io::Error::other)?;
+    let json = serde_json::to_string_pretty(interface).map_err(std::io::Error::other)?;
     std::fs::write(path, json)
 }
 

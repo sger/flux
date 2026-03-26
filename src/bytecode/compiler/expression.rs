@@ -1445,9 +1445,9 @@ impl Compiler {
 
     fn check_direct_builtin_effect_call(&mut self, function: &Expression) -> CompileResult<()> {
         let required_name = match function {
-            Expression::Identifier { name, .. } => {
-                self.lookup_effect_alias(*name).map(|effect| self.sym(effect).to_string())
-            }
+            Expression::Identifier { name, .. } => self
+                .lookup_effect_alias(*name)
+                .map(|effect| self.sym(effect).to_string()),
             _ => None,
         };
 
