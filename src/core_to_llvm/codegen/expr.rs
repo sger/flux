@@ -2889,9 +2889,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             | CorePrimOp::ToArray
             | CorePrimOp::Len
             | CorePrimOp::CmpEq
-            | CorePrimOp::CmpNe
-            | CorePrimOp::Try
-            | CorePrimOp::AssertThrows => {
+            | CorePrimOp::CmpNe => {
                 let flux_name = promoted_primop_flux_name(op);
                 let Some(mapping) = super::builtins::find_builtin(flux_name) else {
                     return Err(self.unsupported(
@@ -2932,6 +2930,12 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                     });
                     Ok(const_i64(tagged_none_bits()))
                 }
+            }
+            CorePrimOp::Try | CorePrimOp::AssertThrows => {
+                return Err(self.unsupported(
+                    "primop",
+                    format!("`{}` requires setjmp/longjmp error recovery (not yet implemented in native backend)", promoted_primop_flux_name(op)),
+                ));
             }
             CorePrimOp::MemberAccess(member) => {
                 // Module member access: resolve to the function by name.

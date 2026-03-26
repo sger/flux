@@ -670,6 +670,19 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
         arity: 2,
         returns_value: true,
     },
+    // Deep structural comparison (used by Flow.Assert)
+    BuiltinMapping {
+        flux_name: "cmp_eq",
+        c_name: "flux_rt_eq",
+        arity: 2,
+        returns_value: true,
+    },
+    BuiltinMapping {
+        flux_name: "cmp_ne",
+        c_name: "flux_rt_neq",
+        arity: 2,
+        returns_value: true,
+    },
 ];
 
 /// Look up a built-in function's C runtime mapping by Flux name.
