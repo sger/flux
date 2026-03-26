@@ -54,7 +54,7 @@ pipeline: AST -> Core -> CFG -> bytecode -> VM
 cache: disabled
 optimize: off
 analyze: off
-strict: on
+strict: off
 modules: 1
 ────────────────────────
 Aether Memory Model Report

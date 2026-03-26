@@ -1,40 +1,53 @@
 ---
 source: tests/aether_cli_snapshots.rs
 ---
-• 2 errors • examples/aether/Aether/FbipImportedSupport.flx
-error[E416]: Strict Function Annotation Required
+Aether Memory Model Report
+==========================
 
-Public function `imported_inc` must annotate all parameters in strict mode.
+── fn fail_indirect @fip ──
+  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+  fbip: NotProvable
+    - calls indirect or opaque callee `f` whose FBIP behavior is unknown
+λf, x.
+  aether_call[owned] f(x)
+── fn fail_imported @fip ──
+  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+  fbip: NotProvable
+    - calls indirect or opaque callee `Symbol(4000013)` whose FBIP behavior is unknown
+λx.
+  let %t1 = MemberAccess(10)(Imported)
+  aether_call[owned] %t1(x)
+── fn fail_fresh @fip ──
+  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+  verifier: ok
+  fbip: proved (fbip(1))
+    - fresh heap allocation remains on at least one path
+λx.
+  Some(x)
+── fn main ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ.
+  let %t1 = (let %t2 = (let %t3 = (λy.
+    Add(y, 1))
+  aether_call[borrowed, owned] fail_indirect(%t3, 1))
+  Print(%t2))
+  drop %t1
+  let %t4 = (let %t5 = aether_call[owned] fail_imported(2)
+  Print(%t5))
+  drop %t4
+  let %t6 = aether_call[owned] fail_fresh(4)
+  Print(%t6)
 
-  examples/aether/Aether/FbipImportedSupport.flx:3:12
-  |
-3 |     public fn imported_inc(x) {
-  |            ^^^^^^^^^^^^^^^^^^^^
-4 |         x + 1
-  | ^^^^^^^^^^^^^
-5 |     }
-  | ^^^^^
-
-Hint:
-  Add explicit parameter types to the function signature.
-
-
-error[E417]: Strict Return Annotation Required
-
-Public function `imported_inc` must declare a return type in strict mode.
-
-  examples/aether/Aether/FbipImportedSupport.flx:3:12
-  |
-3 |     public fn imported_inc(x) {
-  |            ^^^^^^^^^^^^^^^^^^^^
-4 |         x + 1
-  | ^^^^^^^^^^^^^
-5 |     }
-  | ^^^^^
-
-Hint:
-  Add `-> Type` to the function signature.
-
+── Total ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
 
 • 3 warnings • examples/aether/fbip_failure_cases.flx
 Warning: FBIP Contract Not Proven
@@ -81,4 +94,4 @@ Warning: FBIP Contract Not Proven
 21 | }
    | ^
 
-Found 2 errors and 3 warnings across 2 modules.
+Found 3 warnings.

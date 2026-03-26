@@ -7,14 +7,14 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
-I can't find a value named `sort`.
+I can't find a value named `reverse`.
 
   examples/type_system/TypeSystem/RealProgramPrimops.flx:11:15
    |
-11 |         slice(sort(xs, "desc"), 0, 2)
-   |               ^^^^
+11 |         slice(reverse(sort(xs)), 0, 2)
+   |               ^^^^^^^
 
 Hint:
-  Define it first: let sort = ...;
+  Define it first: let reverse = ...;
 == stdout ==
 <not executed>

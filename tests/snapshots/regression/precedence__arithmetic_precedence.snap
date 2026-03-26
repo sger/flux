@@ -4,7 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/precedence/arithmetic_precedence.flx
 exit_code: 1
 
-• 10 errors • tests/fixtures/precedence/arithmetic_precedence.flx
+• 9 errors • tests/fixtures/precedence/arithmetic_precedence.flx
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -33,25 +33,6 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
-error[E415]: Missing Main Function (strict)
-
-Strict mode requires `fn main()` for all programs.
-
-  tests/fixtures/precedence/arithmetic_precedence.flx:1:1
-  |
-1 | print(1 + 2 * 3);
-  | ^^^^^^^^^^^^^^^^^
-2 | print(1 * 2 + 3);
-  | ^^^^^^^^^^^^^^^^^
-3 | print(1 + 2 + 3);
-  | ^^^^^^^^^^^^^^^^^
-4 | print(1 - 2 - 3);
-  | ^^^^^^^^^^^^^^^^^
-
-Hint:
-  Add `fn main() { ... }` as the program entrypoint.
-
-
 error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
@@ -149,4 +130,4 @@ requires effect `IO` but the enclosing context does not provide it
 Hint:
   annotate the enclosing function with `with IO`
 
-Found 10 errors.
+Found 9 errors.
