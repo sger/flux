@@ -552,11 +552,11 @@ fn collect_cons_list(value: &Value) -> Option<Vec<Value>> {
 pub fn format_value(value: &Value) -> String {
     match value {
         Value::Array(elements) => {
-            let items: Vec<String> = elements.iter().map(|e| format_value(e)).collect();
+            let items: Vec<String> = elements.iter().map(format_value).collect();
             format!("[|{}|]", items.join(", "))
         }
         Value::Tuple(elements) => {
-            let items: Vec<String> = elements.iter().map(|e| format_value(e)).collect();
+            let items: Vec<String> = elements.iter().map(format_value).collect();
             match items.len() {
                 0 => "()".to_string(),
                 1 => format!("({},)", items[0]),
@@ -565,7 +565,7 @@ pub fn format_value(value: &Value) -> String {
         }
         Value::Adt(_) => {
             if let Some(adt) = value.as_adt() {
-                let items: Vec<String> = adt.fields().iter().map(|v| format_value(v)).collect();
+                let items: Vec<String> = adt.fields().iter().map(format_value).collect();
                 format!("{}({})", adt.constructor(), items.join(", "))
             } else {
                 value.to_string()
@@ -574,7 +574,7 @@ pub fn format_value(value: &Value) -> String {
         Value::AdtUnit(name) => name.to_string(),
         Value::Cons(_) => match collect_cons_list(value) {
             Some(elements) => {
-                let items: Vec<String> = elements.iter().map(|e| format_value(e)).collect();
+                let items: Vec<String> = elements.iter().map(format_value).collect();
                 format!("[{}]", items.join(", "))
             }
             None => "<malformed list>".to_string(),

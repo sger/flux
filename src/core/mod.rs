@@ -364,9 +364,15 @@ pub enum CorePrimOp {
     IsList,
     IsMap,
 
+    // Deep structural comparison
+    CmpEq,
+    CmpNe,
+
     // Control
     Panic,
     ClockNow,
+    Try,
+    AssertThrows,
 
     // Parsing
     ParseInt,

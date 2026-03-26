@@ -68,10 +68,16 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         ("is_some", 1, CorePrimOp::IsSome),
         ("is_list", 1, CorePrimOp::IsList),
         ("is_map", 1, CorePrimOp::IsMap),
+        // Deep structural comparison
+        ("cmp_eq", 2, CorePrimOp::CmpEq),
+        ("cmp_ne", 2, CorePrimOp::CmpNe),
         // Control
         ("panic", 1, CorePrimOp::Panic),
         ("now_ms", 0, CorePrimOp::ClockNow),
         ("time", 0, CorePrimOp::ClockNow),
+        ("try", 1, CorePrimOp::Try),
+        ("assert_throws", 1, CorePrimOp::AssertThrows),
+        ("assert_throws", 2, CorePrimOp::AssertThrows),
         // Parsing
         ("parse_int", 1, CorePrimOp::ParseInt),
         // List / cons cell

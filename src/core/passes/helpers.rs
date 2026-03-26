@@ -455,7 +455,11 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::Tl
         | CorePrimOp::ToList
         | CorePrimOp::ToArray
-        | CorePrimOp::Len => false,
+        | CorePrimOp::Len
+        | CorePrimOp::CmpEq
+        | CorePrimOp::CmpNe
+        | CorePrimOp::Try
+        | CorePrimOp::AssertThrows => false,
     }
 }
 

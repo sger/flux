@@ -465,6 +465,7 @@ const PRIMOP_CALL_MAPPINGS: &[(&str, usize, PrimOp)] = &[
     ("array_len", 1, PrimOp::ArrayLen),
     ("array_set", 3, PrimOp::ArraySet),
     ("assert_throws", 1, PrimOp::AssertThrows),
+    ("assert_throws", 2, PrimOp::AssertThrows),
     ("chars", 1, PrimOp::Chars),
     ("clock_now", 0, PrimOp::ClockNow),
     ("cmp_eq", 2, PrimOp::CmpEq),
@@ -591,7 +592,8 @@ pub fn execute_primop(
     op: PrimOp,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    if args.len() != op.arity() {
+    // AssertThrows accepts 1 or 2 arguments (optional expected message).
+    if op != PrimOp::AssertThrows && args.len() != op.arity() {
         return Err(format!(
             "primop {} expects {} arguments, got {}",
             op.display_name(),
@@ -1729,7 +1731,10 @@ mod tests {
                 seen.insert((*name, *arity)),
                 "duplicate primop resolver entry"
             );
-            assert_eq!(*arity, op.arity(), "resolver arity mismatch for {}", name);
+            // AssertThrows accepts 1 or 2 arguments (optional expected message).
+            if *op != PrimOp::AssertThrows {
+                assert_eq!(*arity, op.arity(), "resolver arity mismatch for {}", name);
+            }
         }
     }
 
