@@ -4,40 +4,105 @@ use flux::bytecode::{
     compiler::Compiler,
     op_code::{OpCode, make},
 };
-use flux::diagnostics::render_diagnostics;
+use flux::diagnostics::{DiagnosticsAggregator, render_diagnostics};
+use flux::primop::resolve_primop_call;
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;
+use flux::syntax::module_graph::ModuleGraph;
 use flux::syntax::parser::Parser;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Build Flow prelude source by reading lib/Flow/*.flx files.
+static VM_TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+/// Build Flow prelude imports for module-graph based test compilation.
 fn flow_prelude_source() -> String {
-    let flow_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("lib/Flow");
-    let modules = ["Option", "List", "String", "Numeric", "IO", "Assert"];
-    let mut source = String::new();
-    for module in &modules {
-        let path = flow_dir.join(format!("{module}.flx"));
-        if path.exists() {
-            source.push_str(&std::fs::read_to_string(&path).unwrap());
-            source.push('\n');
-        }
-    }
-    for module in &modules {
-        source.push_str(&format!("import Flow.{module} exposing (..)\n"));
-    }
-    source
+    [
+        "import Flow.Option exposing (..)",
+        "import Flow.List except [concat, delete]",
+        "import Flow.List as List",
+        "import Flow.Array as Array",
+        "import Flow.String exposing (..)",
+        "import Flow.Numeric exposing (..)",
+        "import Flow.IO exposing (..)",
+        "import Flow.Assert exposing (..)",
+        "fn map(xs, f) { if is_array(xs) { Array.map(xs, f) } else { List.map(xs, f) } }",
+        "fn filter(xs, pred) { if is_array(xs) { Array.filter(xs, pred) } else { List.filter(xs, pred) } }",
+        "fn fold(xs, acc, f) { if is_array(xs) { Array.fold(xs, acc, f) } else { List.fold(xs, acc, f) } }",
+        "fn first(xs) { if is_array(xs) { Array.first(xs) } else { List.first(xs) } }",
+        "fn last(xs) { if is_array(xs) { Array.last(xs) } else { List.last(xs) } }",
+        "fn reverse(xs) { if is_array(xs) { Array.reverse(xs) } else { List.reverse(xs) } }",
+        "fn contains(xs, x) { if is_array(xs) { Array.contains(xs, x) } else { List.contains(xs, x) } }",
+        "fn flat_map(xs, f) { if is_array(xs) { Array.flat_map(xs, f) } else { List.flat_map(xs, f) } }",
+        "fn flatten(xs) { if is_array(xs) { Array.flatten(xs) } else { List.flatten(xs) } }",
+        "",
+    ]
+    .join("\n")
 }
 
-fn run(input: &str) -> Value {
-    let full_source = format!("{}\n{}", flow_prelude_source(), input);
+fn write_test_program(input: &str, with_prelude: bool) -> (PathBuf, String) {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let temp_root = workspace_root.join("target/tmp/vm_tests");
+    std::fs::create_dir_all(&temp_root).unwrap();
+
+    let id = VM_TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let entry_path = temp_root.join(format!("test_{id}.flx"));
+    let full_source = if with_prelude {
+        format!("{}\n{}", flow_prelude_source(), input)
+    } else {
+        input.to_string()
+    };
+
+    std::fs::write(&entry_path, &full_source).unwrap();
+    (entry_path, full_source)
+}
+
+fn compile_program(input: &str, with_prelude: bool) -> Result<Bytecode, String> {
+    let (entry_path, full_source) = write_test_program(input, with_prelude);
     let lexer = Lexer::new(&full_source);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
+
+    if !parser.errors.is_empty() {
+        return Err(render_diagnostics(&parser.errors, Some(&full_source), None));
+    }
+
     let interner = parser.take_interner();
-    let mut compiler = Compiler::new_with_interner("<unknown>", interner);
-    compiler
-        .compile(&program)
-        .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(&full_source), None)));
-    let mut vm = VM::new(compiler.bytecode());
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let roots = vec![
+        entry_path.parent().unwrap().to_path_buf(),
+        workspace_root.join("lib"),
+        workspace_root.join("src"),
+    ];
+    let graph_result = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &roots);
+    if !graph_result.diagnostics.is_empty() {
+        return Err(
+            DiagnosticsAggregator::new(&graph_result.diagnostics)
+                .with_default_source(entry_path.to_string_lossy(), full_source)
+                .with_file_headers(false)
+                .report()
+                .rendered,
+        );
+    }
+
+    let mut compiler =
+        Compiler::new_with_interner(entry_path.to_string_lossy().to_string(), graph_result.interner);
+    for node in graph_result.graph.topo_order() {
+        compiler.set_file_path(node.path.to_string_lossy().to_string());
+        if let Err(diags) = compiler.compile(&node.program) {
+            return Err(render_diagnostics(
+                &diags,
+                Some(&std::fs::read_to_string(&node.path).unwrap_or_else(|_| full_source.clone())),
+                None,
+            ));
+        }
+    }
+    Ok(compiler.bytecode().clone())
+}
+
+fn run(input: &str) -> Value {
+    let bytecode = compile_program(input, true).unwrap_or_else(|err| panic!("{err}"));
+    let mut vm = VM::new(bytecode);
     vm.run().unwrap();
     vm.last_popped_stack_elem().clone()
 }
@@ -51,20 +116,8 @@ fn run_error_raw(input: &str) -> String {
 }
 
 fn run_error_with_prelude(input: &str, with_prelude: bool) -> String {
-    let full_source = if with_prelude {
-        format!("{}\n{}", flow_prelude_source(), input)
-    } else {
-        input.to_string()
-    };
-    let lexer = Lexer::new(&full_source);
-    let mut parser = Parser::new(lexer);
-    let program = parser.parse_program();
-    let interner = parser.take_interner();
-    let mut compiler = Compiler::new_with_interner("test.flx", interner);
-    compiler
-        .compile(&program)
-        .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(&full_source), None)));
-    let mut vm = VM::new(compiler.bytecode());
+    let bytecode = compile_program(input, with_prelude).unwrap_or_else(|err| panic!("{err}"));
+    let mut vm = VM::new(bytecode);
     vm.run().unwrap_err()
 }
 
@@ -72,16 +125,10 @@ fn run_error_with_prelude(input: &str, with_prelude: bool) -> String {
 /// instead of panicking on compile failure. Used for tests where the error may
 /// be caught either at compile time or runtime depending on type inference depth.
 fn run_any_error(input: &str) -> String {
-    let full_source = format!("{}\n{}", flow_prelude_source(), input);
-    let lexer = Lexer::new(&full_source);
-    let mut parser = Parser::new(lexer);
-    let program = parser.parse_program();
-    let interner = parser.take_interner();
-    let mut compiler = Compiler::new_with_interner("test.flx", interner);
-    match compiler.compile(&program) {
-        Err(diags) => render_diagnostics(&diags, Some(&full_source), None),
-        Ok(()) => {
-            let mut vm = VM::new(compiler.bytecode());
+    match compile_program(input, true) {
+        Err(err) => err,
+        Ok(bytecode) => {
+            let mut vm = VM::new(bytecode);
             vm.run().unwrap_err()
         }
     }
@@ -112,7 +159,7 @@ outer();"#;
         err
     );
     assert!(
-        err.contains("test.flx:2:1"),
+        err.contains(":2:1"),
         "expected 1-based column in stack trace, got:\n{}",
         err
     );
@@ -339,13 +386,17 @@ fn make_some(v: Value) -> Value {
     Value::Some(std::rc::Rc::new(v))
 }
 
+fn make_string(v: &str) -> Value {
+    Value::String(v.to_string().into())
+}
+
 #[test]
 fn test_base_array_functions() {
     // first/last/rest now operate on cons lists
     assert_eq!(run("first([1, 2, 3]);"), make_some(Value::Integer(1)));
     assert_eq!(run("last([1, 2, 3]);"), make_some(Value::Integer(3)));
     assert_eq!(run("len(rest([1, 2, 3]));"), Value::Integer(2));
-    assert_eq!(run("hd(rest([1, 2, 3]));"), Value::Integer(2));
+    assert_eq!(run("unwrap(first(rest([1, 2, 3])));"), Value::Integer(2));
     // push still works on arrays
     assert_eq!(
         run("push(#[1, 2], 3);"),
@@ -537,25 +588,25 @@ fn test_pipe_operator() {
 fn test_either_left_right() {
     // Basic Left creation
     assert_eq!(
-        run("Left(42);"),
+        run("let x = Left(42); x;"),
         Value::Left(std::rc::Rc::new(Value::Integer(42)))
     );
 
     // Basic Right creation
     assert_eq!(
-        run("Right(42);"),
+        run("let x = Right(42); x;"),
         Value::Right(std::rc::Rc::new(Value::Integer(42)))
     );
 
     // Left with string
     assert_eq!(
-        run(r#"Left("error");"#),
+        run(r#"let x = Left("error"); x;"#),
         Value::Left(std::rc::Rc::new(Value::String("error".to_string().into())))
     );
 
     // Right with string
     assert_eq!(
-        run(r#"Right("success");"#),
+        run(r#"let x = Right("success"); x;"#),
         Value::Right(std::rc::Rc::new(Value::String(
             "success".to_string().into()
         )))
@@ -563,7 +614,7 @@ fn test_either_left_right() {
 
     // Nested Left
     assert_eq!(
-        run("Left(Left(1));"),
+        run("let x = Left(Left(1)); x;"),
         Value::Left(std::rc::Rc::new(Value::Left(std::rc::Rc::new(
             Value::Integer(1)
         ))))
@@ -571,7 +622,7 @@ fn test_either_left_right() {
 
     // Nested Right
     assert_eq!(
-        run("Right(Right(1));"),
+        run("let x = Right(Right(1)); x;"),
         Value::Right(std::rc::Rc::new(Value::Right(std::rc::Rc::new(
             Value::Integer(1)
         ))))
@@ -579,7 +630,7 @@ fn test_either_left_right() {
 
     // Left containing Right
     assert_eq!(
-        run("Left(Right(42));"),
+        run("let x = Left(Right(42)); x;"),
         Value::Left(std::rc::Rc::new(Value::Right(std::rc::Rc::new(
             Value::Integer(42)
         ))))
@@ -587,7 +638,7 @@ fn test_either_left_right() {
 
     // Right containing Left
     assert_eq!(
-        run("Right(Left(42));"),
+        run("let x = Right(Left(42)); x;"),
         Value::Right(std::rc::Rc::new(Value::Left(std::rc::Rc::new(
             Value::Integer(42)
         ))))
@@ -780,7 +831,7 @@ fn test_either_equality() {
 fn test_either_with_option() {
     // Left containing Some
     assert_eq!(
-        run("Left(Some(42));"),
+        run("let x = Left(Some(42)); x;"),
         Value::Left(std::rc::Rc::new(Value::Some(std::rc::Rc::new(
             Value::Integer(42)
         ))))
@@ -788,13 +839,13 @@ fn test_either_with_option() {
 
     // Right containing None
     assert_eq!(
-        run("Right(None);"),
+        run("let x = Right(None); x;"),
         Value::Right(std::rc::Rc::new(Value::None))
     );
 
     // Some containing Left
     assert_eq!(
-        run("Some(Left(1));"),
+        run("let x = Some(Left(1)); x;"),
         Value::Some(std::rc::Rc::new(Value::Left(std::rc::Rc::new(
             Value::Integer(1)
         ))))
@@ -802,7 +853,7 @@ fn test_either_with_option() {
 
     // Some containing Right
     assert_eq!(
-        run("Some(Right(1));"),
+        run("let x = Some(Right(1)); x;"),
         Value::Some(std::rc::Rc::new(Value::Right(std::rc::Rc::new(
             Value::Integer(1)
         ))))
@@ -867,7 +918,7 @@ fn test_base_map_empty() {
 #[test]
 fn test_base_map_with_base_callback() {
     assert_eq!(
-        run("fold(map([1, 2, 3], \\x -> to_string(x)), \"\", fn(a, x) { a + x });"),
+        run("import Flow.List as L\nL.fold(L.map([1, 2, 3], \\x -> to_string(x)), \"\", fn(a, x) { a + x });"),
         Value::String("123".to_string().into())
     );
 }
@@ -907,7 +958,8 @@ fn test_base_fold_sum() {
 #[test]
 fn test_base_fold_string_concat() {
     assert_eq!(
-        run(r#"fold(["a", "b", "c"], "", fn(acc, x) { acc + x });"#),
+        run(r#"import Flow.List as L
+L.fold(["a", "b", "c"], "", fn(acc, x) { acc + x });"#),
         Value::String("abc".to_string().into())
     );
 }
@@ -996,7 +1048,7 @@ fn test_filter_type_error() {
 #[test]
 fn test_fold_type_error() {
     // fold now operates on cons lists; passing an integer just returns the accumulator
-    assert_eq!(run("fold(42, 0, fn(a, x) { a + x });"), Value::Integer(0));
+    assert_eq!(run("import Flow.List as L\nL.fold(42, 0, fn(a, x) { a + x });"), Value::Integer(0));
 }
 
 #[test]
@@ -1063,7 +1115,8 @@ fn test_fold_callback_runtime_error_propagates() {
 fn test_map_type_of_homogeneous_array() {
     // Map type_of over a homogeneous int cons list, verify via fold
     assert_eq!(
-        run(r#"fold(map([1, 2, 3], \x -> type_of(x)), "", fn(a, x) { a + x });"#),
+        run(r#"import Flow.List as L
+L.fold(L.map([1, 2, 3], \x -> type_of(x)), "", fn(a, x) { a + x });"#),
         Value::String("IntIntInt".to_string().into())
     );
 }
@@ -1077,7 +1130,7 @@ fn test_map_returns_nested_arrays() {
     );
     // Check first element is array [1, 2]
     assert_eq!(
-        run("let result = map([1, 2], fn(x) { #[x, x * 2] }); len(hd(result));"),
+        run("let result = map([1, 2], fn(x) { #[x, x * 2] }); len(unwrap(first(result)));"),
         Value::Integer(2)
     );
 }
@@ -1095,8 +1148,9 @@ fn test_filter_returns_nested_structures() {
 fn test_map_evaluation_order_with_side_effects() {
     // Verify left-to-right evaluation order by building a string
     let result = run(r#"
-        fold(
-            map([1, 2, 3], fn(x) { x * 2 }),
+        import Flow.List as L
+        L.fold(
+            L.map([1, 2, 3], fn(x) { x * 2 }),
             "",
             fn(acc, x) { acc + to_string(x / 2) }
         );
@@ -1108,8 +1162,9 @@ fn test_map_evaluation_order_with_side_effects() {
 fn test_filter_evaluation_order_stable() {
     // Verify filter processes elements in left-to-right order
     let result = run(r#"
-        fold(
-            filter([5, 3, 8, 1], fn(x) { x > 2 }),
+        import Flow.List as L
+        L.fold(
+            L.filter([5, 3, 8, 1], fn(x) { x > 2 }),
             "",
             fn(acc, x) { acc + to_string(x) }
         );
@@ -1122,7 +1177,8 @@ fn test_filter_evaluation_order_stable() {
 fn test_fold_evaluation_order_deterministic() {
     // Verify fold processes elements left-to-right
     let result = run(r#"
-        fold([1, 2, 3, 4], "", fn(acc, x) {
+        import Flow.List as L
+        L.fold([1, 2, 3, 4], "", fn(acc, x) {
             acc + to_string(x)
         });
     "#);
@@ -1173,7 +1229,7 @@ fn test_map_with_option_values() {
         Value::Integer(3)
     );
     assert_eq!(
-        run(r#"hd(map([1, 2, 3], fn(x) { if x == 2 { None } else { Some(x) } }));"#),
+        run(r#"unwrap(first(map([1, 2, 3], fn(x) { if x == 2 { None } else { Some(x) } })));"#),
         make_some(Value::Integer(1))
     );
 }
@@ -1182,11 +1238,11 @@ fn test_map_with_option_values() {
 fn test_filter_truthiness_zero_is_truthy() {
     // Verify 0 and 0.0 are truthy (not like JavaScript)
     assert_eq!(
-        run("len(filter([0, 1, 2], fn(x) { x }));"),
+        run("import Flow.List as L\nlen(L.filter([0, 1, 2], fn(x) { x }));"),
         Value::Integer(3)
     );
     assert_eq!(
-        run("len(filter([0.0, 1.5], fn(x) { x }));"),
+        run("import Flow.List as L\nlen(L.filter([0.0, 1.5], fn(x) { x }));"),
         Value::Integer(2)
     );
 }
@@ -1195,7 +1251,8 @@ fn test_filter_truthiness_zero_is_truthy() {
 fn test_filter_truthiness_empty_string_is_truthy() {
     // Verify empty string is truthy
     assert_eq!(
-        run(r#"len(filter(["", "a", "b"], fn(x) { x }));"#),
+        run(r#"import Flow.List as L
+len(L.filter(["", "a", "b"], fn(x) { x }));"#),
         Value::Integer(3)
     );
 }
@@ -1204,7 +1261,7 @@ fn test_filter_truthiness_empty_string_is_truthy() {
 fn test_filter_truthiness_empty_array_is_truthy() {
     // Verify empty array is truthy — use cons list of arrays
     assert_eq!(
-        run("len(filter([#[], #[1], #[2, 3]], fn(x) { x }));"),
+        run("import Flow.List as L\nlen(L.filter([#[], #[1], #[2, 3]], fn(x) { x }));"),
         Value::Integer(3)
     );
 }
@@ -1275,16 +1332,16 @@ fn test_cons_syntax() {
 }
 
 #[test]
-fn test_cons_hd_tl() {
-    assert_eq!(run("hd([1 | [2 | []]]);"), Value::Integer(1));
-    assert_eq!(run("hd(tl([1 | [2 | []]]));"), Value::Integer(2));
+fn test_cons_first_rest() {
+    assert_eq!(run("unwrap(first([1 | [2 | []]]));"), Value::Integer(1));
+    assert_eq!(run("unwrap(first(rest([1 | [2 | []]])));"), Value::Integer(2));
 }
 
 #[test]
 fn test_list_constructor() {
-    assert_eq!(run("hd(list(10, 20, 30));"), Value::Integer(10));
-    assert_eq!(run("hd(tl(list(10, 20, 30)));"), Value::Integer(20));
-    assert_eq!(run("hd(tl(tl(list(10, 20, 30))));"), Value::Integer(30));
+    assert_eq!(run("unwrap(first(list(10, 20, 30)));"), Value::Integer(10));
+    assert_eq!(run("unwrap(first(rest(list(10, 20, 30))));"), Value::Integer(20));
+    assert_eq!(run("unwrap(first(rest(rest(list(10, 20, 30)))));"), Value::Integer(30));
 }
 
 #[test]
@@ -1297,7 +1354,7 @@ fn test_list_len() {
 fn test_list_first_rest() {
     assert_eq!(run("first(list(10, 20));"), make_some(Value::Integer(10)));
     assert_eq!(
-        run("first(tl(list(10, 20, 30)));"),
+        run("first(rest(list(10, 20, 30)));"),
         make_some(Value::Integer(20))
     );
 }
@@ -1314,7 +1371,7 @@ fn test_list_to_array_round_trip() {
 #[test]
 fn test_list_reverse() {
     // reverse now operates on cons lists
-    assert_eq!(run("hd(reverse([1, 2, 3]));"), Value::Integer(3));
+    assert_eq!(run("unwrap(first(reverse([1, 2, 3])));"), Value::Integer(3));
     assert_eq!(run("len(reverse([1, 2, 3]));"), Value::Integer(3));
 }
 
@@ -1341,6 +1398,162 @@ fn test_list_is_list() {
     assert_eq!(run("is_list(list(1, 2));"), Value::Boolean(true));
     assert_eq!(run("is_list(list());"), Value::Boolean(true));
     assert_eq!(run("is_list(#[1, 2]);"), Value::Boolean(false));
+}
+
+#[test]
+fn test_list_phase_1b_slicing_and_span() {
+    assert_eq!(run("to_string(take([1, 2, 3, 4], 2));"), make_string("[1, 2]"));
+    assert_eq!(run("to_string(drop([1, 2, 3, 4], 2));"), make_string("[3, 4]"));
+    assert_eq!(run("to_string(take([1, 2, 3], 0));"), make_string("[]"));
+    assert_eq!(run("to_string(drop([1, 2, 3], -1));"), make_string("[1, 2, 3]"));
+    assert_eq!(run("to_string(take([1, 2], 10));"), make_string("[1, 2]"));
+    assert_eq!(
+        run("to_string(take_while([1, 2, 3, 1], fn(x) { x < 3 }));"),
+        make_string("[1, 2]")
+    );
+    assert_eq!(
+        run("to_string(drop_while([1, 2, 3, 1], fn(x) { x < 3 }));"),
+        make_string("[3, 1]")
+    );
+    assert_eq!(
+        run("to_string(split_at([1, 2, 3, 4], 2));"),
+        make_string("([1, 2], [3, 4])")
+    );
+    assert_eq!(
+        run("to_string(span([1, 2, 3, 1], fn(x) { x < 3 }));"),
+        make_string("([1, 2], [3, 1])")
+    );
+}
+
+#[test]
+fn test_list_phase_1b_folds_scans_and_builders() {
+    assert_eq!(
+        run(r#"foldr(["a", "b", "c"], "", fn(x, acc) { x + acc });"#),
+        make_string("abc")
+    );
+    assert_eq!(run("fold1([2, 3, 4], fn(a, b) { a * b });"), Value::Integer(24));
+    assert_eq!(
+        run("to_string(scanl([1, 2, 3], 0, fn(acc, x) { acc + x }));"),
+        make_string("[0, 1, 3, 6]")
+    );
+    assert_eq!(
+        run("to_string(scanr([1, 2, 3], 0, fn(x, acc) { x + acc }));"),
+        make_string("[6, 5, 3, 0]")
+    );
+    assert_eq!(
+        run("to_string(replicate(3, 9));"),
+        make_string("[9, 9, 9]")
+    );
+    assert_eq!(
+        run("to_string(iterate(1, fn(x) { x * 2 }, 4));"),
+        make_string("[1, 2, 4, 8]")
+    );
+    assert_eq!(
+        run("to_string(unfold(0, fn(n) { if n < 4 { Some((n * 2, n + 1)) } else { None } }));"),
+        make_string("[0, 2, 4, 6]")
+    );
+    assert_eq!(
+        run("import Flow.List as L\nto_string(L.concat([[1, 2], [3], [], [4, 5]]));"),
+        make_string("[1, 2, 3, 4, 5]")
+    );
+}
+
+#[test]
+fn test_list_phase_1b_zip_group_and_uniqueness() {
+    assert_eq!(
+        run("to_string(zip_with([1, 2, 3], [10, 20], fn(a, b) { a + b }));"),
+        make_string("[11, 22]")
+    );
+    assert_eq!(
+        run("to_string(unzip([(1, \"a\"), (2, \"b\")]));"),
+        make_string("([1, 2], [\"a\", \"b\"])")
+    );
+    assert_eq!(
+        run("to_string(enumerate([10, 20, 30]));"),
+        make_string("[(0, 10), (1, 20), (2, 30)]")
+    );
+    assert_eq!(
+        run("to_string(partition([1, 2, 3, 4, 5], fn(x) { x % 2 == 0 }));"),
+        make_string("([2, 4], [1, 3, 5])")
+    );
+    assert_eq!(
+        run("to_string(group_by([1, 1, 2, 2, 1], fn(a, b) { a == b }));"),
+        make_string("[[1, 1], [2, 2], [1]]")
+    );
+    assert_eq!(
+        run("to_string(unique_by([1, 3, 2, 4, 5], fn(x) { x % 2 }));"),
+        make_string("[1, 2]")
+    );
+    assert_eq!(run("length(nub([1, 2, 1, 3, 2]));"), Value::Integer(3));
+}
+
+#[test]
+fn test_list_phase_1b_set_like_and_prefix_suffix() {
+    assert_eq!(
+        run("import Flow.List as L\nto_string(L.delete([1, 2, 3, 2], 2));"),
+        make_string("[1, 3, 2]")
+    );
+    assert_eq!(
+        run(r#"to_string(intersperse(["a", "b", "c"], "-"));"#),
+        make_string("[\"a\", \"-\", \"b\", \"-\", \"c\"]")
+    );
+    assert_eq!(
+        run(r#"to_string(intercalate([["a"], ["b", "c"], ["d"]], ["-"]));"#),
+        make_string("[\"a\", \"-\", \"b\", \"c\", \"-\", \"d\"]")
+    );
+    assert_eq!(run("is_prefix([1, 2], [1, 2, 3]);"), Value::Boolean(true));
+    assert_eq!(run("is_prefix([1, 3], [1, 2, 3]);"), Value::Boolean(false));
+    assert_eq!(run("is_suffix([2, 3], [1, 2, 3]);"), Value::Boolean(true));
+    assert_eq!(run("is_suffix([1, 3], [1, 2, 3]);"), Value::Boolean(false));
+}
+
+#[test]
+fn test_list_phase_1b_utilities_and_sorting() {
+    assert_eq!(run("length([1, 2, 3, 4]);"), Value::Integer(4));
+    assert_eq!(run("null([]);"), Value::Boolean(true));
+    assert_eq!(run("null([1]);"), Value::Boolean(false));
+    assert_eq!(run("to_string(init([1, 2, 3]));"), make_string("[1, 2]"));
+    assert_eq!(run("to_string(nth([10, 20, 30], 1));"), make_string("Some(20)"));
+    assert_eq!(run("to_string(nth([10, 20, 30], 99));"), make_string("None"));
+    assert_eq!(run("to_string(nth([10, 20, 30], -1));"), make_string("None"));
+    assert_eq!(run("to_string(maximum([3, 9, 4]));"), make_string("Some(9)"));
+    assert_eq!(run("to_string(minimum([3, 9, 4]));"), make_string("Some(3)"));
+    assert_eq!(run("to_string(maximum([]));"), make_string("None"));
+    assert_eq!(run("to_string(minimum([]));"), make_string("None"));
+    assert_eq!(run("to_string(sort([3, 1, 4, 1, 2]));"), make_string("[1, 1, 2, 3, 4]"));
+    assert_eq!(
+        run("to_string(sort_by([\"bbb\", \"a\", \"cc\"], fn(x) { len(x) }));"),
+        make_string("[\"a\", \"cc\", \"bbb\"]")
+    );
+}
+
+#[test]
+fn test_list_phase_1b_empty_list_panics() {
+    let fold1_err = run_error("fold1([], fn(a, b) { a + b });");
+    assert!(
+        fold1_err.contains("fold1 called on empty list"),
+        "expected fold1 panic message, got: {}",
+        fold1_err
+    );
+
+    let init_err = run_error("init([]);");
+    assert!(
+        init_err.contains("init called on empty list"),
+        "expected init panic message, got: {}",
+        init_err
+    );
+}
+
+#[test]
+fn test_removed_list_and_array_sort_primops_require_library_apis() {
+    assert_eq!(resolve_primop_call("hd", 1), None);
+    assert_eq!(resolve_primop_call("tl", 1), None);
+    assert_eq!(resolve_primop_call("sort", 1), None);
+
+    assert_eq!(
+        run("to_string(Array.sort([|3, 1, 2|]));"),
+        make_string("[|1, 2, 3|]")
+    );
 }
 
 #[test]
@@ -1413,7 +1626,11 @@ fn test_list_comprehension_single_generator() {
 #[test]
 fn test_list_comprehension_with_guard() {
     assert_eq!(
-        run("fold([x * 2 | x <- [1, 2, 3, 4, 5], x > 3], 0, fn(a, x) { a + x });"),
+        run(r#"import Flow.List as L
+fn map(xs, f) { L.map(xs, f) }
+fn filter(xs, pred) { L.filter(xs, pred) }
+fn flat_map(xs, f) { L.flat_map(xs, f) }
+L.fold([x * 2 | x <- [1, 2, 3, 4, 5], x > 3], 0, fn(a, x) { a + x });"#),
         Value::Integer(18)
     );
 }
@@ -1446,7 +1663,11 @@ fn test_list_comprehension_guard_and_two_generators() {
 fn test_list_comprehension_cons_list() {
     // Comprehension over cons lists should return a cons list
     assert_eq!(
-        run("let xs = list(1, 2, 3); fold([x * 10 | x <- xs], 0, fn(a, x) { a + x });"),
+        run(r#"import Flow.List as L
+fn map(xs, f) { L.map(xs, f) }
+fn filter(xs, pred) { L.filter(xs, pred) }
+fn flat_map(xs, f) { L.flat_map(xs, f) }
+let xs = list(1, 2, 3); L.fold([x * 10 | x <- xs], 0, fn(a, x) { a + x });"#),
         Value::Integer(60)
     );
 }

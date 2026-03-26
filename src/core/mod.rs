@@ -340,7 +340,6 @@ pub enum CorePrimOp {
     ArrayPush,
     ArrayConcat,
     ArraySlice,
-    ArraySort,
 
     // HAMT operations
     HamtGet,
@@ -378,8 +377,6 @@ pub enum CorePrimOp {
     ParseInt,
 
     // List / cons cell operations
-    Hd,
-    Tl,
     ToList,
     ToArray,
 

@@ -1,0 +1,40 @@
+---
+source: tests/aether_cli_snapshots.rs
+assertion_line: 114
+---
+Warning: FBIP Contract Not Proven
+
+@fip on `map_blocked` analysis result NotProvable:
+- fresh heap allocation remains on at least one path
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+- control-flow join loses a precise allocation bound across paths
+
+  examples/aether/bench_reuse_blocked.flx:22:6
+   |
+22 | @fip fn map_blocked(xs, f) {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^
+23 |     match xs {
+   | ^^^^^^^^^^^^^^
+24 |         [h | t] -> [touch_token(xs, f(h)) | map_blocked(t, f)],
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+25 |         _ -> [],
+   | ^^^^^^^^^^^^^^^^
+26 |     }
+   | ^^^^^
+27 | }
+   | ^
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `unwrap`.
+
+  examples/aether/bench_reuse_blocked.flx:42:37
+   |
+42 |     print("blocked: result head = #{unwrap(first(mapped))}")
+   |                                     ^^^^^^
+
+Hint:
+  Define it first: let unwrap = ...;
+
+Found 1 error and 1 warning.

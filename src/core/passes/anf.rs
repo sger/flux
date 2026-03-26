@@ -149,7 +149,6 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         // Array/HAMT operations that return collections → BoxedRep
         CorePrimOp::ArrayConcat
         | CorePrimOp::ArraySlice
-        | CorePrimOp::ArraySort
         | CorePrimOp::ArrayPush
         | CorePrimOp::HamtSet
         | CorePrimOp::HamtDelete

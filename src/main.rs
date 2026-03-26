@@ -169,6 +169,7 @@ fn main() {
                 strict_mode,
                 diagnostics_format,
                 all_errors,
+                use_core_to_llvm,
             );
         } else {
             run_file(
@@ -227,6 +228,7 @@ fn main() {
                     strict_mode,
                     diagnostics_format,
                     all_errors,
+                    use_core_to_llvm,
                 );
             } else {
                 run_file(
@@ -1037,6 +1039,7 @@ fn run_test_file(
     strict_mode: bool,
     diagnostics_format: DiagnosticOutputFormat,
     all_errors: bool,
+    #[cfg_attr(not(feature = "native"), allow(unused))] use_core_to_llvm: bool,
 ) {
     let source = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -1085,7 +1088,7 @@ fn run_test_file(
     }
 
     // Auto-import Flow library for test mode too.
-    inject_flow_prelude(&mut program, &mut parser, false);
+    inject_flow_prelude(&mut program, &mut parser, use_core_to_llvm);
 
     let interner = parser.take_interner();
 
@@ -1200,6 +1203,30 @@ fn run_test_file(
         .and_then(|n| n.to_str())
         .unwrap_or(path);
 
+    #[cfg(feature = "native")]
+    let all_passed = if use_core_to_llvm {
+        run_tests_native(
+            file_name,
+            path,
+            &source,
+            &roots,
+            &tests,
+            enable_optimize,
+            strict_mode,
+        )
+    } else {
+        let bytecode = compiler.bytecode();
+        let mut vm = VM::new(bytecode);
+        if let Err(err) = vm.run() {
+            eprintln!("Error during test setup: {}", err);
+            std::process::exit(1);
+        }
+
+        let results = run_tests(&mut vm, tests);
+        print_test_report(file_name, &results)
+    };
+
+    #[cfg(not(feature = "native"))]
     let all_passed = {
         let bytecode = compiler.bytecode();
         let mut vm = VM::new(bytecode);
@@ -1215,6 +1242,87 @@ fn run_test_file(
     if !all_passed {
         std::process::exit(1);
     }
+}
+
+#[cfg(feature = "native")]
+fn run_tests_native(
+    file_name: &str,
+    source_path: &str,
+    source: &str,
+    roots: &[PathBuf],
+    tests: &[(String, usize)],
+    enable_optimize: bool,
+    strict_mode: bool,
+) -> bool {
+    use flux::bytecode::vm::test_runner::{TestOutcome, TestResult, print_test_report};
+    use std::fs;
+    use std::process::Command;
+    use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+    let exe = std::env::current_exe().unwrap_or_else(|e| {
+        eprintln!("Failed to locate current executable for native test mode: {e}");
+        std::process::exit(1);
+    });
+
+    let mut results = Vec::new();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+
+    for (idx, (name, _)) in tests.iter().enumerate() {
+        let harness_path = std::env::temp_dir().join(format!(
+            "flux_native_test_{}_{}_{}.flx",
+            std::process::id(),
+            unique,
+            idx
+        ));
+        let harness_source = format!("{source}\n\nfn main() {{ {name}(); }}\n");
+        if let Err(e) = fs::write(&harness_path, harness_source) {
+            eprintln!("Failed to write native test harness {}: {e}", harness_path.display());
+            std::process::exit(1);
+        }
+
+        let start = Instant::now();
+        let mut cmd = Command::new(&exe);
+        cmd.arg("--native").arg("--no-cache");
+        if enable_optimize {
+            cmd.arg("--optimize");
+        }
+        if strict_mode {
+            cmd.arg("--strict");
+        }
+        for root in roots {
+            cmd.arg("--root").arg(root);
+        }
+        cmd.arg(&harness_path);
+        cmd.env("NO_COLOR", "1");
+        let output = cmd.output();
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+        let outcome = match output {
+            Ok(output) if output.status.success() => TestOutcome::Pass,
+            Ok(output) => {
+                let mut text = String::new();
+                text.push_str(&String::from_utf8_lossy(&output.stdout));
+                text.push_str(&String::from_utf8_lossy(&output.stderr));
+                TestOutcome::Fail(text.trim().to_string())
+            }
+            Err(err) => TestOutcome::Fail(format!(
+                "failed to run native test harness for {} (from {}): {}",
+                name, source_path, err
+            )),
+        };
+
+        let _ = fs::remove_file(&harness_path);
+        results.push(TestResult {
+            name: name.clone(),
+            elapsed_ms,
+            outcome,
+        });
+    }
+
+    print_test_report(file_name, &results)
 }
 
 // ─── Analytics ───────────────────────────────────────────────────────────────
@@ -1629,7 +1737,11 @@ fn inject_flow_prelude(
         if !flow_dir.join(file_name).exists() {
             continue;
         }
-        imports.push(format!("import {module_name} exposing (..)"));
+        if module_name == "Flow.List" {
+            imports.push(format!("import {module_name} except [concat, delete]"));
+        } else {
+            imports.push(format!("import {module_name} exposing (..)"));
+        }
     }
 
     if imports.is_empty() {

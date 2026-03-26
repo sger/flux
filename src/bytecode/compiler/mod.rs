@@ -297,14 +297,21 @@ impl Compiler {
             "Flow.IO",
             "Flow.Assert",
         ];
+        let skip_flow_auto_expose: Vec<(&str, &str)> = vec![
+            // Preserve existing primop behavior for unqualified calls.
+            ("Flow.List", "concat"),
+            ("Flow.List", "delete"),
+        ];
         // Collect all public members for Flow modules.
         let entries: Vec<(Symbol, Symbol)> = self
             .module_function_visibility
             .iter()
-            .filter(|((mod_name, _), is_public)| {
+            .filter(|((mod_name, member), is_public)| {
                 **is_public && {
-                    let name = self.interner.try_resolve(*mod_name).unwrap_or("");
-                    flow_prefixes.contains(&name)
+                    let module_name = self.interner.try_resolve(*mod_name).unwrap_or("");
+                    let member_name = self.interner.try_resolve(*member).unwrap_or("");
+                    flow_prefixes.contains(&module_name)
+                        && !skip_flow_auto_expose.contains(&(module_name, member_name))
                 }
             })
             .map(|((mod_name, member), _)| (*mod_name, *member))
@@ -903,7 +910,6 @@ impl Compiler {
                 pure(),
                 0,
             ),
-            ("sort", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             ("reverse", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             (
                 "contains",
@@ -932,8 +938,6 @@ impl Compiler {
             ("is_hash", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
             ("is_map", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
             // List ops
-            ("hd", vec![con(TC::Any)], con(TC::Any), pure(), 0),
-            ("tl", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             ("to_list", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             ("to_array", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             // Map ops
