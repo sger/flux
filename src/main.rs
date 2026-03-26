@@ -666,34 +666,33 @@ fn run_file(
 
                 // Save module interface (.flxi) for non-entry modules.
                 // Entry module doesn't need an interface — it's the consumer.
-                if !is_entry_module {
-                    if let Some((module_name, module_sym)) =
+                if !is_entry_module
+                    && let Some((module_name, module_sym)) =
                         extract_module_name_and_sym(&node.program, &compiler.interner)
+                {
+                    let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
+                    let source_hash =
+                        flux::bytecode::bytecode_cache::hash_bytes(module_source.as_bytes());
+                    let interface = flux::bytecode::compiler::module_interface::build_interface(
+                        &module_name,
+                        module_sym,
+                        &source_hash,
+                        &compiler.module_contracts,
+                        &compiler.module_function_visibility,
+                        &compiler.interner,
+                    );
+                    let iface_path =
+                        flux::bytecode::compiler::module_interface::interface_path(&node.path);
+                    if let Err(e) = flux::bytecode::compiler::module_interface::save_interface(
+                        &iface_path,
+                        &interface,
+                    )
+                        && verbose
                     {
-                        let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
-                        let source_hash =
-                            flux::bytecode::bytecode_cache::hash_bytes(module_source.as_bytes());
-                        let interface = flux::bytecode::compiler::module_interface::build_interface(
-                            &module_name,
-                            module_sym,
-                            &source_hash,
-                            &compiler.module_contracts,
-                            &compiler.module_function_visibility,
-                            &compiler.interner,
+                        eprintln!(
+                            "warning: could not write interface file {}: {e}",
+                            iface_path.display()
                         );
-                        let iface_path =
-                            flux::bytecode::compiler::module_interface::interface_path(&node.path);
-                        if let Err(e) = flux::bytecode::compiler::module_interface::save_interface(
-                            &iface_path,
-                            &interface,
-                        ) {
-                            if verbose {
-                                eprintln!(
-                                    "warning: could not write interface file {}: {e}",
-                                    iface_path.display()
-                                );
-                            }
-                        }
                     }
                 }
             }
@@ -1654,7 +1653,7 @@ fn inject_flow_prelude(
 
     // Prepend the synthetic imports to the program.
     let mut new_statements = prelude_program.statements;
-    new_statements.extend(program.statements.drain(..));
+    new_statements.append(&mut program.statements);
     program.statements = new_statements;
 }
 

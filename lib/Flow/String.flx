@@ -30,13 +30,13 @@ module Flow.String {
                 if i >= len(arr) { result }
                 else {
                     match arr[i] {
-                        Some(v) -> join_go(i + 1, result + sep + to_string(v)),
+                        Some(v) -> join_go(i + 1, result + sep + v),
                         _ -> join_go(i + 1, result)
                     }
                 }
             }
             match arr[0] {
-                Some(first_val) -> join_go(1, to_string(first_val)),
+                Some(first_val) -> join_go(1, first_val),
                 _ -> ""
             }
         }

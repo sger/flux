@@ -212,11 +212,29 @@ module Flow.List {
     }
 
     public fn sum(arr) {
-        fold(arr, 0, \(acc, x) -> acc + x)
+        fn sum_go(i, acc) {
+            if i >= len(arr) { acc }
+            else {
+                match arr[i] {
+                    Some(v) -> sum_go(i + 1, acc + v),
+                    _ -> sum_go(i + 1, acc)
+                }
+            }
+        }
+        sum_go(0, 0)
     }
 
     public fn product(arr) {
-        fold(arr, 1, \(acc, x) -> acc * x)
+        fn product_go(i, acc) {
+            if i >= len(arr) { acc }
+            else {
+                match arr[i] {
+                    Some(v) -> product_go(i + 1, acc * v),
+                    _ -> product_go(i + 1, acc)
+                }
+            }
+        }
+        product_go(0, 1)
     }
 
     public fn abs(x) {

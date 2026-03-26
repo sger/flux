@@ -3,7 +3,7 @@
 module Flow.Assert {
 
     public fn assert_eq(a, b) with IO {
-        if a == b { () }
+        if cmp_eq(a, b) { () }
         else {
             println("ASSERTION FAILED: assert_eq")
             println(a)
@@ -13,7 +13,7 @@ module Flow.Assert {
     }
 
     public fn assert_neq(a, b) with IO {
-        if a != b { () }
+        if cmp_ne(a, b) { () }
         else {
             println("ASSERTION FAILED: assert_neq")
             panic("assert_neq failed")
@@ -52,7 +52,7 @@ module Flow.Assert {
 
     public fn assert_len(collection, expected) with IO {
         let actual = len(collection)
-        if actual == expected { () }
+        if cmp_eq(actual, expected) { () }
         else {
             println("ASSERTION FAILED: assert_len")
             panic("assert_len failed")

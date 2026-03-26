@@ -661,17 +661,25 @@ tco.loop.0:
   %case.tuple.is_ptr.14 = call fastcc i1 @flux_is_ptr(i64 %load.13)
   br i1 %case.tuple.is_ptr.14, label %case.tuple.len.5, label %case.else.3
 case.join.1:
-  %case.result.39 = phi i64 [ %primop.28, %case.then.2 ], [ 9222246136947933184, %case.then.9 ]
+  %case.result.47 = phi i64 [ %tagged.36, %case.then.2 ], [ 9222246136947933184, %case.then.9 ]
   call ccc void @flux_trace_pop()
-  ret i64 %case.result.39
+  ret i64 %case.result.47
 case.then.2:
   %load.26 = load i64, ptr %slot.4, align 8
   %load.27 = load i64, ptr %slot.5, align 8
-  %primop.28 = call ccc i64 @flux_rt_add(i64 %load.26, i64 %load.27)
+  %payload.28 = and i64 %load.26, 70368744177663
+  %shl.29 = shl i64 %payload.28, 18
+  %raw.30 = ashr i64 %shl.29, 18
+  %payload.31 = and i64 %load.27, 70368744177663
+  %shl.32 = shl i64 %payload.31, 18
+  %raw.33 = ashr i64 %shl.32, 18
+  %raw.34 = add i64 %raw.30, %raw.33
+  %masked.35 = and i64 %raw.34, 70368744177663
+  %tagged.36 = or i64 %masked.35, 9222246136947933184
   br label %case.join.1
 case.else.3:
-  %case.tuple.is_ptr.29 = call fastcc i1 @flux_is_ptr(i64 %load.13)
-  br i1 %case.tuple.is_ptr.29, label %case.tuple.len.12, label %case.else.10
+  %case.tuple.is_ptr.37 = call fastcc i1 @flux_is_ptr(i64 %load.13)
+  br i1 %case.tuple.is_ptr.37, label %case.tuple.len.12, label %case.else.10
 case.tuple.4:
   %case.tuple.field.ptr.17 = call fastcc ptr @flux_tuple_field_ptr(i64 %load.13, i32 0)
   %case.tuple.field.18 = load i64, ptr %case.tuple.field.ptr.17, align 8
@@ -700,22 +708,22 @@ case.then.9:
 case.else.10:
   unreachable
 case.tuple.11:
-  %case.tuple.field.ptr.32 = call fastcc ptr @flux_tuple_field_ptr(i64 %load.13, i32 0)
-  %case.tuple.field.33 = load i64, ptr %case.tuple.field.ptr.32, align 8
+  %case.tuple.field.ptr.40 = call fastcc ptr @flux_tuple_field_ptr(i64 %load.13, i32 0)
+  %case.tuple.field.41 = load i64, ptr %case.tuple.field.ptr.40, align 8
   br label %case.field.13
 case.tuple.len.12:
-  %case.tuple.arity.30 = call fastcc i32 @flux_tuple_len(i64 %load.13)
-  %case.tuple.matches.31 = icmp eq i32 %case.tuple.arity.30, 2
-  br i1 %case.tuple.matches.31, label %case.tuple.11, label %case.else.10
+  %case.tuple.arity.38 = call fastcc i32 @flux_tuple_len(i64 %load.13)
+  %case.tuple.matches.39 = icmp eq i32 %case.tuple.arity.38, 2
+  br i1 %case.tuple.matches.39, label %case.tuple.11, label %case.else.10
 case.field.13:
-  %case.tuple.field.ptr.34 = call fastcc ptr @flux_tuple_field_ptr(i64 %load.13, i32 1)
-  %case.tuple.field.35 = load i64, ptr %case.tuple.field.ptr.34, align 8
-  %case.adt.is_ptr.36 = call fastcc i1 @flux_is_ptr(i64 %case.tuple.field.35)
-  br i1 %case.adt.is_ptr.36, label %case.adt.check.15, label %case.else.10
+  %case.tuple.field.ptr.42 = call fastcc ptr @flux_tuple_field_ptr(i64 %load.13, i32 1)
+  %case.tuple.field.43 = load i64, ptr %case.tuple.field.ptr.42, align 8
+  %case.adt.is_ptr.44 = call fastcc i1 @flux_is_ptr(i64 %case.tuple.field.43)
+  br i1 %case.adt.is_ptr.44, label %case.adt.check.15, label %case.else.10
 case.ctor.14:
   br label %case.then.9
 case.adt.check.15:
-  %case.adt.tag.37 = call fastcc i32 @flux_adt_tag(i64 %case.tuple.field.35)
-  %case.adt.matches.38 = icmp eq i32 %case.adt.tag.37, 6
-  br i1 %case.adt.matches.38, label %case.ctor.14, label %case.else.10
+  %case.adt.tag.45 = call fastcc i32 @flux_adt_tag(i64 %case.tuple.field.43)
+  %case.adt.matches.46 = icmp eq i32 %case.adt.tag.45, 6
+  br i1 %case.adt.matches.46, label %case.ctor.14, label %case.else.10
 }

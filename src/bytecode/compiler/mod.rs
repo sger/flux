@@ -185,7 +185,6 @@ impl Compiler {
     }
 
     pub fn new_with_interner(file_path: impl Into<String>, interner: Interner) -> Self {
-        let interner = interner;
         let symbol_table = SymbolTable::new();
 
         Self {
@@ -305,7 +304,7 @@ impl Compiler {
             .filter(|((mod_name, _), is_public)| {
                 **is_public && {
                     let name = self.interner.try_resolve(*mod_name).unwrap_or("");
-                    flow_prefixes.iter().any(|p| name == *p)
+                    flow_prefixes.contains(&name)
                 }
             })
             .map(|((mod_name, member), _)| (*mod_name, *member))

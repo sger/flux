@@ -525,10 +525,10 @@ impl VM {
             OpCode::OpGetBase => {
                 // OpGetBase is no longer emitted by the compiler.
                 // Base functions are resolved as module members from lib/Flow/.
-                return Err(
+                Err(
                     "OpGetBase is deprecated; base functions are now compiled from lib/Flow/"
                         .to_string(),
-                );
+                )
             }
             OpCode::OpCall => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
@@ -552,10 +552,10 @@ impl VM {
             OpCode::OpCallBase => {
                 // OpCallBase is no longer emitted by the compiler.
                 // Base functions are resolved as module members from lib/Flow/.
-                return Err(
+                Err(
                     "OpCallBase is deprecated; base functions are now compiled from lib/Flow/"
                         .to_string(),
-                );
+                )
             }
             OpCode::OpPrimOp => {
                 // Encoded as [OpPrimOp, primop_id, arity].

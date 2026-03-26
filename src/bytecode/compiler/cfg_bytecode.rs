@@ -1023,53 +1023,47 @@ impl Compiler {
                     _ => None,
                 };
 
-                // Effect checking for named tail calls.
-                if let Some(ref name_str) = callee_name_str {
-                    if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
-                        let required = match primop.effect_kind() {
-                            crate::primop::PrimEffect::Io => Some("IO"),
-                            crate::primop::PrimEffect::Time => Some("Time"),
-                            _ => None,
-                        };
-                        if let Some(required_name) = required
-                            && !this.is_effect_available_name(required_name)
-                        {
-                            return Err(Self::boxed(
-                                Diagnostic::make_error_dynamic(
-                                    "E400",
-                                    "MISSING EFFECT",
-                                    crate::diagnostics::ErrorType::Compiler,
-                                    format!(
-                                        "Call to `{}` requires effect `{}` in this function signature.",
-                                        name_str, required_name
-                                    ),
-                                    Some(format!(
-                                        "Add `with {}` to the enclosing function.",
-                                        required_name
-                                    )),
-                                    this.file_path.clone(),
-                                    crate::diagnostics::position::Span::default(),
-                                )
-                                .with_display_title("Missing Ambient Effect"),
-                            ));
-                        }
+                // Effect checking and PrimOp emission for named tail calls.
+                if let Some(ref name_str) = callee_name_str
+                    && let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len())
+                {
+                    let required = match primop.effect_kind() {
+                        crate::primop::PrimEffect::Io => Some("IO"),
+                        crate::primop::PrimEffect::Time => Some("Time"),
+                        _ => None,
+                    };
+                    if let Some(required_name) = required
+                        && !this.is_effect_available_name(required_name)
+                    {
+                        return Err(Self::boxed(
+                            Diagnostic::make_error_dynamic(
+                                "E400",
+                                "MISSING EFFECT",
+                                crate::diagnostics::ErrorType::Compiler,
+                                format!(
+                                    "Call to `{}` requires effect `{}` in this function signature.",
+                                    name_str, required_name
+                                ),
+                                Some(format!(
+                                    "Add `with {}` to the enclosing function.",
+                                    required_name
+                                )),
+                                this.file_path.clone(),
+                                crate::diagnostics::position::Span::default(),
+                            )
+                            .with_display_title("Missing Ambient Effect"),
+                        ));
                     }
-                }
-
-                // Try PrimOp emission for named tail calls.
-                if let Some(ref name_str) = callee_name_str {
-                    if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
-                        for arg in args {
-                            this.load_symbol(bindings.get(arg).ok_or_else(|| {
-                                Self::boxed(Diagnostic::warning(
-                                    "missing CFG tail-call arg binding",
-                                ))
-                            })?);
-                        }
-                        this.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
-                        this.emit(OpCode::OpReturnValue, &[]);
-                        return Ok(());
+                    for arg in args {
+                        this.load_symbol(bindings.get(arg).ok_or_else(|| {
+                            Self::boxed(Diagnostic::warning(
+                                "missing CFG tail-call arg binding",
+                            ))
+                        })?);
                     }
+                    this.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
+                    this.emit(OpCode::OpReturnValue, &[]);
+                    return Ok(());
                 }
 
                 let is_self = matches!(callee, IrCallTarget::Named(name) if *name == current_name);
@@ -1154,52 +1148,46 @@ impl Compiler {
             _ => None,
         };
 
-        // Effect checking for named calls: verify that effectful base
-        // functions (e.g. print, read_file) have the required effect
-        // available in the surrounding scope.
-        if let Some(ref name_str) = target_name_str {
-            if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
-                let required = match primop.effect_kind() {
-                    crate::primop::PrimEffect::Io => Some("IO"),
-                    crate::primop::PrimEffect::Time => Some("Time"),
-                    _ => None,
-                };
-                if let Some(required_name) = required
-                    && !self.is_effect_available_name(required_name)
-                {
-                    return Err(Self::boxed(
-                        Diagnostic::make_error_dynamic(
-                            "E400",
-                            "MISSING EFFECT",
-                            crate::diagnostics::ErrorType::Compiler,
-                            format!(
-                                "Call to `{}` requires effect `{}` in this function signature.",
-                                name_str, required_name
-                            ),
-                            Some(format!(
-                                "Add `with {}` to the enclosing function.",
-                                required_name
-                            )),
-                            self.file_path.clone(),
-                            crate::diagnostics::position::Span::default(),
-                        )
-                        .with_display_title("Missing Ambient Effect"),
-                    ));
-                }
+        // Effect checking and PrimOp emission for named calls: verify that
+        // effectful base functions (e.g. print, read_file) have the required
+        // effect available in the surrounding scope.
+        if let Some(ref name_str) = target_name_str
+            && let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len())
+        {
+            let required = match primop.effect_kind() {
+                crate::primop::PrimEffect::Io => Some("IO"),
+                crate::primop::PrimEffect::Time => Some("Time"),
+                _ => None,
+            };
+            if let Some(required_name) = required
+                && !self.is_effect_available_name(required_name)
+            {
+                return Err(Self::boxed(
+                    Diagnostic::make_error_dynamic(
+                        "E400",
+                        "MISSING EFFECT",
+                        crate::diagnostics::ErrorType::Compiler,
+                        format!(
+                            "Call to `{}` requires effect `{}` in this function signature.",
+                            name_str, required_name
+                        ),
+                        Some(format!(
+                            "Add `with {}` to the enclosing function.",
+                            required_name
+                        )),
+                        self.file_path.clone(),
+                        crate::diagnostics::position::Span::default(),
+                    )
+                    .with_display_title("Missing Ambient Effect"),
+                ));
             }
-        }
-
-        // Try PrimOp emission for named built-in function calls.
-        if let Some(ref name_str) = target_name_str {
-            if let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len()) {
-                for arg in args {
-                    self.load_symbol(bindings.get(arg).ok_or_else(|| {
-                        Self::boxed(Diagnostic::warning("missing CFG call arg binding"))
-                    })?);
-                }
-                self.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
-                return Ok(());
+            for arg in args {
+                self.load_symbol(bindings.get(arg).ok_or_else(|| {
+                    Self::boxed(Diagnostic::warning("missing CFG call arg binding"))
+                })?);
             }
+            self.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
+            return Ok(());
         }
 
         let is_self = matches!(target, IrCallTarget::Named(name) if *name == current_name);

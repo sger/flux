@@ -57,8 +57,12 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::IsSome => "is_some",
         CorePrimOp::IsList => "is_list",
         CorePrimOp::IsMap => "is_map",
+        CorePrimOp::CmpEq => "cmp_eq",
+        CorePrimOp::CmpNe => "cmp_ne",
         CorePrimOp::Panic => "panic",
         CorePrimOp::ClockNow => "now_ms",
+        CorePrimOp::Try => "try",
+        CorePrimOp::AssertThrows => "assert_throws",
         CorePrimOp::ParseInt => "parse_int",
         CorePrimOp::Hd => "hd",
         CorePrimOp::Tl => "tl",
@@ -265,7 +269,11 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::Tl
             | CorePrimOp::ToList
             | CorePrimOp::ToArray
-            | CorePrimOp::Len => {
+            | CorePrimOp::Len
+            | CorePrimOp::CmpEq
+            | CorePrimOp::CmpNe
+            | CorePrimOp::Try
+            | CorePrimOp::AssertThrows => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target

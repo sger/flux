@@ -773,14 +773,13 @@ impl Parser {
                     self.peek_token.span(),
                     "Unknown Import Clause",
                     DiagnosticCategory::ParserDeclaration,
-                    &format!(
+                    format!(
                         "Unknown keyword `{}` in import statement.",
                         typo
                     ),
                 )
                 .with_hint_text(
-                    &format!("Did you mean `exposing`? Use `import Module exposing (..)` or `import Module exposing (name1, name2)`.")
-                ),
+                    "Did you mean `exposing`? Use `import Module exposing (..)` or `import Module exposing (name1, name2)`."),
             );
             return None;
         }
@@ -935,7 +934,7 @@ impl Parser {
                     self.peek_token.span(),
                     "Invalid Exposing List",
                     DiagnosticCategory::ParserDeclaration,
-                    &format!(
+                    format!(
                         "Expected `,` or `)` in exposing list, but found {}.",
                         self.describe_token_type_for_diagnostic(self.peek_token.token_type)
                     ),
