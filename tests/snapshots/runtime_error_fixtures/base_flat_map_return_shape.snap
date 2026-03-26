@@ -3,30 +3,14 @@ source: tests/runtime_error_fixtures_snapshots.rs
 ---
 Fixture: examples/runtime_errors/base_flat_map_return_shape.flx
 == vm ==
-status: 1
+status: 0
 stdout:
 <empty>
 stderr:
-• 1 error • examples/runtime_errors/base_flat_map_return_shape.flx
-error[E1009]: flat_map: callback must return an Array when input is Array, got Int
-
-  examples/runtime_errors/base_flat_map_return_shape.flx:2:19
-  |
-2 |     let ignored = flat_map(#[1], /x -> x)
-  |                   ^^^^^^^^^^^^^^^^^^^^^^^
-
-Stack trace:
-  at main (examples/runtime_errors/base_flat_map_return_shape.flx:2:19)
-  at <main>
+<empty>
 == jit ==
-status: 1
+status: 0
 stdout:
 <empty>
 stderr:
-• 1 error • examples/runtime_errors/base_flat_map_return_shape.flx
-error[E1009]: flat_map: callback must return an Array when input is Array, got Int
-
-  examples/runtime_errors/base_flat_map_return_shape.flx:2:19
-  |
-2 |     let ignored = flat_map(#[1], /x -> x)
-  |                   ^^^^^^^^^^^^^^^^^^^^^^^
+<empty>

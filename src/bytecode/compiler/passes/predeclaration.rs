@@ -21,7 +21,6 @@ impl Compiler {
                 // Check for duplicate declaration first (takes precedence)
                 if let Some(existing) = self.symbol_table.resolve(name)
                     && self.symbol_table.exists_in_current_scope(name)
-                    && existing.symbol_scope != crate::bytecode::symbol_scope::SymbolScope::Base
                 {
                     // Keep duplicate-main diagnostics canonical via E410 from
                     // `validate_main_entrypoint`, avoid redundant E001 noise.

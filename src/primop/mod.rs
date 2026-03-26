@@ -1,14 +1,13 @@
-use std::{fs, rc::Rc, time::SystemTime};
+use std::{
+    fs,
+    io::Read as _,
+    rc::Rc,
+    time::{Instant, SystemTime},
+};
 
-use crate::runtime::base::list_ops::format_value;
-
+use crate::runtime::value::{cons_list_len, format_value};
 use crate::runtime::{
-    RuntimeContext,
-    gc::{
-        GcHandle,
-        hamt::{hamt_insert, hamt_lookup, is_hamt},
-    },
-    value::Value,
+    RuntimeContext, cons_cell::ConsCell, hamt as rc_hamt, hash_key::HashKey, value::Value,
 };
 
 /// Primitive operations that can be invoked directly from VM bytecode.
@@ -58,6 +57,94 @@ pub enum PrimOp {
     Min = 37,
     Max = 38,
     ConcatArray = 39,
+    /// Polymorphic length: string/array/list → Int.
+    Len = 40,
+    /// Array push: (Array, elem) → Array.
+    Push = 41,
+    /// String split: (String, String) → Array<String>.
+    Split = 42,
+    /// Type check: is_int(value) → Bool.
+    IsInt = 43,
+    /// Convert to string: to_string(value) → String.
+    ToString = 44,
+    /// Write file: write_file(path, content) → None.
+    WriteFile = 45,
+    /// Read stdin: read_stdin() → String.
+    ReadStdin = 46,
+    /// String join: join(array, sep) → String.
+    Join = 47,
+    /// String trim: trim(string) → String.
+    Trim = 48,
+    /// String starts_with: starts_with(string, prefix) → Bool.
+    StartsWith = 49,
+    /// String ends_with: ends_with(string, suffix) → Bool.
+    EndsWith = 50,
+    /// String chars: chars(string) → Array<String>.
+    Chars = 51,
+    /// Array sort: sort(array) → Array.
+    Sort = 52,
+    /// Array slice: slice(array, start, end) → Array.
+    Slice = 53,
+    /// HAMT delete: delete(map, key) → Map.
+    MapDelete = 54,
+    /// HAMT keys: keys(map) → Array.
+    MapKeys = 55,
+    /// HAMT values: values(map) → Array.
+    MapValues = 56,
+    /// HAMT merge: merge(map, map) → Map.
+    MapMerge = 57,
+    /// HAMT size: size(map) → Int.
+    MapSize = 58,
+    /// type_of: type_of(value) → String.
+    TypeOf = 59,
+    /// is_float: is_float(value) → Bool.
+    IsFloat = 60,
+    /// is_string: is_string(value) → Bool.
+    IsString = 61,
+    /// is_bool: is_bool(value) → Bool.
+    IsBool = 62,
+    /// is_array: is_array(value) → Bool.
+    IsArray = 63,
+    /// is_none: is_none(value) → Bool.
+    IsNone = 64,
+    /// is_some: is_some_v(value) → Bool.
+    IsSomeV = 65,
+    /// is_list: is_list(value) → Bool.
+    IsList = 66,
+    /// is_map/is_hash: is_hash(value) → Bool.
+    IsHash = 67,
+    /// Cons-list head: hd(list) → value.
+    Hd = 68,
+    /// Cons-list tail: tl(list) → list.
+    Tl = 69,
+    /// Array to cons-list: to_list(array) → list.
+    ToList = 70,
+    /// Cons-list to array: to_array(list) → array.
+    ToArray = 71,
+    /// Parse int: parse_int(string) → Option<Int>.
+    ParseInt = 72,
+    /// Print (no newline): print_no_nl(value) → None.
+    Print = 73,
+    /// Time alias: time() → Int (alias for ClockNow).
+    Time = 74,
+    /// String replace: replace(str, from, to) → String.
+    Replace = 75,
+    /// String contains: str_contains(str, sub) → Bool.
+    StrContains = 76,
+    /// Read lines: read_lines(path) → Array<String>.
+    ReadLines = 77,
+    /// Parse ints: parse_ints(array) → Array<Int>.
+    ParseInts = 78,
+    /// Split ints: split_ints(str, sep) → Array<Int>.
+    SplitInts = 79,
+    /// String upper: upper(string) → String.
+    Upper = 80,
+    /// String lower: lower(string) → String.
+    Lower = 81,
+    /// Try: try(closure) → Result (catches runtime errors).
+    Try = 82,
+    /// Assert throws: assert_throws(closure) → Bool.
+    AssertThrows = 83,
 }
 
 /// Side-effect classification for primitive operations.
@@ -77,7 +164,7 @@ pub enum PrimEffect {
 
 impl PrimOp {
     /// Upper bound reserved for bytecode decoding tables.
-    pub const COUNT: usize = 40;
+    pub const COUNT: usize = 84;
 
     /// Returns the bytecode ID for this primitive op.
     pub fn id(self) -> u8 {
@@ -127,6 +214,50 @@ impl PrimOp {
             37 => Self::Min,
             38 => Self::Max,
             39 => Self::ConcatArray,
+            40 => Self::Len,
+            41 => Self::Push,
+            42 => Self::Split,
+            43 => Self::IsInt,
+            44 => Self::ToString,
+            45 => Self::WriteFile,
+            46 => Self::ReadStdin,
+            47 => Self::Join,
+            48 => Self::Trim,
+            49 => Self::StartsWith,
+            50 => Self::EndsWith,
+            51 => Self::Chars,
+            52 => Self::Sort,
+            53 => Self::Slice,
+            54 => Self::MapDelete,
+            55 => Self::MapKeys,
+            56 => Self::MapValues,
+            57 => Self::MapMerge,
+            58 => Self::MapSize,
+            59 => Self::TypeOf,
+            60 => Self::IsFloat,
+            61 => Self::IsString,
+            62 => Self::IsBool,
+            63 => Self::IsArray,
+            64 => Self::IsNone,
+            65 => Self::IsSomeV,
+            66 => Self::IsList,
+            67 => Self::IsHash,
+            68 => Self::Hd,
+            69 => Self::Tl,
+            70 => Self::ToList,
+            71 => Self::ToArray,
+            72 => Self::ParseInt,
+            73 => Self::Print,
+            74 => Self::Time,
+            75 => Self::Replace,
+            76 => Self::StrContains,
+            77 => Self::ReadLines,
+            78 => Self::ParseInts,
+            79 => Self::SplitInts,
+            80 => Self::Upper,
+            81 => Self::Lower,
+            82 => Self::Try,
+            83 => Self::AssertThrows,
             _ => return None,
         })
     }
@@ -134,13 +265,43 @@ impl PrimOp {
     /// Returns the fixed argument count for this operation.
     pub fn arity(self) -> usize {
         match self {
-            Self::ClockNow => 0,
+            Self::ClockNow | Self::ReadStdin | Self::Time => 0,
             Self::ArrayLen
             | Self::StringLen
             | Self::ReadFile
             | Self::Panic
             | Self::Println
-            | Self::Abs => 1,
+            | Self::Abs
+            | Self::Len
+            | Self::IsInt
+            | Self::ToString
+            | Self::Trim
+            | Self::Chars
+            | Self::Sort
+            | Self::TypeOf
+            | Self::IsFloat
+            | Self::IsString
+            | Self::IsBool
+            | Self::IsArray
+            | Self::IsNone
+            | Self::IsSomeV
+            | Self::IsList
+            | Self::IsHash
+            | Self::Hd
+            | Self::Tl
+            | Self::ToList
+            | Self::ToArray
+            | Self::ParseInt
+            | Self::Print
+            | Self::ReadLines
+            | Self::MapKeys
+            | Self::MapValues
+            | Self::MapSize
+            | Self::ParseInts
+            | Self::Upper
+            | Self::Lower
+            | Self::Try
+            | Self::AssertThrows => 1,
             Self::IAdd
             | Self::ISub
             | Self::IMul
@@ -170,16 +331,31 @@ impl PrimOp {
             | Self::StringConcat
             | Self::Min
             | Self::Max
-            | Self::ConcatArray => 2,
-            Self::ArraySet | Self::MapSet | Self::StringSlice => 3,
+            | Self::ConcatArray
+            | Self::Push
+            | Self::Split
+            | Self::Join
+            | Self::StartsWith
+            | Self::EndsWith
+            | Self::MapDelete
+            | Self::MapMerge
+            | Self::WriteFile
+            | Self::StrContains
+            | Self::SplitInts => 2,
+            Self::ArraySet | Self::MapSet | Self::StringSlice | Self::Slice | Self::Replace => 3,
         }
     }
 
     /// Returns the effect classification for this primitive operation.
     pub fn effect_kind(self) -> PrimEffect {
         match self {
-            Self::Println | Self::ReadFile => PrimEffect::Io,
-            Self::ClockNow => PrimEffect::Time,
+            Self::Println
+            | Self::ReadFile
+            | Self::WriteFile
+            | Self::ReadStdin
+            | Self::Print
+            | Self::ReadLines => PrimEffect::Io,
+            Self::ClockNow | Self::Time => PrimEffect::Time,
             Self::Panic => PrimEffect::Control,
             _ => PrimEffect::Pure,
         }
@@ -233,21 +409,70 @@ impl PrimOp {
             Self::Min => "min",
             Self::Max => "max",
             Self::ConcatArray => "concat",
+            Self::Len => "len",
+            Self::Push => "push",
+            Self::Split => "split",
+            Self::IsInt => "is_int",
+            Self::ToString => "to_string",
+            Self::WriteFile => "write_file",
+            Self::ReadStdin => "read_stdin",
+            Self::Join => "join",
+            Self::Trim => "trim",
+            Self::StartsWith => "starts_with",
+            Self::EndsWith => "ends_with",
+            Self::Chars => "chars",
+            Self::Sort => "sort",
+            Self::Slice => "slice",
+            Self::MapDelete => "delete",
+            Self::MapKeys => "keys",
+            Self::MapValues => "values",
+            Self::MapMerge => "merge",
+            Self::MapSize => "size",
+            Self::TypeOf => "type_of",
+            Self::IsFloat => "is_float",
+            Self::IsString => "is_string",
+            Self::IsBool => "is_bool",
+            Self::IsArray => "is_array",
+            Self::IsNone => "is_none",
+            Self::IsSomeV => "is_some",
+            Self::IsList => "is_list",
+            Self::IsHash => "is_hash",
+            Self::Hd => "hd",
+            Self::Tl => "tl",
+            Self::ToList => "to_list",
+            Self::ToArray => "to_array",
+            Self::ParseInt => "parse_int",
+            Self::Print => "print",
+            Self::Time => "time",
+            Self::Replace => "replace",
+            Self::StrContains => "str_contains",
+            Self::ReadLines => "read_lines",
+            Self::ParseInts => "parse_ints",
+            Self::SplitInts => "split_ints",
+            Self::Upper => "upper",
+            Self::Lower => "lower",
+            Self::Try => "try",
+            Self::AssertThrows => "assert_throws",
         }
     }
 }
 
-const _: [(); PrimOp::COUNT] = [(); PrimOp::ConcatArray as usize + 1];
+const _: [(); PrimOp::COUNT] = [(); PrimOp::AssertThrows as usize + 1];
 
 const PRIMOP_CALL_MAPPINGS: &[(&str, usize, PrimOp)] = &[
     ("abs", 1, PrimOp::Abs),
     ("array_get", 2, PrimOp::ArrayGet),
     ("array_len", 1, PrimOp::ArrayLen),
     ("array_set", 3, PrimOp::ArraySet),
+    ("assert_throws", 1, PrimOp::AssertThrows),
+    ("assert_throws", 2, PrimOp::AssertThrows),
+    ("chars", 1, PrimOp::Chars),
     ("clock_now", 0, PrimOp::ClockNow),
     ("cmp_eq", 2, PrimOp::CmpEq),
     ("cmp_ne", 2, PrimOp::CmpNe),
     ("concat", 2, PrimOp::ConcatArray),
+    ("delete", 2, PrimOp::MapDelete),
+    ("ends_with", 2, PrimOp::EndsWith),
     ("fadd", 2, PrimOp::FAdd),
     ("fcmp_eq", 2, PrimOp::FCmpEq),
     ("fcmp_ge", 2, PrimOp::FCmpGe),
@@ -260,6 +485,7 @@ const PRIMOP_CALL_MAPPINGS: &[(&str, usize, PrimOp)] = &[
     ("fsub", 2, PrimOp::FSub),
     ("get", 2, PrimOp::MapGet),
     ("has_key", 2, PrimOp::MapHas),
+    ("hd", 1, PrimOp::Hd),
     ("iadd", 2, PrimOp::IAdd),
     ("icmp_eq", 2, PrimOp::ICmpEq),
     ("icmp_ge", 2, PrimOp::ICmpGe),
@@ -270,22 +496,61 @@ const PRIMOP_CALL_MAPPINGS: &[(&str, usize, PrimOp)] = &[
     ("idiv", 2, PrimOp::IDiv),
     ("imod", 2, PrimOp::IMod),
     ("imul", 2, PrimOp::IMul),
+    ("is_array", 1, PrimOp::IsArray),
+    ("is_bool", 1, PrimOp::IsBool),
+    ("is_float", 1, PrimOp::IsFloat),
+    ("is_hash", 1, PrimOp::IsHash),
+    ("is_int", 1, PrimOp::IsInt),
+    ("is_list", 1, PrimOp::IsList),
+    ("is_map", 1, PrimOp::IsHash),
+    ("is_none", 1, PrimOp::IsNone),
+    ("is_some", 1, PrimOp::IsSomeV),
+    ("is_string", 1, PrimOp::IsString),
     ("isub", 2, PrimOp::ISub),
+    ("join", 2, PrimOp::Join),
+    ("keys", 1, PrimOp::MapKeys),
+    ("len", 1, PrimOp::Len),
+    ("lower", 1, PrimOp::Lower),
     ("map_get", 2, PrimOp::MapGet),
     ("map_has", 2, PrimOp::MapHas),
     ("map_set", 3, PrimOp::MapSet),
     ("max", 2, PrimOp::Max),
+    ("merge", 2, PrimOp::MapMerge),
     ("min", 2, PrimOp::Min),
     ("now_ms", 0, PrimOp::ClockNow),
     ("panic", 1, PrimOp::Panic),
-    ("print", 1, PrimOp::Println),
+    ("parse_int", 1, PrimOp::ParseInt),
+    ("parse_ints", 1, PrimOp::ParseInts),
+    ("print", 1, PrimOp::Print),
     ("println", 1, PrimOp::Println),
+    ("push", 2, PrimOp::Push),
     ("put", 3, PrimOp::MapSet),
     ("read_file", 1, PrimOp::ReadFile),
+    ("read_lines", 1, PrimOp::ReadLines),
+    ("read_stdin", 0, PrimOp::ReadStdin),
+    ("replace", 3, PrimOp::Replace),
+    ("size", 1, PrimOp::MapSize),
+    ("slice", 3, PrimOp::Slice),
+    ("sort", 1, PrimOp::Sort),
+    ("split", 2, PrimOp::Split),
+    ("split_ints", 2, PrimOp::SplitInts),
+    ("starts_with", 2, PrimOp::StartsWith),
+    ("str_contains", 2, PrimOp::StrContains),
     ("string_concat", 2, PrimOp::StringConcat),
     ("string_len", 1, PrimOp::StringLen),
     ("string_slice", 3, PrimOp::StringSlice),
     ("substring", 3, PrimOp::StringSlice),
+    ("time", 0, PrimOp::Time),
+    ("tl", 1, PrimOp::Tl),
+    ("to_array", 1, PrimOp::ToArray),
+    ("to_list", 1, PrimOp::ToList),
+    ("to_string", 1, PrimOp::ToString),
+    ("trim", 1, PrimOp::Trim),
+    ("try", 1, PrimOp::Try),
+    ("type_of", 1, PrimOp::TypeOf),
+    ("upper", 1, PrimOp::Upper),
+    ("values", 1, PrimOp::MapValues),
+    ("write_file", 2, PrimOp::WriteFile),
 ];
 
 pub fn resolve_primop_call(name: &str, arity: usize) -> Option<PrimOp> {
@@ -296,6 +561,29 @@ pub fn resolve_primop_call(name: &str, arity: usize) -> Option<PrimOp> {
         .map(|idx| PRIMOP_CALL_MAPPINGS[idx].2)
 }
 
+/// Returns whether a primop borrows its arguments (true) or consumes them (false).
+///
+/// Used by Aether's borrowing elision to decide whether callers need Dup.
+/// Most primops only inspect arguments and are borrowed; the few that mutate
+/// in place (Push, Sort, ConcatArray) are owned.
+pub fn primop_borrows_args(op: PrimOp) -> bool {
+    !matches!(op, PrimOp::Push | PrimOp::Sort | PrimOp::ConcatArray)
+}
+
+/// Look up borrow mode for a named function that may be a primop.
+///
+/// Returns `Some((arity, borrows))` if the name resolves to a primop at any arity
+/// in PRIMOP_CALL_MAPPINGS. Used by Aether borrow inference.
+pub fn resolve_primop_borrow_info(name: &str) -> Option<(usize, bool)> {
+    // Linear scan is fine — this runs once per unresolved callee during Aether analysis.
+    for &(entry_name, entry_arity, op) in PRIMOP_CALL_MAPPINGS {
+        if entry_name == name {
+            return Some((entry_arity, primop_borrows_args(op)));
+        }
+    }
+    None
+}
+
 /// Executes a primitive operation with VM values.
 ///
 /// Arity is validated here to keep direct-call paths and opcode paths consistent.
@@ -304,7 +592,8 @@ pub fn execute_primop(
     op: PrimOp,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    if args.len() != op.arity() {
+    // AssertThrows accepts 1 or 2 arguments (optional expected message).
+    if op != PrimOp::AssertThrows && args.len() != op.arity() {
         return Err(format!(
             "primop {} expects {} arguments, got {}",
             op.display_name(),
@@ -349,6 +638,357 @@ pub fn execute_primop(
             execute_effect_primop(ctx, op, args)
         }
         PrimOp::ConcatArray => execute_concat_array_primop(args),
+        // Type checks
+        PrimOp::IsInt => Ok(Value::Boolean(matches!(args[0], Value::Integer(_)))),
+        PrimOp::IsFloat => Ok(Value::Boolean(matches!(args[0], Value::Float(_)))),
+        PrimOp::IsString => Ok(Value::Boolean(matches!(args[0], Value::String(_)))),
+        PrimOp::IsBool => Ok(Value::Boolean(matches!(args[0], Value::Boolean(_)))),
+        PrimOp::IsArray => Ok(Value::Boolean(matches!(args[0], Value::Array(_)))),
+        PrimOp::IsNone => Ok(Value::Boolean(matches!(args[0], Value::None))),
+        PrimOp::IsSomeV => Ok(Value::Boolean(matches!(args[0], Value::Some(_)))),
+        PrimOp::IsList => Ok(Value::Boolean(matches!(
+            args[0],
+            Value::None | Value::EmptyList | Value::Cons(_)
+        ))),
+        PrimOp::IsHash => Ok(Value::Boolean(matches!(args[0], Value::HashMap(_)))),
+        PrimOp::TypeOf => {
+            let name = match &args[0] {
+                Value::Cons(_) => "List",
+                Value::HashMap(_) => "Map",
+                other => other.type_name(),
+            };
+            Ok(Value::String(name.to_string().into()))
+        }
+        PrimOp::ToString => Ok(Value::String(format_value(&args[0]).into())),
+        // I/O
+        PrimOp::Print => {
+            for (i, arg) in args.iter().enumerate() {
+                if i > 0 {
+                    print!(" ");
+                }
+                print!("{}", format_value(arg));
+            }
+            println!();
+            Ok(Value::None)
+        }
+        PrimOp::WriteFile => {
+            let path = expect_string(&args[0], op)?;
+            let content = expect_string(&args[1], op)?;
+            fs::write(path, content)
+                .map_err(|e| format!("write_file failed for '{}': {}", path, e))?;
+            Ok(Value::None)
+        }
+        PrimOp::ReadStdin => {
+            let mut input = String::new();
+            std::io::stdin()
+                .read_to_string(&mut input)
+                .map_err(|e| format!("read_stdin failed: {}", e))?;
+            Ok(Value::String(input.into()))
+        }
+        PrimOp::ReadLines => {
+            let path = expect_string(&args[0], op)?;
+            let content = fs::read_to_string(path)
+                .map_err(|e| format!("read_lines failed for '{}': {}", path, e))?;
+            let lines = content
+                .lines()
+                .map(|line| Value::String(line.trim_end_matches('\r').to_string().into()))
+                .collect::<Vec<_>>();
+            Ok(Value::Array(lines.into()))
+        }
+        PrimOp::ParseInt => {
+            let text = expect_string(&args[0], op)?;
+            let parsed = text
+                .trim()
+                .parse::<i64>()
+                .map_err(|_| format!("parse_int: could not parse '{}' as Int", text))?;
+            Ok(Value::Integer(parsed))
+        }
+        PrimOp::ParseInts => {
+            let arr = expect_array(&args[0], op)?;
+            let mut out = Vec::with_capacity(arr.len());
+            for value in arr.iter() {
+                let s = expect_string(value, op)?;
+                let parsed = s
+                    .trim()
+                    .parse::<i64>()
+                    .map_err(|_| format!("parse_ints: could not parse '{}' as Int", s))?;
+                out.push(Value::Integer(parsed));
+            }
+            Ok(Value::Array(out.into()))
+        }
+        PrimOp::SplitInts => {
+            let s = expect_string(&args[0], op)?;
+            let delim = expect_string(&args[1], op)?;
+            let mut out = Vec::new();
+            if delim.is_empty() {
+                for ch in s.chars() {
+                    let text = ch.to_string();
+                    let parsed = text
+                        .trim()
+                        .parse::<i64>()
+                        .map_err(|_| format!("split_ints: could not parse '{}' as Int", text))?;
+                    out.push(Value::Integer(parsed));
+                }
+            } else {
+                for part in s.split(delim) {
+                    let parsed = part
+                        .trim()
+                        .parse::<i64>()
+                        .map_err(|_| format!("split_ints: could not parse '{}' as Int", part))?;
+                    out.push(Value::Integer(parsed));
+                }
+            }
+            Ok(Value::Array(out.into()))
+        }
+        PrimOp::Time => {
+            let start = Instant::now();
+            let _ = ctx
+                .invoke_value(args[0].clone(), vec![])
+                .map_err(|e| format!("time: callback error: {}", e))?;
+            let elapsed_ms = start.elapsed().as_millis();
+            Ok(Value::Integer(elapsed_ms.min(i64::MAX as u128) as i64))
+        }
+        // String operations
+        PrimOp::Split => {
+            let s = expect_string(&args[0], op)?;
+            let delim = expect_string(&args[1], op)?;
+            let parts: Vec<Value> = if delim.is_empty() {
+                s.chars()
+                    .map(|ch| Value::String(ch.to_string().into()))
+                    .collect()
+            } else {
+                s.split(delim)
+                    .map(|part| Value::String(part.to_string().into()))
+                    .collect()
+            };
+            Ok(Value::Array(parts.into()))
+        }
+        PrimOp::Join => {
+            let arr = expect_array(&args[0], op)?;
+            let delim = expect_string(&args[1], op)?;
+            let strings: Result<Vec<String>, String> = arr
+                .iter()
+                .map(|item| match item {
+                    Value::String(s) => Ok(s.to_string()),
+                    other => Err(format!(
+                        "primop join expects String elements, got {}",
+                        other.type_name()
+                    )),
+                })
+                .collect();
+            Ok(Value::String(strings?.join(delim).into()))
+        }
+        PrimOp::Trim => {
+            let s = expect_string(&args[0], op)?;
+            Ok(Value::String(s.trim().to_string().into()))
+        }
+        PrimOp::Upper => {
+            let s = expect_string(&args[0], op)?;
+            Ok(Value::String(s.to_uppercase().into()))
+        }
+        PrimOp::Lower => {
+            let s = expect_string(&args[0], op)?;
+            Ok(Value::String(s.to_lowercase().into()))
+        }
+        PrimOp::StartsWith => {
+            let s = expect_string(&args[0], op)?;
+            let prefix = expect_string(&args[1], op)?;
+            Ok(Value::Boolean(s.starts_with(prefix)))
+        }
+        PrimOp::EndsWith => {
+            let s = expect_string(&args[0], op)?;
+            let suffix = expect_string(&args[1], op)?;
+            Ok(Value::Boolean(s.ends_with(suffix)))
+        }
+        PrimOp::Replace => {
+            let s = expect_string(&args[0], op)?;
+            let from = expect_string(&args[1], op)?;
+            let to = expect_string(&args[2], op)?;
+            Ok(Value::String(s.replace(from, to).into()))
+        }
+        PrimOp::Chars => {
+            let s = expect_string(&args[0], op)?;
+            let chars: Vec<Value> = s
+                .chars()
+                .map(|c| Value::String(c.to_string().into()))
+                .collect();
+            Ok(Value::Array(chars.into()))
+        }
+        PrimOp::StrContains => {
+            let haystack = expect_string(&args[0], op)?;
+            let needle = expect_string(&args[1], op)?;
+            Ok(Value::Boolean(haystack.contains(needle)))
+        }
+        // Collection operations
+        PrimOp::Len => match &args[0] {
+            Value::String(s) => Ok(Value::Integer(s.len() as i64)),
+            Value::Array(arr) => Ok(Value::Integer(arr.len() as i64)),
+            Value::Tuple(t) => Ok(Value::Integer(t.len() as i64)),
+            Value::None | Value::EmptyList => Ok(Value::Integer(0)),
+            Value::Cons(_) => match cons_list_len(&args[0]) {
+                Some(len) => Ok(Value::Integer(len as i64)),
+                None => Err("len: malformed list".to_string()),
+            },
+            Value::HashMap(node) => Ok(Value::Integer(rc_hamt::hamt_len(node) as i64)),
+            other => Err(type_error(op, "String, Array, Tuple, List, or Map", other)),
+        },
+        PrimOp::Push => {
+            let mut args = args;
+            let elem = args.swap_remove(1);
+            let arr_obj = args.swap_remove(0);
+            match arr_obj {
+                Value::Array(mut arr) => {
+                    Rc::make_mut(&mut arr).push(elem);
+                    Ok(Value::Array(arr))
+                }
+                other => Err(type_error(op, "Array", &other)),
+            }
+        }
+        PrimOp::Slice => {
+            let arr = expect_array(&args[0], op)?;
+            let start = expect_int(&args[1], op)?;
+            let end = expect_int(&args[2], op)?;
+            let len = arr.len() as i64;
+            let start = if start < 0 { 0 } else { start as usize };
+            let end = if end > len {
+                len as usize
+            } else {
+                end as usize
+            };
+            if start >= end || start >= arr.len() {
+                Ok(Value::Array(vec![].into()))
+            } else {
+                Ok(Value::Array(arr[start..end].to_vec().into()))
+            }
+        }
+        PrimOp::Sort => {
+            let mut args = args;
+            let mut arr = match args.swap_remove(0) {
+                Value::Array(arr) => arr,
+                other => return Err(type_error(op, "Array", &other)),
+            };
+            Rc::make_mut(&mut arr).sort_by(|a, b| {
+                use std::cmp::Ordering;
+                match (a, b) {
+                    (Value::Integer(i1), Value::Integer(i2)) => i1.cmp(i2),
+                    (Value::Float(f1), Value::Float(f2)) => {
+                        f1.partial_cmp(f2).unwrap_or(Ordering::Equal)
+                    }
+                    (Value::Integer(i), Value::Float(f)) => {
+                        (*i as f64).partial_cmp(f).unwrap_or(Ordering::Equal)
+                    }
+                    (Value::Float(f), Value::Integer(i)) => {
+                        f.partial_cmp(&(*i as f64)).unwrap_or(Ordering::Equal)
+                    }
+                    _ => Ordering::Equal,
+                }
+            });
+            Ok(Value::Array(arr))
+        }
+        // List operations
+        PrimOp::Hd => match &args[0] {
+            Value::Cons(cell) => Ok(cell.head.clone()),
+            other => Err(type_error(op, "List", other)),
+        },
+        PrimOp::Tl => match &args[0] {
+            Value::Cons(cell) => Ok(cell.tail.clone()),
+            other => Err(type_error(op, "List", other)),
+        },
+        PrimOp::ToList => match &args[0] {
+            Value::Array(arr) => {
+                let mut list = Value::EmptyList;
+                for elem in arr.iter().rev() {
+                    list = ConsCell::cons(elem.clone(), list);
+                }
+                Ok(list)
+            }
+            other => Err(type_error(op, "Array", other)),
+        },
+        PrimOp::ToArray => {
+            let mut elements = Vec::new();
+            let mut current = args[0].clone();
+            loop {
+                match &current {
+                    Value::None | Value::EmptyList => break,
+                    Value::Cons(cell) => {
+                        elements.push(cell.head.clone());
+                        current = cell.tail.clone();
+                    }
+                    _ => return Err(type_error(op, "List", &current)),
+                }
+            }
+            Ok(Value::Array(Rc::new(elements)))
+        }
+        // Map operations
+        PrimOp::MapDelete => {
+            let node = expect_hamt(&args[0], op)?;
+            let key = args[1].to_hash_key().ok_or_else(|| {
+                format!(
+                    "primop {} expects hashable key, got {}",
+                    op.display_name(),
+                    args[1].type_name()
+                )
+            })?;
+            Ok(Value::HashMap(rc_hamt::hamt_delete(node, &key)))
+        }
+        PrimOp::MapKeys => {
+            let node = expect_hamt(&args[0], op)?;
+            let pairs = rc_hamt::hamt_iter(node);
+            let keys: Vec<Value> = pairs.iter().map(|(k, _)| hash_key_to_value(k)).collect();
+            Ok(Value::Array(keys.into()))
+        }
+        PrimOp::MapValues => {
+            let node = expect_hamt(&args[0], op)?;
+            let pairs = rc_hamt::hamt_iter(node);
+            let values: Vec<Value> = pairs.into_iter().map(|(_, v)| v).collect();
+            Ok(Value::Array(values.into()))
+        }
+        PrimOp::MapMerge => {
+            let node1 = expect_hamt(&args[0], op)?;
+            let node2 = expect_hamt(&args[1], op)?;
+            let pairs = rc_hamt::hamt_iter(node2);
+            let mut result = Rc::clone(node1);
+            for (k, v) in pairs {
+                result = rc_hamt::hamt_insert(&result, k, v);
+            }
+            Ok(Value::HashMap(result))
+        }
+        PrimOp::MapSize => {
+            let node = expect_hamt(&args[0], op)?;
+            Ok(Value::Integer(rc_hamt::hamt_len(node) as i64))
+        }
+        // Assert / error handling
+        PrimOp::Try => match ctx.invoke_value(args[0].clone(), vec![]) {
+            Ok(val) => Ok(Value::Tuple(Rc::new(vec![
+                Value::String("ok".to_string().into()),
+                val,
+            ]))),
+            Err(msg) => Ok(Value::Tuple(Rc::new(vec![
+                Value::String("error".to_string().into()),
+                Value::String(Rc::new(msg)),
+            ]))),
+        },
+        PrimOp::AssertThrows => {
+            let expected_msg: Option<&str> = if args.len() >= 2 {
+                match &args[1] {
+                    Value::String(s) => Some(s.as_ref()),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            match ctx.invoke_value(args[0].clone(), vec![]) {
+                Ok(_) => Err("assert_throws failed: function completed without error".to_string()),
+                Err(msg) => match expected_msg {
+                    Some(expected) if msg.contains(expected) => Ok(Value::None),
+                    Some(expected) => Err(format!(
+                        "assert_throws failed\n  expected error containing: {}\n  actual error: {}",
+                        expected, msg
+                    )),
+                    None => Ok(Value::None),
+                },
+            }
+        }
     }
 }
 
@@ -475,7 +1115,7 @@ fn execute_array_primop(op: PrimOp, args: Vec<Value>) -> Result<Value, String> {
 
 /// Executes map primops backed by HAMT runtime objects.
 fn execute_map_primop(
-    ctx: &mut dyn RuntimeContext,
+    _ctx: &mut dyn RuntimeContext,
     op: PrimOp,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -491,8 +1131,11 @@ fn execute_map_primop(
                     key.type_name()
                 )
             })?;
-            let handle = expect_hamt_handle(ctx, &map, op)?;
-            match hamt_lookup(ctx.gc_heap(), handle, &hash) {
+            let result = match &map {
+                Value::HashMap(node) => rc_hamt::hamt_lookup(node, &hash),
+                _ => return Err(type_error(op, "Map", &map)),
+            };
+            match result {
                 Some(value) => Ok(Value::Some(Rc::new(value))),
                 None => Ok(Value::None),
             }
@@ -509,9 +1152,12 @@ fn execute_map_primop(
                     key.type_name()
                 )
             })?;
-            let handle = expect_hamt_handle(ctx, &map, op)?;
-            let updated = hamt_insert(ctx.gc_heap_mut(), handle, hash, value);
-            Ok(Value::Gc(updated))
+            match map {
+                Value::HashMap(node) => {
+                    Ok(Value::HashMap(rc_hamt::hamt_insert(&node, hash, value)))
+                }
+                _ => Err(type_error(op, "Map", &map)),
+            }
         }
         PrimOp::MapHas => {
             let mut args = args;
@@ -524,10 +1170,11 @@ fn execute_map_primop(
                     key.type_name()
                 )
             })?;
-            let handle = expect_hamt_handle(ctx, &map, op)?;
-            Ok(Value::Boolean(
-                hamt_lookup(ctx.gc_heap(), handle, &hash).is_some(),
-            ))
+            let found = match &map {
+                Value::HashMap(node) => rc_hamt::hamt_lookup(node, &hash).is_some(),
+                _ => return Err(type_error(op, "Map", &map)),
+            };
+            Ok(Value::Boolean(found))
         }
         _ => dispatch_error("map", op),
     }
@@ -587,13 +1234,13 @@ fn execute_string_primop(op: PrimOp, args: Vec<Value>) -> Result<Value, String> 
 
 /// Executes effectful primops that perform I/O, time reads, or control effects.
 fn execute_effect_primop(
-    ctx: &mut dyn RuntimeContext,
+    _ctx: &mut dyn RuntimeContext,
     op: PrimOp,
     args: Vec<Value>,
 ) -> Result<Value, String> {
     match op {
         PrimOp::Println => {
-            println!("{}", format_value(ctx, &args[0]));
+            println!("{}", format_value(&args[0]));
             Ok(Value::None)
         }
         PrimOp::ReadFile => {
@@ -632,6 +1279,39 @@ fn execute_concat_array_primop(args: Vec<Value>) -> Result<Value, String> {
     let mut out = left.clone();
     Rc::make_mut(&mut out).extend(right.iter().cloned());
     Ok(Value::Array(out))
+}
+
+/// Extracts a string reference from a Value or returns a typed primop error.
+fn expect_string(value: &Value, op: PrimOp) -> Result<&str, String> {
+    match value {
+        Value::String(s) => Ok(s.as_ref()),
+        other => Err(type_error(op, "String", other)),
+    }
+}
+
+/// Extracts an array reference from a Value or returns a typed primop error.
+fn expect_array(value: &Value, op: PrimOp) -> Result<&Vec<Value>, String> {
+    match value {
+        Value::Array(arr) => Ok(arr),
+        other => Err(type_error(op, "Array", other)),
+    }
+}
+
+/// Extracts a HAMT node from a Value or returns a typed primop error.
+fn expect_hamt(value: &Value, op: PrimOp) -> Result<&Rc<rc_hamt::HamtNode>, String> {
+    match value {
+        Value::HashMap(node) => Ok(node),
+        other => Err(type_error(op, "Map", other)),
+    }
+}
+
+/// Converts a HashKey back to a Value.
+fn hash_key_to_value(key: &HashKey) -> Value {
+    match key {
+        HashKey::Integer(v) => Value::Integer(*v),
+        HashKey::Boolean(v) => Value::Boolean(*v),
+        HashKey::String(v) => Value::String(v.clone().into()),
+    }
 }
 
 /// Helper for binary integer primops.
@@ -705,21 +1385,6 @@ fn expect_float(value: &Value, op: PrimOp) -> Result<f64, String> {
     }
 }
 
-/// Extracts a HAMT-backed map handle from a runtime value.
-///
-/// Returns a typed primop error when the value is not a map.
-fn expect_hamt_handle(
-    ctx: &dyn RuntimeContext,
-    value: &Value,
-    op: PrimOp,
-) -> Result<GcHandle, String> {
-    match value {
-        Value::Gc(h) if is_hamt(ctx.gc_heap(), *h) => Ok(*h),
-        Value::Gc(_) => Err(type_error(op, "Map", value)),
-        other => Err(type_error(op, "Map", other)),
-    }
-}
-
 /// Shared implementation for mixed numeric `min` and `max`.
 ///
 /// Preserves integer return type when both operands are integers; otherwise returns float.
@@ -779,20 +1444,13 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::runtime::{
-        gc::{GcHeap, hamt::hamt_empty, hamt::hamt_insert},
-        hash_key::HashKey,
-    };
+    use crate::runtime::{hamt as rc_hamt_mod, hash_key::HashKey};
 
-    struct TestRuntimeContext {
-        heap: GcHeap,
-    }
+    struct TestRuntimeContext;
 
     impl TestRuntimeContext {
         fn new() -> Self {
-            Self {
-                heap: GcHeap::new(),
-            }
+            Self
         }
     }
 
@@ -807,14 +1465,6 @@ mod tests {
             _args: &[&Value],
         ) -> Result<Value, String> {
             Err("borrowed base dispatch is not used by these primop tests".to_string())
-        }
-
-        fn gc_heap(&self) -> &GcHeap {
-            &self.heap
-        }
-
-        fn gc_heap_mut(&mut self) -> &mut GcHeap {
-            &mut self.heap
         }
     }
 
@@ -914,12 +1564,12 @@ mod tests {
         assert!(err.contains("expected Map"));
     }
 
-    fn hamt_value(ctx: &mut TestRuntimeContext, entries: Vec<(HashKey, Value)>) -> Value {
-        let mut root = hamt_empty(ctx.gc_heap_mut());
+    fn hamt_value(_ctx: &mut TestRuntimeContext, entries: Vec<(HashKey, Value)>) -> Value {
+        let mut root = rc_hamt_mod::hamt_empty();
         for (k, v) in entries {
-            root = hamt_insert(ctx.gc_heap_mut(), root, k, v);
+            root = rc_hamt_mod::hamt_insert(&root, k, v);
         }
-        Value::Gc(root)
+        Value::HashMap(root)
     }
 
     #[test]
@@ -1069,7 +1719,7 @@ mod tests {
             resolve_primop_call("string_slice", 3),
             Some(PrimOp::StringSlice)
         );
-        assert_eq!(resolve_primop_call("print", 1), Some(PrimOp::Println));
+        assert_eq!(resolve_primop_call("print", 1), Some(PrimOp::Print));
         assert_eq!(resolve_primop_call("concat", 2), Some(PrimOp::ConcatArray));
     }
 
@@ -1081,7 +1731,10 @@ mod tests {
                 seen.insert((*name, *arity)),
                 "duplicate primop resolver entry"
             );
-            assert_eq!(*arity, op.arity(), "resolver arity mismatch for {}", name);
+            // AssertThrows accepts 1 or 2 arguments (optional expected message).
+            if *op != PrimOp::AssertThrows {
+                assert_eq!(*arity, op.arity(), "resolver arity mismatch for {}", name);
+            }
         }
     }
 
@@ -1124,25 +1777,23 @@ mod tests {
     }
 
     #[test]
-    fn removed_mirrored_names_do_not_resolve_to_primops() {
-        let removed = [
-            ("len", 1),
-            ("type_of", 1),
-            ("is_int", 1),
-            ("to_string", 1),
-            ("first", 1),
-            ("contains", 2),
-            ("trim", 1),
-            ("keys", 1),
-            ("delete", 2),
-            ("parse_int", 1),
-            ("split_ints", 2),
+    fn promoted_names_resolve_to_primops() {
+        let promoted = [
+            ("len", 1, PrimOp::Len),
+            ("type_of", 1, PrimOp::TypeOf),
+            ("is_int", 1, PrimOp::IsInt),
+            ("to_string", 1, PrimOp::ToString),
+            ("trim", 1, PrimOp::Trim),
+            ("keys", 1, PrimOp::MapKeys),
+            ("delete", 2, PrimOp::MapDelete),
+            ("parse_int", 1, PrimOp::ParseInt),
+            ("split_ints", 2, PrimOp::SplitInts),
         ];
-        for (name, arity) in removed {
+        for (name, arity, expected) in promoted {
             assert_eq!(
                 resolve_primop_call(name, arity),
-                None,
-                "expected {name}/{arity} to stop resolving as primop"
+                Some(expected),
+                "expected {name}/{arity} to resolve to primop"
             );
         }
     }

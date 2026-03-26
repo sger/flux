@@ -1,0 +1,6 @@
+module Aether.FbipImportedSupport {
+    // Not annotated @fip — calling from @fip should warn
+    public fn imported_inc(x) {
+        x + 1
+    }
+}

@@ -1,0 +1,31 @@
+// Aether reuse-specialization regression fixture.
+
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Tree)
+
+fn set_black(t) {
+    match t {
+        Node(_, left, key, right) -> Node(Black, left, key, right),
+        _ -> t,
+    }
+}
+
+fn keep_right_only(t) {
+    match t {
+        Node(color, left, key, right) -> Node(Black, Leaf, 0, right),
+        _ -> t,
+    }
+}
+
+fn option_map(opt, f) {
+    match opt {
+        Some(x) -> Some(f(x)),
+        _ -> None,
+    }
+}
+
+fn main() with IO {
+    print(set_black(Node(Red, Leaf, 5, Leaf)))
+    print(keep_right_only(Node(Red, Leaf, 5, Leaf)))
+    print(option_map(Some(41), \x -> x + 1))
+}

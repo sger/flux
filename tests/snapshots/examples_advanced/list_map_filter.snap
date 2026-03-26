@@ -3,8 +3,85 @@ source: tests/examples_advanced_snapshots.rs
 ---
 Fixture: examples/advanced/list_map_filter.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/advanced/list_map_filter.flx:32:19
+   |
+32 |     let doubled = map(nums, /x -> x * 2);
+   |                   ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `filter`.
+
+  examples/advanced/list_map_filter.flx:36:15
+   |
+36 |     let big = filter(doubled, /x -> x > 2);
+   |               ^^^^^^
+
+Hint:
+  Define it first: let filter = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/advanced/list_map_filter.flx:40:17
+   |
+40 |     let total = fold(nums, 0, /(acc, x) -> acc + x);
+   |                 ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/advanced/list_map_filter.flx:55:8
+   |
+55 |     |> map(/x -> x * 2);
+   |        ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/advanced/list_map_filter.flx:91:19
+   |
+91 |     let lengths = fold(words, {}, /(acc, w) -> put(acc, w, len(w)));
+   |                   ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `zip`.
+
+  examples/advanced/list_map_filter.flx:129:17
+    |
+129 |     let pairs = zip(labels, vals);
+    |                 ^^^
+
+Hint:
+  Define it first: let zip = ...;
+
+Found 6 errors.
 == stdout ==
 <not executed>

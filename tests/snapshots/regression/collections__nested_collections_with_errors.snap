@@ -4,6 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/collections/nested_collections_with_errors.flx
 exit_code: 1
 
+• 4 errors • tests/fixtures/collections/nested_collections_with_errors.flx
 error[E073]: Missing Comma
 
 Missing comma between items.

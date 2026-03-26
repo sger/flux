@@ -3,15 +3,14 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     bytecode::op_code::OpCode,
     runtime::{
-        base::get_base_function_by_index,
-        base::list_ops::format_value,
         closure::Closure,
+        cons_cell::ConsCell,
         continuation::Continuation,
-        gc::HeapObject,
         handler_arm::HandlerArm,
         handler_frame::HandlerFrame,
         leak_detector,
-        value::{AdtFields, Value},
+        value::format_value,
+        value::{AdtFields, AdtValue, Value},
     },
 };
 
@@ -93,18 +92,6 @@ impl VM {
     #[inline(never)]
     fn cons_tail_type_err(found: &Value) -> String {
         format!("tail: expected list, got {}", found.type_name())
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn cons_head_heap_err(other: &HeapObject) -> String {
-        format!("head: expected list, got {:?}", other)
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn cons_tail_heap_err(other: &HeapObject) -> String {
-        format!("tail: expected list, got {:?}", other)
     }
 
     #[cold]
@@ -212,7 +199,7 @@ impl VM {
                 {
                     let expected_name = expected.type_name();
                     let actual_type = return_value.type_name();
-                    let value_preview = format_value(self, &return_value);
+                    let value_preview = format_value(&return_value);
                     if let Some((file, span)) = self.function_boundary_location() {
                         return Err(self.runtime_type_error_at_location(
                             &expected_name,
@@ -239,7 +226,7 @@ impl VM {
                     && !expected.matches_value(&Value::None, self)
                 {
                     let expected_name = expected.type_name();
-                    let value_preview = format_value(self, &Value::None);
+                    let value_preview = format_value(&Value::None);
                     if let Some((file, span)) = self.function_boundary_location() {
                         return Err(self.runtime_type_error_at_location(
                             &expected_name,
@@ -285,6 +272,19 @@ impl VM {
                 let bp = self.current_frame().base_pointer;
                 let val = self.pop()?;
                 self.stack_set(bp + idx, val);
+                Ok(2)
+            }
+            OpCode::OpAetherDropLocal => {
+                let idx = Self::read_u8_fast(instructions, ip + 1);
+                let bp = self.current_frame().base_pointer;
+                let slot_idx = bp + idx;
+                let should_clear = !matches!(
+                    self.stack_get(slot_idx),
+                    Value::Integer(_) | Value::Float(_) | Value::Boolean(_)
+                );
+                if should_clear {
+                    self.stack_set(slot_idx, Value::None);
+                }
                 Ok(2)
             }
             OpCode::OpConsumeLocal => {
@@ -523,11 +523,12 @@ impl VM {
                 Ok(1)
             }
             OpCode::OpGetBase => {
-                let idx = Self::read_u8_fast(instructions, ip + 1);
-                let _ = get_base_function_by_index(idx)
-                    .ok_or_else(|| format!("invalid Base function index {}", idx))?;
-                self.push(Value::BaseFunction(idx as u8))?;
-                Ok(2)
+                // OpGetBase is no longer emitted by the compiler.
+                // Base functions are resolved as module members from lib/Flow/.
+                Err(
+                    "OpGetBase is deprecated; base functions are now compiled from lib/Flow/"
+                        .to_string(),
+                )
             }
             OpCode::OpCall => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
@@ -549,12 +550,12 @@ impl VM {
                 Ok(2)
             }
             OpCode::OpCallBase => {
-                // Encoded as [OpCallBase, base_fn_idx, arity]; callee is implicit.
-                // Stack before: [..., arg0, ..., argN]. After: [..., result].
-                let base_fn_idx = Self::read_u8_fast(instructions, ip + 1);
-                let arity = Self::read_u8_fast(instructions, ip + 2);
-                self.execute_call_base_direct(base_fn_idx, arity)?;
-                Ok(3)
+                // OpCallBase is no longer emitted by the compiler.
+                // Base functions are resolved as module members from lib/Flow/.
+                Err(
+                    "OpCallBase is deprecated; base functions are now compiled from lib/Flow/"
+                        .to_string(),
+                )
             }
             OpCode::OpPrimOp => {
                 // Encoded as [OpPrimOp, primop_id, arity].
@@ -608,10 +609,15 @@ impl VM {
                 let tuple = self.pop_untracked()?;
                 match tuple {
                     Value::Tuple(elements) => {
-                        let value = elements
-                            .get(index)
-                            .cloned()
-                            .ok_or_else(|| Self::tuple_oob_err(index, elements.len()))?;
+                        if index >= elements.len() {
+                            return Err(Self::tuple_oob_err(index, elements.len()));
+                        }
+                        // Aether: try to move the element without cloning when tuple is
+                        // uniquely owned (Rc::strong_count == 1).
+                        let value = match Rc::try_unwrap(elements) {
+                            Ok(mut vec) => vec.swap_remove(index),
+                            Err(shared) => shared[index].clone(),
+                        };
                         self.push(value)?;
                         Ok(2)
                     }
@@ -741,8 +747,7 @@ impl VM {
             }
             OpCode::OpCons => {
                 let (head, tail) = self.pop_pair_untracked()?;
-                let handle = self.gc_alloc(HeapObject::Cons { head, tail });
-                self.push(Value::Gc(handle))?;
+                self.push(ConsCell::cons(head, tail))?;
                 Ok(1)
             }
             OpCode::OpIsCons => {
@@ -751,7 +756,7 @@ impl VM {
                 }
                 let idx = self.sp - 1;
                 let slot_val = self.stack_get(idx);
-                let is_cons = matches!(&slot_val, Value::Gc(h) if matches!(self.gc_heap.get(*h), HeapObject::Cons { .. }));
+                let is_cons = matches!(&slot_val, Value::Cons(_));
                 self.stack_set(idx, Value::Boolean(is_cons));
                 Ok(1)
             }
@@ -770,11 +775,15 @@ impl VM {
                 }
                 let idx = self.sp - 1;
                 let value = self.stack_take(idx);
-                match &value {
-                    Value::Gc(h) => match self.gc_heap.get(*h) {
-                        HeapObject::Cons { head, .. } => self.stack_set(idx, head.clone()),
-                        other => return Err(Self::cons_head_heap_err(other)),
-                    },
+                match value {
+                    // Aether: try_unwrap to move head without cloning when unique.
+                    Value::Cons(cell) => {
+                        let head = match Rc::try_unwrap(cell) {
+                            Ok(mut owned) => std::mem::replace(&mut owned.head, Value::EmptyList),
+                            Err(shared) => shared.head.clone(),
+                        };
+                        self.stack_set(idx, head);
+                    }
                     _ => return Err(Self::cons_head_type_err(&value)),
                 }
                 Ok(1)
@@ -785,11 +794,15 @@ impl VM {
                 }
                 let idx = self.sp - 1;
                 let value = self.stack_take(idx);
-                match &value {
-                    Value::Gc(h) => match self.gc_heap.get(*h) {
-                        HeapObject::Cons { tail, .. } => self.stack_set(idx, tail.clone()),
-                        other => return Err(Self::cons_tail_heap_err(other)),
-                    },
+                match value {
+                    // Aether: try_unwrap to move tail without cloning when unique.
+                    Value::Cons(cell) => {
+                        let tail = match Rc::try_unwrap(cell) {
+                            Ok(mut owned) => std::mem::replace(&mut owned.tail, Value::EmptyList),
+                            Err(shared) => shared.tail.clone(),
+                        };
+                        self.stack_set(idx, tail);
+                    }
                     _ => return Err(Self::cons_tail_type_err(&value)),
                 }
                 Ok(1)
@@ -836,11 +849,10 @@ impl VM {
                 if arity == 0 {
                     self.push(Value::AdtUnit(constructor_name))?;
                 } else {
-                    let handle = self.gc_heap.alloc(HeapObject::Adt {
+                    self.push(Value::Adt(Rc::new(crate::runtime::value::AdtValue {
                         constructor: constructor_name,
                         fields: AdtFields::from_vec(fields),
-                    });
-                    self.push(Value::GcAdt(handle))?;
+                    })))?;
                 }
                 Ok(4) // 1 opcode + 2 const_idx + 1 arity
             }
@@ -871,7 +883,7 @@ impl VM {
                 let idx = self.sp - 1;
                 let slot_val = self.stack_get(idx);
                 let is_adt = match &slot_val {
-                    value if value.adt_constructor(&self.gc_heap) == Some(construct_name) => true,
+                    value if value.adt_constructor() == Some(construct_name) => true,
                     Value::AdtUnit(name) => name.as_ref() == construct_name,
                     _ => false,
                 };
@@ -886,16 +898,14 @@ impl VM {
                 let field_idx = Self::read_u8_fast(instructions, ip + 1);
                 let adt = self.pop_untracked()?;
                 match adt {
-                    Value::Adt(_) | Value::GcAdt(_) => {
-                        let len = adt.adt_field_count(&self.gc_heap).unwrap_or(0);
-                        let value = adt.adt_clone_field(&self.gc_heap, field_idx).ok_or_else(
-                            || {
-                                format!(
-                                    "OpAdtField: field index {} out of bounds (adt has {} fields)",
-                                    field_idx, len
-                                )
-                            },
-                        )?;
+                    Value::Adt(_) => {
+                        let len = adt.adt_field_count().unwrap_or(0);
+                        let value = adt.adt_clone_field(field_idx).ok_or_else(|| {
+                            format!(
+                                "OpAdtField: field index {} out of bounds (adt has {} fields)",
+                                field_idx, len
+                            )
+                        })?;
                         self.push(value)?;
                         Ok(2) // 1 opcode + 1 field_idx
                     }
@@ -933,7 +943,7 @@ impl VM {
                 };
                 let peek_val = self.peek(0)?;
                 let is_match = match &peek_val {
-                    value if value.adt_constructor(&self.gc_heap) == Some(constructor_name) => true,
+                    value if value.adt_constructor() == Some(constructor_name) => true,
                     Value::AdtUnit(name) => name.as_ref() == constructor_name,
                     _ => false,
                 };
@@ -971,7 +981,7 @@ impl VM {
                 let bp = self.frames[self.frame_index].base_pointer;
                 let local_val = self.stack_get(bp + local_idx);
                 let is_match = match &local_val {
-                    value if value.adt_constructor(&self.gc_heap) == Some(constructor_name) => true,
+                    value if value.adt_constructor() == Some(constructor_name) => true,
                     Value::AdtUnit(name) => name.as_ref() == constructor_name,
                     _ => false,
                 };
@@ -988,11 +998,10 @@ impl VM {
                 // Stack after:  [..., field0, field1]
                 let adt = self.pop_untracked()?;
                 match adt {
-                    Value::Adt(_) | Value::GcAdt(_) => {
-                        let (f0, f1) =
-                            adt.adt_clone_two_fields(&self.gc_heap).ok_or_else(|| {
-                                "OpAdtFields2: ADT has fewer than 2 fields".to_string()
-                            })?;
+                    Value::Adt(_) => {
+                        let (f0, f1) = adt.adt_clone_two_fields().ok_or_else(|| {
+                            "OpAdtFields2: ADT has fewer than 2 fields".to_string()
+                        })?;
                         self.push(f0)?;
                         self.push(f1)?;
                         Ok(1) // just the opcode byte
@@ -1015,8 +1024,10 @@ impl VM {
                 // Side effect: HandlerFrame pushed onto handler_stack
                 let const_idx = Self::read_u8_fast(instructions, ip + 1);
                 let const_val = self.const_get(const_idx);
-                let (effect, ops) = match &const_val {
-                    Value::HandlerDescriptor(desc) => (desc.effect, desc.ops.clone()),
+                let (effect, ops, desc_is_discard) = match &const_val {
+                    Value::HandlerDescriptor(desc) => {
+                        (desc.effect, desc.ops.clone(), desc.is_discard)
+                    }
                     other => {
                         return Err(format!(
                             "OpHandle: expected HandlerDescriptor constant, got {}",
@@ -1053,6 +1064,7 @@ impl VM {
                     entry_sp: self.sp,
                     entry_handler_stack_len: self.handler_stack.len(),
                     is_direct: false,
+                    is_discard: desc_is_discard,
                 });
                 Ok(2)
             }
@@ -1096,6 +1108,7 @@ impl VM {
                     entry_sp: self.sp,
                     entry_handler_stack_len: self.handler_stack.len(),
                     is_direct: true,
+                    is_discard: false,
                 });
                 Ok(2)
             }
@@ -1158,6 +1171,8 @@ impl VM {
                     arm.closure.clone()
                 };
 
+                let is_discard = self.handler_stack[handler_pos].is_discard;
+
                 if is_direct {
                     // Tail-resumptive fast path: call the arm directly
                     // without capturing a continuation. resume(v) returns v
@@ -1171,6 +1186,29 @@ impl VM {
                     self.push(Value::Closure(arm_closure))?;
                     let identity_fn = self.make_identity_closure();
                     self.push(identity_fn)?;
+                    for arg in perform_args {
+                        self.push(arg)?;
+                    }
+                    self.execute_call(1 + arity)?;
+                    Ok(0)
+                } else if is_discard {
+                    // Discard handler: never resumes. Skip continuation capture
+                    // entirely — just unwind to handler entry and call the arm.
+                    // (Perceus Section 2.7.1: non-linear control flow safety.)
+                    let entry_frame_index = self.handler_stack[handler_pos].entry_frame_index;
+                    let entry_sp = self.handler_stack[handler_pos].entry_sp;
+
+                    // Unwind: drop all values between handler entry and perform site.
+                    // This is safe because the handler never resumes — those values
+                    // are dead after the arm returns.
+                    self.frame_index = entry_frame_index;
+                    self.handler_stack.truncate(handler_pos + 1);
+                    self.reset_sp(entry_sp)?;
+
+                    // Call the arm with Value::None as the resume parameter
+                    // (handler won't use it since it never resumes).
+                    self.push(Value::Closure(arm_closure))?;
+                    self.push(Value::None)?; // dummy resume
                     for arg in perform_args {
                         self.push(arg)?;
                     }
@@ -1318,6 +1356,181 @@ impl VM {
                 self.execute_call(1 + arity)?;
 
                 Ok(0)
+            }
+
+            // ── Aether reuse opcodes ────────────────────────────────────
+            OpCode::OpDropReuse => {
+                // Test if TOS value is uniquely owned. If so, push it as a
+                // reuse token; otherwise push None (= allocate fresh).
+                let val = self.pop()?;
+                let is_unique = match &val {
+                    Value::Cons(rc) => Rc::strong_count(rc) == 1,
+                    Value::Adt(rc) => Rc::strong_count(rc) == 1,
+                    Value::Some(rc) | Value::Left(rc) | Value::Right(rc) => {
+                        Rc::strong_count(rc) == 1
+                    }
+                    _ => false,
+                };
+                if is_unique {
+                    self.push(val)?;
+                } else {
+                    self.push(Value::None)?;
+                }
+                Ok(1)
+            }
+
+            OpCode::OpReuseCons => {
+                let field_mask = Self::read_u8_fast(instructions, ip + 1) as u8;
+                // Stack order: token was pushed first, then head, then tail (TOS)
+                let tail = self.pop()?;
+                let head = self.pop()?;
+                let token = self.pop()?;
+                let result = match token {
+                    Value::Cons(mut rc) => {
+                        if let Some(cell) = Rc::get_mut(&mut rc) {
+                            // Unique — reuse allocation, only write changed fields.
+                            if field_mask == 0xFF || field_mask & 1 != 0 {
+                                cell.head = head;
+                            }
+                            if field_mask == 0xFF || field_mask & 2 != 0 {
+                                cell.tail = tail;
+                            }
+                            Value::Cons(rc)
+                        } else {
+                            ConsCell::cons(head, tail)
+                        }
+                    }
+                    _ => ConsCell::cons(head, tail),
+                };
+                self.push(result)?;
+                Ok(2) // 1 opcode + 1 byte field_mask
+            }
+
+            OpCode::OpReuseAdt => {
+                let const_idx = Self::read_u16_fast(instructions, ip + 1);
+                let arity = Self::read_u8_fast(instructions, ip + 3);
+                let field_mask = Self::read_u8_fast(instructions, ip + 4) as u8;
+
+                let const_val = self.const_get(const_idx);
+                let constructor_name = match const_val {
+                    Value::String(s) => s,
+                    other => {
+                        return Err(format!(
+                            "OpReuseAdt: expected string constant, got {}",
+                            other
+                        ));
+                    }
+                };
+
+                // Pop fields from stack (same order as OpMakeAdt)
+                let mut fields = Vec::with_capacity(arity);
+                for i in 0..arity {
+                    let val = self.stack_take(self.sp - arity + i);
+                    fields.push(val);
+                }
+                self.reset_sp(self.sp - arity)?;
+                let token = self.pop()?;
+
+                let result = match token {
+                    Value::Adt(mut rc) => {
+                        if let Some(adt) = Rc::get_mut(&mut rc) {
+                            adt.constructor = constructor_name;
+                            if field_mask == 0xFF {
+                                adt.fields = AdtFields::from_vec(fields);
+                            } else {
+                                for (i, val) in fields.into_iter().enumerate() {
+                                    if field_mask as u64 & (1u64 << i) != 0 {
+                                        adt.fields.set_field(i, val);
+                                    }
+                                }
+                            }
+                            Value::Adt(rc)
+                        } else {
+                            Value::Adt(Rc::new(AdtValue {
+                                constructor: constructor_name,
+                                fields: AdtFields::from_vec(fields),
+                            }))
+                        }
+                    }
+                    _ => Value::Adt(Rc::new(AdtValue {
+                        constructor: constructor_name,
+                        fields: AdtFields::from_vec(fields),
+                    })),
+                };
+                self.push(result)?;
+                Ok(5) // 1 opcode + 2 const_idx + 1 arity + 1 field_mask
+            }
+
+            OpCode::OpReuseSome => {
+                let inner = self.pop()?;
+                let token = self.pop()?;
+                let result = match token {
+                    Value::Some(mut rc) => {
+                        if let Some(v) = Rc::get_mut(&mut rc) {
+                            // Unique — overwrite the existing payload in place.
+                            *v = inner;
+                            Value::Some(rc)
+                        } else {
+                            Value::Some(Rc::new(inner))
+                        }
+                    }
+                    _ => Value::Some(Rc::new(inner)),
+                };
+                self.push(result)?;
+                Ok(1)
+            }
+
+            OpCode::OpReuseLeft => {
+                let inner = self.pop()?;
+                let token = self.pop()?;
+                let result = match token {
+                    Value::Left(mut rc) => {
+                        if let Some(v) = Rc::get_mut(&mut rc) {
+                            *v = inner;
+                            Value::Left(rc)
+                        } else {
+                            Value::Left(Rc::new(inner))
+                        }
+                    }
+                    _ => Value::Left(Rc::new(inner)),
+                };
+                self.push(result)?;
+                Ok(1)
+            }
+
+            OpCode::OpReuseRight => {
+                let inner = self.pop()?;
+                let token = self.pop()?;
+                let result = match token {
+                    Value::Right(mut rc) => {
+                        if let Some(v) = Rc::get_mut(&mut rc) {
+                            *v = inner;
+                            Value::Right(rc)
+                        } else {
+                            Value::Right(Rc::new(inner))
+                        }
+                    }
+                    _ => Value::Right(Rc::new(inner)),
+                };
+                self.push(result)?;
+                Ok(1)
+            }
+
+            OpCode::OpIsUnique => {
+                let val = self.pop()?;
+                let unique = match &val {
+                    Value::Cons(rc) => Rc::strong_count(rc) == 1,
+                    Value::Adt(rc) => Rc::strong_count(rc) == 1,
+                    Value::Some(rc) | Value::Left(rc) | Value::Right(rc) => {
+                        Rc::strong_count(rc) == 1
+                    }
+                    Value::HashMap(rc) => Rc::strong_count(rc) == 1,
+                    _ => true,
+                };
+                // Push the value back (IsUnique is non-destructive)
+                self.push(val)?;
+                self.push(Value::Boolean(unique))?;
+                Ok(1)
             }
         }
     }

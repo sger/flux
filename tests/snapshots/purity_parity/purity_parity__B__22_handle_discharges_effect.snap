@@ -7,11 +7,11 @@ Strict: false
 Expect compile error: false
 
 == vm command ==
-$ flux --no-cache examples/type_system/22_handle_discharges_effect.flx
+$ flux --no-cache --no-strict examples/type_system/22_handle_discharges_effect.flx
 exit_code: 0
 
 == jit command ==
-$ flux --no-cache examples/type_system/22_handle_discharges_effect.flx --jit
+$ flux --no-cache --no-strict examples/type_system/22_handle_discharges_effect.flx --jit
 exit_code: 0
 
 == vm tuples ==

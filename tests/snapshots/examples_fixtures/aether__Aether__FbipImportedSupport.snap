@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/aether/Aether/FbipImportedSupport.flx
+== compile ==
+failed (module)
+== diagnostics ==
+error[E024]: Module Path Mismatch
+
+Module name `Aether.FbipImportedSupport` doesn't match file path `examples/aether/Aether/FbipImportedSupport.flx`.
+
+  examples/aether/Aether/FbipImportedSupport.flx:1:1
+  |
+1 | module Aether.FbipImportedSupport {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

@@ -110,6 +110,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
             effects: _,
             body,
             span: _,
+            fip: _,
         } => {
             visitor.visit_identifier(name);
             for param in parameters {
@@ -137,6 +138,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
             name,
             alias,
             except,
+            exposing,
             span: _,
         } => {
             visitor.visit_identifier(name);
@@ -145,6 +147,11 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
             }
             for excluded in except {
                 visitor.visit_identifier(excluded);
+            }
+            if let crate::syntax::statement::ImportExposing::Names(names) = exposing {
+                for exposed in names {
+                    visitor.visit_identifier(exposed);
+                }
             }
         }
         Statement::Data { .. } => {}

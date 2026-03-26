@@ -7,11 +7,11 @@ Strict: false
 Expect compile error: true
 
 == vm command ==
-$ flux --no-cache examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx
+$ flux --no-cache --no-strict examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx
 exit_code: 1
 
 == jit command ==
-$ flux --no-cache examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx --jit
+$ flux --no-cache --no-strict examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx --jit
 exit_code: 1
 
 == vm tuples ==

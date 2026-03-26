@@ -3,8 +3,179 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/array_builtins.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
+
+  examples/basics/array_builtins.flx:11:11
+   |
+11 |     print(first(arr));
+   |           ^^^^^
+
+Hint:
+  Define it first: let first = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `last`.
+
+  examples/basics/array_builtins.flx:14:11
+   |
+14 |     print(last(arr));
+   |           ^^^^
+
+Hint:
+  Define it first: let last = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `rest`.
+
+  examples/basics/array_builtins.flx:17:11
+   |
+17 |     print(rest(arr));
+   |           ^^^^
+
+Hint:
+  Define it first: let rest = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
+
+  examples/basics/array_builtins.flx:23:11
+   |
+23 |     print(first([||]));
+   |           ^^^^^
+
+Hint:
+  Define it first: let first = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `last`.
+
+  examples/basics/array_builtins.flx:24:11
+   |
+24 |     print(last([||]));
+   |           ^^^^
+
+Hint:
+  Define it first: let last = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `rest`.
+
+  examples/basics/array_builtins.flx:25:11
+   |
+25 |     print(rest([||]));
+   |           ^^^^
+
+Hint:
+  Define it first: let rest = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `reverse`.
+
+  examples/basics/array_builtins.flx:37:11
+   |
+37 |     print(reverse(arr));
+   |           ^^^^^^^
+
+Hint:
+  Define it first: let reverse = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `contains`.
+
+  examples/basics/array_builtins.flx:41:11
+   |
+41 |     print(contains(fruits, "banana"));
+   |           ^^^^^^^^
+
+Hint:
+  Define it first: let contains = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `contains`.
+
+  examples/basics/array_builtins.flx:42:11
+   |
+42 |     print(contains(fruits, "grape"));
+   |           ^^^^^^^^
+
+Hint:
+  Define it first: let contains = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `sort`.
+
+  examples/basics/array_builtins.flx:54:11
+   |
+54 |     print(sort(unsorted, "asc"));
+   |           ^^^^
+
+Hint:
+  Define it first: let sort = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `sort`.
+
+  examples/basics/array_builtins.flx:57:11
+   |
+57 |     print(sort(unsorted, "desc"));
+   |           ^^^^
+
+Hint:
+  Define it first: let sort = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `sort`.
+
+  examples/basics/array_builtins.flx:62:11
+   |
+62 |     print(sort(floats, "desc"));
+   |           ^^^^
+
+Hint:
+  Define it first: let sort = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `sort`.
+
+  examples/basics/array_builtins.flx:66:22
+   |
+66 |         let sorted = sort(scores, "desc");
+   |                      ^^^^
+
+Hint:
+  Define it first: let sort = ...;
+
+Help:
+  Did you mean `sorted`?
+
+Found 13 errors.
 == stdout ==
 <not executed>

@@ -86,6 +86,11 @@ impl Lexer {
         std::mem::take(&mut self.interner)
     }
 
+    /// Restore an interner into the lexer, replacing the current one.
+    pub fn restore_interner(&mut self, interner: Interner) {
+        self.interner = interner;
+    }
+
     /// Returns a mutable reference to the interner.
     pub fn interner_mut(&mut self) -> &mut Interner {
         &mut self.interner
@@ -428,6 +433,7 @@ impl Lexer {
             b':' => (TokenType::Colon, ":"),
             b'.' => (TokenType::Dot, "."),
             b'#' => (TokenType::Hash, "#"),
+            b'@' => (TokenType::At, "@"),
             b'\\' => (TokenType::Backslash, "\\"),
             b'|' => (TokenType::Bar, "|"),
             _ => return None,

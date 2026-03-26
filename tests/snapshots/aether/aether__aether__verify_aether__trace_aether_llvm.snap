@@ -1,0 +1,4 @@
+---
+source: tests/aether_cli_snapshots.rs
+---
+Error: unknown command or invalid input `--llvm`. Pass a `.flx` file or a valid subcommand.

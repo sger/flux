@@ -564,7 +564,7 @@ fn common_dev_mistakes_graph_reports_broad_compiler_errors() {
     assert!(
         diags
             .iter()
-            .any(|d| matches!(d.code(), Some("E404") | Some("E080"))),
+            .any(|d| matches!(d.code(), Some("E404") | Some("E080") | Some("E013"))),
         "expected an unknown operation/member typo diagnostic, got {:?}",
         diags.iter().filter_map(|d| d.code()).collect::<Vec<_>>()
     );
@@ -599,8 +599,8 @@ fn common_dev_mistakes_graph_reports_broad_compiler_errors() {
         rendered
     );
     assert!(
-        rendered.contains("Did you mean `print`?"),
-        "expected typo suggestion for `print`, got:\n{}",
+        rendered.contains("Undefined Variable"),
+        "expected undefined-variable diagnostic in rendered output, got:\n{}",
         rendered
     );
     assert!(

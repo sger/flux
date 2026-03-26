@@ -3,8 +3,49 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/arrays_basic.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `reverse`.
+
+  examples/basics/arrays_basic.flx:35:11
+   |
+35 |     print(reverse(reverse_arr));
+   |           ^^^^^^^
+
+Hint:
+  Define it first: let reverse = ...;
+
+Help:
+  Did you mean `reverse_arr`?
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `contains`.
+
+  examples/basics/arrays_basic.flx:37:11
+   |
+37 |     print(contains(reverse_arr, 10));
+   |           ^^^^^^^^
+
+Hint:
+  Define it first: let contains = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `contains`.
+
+  examples/basics/arrays_basic.flx:38:11
+   |
+38 |     print(contains(reverse_arr, 0));
+   |           ^^^^^^^^
+
+Hint:
+  Define it first: let contains = ...;
+
+Found 3 errors.
 == stdout ==
 <not executed>

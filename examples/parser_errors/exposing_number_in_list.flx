@@ -1,0 +1,3 @@
+import Foo exposing (42)
+
+fn main() {}

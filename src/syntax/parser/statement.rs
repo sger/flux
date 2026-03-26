@@ -60,12 +60,13 @@ impl Parser {
             TokenType::Data => self.parse_data_statement(),
             TokenType::Effect => self.parse_effect_statement(),
             TokenType::Fn if self.is_peek_token(TokenType::Ident) => {
-                self.parse_function_statement(false)
+                self.parse_function_statement(false, None)
             }
             TokenType::Public if self.is_peek_token(TokenType::Fn) => {
                 self.next_token(); // fn
-                self.parse_function_statement(true)
+                self.parse_function_statement(true, None)
             }
+            TokenType::At => self.parse_annotated_function(),
             TokenType::Ident if self.current_token.literal == "fn" => {
                 // Defensive path: `fn` should lex as TokenType::Fn.
                 None
@@ -269,7 +270,73 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_function_statement(&mut self, is_public: bool) -> Option<Statement> {
+    /// Parse `@fip fn ...` or `@fbip fn ...`.
+    fn parse_annotated_function(&mut self) -> Option<Statement> {
+        use crate::syntax::statement::FipAnnotation;
+        let annotation_start = self.current_token.position;
+        // Current token is '@'. Next should be 'fip' or 'fbip' (as an identifier).
+        self.next_token();
+        if self.current_token.token_type != TokenType::Ident {
+            self.emit_parser_diagnostic(
+                unexpected_token_with_details(
+                    self.current_token.span(),
+                    "Invalid Function Annotation",
+                    DiagnosticCategory::ParserDeclaration,
+                    format!(
+                        "Expected a function annotation name after `@`, but found {}.",
+                        self.describe_token_type_for_diagnostic(self.current_token.token_type)
+                    ),
+                )
+                .with_hint_text("Supported function annotations are `@fip` and `@fbip`."),
+            );
+            return None;
+        }
+
+        let annotation_name = self.current_token.literal.to_string();
+        let annotation_span = self.span_from(annotation_start);
+        let annotation = match annotation_name.as_str() {
+            "fip" => Some(FipAnnotation::Fip),
+            "fbip" => Some(FipAnnotation::Fbip),
+            _ => {
+                self.emit_parser_diagnostic(
+                    unexpected_token_with_details(
+                        annotation_span,
+                        "Unknown Function Annotation",
+                        DiagnosticCategory::ParserDeclaration,
+                        format!(
+                            "Unknown annotation `@{annotation_name}` before function declaration."
+                        ),
+                    )
+                    .with_hint_text("Supported function annotations are `@fip` and `@fbip`."),
+                );
+                return None;
+            }
+        };
+        // Next token must be 'fn'
+        self.next_token();
+        if self.current_token.token_type != TokenType::Fn {
+            self.emit_parser_diagnostic(
+                unexpected_token_with_details(
+                    self.current_token.span(),
+                    "Malformed Annotated Function",
+                    DiagnosticCategory::ParserDeclaration,
+                    format!(
+                        "Annotation `@{annotation_name}` must be followed by `fn`, but found {}.",
+                        self.describe_token_type_for_diagnostic(self.current_token.token_type)
+                    ),
+                )
+                .with_hint_text("Write annotated functions as `@fip fn name(...) { ... }` or `@fbip fn name(...) { ... }`."),
+            );
+            return None;
+        }
+        self.parse_function_statement(false, annotation)
+    }
+
+    pub(super) fn parse_function_statement(
+        &mut self,
+        is_public: bool,
+        fip: Option<crate::syntax::statement::FipAnnotation>,
+    ) -> Option<Statement> {
         let context_name = if self.is_peek_token(TokenType::Ident) {
             Some(self.peek_token.literal.to_string())
         } else {
@@ -428,6 +495,7 @@ impl Parser {
             effects,
             body,
             span: self.span_from(start),
+            fip,
         })
     }
 
@@ -689,12 +757,40 @@ impl Parser {
             except = self.parse_import_except_list()?;
         }
 
+        let mut exposing = crate::syntax::statement::ImportExposing::None;
+        if self.peek_token.token_type == TokenType::Ident && self.peek_token.literal == "exposing" {
+            self.next_token(); // consume `exposing`
+            exposing = self.parse_import_exposing()?;
+        } else if self.peek_token.token_type == TokenType::Ident
+            && matches!(
+                self.peek_token.literal.as_ref(),
+                "expose" | "exports" | "exporting" | "using" | "open"
+            )
+        {
+            let typo = self.peek_token.literal.to_string();
+            self.emit_parser_diagnostic(
+                unexpected_token_with_details(
+                    self.peek_token.span(),
+                    "Unknown Import Clause",
+                    DiagnosticCategory::ParserDeclaration,
+                    format!(
+                        "Unknown keyword `{}` in import statement.",
+                        typo
+                    ),
+                )
+                .with_hint_text(
+                    "Did you mean `exposing`? Use `import Module exposing (..)` or `import Module exposing (name1, name2)`."),
+            );
+            return None;
+        }
+
         // No semicolon required for import statements
 
         Some(Statement::Import {
             name,
             alias,
             except,
+            exposing,
             span: self.span_from(start),
         })
     }
@@ -759,6 +855,96 @@ impl Parser {
         }
 
         Some(names)
+    }
+
+    /// Parses the `exposing (..)` or `exposing (name, name)` clause of an import.
+    fn parse_import_exposing(&mut self) -> Option<crate::syntax::statement::ImportExposing> {
+        use crate::syntax::statement::ImportExposing;
+
+        if !self.expect_peek_context_with_details(
+            TokenType::LParen,
+            "Missing Exposing List",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected `(` after `exposing` in import.".to_string(),
+            "Use `exposing (..)` for all members or `exposing (name1, name2)` for selective."
+                .to_string(),
+        ) {
+            return None;
+        }
+
+        // Check for `(..)` — wildcard: two Dot tokens followed by RParen
+        if self.is_peek_token(TokenType::Dot) {
+            self.next_token(); // consume first `.`
+            if !self.expect_peek_context_with_details(
+                TokenType::Dot,
+                "Invalid Exposing Clause",
+                DiagnosticCategory::ParserDeclaration,
+                "Expected `..` for wildcard exposing.".to_string(),
+                "Use `exposing (..)` to expose all public members.".to_string(),
+            ) {
+                return None;
+            }
+            if !self.expect_peek_context_with_details(
+                TokenType::RParen,
+                "Missing Closing Paren",
+                DiagnosticCategory::ParserDeclaration,
+                "Expected `)` after `..` in exposing clause.".to_string(),
+                "Wildcard exposing uses `exposing (..)`.".to_string(),
+            ) {
+                return None;
+            }
+            return Some(ImportExposing::All);
+        }
+
+        // Parse selective list: `(name1, name2, ...)`
+        let mut names = Vec::new();
+        if self.is_peek_token(TokenType::RParen) {
+            self.next_token();
+            return Some(ImportExposing::Names(names));
+        }
+
+        loop {
+            if !self.expect_peek_context_with_details(
+                TokenType::Ident,
+                "Invalid Exposing List",
+                DiagnosticCategory::ParserDeclaration,
+                "Expected identifier in `exposing` list.".to_string(),
+                "Use `exposing (name1, name2)` to expose specific members.".to_string(),
+            ) {
+                return None;
+            }
+            names.push(
+                self.current_token
+                    .symbol
+                    .expect("ident token should have symbol"),
+            );
+
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token(); // consume comma
+                continue;
+            }
+
+            if self.is_peek_token(TokenType::RParen) {
+                self.next_token(); // consume closing paren
+                break;
+            }
+
+            self.emit_parser_diagnostic(
+                unexpected_token_with_details(
+                    self.peek_token.span(),
+                    "Invalid Exposing List",
+                    DiagnosticCategory::ParserDeclaration,
+                    format!(
+                        "Expected `,` or `)` in exposing list, but found {}.",
+                        self.describe_token_type_for_diagnostic(self.peek_token.token_type)
+                    ),
+                )
+                .with_hint_text("Use `exposing (name1, name2)` for selective imports."),
+            );
+            return None;
+        }
+
+        Some(ImportExposing::Names(names))
     }
 
     /// Parses a `data` declaration with optional type parameters and constructor

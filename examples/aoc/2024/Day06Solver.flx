@@ -1,0 +1,353 @@
+import Flow.Array as Array
+
+module Day06Solver {
+    // AoC 2024 Day 6 - Guard Gallivant
+    //
+    // Performance strategy:
+    //   1. Pre-process grid into Array<Array<Int>> (1 = wall, 0 = open)
+    //      → eliminates substring allocations in the hot loop
+    //   2. Jump between obstacles/edges for Part B instead of step-by-step replay
+    //   3. Pattern matching on Dir ADT for idiomatic direction handling
+    //   4. Primops: array_get for O(1) grid access, put/has_key for maps
+
+    data Dir {
+        Up,
+        Rgt,
+        Down,
+        Lft,
+    }
+
+    data JumpResult {
+        JumpExit,
+        JumpNext(Int, Int, Dir),
+    }
+
+    fn char_at(s, idx) {
+        substring(s, idx, idx + 1)
+    }
+
+    fn line_at(lines, idx) {
+        match lines[idx] {
+            Some(v) -> v,
+            _ -> "",
+        }
+    }
+
+    fn int_at(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> 0,
+        }
+    }
+
+    fn row_at(grid, idx) {
+        match grid[idx] {
+            Some(v) -> v,
+            _ -> [||],
+        }
+    }
+
+    fn map_arr_at(m, key) {
+        match get(m, key) {
+            Some(v) -> v,
+            _ -> [||],
+        }
+    }
+
+    fn insert_sorted(m, key, value) {
+        put(m, key, sort(push(map_arr_at(m, key), value)))
+    }
+
+    // ── Grid pre-processing ───────────────────────────────────────────
+    // Convert each line char to 1 (wall) or 0 (open), using higher-order map
+
+    fn char_to_int(ch) {
+        if ch == "#" { 1 } else { 0 }
+    }
+
+    fn line_to_row(line, c, acc) {
+        if c >= len(line) {
+            acc
+        } else {
+            line_to_row(line, c + 1, push(acc, char_to_int(char_at(line, c))))
+        }
+    }
+
+    fn build_grid(lines) {
+        Array.map(lines, \line -> line_to_row(line, 0, [||]))
+    }
+
+    // ── Guard finder ──────────────────────────────────────────────────
+
+    fn find_guard_col(line, c) {
+        if c >= len(line) {
+            -1
+        } else if char_at(line, c) == "^" {
+            c
+        } else {
+            find_guard_col(line, c + 1)
+        }
+    }
+
+    fn find_guard_row(lines, r) {
+        if r >= len(lines) {
+            (-1, -1)
+        } else {
+            let c = find_guard_col(line_at(lines, r), 0)
+            if c >= 0 { (r, c) }
+            else { find_guard_row(lines, r + 1) }
+        }
+    }
+
+    // ── Direction helpers (ADT + pattern matching) ────────────────────
+
+    fn delta(d) {
+        match d {
+            Up   -> (-1, 0),
+            Rgt  -> (0, 1),
+            Down -> (1, 0),
+            Lft  -> (0, -1),
+        }
+    }
+
+    fn turn_right(d) {
+        match d {
+            Up   -> Rgt,
+            Rgt  -> Down,
+            Down -> Lft,
+            Lft  -> Up,
+        }
+    }
+
+    // ── Fast grid access (primop array_get, int comparison) ──────────
+
+    fn is_wall(grid, r, c) {
+        int_at(row_at(grid, r), c) == 1
+    }
+
+    fn build_axes_row(line, r, c, row_walls, col_walls, guard) {
+        if c >= len(line) {
+            (row_walls, col_walls, guard)
+        } else {
+            let ch = char_at(line, c)
+            if ch == "#" {
+                let row_walls2 = insert_sorted(row_walls, r, c)
+                let col_walls2 = insert_sorted(col_walls, c, r)
+                build_axes_row(line, r, c + 1, row_walls2, col_walls2, guard)
+            } else if ch == "^" {
+                build_axes_row(line, r, c + 1, row_walls, col_walls, (r, c))
+            } else {
+                build_axes_row(line, r, c + 1, row_walls, col_walls, guard)
+            }
+        }
+    }
+
+    fn build_axes(lines, r, row_walls, col_walls, guard) {
+        if r >= len(lines) {
+            (row_walls, col_walls, guard)
+        } else {
+            let built = build_axes_row(line_at(lines, r), r, 0, row_walls, col_walls, guard)
+            build_axes(lines, r + 1, built.0, built.1, built.2)
+        }
+    }
+
+    fn first_gt(xs, target, lo, hi) {
+        if lo >= hi {
+            lo
+        } else {
+            let mid = (lo + hi) / 2
+            if int_at(xs, mid) <= target {
+                first_gt(xs, target, mid + 1, hi)
+            } else {
+                first_gt(xs, target, lo, mid)
+            }
+        }
+    }
+
+    fn nearest_gt_or(xs, target, fallback) {
+        let idx = first_gt(xs, target, 0, len(xs))
+        if idx >= len(xs) {
+            fallback
+        } else {
+            int_at(xs, idx)
+        }
+    }
+
+    fn nearest_lt_or(xs, target, fallback) {
+        let idx = first_gt(xs, target, 0, len(xs)) - 1
+        if idx < 0 {
+            fallback
+        } else {
+            int_at(xs, idx)
+        }
+    }
+
+    fn dir_id(d) {
+        match d {
+            Up -> 0,
+            Rgt -> 1,
+            Down -> 2,
+            Lft -> 3,
+        }
+    }
+
+    fn state_key(cols, r, c, d) {
+        (r * cols + c) * 4 + dir_id(d)
+    }
+
+    fn jump_up_hit(col_walls, c, r, obr, obc) {
+        let wall = nearest_lt_or(map_arr_at(col_walls, c), r, -1)
+        if obc == c {
+            if obr < r {
+                if obr > wall { obr } else { wall }
+            } else {
+                wall
+            }
+        } else {
+            wall
+        }
+    }
+
+    fn jump_down_hit(col_walls, rows, c, r, obr, obc) {
+        let wall = nearest_gt_or(map_arr_at(col_walls, c), r, rows)
+        if obc == c {
+            if obr > r {
+                if obr < wall { obr } else { wall }
+            } else {
+                wall
+            }
+        } else {
+            wall
+        }
+    }
+
+    fn jump_left_hit(row_walls, r, c, obr, obc) {
+        let wall = nearest_lt_or(map_arr_at(row_walls, r), c, -1)
+        if obr == r {
+            if obc < c {
+                if obc > wall { obc } else { wall }
+            } else {
+                wall
+            }
+        } else {
+            wall
+        }
+    }
+
+    fn jump_right_hit(row_walls, cols, r, c, obr, obc) {
+        let wall = nearest_gt_or(map_arr_at(row_walls, r), c, cols)
+        if obr == r {
+            if obc > c {
+                if obc < wall { obc } else { wall }
+            } else {
+                wall
+            }
+        } else {
+            wall
+        }
+    }
+
+    fn jump_step_up(axis, obr, obc, r, c) {
+        let hit = jump_up_hit(axis.1, c, r, obr, obc)
+        if hit < 0 { JumpExit } else { JumpNext(hit + 1, c, Rgt) }
+    }
+
+    fn jump_step_right(axis, cols, obr, obc, r, c) {
+        let hit = jump_right_hit(axis.0, cols, r, c, obr, obc)
+        if hit >= cols { JumpExit } else { JumpNext(r, hit - 1, Down) }
+    }
+
+    fn jump_step_down(axis, rows, obr, obc, r, c) {
+        let hit = jump_down_hit(axis.1, rows, c, r, obr, obc)
+        if hit >= rows { JumpExit } else { JumpNext(hit - 1, c, Lft) }
+    }
+
+    fn jump_step_left(axis, obr, obc, r, c) {
+        let hit = jump_left_hit(axis.0, r, c, obr, obc)
+        if hit < 0 { JumpExit } else { JumpNext(r, hit + 1, Up) }
+    }
+
+    fn jump_step(axis, rows, cols, obr, obc, r, c, d) {
+        match d {
+            Up -> jump_step_up(axis, obr, obc, r, c),
+            Rgt -> jump_step_right(axis, cols, obr, obc, r, c),
+            Down -> jump_step_down(axis, rows, obr, obc, r, c),
+            Lft -> jump_step_left(axis, obr, obc, r, c),
+        }
+    }
+
+    fn drive_loop_jump(axis, rows, cols, obr, obc, r, c, d, seen) {
+        let key = state_key(cols, r, c, d)
+        if has_key(seen, key) {
+            true
+        } else {
+            let seen2 = put(seen, key, true)
+            match jump_step(axis, rows, cols, obr, obc, r, c, d) {
+                JumpExit -> false,
+                JumpNext(nr, nc, nd) -> drive_loop_jump(axis, rows, cols, obr, obc, nr, nc, nd, seen2),
+            }
+        }
+    }
+
+    // ── Part A ────────────────────────────────────────────────────────
+    // ctx = (grid, rows, cols)
+    fn walk_collect(ctx, r, c, d, visited) {
+        let cols = ctx.2
+        let visited2 = put(visited, r * cols + c, true)
+        let step = delta(d)
+        let nr = r + step.0
+        let nc = c + step.1
+        if nr < 0 || nc < 0 || nr >= ctx.1 || nc >= cols {
+            visited2
+        } else if is_wall(ctx.0, nr, nc) {
+            walk_collect(ctx, r, c, turn_right(d), visited2)
+        } else {
+            walk_collect(ctx, nr, nc, d, visited2)
+        }
+    }
+
+    // Check one candidate obstruction position
+    fn check_candidate(axis, rows, cols, sr, sc, pos) {
+        let obr = pos / cols
+        let obc = pos % cols
+        if obr == sr && obc == sc {
+            0
+        } else {
+            if drive_loop_jump(axis, rows, cols, obr, obc, sr, sc, Up, {}) { 1 } else { 0 }
+        }
+    }
+
+    // Iterate candidates, accumulating loop count
+    fn count_loops(axis, rows, cols, sr, sc, candidates, idx, acc) {
+        if idx >= len(candidates) {
+            acc
+        } else {
+            let pos = match candidates[idx] { Some(v) -> v, _ -> 0 }
+            count_loops(axis, rows, cols, sr, sc, candidates, idx + 1,
+                acc + check_candidate(axis, rows, cols, sr, sc, pos))
+        }
+    }
+
+    public fn day06a_from_lines(lines: Array<String>) -> Int {
+        let rows = len(lines)
+        let cols = len(line_at(lines, 0))
+        let guard = find_guard_row(lines, 0)
+        let grid = build_grid(lines)
+        let ctx = (grid, rows, cols)
+        let visited = walk_collect(ctx, guard.0, guard.1, Up, {})
+        len(keys(visited))
+    }
+
+    public fn day06b_from_lines(lines: Array<String>) -> Int {
+        let rows = len(lines)
+        let cols = len(line_at(lines, 0))
+        let parsed = build_axes(lines, 0, {}, {}, (-1, -1))
+        let guard = parsed.2
+        let sr = guard.0
+        let sc = guard.1
+        let grid = build_grid(lines)
+        let visited = walk_collect((grid, rows, cols), sr, sc, Up, {})
+        let candidates = keys(visited)
+        count_loops((parsed.0, parsed.1), rows, cols, sr, sc, candidates, 0, 0)
+    }
+}

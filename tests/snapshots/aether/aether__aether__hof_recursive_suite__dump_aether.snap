@@ -1,0 +1,107 @@
+---
+source: tests/aether_cli_snapshots.rs
+---
+Aether Memory Model Report
+==========================
+
+── fn map_reuse @fip ──
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+  fbip: NotProvable
+    - calls indirect or opaque callee `f` whose FBIP behavior is unknown
+    - control-flow join loses a precise allocation bound across paths
+λxs, f.
+  case xs of
+    ::(h, t) →
+      let %t1 = aether_call[owned] f(h)
+      let %t2 = aether_call[borrowed, borrowed] map_reuse(t, f)
+      reuse xs ::(%t1, %t2)
+    _ →
+      []
+── fn option_chain @fip ──
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+  fbip: NotProvable
+    - calls indirect or opaque callee `f` whose FBIP behavior is unknown
+    - control-flow join loses a precise allocation bound across paths
+λopt, f.
+  case opt of
+    Some(x) →
+      let %t1 = aether_call[owned] f(x)
+      reuse opt Some(%t1)
+    _ →
+      None
+── fn main ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+  verifier: ok
+λ.
+  let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
+  let %t4 = (λx.
+    Add(x, 1))
+  aether_call[borrowed, borrowed] map_reuse(%t3, %t4))
+  Print(%t2))
+  drop %t1
+  let %t5 = (let %t6 = (let %t7 = MakeList(1, 2, 3, 4, 5, 6)
+  let %t8 = (λx.
+    let %t9 = Mod(x, 2)
+    Eq(%t9, 0))
+  aether_call[borrowed, borrowed] count_if(%t7, %t8))
+  Print(%t6))
+  drop %t5
+  let %t10 = (let %t11 = Some(10)
+  let %t12 = (λx.
+    Add(x, 1))
+  aether_call[borrowed, borrowed] option_chain(%t11, %t12))
+  Print(%t10)
+
+── Total ──
+  Dups: 0  Drops: 2  Reuses: 2  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+
+Warning: FBIP Contract Not Proven
+
+@fip on `map_reuse` analysis result NotProvable:
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+- control-flow join loses a precise allocation bound across paths
+
+  examples/aether/hof_recursive_suite.flx:7:6
+   |
+ 7 | @fip fn map_reuse(xs, f) {
+   |      ^^^^^^^^^^^^^^^^^^^^^
+ 8 |     match xs {
+   | ^^^^^^^^^^^^^^
+ 9 |         [h | t] -> [f(h) | map_reuse(t, f)],
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+10 |         _ -> [],
+   | ^^^^^^^^^^^^^^^^
+11 |     }
+   | ^^^^^
+12 | }
+   | ^
+
+
+Warning: FBIP Contract Not Proven
+
+@fip on `option_chain` analysis result NotProvable:
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+- control-flow join loses a precise allocation bound across paths
+
+  examples/aether/hof_recursive_suite.flx:21:6
+   |
+21 | @fip fn option_chain(opt, f) {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^^^
+22 |     match opt {
+   | ^^^^^^^^^^^^^^^
+23 |         Some(x) -> Some(f(x)),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+24 |         _ -> None,
+   | ^^^^^^^^^^^^^^^^^^
+25 |     }
+   | ^^^^^
+26 | }
+   | ^
+
+Found 2 warnings.

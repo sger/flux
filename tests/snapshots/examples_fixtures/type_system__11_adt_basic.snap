@@ -92,7 +92,7 @@ Hint:
   Define it first: let Point = ...;
 
 Help:
-  Did you mean one of: `p`, `print`, `count`?
+  Did you mean `p`?
 
 Found 5 errors.
 == stdout ==

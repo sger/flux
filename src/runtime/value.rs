@@ -1,14 +1,9 @@
 use std::{cell::RefCell, fmt, rc::Rc};
 
 use crate::runtime::{
-    closure::Closure,
-    compiled_function::CompiledFunction,
-    continuation::Continuation,
-    gc::{gc_handle::GcHandle, gc_heap::GcHeap, heap_object::HeapObject},
-    handler_descriptor::HandlerDescriptor,
-    hash_key::HashKey,
-    jit_closure::JitClosure,
-    perform_descriptor::PerformDescriptor,
+    closure::Closure, compiled_function::CompiledFunction, cons_cell::ConsCell,
+    continuation::Continuation, hamt::HamtNode, handler_descriptor::HandlerDescriptor,
+    hash_key::HashKey, perform_descriptor::PerformDescriptor,
 };
 
 /// Inner data for an ADT constructor value, boxed behind a single `Rc` so that
@@ -74,6 +69,25 @@ impl AdtFields {
             (AdtFields::Three(_, _, c), 2) => Some(c),
             (AdtFields::Many(v), i) => v.get(i),
             _ => None,
+        }
+    }
+
+    /// Set a single field in-place by index. Used by Aether reuse
+    /// specialization to write only changed fields during in-place reuse.
+    pub fn set_field(&mut self, idx: usize, value: Value) {
+        match (self, idx) {
+            (AdtFields::One(a), 0) => *a = value,
+            (AdtFields::Two(a, _), 0) => *a = value,
+            (AdtFields::Two(_, b), 1) => *b = value,
+            (AdtFields::Three(a, _, _), 0) => *a = value,
+            (AdtFields::Three(_, b, _), 1) => *b = value,
+            (AdtFields::Three(_, _, c), 2) => *c = value,
+            (AdtFields::Many(v), i) => {
+                if i < v.len() {
+                    v[i] = value;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -192,27 +206,20 @@ impl std::ops::Index<usize> for AdtFields {
     }
 }
 
-pub enum AdtRef<'a> {
-    Rc(&'a AdtValue),
-    Gc {
-        constructor: &'a Rc<String>,
-        fields: &'a AdtFields,
-    },
-}
+/// Unified reference to an ADT value's data.
+///
+/// After Aether Phase 2, all ADTs are `Value::Adt(Rc<AdtValue>)`, so this is
+/// a simple newtype wrapper. Kept for API compatibility with callers that use
+/// `.constructor()` / `.fields()` accessor style.
+pub struct AdtRef<'a>(pub &'a AdtValue);
 
 impl<'a> AdtRef<'a> {
     pub fn constructor(&self) -> &str {
-        match self {
-            AdtRef::Rc(adt) => adt.constructor.as_ref(),
-            AdtRef::Gc { constructor, .. } => constructor.as_ref(),
-        }
+        self.0.constructor.as_ref()
     }
 
     pub fn fields(&self) -> &'a AdtFields {
-        match self {
-            AdtRef::Rc(adt) => &adt.fields,
-            AdtRef::Gc { fields, .. } => fields,
-        }
+        &self.0.fields
     }
 }
 
@@ -279,18 +286,12 @@ pub enum Value {
     Function(Rc<CompiledFunction>),
     /// Runtime closure object.
     Closure(Rc<Closure>),
-    /// JIT-compiled closure object.
-    JitClosure(Rc<JitClosure>),
     /// Base function handle (index into base function table).
     BaseFunction(u8),
     /// Ordered collection of values.
     Array(Rc<Vec<Value>>),
     /// Fixed-size heterogeneous ordered collection.
     Tuple(Rc<Vec<Value>>),
-    /// GC-managed heap object (cons cell, HAMT map node).
-    Gc(GcHandle),
-    /// GC-managed ADT payload.
-    GcAdt(GcHandle),
     /// User-defined ADT constructor value: `Circle(1.0)`, `Red`, `Node(l, v, r)`.
     Adt(Rc<AdtValue>),
     /// Zero-field ADT constructor: `Tip`, `Red`, `None` (user-defined).
@@ -305,6 +306,12 @@ pub enum Value {
     /// Internal: perform key stored in the constant pool by the compiler.
     /// Never exposed to user code.
     PerformDescriptor(Rc<PerformDescriptor>),
+    /// Rc-based cons cell for persistent linked lists (Aether Phase 1).
+    /// Replaces `Value::Gc(GcHandle)` pointing to `HeapObject::Cons`.
+    Cons(Rc<ConsCell>),
+    /// Rc-based HAMT persistent map (Aether Phase 3).
+    /// Replaces `Value::Gc(GcHandle)` pointing to `HeapObject::HamtNode`.
+    HashMap(Rc<HamtNode>),
 }
 
 impl fmt::Display for Value {
@@ -323,7 +330,6 @@ impl fmt::Display for Value {
             Value::ReturnValue(v) => write!(f, "{}", v),
             Value::Function(_) => write!(f, "<function>"),
             Value::Closure(_) => write!(f, "<closure>"),
-            Value::JitClosure(_) => write!(f, "<jit-closure>"),
             Value::BaseFunction(_) => write!(f, "<base-fn>"),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
@@ -337,8 +343,26 @@ impl fmt::Display for Value {
                     _ => write!(f, "({})", items.join(", ")),
                 }
             }
-            Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
-            Value::GcAdt(handle) => write!(f, "<gc-adt@{}>", handle.index()),
+            Value::Cons(_) => {
+                // Display cons list as [head, tail_elem, ...]
+                let mut items = Vec::new();
+                let mut cur: &Value = self;
+                loop {
+                    match cur {
+                        Value::Cons(c) => {
+                            items.push(c.head.to_string());
+                            cur = &c.tail;
+                        }
+                        Value::EmptyList | Value::None => break,
+                        other => {
+                            items.push(format!("| {}", other));
+                            break;
+                        }
+                    }
+                }
+                write!(f, "[{}]", items.join(", "))
+            }
+            Value::HashMap(node) => write!(f, "{}", crate::runtime::hamt::format_hamt(node)),
             Value::Adt(adt) => {
                 if adt.fields.is_empty() {
                     write!(f, "{}", adt.constructor)
@@ -375,12 +399,12 @@ impl Value {
             Value::ReturnValue(_) => "ReturnValue",
             Value::Function(_) => "Function",
             Value::Closure(_) => "Closure",
-            Value::JitClosure(_) => "JitClosure",
             Value::BaseFunction(_) => "BaseFunction",
             Value::Array(_) => "Array",
             Value::Tuple(_) => "Tuple",
-            Value::Gc(_) => "Gc",
-            Value::GcAdt(_) | Value::Adt(_) | Value::AdtUnit(_) => "Adt",
+            Value::Cons(_) => "List",
+            Value::HashMap(_) => "Map",
+            Value::Adt(_) | Value::AdtUnit(_) => "Adt",
             Value::Continuation(_) => "Continuation",
             Value::HandlerDescriptor(_) => "HandlerDescriptor",
             Value::PerformDescriptor(_) => "PerformDescriptor",
@@ -393,7 +417,7 @@ impl Value {
     pub fn is_callable(&self) -> bool {
         matches!(
             self,
-            Value::Function(_) | Value::Closure(_) | Value::JitClosure(_) | Value::BaseFunction(_)
+            Value::Function(_) | Value::Closure(_) | Value::BaseFunction(_)
         )
     }
 
@@ -440,7 +464,6 @@ impl Value {
             Value::ReturnValue(v) => v.to_string_value(),
             Value::Function(_) => "<function>".to_string(),
             Value::Closure(_) => "<closure>".to_string(),
-            Value::JitClosure(_) => "<jit-closure>".to_string(),
             Value::BaseFunction(_) => "<base-fn>".to_string(),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
@@ -454,8 +477,8 @@ impl Value {
                     _ => format!("({})", items.join(", ")),
                 }
             }
-            Value::Gc(handle) => format!("<gc@{}>", handle.index()),
-            Value::GcAdt(handle) => format!("<gc-adt@{}>", handle.index()),
+            Value::Cons(_) => self.to_string(), // uses Display impl
+            Value::HashMap(node) => crate::runtime::hamt::format_hamt(node),
             Value::Adt(adt) => {
                 if adt.fields.is_empty() {
                     adt.constructor.to_string()
@@ -471,48 +494,109 @@ impl Value {
         }
     }
 
-    pub fn as_adt<'a>(&'a self, heap: &'a GcHeap) -> Option<AdtRef<'a>> {
+    pub fn as_adt(&self) -> Option<AdtRef<'_>> {
         match self {
-            Value::Adt(adt) => Some(AdtRef::Rc(adt)),
-            Value::GcAdt(handle) => match heap.get(*handle) {
-                HeapObject::Adt {
-                    constructor,
-                    fields,
-                } => Some(AdtRef::Gc {
-                    constructor,
-                    fields,
-                }),
-                _ => None,
-            },
+            Value::Adt(adt) => Some(AdtRef(adt)),
             _ => None,
         }
     }
 
-    pub fn adt_constructor<'a>(&'a self, heap: &'a GcHeap) -> Option<&'a str> {
+    pub fn adt_constructor(&self) -> Option<&str> {
         match self {
             Value::Adt(adt) => Some(adt.constructor.as_ref()),
-            Value::GcAdt(handle) => match heap.get(*handle) {
-                HeapObject::Adt { constructor, .. } => Some(constructor.as_ref()),
-                _ => None,
-            },
             _ => None,
         }
     }
 
-    pub fn adt_field_count(&self, heap: &GcHeap) -> Option<usize> {
-        self.as_adt(heap).map(|adt| adt.fields().len())
+    pub fn adt_field_count(&self) -> Option<usize> {
+        self.as_adt().map(|adt| adt.fields().len())
     }
 
-    pub fn adt_clone_field(&self, heap: &GcHeap, idx: usize) -> Option<Value> {
-        self.as_adt(heap)
-            .and_then(|adt| adt.fields().get(idx).cloned())
+    pub fn adt_clone_field(&self, idx: usize) -> Option<Value> {
+        self.as_adt().and_then(|adt| adt.fields().get(idx).cloned())
     }
 
-    pub fn adt_clone_two_fields(&self, heap: &GcHeap) -> Option<(Value, Value)> {
-        let adt = self.as_adt(heap)?;
+    pub fn adt_clone_two_fields(&self) -> Option<(Value, Value)> {
+        let adt = self.as_adt()?;
         let f0 = adt.fields().get(0)?.clone();
         let f1 = adt.fields().get(1)?.clone();
         Some((f0, f1))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rich value formatting (recursive, handles compound types)
+// ---------------------------------------------------------------------------
+
+/// Collect a cons-list Value into a Vec.
+fn collect_cons_list(value: &Value) -> Option<Vec<Value>> {
+    let mut elements = Vec::new();
+    let mut current = value.clone();
+    loop {
+        match &current {
+            Value::None | Value::EmptyList => return Some(elements),
+            Value::Cons(cell) => {
+                elements.push(cell.head.clone());
+                current = cell.tail.clone();
+            }
+            _ => return None,
+        }
+    }
+}
+
+/// Format a value for display (used by print, to_string, assertions, etc.).
+///
+/// Unlike `Value::Display`, this recursively formats compound values with
+/// proper delimiters: arrays as `[|1, 2|]`, tuples as `(1, 2)`,
+/// ADTs as `Foo(1, 2)`, cons lists as `[1, 2, 3]`, HAMT maps as `{"k": v}`.
+pub fn format_value(value: &Value) -> String {
+    match value {
+        Value::Array(elements) => {
+            let items: Vec<String> = elements.iter().map(format_value).collect();
+            format!("[|{}|]", items.join(", "))
+        }
+        Value::Tuple(elements) => {
+            let items: Vec<String> = elements.iter().map(format_value).collect();
+            match items.len() {
+                0 => "()".to_string(),
+                1 => format!("({},)", items[0]),
+                _ => format!("({})", items.join(", ")),
+            }
+        }
+        Value::Adt(_) => {
+            if let Some(adt) = value.as_adt() {
+                let items: Vec<String> = adt.fields().iter().map(format_value).collect();
+                format!("{}({})", adt.constructor(), items.join(", "))
+            } else {
+                value.to_string()
+            }
+        }
+        Value::AdtUnit(name) => name.to_string(),
+        Value::Cons(_) => match collect_cons_list(value) {
+            Some(elements) => {
+                let items: Vec<String> = elements.iter().map(format_value).collect();
+                format!("[{}]", items.join(", "))
+            }
+            None => "<malformed list>".to_string(),
+        },
+        Value::HashMap(node) => crate::runtime::hamt::format_hamt(node),
+        _ => value.to_string(),
+    }
+}
+
+/// Count the length of a cons-list Value.
+pub fn cons_list_len(value: &Value) -> Option<usize> {
+    let mut count = 0;
+    let mut current = value.clone();
+    loop {
+        match &current {
+            Value::None | Value::EmptyList => return Some(count),
+            Value::Cons(cell) => {
+                count += 1;
+                current = cell.tail.clone();
+            }
+            _ => return None,
+        }
     }
 }
 
@@ -631,13 +715,6 @@ mod tests {
             }
             _ => panic!("expected array values"),
         }
-    }
-
-    #[test]
-    fn test_clone_shares_gc_handle() {
-        let gc = Value::Gc(GcHandle::new_for_test(42));
-        let gc_clone = gc.clone();
-        assert_eq!(gc, gc_clone);
     }
 
     #[test]

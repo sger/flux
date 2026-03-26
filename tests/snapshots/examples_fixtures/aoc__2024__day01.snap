@@ -5,115 +5,108 @@ Fixture: examples/aoc/2024/day01.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E011]: Private Member
+error[E004]: Undefined Variable
 
-Cannot access private member `int_at`.
+I can't find a value named `map`.
 
-  examples/aoc/2024/day01.flx:14:6
+  examples/aoc/2024/day01.flx:18:12
    |
-14 |     (Shared.int_at(nums, 0), Shared.int_at(nums, 1))
-   |      ^^^^^^^^^^^^^
+18 |         |> map(/t -> parse_int(t))
+   |            ^^^
 
 Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
+  Define it first: let map = ...;
 
 
-error[E413]: Top-Level Effect
+error[E004]: Undefined Variable
 
-Effectful operation is not allowed at top level (requires: IO).
+I can't find a value named `map`.
 
-  examples/aoc/2024/day01.flx:60:1
+  examples/aoc/2024/day01.flx:26:8
    |
-60 | let all_pairs_data = read_lines("examples/aoc/2024/day01.txt") |> parse_pairs
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ----------------------------------------------------------------------------- top-level effectful expression
+26 |     |> map(/s -> parse_pair(s))
+   |        ^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
+  Define it first: let map = ...;
 
 
-error[E414]: Missing Main Function
+error[E004]: Undefined Variable
 
-Effectful program is missing `fn main` root effect handler.
+I can't find a value named `fold`.
 
-  examples/aoc/2024/day01.flx:60:1
+  examples/aoc/2024/day01.flx:35:8
    |
-60 | let all_pairs_data = read_lines("examples/aoc/2024/day01.txt") |> parse_pairs
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ----------------------------------------------------------------------------- effectful top-level execution
+35 |     |> fold(0, /(acc, p) -> acc + abs(p.0 - p.1))
+   |        ^^^^
 
 Hint:
-  Define `fn main() with ... { ... }` and move execution there.
+  Define it first: let fold = ...;
 
 
-error[E400]: Missing Effect
+error[E004]: Undefined Variable
 
-requires effect `IO` but the enclosing context does not provide it
+I can't find a value named `sort_by`.
 
-  examples/aoc/2024/day01.flx:60:22
+  examples/aoc/2024/day01.flx:36:52
    |
-60 | let all_pairs_data = read_lines("examples/aoc/2024/day01.txt") |> parse_pairs
-   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |                      ----------------------------------------- requires `IO`
+36 |     where left  = day_pairs_a |> map(/p -> p.0) |> sort_by(/x -> x)
+   |                                                    ^^^^^^^
 
 Hint:
-  annotate the enclosing function with `with IO`
+  Define it first: let sort_by = ...;
 
 
-error[E413]: Top-Level Effect
+error[E004]: Undefined Variable
 
-Effectful operation is not allowed at top level (requires: IO).
+I can't find a value named `sort_by`.
 
-  examples/aoc/2024/day01.flx:61:1
+  examples/aoc/2024/day01.flx:37:52
    |
-61 | print(day01a(all_pairs_data))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ----------------------------- top-level effectful expression
+37 |     where right = day_pairs_a |> map(/p -> p.1) |> sort_by(/x -> x)
+   |                                                    ^^^^^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
+  Define it first: let sort_by = ...;
 
 
-error[E400]: Missing Effect
+error[E004]: Undefined Variable
 
-requires effect `IO` but the enclosing context does not provide it
+I can't find a value named `fold`.
 
-  examples/aoc/2024/day01.flx:61:1
+  examples/aoc/2024/day01.flx:47:8
    |
-61 | print(day01a(all_pairs_data))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ----------------------------- requires `IO`
+47 |     |> fold(0, /(acc, x) -> {
+   |        ^^^^
 
 Hint:
-  annotate the enclosing function with `with IO`
+  Define it first: let fold = ...;
 
 
-error[E413]: Top-Level Effect
+error[E004]: Undefined Variable
 
-Effectful operation is not allowed at top level (requires: IO).
+I can't find a value named `map`.
 
-  examples/aoc/2024/day01.flx:62:1
+  examples/aoc/2024/day01.flx:50:34
    |
-62 | print(day01b(all_pairs_data))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ----------------------------- top-level effectful expression
+50 |     where left  = day_pairs_b |> map(/p -> p.0)
+   |                                  ^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
+  Define it first: let map = ...;
 
 
-error[E400]: Missing Effect
+error[E004]: Undefined Variable
 
-requires effect `IO` but the enclosing context does not provide it
+I can't find a value named `fold`.
 
-  examples/aoc/2024/day01.flx:62:1
+  examples/aoc/2024/day01.flx:53:12
    |
-62 | print(day01b(all_pairs_data))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ----------------------------- requires `IO`
+53 |         |> fold({}, /(m, x) -> match get(m, x) {
+   |            ^^^^
 
 Hint:
-  annotate the enclosing function with `with IO`
+  Define it first: let fold = ...;
 
 Found 8 errors.
 == stdout ==

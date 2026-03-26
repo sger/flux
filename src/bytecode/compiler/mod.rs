@@ -23,15 +23,10 @@ use crate::{
     },
     diagnostics::{
         CIRCULAR_DEPENDENCY, Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase,
-        ErrorType, UNKNOWN_BASE_MEMBER, lookup_error_code,
+        ErrorType, lookup_error_code,
         position::{Position, Span},
     },
-    runtime::{
-        base::{BaseModule, scheme_for_signature_id},
-        function_contract::FunctionContract,
-        runtime_type::RuntimeType,
-        value::Value,
-    },
+    runtime::{function_contract::FunctionContract, runtime_type::RuntimeType, value::Value},
     syntax::{
         block::Block,
         effect_expr::EffectExpr,
@@ -55,6 +50,7 @@ mod effect_rows;
 mod errors;
 mod expression;
 mod hm_expr_typer;
+pub mod module_interface;
 mod passes;
 pub(crate) mod pipeline;
 mod statement;
@@ -117,6 +113,9 @@ pub struct Compiler {
     pub(super) imported_modules: HashSet<Symbol>,
     pub(super) import_aliases: HashMap<Symbol, Symbol>,
     pub(super) imported_module_exclusions: HashMap<Symbol, HashSet<Symbol>>,
+    /// Maps unqualified member name → qualified "Module.member" symbol
+    /// for `import Module exposing (member)` or `exposing (..)`.
+    pub(super) exposed_bindings: HashMap<Symbol, Symbol>,
     pub(super) current_module_prefix: Option<Symbol>,
     pub(super) current_span: Option<Span>,
     // Module Constants - stores compile-time evaluated module constants
@@ -144,9 +143,8 @@ pub struct Compiler {
     analyze_enabled: bool,
     // Conservative per-block local-use counts used to emit consume-style local reads.
     pub(super) consumable_local_use_counts: Vec<HashMap<Symbol, usize>>,
-    pub(super) excluded_base_symbols: HashSet<Symbol>,
     pub module_contracts: ModuleContractTable,
-    pub(super) module_function_visibility: HashMap<(Symbol, Symbol), bool>,
+    pub module_function_visibility: HashMap<(Symbol, Symbol), bool>,
     pub(super) module_adt_constructors: HashMap<(Symbol, Symbol), Symbol>,
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
     pub(super) effect_alias_scopes: Vec<HashMap<Symbol, Symbol>>,
@@ -156,7 +154,17 @@ pub struct Compiler {
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     pub(super) hm_expr_types: HashMap<ExprId, InferType>,
+    /// Accumulated HM-inferred type schemes for public module members.
+    ///
+    /// Persists across `set_file_path()` calls so that downstream modules
+    /// can use type schemes from previously-compiled modules. Keyed by
+    /// `(module_name, member_name)`.
+    pub(super) cached_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
+    /// True when HM type inference produced diagnostics. Used to block CFG path
+    /// for functions in files with type errors (the Core IR may be degenerate).
+    pub(super) has_hm_diagnostics: bool,
     pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
+    pub(super) inferred_function_effects: HashMap<ContractKey, HashSet<Symbol>>,
     strict_mode: bool,
     strict_require_main: bool,
     /// When true, run two-phase inference with type-informed optimization
@@ -177,11 +185,7 @@ impl Compiler {
     }
 
     pub fn new_with_interner(file_path: impl Into<String>, interner: Interner) -> Self {
-        let mut interner = interner;
-        let mut symbol_table = SymbolTable::new();
-        for (index, name) in BaseModule::new().names().enumerate() {
-            symbol_table.define_base_function(index, interner.intern(name));
-        }
+        let symbol_table = SymbolTable::new();
 
         Self {
             constants: Vec::new(),
@@ -196,6 +200,7 @@ impl Compiler {
             imported_modules: HashSet::new(),
             import_aliases: HashMap::new(),
             imported_module_exclusions: HashMap::new(),
+            exposed_bindings: HashMap::new(),
             current_module_prefix: None,
             current_span: None,
             // Module Constants
@@ -212,7 +217,6 @@ impl Compiler {
             tail_calls: Vec::new(),
             analyze_enabled: false,
             consumable_local_use_counts: Vec::new(),
-            excluded_base_symbols: HashSet::new(),
             module_contracts: HashMap::new(),
             module_function_visibility: HashMap::new(),
             module_adt_constructors: HashMap::new(),
@@ -223,7 +227,10 @@ impl Compiler {
             effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
+            cached_member_schemes: HashMap::new(),
+            has_hm_diagnostics: false,
             ir_function_symbols: HashMap::new(),
+            inferred_function_effects: HashMap::new(),
             strict_mode: false,
             strict_require_main: true,
             type_optimize: false,
@@ -256,9 +263,13 @@ impl Compiler {
         self.imported_modules.clear();
         self.import_aliases.clear();
         self.imported_module_exclusions.clear();
+        self.exposed_bindings.clear();
+        // Auto-expose all Flow library module members (Proposal 0120).
+        // This ensures every compilation unit has access to the Flux stdlib
+        // without explicit imports, replacing the old base function registry.
+        self.auto_expose_flow_modules();
         self.current_module_prefix = None;
         self.current_span = None;
-        self.excluded_base_symbols.clear();
         self.static_type_scopes.clear();
         self.static_type_scopes.push(HashMap::new());
         self.effect_alias_scopes.clear();
@@ -270,6 +281,38 @@ impl Compiler {
         self.handled_effects.clear();
         self.effect_ops_registry.clear();
         self.effect_op_signatures.clear();
+    }
+
+    /// Auto-expose all public members of Flow library modules.
+    ///
+    /// Replaces the old base function registry — every compilation unit
+    /// gets unqualified access to `map`, `filter`, `assert_eq`, etc.
+    /// from `lib/Flow/*.flx` without needing explicit `import ... exposing`.
+    fn auto_expose_flow_modules(&mut self) {
+        let flow_prefixes: Vec<&str> = vec![
+            "Flow.Option",
+            "Flow.List",
+            "Flow.String",
+            "Flow.Numeric",
+            "Flow.IO",
+            "Flow.Assert",
+        ];
+        // Collect all public members for Flow modules.
+        let entries: Vec<(Symbol, Symbol)> = self
+            .module_function_visibility
+            .iter()
+            .filter(|((mod_name, _), is_public)| {
+                **is_public && {
+                    let name = self.interner.try_resolve(*mod_name).unwrap_or("");
+                    flow_prefixes.contains(&name)
+                }
+            })
+            .map(|((mod_name, member), _)| (*mod_name, *member))
+            .collect();
+        for (mod_name, member) in entries {
+            let qualified = self.interner.intern_join(mod_name, member);
+            self.exposed_bindings.insert(member, qualified);
+        }
     }
 
     pub fn set_strict_mode(&mut self, strict_mode: bool) {
@@ -292,9 +335,9 @@ impl Compiler {
         self.imported_modules.clear();
         self.import_aliases.clear();
         self.imported_module_exclusions.clear();
+        self.exposed_bindings.clear();
         self.current_module_prefix = None;
         self.current_span = None;
-        self.excluded_base_symbols.clear();
         self.static_type_scopes.clear();
         self.static_type_scopes.push(HashMap::new());
         self.effect_alias_scopes.clear();
@@ -310,6 +353,8 @@ impl Compiler {
         self.collect_module_function_visibility(program);
         self.collect_module_contracts(program);
         self.collect_effect_declarations(program);
+        // Auto-expose Flow library modules so HM can resolve Flow functions.
+        self.auto_expose_flow_modules();
 
         let hm_config = self.build_infer_config(program);
         let hm = infer_program(program, &self.interner, hm_config);
@@ -499,9 +544,6 @@ impl Compiler {
             let Statement::Import { name, alias, .. } = statement else {
                 continue;
             };
-            if self.is_base_module_symbol(*name) {
-                continue;
-            }
             let binding = alias.unwrap_or(*name);
             bindings.insert(binding, *name);
         }
@@ -565,6 +607,21 @@ impl Compiler {
 
         let mut preloaded = HashMap::new();
         for (binding, target_module) in import_bindings {
+            // First populate from cached HM-inferred schemes.
+            for ((mod_name, member), scheme) in &self.cached_member_schemes {
+                if *mod_name != target_module {
+                    continue;
+                }
+                if self
+                    .module_function_visibility
+                    .get(&(target_module, *member))
+                    != Some(&true)
+                {
+                    continue;
+                }
+                preloaded.insert((binding, *member), scheme.clone());
+            }
+            // Then supplement with contract-based schemes (for annotated functions).
             for (key, contract) in &self.module_contracts {
                 if key.module_name != Some(target_module) {
                     continue;
@@ -576,6 +633,10 @@ impl Compiler {
                 {
                     continue;
                 }
+                // Don't override cached scheme if already present.
+                if preloaded.contains_key(&(binding, key.function_name)) {
+                    continue;
+                }
                 if let Some(scheme) = Self::scheme_from_contract(contract, &self.interner) {
                     preloaded.insert((binding, key.function_name), scheme);
                 }
@@ -585,120 +646,359 @@ impl Compiler {
         preloaded
     }
 
-    fn build_preloaded_base_schemes(&mut self) -> HashMap<Symbol, Scheme> {
-        let mut preloaded = HashMap::new();
-        for base_fn in BaseModule::new().names() {
-            let base_name = self.interner.intern(base_fn);
-            let Some(entry) = BaseModule::new()
-                .index_of(base_fn)
-                .and_then(|i| BaseModule::new().by_index(i))
-            else {
-                continue;
-            };
-            match scheme_for_signature_id(entry.hm_signature, &mut self.interner) {
-                Ok(scheme) => {
-                    preloaded.insert(base_name, scheme);
-                }
-                Err(message) => {
-                    let span = Span::new(Position::new(1, 0), Position::new(1, 0));
-                    self.errors.push(
-                        Diagnostic::make_error_dynamic(
-                            "E426",
-                            "BASE HM SIGNATURE MISSING",
-                            ErrorType::Compiler,
-                            format!(
-                                "Base function `{}` has invalid or missing HM metadata: {}",
-                                base_fn, message
-                            ),
-                            Some(
-                                "Fix the Base HM signature in src/runtime/base/base_hm_signature.rs."
-                                    .to_string(),
-                            ),
-                            self.file_path.clone(),
-                            span,
-                        )
-                        .with_display_title("Missing Base HM Signature")
-                        .with_category(DiagnosticCategory::Internal)
-                        .with_primary_label(span, "invalid Base HM metadata"),
-                    );
-                }
-            }
-        }
-        preloaded
-    }
+    /// Build unqualified type schemes for `exposing` imports.
+    ///
+    /// Returns a map from unqualified member name → Scheme so HM inference
+    /// can resolve exposed names without module qualification.
+    fn build_exposed_hm_schemes(&self, program: &Program) -> HashMap<Symbol, Scheme> {
+        use crate::syntax::statement::ImportExposing;
 
-    fn build_preload_base_member_schemes(&mut self) -> HashMap<(Symbol, Symbol), Scheme> {
-        let mut preloaded = HashMap::new();
-        let base_module = self.interner.intern("Base");
+        let mut exposed = HashMap::new();
 
-        for base_fn in BaseModule::new().names() {
-            let member = self.interner.intern(base_fn);
-            let Some(entry) = BaseModule::new()
-                .index_of(base_fn)
-                .and_then(|i| BaseModule::new().by_index(i))
+        for stmt in &program.statements {
+            let Statement::Import {
+                name: module_name,
+                exposing,
+                ..
+            } = stmt
             else {
                 continue;
             };
 
-            match scheme_for_signature_id(entry.hm_signature, &mut self.interner) {
-                Ok(scheme) => {
-                    preloaded.insert((base_module, member), scheme);
+            let members_to_expose: Vec<Symbol> = match exposing {
+                ImportExposing::None => continue,
+                ImportExposing::All => self
+                    .module_function_visibility
+                    .iter()
+                    .filter(|((mod_name, _), is_public)| *mod_name == *module_name && **is_public)
+                    .map(|((_, member), _)| *member)
+                    .collect(),
+                ImportExposing::Names(names) => names.clone(),
+            };
+
+            for member in members_to_expose {
+                // Only expose if public
+                if self.module_function_visibility.get(&(*module_name, member)) != Some(&true) {
+                    continue;
                 }
-                Err(message) => {
-                    let span = Span::new(Position::new(1, 0), Position::new(1, 0));
-                    self.errors.push(
-                        Diagnostic::make_error_dynamic(
-                            "E426",
-                            "BASE HM SIGNATURE MISSING",
-                            ErrorType::Compiler,
-                            format!(
-                                "Base member `Base.{}` has invalid or missing HM metadata: {}",
-                                base_fn, message
-                            ),
-                            Some(
-                                "Fix the Base HM signature in src/runtime/base/base_hm_signature.rs."
-                                    .to_string(),
-                            ),
-                            self.file_path.clone(),
-                            span,
-                        )
-                        .with_display_title("Missing Base HM Signature")
-                        .with_category(DiagnosticCategory::Internal)
-                        .with_primary_label(span, "invalid Base HM metadata"),
-                    );
+
+                // First try cached HM-inferred schemes (direct, no roundtrip).
+                if let Some(scheme) = self.cached_member_schemes.get(&(*module_name, member)) {
+                    exposed.insert(member, scheme.clone());
+                    continue;
+                }
+
+                // Fallback to contract-based schemes (for annotated functions).
+                for (key, contract) in &self.module_contracts {
+                    if key.module_name != Some(*module_name) || key.function_name != member {
+                        continue;
+                    }
+                    if let Some(scheme) = Self::scheme_from_contract(contract, &self.interner) {
+                        exposed.insert(member, scheme);
+                    }
                 }
             }
         }
-        preloaded
-    }
-
-    fn known_base_name_set(&mut self) -> HashSet<Symbol> {
-        BaseModule::new()
-            .names()
-            .map(|name| self.interner.intern(name))
-            .collect()
+        exposed
     }
 
     /// Build the `InferProgramConfig` needed by `infer_program`.
     ///
-    /// Collects base schemes, module member schemes, and effect signatures.
+    /// Collects module member schemes and effect signatures.
     /// Can be called multiple times (e.g. for two-phase inference).
     fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
-        let base_schemes = self.build_preloaded_base_schemes();
         let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
-        let base_member_schemes = self.build_preload_base_member_schemes();
-        let known_base_names = self.known_base_name_set();
-        let base_module_symbol = self.interner.intern("Base");
-        let mut merged_member_schemes = preloaded_member_schemes;
-        merged_member_schemes.extend(base_member_schemes);
+        let flow_module_symbol = self.interner.intern("Flow");
+
+        // Exposed import schemes are used as unqualified identifiers by HM inference.
+        let mut exposed_schemes = self.build_exposed_hm_schemes(program);
+
+        // Inject primop type schemes so HM can resolve types for functions
+        // that call primops (e.g., lib/Flow/*.flx functions like read_lines).
+        self.inject_primop_hm_schemes(&mut exposed_schemes);
+
+        // Auto-inject all cached Flow module member schemes so that every
+        // module has access to Flow functions without explicit imports
+        // (like Haskell's implicit Prelude import).
+        for ((mod_name, member), scheme) in &self.cached_member_schemes {
+            let mod_str = self.interner.resolve(*mod_name);
+            if mod_str.starts_with("Flow.") {
+                // Only inject if not already present (explicit imports take priority).
+                exposed_schemes
+                    .entry(*member)
+                    .or_insert_with(|| scheme.clone());
+            }
+        }
 
         InferProgramConfig {
             file_path: Some(self.file_path.as_str().into()),
-            preloaded_base_schemes: base_schemes,
-            preloaded_module_member_schemes: merged_member_schemes,
-            known_base_names,
-            base_module_symbol,
+            preloaded_base_schemes: exposed_schemes,
+            preloaded_module_member_schemes: preloaded_member_schemes,
+            known_flow_names: HashSet::new(),
+            flow_module_symbol,
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
+        }
+    }
+
+    /// Inject HM type schemes for primops so that HM inference can resolve
+    /// types in modules that call primops directly (e.g., `lib/Flow/*.flx`).
+    ///
+    /// Only injects schemes for names not already present in the map
+    /// (module-defined functions take priority over primops).
+    fn inject_primop_hm_schemes(&mut self, schemes: &mut HashMap<Symbol, Scheme>) {
+        use crate::types::infer_effect_row::InferEffectRow;
+        use crate::types::type_constructor::TypeConstructor as TC;
+
+        let io_sym = self.interner.intern("IO");
+
+        // Helper closures for common type patterns.
+        let con = |tc: TC| InferType::Con(tc);
+        let app = |tc: TC, args: Vec<InferType>| InferType::App(tc, args);
+        let fun = |params: Vec<InferType>, ret: InferType, eff: InferEffectRow| -> InferType {
+            InferType::Fun(params, Box::new(ret), eff)
+        };
+        let pure = || InferEffectRow::closed_empty();
+        let io = || InferEffectRow::closed_from_symbols(vec![io_sym]);
+
+        // (name, params, ret, effects, forall_count)
+        let primop_sigs: Vec<(&str, Vec<InferType>, InferType, InferEffectRow, usize)> = vec![
+            // I/O
+            ("print", vec![con(TC::Any)], con(TC::Any), io(), 0),
+            ("println", vec![con(TC::Any)], con(TC::Any), io(), 0),
+            ("read_file", vec![con(TC::String)], con(TC::String), io(), 0),
+            ("read_stdin", vec![], con(TC::String), io(), 0),
+            (
+                "read_lines",
+                vec![con(TC::String)],
+                app(TC::Array, vec![con(TC::String)]),
+                io(),
+                0,
+            ),
+            (
+                "write_file",
+                vec![con(TC::String), con(TC::String)],
+                con(TC::Unit),
+                io(),
+                0,
+            ),
+            ("panic", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            // String ops
+            (
+                "split",
+                vec![con(TC::String), con(TC::String)],
+                app(TC::Array, vec![con(TC::String)]),
+                pure(),
+                0,
+            ),
+            (
+                "join",
+                vec![app(TC::Array, vec![con(TC::String)]), con(TC::String)],
+                con(TC::String),
+                pure(),
+                0,
+            ),
+            ("trim", vec![con(TC::String)], con(TC::String), pure(), 0),
+            ("upper", vec![con(TC::String)], con(TC::String), pure(), 0),
+            ("lower", vec![con(TC::String)], con(TC::String), pure(), 0),
+            (
+                "starts_with",
+                vec![con(TC::String), con(TC::String)],
+                con(TC::Bool),
+                pure(),
+                0,
+            ),
+            (
+                "ends_with",
+                vec![con(TC::String), con(TC::String)],
+                con(TC::Bool),
+                pure(),
+                0,
+            ),
+            (
+                "replace",
+                vec![con(TC::String), con(TC::String), con(TC::String)],
+                con(TC::String),
+                pure(),
+                0,
+            ),
+            (
+                "chars",
+                vec![con(TC::String)],
+                app(TC::Array, vec![con(TC::String)]),
+                pure(),
+                0,
+            ),
+            (
+                "substring",
+                vec![con(TC::String), con(TC::Int), con(TC::Int)],
+                con(TC::String),
+                pure(),
+                0,
+            ),
+            (
+                "str_contains",
+                vec![con(TC::String), con(TC::String)],
+                con(TC::Bool),
+                pure(),
+                0,
+            ),
+            ("to_string", vec![con(TC::Any)], con(TC::String), pure(), 0),
+            // Numeric
+            ("abs", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            (
+                "min",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            (
+                "max",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            (
+                "parse_int",
+                vec![con(TC::String)],
+                app(TC::Option, vec![con(TC::Int)]),
+                pure(),
+                0,
+            ),
+            (
+                "parse_ints",
+                vec![app(TC::Array, vec![con(TC::String)])],
+                app(TC::Array, vec![con(TC::Int)]),
+                pure(),
+                0,
+            ),
+            (
+                "split_ints",
+                vec![con(TC::String), con(TC::String)],
+                app(TC::Array, vec![con(TC::Int)]),
+                pure(),
+                0,
+            ),
+            // Collection ops
+            ("len", vec![con(TC::Any)], con(TC::Int), pure(), 0),
+            (
+                "push",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            (
+                "concat",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            (
+                "slice",
+                vec![con(TC::Any), con(TC::Int), con(TC::Int)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            ("sort", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("reverse", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            (
+                "contains",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Bool),
+                pure(),
+                0,
+            ),
+            (
+                "range",
+                vec![con(TC::Int), con(TC::Int)],
+                app(TC::Array, vec![con(TC::Int)]),
+                pure(),
+                0,
+            ),
+            // Type checks
+            ("type_of", vec![con(TC::Any)], con(TC::String), pure(), 0),
+            ("is_int", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_float", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_string", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_bool", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_array", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_none", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_some", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_list", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_hash", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("is_map", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            // List ops
+            ("hd", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("tl", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("to_list", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("to_array", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            // Map ops
+            ("keys", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("values", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            (
+                "has_key",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Bool),
+                pure(),
+                0,
+            ),
+            (
+                "merge",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            (
+                "delete",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            (
+                "put",
+                vec![con(TC::Any), con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            (
+                "get",
+                vec![con(TC::Any), con(TC::Any)],
+                con(TC::Any),
+                pure(),
+                0,
+            ),
+            // Time
+            ("now_ms", vec![], con(TC::Int), pure(), 0),
+            (
+                "time",
+                vec![fun(vec![], con(TC::Any), pure())],
+                con(TC::Int),
+                pure(),
+                0,
+            ),
+            // Sum/Product
+            ("sum", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("product", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+        ];
+
+        for (name, params, ret, effects, _forall) in primop_sigs {
+            let sym = self.interner.intern(name);
+            // Don't override module-defined functions.
+            if schemes.contains_key(&sym) {
+                continue;
+            }
+            let infer_type = fun(params, ret, effects);
+            let mut forall = infer_type.free_vars().into_iter().collect::<Vec<_>>();
+            forall.sort_unstable();
+            forall.dedup();
+            schemes.insert(sym, Scheme { forall, infer_type });
         }
     }
 
@@ -763,6 +1063,7 @@ impl Compiler {
 
         let seeds = self.collect_function_effect_seeds(program);
         if seeds.is_empty() {
+            self.inferred_function_effects.clear();
             return;
         }
 
@@ -775,14 +1076,6 @@ impl Compiler {
         while changed {
             changed = false;
             for seed in &seeds {
-                if !seed.declared_effects.is_empty() {
-                    continue;
-                }
-                let is_fully_unannotated =
-                    !seed.parameter_types.iter().any(Option::is_some) && seed.return_type.is_none();
-                if !is_fully_unannotated {
-                    continue;
-                }
                 let effects = self.infer_effects_from_block(
                     &seed.body,
                     seed.module_name,
@@ -790,13 +1083,17 @@ impl Compiler {
                     io_effect,
                     time_effect,
                 );
+                let mut combined_effects = seed.declared_effects.clone();
+                combined_effects.extend(effects);
                 let entry = inferred.entry(seed.key.clone()).or_default();
-                if *entry != effects {
-                    *entry = effects;
+                if *entry != combined_effects {
+                    *entry = combined_effects;
                     changed = true;
                 }
             }
         }
+
+        self.inferred_function_effects = inferred.clone();
 
         for seed in &seeds {
             let is_fully_unannotated =
@@ -1228,9 +1525,6 @@ impl Compiler {
                     }
                 }
                 if !resolved {
-                    if self.excluded_base_symbols.contains(name) {
-                        return effects;
-                    }
                     let name = self.sym(*name);
                     if matches!(name, "print" | "read_file" | "read_lines" | "read_stdin") {
                         effects.insert(io_effect);
@@ -1704,28 +1998,36 @@ impl Compiler {
                             .with_primary_label(*span, "missing return type annotation"),
                         );
                     }
+                }
 
-                    let is_effectful = self
-                        .lookup_contract(module_name, *name, parameters.len())
-                        .is_some_and(|contract| !contract.effects.is_empty());
-                    if is_effectful && effects.is_empty() {
-                        self.errors.push(
-                            Diagnostic::make_error_dynamic(
-                                "E418",
-                                "STRICT EFFECT ANNOTATION REQUIRED",
-                                ErrorType::Compiler,
-                                format!(
-                                    "Public effectful function `{}` must declare `with ...` in strict mode.",
-                                    self.sym(*name)
-                                ),
-                                Some("Add explicit `with EffectName` to the function signature.".to_string()),
-                                self.file_path.clone(),
-                                *span,
-                            )
-                            .with_category(DiagnosticCategory::ModuleSystem)
-                            .with_primary_label(*span, "missing explicit effect annotation"),
-                        );
-                    }
+                let missing_effects = self.strict_missing_ambient_effects(
+                    module_name,
+                    *name,
+                    parameters.len(),
+                    effects,
+                );
+                for effect_name in missing_effects {
+                    let effect_text = self.sym(effect_name).to_string();
+                    self.errors.push(
+                        Diagnostic::make_error_dynamic(
+                            "E418",
+                            "STRICT EFFECT ANNOTATION REQUIRED",
+                            ErrorType::Compiler,
+                            format!(
+                                "Effectful function `{}` must declare `with {}` in strict mode.",
+                                self.sym(*name),
+                                effect_text,
+                            ),
+                            Some(format!(
+                                "Add explicit `with {}` to the function signature.",
+                                effect_text
+                            )),
+                            self.file_path.clone(),
+                            *span,
+                        )
+                        .with_category(DiagnosticCategory::ModuleSystem)
+                        .with_primary_label(*span, "missing explicit effect annotation"),
+                    );
                 }
 
                 for ty in parameter_types.iter().flatten() {
@@ -1742,6 +2044,44 @@ impl Compiler {
             }
             _ => {}
         }
+    }
+
+    fn strict_missing_ambient_effects(
+        &self,
+        module_name: Option<Symbol>,
+        function_name: Symbol,
+        arity: usize,
+        declared_effects: &[EffectExpr],
+    ) -> Vec<Symbol> {
+        let key = ContractKey {
+            module_name,
+            function_name,
+            arity,
+        };
+        let inferred = self
+            .inferred_function_effects
+            .get(&key)
+            .cloned()
+            .unwrap_or_default();
+        if inferred.is_empty() {
+            return Vec::new();
+        }
+
+        let declared: HashSet<Symbol> = declared_effects
+            .iter()
+            .flat_map(EffectExpr::normalized_names)
+            .collect();
+        let mut missing = Vec::new();
+
+        for effect in inferred {
+            let name = self.sym(effect);
+            if matches!(name, "IO" | "Time") && !declared.contains(&effect) {
+                missing.push(effect);
+            }
+        }
+
+        missing.sort_by_key(|effect| self.sym(*effect).to_string());
+        missing
     }
 
     fn error_on_any_type_expr_in_strict(&mut self, ty: &TypeExpr) {
@@ -1974,27 +2314,7 @@ impl Compiler {
 
         if let Some(effect) = self.lookup_effect_alias(*name) {
             self.bind_effect_alias(binding, effect);
-            return;
         }
-
-        let Some(symbol) = self.resolve_visible_symbol(*name) else {
-            return;
-        };
-        if symbol.symbol_scope != crate::bytecode::symbol_scope::SymbolScope::Base {
-            return;
-        }
-
-        let base_name = self.sym(*name).to_string();
-        let required_name = match base_name.as_str() {
-            "print" | "read_file" | "read_lines" | "read_stdin" => Some("IO"),
-            "now" | "clock_now" | "now_ms" | "time" => Some("Time"),
-            _ => None,
-        };
-        let Some(required_name) = required_name else {
-            return;
-        };
-        let effect = self.interner.intern(required_name);
-        self.bind_effect_alias(binding, effect);
     }
 
     /// Compile with optional optimization and analysis passes.
@@ -2062,12 +2382,13 @@ impl Compiler {
 
     /// Render the Core IR for the same AST shape consumed by the current
     /// compile configuration. Call this after a successful `compile_with_opts`.
+    #[allow(clippy::result_large_err)]
     pub fn dump_core_with_opts(
         &self,
         program: &Program,
         optimize: bool,
         mode: crate::core::display::CoreDisplayMode,
-    ) -> String {
+    ) -> Result<String, Diagnostic> {
         let program_to_lower = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
@@ -2079,15 +2400,165 @@ impl Compiler {
 
         let mut core =
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
-        crate::core::passes::run_core_passes(&mut core);
-        match mode {
+        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
+
+        // Collect Aether stats across all definitions
+        let mut total_stats = crate::aether::AetherStats::default();
+        for def in &core.defs {
+            let s = crate::aether::collect_stats(&def.expr);
+            total_stats.dups += s.dups;
+            total_stats.drops += s.drops;
+            total_stats.reuses += s.reuses;
+            total_stats.drop_specs += s.drop_specs;
+            total_stats.allocs += s.allocs;
+        }
+
+        let ir_text = match mode {
             crate::core::display::CoreDisplayMode::Readable => {
                 crate::core::display::display_program_readable(&core, &self.interner)
             }
             crate::core::display::CoreDisplayMode::Debug => {
                 crate::core::display::display_program_debug(&core, &self.interner)
             }
+        };
+
+        if total_stats.dups > 0 || total_stats.drops > 0 || total_stats.reuses > 0 {
+            Ok(format!("{}\n── Aether stats ──\n{}", ir_text, total_stats))
+        } else {
+            Ok(ir_text)
         }
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub fn lower_aether_report_program(
+        &self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<crate::core::CoreProgram, Diagnostic> {
+        let program_to_lower = if optimize {
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
+            rename(optimized, HashMap::new())
+        } else {
+            program.clone()
+        };
+
+        let mut core =
+            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
+        Ok(core)
+    }
+
+    /// Render an Aether memory model report showing per-function optimization decisions.
+    #[allow(clippy::result_large_err)]
+    pub fn render_aether_report(
+        &self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<String, Diagnostic> {
+        let core = self.lower_aether_report_program(program, optimize)?;
+        let fbip_diags = crate::aether::check_fbip::check_fbip(&core, &self.interner);
+        let fbip_by_name = fbip_diags
+            .diagnostics
+            .iter()
+            .map(|diag| (diag.function_name.as_str(), diag))
+            .collect::<HashMap<_, _>>();
+
+        let mut out = String::new();
+        out.push_str("Aether Memory Model Report\n");
+        out.push_str("==========================\n\n");
+
+        let mut total = crate::aether::AetherStats::default();
+
+        for def in &core.defs {
+            let stats = crate::aether::collect_stats(&def.expr);
+            if stats.dups == 0
+                && stats.drops == 0
+                && stats.reuses == 0
+                && stats.drop_specs == 0
+                && def.fip.is_none()
+            {
+                continue;
+            }
+            let name = self.interner.resolve(def.name);
+            let fip_label = match def.fip {
+                Some(crate::syntax::statement::FipAnnotation::Fip) => " @fip",
+                Some(crate::syntax::statement::FipAnnotation::Fbip) => " @fbip",
+                None => "",
+            };
+            out.push_str(&format!("── fn {}{} ──\n", name, fip_label));
+            out.push_str(&format!("  {}\n", stats));
+            out.push_str(&format!("  FreshAllocs: {}\n", stats.allocs));
+
+            let verify_errors = crate::aether::verify::verify_contract(&def.expr)
+                .err()
+                .unwrap_or_default();
+            let verify_diags = crate::aether::verify::verify_diagnostics(&def.expr);
+            if verify_errors.is_empty() && verify_diags.is_empty() {
+                out.push_str("  verifier: ok\n");
+            } else {
+                out.push_str("  verifier:\n");
+                for err in verify_errors {
+                    out.push_str(&format!("    - {:?}: {}\n", err.kind, err.message));
+                }
+                for diag in verify_diags {
+                    out.push_str(&format!("    - {:?}: {}\n", diag.kind, diag.message));
+                }
+            }
+
+            if let Some(fbip_diag) = fbip_by_name.get(name) {
+                let fbip_status = if fbip_diag
+                    .reasons
+                    .contains(&crate::aether::fbip_analysis::FbipFailureReason::NoConstructors)
+                    && !matches!(
+                        fbip_diag.outcome,
+                        crate::aether::fbip_analysis::FbipOutcome::NotProvable
+                    ) {
+                    "vacuous".to_string()
+                } else {
+                    match &fbip_diag.outcome {
+                        crate::aether::fbip_analysis::FbipOutcome::Fip => "proved (fip)".into(),
+                        crate::aether::fbip_analysis::FbipOutcome::Fbip { bound } => {
+                            format!("proved (fbip({bound}))")
+                        }
+                        crate::aether::fbip_analysis::FbipOutcome::NotProvable => {
+                            "NotProvable".into()
+                        }
+                    }
+                };
+                out.push_str(&format!("  fbip: {}\n", fbip_status));
+                for detail in &fbip_diag.details {
+                    out.push_str(&format!("    - {}\n", detail));
+                }
+            }
+
+            let displayed = crate::core::display::display_expr_readable(&def.expr, &self.interner);
+            out.push_str(&displayed);
+            out.push('\n');
+
+            total.dups += stats.dups;
+            total.drops += stats.drops;
+            total.reuses += stats.reuses;
+            total.drop_specs += stats.drop_specs;
+            total.allocs += stats.allocs;
+        }
+
+        out.push_str(&format!(
+            "\n── Total ──\n  {}\n  FreshAllocs: {}\n",
+            total, total.allocs
+        ));
+        Ok(out)
+    }
+
+    /// Dump an Aether memory model report showing per-function optimization decisions.
+    #[allow(clippy::result_large_err)]
+    pub fn dump_aether_report(
+        &self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<String, Diagnostic> {
+        self.render_aether_report(program, optimize)
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
@@ -2686,65 +3157,12 @@ impl Compiler {
         self.captured_local_indices[current_idx].insert(local_index);
     }
 
-    pub(super) fn is_base_module_symbol(&self, name: Symbol) -> bool {
-        self.sym(name) == "Base"
+    pub(super) fn is_flow_module_symbol(&self, name: Symbol) -> bool {
+        self.sym(name) == "Flow"
     }
 
     pub(super) fn resolve_visible_symbol(&mut self, name: Symbol) -> Option<Binding> {
-        let binding = self.symbol_table.resolve(name)?;
-        if binding.symbol_scope == crate::bytecode::symbol_scope::SymbolScope::Base
-            && self.excluded_base_symbols.contains(&name)
-        {
-            return None;
-        }
-        Some(binding)
-    }
-
-    fn process_base_directives(&mut self, program: &Program) {
-        let mut seen = HashSet::new();
-
-        for statement in &program.statements {
-            let Statement::Import {
-                name,
-                alias,
-                except,
-                span,
-            } = statement
-            else {
-                continue;
-            };
-
-            if !self.is_base_module_symbol(*name) {
-                continue;
-            }
-
-            if let Some(alias) = alias {
-                let alias_name = self.sym(*alias);
-                self.errors
-                    .push(self.make_base_alias_error(alias_name, *span));
-            }
-
-            for excluded in except {
-                let excluded_name = self.sym(*excluded);
-                if !seen.insert(*excluded) {
-                    self.errors
-                        .push(self.make_duplicate_base_exclusion_error(excluded_name, *span));
-                    continue;
-                }
-
-                if BaseModule::new().index_of(excluded_name).is_none() {
-                    self.errors.push(Diagnostic::make_error(
-                        &UNKNOWN_BASE_MEMBER,
-                        &[excluded_name],
-                        self.file_path.clone(),
-                        *span,
-                    ));
-                    continue;
-                }
-
-                self.excluded_base_symbols.insert(*excluded);
-            }
-        }
+        self.symbol_table.resolve(name)
     }
 }
 

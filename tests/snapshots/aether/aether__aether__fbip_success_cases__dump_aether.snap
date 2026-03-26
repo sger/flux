@@ -1,0 +1,62 @@
+---
+source: tests/aether_cli_snapshots.rs
+---
+Aether Memory Model Report
+==========================
+
+── fn rebuild_list @fip ──
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+  fbip: proved (fip)
+    - provably zero fresh allocations after Aether
+λxs.
+  case xs of
+    ::(h, t) →
+      reuse xs ::(h, t) @mask=0b0
+    _ →
+      []
+── fn rebuild_some @fip ──
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+  fbip: proved (fip)
+    - provably zero fresh allocations after Aether
+λopt.
+  case opt of
+    Some(x) →
+      reuse opt Some(x) @mask=0b0
+    _ →
+      None
+── fn set_black @fip ──
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+  fbip: proved (fip)
+    - provably zero fresh allocations after Aether
+λt.
+  case t of
+    Node(_, left, key, right) →
+      reuse t Node(Black, left, key, right) @mask=0b1
+    _ →
+      t
+── fn main ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+  verifier: ok
+λ.
+  let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
+  aether_call[borrowed] rebuild_list(%t3))
+  Print(%t2))
+  drop %t1
+  let %t4 = (let %t5 = (let %t6 = Some(41)
+  aether_call[borrowed] rebuild_some(%t6))
+  Print(%t5))
+  drop %t4
+  let %t7 = (let %t8 = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
+  aether_call[owned] set_black(%t8))
+  Print(%t7)
+
+── Total ──
+  Dups: 0  Drops: 2  Reuses: 3  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1

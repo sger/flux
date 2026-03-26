@@ -1,0 +1,20 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/exposing_missing_paren.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Missing Exposing List
+
+Expected `(` after `exposing` in import.
+
+  examples/parser_errors/exposing_missing_paren.flx:3:1
+  |
+3 | fn main() {}
+  | ^^
+
+Hint:
+  Use `exposing (..)` for all members or `exposing (name1, name2)` for selective.
+== stdout ==
+<not executed>

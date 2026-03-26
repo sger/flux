@@ -4,13 +4,12 @@ set -euo pipefail
 show_help() {
   cat <<'USAGE'
 Usage:
-  scripts/run_examples.sh [--mode vm|jit|both] <path-under-examples> [flux args...]
-  scripts/run_examples.sh [--mode vm|jit|both] <folder-under-examples>/ [flux args...]
-  scripts/run_examples.sh [--mode vm|jit|both] --all [flux args...]
+  scripts/run_examples.sh <path-under-examples> [flux args...]
+  scripts/run_examples.sh <folder-under-examples>/ [flux args...]
+  scripts/run_examples.sh --all [flux args...]
 
 Examples:
   scripts/run_examples.sh basics/print.flx
-  scripts/run_examples.sh --mode jit basics/print.flx
   scripts/run_examples.sh ModuleGraph/ --no-cache
   scripts/run_examples.sh ModuleGraph/module_graph_main.flx --no-cache --trace
 
@@ -21,9 +20,6 @@ Flux flags (common):
   --leak-detector
   --roots-only
   --root <path>  (extra root, can be repeated)
-
-Runner flags:
-  --mode vm|jit|both  (default: both)
 USAGE
 }
 
@@ -49,24 +45,6 @@ if [[ $# -lt 1 || "$1" == "-h" || "$1" == "--help" ]]; then
   exit 0
 fi
 
-mode="both"
-if [[ "$1" == "--mode" ]]; then
-  if [[ $# -lt 2 ]]; then
-    echo "Error: --mode requires vm, jit, or both" >&2
-    exit 1
-  fi
-  mode="$2"
-  shift 2
-fi
-
-case "$mode" in
-  vm|jit|both) ;;
-  *)
-    echo "Error: invalid --mode '$mode' (expected vm|jit|both)" >&2
-    exit 1
-    ;;
-esac
-
 failures=()
 
 record_failure() {
@@ -91,7 +69,7 @@ run_all() {
     [[ -z "$example" ]] && continue
     echo
     echo "==> examples/$example"
-    if ! scripts/run_examples.sh --mode "$mode" "$example" "$@"; then
+    if ! scripts/run_examples.sh "$example" "$@"; then
       record_failure "$example"
     fi
   done < <(list_examples)
@@ -113,7 +91,7 @@ if [[ -d "examples/$example" ]]; then
     while IFS= read -r file; do
       echo
       echo "==> examples/$file"
-      if ! scripts/run_examples.sh --mode "$mode" "$file" "$@"; then
+      if ! scripts/run_examples.sh "$file" "$@"; then
         record_failure "$file"
       fi
     done < <(
@@ -123,7 +101,7 @@ if [[ -d "examples/$example" ]]; then
     while IFS= read -r file; do
       echo
       echo "==> examples/$file"
-      if ! scripts/run_examples.sh --mode "$mode" "$file" "$@"; then
+      if ! scripts/run_examples.sh "$file" "$@"; then
         record_failure "$file"
       fi
     done < <(
@@ -147,18 +125,10 @@ roots=(
 )
 
 run_once() {
-  local run_mode="$1"
-  shift
   local -a cmd
   local output status stack_trace_detected
-  local has_jit_flag=0
-  local has_no_cache_flag=0
 
-  if [[ "$run_mode" == "jit" ]]; then
-    cmd=(cargo run --features jit --)
-  else
-    cmd=(cargo run --)
-  fi
+  cmd=(cargo run --)
 
   for root in "${roots[@]}"; do
     cmd+=(--root "$root")
@@ -166,37 +136,20 @@ run_once() {
 
   cmd+=("examples/$example")
 
-  for arg in "$@"; do
-    if [[ "$arg" == "--jit" ]]; then
-      has_jit_flag=1
-    fi
-    if [[ "$arg" == "--no-cache" ]]; then
-      has_no_cache_flag=1
-    fi
-  done
-
   # Forward any extra flags to flux.
   if [[ $# -gt 0 ]]; then
     cmd+=("$@")
   fi
 
-  # JIT pass should force JIT mode for coverage.
-  if [[ "$run_mode" == "jit" && $has_jit_flag -eq 0 ]]; then
-    cmd+=(--jit)
-  fi
-  if [[ "$run_mode" == "jit" && $has_no_cache_flag -eq 0 ]]; then
-    cmd+=(--no-cache)
-  fi
-
   echo
-  echo "---- [$run_mode] examples/$example"
+  echo "---- [vm] examples/$example"
   output=$("${cmd[@]}" 2>&1) && status=0 || status=$?
   stack_trace_detected=0
 
   echo "$output"
 
   if echo "$output" | grep -qi "stack overflow"; then
-    echo "Error: Stack overflow detected in $run_mode mode, stopping execution" >&2
+    echo "Error: Stack overflow detected, stopping execution" >&2
     exit 1
   fi
 
@@ -205,22 +158,11 @@ run_once() {
   fi
 
   if [[ $stack_trace_detected -eq 1 ]]; then
-    echo "Error: Stack trace detected in $run_mode mode, stopping execution" >&2
+    echo "Error: Stack trace detected, stopping execution" >&2
     exit 1
   fi
 
   return $status
 }
 
-if [[ "$mode" == "vm" ]]; then
-  run_once vm "$@"
-  exit $?
-fi
-
-if [[ "$mode" == "jit" ]]; then
-  run_once jit "$@"
-  exit $?
-fi
-
-run_once vm "$@" || exit $?
-run_once jit "$@" || exit $?
+run_once "$@"

@@ -216,6 +216,14 @@ impl Parser {
         self.lexer.interner()
     }
 
+    /// Restore an interner into the parser's lexer.
+    ///
+    /// Used by the prelude injection to round-trip the interner through
+    /// a temporary parser that interns Flow library symbols.
+    pub fn restore_interner(&mut self, interner: Interner) {
+        self.lexer.restore_interner(interner);
+    }
+
     pub fn take_warnings(&mut self) -> Vec<Diagnostic> {
         std::mem::take(&mut self.warnings)
     }

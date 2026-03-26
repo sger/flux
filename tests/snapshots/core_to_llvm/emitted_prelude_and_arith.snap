@@ -1,0 +1,367 @@
+---
+source: tests/core_to_llvm_codegen_snapshots.rs
+expression: render_module(&module)
+---
+source_filename = "helpers.flx"
+target triple = "x86_64-unknown-linux-gnu"
+target datalayout = "e-m:e-p:64:64-i64:64-n8:16:32:64-S128"
+
+@flux.nanbox.sentinel = private constant i64 9222246136947933184
+
+@flux.nanbox.sentinel_mask = private constant i64 -1125899906842624
+
+@flux.nanbox.tag_shift = private constant i64 46
+
+@flux.nanbox.tag_mask = private constant i64 15
+
+@flux.nanbox.payload_mask = private constant i64 70368744177663
+
+@flux.nanbox.boxed_value_tag = private constant i64 8
+
+@flux.nanbox.min_inline_int = private constant i64 -35184372088832
+
+@flux.nanbox.max_inline_int = private constant i64 35184372088831
+
+declare ccc void @flux_gc_free(ptr) nounwind
+
+declare ccc ptr @flux_gc_alloc(i32) nounwind
+
+define internal fastcc i64 @flux_tag_int(i64 %raw) alwaysinline {
+entry:
+  %masked = and i64 %raw, 70368744177663
+  %tagged = or i64 %masked, 9222246136947933184
+  ret i64 %tagged
+}
+
+define internal fastcc i64 @flux_untag_int(i64 %val) alwaysinline {
+entry:
+  %payload = and i64 %val, 70368744177663
+  %shifted = shl i64 %payload, 18
+  %raw = ashr i64 %shifted, 18
+  ret i64 %raw
+}
+
+define internal fastcc i1 @flux_is_ptr(i64 %val) alwaysinline {
+entry:
+  %masked = and i64 %val, -1125899906842624
+  %is_boxed = icmp eq i64 %masked, 9222246136947933184
+  %tag_bits = lshr i64 %val, 46
+  %tag = and i64 %tag_bits, 15
+  %is_boxed_value = icmp eq i64 %tag, 8
+  %result = select i1 %is_boxed, i1 %is_boxed_value, i1 0
+  ret i1 %result
+}
+
+define internal fastcc void @flux_dup(i64 %val) alwaysinline {
+entry:
+  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
+  br i1 %is_ptr, label %do_dup, label %done
+do_dup:
+  %payload = and i64 %val, 70368744177663
+  %shifted = shl i64 %payload, 3
+  %ptr = inttoptr i64 %shifted to ptr
+  %rc_ptr = getelementptr i64, ptr %ptr, i64 -1
+  %old_rc = load i64, ptr %rc_ptr, align 8
+  %new_rc = add i64 %old_rc, 1
+  store i64 %new_rc, ptr %rc_ptr, align 8
+  br label %done
+done:
+  ret void
+}
+
+define internal fastcc void @flux_drop(i64 %val) alwaysinline {
+entry:
+  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
+  br i1 %is_ptr, label %do_drop, label %done
+do_drop:
+  %payload = and i64 %val, 70368744177663
+  %shifted = shl i64 %payload, 3
+  %ptr = inttoptr i64 %shifted to ptr
+  %rc_ptr = getelementptr i64, ptr %ptr, i64 -1
+  %old_rc = load i64, ptr %rc_ptr, align 8
+  %new_rc = sub i64 %old_rc, 1
+  store i64 %new_rc, ptr %rc_ptr, align 8
+  %is_zero = icmp eq i64 %new_rc, 0
+  br i1 %is_zero, label %free, label %done
+free:
+  call ccc void @flux_gc_free(ptr %ptr)
+  br label %done
+done:
+  ret void
+}
+
+define internal fastcc ptr @flux_drop_reuse(i64 %val, i32 %size) alwaysinline {
+entry:
+  %payload = and i64 %val, 70368744177663
+  %shifted = shl i64 %payload, 3
+  %ptr = inttoptr i64 %shifted to ptr
+  %rc_ptr = getelementptr i64, ptr %ptr, i64 -1
+  %rc = load i64, ptr %rc_ptr, align 8
+  %unique = icmp eq i64 %rc, 1
+  br i1 %unique, label %reuse, label %fresh
+reuse:
+  ret ptr %ptr
+fresh:
+  call fastcc void @flux_drop(i64 %val)
+  %new_mem = call ccc ptr @flux_gc_alloc(i32 %size)
+  ret ptr %new_mem
+}
+
+define internal fastcc i1 @flux_rc_is_unique(i64 %val) alwaysinline {
+entry:
+  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
+  br i1 %is_ptr, label %check_rc, label %not_unique
+check_rc:
+  %payload = and i64 %val, 70368744177663
+  %shifted = shl i64 %payload, 3
+  %ptr = inttoptr i64 %shifted to ptr
+  %rc_ptr = getelementptr i64, ptr %ptr, i64 -1
+  %rc = load i64, ptr %rc_ptr, align 8
+  %is_one = icmp eq i64 %rc, 1
+  ret i1 %is_one
+not_unique:
+  ret i1 0
+}
+
+define internal fastcc i1 @flux_is_thunk(i64 %val) alwaysinline {
+entry:
+  %tag_bits = lshr i64 %val, 46
+  %tag = and i64 %tag_bits, 15
+  %masked = and i64 %val, -1125899906842624
+  %is_nanbox = icmp eq i64 %masked, 9222246136947933184
+  %is_thunk_tag = icmp eq i64 %tag, 6
+  %result = select i1 %is_nanbox, i1 %is_thunk_tag, i1 0
+  ret i1 %result
+}
+
+define internal fastcc i64 @flux_tag_thunk(ptr %ptr) alwaysinline {
+entry:
+  %addr = ptrtoint ptr %ptr to i64
+  %shifted = lshr i64 %addr, 3
+  %payload = and i64 %shifted, 70368744177663
+  %tagged = or i64 %payload, 9222668349412999168
+  ret i64 %tagged
+}
+
+define internal fastcc ptr @flux_untag_thunk_ptr(i64 %val) alwaysinline {
+entry:
+  %payload = and i64 %val, 70368744177663
+  %addr = shl i64 %payload, 3
+  %ptr = inttoptr i64 %addr to ptr
+  ret ptr %ptr
+}
+
+define internal fastcc i64 @flux_iadd(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
+  %result_raw = add i64 %a_raw, %b_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_isub(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
+  %result_raw = sub i64 %a_raw, %b_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_imul(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
+  %result_raw = mul i64 %a_raw, %b_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_idiv(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
+  %result_raw = sdiv i64 %a_raw, %b_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_imod(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
+  %result_raw = srem i64 %a_raw, %b_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_ineg(i64 %a) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %neg = sub i64 0, %a_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %neg)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fadd(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_bits = bitcast i64 %a to double
+  %b_bits = bitcast i64 %b to double
+  %result_f = fadd double %a_bits, %b_bits
+  %result = bitcast double %result_f to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fsub(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_bits = bitcast i64 %a to double
+  %b_bits = bitcast i64 %b to double
+  %result_f = fsub double %a_bits, %b_bits
+  %result = bitcast double %result_f to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fmul(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_bits = bitcast i64 %a to double
+  %b_bits = bitcast i64 %b to double
+  %result_f = fmul double %a_bits, %b_bits
+  %result = bitcast double %result_f to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fdiv(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_bits = bitcast i64 %a to double
+  %b_bits = bitcast i64 %b to double
+  %result_f = fdiv double %a_bits, %b_bits
+  %result = bitcast double %result_f to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fmod(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_bits = bitcast i64 %a to double
+  %b_bits = bitcast i64 %b to double
+  %result_f = frem double %a_bits, %b_bits
+  %result = bitcast double %result_f to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fneg(i64 %a) alwaysinline {
+entry:
+  %a_bits = bitcast i64 %a to double
+  %neg = fsub double 0.0, %a_bits
+  %result = bitcast double %neg to i64
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_not(i64 %a) alwaysinline {
+entry:
+  %is_false = icmp eq i64 %a, 9222316505692110848
+  %is_none = icmp eq i64 %a, 9222386874436288512
+  %is_empty = icmp eq i64 %a, 9222527611924643840
+  %is_uninit = icmp eq i64 %a, 9222457243180466176
+  %f1 = or i1 %is_false, %is_none
+  %f2 = or i1 %is_empty, %is_uninit
+  %is_falsy = or i1 %f1, %f2
+  %result = select i1 %is_falsy, i64 9222316505692110849, i64 9222316505692110848
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_and(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_is_true = icmp eq i64 %a, 9222316505692110849
+  %b_is_true = icmp eq i64 %b, 9222316505692110849
+  %combined = and i1 %a_is_true, %b_is_true
+  %result = select i1 %combined, i64 9222316505692110849, i64 9222316505692110848
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_or(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_is_true = icmp eq i64 %a, 9222316505692110849
+  %b_is_true = icmp eq i64 %b, 9222316505692110849
+  %combined = or i1 %a_is_true, %b_is_true
+  %result = select i1 %combined, i64 9222316505692110849, i64 9222316505692110848
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_add(i64 %a, i64 %b) alwaysinline {
+entry:
+  %masked = and i64 %a, 18445618173802708992
+  %is_nanbox = icmp eq i64 %masked, 9222246136947933184
+  br i1 %is_nanbox, label %do_int, label %do_float
+do_int:
+  %int_result = call fastcc i64 @flux_iadd(i64 %a, i64 %b)
+  ret i64 %int_result
+do_float:
+  %float_result = call fastcc i64 @flux_fadd(i64 %a, i64 %b)
+  ret i64 %float_result
+}
+
+define internal fastcc i64 @flux_sub(i64 %a, i64 %b) alwaysinline {
+entry:
+  %masked = and i64 %a, 18445618173802708992
+  %is_nanbox = icmp eq i64 %masked, 9222246136947933184
+  br i1 %is_nanbox, label %do_int, label %do_float
+do_int:
+  %int_result = call fastcc i64 @flux_isub(i64 %a, i64 %b)
+  ret i64 %int_result
+do_float:
+  %float_result = call fastcc i64 @flux_fsub(i64 %a, i64 %b)
+  ret i64 %float_result
+}
+
+define internal fastcc i64 @flux_mul(i64 %a, i64 %b) alwaysinline {
+entry:
+  %masked = and i64 %a, 18445618173802708992
+  %is_nanbox = icmp eq i64 %masked, 9222246136947933184
+  br i1 %is_nanbox, label %do_int, label %do_float
+do_int:
+  %int_result = call fastcc i64 @flux_imul(i64 %a, i64 %b)
+  ret i64 %int_result
+do_float:
+  %float_result = call fastcc i64 @flux_fmul(i64 %a, i64 %b)
+  ret i64 %float_result
+}
+
+define internal fastcc i64 @flux_div(i64 %a, i64 %b) alwaysinline {
+entry:
+  %masked = and i64 %a, 18445618173802708992
+  %is_nanbox = icmp eq i64 %masked, 9222246136947933184
+  br i1 %is_nanbox, label %do_int, label %do_float
+do_int:
+  %int_result = call fastcc i64 @flux_idiv(i64 %a, i64 %b)
+  ret i64 %int_result
+do_float:
+  %float_result = call fastcc i64 @flux_fdiv(i64 %a, i64 %b)
+  ret i64 %float_result
+}
+
+define internal fastcc i64 @flux_mod(i64 %a, i64 %b) alwaysinline {
+entry:
+  %masked = and i64 %a, 18445618173802708992
+  %is_nanbox = icmp eq i64 %masked, 9222246136947933184
+  br i1 %is_nanbox, label %do_int, label %do_float
+do_int:
+  %int_result = call fastcc i64 @flux_imod(i64 %a, i64 %b)
+  ret i64 %int_result
+do_float:
+  %float_result = call fastcc i64 @flux_fmod(i64 %a, i64 %b)
+  ret i64 %float_result
+}
+
+define internal fastcc i64 @flux_neg(i64 %a) alwaysinline {
+entry:
+  %masked = and i64 %a, 18445618173802708992
+  %is_nanbox = icmp eq i64 %masked, 9222246136947933184
+  br i1 %is_nanbox, label %do_int, label %do_float
+do_int:
+  %int_result = call fastcc i64 @flux_ineg(i64 %a)
+  ret i64 %int_result
+do_float:
+  %float_result = call fastcc i64 @flux_fneg(i64 %a)
+  ret i64 %float_result
+}

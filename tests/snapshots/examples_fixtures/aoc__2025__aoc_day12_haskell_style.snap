@@ -7,6 +7,19 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day12_haskell_style.flx:37:5
+   |
+37 |     fold(chars(s), 0, /(acc, c) -> if c == "#" { acc + 1 } else { acc })
+   |     ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
 I can't find a value named `str_at`.
 
   examples/aoc/2025/aoc_day12_haskell_style.flx:60:13
@@ -18,25 +31,17 @@ Hint:
   Define it first: let str_at = ...;
 
 
-error[E300]: Type Mismatch
+error[E004]: Undefined Variable
 
-I found a type mismatch.
+I can't find a value named `filter`.
 
-  examples/aoc/2025/aoc_day12_haskell_style.flx:92:55
+  examples/aoc/2025/aoc_day12_haskell_style.flx:85:41
    |
-92 |         parse_areas(lines, idx + 1, push(acc, [|w, h, counts|]))
-   |                                                       ^^^^^^
-   |                                                       ------ this expression has type `Array<Option<Int>>`
+85 |         let parts = split(line, " ") |> filter(/t -> trim(t) != "")
+   |                                         ^^^^^^
 
-   |                                                       ------ this type mismatch is reported here
-
-Note:
-  expected type: Int
-  found type: Array<Option<Int>>
-  the conflicting types meet at this expression
-
-Help:
-  These two types are not compatible.
+Hint:
+  Define it first: let filter = ...;
 
 
 error[E300]: Argument Type Mismatch
@@ -54,22 +59,7 @@ I found the wrong type in the 2nd argument to `weighted_sum`.
 106 | }
 107 | 
 108 | fn area_at(arr, idx) {
-109 |     match arr[idx] {
-110 |         Some(v) -> v,
-111 |         _ -> [||]
-112 |     }
-113 | }
-114 | 
-115 | fn count_valid_areas(block_sizes, areas, idx, acc) {
-116 |     if idx >= len(areas) {
-117 |         acc
-118 |     } else {
-119 |     let area = area_at(areas, idx)
-120 |     let w = int_at(area, 0)
-121 |     let h = int_at(area, 1)
-122 |     let counts = match area[2] {
-123 |         Some(v) -> v,
-124 |         _ -> [||]
+... |
 125 |     }
 126 |     let lhs = w * h
 127 |     let rhs = weighted_sum(block_sizes, counts, 0, 0)
@@ -85,6 +75,6 @@ Note:
 Help:
   Pass a `Array<Int>` value as the 2nd argument.
 
-Found 3 errors.
+Found 4 errors.
 == stdout ==
 <not executed>

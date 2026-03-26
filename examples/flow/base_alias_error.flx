@@ -1,0 +1,4 @@
+// Expected compile error E078: invalid Flow aliasing
+
+import Flow as Core
+print(1);

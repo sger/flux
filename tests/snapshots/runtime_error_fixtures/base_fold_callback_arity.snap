@@ -8,39 +8,31 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/base_fold_callback_arity.flx
-error[E1000]: fold: callback error at index 0: wrong number of arguments
+error[E004]: Undefined Variable
 
-function: len/1
-  expected: 1
-  got: 2
+I can't find a value named `len`.
 
-  examples/runtime_errors/base_fold_callback_arity.flx:2:19
+  examples/runtime_errors/base_fold_callback_arity.flx:2:33
   |
 2 |     let ignored = fold(#[1], 0, len)
-  |                   ^^^^^^^^^^^^^^^^^^
+  |                                 ^^^
 
 Hint:
-  len(value)
-
-Stack trace:
-  at main (examples/runtime_errors/base_fold_callback_arity.flx:2:19)
-  at <main>
+  Define it first: let len = ...;
 == jit ==
 status: 1
 stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/base_fold_callback_arity.flx
-error[E1000]: fold: callback error at index 0: wrong number of arguments
+error[E004]: Undefined Variable
 
-function: len/1
-  expected: 1
-  got: 2
+I can't find a value named `len`.
 
-  examples/runtime_errors/base_fold_callback_arity.flx:2:19
+  examples/runtime_errors/base_fold_callback_arity.flx:2:33
   |
 2 |     let ignored = fold(#[1], 0, len)
-  |                   ^^^^^^^^^^^^^^^^^^
+  |                                 ^^^
 
 Hint:
-  len(value)
+  Define it first: let len = ...;

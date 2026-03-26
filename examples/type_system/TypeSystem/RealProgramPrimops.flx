@@ -8,7 +8,7 @@ module TypeSystem.RealProgramPrimops {
     }
 
     public fn top_two(xs: Array<Int>) -> Array<Int> {
-        slice(sort(xs, "desc"), 0, 2)
+        slice(reverse(sort(xs)), 0, 2)
     }
 
     public fn lookup_score(m: Map<String, Int>, key: String) -> Option<Int> {

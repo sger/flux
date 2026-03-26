@@ -1,0 +1,14 @@
+// Phase 3 Flow qualification under shadowing
+// Bare `len` resolves to local binding; `Flow.len` resolves to Flow.
+
+fn demo() with IO {
+  let len = fn(x) { 999 }
+  let xs = [1, 2, 3]
+
+  print(len(xs))
+  print(Flow.len(xs))
+}
+
+fn main() with IO {
+  demo()
+}

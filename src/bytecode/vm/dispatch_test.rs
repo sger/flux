@@ -3,6 +3,7 @@ use crate::{
     runtime::{
         closure::Closure,
         compiled_function::CompiledFunction,
+        cons_cell::ConsCell,
         frame::Frame,
         value::{AdtFields, AdtValue, Value},
     },
@@ -118,6 +119,44 @@ fn dispatch_op_consume_local1_moves_from_second_local_slot() {
 }
 
 #[test]
+fn dispatch_op_aether_drop_local_preserves_immediate_values() {
+    let mut vm = new_vm();
+    vm.frames[0] = Frame::new(vm.frames[0].closure.clone(), 0);
+    vm.stack_set(0, Value::Integer(20));
+    vm.sp = 1;
+
+    let advance = vm
+        .dispatch_instruction(
+            &[OpCode::OpAetherDropLocal as u8, 0],
+            0,
+            OpCode::OpAetherDropLocal,
+        )
+        .unwrap();
+
+    assert_eq!(advance, 2);
+    assert_eq!(vm.stack_get(0), Value::Integer(20));
+}
+
+#[test]
+fn dispatch_op_aether_drop_local_clears_boxed_values() {
+    let mut vm = new_vm();
+    vm.frames[0] = Frame::new(vm.frames[0].closure.clone(), 0);
+    vm.stack_set(0, Value::String(Rc::new("boxed".to_string())));
+    vm.sp = 1;
+
+    let advance = vm
+        .dispatch_instruction(
+            &[OpCode::OpAetherDropLocal as u8, 0],
+            0,
+            OpCode::OpAetherDropLocal,
+        )
+        .unwrap();
+
+    assert_eq!(advance, 2);
+    assert_eq!(vm.stack_get(0), Value::None);
+}
+
+#[test]
 fn dispatch_op_return_local_moves_value_out_of_frame_slot() {
     let mut vm = new_vm();
     let function = CompiledFunction::new(vec![], 1, 0, None);
@@ -155,11 +194,11 @@ fn dispatch_op_make_adt_moves_fields_from_stack() {
 
     assert_eq!(advance, 4);
     assert_eq!(vm.sp, 1);
-    assert!(matches!(vm.stack_get(0), Value::GcAdt(_)));
+    assert!(matches!(vm.stack_get(0), Value::Adt(_)));
     let adt_val = vm.stack_get(0);
-    assert_eq!(adt_val.adt_constructor(&vm.gc_heap), Some("Node"));
+    assert_eq!(adt_val.adt_constructor(), Some("Node"));
     assert_eq!(
-        adt_val.adt_clone_two_fields(&vm.gc_heap),
+        adt_val.adt_clone_two_fields(),
         Some((Value::Integer(1), Value::Integer(2)))
     );
     assert!(matches!(vm.stack_get(1), Value::Uninit));
@@ -180,4 +219,263 @@ fn dispatch_op_adt_field_reuses_unshared_adt_payload() {
 
     assert_eq!(advance, 2);
     assert_eq!(vm.pop().unwrap(), Value::Integer(20));
+}
+
+#[test]
+fn dispatch_op_reuse_some_reuses_unique_wrapper_allocation() {
+    let mut vm = new_vm();
+    let original = Rc::new(Value::Integer(10));
+    let original_ptr = Rc::as_ptr(&original);
+    vm.push(Value::Some(original)).unwrap();
+    vm.push(Value::Integer(42)).unwrap();
+
+    let advance = vm
+        .dispatch_instruction(&[OpCode::OpReuseSome as u8], 0, OpCode::OpReuseSome)
+        .unwrap();
+
+    assert_eq!(advance, 1);
+    let result = vm.pop().unwrap();
+    match result {
+        Value::Some(rc) => {
+            assert_eq!(Rc::as_ptr(&rc), original_ptr);
+            assert_eq!(*rc, Value::Integer(42));
+        }
+        other => panic!("expected Some result, got {other:?}"),
+    }
+}
+
+#[test]
+fn dispatch_op_reuse_some_allocates_fresh_when_wrapper_is_shared() {
+    let mut vm = new_vm();
+    let original = Rc::new(Value::Integer(10));
+    let _shared = original.clone();
+    vm.push(Value::Some(original.clone())).unwrap();
+    vm.push(Value::Integer(42)).unwrap();
+
+    let advance = vm
+        .dispatch_instruction(&[OpCode::OpReuseSome as u8], 0, OpCode::OpReuseSome)
+        .unwrap();
+
+    assert_eq!(advance, 1);
+    let result = vm.pop().unwrap();
+    match result {
+        Value::Some(rc) => {
+            assert!(!Rc::ptr_eq(&rc, &original));
+            assert_eq!(*rc, Value::Integer(42));
+        }
+        other => panic!("expected Some result, got {other:?}"),
+    }
+}
+
+#[test]
+fn dispatch_op_reuse_left_reuses_unique_wrapper_allocation() {
+    let mut vm = new_vm();
+    let original = Rc::new(Value::Integer(10));
+    let original_ptr = Rc::as_ptr(&original);
+    vm.push(Value::Left(original)).unwrap();
+    vm.push(Value::Integer(42)).unwrap();
+
+    let advance = vm
+        .dispatch_instruction(&[OpCode::OpReuseLeft as u8], 0, OpCode::OpReuseLeft)
+        .unwrap();
+
+    assert_eq!(advance, 1);
+    let result = vm.pop().unwrap();
+    match result {
+        Value::Left(rc) => {
+            assert_eq!(Rc::as_ptr(&rc), original_ptr);
+            assert_eq!(*rc, Value::Integer(42));
+        }
+        other => panic!("expected Left result, got {other:?}"),
+    }
+}
+
+#[test]
+fn dispatch_op_reuse_right_reuses_unique_wrapper_allocation() {
+    let mut vm = new_vm();
+    let original = Rc::new(Value::Integer(10));
+    let original_ptr = Rc::as_ptr(&original);
+    vm.push(Value::Right(original)).unwrap();
+    vm.push(Value::Integer(42)).unwrap();
+
+    let advance = vm
+        .dispatch_instruction(&[OpCode::OpReuseRight as u8], 0, OpCode::OpReuseRight)
+        .unwrap();
+
+    assert_eq!(advance, 1);
+    let result = vm.pop().unwrap();
+    match result {
+        Value::Right(rc) => {
+            assert_eq!(Rc::as_ptr(&rc), original_ptr);
+            assert_eq!(*rc, Value::Integer(42));
+        }
+        other => panic!("expected Right result, got {other:?}"),
+    }
+}
+
+#[test]
+fn dispatch_op_reuse_cons_reuses_unique_allocation() {
+    let mut vm = new_vm();
+    let original = Rc::new(ConsCell {
+        head: Value::Integer(1),
+        tail: Value::None,
+    });
+    let original_ptr = Rc::as_ptr(&original);
+    vm.push(Value::Cons(original)).unwrap();
+    vm.push(Value::Integer(10)).unwrap();
+    vm.push(Value::Integer(20)).unwrap();
+
+    let advance = vm
+        .dispatch_instruction(&[OpCode::OpReuseCons as u8, 0xFF], 0, OpCode::OpReuseCons)
+        .unwrap();
+
+    assert_eq!(advance, 2);
+    let result = vm.pop().unwrap();
+    match result {
+        Value::Cons(rc) => {
+            assert_eq!(Rc::as_ptr(&rc), original_ptr);
+            assert_eq!(rc.head, Value::Integer(10));
+            assert_eq!(rc.tail, Value::Integer(20));
+        }
+        other => panic!("expected Cons result, got {other:?}"),
+    }
+}
+
+#[test]
+fn dispatch_op_reuse_adt_reuses_unique_allocation() {
+    let mut vm = new_vm();
+    vm.constants
+        .push(super::slot::to_slot(Value::String(Rc::new(
+            "Node".to_string(),
+        ))));
+
+    let original = Rc::new(AdtValue {
+        constructor: Rc::new("Old".to_string()),
+        fields: AdtFields::from_vec(vec![Value::Integer(1), Value::Integer(2)]),
+    });
+    let original_ptr = Rc::as_ptr(&original);
+    vm.push(Value::Adt(original)).unwrap();
+    vm.push(Value::Integer(10)).unwrap();
+    vm.push(Value::Integer(20)).unwrap();
+
+    let advance = vm
+        .dispatch_instruction(
+            &[OpCode::OpReuseAdt as u8, 0, 0, 2, 0xFF],
+            0,
+            OpCode::OpReuseAdt,
+        )
+        .unwrap();
+
+    assert_eq!(advance, 5);
+    let result = vm.pop().unwrap();
+    match result {
+        Value::Adt(rc) => {
+            assert_eq!(Rc::as_ptr(&rc), original_ptr);
+            assert_eq!(rc.constructor.as_ref(), "Node");
+            assert_eq!(
+                rc.fields.clone().into_two(),
+                Some((Value::Integer(10), Value::Integer(20)))
+            );
+        }
+        other => panic!("expected Adt result, got {other:?}"),
+    }
+}
+
+#[test]
+fn dispatch_op_reuse_cons_mask_preserves_unchanged_fields() {
+    let mut vm = new_vm();
+    let original = Rc::new(ConsCell {
+        head: Value::Integer(1),
+        tail: Value::Integer(2),
+    });
+    let original_ptr = Rc::as_ptr(&original);
+    vm.push(Value::Cons(original)).unwrap();
+    vm.push(Value::Integer(10)).unwrap();
+    vm.push(Value::Integer(20)).unwrap();
+
+    // Update head only; tail should remain unchanged from the reused allocation.
+    let advance = vm
+        .dispatch_instruction(&[OpCode::OpReuseCons as u8, 0b01], 0, OpCode::OpReuseCons)
+        .unwrap();
+
+    assert_eq!(advance, 2);
+    let result = vm.pop().unwrap();
+    match result {
+        Value::Cons(rc) => {
+            assert_eq!(Rc::as_ptr(&rc), original_ptr);
+            assert_eq!(rc.head, Value::Integer(10));
+            assert_eq!(rc.tail, Value::Integer(2));
+        }
+        other => panic!("expected Cons result, got {other:?}"),
+    }
+}
+
+#[test]
+fn dispatch_op_reuse_adt_mask_preserves_unchanged_fields() {
+    let mut vm = new_vm();
+    vm.constants
+        .push(super::slot::to_slot(Value::String(Rc::new(
+            "Node".to_string(),
+        ))));
+
+    let original = Rc::new(AdtValue {
+        constructor: Rc::new("Node".to_string()),
+        fields: AdtFields::from_vec(vec![
+            Value::Integer(1),
+            Value::Integer(2),
+            Value::Integer(3),
+        ]),
+    });
+    let original_ptr = Rc::as_ptr(&original);
+    vm.push(Value::Adt(original)).unwrap();
+    vm.push(Value::Integer(10)).unwrap();
+    vm.push(Value::Integer(20)).unwrap();
+    vm.push(Value::Integer(30)).unwrap();
+
+    // Update fields 0 and 2 only; field 1 should remain unchanged.
+    let advance = vm
+        .dispatch_instruction(
+            &[OpCode::OpReuseAdt as u8, 0, 0, 3, 0b101],
+            0,
+            OpCode::OpReuseAdt,
+        )
+        .unwrap();
+
+    assert_eq!(advance, 5);
+    let result = vm.pop().unwrap();
+    match result {
+        Value::Adt(rc) => {
+            assert_eq!(Rc::as_ptr(&rc), original_ptr);
+            assert_eq!(rc.constructor.as_ref(), "Node");
+            assert_eq!(
+                rc.fields.clone().into_iter().collect::<Vec<_>>(),
+                vec![Value::Integer(10), Value::Integer(2), Value::Integer(30)]
+            );
+        }
+        other => panic!("expected Adt result, got {other:?}"),
+    }
+}
+
+#[test]
+fn dispatch_op_is_unique_reports_heap_sharing_correctly() {
+    let mut vm = new_vm();
+
+    let unique = Rc::new(Value::Integer(7));
+    vm.push(Value::Some(unique)).unwrap();
+    let advance = vm
+        .dispatch_instruction(&[OpCode::OpIsUnique as u8], 0, OpCode::OpIsUnique)
+        .unwrap();
+    assert_eq!(advance, 1);
+    assert_eq!(vm.pop().unwrap(), Value::Boolean(true));
+    assert!(matches!(vm.pop().unwrap(), Value::Some(_)));
+
+    let shared = Rc::new(Value::Integer(9));
+    let _extra_ref = shared.clone();
+    vm.push(Value::Some(shared)).unwrap();
+    let advance = vm
+        .dispatch_instruction(&[OpCode::OpIsUnique as u8], 0, OpCode::OpIsUnique)
+        .unwrap();
+    assert_eq!(advance, 1);
+    assert_eq!(vm.pop().unwrap(), Value::Boolean(false));
+    assert!(matches!(vm.pop().unwrap(), Value::Some(_)));
 }

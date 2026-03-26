@@ -1,6 +1,5 @@
 ---
 source: tests/runtime_error_fixtures_snapshots.rs
-assertion_line: 143
 ---
 Fixture: examples/runtime_errors/either_boundary_string_into_either.flx
 == vm ==
@@ -9,46 +8,63 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/either_boundary_string_into_either.flx
-error[E1004]: Type Error
+error[E300]: Argument Type Mismatch
 
-I found a value with the wrong runtime type.
+I found the wrong type in the 1st argument to `unwrap_or_zero`.
 
-  examples/runtime_errors/either_boundary_string_into_either.flx:12:1
+  examples/runtime_errors/either_boundary_string_into_either.flx:12:16
    |
+ 3 | fn unwrap_or_zero(input: Either<String, Int>) -> Int {
+ 4 |     match input {
+ 5 |         Left(_msg) -> 0,
+ 6 |         Right(value) -> value,
+ 7 |         _ -> 0
+ 8 |     }
+ 9 | }
+10 |
+11 | let dynamic = RuntimeErrors.BoundaryUnknown.dynamic_string()
 12 | unwrap_or_zero(dynamic)
-   | ^^^^^^^^^^^^^^^^^^^^^^^
-   | ----------------------- this value has runtime type `String`
+   |                ^^^^^^^
+   |                ------- this argument has type `String`
 
 Note:
-  expected type: Either<String, Int>
-  found type:    String
-  runtime value:  "oops"
+  expected argument type: Either<String, Int>
+  found argument type: String
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
-  Check the value flowing into this operation or add a conversion before this point.
-
-Stack trace:
-  at <main> (examples/runtime_errors/either_boundary_string_into_either.flx:12:1)
+  Pass a `Either<String, Int>` value as the 1st argument.
 == jit ==
 status: 1
 stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/either_boundary_string_into_either.flx
-error[E1004]: Type Error
+error[E300]: Argument Type Mismatch
 
-I found a value with the wrong runtime type.
+I found the wrong type in the 1st argument to `unwrap_or_zero`.
 
-  examples/runtime_errors/either_boundary_string_into_either.flx:12:1
+  examples/runtime_errors/either_boundary_string_into_either.flx:12:16
    |
+ 3 | fn unwrap_or_zero(input: Either<String, Int>) -> Int {
+ 4 |     match input {
+ 5 |         Left(_msg) -> 0,
+ 6 |         Right(value) -> value,
+ 7 |         _ -> 0
+ 8 |     }
+ 9 | }
+10 |
+11 | let dynamic = RuntimeErrors.BoundaryUnknown.dynamic_string()
 12 | unwrap_or_zero(dynamic)
-   | ^^^^^^^^^^^^^^^^^^^^^^^
-   | ----------------------- this value has runtime type `String`
+   |                ^^^^^^^
+   |                ------- this argument has type `String`
 
 Note:
-  expected type: Either<String, Int>
-  found type:    String
-  runtime value:  "oops"
+  expected argument type: Either<String, Int>
+  found argument type: String
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
-  Check the value flowing into this operation or add a conversion before this point.
+  Pass a `Either<String, Int>` value as the 1st argument.

@@ -7,11 +7,11 @@ Strict: false
 Expect compile error: true
 
 == vm command ==
-$ flux --no-cache --root examples/type_system examples/type_system/failing/33_module_qualified_effect_propagation_missing.flx
+$ flux --no-cache --no-strict --root examples/type_system examples/type_system/failing/33_module_qualified_effect_propagation_missing.flx
 exit_code: 1
 
 == jit command ==
-$ flux --no-cache --root examples/type_system examples/type_system/failing/33_module_qualified_effect_propagation_missing.flx --jit
+$ flux --no-cache --no-strict --root examples/type_system examples/type_system/failing/33_module_qualified_effect_propagation_missing.flx --jit
 exit_code: 1
 
 == vm tuples ==

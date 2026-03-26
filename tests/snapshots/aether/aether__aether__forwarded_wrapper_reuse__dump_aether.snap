@@ -1,0 +1,57 @@
+---
+source: tests/aether_cli_snapshots.rs
+---
+Aether Memory Model Report
+==========================
+
+── fn forwarded_child ──
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+  verifier: ok
+λxs, acc.
+  case xs of
+    ::(y, ys) →
+      let %t1 = ::(y, acc)
+      aether_call[owned, owned] Pair2(reuse Pair2 ::(y, acc) @mask=0b10, ys)
+    _ →
+      aether_call[owned, owned] Pair2(xs, acc)
+── fn forwarded_child_near_miss ──
+  Dups: 3  Drops: 2  Reuses: 0  DropSpecs: 1  FBIP: fbip(4)
+  FreshAllocs: 4
+  verifier: ok
+λxs, acc.
+  case xs of
+    ::(y, ys) →
+      drop_spec xs {
+        unique -> drop ys
+          let %t1 = ::(y, dup acc
+          acc)
+          let %t2 = ::(y, acc)
+          aether_call[owned, owned] Pair2(%t1, %t2)
+        shared -> drop ys
+          let %t1 = ::(dup y
+          y, dup acc
+          acc)
+          let %t2 = ::(y, acc)
+          aether_call[owned, owned] Pair2(%t1, %t2)
+      }
+    _ →
+      aether_call[owned, owned] Pair2(xs, acc)
+── fn main ──
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ.
+  let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
+  let %t4 = MakeList(10, 20)
+  aether_call[owned, owned] forwarded_child(%t3, %t4))
+  Print(%t2))
+  drop %t1
+  let %t5 = (let %t6 = MakeList(1, 2, 3)
+  let %t7 = MakeList(10, 20)
+  aether_call[owned, owned] forwarded_child_near_miss(%t6, %t7))
+  Print(%t5)
+
+── Total ──
+  Dups: 3  Drops: 3  Reuses: 1  DropSpecs: 1  FBIP: fbip(5)
+  FreshAllocs: 5

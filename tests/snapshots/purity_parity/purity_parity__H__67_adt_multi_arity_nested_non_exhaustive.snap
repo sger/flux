@@ -7,11 +7,11 @@ Strict: false
 Expect compile error: true
 
 == vm command ==
-$ flux --no-cache examples/type_system/failing/67_adt_multi_arity_nested_non_exhaustive.flx
+$ flux --no-cache --no-strict examples/type_system/failing/67_adt_multi_arity_nested_non_exhaustive.flx
 exit_code: 1
 
 == jit command ==
-$ flux --no-cache examples/type_system/failing/67_adt_multi_arity_nested_non_exhaustive.flx --jit
+$ flux --no-cache --no-strict examples/type_system/failing/67_adt_multi_arity_nested_non_exhaustive.flx --jit
 exit_code: 1
 
 == vm tuples ==

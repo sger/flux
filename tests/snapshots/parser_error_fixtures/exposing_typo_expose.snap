@@ -1,0 +1,20 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/exposing_typo_expose.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Unknown Import Clause
+
+Unknown keyword `expose` in import statement.
+
+  examples/parser_errors/exposing_typo_expose.flx:1:12
+  |
+1 | import Foo expose (bar)
+  |            ^^^^^^
+
+Hint:
+  Did you mean `exposing`? Use `import Module exposing (..)` or `import Module exposing (name1, name2)`.
+== stdout ==
+<not executed>

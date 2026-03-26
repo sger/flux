@@ -5,86 +5,16 @@ Fixture: examples/basics/either_and_option.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Argument Type Mismatch
+error[E004]: Undefined Variable
 
-I found the wrong type in the 2nd argument to `findInArray`.
+I can't find a value named `first`.
 
-  examples/basics/either_and_option.flx:24:28
+  examples/basics/either_and_option.flx:11:12
    |
-19 | fn findInArray(arr, target) {
-20 |     findHelper(arr, target, 0)
-21 | }
-22 | 
-23 | let numbers = [|10, 20, 30, 40, 50|];
-24 | print(findInArray(numbers, 30));
-   |                            ^^
-   |                            -- this argument has type `Int`
+11 |         if first(arr) == target {
+   |            ^^^^^
 
-Note:
-  expected argument type: Option<Int>
-  found argument type: Int
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
-
-Help:
-  Wrap this value in `Some(...)` or return `None`.
-  Suppressed 1 nearby duplicate E300 diagnostic(s).
-
-
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 2nd argument to `findInArray`.
-
-  examples/basics/either_and_option.flx:53:34
-   |
-19 | fn findInArray(arr, target) {
-20 |     findHelper(arr, target, 0)
-21 | }
-22 | 
-23 | let numbers = [|10, 20, 30, 40, 50|];
-24 | print(findInArray(numbers, 30));
-25 | print(findInArray(numbers, 99));
-26 | 
-27 | 
-28 | fn validateAge(input) {
-29 |     if input < 0 {
-30 |         Left("age cannot be negative")
-31 |     } else {
-32 |     if input > 150 {
-33 |         Left("age seems unrealistic")
-34 |     } else {
-35 |     Right(input)
-36 | }
-37 | }
-38 | }
-39 | 
-40 | print(validateAge(25));
-41 | print(validateAge(-5));
-42 | print(validateAge(200));
-43 | 
-44 | 
-45 | fn optionToEither(opt, errorMsg) {
-46 |     match opt {
-47 |         Some(x) -> Right(x),
-48 |         None -> Left(errorMsg),
-49 |         _ -> Left("unknown"),
-50 |     }
-51 | }
-52 | 
-53 | let found = findInArray(numbers, 30);
-   |                                  ^^
-   |                                  -- this argument has type `Int`
-
-Note:
-  expected argument type: Option<Int>
-  found argument type: Int
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
-
-Help:
-  Wrap this value in `Some(...)` or return `None`.
-  Suppressed 1 nearby duplicate E300 diagnostic(s).
-
-Found 2 errors.
+Hint:
+  Define it first: let first = ...;
 == stdout ==
 <not executed>

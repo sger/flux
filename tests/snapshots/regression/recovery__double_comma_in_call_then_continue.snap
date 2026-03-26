@@ -4,6 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/recovery/double_comma_in_call_then_continue.flx
 exit_code: 1
 
+• 1 error • tests/fixtures/recovery/double_comma_in_call_then_continue.flx
 error[E034]: Unexpected Token
 
 Expected expression after `,`, got `,`.
