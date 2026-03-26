@@ -545,3 +545,75 @@ int64_t flux_hamt_keys(int64_t map) {
     free(keys);
     return result;
 }
+
+/* Returns 1 if the pointer looks like a HamtNode.
+ *
+ * Heuristic: HAMT kind is 0-3 (first i32). To distinguish from ADTs
+ * (which also use small ctor_tags), check the second i32:
+ *   - ADT: second i32 is field_count (0-100, small)
+ *   - HAMT_LEAF: second i32 is the low 32 bits of a hash (typically large)
+ *   - HAMT_BRANCH: second i32 is a bitmap (any value)
+ *   - HAMT_EMPTY: second i32 is 0 (same as ADT with 0 fields)
+ *
+ * For HAMT_EMPTY we check that the entire union is zeroed (16+ bytes).
+ * For HAMT_LEAF, the hash field spans bytes 4-11 — if the upper 32 bits
+ * are non-zero, it's almost certainly a hash, not a field_count.
+ */
+int flux_is_hamt(void *ptr) {
+    if (!ptr) return 0;
+    int32_t kind = *(int32_t *)ptr;
+    if (kind < 0 || kind > HAMT_COLLISION) return 0;
+    if (kind == HAMT_EMPTY) {
+        /* HAMT_EMPTY: union should be zeroed. Peek at bytes 8-15. */
+        uint64_t probe = *(uint64_t *)((char *)ptr + 8);
+        return probe == 0;
+    }
+    if (kind == HAMT_LEAF) {
+        /* HAMT_LEAF: bytes 4-11 are a uint64_t hash.
+         * If upper 32 bits are non-zero, it's a hash not a field_count. */
+        uint32_t hash_hi = *(uint32_t *)((char *)ptr + 8);
+        return hash_hi != 0;
+    }
+    /* HAMT_BRANCH or HAMT_COLLISION: second i32 is bitmap/count.
+     * ADTs with ctor_tag 2-3 have field_count in second i32.
+     * Branch bitmap is typically non-trivial. Accept if kind matches. */
+    return 1;
+}
+
+/* Format a HAMT as {"key": value, ...} string. */
+int64_t flux_hamt_format(int64_t map) {
+    HamtNode *root = (HamtNode *)flux_untag_ptr(map);
+    if (!root) return flux_string_new("{}", 2);
+    uint32_t size = hamt_size_impl(root);
+    if (size == 0) return flux_string_new("{}", 2);
+
+    int64_t *keys_arr = (int64_t *)malloc(size * sizeof(int64_t));
+    int64_t *vals_arr = (int64_t *)malloc(size * sizeof(int64_t));
+    uint32_t ki = 0, vi = 0;
+    hamt_collect_keys(root, keys_arr, &ki);
+    hamt_collect_values(root, vals_arr, &vi);
+
+    char buf[4096];
+    int pos = 0;
+    pos += snprintf(buf + pos, sizeof(buf) - pos, "{");
+    for (uint32_t i = 0; i < ki && pos < (int)sizeof(buf) - 40; i++) {
+        if (i > 0) pos += snprintf(buf + pos, sizeof(buf) - pos, ", ");
+        int64_t ks = flux_to_string(keys_arr[i]);
+        const char *kd = flux_string_data(ks);
+        uint32_t kl = flux_string_len(ks);
+        /* Quote string keys. */
+        buf[pos++] = '"';
+        if (pos + kl < sizeof(buf) - 20) { memcpy(buf + pos, kd, kl); pos += kl; }
+        buf[pos++] = '"';
+        pos += snprintf(buf + pos, sizeof(buf) - pos, ": ");
+        int64_t vs = flux_to_string(vals_arr[i]);
+        const char *vd = flux_string_data(vs);
+        uint32_t vl = flux_string_len(vs);
+        if (pos + vl < sizeof(buf) - 10) { memcpy(buf + pos, vd, vl); pos += vl; }
+    }
+    pos += snprintf(buf + pos, sizeof(buf) - pos, "}");
+
+    free(keys_arr);
+    free(vals_arr);
+    return flux_string_new(buf, (uint32_t)pos);
+}

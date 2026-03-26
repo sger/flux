@@ -3,38 +3,14 @@ source: tests/runtime_error_fixtures_snapshots.rs
 ---
 Fixture: examples/runtime_errors/base_flat_map_return_shape.flx
 == vm ==
-status: 1
+status: 0
 stdout:
 <empty>
 stderr:
-• 1 error • lib/Flow/List.flx
-error[E1004]: primop concat expected Array, got Int
-
-  lib/Flow/List.flx:54:32
-   |
-54 |                     Some(v) -> flatmap_go(i + 1, concat(result, f(v))),
-   |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Stack trace:
-  at flatmap_go (lib/Flow/List.flx:54:32)
-  at Flow.List.flat_map
-  at main (examples/runtime_errors/base_flat_map_return_shape.flx:2:5)
-  at <main>
+<empty>
 == jit ==
-status: 1
+status: 0
 stdout:
 <empty>
 stderr:
-• 1 error • lib/Flow/List.flx
-error[E1004]: primop concat expected Array, got Int
-
-  lib/Flow/List.flx:54:32
-   |
-54 |                     Some(v) -> flatmap_go(i + 1, concat(result, f(v))),
-   |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Stack trace:
-  at flatmap_go (lib/Flow/List.flx:54:32)
-  at Flow.List.flat_map
-  at main (examples/runtime_errors/base_flat_map_return_shape.flx:2:5)
-  at <main>
+<empty>

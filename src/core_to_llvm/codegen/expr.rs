@@ -2932,10 +2932,10 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                 }
             }
             CorePrimOp::Try | CorePrimOp::AssertThrows => {
-                return Err(self.unsupported(
+                Err(self.unsupported(
                     "primop",
                     format!("`{}` requires setjmp/longjmp error recovery (not yet implemented in native backend)", promoted_primop_flux_name(op)),
-                ));
+                ))
             }
             CorePrimOp::MemberAccess(member) => {
                 // Module member access: resolve to the function by name.

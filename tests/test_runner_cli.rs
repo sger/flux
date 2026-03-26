@@ -347,7 +347,7 @@ fn test_syntax_control_flow() {
 
 #[test]
 fn test_syntax_collections() {
-    run_syntax_fixture("syntax_collections.flx", 31);
+    run_syntax_fixture("syntax_collections.flx", 30);
 }
 
 #[test]

@@ -16,9 +16,7 @@ I found the wrong type in the 1st argument to `expect_int`.
  3 | }
  4 | 
  5 | fn main() -> Unit with IO {
- 6 |     let picked = if true {
- 7 |         "left"
- 8 |     } else {
+... |
  9 |         "right"
 10 |     }
 11 |     print(to_string(expect_int(picked)))

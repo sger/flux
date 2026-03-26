@@ -69,6 +69,19 @@ I can't find a value named `fold`.
 Hint:
   Define it first: let fold = ...;
 
-Found 5 errors.
+
+error[E004]: Undefined Variable
+
+I can't find a value named `zip`.
+
+  examples/advanced/list_map_filter.flx:129:17
+    |
+129 |     let pairs = zip(labels, vals);
+    |                 ^^^
+
+Hint:
+  Define it first: let zip = ...;
+
+Found 6 errors.
 == stdout ==
 <not executed>

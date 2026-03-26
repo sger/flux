@@ -16,12 +16,7 @@ I found the wrong type in the 1st argument to `expect_int`.
  3 | }
  4 | 
  5 | fn choose(flag: Bool) -> String {
- 6 |     match flag {
- 7 |         true -> "yes",
- 8 |         false -> "no",
- 9 |         _ -> "maybe",
-10 |     }
-11 | }
+... |
 12 | 
 13 | fn main() -> Unit with IO {
 14 |     print(to_string(expect_int(choose(true))))
