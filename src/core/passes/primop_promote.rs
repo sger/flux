@@ -47,7 +47,6 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         ("push", 2, CorePrimOp::ArrayPush),
         ("concat", 2, CorePrimOp::ArrayConcat),
         ("slice", 3, CorePrimOp::ArraySlice),
-        ("sort", 1, CorePrimOp::ArraySort),
         // HAMT operations
         ("put", 3, CorePrimOp::HamtSet),
         ("get", 2, CorePrimOp::HamtGet),
@@ -81,8 +80,6 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         // Parsing
         ("parse_int", 1, CorePrimOp::ParseInt),
         // List / cons cell
-        ("hd", 1, CorePrimOp::Hd),
-        ("tl", 1, CorePrimOp::Tl),
         ("to_list", 1, CorePrimOp::ToList),
         ("to_array", 1, CorePrimOp::ToArray),
         // Polymorphic length

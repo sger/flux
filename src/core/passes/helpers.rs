@@ -429,7 +429,6 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::ArrayPush
         | CorePrimOp::ArrayConcat
         | CorePrimOp::ArraySlice
-        | CorePrimOp::ArraySort
         | CorePrimOp::HamtGet
         | CorePrimOp::HamtSet
         | CorePrimOp::HamtDelete
@@ -451,8 +450,6 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::Panic
         | CorePrimOp::ClockNow
         | CorePrimOp::ParseInt
-        | CorePrimOp::Hd
-        | CorePrimOp::Tl
         | CorePrimOp::ToList
         | CorePrimOp::ToArray
         | CorePrimOp::Len

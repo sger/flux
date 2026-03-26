@@ -2861,7 +2861,6 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             | CorePrimOp::ArrayPush
             | CorePrimOp::ArrayConcat
             | CorePrimOp::ArraySlice
-            | CorePrimOp::ArraySort
             | CorePrimOp::HamtGet
             | CorePrimOp::HamtSet
             | CorePrimOp::HamtDelete
@@ -2883,8 +2882,6 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             | CorePrimOp::Panic
             | CorePrimOp::ClockNow
             | CorePrimOp::ParseInt
-            | CorePrimOp::Hd
-            | CorePrimOp::Tl
             | CorePrimOp::ToList
             | CorePrimOp::ToArray
             | CorePrimOp::Len
@@ -3503,7 +3500,6 @@ fn promoted_primop_flux_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::ArrayPush => "push",
         CorePrimOp::ArrayConcat => "concat",
         CorePrimOp::ArraySlice => "slice",
-        CorePrimOp::ArraySort => "sort",
         CorePrimOp::HamtGet => "get",
         CorePrimOp::HamtSet => "put",
         CorePrimOp::HamtDelete => "delete",
@@ -3525,8 +3521,6 @@ fn promoted_primop_flux_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Panic => "panic",
         CorePrimOp::ClockNow => "now_ms",
         CorePrimOp::ParseInt => "parse_int",
-        CorePrimOp::Hd => "hd",
-        CorePrimOp::Tl => "tl",
         CorePrimOp::ToList => "to_list",
         CorePrimOp::ToArray => "to_array",
         CorePrimOp::Len => "len",
