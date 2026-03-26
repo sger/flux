@@ -68,8 +68,7 @@ I found the wrong type in the 4th argument to `col_value`.
 88 | }
 89 | 
 90 | fn eval_problem(lines, num_rows, start, stop) {
-91 |     let op_line = line_at(lines, num_rows)
-92 |     let op = trim(slice_padded(op_line, start, stop))
+... |
 93 |     let cols = range(start, stop)
 94 |     if op == "*" {
 95 |         let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
@@ -115,11 +114,7 @@ I found the wrong type in the 4th argument to `col_value`.
 88 | }
 89 | 
 90 | fn eval_problem(lines, num_rows, start, stop) {
-91 |     let op_line = line_at(lines, num_rows)
-92 |     let op = trim(slice_padded(op_line, start, stop))
-93 |     let cols = range(start, stop)
-94 |     if op == "*" {
-95 |         let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
+... |
 96 |         product(factors)
 97 |     } else {
 98 |     let terms = [col_value(lines, num_rows, col, 0) | col <- cols]

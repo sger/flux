@@ -28,10 +28,7 @@ The `add` function takes 2 arguments, but 1 were provided.
    | --------------------------------------- `add` is defined with 2 parameters
  2 | 
  3 | fn main() -> Unit {
- 4 |     let x = mystery_value
- 5 |     let _y = match x {
- 6 |         Some(n) -> n,
- 7 |         Left(l) -> l,
+... |
  8 |         _ -> 0,
  9 |     }
 10 |     let _z = add(1)

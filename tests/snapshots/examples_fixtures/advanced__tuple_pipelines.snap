@@ -43,6 +43,9 @@ I can't find a value named `filter`.
 Hint:
   Define it first: let filter = ...;
 
+Help:
+  Did you mean `filtered`?
+
 
 error[E004]: Undefined Variable
 

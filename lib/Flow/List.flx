@@ -1,240 +1,203 @@
-// Flow.List — Array and list operations for the Flux standard library.
+// Flow.List — List operations for the Flux standard library.
 //
-// Functions operate on arrays ([|...|]) using index-based tail recursion
-// with primops (len, push, arr[i]).
+// Functions operate on cons lists ([...]) using [h | t] pattern matching.
+// For array-specific operations, use Flow.Array (explicit import).
 //
 // Argument order follows Flux convention: collection first, function second.
 
 module Flow.List {
 
-    public fn map(arr, f) {
-        fn map_go(i, result) {
-            if i >= len(arr) { result }
+    public fn map(xs, f) {
+        match xs {
+            [h | t] -> [f(h) | map(t, f)],
+            _ -> []
+        }
+    }
+
+    public fn filter(xs, pred) {
+        match xs {
+            [h | t] -> if pred(h) { [h | filter(t, pred)] } else { filter(t, pred) },
+            _ -> []
+        }
+    }
+
+    public fn fold(xs, acc, f) {
+        match xs {
+            [h | t] -> fold(t, f(acc, h), f),
+            _ -> acc
+        }
+    }
+
+    public fn flat_map(xs, f) {
+        match xs {
+            [h | t] -> append(f(h), flat_map(t, f)),
+            _ -> []
+        }
+    }
+
+    public fn flatten(xs) {
+        match xs {
+            [h | t] -> append(h, flatten(t)),
+            _ -> []
+        }
+    }
+
+    public fn any(xs, pred) {
+        match xs {
+            [h | t] -> if pred(h) { true } else { any(t, pred) },
+            _ -> false
+        }
+    }
+
+    public fn all(xs, pred) {
+        match xs {
+            [h | t] -> if pred(h) { all(t, pred) } else { false },
+            _ -> true
+        }
+    }
+
+    public fn find(xs, pred) {
+        match xs {
+            [h | t] -> if pred(h) { Some(h) } else { find(t, pred) },
+            _ -> None
+        }
+    }
+
+    public fn count(xs, pred) {
+        fn count_go(ys, n) {
+            match ys {
+                [h | t] -> if pred(h) { count_go(t, n + 1) } else { count_go(t, n) },
+                _ -> n
+            }
+        }
+        count_go(xs, 0)
+    }
+
+    public fn each(xs, f) with IO {
+        match xs {
+            [h | t] -> do {
+                f(h)
+                each(t, f)
+            },
+            _ -> ()
+        }
+    }
+
+    public fn sort_by(xs, f) {
+        fn list_len(ys) {
+            match ys {
+                [h | t] -> 1 + list_len(t),
+                _ -> 0
+            }
+        }
+        fn take(ys, n) {
+            if n <= 0 { [] }
             else {
-                match arr[i] {
-                    Some(v) -> map_go(i + 1, push(result, f(v))),
-                    _ -> map_go(i + 1, result)
+                match ys {
+                    [h | t] -> [h | take(t, n - 1)],
+                    _ -> []
                 }
             }
         }
-        map_go(0, [||])
-    }
-
-    public fn filter(arr, pred) {
-        fn filter_go(i, result) {
-            if i >= len(arr) { result }
+        fn drop_n(ys, n) {
+            if n <= 0 { ys }
             else {
-                match arr[i] {
-                    Some(v) -> if pred(v) { filter_go(i + 1, push(result, v)) } else { filter_go(i + 1, result) },
-                    _ -> filter_go(i + 1, result)
+                match ys {
+                    [h | t] -> drop_n(t, n - 1),
+                    _ -> []
                 }
             }
         }
-        filter_go(0, [||])
-    }
-
-    public fn fold(arr, acc, f) {
-        fn fold_go(i, a) {
-            if i >= len(arr) { a }
-            else {
-                match arr[i] {
-                    Some(v) -> fold_go(i + 1, f(a, v)),
-                    _ -> fold_go(i + 1, a)
-                }
+        fn merge_by(left, right) {
+            match left {
+                [a | at] -> match right {
+                    [b | bt] -> if f(a) <= f(b) { [a | merge_by(at, right)] } else { [b | merge_by(left, bt)] },
+                    _ -> left
+                },
+                _ -> right
             }
         }
-        fold_go(0, acc)
-    }
-
-    public fn flat_map(arr, f) {
-        fn flatmap_go(i, result) {
-            if i >= len(arr) { result }
-            else {
-                match arr[i] {
-                    Some(v) -> flatmap_go(i + 1, concat(result, f(v))),
-                    _ -> flatmap_go(i + 1, result)
-                }
-            }
-        }
-        flatmap_go(0, [||])
-    }
-
-    public fn flatten(arr) {
-        fn flatten_go(i, result) {
-            if i >= len(arr) { result }
-            else {
-                match arr[i] {
-                    Some(v) -> flatten_go(i + 1, concat(result, v)),
-                    _ -> flatten_go(i + 1, result)
-                }
-            }
-        }
-        flatten_go(0, [||])
-    }
-
-    public fn any(arr, pred) {
-        fn any_go(i) {
-            if i >= len(arr) { false }
-            else {
-                match arr[i] {
-                    Some(v) -> if pred(v) { true } else { any_go(i + 1) },
-                    _ -> any_go(i + 1)
-                }
-            }
-        }
-        any_go(0)
-    }
-
-    public fn all(arr, pred) {
-        fn all_go(i) {
-            if i >= len(arr) { true }
-            else {
-                match arr[i] {
-                    Some(v) -> if pred(v) { all_go(i + 1) } else { false },
-                    _ -> all_go(i + 1)
-                }
-            }
-        }
-        all_go(0)
-    }
-
-    public fn find(arr, pred) {
-        fn find_go(i) {
-            if i >= len(arr) { None }
-            else {
-                match arr[i] {
-                    Some(v) -> if pred(v) { Some(v) } else { find_go(i + 1) },
-                    _ -> find_go(i + 1)
-                }
-            }
-        }
-        find_go(0)
-    }
-
-    public fn count(arr, pred) {
-        fn count_go(i, n) {
-            if i >= len(arr) { n }
-            else {
-                match arr[i] {
-                    Some(v) -> if pred(v) { count_go(i + 1, n + 1) } else { count_go(i + 1, n) },
-                    _ -> count_go(i + 1, n)
-                }
-            }
-        }
-        count_go(0, 0)
-    }
-
-    public fn each(arr, f) with IO {
-        fn each_go(i) {
-            if i < len(arr) {
-                match arr[i] {
-                    Some(v) -> f(v),
-                    _ -> ()
-                }
-                each_go(i + 1)
-            } else { () }
-        }
-        each_go(0)
-    }
-
-    public fn sort_by(arr, f) {
-        fn sb_partition(arr, f, pivot, the_rest) {
-            let lo = filter(the_rest, \x -> f(x) < f(pivot))
-            let hi = filter(the_rest, \x -> f(x) >= f(pivot))
-            concat(push(sort_by(lo, f), pivot), sort_by(hi, f))
-        }
-        if len(arr) <= 1 { arr }
+        if list_len(xs) <= 1 { xs }
         else {
-            match arr[0] {
-                Some(p) -> sb_partition(arr, f, p, slice(arr, 1, len(arr))),
-                _ -> arr
+            fn sort_split(ys) {
+                let mid = list_len(ys) / 2
+                merge_by(sort_by(take(ys, mid), f), sort_by(drop_n(ys, mid), f))
             }
+            sort_split(xs)
         }
     }
 
-    public fn first(arr) {
-        arr[0]
+    public fn first(xs) {
+        match xs {
+            [h | t] -> Some(h),
+            _ -> None
+        }
     }
 
-    public fn last(arr) {
-        let n = len(arr)
-        if n == 0 { None }
-        else { arr[n - 1] }
+    public fn last(xs) {
+        match xs {
+            [h | t] -> match t {
+                [h2 | t2] -> last(t),
+                _ -> Some(h)
+            },
+            _ -> None
+        }
     }
 
-    public fn rest(arr) {
-        if len(arr) == 0 { [||] }
-        else { slice(arr, 1, len(arr)) }
+    public fn rest(xs) {
+        match xs {
+            [h | t] -> t,
+            _ -> []
+        }
     }
 
     public fn range(start, stop) {
-        fn range_go(i, result) {
-            if i >= stop { result }
-            else { range_go(i + 1, push(result, i)) }
-        }
-        range_go(start, [||])
+        if start >= stop { [] }
+        else { [start | range(start + 1, stop)] }
     }
 
-    public fn reverse(arr) {
-        fn rev_go(i, result) {
-            if i < 0 { result }
-            else {
-                match arr[i] {
-                    Some(v) -> rev_go(i - 1, push(result, v)),
-                    _ -> rev_go(i - 1, result)
-                }
+    public fn reverse(xs) {
+        fn rev_acc(ys, acc) {
+            match ys {
+                [h | t] -> rev_acc(t, [h | acc]),
+                _ -> acc
             }
         }
-        rev_go(len(arr) - 1, [||])
+        rev_acc(xs, [])
     }
 
-    public fn zip(a, b) {
-        let n = if len(a) < len(b) { len(a) } else { len(b) }
-        fn zip_go(i, result) {
-            if i >= n { result }
-            else {
-                let va = a[i]
-                let vb = b[i]
-                match va {
-                    Some(x) -> match vb {
-                        Some(y) -> zip_go(i + 1, push(result, (x, y))),
-                        _ -> zip_go(i + 1, result)
-                    },
-                    _ -> zip_go(i + 1, result)
-                }
+    public fn zip(xs, ys) {
+        match xs {
+            [a | at] -> match ys {
+                [b | bt] -> [(a, b) | zip(at, bt)],
+                _ -> []
+            },
+            _ -> []
+        }
+    }
+
+    public fn contains(xs, x) {
+        any(xs, fn(item) { cmp_eq(item, x) })
+    }
+
+    public fn sum(xs) {
+        fn sum_go(ys, acc) {
+            match ys {
+                [h | t] -> sum_go(t, acc + h),
+                _ -> acc
             }
         }
-        zip_go(0, [||])
+        sum_go(xs, 0)
     }
 
-    public fn contains(arr, x) {
-        any(arr, \item -> item == x)
-    }
-
-    public fn sum(arr) {
-        fn sum_go(i, acc) {
-            if i >= len(arr) { acc }
-            else {
-                match arr[i] {
-                    Some(v) -> sum_go(i + 1, acc + v),
-                    _ -> sum_go(i + 1, acc)
-                }
+    public fn product(xs) {
+        fn product_go(ys, acc) {
+            match ys {
+                [h | t] -> product_go(t, acc * h),
+                _ -> acc
             }
         }
-        sum_go(0, 0)
-    }
-
-    public fn product(arr) {
-        fn product_go(i, acc) {
-            if i >= len(arr) { acc }
-            else {
-                match arr[i] {
-                    Some(v) -> product_go(i + 1, acc * v),
-                    _ -> product_go(i + 1, acc)
-                }
-            }
-        }
-        product_go(0, 1)
+        product_go(xs, 1)
     }
 
     public fn abs(x) {
@@ -247,6 +210,13 @@ module Flow.List {
 
     public fn max(a, b) {
         if a > b { a } else { b }
+    }
+
+    fn append(xs, ys) {
+        match xs {
+            [h | t] -> [h | append(t, ys)],
+            _ -> ys
+        }
     }
 
 }

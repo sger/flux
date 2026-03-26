@@ -115,6 +115,10 @@ static void flux_print_value(int64_t val) {
             }
             if (arity == 1) printf(",");
             printf(")");
+        } else if (flux_is_hamt(ptr)) {
+            /* HAMT (hash map) */
+            int64_t s = flux_hamt_format(val);
+            fwrite(flux_string_data(s), 1, flux_string_len(s), stdout);
         } else {
             /* ADT: { i32 tag, i32 field_count, i64 fields[] } */
             int32_t ctor_tag = *(int32_t *)ptr;
@@ -536,9 +540,11 @@ int64_t flux_type_of(int64_t val) {
             case FLUX_OBJ_CLOSURE: return flux_string_new("Function", 8);
             default: {
                 /* Non-FLUX_OBJ_* tag: either ADT or HAMT.
-                 * ADTs have { int32 ctor_tag, int32 field_count, ... }.
-                 * HAMTs have { int32 kind, ... }.
-                 * Best heuristic: check is_map logic. */
+                 * Check HAMT first — HAMT kind values (0-3) collide with
+                 * ADT ctor_tags (0=None, 1=Some, etc.). */
+                if (flux_is_hamt(ptr)) {
+                    return flux_string_new("Map", 3);
+                }
                 int32_t first_i32 = *(int32_t *)ptr;
                 int32_t second_i32 = *((int32_t *)ptr + 1);
                 /* ADT: ctor_tag 0-255, field_count 0-100 (reasonable) */
@@ -851,6 +857,46 @@ int64_t flux_to_string(int64_t val) {
                 if (arity == 1) pos += snprintf(buf + pos, sizeof(buf) - pos, ",");
                 pos += snprintf(buf + pos, sizeof(buf) - pos, ")");
                 return flux_string_new(buf, (uint32_t)pos);
+            }
+            /* HAMT (hash map) */
+            if (flux_is_hamt(ptr)) {
+                return flux_hamt_format(val);
+            }
+            /* Cons list: ADT with ctor_tag=4, field_count=2 */
+            {
+                int32_t ctor_tag = *(int32_t *)ptr;
+                int32_t field_count = *((int32_t *)ptr + 1);
+                if (ctor_tag == 4 && field_count == 2) {
+                    char buf[4096];
+                    int pos = 0;
+                    pos += snprintf(buf + pos, sizeof(buf) - pos, "[");
+                    int64_t cur = val;
+                    int first_elem = 1;
+                    while (flux_is_ptr(cur)) {
+                        void *cp = flux_untag_ptr(cur);
+                        if (!cp) break;
+                        int32_t ct = *(int32_t *)cp;
+                        int32_t fc = *((int32_t *)cp + 1);
+                        if (ct != 4 || fc != 2) break;
+                        int64_t *fields = (int64_t *)((char *)cp + 8);
+                        if (!first_elem) pos += snprintf(buf + pos, sizeof(buf) - pos, ", ");
+                        first_elem = 0;
+                        int64_t elem = fields[0];
+                        int is_str = flux_is_ptr(elem) && flux_obj_tag(flux_untag_ptr(elem)) == FLUX_OBJ_STRING;
+                        if (is_str) buf[pos++] = '"';
+                        int64_t s = flux_to_string(elem);
+                        const char *sd = flux_string_data(s);
+                        uint32_t sl = flux_string_len(s);
+                        if (pos + sl < sizeof(buf) - 10) {
+                            memcpy(buf + pos, sd, sl);
+                            pos += sl;
+                        }
+                        if (is_str) buf[pos++] = '"';
+                        cur = fields[1];
+                    }
+                    pos += snprintf(buf + pos, sizeof(buf) - pos, "]");
+                    return flux_string_new(buf, (uint32_t)pos);
+                }
             }
         }
         return flux_string_new("<value>", 7);

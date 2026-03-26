@@ -52,8 +52,8 @@ fn test_tuple_equality() {
 fn test_array_literal() {
     let arr = [|1, 2, 3|]
     assert_eq(len(arr), 3)
-    assert_eq(first(arr), Some(1))
-    assert_eq(last(arr), Some(3))
+    assert_eq(arr[0], Some(1))
+    assert_eq(arr[2], Some(3))
 }
 
 fn test_array_empty() {
@@ -64,13 +64,7 @@ fn test_array_empty() {
 fn test_array_single() {
     let arr = [|42|]
     assert_eq(len(arr), 1)
-    assert_eq(first(arr), Some(42))
-}
-
-fn test_array_contains() {
-    let arr = [|1, 2, 3, 4, 5|]
-    assert_true(contains(arr, 3))
-    assert_false(contains(arr, 99))
+    assert_eq(arr[0], Some(42))
 }
 
 fn test_array_slice() {
@@ -92,19 +86,19 @@ fn test_array_concat() {
     assert_eq(result[3], Some(4))
 }
 
-fn test_array_reverse() {
-    let result = reverse([|1, 2, 3|])
+fn test_list_reverse() {
+    let result = reverse([1, 2, 3])
     assert_eq(len(result), 3)
-    assert_eq(result[0], Some(3))
-    assert_eq(result[1], Some(2))
-    assert_eq(result[2], Some(1))
+    assert_eq(hd(result), 3)
+    assert_eq(hd(tl(result)), 2)
+    assert_eq(hd(tl(tl(result))), 1)
 }
 
-fn test_array_rest() {
-    let result = rest([|1, 2, 3|])
+fn test_list_rest() {
+    let result = rest([1, 2, 3])
     assert_eq(len(result), 2)
-    assert_eq(result[0], Some(2))
-    assert_eq(result[1], Some(3))
+    assert_eq(hd(result), 2)
+    assert_eq(hd(tl(result)), 3)
 }
 
 fn test_array_push() {

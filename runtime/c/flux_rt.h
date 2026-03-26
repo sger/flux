@@ -239,6 +239,8 @@ int64_t flux_hamt_set(int64_t map, int64_t key, int64_t value);
 int64_t flux_hamt_delete(int64_t map, int64_t key);
 int64_t flux_hamt_contains(int64_t map, int64_t key);
 int64_t flux_hamt_size(int64_t map);
+int     flux_is_hamt(void *ptr);
+int64_t flux_hamt_format(int64_t map);
 
 /* ── Numeric ────────────────────────────────────────────────────────── */
 

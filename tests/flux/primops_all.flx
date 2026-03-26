@@ -45,9 +45,8 @@ fn test_array_and_collection_primops() {
     assert_eq(arr2[1], Some(99))
     assert_eq(arr2[2], Some(30))
 
-    assert_eq(first(arr2), Some(10))
-    assert_eq(last(arr2), Some(30))
-    assert_true(contains(arr2, 99))
+    assert_eq(arr2[0], Some(10))
+    assert_eq(arr2[2], Some(30))
 
     let sliced = slice(arr2, 0, 2)
     assert_eq(len(sliced), 2)
@@ -80,8 +79,8 @@ fn test_map_primops() {
     let vs = values(m2)
     assert_eq(len(ks), 2)
     assert_eq(len(vs), 2)
-    assert_true(contains(ks, "name"))
-    assert_true(contains(ks, "year"))
+    assert_true(any(to_list(ks), fn(k) { cmp_eq(k, "name") }))
+    assert_true(any(to_list(ks), fn(k) { cmp_eq(k, "year") }))
 
     let m3 = delete(m2, "year")
     assert_false(map_has(m3, "year"))
