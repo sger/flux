@@ -8,13 +8,13 @@ letrec copy_or_keep_head : List<Any> =
         drop_spec xs#1 {
           unique -> case copy#2 of
               true →
-                let #4000014[synthetic]#14 = ::(h#3, t#4)
+                let %t1:Box = ::(h#3, t#4)
                 reuse xs#1 ::(h#3, #4000014[synthetic]#14) @mask=0b10
               _ →
                 reuse xs#1 ::(h#3, t#4) @mask=0b0
           shared -> case copy#2 of
               true →
-                let #4000014[synthetic]#14 = ::(dup h#3
+                let %t1:Box = ::(dup h#3
                 h#3, t#4)
                 ::(h#3, #4000014[synthetic]#14)
               _ →
@@ -47,11 +47,11 @@ letrec keep_or_dup_left : Tree =
 
 letrec main : Any =
 λ.
-    let #2000000[synthetic]#13 = (let #4000016[synthetic]#16 = (let #4000015[synthetic]#15 = MakeList(1, 2, 3)
+    let %t2 = (let %t3 = (let %t4:Box = MakeList(1, 2, 3)
     aether_call[borrowed, borrowed] copy_or_keep_head#0(#4000015[synthetic]#15, true))
     Print(#4000016[synthetic]#16))
     drop #2000000[synthetic]#13
-    let #4000018[synthetic]#18 = (let #4000017[synthetic]#17 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+    let %t5 = (let %t6 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
     aether_call[owned, borrowed] keep_or_dup_left#5(#4000017[synthetic]#17, false))
     Print(#4000018[synthetic]#18)
 

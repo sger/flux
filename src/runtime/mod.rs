@@ -58,4 +58,3 @@ pub trait RuntimeContext {
         None
     }
 }
-

@@ -25,8 +25,8 @@ use crate::{
         ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
         ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
         ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED,
-        NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER, UNKNOWN_CONSTRUCTOR,
-        UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
+        NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER, UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR,
+        UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
         compiler_errors::{
             UNREACHABLE_PATTERN_ARM, call_arg_type_mismatch, constructor_pattern_arity_mismatch,
             cross_module_constructor_access_error, cross_module_constructor_access_warning,
@@ -39,11 +39,8 @@ use crate::{
     },
     primop::{PrimEffect, resolve_primop_call},
     runtime::{
-        compiled_function::CompiledFunction,
-        handler_descriptor::HandlerDescriptor,
-        perform_descriptor::PerformDescriptor,
-        runtime_type::RuntimeType,
-        value::Value,
+        compiled_function::CompiledFunction, handler_descriptor::HandlerDescriptor,
+        perform_descriptor::PerformDescriptor, runtime_type::RuntimeType, value::Value,
     },
     syntax::{
         block::Block,
@@ -544,7 +541,7 @@ impl Compiler {
             Expression::Identifier { name, span, .. } => {
                 let name = *name;
                 // Exposed bindings from `import M exposing (..)` are checked
-                // first so that `lib/Base/*.flx` Flux implementations take
+                // first so that `lib/Flow/*.flx` Flux implementations take
                 // priority.
                 if self.exposed_bindings.contains_key(&name) {
                     let qualified = self.exposed_bindings[&name];

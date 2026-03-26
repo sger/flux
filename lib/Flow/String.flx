@@ -1,6 +1,6 @@
-// Base.String — String helper operations.
+// Flow.String — String helper operations.
 
-module Base.String {
+module Flow.String {
 
     public fn starts_with(s, prefix) {
         let plen = len(prefix)

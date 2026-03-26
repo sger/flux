@@ -4,7 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/precedence/comparison_vs_arithmetic.flx
 exit_code: 1
 
-• 4 errors • tests/fixtures/precedence/comparison_vs_arithmetic.flx
+• 6 errors • tests/fixtures/precedence/comparison_vs_arithmetic.flx
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -48,6 +48,20 @@ Hint:
   Add `fn main() { ... }` as the program entrypoint.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  tests/fixtures/precedence/comparison_vs_arithmetic.flx:1:1
+  |
+1 | print(1 + 2 == 3);
+  | ^^^^^^^^^^^^^^^^^
+  | ----------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -61,4 +75,18 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 4 errors.
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  tests/fixtures/precedence/comparison_vs_arithmetic.flx:2:1
+  |
+2 | print(1 < 2 + 3);
+  | ^^^^^^^^^^^^^^^^
+  | ---------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 6 errors.

@@ -1,15 +1,15 @@
-//! Base function (built-in) support for core_to_llvm.
+//! Built-in function support for core_to_llvm.
 //!
-//! Maps Flux base function names to C runtime function declarations.
+//! Maps Flux built-in function names to C runtime function declarations.
 //! Only functions with a direct C runtime equivalent are supported;
 //! others require closure wrapping (future work).
 
 use crate::core_to_llvm::Linkage;
 use crate::core_to_llvm::{CallConv, GlobalId, LlvmDecl, LlvmFunctionSig, LlvmModule, LlvmType};
 
-/// Describes a base function's C runtime mapping.
+/// Describes a built-in function's C runtime mapping.
 pub struct BuiltinMapping {
-    /// The Flux base function name (e.g., "print").
+    /// The Flux built-in function name (e.g., "print").
     pub flux_name: &'static str,
     /// The C runtime function name (e.g., "flux_println").
     pub c_name: &'static str,
@@ -19,7 +19,7 @@ pub struct BuiltinMapping {
     pub returns_value: bool,
 }
 
-/// Known base function → C runtime mappings.
+/// Known built-in function → C runtime mappings.
 static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     // I/O
     BuiltinMapping {
@@ -672,7 +672,7 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     },
 ];
 
-/// Look up a base function's C runtime mapping by Flux name.
+/// Look up a built-in function's C runtime mapping by Flux name.
 pub fn find_builtin(name: &str) -> Option<&'static BuiltinMapping> {
     BUILTIN_MAPPINGS.iter().find(|m| m.flux_name == name)
 }
@@ -707,7 +707,7 @@ pub fn ensure_builtin_declared(module: &mut LlvmModule, mapping: &BuiltinMapping
     });
 }
 
-/// Check if a name (resolved via interner) is a known base function.
+/// Check if a name (resolved via interner) is a known built-in function.
 #[allow(dead_code)]
 pub fn is_known_builtin(name: &str) -> bool {
     find_builtin(name).is_some()

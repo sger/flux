@@ -201,9 +201,9 @@ fn resolve_imports_no_imports_returns_empty() {
 }
 
 #[test]
-fn resolve_imports_ignores_synthetic_base_import() {
+fn resolve_imports_ignores_synthetic_flow_import() {
     let mut interner = Interner::new();
-    let base_sym = interner.intern("Base");
+    let base_sym = interner.intern("Flow");
     let print_sym = interner.intern("print");
 
     let program = Program {

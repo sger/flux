@@ -307,7 +307,7 @@ pub enum CorePrimOp {
     //
     // True primitives that need hardware access, memory layout knowledge,
     // or OS syscalls.  Everything else will be rewritten in Flux
-    // (`lib/Base/*.flx`) using these primops.
+    // (`lib/Flow/*.flx`) using these primops.
 
     // I/O
     Print,

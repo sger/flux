@@ -58,6 +58,20 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-Found 4 errors.
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/errors/empty_match_error.flx:3:1
+  |
+3 | print(x);
+  | ^^^^^^^^
+  | -------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 5 errors.
 == stdout ==
 <not executed>

@@ -1,7 +1,14 @@
-use std::{fs, io::Read as _, rc::Rc, time::{Instant, SystemTime}};
+use std::{
+    fs,
+    io::Read as _,
+    rc::Rc,
+    time::{Instant, SystemTime},
+};
 
-use crate::runtime::value::{format_value, cons_list_len};
-use crate::runtime::{RuntimeContext, cons_cell::ConsCell, hamt as rc_hamt, hash_key::HashKey, value::Value};
+use crate::runtime::value::{cons_list_len, format_value};
+use crate::runtime::{
+    RuntimeContext, cons_cell::ConsCell, hamt as rc_hamt, hash_key::HashKey, value::Value,
+};
 
 /// Primitive operations that can be invoked directly from VM bytecode.
 ///
@@ -342,7 +349,11 @@ impl PrimOp {
     /// Returns the effect classification for this primitive operation.
     pub fn effect_kind(self) -> PrimEffect {
         match self {
-            Self::Println | Self::ReadFile | Self::WriteFile | Self::ReadStdin | Self::Print
+            Self::Println
+            | Self::ReadFile
+            | Self::WriteFile
+            | Self::ReadStdin
+            | Self::Print
             | Self::ReadLines => PrimEffect::Io,
             Self::ClockNow | Self::Time => PrimEffect::Time,
             Self::Panic => PrimEffect::Control,
@@ -837,7 +848,11 @@ pub fn execute_primop(
             let end = expect_int(&args[2], op)?;
             let len = arr.len() as i64;
             let start = if start < 0 { 0 } else { start as usize };
-            let end = if end > len { len as usize } else { end as usize };
+            let end = if end > len {
+                len as usize
+            } else {
+                end as usize
+            };
             if start >= end || start >= arr.len() {
                 Ok(Value::Array(vec![].into()))
             } else {
@@ -961,9 +976,7 @@ pub fn execute_primop(
                 None
             };
             match ctx.invoke_value(args[0].clone(), vec![]) {
-                Ok(_) => {
-                    Err("assert_throws failed: function completed without error".to_string())
-                }
+                Ok(_) => Err("assert_throws failed: function completed without error".to_string()),
                 Err(msg) => match expected_msg {
                     Some(expected) if msg.contains(expected) => Ok(Value::None),
                     Some(expected) => Err(format!(

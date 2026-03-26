@@ -262,8 +262,7 @@ impl fmt::Display for Statement {
                 match exposing {
                     ImportExposing::All => s.push_str(" exposing (..)"),
                     ImportExposing::Names(names) => {
-                        let names: Vec<String> =
-                            names.iter().map(ToString::to_string).collect();
+                        let names: Vec<String> = names.iter().map(ToString::to_string).collect();
                         s.push_str(&format!(" exposing ({})", names.join(", ")));
                     }
                     ImportExposing::None => {}

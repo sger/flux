@@ -182,8 +182,8 @@ fn main() { len_twice(#[1, 2, 3]) }
 
 #[test]
 fn borrow_base_call_stays_dup_free() {
-    // With primops (array_len), xs is consumed twice, so a Dup is expected
-    // to reference-count it before the second use.
+    // array_len borrows its argument (read-only), so passing xs twice to
+    // array_len does NOT require a Dup — both uses are borrowed.
     let src = r#"
 fn len_twice(xs) { array_len(xs) + array_len(xs) }
 fn main() { len_twice(#[1, 2, 3]) }
@@ -195,7 +195,10 @@ fn main() { len_twice(#[1, 2, 3]) }
         .flat_map(|def| collect_core_exprs(&def.expr))
         .filter(|expr| matches!(expr, CoreExpr::Dup { .. }))
         .count();
-    assert!(dup_count >= 1, "expected Dup for multi-use primop arg");
+    assert_eq!(
+        dup_count, 0,
+        "borrowed primop args should not introduce dups"
+    );
     assert_eq!(run(src), Value::Integer(6));
 }
 
@@ -219,8 +222,9 @@ fn main() { borrow_then_return(#[1, 2, 3], 42) }
 
 #[test]
 fn recursive_borrow_signature_stays_precise() {
-    // Without base functions, `my_len` (wrapping array_len primop) consumes its arg,
-    // so `loop`'s first param (xs) is Owned, second (n) is Borrowed.
+    // array_len borrows its argument, so my_len borrows xs too.
+    // Both params of `loop` are Borrowed: xs is forwarded to borrowing my_len,
+    // and n is only used in PrimOp positions.
     let src = r#"
 fn my_len(xs) { array_len(xs) }
 fn loop(xs, n) {
@@ -241,7 +245,7 @@ fn main() { loop(#[1, 2, 3], 3) }
     assert_eq!(
         sig.params,
         vec![
-            flux::aether::borrow_infer::BorrowMode::Owned,
+            flux::aether::borrow_infer::BorrowMode::Borrowed,
             flux::aether::borrow_infer::BorrowMode::Borrowed,
         ]
     );
@@ -261,13 +265,13 @@ fn main() { even(#[1, 2, 3], 4) }
 "#;
     let core = lowered_core(src);
     // defs[0] is my_len (helper), defs[1..2] are even/odd
-    // xs is Owned (consumed by my_len/array_len primop), n is Borrowed
+    // array_len borrows its arg, so my_len borrows xs, so even/odd borrow xs too.
     for def in core.defs.iter().skip(1).take(2) {
         let sig = def.borrow_signature.as_ref().expect("borrow signature");
         assert_eq!(
             sig.params,
             vec![
-                flux::aether::borrow_infer::BorrowMode::Owned,
+                flux::aether::borrow_infer::BorrowMode::Borrowed,
                 flux::aether::borrow_infer::BorrowMode::Borrowed,
             ]
         );
@@ -360,10 +364,11 @@ fn main() { use_closure(#[1, 2, 3]) }
         .borrow_signature
         .as_ref()
         .expect("borrow signature");
-    // xs is Owned because my_len (wrapping array_len primop) consumes it
+    // array_len borrows its arg, so my_len borrows xs, so the closure
+    // only reads xs — use_closure's xs stays Borrowed.
     assert_eq!(
         sig.params,
-        vec![flux::aether::borrow_infer::BorrowMode::Owned]
+        vec![flux::aether::borrow_infer::BorrowMode::Borrowed]
     );
 }
 

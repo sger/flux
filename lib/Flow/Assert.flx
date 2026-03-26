@@ -1,6 +1,6 @@
-// Base.Assert — Test assertion helpers for Flux programs.
+// Flow.Assert — Test assertion helpers for Flux programs.
 
-module Base.Assert {
+module Flow.Assert {
 
     public fn assert_eq(a, b) with IO {
         if a == b { () }

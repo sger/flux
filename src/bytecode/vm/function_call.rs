@@ -89,7 +89,7 @@ impl VM {
         match self.stack_get(callee_idx) {
             Value::Closure(closure) => self.call_closure(closure, num_args),
             Value::BaseFunction(_) => {
-                Err("BaseFunction values are deprecated; base functions are now compiled from lib/Base/".to_string())
+                Err("BaseFunction values are deprecated; base functions are now compiled from lib/Flow/".to_string())
             }
             other => Err(self.runtime_error_enhanced(&NOT_A_FUNCTION, &[other.type_name()])),
         }
@@ -100,7 +100,6 @@ impl VM {
         let args_start = self.sp - num_args;
         self.call_closure_with_return_slot(closure, num_args, args_start, args_start)
     }
-
 
     fn call_closure(&mut self, closure: Rc<Closure>, num_args: usize) -> Result<(), String> {
         let args_start = self.sp - num_args;
@@ -279,15 +278,15 @@ impl VM {
         Ok(())
     }
 
-    /// Invokes a callable Value (closure or Base function) with the given arguments
+    /// Invokes a callable Value (closure or Flow function) with the given arguments
     /// and returns the result synchronously.
     ///
-    /// Used by higher-order Base functions (map, filter, fold) to call user-provided
-    /// functions from within the Base function implementation.
+    /// Used by higher-order Flow functions (map, filter, fold) to call user-provided
+    /// functions from within the Flow function implementation.
     pub fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
         match callee {
             Value::BaseFunction(_) => {
-                Err("BaseFunction values are deprecated; base functions are now compiled from lib/Base/".to_string())
+                Err("BaseFunction values are deprecated; base functions are now compiled from lib/Flow/".to_string())
             }
             Value::Closure(closure) => {
                 let start_sp = self.sp;
@@ -434,15 +433,13 @@ impl RuntimeContext for VM {
         _base_fn_index: usize,
         _args: &[&Value],
     ) -> Result<Value, String> {
-        Err("invoke_base_function_borrowed is deprecated; base functions are now compiled from lib/Base/".to_string())
+        Err("invoke_base_function_borrowed is deprecated; base functions are now compiled from lib/Flow/".to_string())
     }
 
     #[inline]
     fn invoke_unary_value(&mut self, callee: &Value, arg: Value) -> Result<Value, String> {
         match callee {
-            Value::BaseFunction(_) => {
-                Err("BaseFunction values are deprecated".to_string())
-            }
+            Value::BaseFunction(_) => Err("BaseFunction values are deprecated".to_string()),
             Value::Closure(closure) => self.invoke_closure_arity1(closure.clone(), arg),
             other => Err(format!("not callable: {}", other.type_name())),
         }
@@ -456,9 +453,7 @@ impl RuntimeContext for VM {
         right: Value,
     ) -> Result<Value, String> {
         match callee {
-            Value::BaseFunction(_) => {
-                Err("BaseFunction values are deprecated".to_string())
-            }
+            Value::BaseFunction(_) => Err("BaseFunction values are deprecated".to_string()),
             Value::Closure(closure) => self.invoke_closure_arity2(closure.clone(), left, right),
             other => Err(format!("not callable: {}", other.type_name())),
         }

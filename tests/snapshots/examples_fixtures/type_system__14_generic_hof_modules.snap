@@ -46,6 +46,20 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/14_generic_hof_modules.flx:15:1
+   |
+15 | print("doubled:")
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -58,6 +72,20 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/14_generic_hof_modules.flx:16:1
+   |
+16 | print(doubled)
+   | ^^^^^^^^^^^^^^
+   | -------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 
 error[E011]: Private Member
@@ -87,6 +115,20 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/14_generic_hof_modules.flx:20:1
+   |
+20 | print("passing:")
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -99,6 +141,20 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/14_generic_hof_modules.flx:21:1
+   |
+21 | print(passing)
+   | ^^^^^^^^^^^^^^
+   | -------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 
 error[E011]: Private Member
@@ -128,6 +184,20 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/14_generic_hof_modules.flx:25:1
+   |
+25 | print("total passing score=#{total}")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E011]: Private Member
 
 Cannot access private member `zip_lists`.
@@ -155,6 +225,20 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/14_generic_hof_modules.flx:30:1
+   |
+30 | print("named scores:")
+   | ^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -167,6 +251,20 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/14_generic_hof_modules.flx:31:1
+   |
+31 | print(named)
+   | ^^^^^^^^^^^^
+   | ------------ requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 
 error[E011]: Private Member
@@ -196,6 +294,20 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/14_generic_hof_modules.flx:43:1
+   |
+43 | print("grades:")
+   | ^^^^^^^^^^^^^^^^
+   | ---------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -208,6 +320,20 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/14_generic_hof_modules.flx:44:1
+   |
+44 | print(grades)
+   | ^^^^^^^^^^^^^
+   | ------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 
 error[E011]: Private Member
@@ -237,6 +363,20 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/14_generic_hof_modules.flx:48:1
+   |
+48 | print("top3=#{C.join_strings(C.map_list(top3, /(x: Int) -> to_string(x)), ", ")}")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------------------------------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E011]: Private Member
 
 Cannot access private member `join_strings`.
@@ -249,6 +389,6 @@ Cannot access private member `join_strings`.
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
-Found 18 errors.
+Found 28 errors.
 == stdout ==
 <not executed>

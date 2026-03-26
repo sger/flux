@@ -1,6 +1,6 @@
-// Base.Numeric — Numeric list aggregation operations.
+// Flow.Numeric — Numeric list aggregation operations.
 
-module Base.Numeric {
+module Flow.Numeric {
 
     public fn max_list(arr) {
         fn maxl_go(i, best) {

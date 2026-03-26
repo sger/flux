@@ -32,6 +32,20 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-Found 2 errors.
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/errors/match_guards_error_path.flx:6:1
+  |
+6 | print("Run one of the dedicated match-guard error examples in this folder.");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ---------------------------------------------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 3 errors.
 == stdout ==
 <not executed>

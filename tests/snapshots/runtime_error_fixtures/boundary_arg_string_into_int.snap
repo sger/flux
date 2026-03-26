@@ -8,49 +8,55 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/boundary_arg_string_into_int.flx
-error[E1004]: Type Error
+error[E300]: Argument Type Mismatch
 
-I found a value with the wrong runtime type.
+I found the wrong type in the 1st argument to `typed_add`.
 
-  examples/runtime_errors/boundary_arg_string_into_int.flx:8:1
+  examples/runtime_errors/boundary_arg_string_into_int.flx:8:11
   |
+3 | fn typed_add(a: Int, b: Int) -> Int {
+4 |     a + b
+5 | }
+6 |
+7 | let dynamic = RuntimeErrors.BoundaryUnknown.dynamic_string()
 8 | typed_add(dynamic, 1)
-  | ^^^^^^^^^^^^^^^^^^^^^
-  | --------------------- this value has runtime type `String`
+  |           ^^^^^^^
+  |           ------- this argument has type `String`
 
 Note:
-  expected type: Int
-  found type:    String
-  runtime value:  "oops"
+  expected argument type: Int
+  found argument type: String
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
-  Check the value flowing into this operation or add a conversion before this point.
-
-Stack trace:
-  at <main> (examples/runtime_errors/boundary_arg_string_into_int.flx:8:1)
+  Pass a `Int` value as the 1st argument.
 == jit ==
 status: 1
 stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/boundary_arg_string_into_int.flx
-error[E1004]: Type Error
+error[E300]: Argument Type Mismatch
 
-I found a value with the wrong runtime type.
+I found the wrong type in the 1st argument to `typed_add`.
 
-  examples/runtime_errors/boundary_arg_string_into_int.flx:8:1
+  examples/runtime_errors/boundary_arg_string_into_int.flx:8:11
   |
+3 | fn typed_add(a: Int, b: Int) -> Int {
+4 |     a + b
+5 | }
+6 |
+7 | let dynamic = RuntimeErrors.BoundaryUnknown.dynamic_string()
 8 | typed_add(dynamic, 1)
-  | ^^^^^^^^^^^^^^^^^^^^^
-  | --------------------- this value has runtime type `String`
+  |           ^^^^^^^
+  |           ------- this argument has type `String`
 
 Note:
-  expected type: Int
-  found type:    String
-  runtime value:  "oops"
+  expected argument type: Int
+  found argument type: String
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
-  Check the value flowing into this operation or add a conversion before this point.
-
-Stack trace:
-  at <main> (examples/runtime_errors/boundary_arg_string_into_int.flx:8:1)
+  Pass a `Int` value as the 1st argument.

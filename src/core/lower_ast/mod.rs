@@ -594,7 +594,7 @@ mod tests {
         let mut parser = Parser::new(Lexer::new(src));
         let program = parser.parse_program();
         let mut interner = parser.take_interner();
-        let base_sym = interner.intern("base");
+        let flow_sym = interner.intern("Flow");
         let hm = infer_program(
             &program,
             &interner,
@@ -602,8 +602,8 @@ mod tests {
                 file_path: None,
                 preloaded_base_schemes: HashMap::new(),
                 preloaded_module_member_schemes: HashMap::new(),
-                known_base_names: std::collections::HashSet::new(),
-                base_module_symbol: base_sym,
+                known_flow_names: std::collections::HashSet::new(),
+                flow_module_symbol: flow_sym,
                 preloaded_effect_op_signatures: HashMap::new(),
             },
         );

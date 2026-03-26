@@ -758,8 +758,7 @@ impl Parser {
         }
 
         let mut exposing = crate::syntax::statement::ImportExposing::None;
-        if self.peek_token.token_type == TokenType::Ident && self.peek_token.literal == "exposing"
-        {
+        if self.peek_token.token_type == TokenType::Ident && self.peek_token.literal == "exposing" {
             self.next_token(); // consume `exposing`
             exposing = self.parse_import_exposing()?;
         } else if self.peek_token.token_type == TokenType::Ident
@@ -860,9 +859,7 @@ impl Parser {
     }
 
     /// Parses the `exposing (..)` or `exposing (name, name)` clause of an import.
-    fn parse_import_exposing(
-        &mut self,
-    ) -> Option<crate::syntax::statement::ImportExposing> {
+    fn parse_import_exposing(&mut self) -> Option<crate::syntax::statement::ImportExposing> {
         use crate::syntax::statement::ImportExposing;
 
         if !self.expect_peek_context_with_details(

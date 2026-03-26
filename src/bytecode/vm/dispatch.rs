@@ -3,13 +3,13 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     bytecode::op_code::OpCode,
     runtime::{
-        value::format_value,
         closure::Closure,
         cons_cell::ConsCell,
         continuation::Continuation,
         handler_arm::HandlerArm,
         handler_frame::HandlerFrame,
         leak_detector,
+        value::format_value,
         value::{AdtFields, AdtValue, Value},
     },
 };
@@ -524,8 +524,11 @@ impl VM {
             }
             OpCode::OpGetBase => {
                 // OpGetBase is no longer emitted by the compiler.
-                // Base functions are resolved as module members from lib/Base/.
-                return Err("OpGetBase is deprecated; base functions are now compiled from lib/Base/".to_string());
+                // Base functions are resolved as module members from lib/Flow/.
+                return Err(
+                    "OpGetBase is deprecated; base functions are now compiled from lib/Flow/"
+                        .to_string(),
+                );
             }
             OpCode::OpCall => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
@@ -548,8 +551,11 @@ impl VM {
             }
             OpCode::OpCallBase => {
                 // OpCallBase is no longer emitted by the compiler.
-                // Base functions are resolved as module members from lib/Base/.
-                return Err("OpCallBase is deprecated; base functions are now compiled from lib/Base/".to_string());
+                // Base functions are resolved as module members from lib/Flow/.
+                return Err(
+                    "OpCallBase is deprecated; base functions are now compiled from lib/Flow/"
+                        .to_string(),
+                );
             }
             OpCode::OpPrimOp => {
                 // Encoded as [OpPrimOp, primop_id, arity].

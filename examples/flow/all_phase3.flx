@@ -1,0 +1,16 @@
+// Aggregated Phase 3 Flow smoke example (valid path only)
+
+import Flow except [print]
+
+Flow.print("== Flow directives smoke ==");
+Flow.print("len([1,2,3]) = " + to_string(len([1, 2, 3])));
+
+fn shadow_demo() {
+  let len = fn(x) { 123 };
+  let xs = [10, 20, 30, 40];
+
+  Flow.print("local len(xs) = " + to_string(len(xs)));
+  Flow.print("Flow.len(xs) = " + to_string(Flow.len(xs)));
+}
+
+shadow_demo();

@@ -5,6 +5,27 @@ Fixture: examples/aoc/2024/day03_test.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/aoc/2024/Day03Solver.flx:59:27
+   |
+59 |                     Some((Mul(parse_int(left_text), parse_int(right_text)), after_right + 1))
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |                           ------------------------------------------------ this expression has type `Int`
+
+   |                           ------------------------------------------------ this type mismatch is reported here
+
+Note:
+  expected type: Option<Int>
+  found type: Int
+  the conflicting types meet at this expression
+
+Help:
+  Wrap this value in `Some(...)` or return `None`.
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `range`.
@@ -56,6 +77,6 @@ I can't find a value named `fold`.
 Hint:
   Define it first: let fold = ...;
 
-Found 4 errors.
+Found 5 errors.
 == stdout ==
 <not executed>
