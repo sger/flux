@@ -1,0 +1,5 @@
+module ExposingRuntimeTarget {
+    public fn boom(x: Int) -> Int {
+        x / 0
+    }
+}

@@ -12,7 +12,7 @@ fixtures=(
   "examples/aether/queue_workload.flx"
 )
 
-backends=("vm" "jit" "llvm")
+backends=("vm")
 
 print_stats_block() {
   local fixture="$1"
@@ -22,12 +22,6 @@ print_stats_block() {
   case "$backend" in
     vm)
       stats_output="$(NO_COLOR=1 target/release/flux --stats "$fixture" 2>&1)"
-      ;;
-    jit)
-      stats_output="$(NO_COLOR=1 target/release/flux --jit --stats "$fixture" 2>&1)"
-      ;;
-    llvm)
-      stats_output="$(NO_COLOR=1 target/release/flux --llvm --stats "$fixture" 2>&1)"
       ;;
   esac
 
@@ -53,7 +47,7 @@ echo "This script prints Aether totals separately from runtime timings."
 echo "Compare reuse-enabled vs reuse-blocked only within the same backend."
 echo ""
 
-cargo build --release --features "jit llvm" --quiet
+cargo build --release --quiet
 
 for fixture in "${fixtures[@]}"; do
   echo "-- $fixture --"

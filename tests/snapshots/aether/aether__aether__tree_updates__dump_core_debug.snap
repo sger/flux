@@ -54,44 +54,44 @@ letrec keep_or_dup_left : Tree =
 letrec churn_tree : Tree =
 λt#22, iterations#23.
     letrec go#24 = (λi#25, current#26.
-      let #4000040[synthetic]#40 = Le(i#25, 0)
+      let %t1:Bool = Le(i#25, 0)
       case #4000040[synthetic]#40 of
         true →
           current#26
         _ →
-          let #4000041[synthetic]#41 = ISub(i#25, 1)
-          let #4000045[synthetic]#45 = (let #4000044[synthetic]#44 = (let #4000043[synthetic]#43 = (let #4000042[synthetic]#42 = aether_call[owned] set_black#0(current#26)
+          let %t2:Int = ISub(i#25, 1)
+          let %t3 = (let %t4 = (let %t5 = (let %t6 = aether_call[owned] set_black#0(current#26)
           aether_call[owned] rebuild_same#5(#4000042[synthetic]#42))
           aether_call[owned] rewrite_many#11(#4000043[synthetic]#43))
           aether_call[owned, borrowed] keep_or_dup_left#14(#4000044[synthetic]#44, false))
           aether_call[owned, owned] go#24(#4000041[synthetic]#41, #4000045[synthetic]#45))
     aether_call[owned, owned] go#24(iterations#23, t#22)
 
-letrec main : Unit =
+letrec main : Any =
 λ.
-    let #2000005[synthetic]#37 = aether_call[borrowed] print#?[external]("Tree workload")
+    let %t7 = Print("Tree workload")
     drop #2000005[synthetic]#37
-    let #2000004[synthetic]#36 = aether_call[borrowed] print#?[external]("=============")
+    let %t8 = Print("=============")
     drop #2000004[synthetic]#36
-    let #2000003[synthetic]#35 = (let #4000047[synthetic]#47 = (let #4000046[synthetic]#46 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+    let %t9 = (let %t10 = (let %t11 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
     aether_call[owned] set_black#0(#4000046[synthetic]#46))
-    aether_call[borrowed] print#?[external](#4000047[synthetic]#47))
+    Print(#4000047[synthetic]#47))
     drop #2000003[synthetic]#35
-    let #2000002[synthetic]#34 = (let #4000049[synthetic]#49 = (let #4000048[synthetic]#48 = aether_call[owned, owned, owned, owned] Node#?[external](Black#?[external], Leaf#?[external], 9, Leaf#?[external])
+    let %t12 = (let %t13 = (let %t14 = aether_call[owned, owned, owned, owned] Node#?[external](Black#?[external], Leaf#?[external], 9, Leaf#?[external])
     aether_call[owned] rebuild_same#5(#4000048[synthetic]#48))
-    aether_call[borrowed] print#?[external](#4000049[synthetic]#49))
+    Print(#4000049[synthetic]#49))
     drop #2000002[synthetic]#34
-    let #2000001[synthetic]#33 = (let #4000051[synthetic]#51 = (let #4000050[synthetic]#50 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+    let %t15 = (let %t16 = (let %t17 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
     aether_call[owned] rewrite_many#11(#4000050[synthetic]#50))
-    aether_call[borrowed] print#?[external](#4000051[synthetic]#51))
+    Print(#4000051[synthetic]#51))
     drop #2000001[synthetic]#33
-    let #2000000[synthetic]#32 = (let #4000053[synthetic]#53 = (let #4000052[synthetic]#52 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+    let %t18 = (let %t19 = (let %t20 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
     aether_call[owned, borrowed] keep_or_dup_left#14(#4000052[synthetic]#52, false))
-    aether_call[borrowed] print#?[external](#4000053[synthetic]#53))
+    Print(#4000053[synthetic]#53))
     drop #2000000[synthetic]#32
-    let #4000055[synthetic]#55 = (let #4000054[synthetic]#54 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+    let %t21 = (let %t22 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
     aether_call[owned, owned] churn_tree#21(#4000054[synthetic]#54, 500))
-    aether_call[borrowed] print#?[external](#4000055[synthetic]#55)
+    Print(#4000055[synthetic]#55)
 
 ── Aether stats ──
 Dups: 2  Drops: 8  Reuses: 5  DropSpecs: 2  FBIP: fip

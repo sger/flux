@@ -126,6 +126,7 @@ Feature state is evidence-driven:
 | 0105 | [0105_general_tail_call_elimination.md](0105_general_tail_call_elimination.md) | Draft | gap | proposal-only | general TCE for mutual recursion, indirect/closure tail calls, and CPS; extends 0016 self-recursive TCO to full proper tail calls |
 | 0106 | [0106_base_function_effect_audit.md](0106_base_function_effect_audit.md) | Draft | gap | proposal-only | systematic audit of all 77 base functions for effect annotation correctness; CI test suite to prevent regressions; prerequisite for 0099 IO migration |
 | 0115 | [0115_actor_concurrency_roadmap.md](0115_actor_concurrency_roadmap.md) | Draft | gap | proposal-only | canonical Aether-aware actor concurrency roadmap; use to supersede stale 0026/0066/0071 planning split |
+| 0116 | [0116_llvm_text_ir_backend.md](0116_llvm_text_ir_backend.md) | Draft | gap | proposal-only | CoreToLlvm: new independent LLVM backend (GHC-style); generates self-contained LLVM IR as text, links against minimal C runtime; no llvm-sys, no shared runtime |
 
 ### Superseded Historical Docs
 

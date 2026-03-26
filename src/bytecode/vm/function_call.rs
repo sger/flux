@@ -2,12 +2,10 @@ use std::rc::Rc;
 
 use crate::diagnostics::NOT_A_FUNCTION;
 use crate::runtime::RuntimeContext;
-use crate::runtime::base::get_base_function_by_index;
-use crate::runtime::base::list_ops::format_value;
+use crate::runtime::value::format_value;
 use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 
 use super::VM;
-use super::slot;
 
 // OpPerform instruction size: opcode (1) + const_idx (1) + arity (1) = 3 bytes.
 // This constant is used during continuation resume to advance the captured frame's IP past OpPerform.
@@ -36,7 +34,7 @@ impl VM {
             if !expected.matches_value(&actual, self) {
                 let expected_name = expected.type_name();
                 let actual_type = actual.type_name();
-                let actual_value = format_value(self, &actual);
+                let actual_value = format_value(&actual);
                 return Err(self.runtime_type_error_enhanced(
                     &expected_name,
                     actual_type,
@@ -66,7 +64,7 @@ impl VM {
             if !expected.matches_value(actual, self) {
                 let expected_name = expected.type_name();
                 let actual_type = actual.type_name();
-                let actual_value = format_value(self, actual);
+                let actual_value = format_value(actual);
                 return Err(self.runtime_type_error_enhanced(
                     &expected_name,
                     actual_type,
@@ -85,108 +83,22 @@ impl VM {
         let _ = self.reset_sp(start_sp);
     }
 
-    #[inline]
-    fn base_function_fixed_arity(name: &str) -> Option<usize> {
-        match name {
-            "len" | "first" | "last" | "rest" | "to_string" | "reverse" | "trim" | "upper"
-            | "lower" | "chars" | "keys" | "values" | "abs" | "type_of" | "is_int" | "is_float"
-            | "is_string" | "is_bool" | "is_array" | "is_hash" | "is_none" | "is_some" | "hd"
-            | "tl" | "is_list" | "to_list" | "to_array" | "is_map" | "read_file" | "read_lines"
-            | "parse_int" | "now_ms" | "time" | "sum" | "product" | "parse_ints" => Some(1),
-            "contains" | "slice" | "split" | "join" | "starts_with" | "ends_with" | "has_key"
-            | "merge" | "delete" | "min" | "max" | "map" | "filter" | "put" | "get" | "range"
-            | "split_ints" | "assert_eq" | "assert_neq" => Some(2),
-            "replace" | "fold" => Some(3),
-            "substring" => None, // accepts 2 or 3 args
-            "read_stdin" => Some(0),
-            "assert_true" | "assert_false" => Some(1),
-            // Variadic / optional arity Base functions remain on generic path.
-            "print" | "sort" | "concat" | "list" => None,
-            _ => None,
-        }
-    }
-
     pub(super) fn execute_call(&mut self, num_args: usize) -> Result<(), String> {
         let callee_idx = self.sp - 1 - num_args;
 
         match self.stack_get(callee_idx) {
             Value::Closure(closure) => self.call_closure(closure, num_args),
-            Value::BaseFunction(base_fn_idx) => self.execute_base_function_call_common(
-                base_fn_idx as usize,
-                num_args,
-                Some(callee_idx),
-            ),
+            Value::BaseFunction(_) => {
+                Err("BaseFunction values are deprecated; base functions are now compiled from lib/Flow/".to_string())
+            }
             other => Err(self.runtime_error_enhanced(&NOT_A_FUNCTION, &[other.type_name()])),
         }
-    }
-
-    pub(super) fn execute_call_base_direct(
-        &mut self,
-        base_fn_idx: usize,
-        num_args: usize,
-    ) -> Result<(), String> {
-        // OpCallBase places only args on stack; there is no callee slot to clear.
-        self.execute_base_function_call_common(base_fn_idx, num_args, None)
     }
 
     pub(super) fn execute_call_self(&mut self, num_args: usize) -> Result<(), String> {
         let closure = self.current_frame().closure.clone();
         let args_start = self.sp - num_args;
         self.call_closure_with_return_slot(closure, num_args, args_start, args_start)
-    }
-
-    fn execute_base_function_call_common(
-        &mut self,
-        base_fn_idx: usize,
-        num_args: usize,
-        callee_idx: Option<usize>,
-    ) -> Result<(), String> {
-        let base_fn = get_base_function_by_index(base_fn_idx)
-            .ok_or_else(|| format!("invalid Base function index {}", base_fn_idx))?;
-
-        if let Some(callee_idx) = callee_idx {
-            // Normal OpCall layout is [callee, arg0..argN]; clear callee before shrinking SP.
-            self.stack[callee_idx] = slot::uninit();
-        }
-
-        let fixed_arity = Self::base_function_fixed_arity(base_fn.name);
-        let args_start = self.sp - num_args;
-
-        // Collect raw NanBox slots without decoding to Value; the bridge in
-        // call_owned_nanboxed handles the decode internally.  This keeps the
-        // arg-collection loop allocation-free (no NanBox→Value conversion per arg).
-        use crate::runtime::nanbox::NanBox;
-        let slots: Vec<NanBox> = if fixed_arity == Some(num_args) {
-            match num_args {
-                0 => Vec::new(),
-                1 => vec![self.stack_slot_take(args_start)],
-                2 => vec![
-                    self.stack_slot_take(args_start),
-                    self.stack_slot_take(args_start + 1),
-                ],
-                3 => vec![
-                    self.stack_slot_take(args_start),
-                    self.stack_slot_take(args_start + 1),
-                    self.stack_slot_take(args_start + 2),
-                ],
-                _ => {
-                    let mut s = Vec::with_capacity(num_args);
-                    for i in args_start..self.sp {
-                        s.push(self.stack_slot_take(i));
-                    }
-                    s
-                }
-            }
-        } else {
-            let mut s = Vec::with_capacity(num_args);
-            for i in args_start..self.sp {
-                s.push(self.stack_slot_take(i));
-            }
-            s
-        };
-        self.reset_sp(callee_idx.unwrap_or(args_start))?;
-        let result = base_fn.call_owned_nanboxed(self, slots)?;
-        self.push_slot(result)
     }
 
     fn call_closure(&mut self, closure: Rc<Closure>, num_args: usize) -> Result<(), String> {
@@ -366,17 +278,15 @@ impl VM {
         Ok(())
     }
 
-    /// Invokes a callable Value (closure or Base function) with the given arguments
+    /// Invokes a callable Value (closure or Flow function) with the given arguments
     /// and returns the result synchronously.
     ///
-    /// Used by higher-order Base functions (map, filter, fold) to call user-provided
-    /// functions from within the Base function implementation.
+    /// Used by higher-order Flow functions (map, filter, fold) to call user-provided
+    /// functions from within the Flow function implementation.
     pub fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
         match callee {
-            Value::BaseFunction(base_fn_idx) => {
-                let base_fn = get_base_function_by_index(base_fn_idx as usize)
-                    .ok_or_else(|| format!("invalid Base function index {}", base_fn_idx))?;
-                base_fn.call_owned(self, args)
+            Value::BaseFunction(_) => {
+                Err("BaseFunction values are deprecated; base functions are now compiled from lib/Flow/".to_string())
             }
             Value::Closure(closure) => {
                 let start_sp = self.sp;
@@ -520,22 +430,16 @@ impl RuntimeContext for VM {
 
     fn invoke_base_function_borrowed(
         &mut self,
-        base_fn_index: usize,
-        args: &[&Value],
+        _base_fn_index: usize,
+        _args: &[&Value],
     ) -> Result<Value, String> {
-        let base_fn = get_base_function_by_index(base_fn_index)
-            .ok_or_else(|| format!("invalid Base function index {}", base_fn_index))?;
-        base_fn.call_borrowed(self, args)
+        Err("invoke_base_function_borrowed is deprecated; base functions are now compiled from lib/Flow/".to_string())
     }
 
     #[inline]
     fn invoke_unary_value(&mut self, callee: &Value, arg: Value) -> Result<Value, String> {
         match callee {
-            Value::BaseFunction(base_fn_idx) => {
-                let base_fn = get_base_function_by_index(*base_fn_idx as usize)
-                    .ok_or_else(|| format!("invalid Base function index {}", base_fn_idx))?;
-                base_fn.call_owned(self, vec![arg])
-            }
+            Value::BaseFunction(_) => Err("BaseFunction values are deprecated".to_string()),
             Value::Closure(closure) => self.invoke_closure_arity1(closure.clone(), arg),
             other => Err(format!("not callable: {}", other.type_name())),
         }
@@ -549,11 +453,7 @@ impl RuntimeContext for VM {
         right: Value,
     ) -> Result<Value, String> {
         match callee {
-            Value::BaseFunction(base_fn_idx) => {
-                let base_fn = get_base_function_by_index(*base_fn_idx as usize)
-                    .ok_or_else(|| format!("invalid Base function index {}", base_fn_idx))?;
-                base_fn.call_owned(self, vec![left, right])
-            }
+            Value::BaseFunction(_) => Err("BaseFunction values are deprecated".to_string()),
             Value::Closure(closure) => self.invoke_closure_arity2(closure.clone(), left, right),
             other => Err(format!("not callable: {}", other.type_name())),
         }

@@ -52,8 +52,8 @@ fn test_tuple_equality() {
 fn test_array_literal() {
     let arr = [|1, 2, 3|]
     assert_eq(len(arr), 3)
-    assert_eq(first(arr), 1)
-    assert_eq(last(arr), 3)
+    assert_eq(first(arr), Some(1))
+    assert_eq(last(arr), Some(3))
 }
 
 fn test_array_empty() {
@@ -64,7 +64,7 @@ fn test_array_empty() {
 fn test_array_single() {
     let arr = [|42|]
     assert_eq(len(arr), 1)
-    assert_eq(first(arr), 42)
+    assert_eq(first(arr), Some(42))
 }
 
 fn test_array_contains() {
@@ -75,25 +75,44 @@ fn test_array_contains() {
 
 fn test_array_slice() {
     let arr = [|10, 20, 30, 40, 50|]
-    assert_eq(slice(arr, 1, 3), [|20, 30|])
+    let result = slice(arr, 1, 3)
+    assert_eq(len(result), 2)
+    assert_eq(result[0], Some(20))
+    assert_eq(result[1], Some(30))
 }
 
 fn test_array_concat() {
     let a = [|1, 2|]
     let b = [|3, 4|]
-    assert_eq(concat(a, b), [|1, 2, 3, 4|])
+    let result = concat(a, b)
+    assert_eq(len(result), 4)
+    assert_eq(result[0], Some(1))
+    assert_eq(result[1], Some(2))
+    assert_eq(result[2], Some(3))
+    assert_eq(result[3], Some(4))
 }
 
 fn test_array_reverse() {
-    assert_eq(reverse([|1, 2, 3|]), [|3, 2, 1|])
+    let result = reverse([|1, 2, 3|])
+    assert_eq(len(result), 3)
+    assert_eq(result[0], Some(3))
+    assert_eq(result[1], Some(2))
+    assert_eq(result[2], Some(1))
 }
 
 fn test_array_rest() {
-    assert_eq(rest([|1, 2, 3|]), [|2, 3|])
+    let result = rest([|1, 2, 3|])
+    assert_eq(len(result), 2)
+    assert_eq(result[0], Some(2))
+    assert_eq(result[1], Some(3))
 }
 
 fn test_array_push() {
-    assert_eq(push([|1, 2|], 3), [|1, 2, 3|])
+    let result = push([|1, 2|], 3)
+    assert_eq(len(result), 3)
+    assert_eq(result[0], Some(1))
+    assert_eq(result[1], Some(2))
+    assert_eq(result[2], Some(3))
 }
 
 // --- cons lists ---
@@ -129,14 +148,21 @@ fn test_list_is_list() {
 fn test_list_to_array() {
     let xs = list(1, 2, 3)
     let arr = to_array(xs)
-    assert_eq(arr, [|1, 2, 3|])
+    assert_eq(len(arr), 3)
+    assert_eq(arr[0], Some(1))
+    assert_eq(arr[1], Some(2))
+    assert_eq(arr[2], Some(3))
 }
 
 fn test_list_to_list() {
     let arr = [|1, 2, 3|]
     let xs = to_list(arr)
     assert_eq(hd(xs), 1)
-    assert_eq(to_array(xs), [|1, 2, 3|])
+    let back = to_array(xs)
+    assert_eq(len(back), 3)
+    assert_eq(back[0], Some(1))
+    assert_eq(back[1], Some(2))
+    assert_eq(back[2], Some(3))
 }
 
 fn test_list_contains() {

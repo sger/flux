@@ -1,0 +1,9 @@
+// Benchmark: tree-recursive fibonacci
+// fib(42) = 267914296 — exercises deep recursion with integer arithmetic.
+fn fib(n) {
+    if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+
+fn main() with IO {
+    print(fib(42))
+}

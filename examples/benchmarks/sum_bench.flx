@@ -1,0 +1,9 @@
+// Benchmark: tail-recursive integer summation
+// sum_to(10000000, 0) — exercises tail-call optimization with integer arithmetic.
+fn sum_to(n, acc) {
+    if n <= 0 { acc } else { sum_to(n - 1, acc + n) }
+}
+
+fn main() with IO {
+    print(sum_to(10000000, 0))
+}

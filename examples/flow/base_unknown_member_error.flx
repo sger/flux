@@ -1,0 +1,3 @@
+// Expected compile error E080: unknown Flow member
+
+Flow.not_real();

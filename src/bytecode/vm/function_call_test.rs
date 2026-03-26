@@ -2,10 +2,7 @@ use std::rc::Rc;
 
 use crate::{
     bytecode::{bytecode::Bytecode, vm::VM},
-    runtime::{
-        base::get_base_function_index, closure::Closure, compiled_function::CompiledFunction,
-        value::Value,
-    },
+    runtime::{closure::Closure, compiled_function::CompiledFunction, value::Value},
 };
 
 fn new_vm() -> VM {
@@ -14,22 +11,6 @@ fn new_vm() -> VM {
         constants: vec![],
         debug_info: None,
     })
-}
-
-#[test]
-fn call_base_len() {
-    let mut vm = new_vm();
-    let base_idx = get_base_function_index("len").expect("len base") as u8;
-    vm.push(Value::BaseFunction(base_idx)).unwrap();
-    vm.push(Value::Array(
-        vec![Value::Integer(1), Value::Integer(2)].into(),
-    ))
-    .unwrap();
-
-    vm.execute_call(1).unwrap();
-
-    let result = vm.pop().unwrap();
-    assert_eq!(result, Value::Integer(2));
 }
 
 #[test]

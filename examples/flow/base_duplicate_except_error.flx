@@ -1,0 +1,4 @@
+// Expected compile error E079: duplicate Flow exclusion
+
+import Flow except [print, print]
+Flow.print("unreachable");

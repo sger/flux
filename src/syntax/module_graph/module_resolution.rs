@@ -100,6 +100,7 @@ pub(super) fn resolve_imports(
                 name,
                 alias,
                 except: _,
+                exposing: _,
                 span,
             } => {
                 let name_str = interner.resolve(*name).to_string();
@@ -109,8 +110,8 @@ pub(super) fn resolve_imports(
             _ => continue,
         };
 
-        // `Base` is synthetic and does not resolve to a filesystem module.
-        if name == "Base" {
+        // `Flow` is synthetic and does not resolve to a filesystem module.
+        if name == "Flow" {
             continue;
         }
 

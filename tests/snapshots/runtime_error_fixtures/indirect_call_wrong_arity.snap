@@ -30,3 +30,7 @@ error[E1000]: wrong number of arguments: want=2, got=1
   |
 7 |     let ignored = f(1)
   |                   ^^^^
+
+Stack trace:
+  at main (examples/runtime_errors/indirect_call_wrong_arity.flx:7:19)
+  at <main>

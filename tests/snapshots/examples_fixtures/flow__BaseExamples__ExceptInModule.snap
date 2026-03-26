@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/flow/BaseExamples/ExceptInModule.flx
+== compile ==
+failed (module)
+== diagnostics ==
+error[E024]: Module Path Mismatch
+
+Module name `BaseExamples.ExceptInModule` doesn't match file path `examples/flow/BaseExamples/ExceptInModule.flx`.
+
+  examples/flow/BaseExamples/ExceptInModule.flx:3:1
+  |
+3 | module BaseExamples.ExceptInModule {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

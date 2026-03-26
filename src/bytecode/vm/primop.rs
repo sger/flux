@@ -25,7 +25,8 @@ impl VM {
             .ok_or_else(|| format!("invalid primop id {}", primop_id))?;
 
         // Keep VM-side arity checks strict so malformed bytecode fails fast.
-        if arity != op.arity() {
+        // AssertThrows accepts 1 or 2 arguments (optional expected message).
+        if op != PrimOp::AssertThrows && arity != op.arity() {
             return Err(format!(
                 "primop {} expects {} args, got {}",
                 op.display_name(),

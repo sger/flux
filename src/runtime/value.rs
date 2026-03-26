@@ -3,7 +3,7 @@ use std::{cell::RefCell, fmt, rc::Rc};
 use crate::runtime::{
     closure::Closure, compiled_function::CompiledFunction, cons_cell::ConsCell,
     continuation::Continuation, hamt::HamtNode, handler_descriptor::HandlerDescriptor,
-    hash_key::HashKey, jit_closure::JitClosure, perform_descriptor::PerformDescriptor,
+    hash_key::HashKey, perform_descriptor::PerformDescriptor,
 };
 
 /// Inner data for an ADT constructor value, boxed behind a single `Rc` so that
@@ -286,8 +286,6 @@ pub enum Value {
     Function(Rc<CompiledFunction>),
     /// Runtime closure object.
     Closure(Rc<Closure>),
-    /// JIT-compiled closure object.
-    JitClosure(Rc<JitClosure>),
     /// Base function handle (index into base function table).
     BaseFunction(u8),
     /// Ordered collection of values.
@@ -332,7 +330,6 @@ impl fmt::Display for Value {
             Value::ReturnValue(v) => write!(f, "{}", v),
             Value::Function(_) => write!(f, "<function>"),
             Value::Closure(_) => write!(f, "<closure>"),
-            Value::JitClosure(_) => write!(f, "<jit-closure>"),
             Value::BaseFunction(_) => write!(f, "<base-fn>"),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
@@ -402,7 +399,6 @@ impl Value {
             Value::ReturnValue(_) => "ReturnValue",
             Value::Function(_) => "Function",
             Value::Closure(_) => "Closure",
-            Value::JitClosure(_) => "JitClosure",
             Value::BaseFunction(_) => "BaseFunction",
             Value::Array(_) => "Array",
             Value::Tuple(_) => "Tuple",
@@ -421,7 +417,7 @@ impl Value {
     pub fn is_callable(&self) -> bool {
         matches!(
             self,
-            Value::Function(_) | Value::Closure(_) | Value::JitClosure(_) | Value::BaseFunction(_)
+            Value::Function(_) | Value::Closure(_) | Value::BaseFunction(_)
         )
     }
 
@@ -468,7 +464,6 @@ impl Value {
             Value::ReturnValue(v) => v.to_string_value(),
             Value::Function(_) => "<function>".to_string(),
             Value::Closure(_) => "<closure>".to_string(),
-            Value::JitClosure(_) => "<jit-closure>".to_string(),
             Value::BaseFunction(_) => "<base-fn>".to_string(),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
@@ -526,6 +521,82 @@ impl Value {
         let f0 = adt.fields().get(0)?.clone();
         let f1 = adt.fields().get(1)?.clone();
         Some((f0, f1))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rich value formatting (recursive, handles compound types)
+// ---------------------------------------------------------------------------
+
+/// Collect a cons-list Value into a Vec.
+fn collect_cons_list(value: &Value) -> Option<Vec<Value>> {
+    let mut elements = Vec::new();
+    let mut current = value.clone();
+    loop {
+        match &current {
+            Value::None | Value::EmptyList => return Some(elements),
+            Value::Cons(cell) => {
+                elements.push(cell.head.clone());
+                current = cell.tail.clone();
+            }
+            _ => return None,
+        }
+    }
+}
+
+/// Format a value for display (used by print, to_string, assertions, etc.).
+///
+/// Unlike `Value::Display`, this recursively formats compound values with
+/// proper delimiters: arrays as `[|1, 2|]`, tuples as `(1, 2)`,
+/// ADTs as `Foo(1, 2)`, cons lists as `[1, 2, 3]`, HAMT maps as `{"k": v}`.
+pub fn format_value(value: &Value) -> String {
+    match value {
+        Value::Array(elements) => {
+            let items: Vec<String> = elements.iter().map(format_value).collect();
+            format!("[|{}|]", items.join(", "))
+        }
+        Value::Tuple(elements) => {
+            let items: Vec<String> = elements.iter().map(format_value).collect();
+            match items.len() {
+                0 => "()".to_string(),
+                1 => format!("({},)", items[0]),
+                _ => format!("({})", items.join(", ")),
+            }
+        }
+        Value::Adt(_) => {
+            if let Some(adt) = value.as_adt() {
+                let items: Vec<String> = adt.fields().iter().map(format_value).collect();
+                format!("{}({})", adt.constructor(), items.join(", "))
+            } else {
+                value.to_string()
+            }
+        }
+        Value::AdtUnit(name) => name.to_string(),
+        Value::Cons(_) => match collect_cons_list(value) {
+            Some(elements) => {
+                let items: Vec<String> = elements.iter().map(format_value).collect();
+                format!("[{}]", items.join(", "))
+            }
+            None => "<malformed list>".to_string(),
+        },
+        Value::HashMap(node) => crate::runtime::hamt::format_hamt(node),
+        _ => value.to_string(),
+    }
+}
+
+/// Count the length of a cons-list Value.
+pub fn cons_list_len(value: &Value) -> Option<usize> {
+    let mut count = 0;
+    let mut current = value.clone();
+    loop {
+        match &current {
+            Value::None | Value::EmptyList => return Some(count),
+            Value::Cons(cell) => {
+                count += 1;
+                current = cell.tail.clone();
+            }
+            _ => return None,
+        }
     }
 }
 

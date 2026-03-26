@@ -5,43 +5,96 @@ Fixture: examples/advanced/functional_pipeline.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Argument Type Mismatch
+error[E004]: Undefined Variable
 
-I found the wrong type in the 1st argument to `upper`.
+I can't find a value named `map`.
+
+  examples/advanced/functional_pipeline.flx:47:19
+   |
+47 |     let doubled = map(numbers, /x -> x * 2);
+   |                   ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `filter`.
+
+  examples/advanced/functional_pipeline.flx:51:19
+   |
+51 |     let bigNums = filter(numbers, /x -> x > 3);
+   |                   ^^^^^^
+
+Hint:
+  Define it first: let filter = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/advanced/functional_pipeline.flx:55:17
+   |
+55 |     let total = fold(numbers, 0, /(acc, x) -> acc + x);
+   |                 ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/advanced/functional_pipeline.flx:59:24
+   |
+59 |     let totalProduct = fold(numbers, 1, /(acc, x) -> acc * x);
+   |                        ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `first`.
 
   examples/advanced/functional_pipeline.flx:93:17
    |
 93 |     let name1 = first(names) |> upper;
-   |                 ^^^^^^^^^^^^
-   |                 ------------ this argument has type `Option<String>`
+   |                 ^^^^^
 
-Note:
-  expected argument type: String
-  found argument type: Option<String>
-  the actual argument type is inferred from this expression
-
-Help:
-  This value might be `None`. Use `match` to unwrap it before using it here.
+Hint:
+  Define it first: let first = ...;
 
 
-error[E300]: Argument Type Mismatch
+error[E004]: Undefined Variable
 
-I found the wrong type in the 1st argument to `upper`.
+I can't find a value named `first`.
 
   examples/advanced/functional_pipeline.flx:96:17
    |
 96 |     let name2 = first(rest(names)) |> upper;
-   |                 ^^^^^^^^^^^^^^^^^^
-   |                 ------------------ this argument has type `Option<String>`
+   |                 ^^^^^
 
-Note:
-  expected argument type: String
-  found argument type: Option<String>
-  the actual argument type is inferred from this expression
+Hint:
+  Define it first: let first = ...;
 
-Help:
-  This value might be `None`. Use `match` to unwrap it before using it here.
 
-Found 2 errors.
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/advanced/functional_pipeline.flx:108:22
+    |
+108 |     let uppercased = map(words, /w -> w |> upper);
+    |                      ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+Found 7 errors.
 == stdout ==
 <not executed>

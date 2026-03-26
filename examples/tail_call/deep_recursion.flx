@@ -1,0 +1,74 @@
+// Test: Deep Recursion — Phases 1-3 of Proposal 0122
+//
+// Verifies that all three TCO phases work correctly:
+//   Phase 1: Self-tail-call → loop
+//   Phase 2: Mutual tail-call → trampoline
+//   Phase 3: Non-tail self-call → CPS continuation stack
+//
+// Expected output:
+// "=== Phase 1: Self-tail-call loops ==="
+// 500000500000
+// true
+// "=== Phase 2: Mutual tail-call trampoline ==="
+// true
+// false
+// true
+// "=== Phase 3: CPS continuation stack ==="
+// 55
+// 5000050000
+// 832040
+
+// --- Phase 1: tail-recursive accumulator ---
+
+fn sum_to(n, acc) {
+    if n <= 0 { acc }
+    else { sum_to(n - 1, acc + n) }
+}
+
+fn is_even_self(n) {
+    if n == 0 { true }
+    else if n == 1 { false }
+    else { is_even_self(n - 2) }
+}
+
+// --- Phase 2: mutually recursive even/odd ---
+
+fn isEven(n) {
+    if n == 0 { true }
+    else { isOdd(n - 1) }
+}
+
+fn isOdd(n) {
+    if n == 0 { false }
+    else { isEven(n - 1) }
+}
+
+// --- Phase 3: non-tail self-recursion ---
+
+fn fib(n) {
+    if n < 2 { n }
+    else { fib(n - 1) + fib(n - 2) }
+}
+
+fn sum_nontail(n) {
+    if n == 0 { 0 }
+    else { n + sum_nontail(n - 1) }
+}
+
+// --- main ---
+
+fn main() with IO {
+    print("=== Phase 1: Self-tail-call loops ===")
+    print(sum_to(1000000, 0))
+    print(is_even_self(1000000))
+
+    print("=== Phase 2: Mutual tail-call trampoline ===")
+    print(isEven(100000))
+    print(isOdd(100000))
+    print(isOdd(99999))
+
+    print("=== Phase 3: CPS continuation stack ===")
+    print(fib(10))
+    print(sum_nontail(100000))
+    print(fib(30))
+}

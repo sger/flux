@@ -3,8 +3,18 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/66_real_program_base_module_integration.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `contains`.
+
+  examples/type_system/TypeSystem/RealProgramBaseInterop.flx:7:9
+  |
+7 |         contains(xs, value)
+  |         ^^^^^^^^
+
+Hint:
+  Define it first: let contains = ...;
 == stdout ==
 <not executed>

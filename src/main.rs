@@ -1,5 +1,3 @@
-#[cfg(feature = "jit")]
-use std::rc::Rc;
 use std::{
     collections::HashSet,
     env, fs, io,
@@ -7,9 +5,8 @@ use std::{
     time::Instant,
 };
 
-#[cfg(any(feature = "jit", feature = "llvm"))]
+#[cfg(feature = "native")]
 use flux::ast::{constant_fold_with_interner, desugar, rename};
-#[cfg(any(feature = "jit", feature = "llvm"))]
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
@@ -32,10 +29,6 @@ use flux::{
         module_graph::ModuleGraph, parser::Parser,
     },
 };
-#[cfg(feature = "jit")]
-use flux::{
-    bytecode::vm::test_runner::run_test_fns, jit::JitError, runtime::jit_closure::JitClosure,
-};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DiagnosticOutputFormat {
@@ -55,8 +48,6 @@ enum CoreDumpMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TraceBackend {
     Vm,
-    Jit,
-    Llvm,
 }
 
 fn main() {
@@ -71,22 +62,17 @@ fn main() {
     let enable_analyze = args.iter().any(|arg| arg == "--analyze" || arg == "-A");
     let show_stats = args.iter().any(|arg| arg == "--stats");
     let test_mode = args.iter().any(|arg| arg == "--test");
-    let explicit_no_strict = args.iter().any(|arg| arg == "--no-strict");
-    let strict_mode = !explicit_no_strict;
+    let strict_mode = args.iter().any(|arg| arg == "--strict");
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
     let dump_aether = args.iter().any(|arg| arg == "--dump-aether");
-    #[cfg(feature = "jit")]
-    let use_jit = args.iter().any(|arg| arg == "--jit");
-    #[cfg(not(feature = "jit"))]
-    let use_jit = false;
-    #[cfg(feature = "llvm")]
-    let use_llvm = args.iter().any(|arg| arg == "--llvm");
-    #[cfg(not(feature = "llvm"))]
-    let use_llvm = false;
-    #[cfg(feature = "llvm")]
-    let emit_obj = args.iter().any(|arg| arg == "--emit-obj");
-    #[cfg(not(feature = "llvm"))]
-    let emit_obj = false;
+    #[cfg(feature = "native")]
+    let use_core_to_llvm = args
+        .iter()
+        .any(|arg| arg == "--core-to-llvm" || arg == "--native");
+    #[cfg(not(feature = "native"))]
+    let use_core_to_llvm = false;
+    let emit_llvm = args.iter().any(|arg| arg == "--emit-llvm");
+    let emit_binary = args.iter().any(|arg| arg == "--emit-binary");
     let mut roots = Vec::new();
     if verbose {
         args.retain(|arg| arg != "--verbose");
@@ -115,30 +101,29 @@ fn main() {
     if show_stats {
         args.retain(|arg| arg != "--stats");
     }
-    if use_jit {
-        args.retain(|arg| arg != "--jit");
-    }
-    if use_llvm {
-        args.retain(|arg| arg != "--llvm");
-    }
-    if emit_obj {
-        args.retain(|arg| arg != "--emit-obj");
-    }
     if test_mode {
         args.retain(|arg| arg != "--test");
     }
     if args.iter().any(|arg| arg == "--strict") {
         args.retain(|arg| arg != "--strict");
     }
-    if explicit_no_strict {
-        args.retain(|arg| arg != "--no-strict");
-    }
+    args.retain(|arg| arg != "--no-strict");
     if all_errors {
         args.retain(|arg| arg != "--all-errors");
     }
     if dump_aether {
         args.retain(|arg| arg != "--dump-aether");
     }
+    if use_core_to_llvm {
+        args.retain(|arg| arg != "--core-to-llvm" && arg != "--native");
+    }
+    if emit_llvm {
+        args.retain(|arg| arg != "--emit-llvm");
+    }
+    if emit_binary {
+        args.retain(|arg| arg != "--emit-binary");
+    }
+    let output_path = extract_output_path(&mut args);
     let dump_core = match extract_dump_core_mode(&mut args) {
         Some(value) => value,
         None => return,
@@ -180,7 +165,6 @@ fn main() {
                 enable_analyze,
                 max_errors,
                 &roots,
-                use_jit,
                 test_filter.as_deref(),
                 strict_mode,
                 diagnostics_format,
@@ -198,8 +182,6 @@ fn main() {
                 enable_analyze,
                 max_errors,
                 &roots,
-                use_jit,
-                use_llvm,
                 show_stats,
                 trace_aether,
                 strict_mode,
@@ -207,6 +189,10 @@ fn main() {
                 all_errors,
                 dump_core,
                 dump_aether,
+                use_core_to_llvm,
+                emit_llvm,
+                emit_binary,
+                output_path.clone(),
             );
         }
         return;
@@ -237,7 +223,6 @@ fn main() {
                     enable_analyze,
                     max_errors,
                     &roots,
-                    use_jit,
                     test_filter.as_deref(),
                     strict_mode,
                     diagnostics_format,
@@ -255,8 +240,6 @@ fn main() {
                     enable_analyze,
                     max_errors,
                     &roots,
-                    use_jit,
-                    use_llvm,
                     show_stats,
                     trace_aether,
                     strict_mode,
@@ -264,6 +247,10 @@ fn main() {
                     all_errors,
                     dump_core,
                     dump_aether,
+                    use_core_to_llvm,
+                    emit_llvm,
+                    emit_binary,
+                    output_path,
                 );
             }
         }
@@ -432,12 +419,16 @@ Flags:
   --root <path>      Add a module root (can be repeated)
   --roots-only       Use only explicitly provided --root values
   --stats            Print execution analytics (parse/compile/execute times, module info)
-  --strict           Enable strict type/effect boundary checks (default)
-  --no-strict        Disable strict type/effect boundary checks
+  --strict           Enable strict type/effect boundary checks
   --all-errors       Show diagnostics from all phases (disable stage-aware filtering)
   --dump-core        Lower to Flux Core IR, print a readable dump, and exit
   --dump-core=debug  Lower to Flux Core IR, print a raw debug dump, and exit
   --dump-aether      Show Aether memory model report (per-function reuse/drop stats)
+  --native           Compile via Core IR → LLVM text IR → native binary (requires LLVM tools)
+  --core-to-llvm     Alias for --native
+  --emit-llvm        Emit LLVM IR text (.ll) to stdout (with --native)
+  --emit-binary      Compile to native binary via opt + llc + cc (with --native)
+  -o <path>          Output path for --emit-llvm or --emit-binary
   -h, --help         Show this help message
 
 Optimization & Analysis:
@@ -460,9 +451,6 @@ fn run_file(
     enable_analyze: bool,
     max_errors: usize,
     extra_roots: &[std::path::PathBuf],
-
-    #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
-    #[cfg_attr(not(feature = "llvm"), allow(unused))] use_llvm: bool,
     show_stats: bool,
     trace_aether: bool,
     strict_mode: bool,
@@ -470,6 +458,10 @@ fn run_file(
     all_errors: bool,
     dump_core: CoreDumpMode,
     dump_aether: bool,
+    #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] use_core_to_llvm: bool,
+    #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] emit_llvm: bool,
+    #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] emit_binary: bool,
+    #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] output_path: Option<String>,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -486,8 +478,9 @@ fn run_file(
             let cache_key = hash_cache_key(&base_cache_key, &strict_hash);
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
             if !no_cache
-                && !use_jit
-                && !use_llvm
+                && !use_core_to_llvm
+                && !emit_llvm
+                && !emit_binary
                 && matches!(dump_core, CoreDumpMode::None)
                 && !dump_aether
                 && !trace_aether
@@ -517,7 +510,6 @@ fn run_file(
                             compile_ms: None,
                             execute_ms,
                             cached: true,
-                            use_jit: false,
                             module_count: None,
                             source_lines: source.lines().count(),
                             globals_count: None,
@@ -560,6 +552,16 @@ fn run_file(
                 all_diagnostics.append(&mut parser.errors);
             }
 
+            // Auto-import Flow library modules (Proposal 0120/0121 Phase 4).
+            // Inject `import Flow.Option exposing (..)` into the program AST
+            // so Option helpers are available without explicit import.
+            // Skip for --dump-aether/--dump-core/--trace-aether to keep
+            // diagnostic output focused on user code.
+            let mut program = program;
+            if !dump_aether && !trace_aether && matches!(dump_core, CoreDumpMode::None) {
+                inject_flow_prelude(&mut program, &mut parser, use_core_to_llvm);
+            }
+
             let interner = parser.take_interner();
             let entry_path = Path::new(path);
             let roots = collect_roots(entry_path, extra_roots, roots_only);
@@ -587,7 +589,18 @@ fn run_file(
             let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
             compiler.set_strict_mode(strict_mode);
             let entry_canonical = std::fs::canonicalize(entry_path).ok();
-            for node in graph.topo_order() {
+
+            // Sort topo_order to compile Flow library modules first.
+            // This ensures all modules can access Flow functions (map, filter, etc.)
+            // without explicit imports — like Haskell's implicit Prelude.
+            let mut ordered_nodes = graph.topo_order();
+            ordered_nodes.sort_by_key(|node| {
+                let is_flow = node.path.to_string_lossy().contains("lib/Flow/")
+                    || node.path.to_string_lossy().contains("lib\\Flow\\");
+                if is_flow { 0 } else { 1 }
+            });
+
+            for node in ordered_nodes {
                 // Skip entry if it had parse errors (it is in topo_order but
                 // should not be compiled).
                 if entry_has_errors
@@ -614,9 +627,19 @@ fn run_file(
 
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
+                let is_flow_library = node.path.to_string_lossy().contains("lib/Flow/")
+                    || node.path.to_string_lossy().contains("lib\\Flow\\");
                 compiler.set_strict_require_main(is_entry_module);
+                // Disable strict mode for Flow library modules — they use
+                // polymorphic signatures that strict mode can't validate yet.
+                if is_flow_library {
+                    compiler.set_strict_mode(false);
+                }
                 let compile_result =
                     compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
+                if is_flow_library {
+                    compiler.set_strict_mode(strict_mode);
+                }
                 let mut compiler_warnings = compiler.take_warnings();
                 tag_diagnostics(&mut compiler_warnings, DiagnosticPhase::Validation);
                 for diag in &mut compiler_warnings {
@@ -635,6 +658,37 @@ fn run_file(
                     }
                     all_diagnostics.append(&mut diags);
                     continue;
+                }
+
+                // Save module interface (.flxi) for non-entry modules.
+                // Entry module doesn't need an interface — it's the consumer.
+                if !is_entry_module
+                    && let Some((module_name, module_sym)) =
+                        extract_module_name_and_sym(&node.program, &compiler.interner)
+                {
+                    let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
+                    let source_hash =
+                        flux::bytecode::bytecode_cache::hash_bytes(module_source.as_bytes());
+                    let interface = flux::bytecode::compiler::module_interface::build_interface(
+                        &module_name,
+                        module_sym,
+                        &source_hash,
+                        &compiler.module_contracts,
+                        &compiler.module_function_visibility,
+                        &compiler.interner,
+                    );
+                    let iface_path =
+                        flux::bytecode::compiler::module_interface::interface_path(&node.path);
+                    if let Err(e) = flux::bytecode::compiler::module_interface::save_interface(
+                        &iface_path,
+                        &interface,
+                    ) && verbose
+                    {
+                        eprintln!(
+                            "warning: could not write interface file {}: {e}",
+                            iface_path.display()
+                        );
+                    }
                 }
             }
 
@@ -671,8 +725,21 @@ fn run_file(
                 );
             }
 
+            // Build merged program from all modules for dump-core / dump-aether.
+            // This ensures module functions are visible in the output.
+            let merged_program =
+                if is_multimodule && (dump_aether || !matches!(dump_core, CoreDumpMode::None)) {
+                    let mut merged = Program::new();
+                    for node in graph.topo_order() {
+                        merged.statements.extend(node.program.statements.clone());
+                    }
+                    merged
+                } else {
+                    program.clone()
+                };
+
             if dump_aether {
-                match compiler.dump_aether_report(&program, enable_optimize) {
+                match compiler.dump_aether_report(&merged_program, enable_optimize) {
                     Ok(report) => println!("{report}"),
                     Err(diag) => {
                         emit_diagnostics(
@@ -693,7 +760,7 @@ fn run_file(
 
             if !matches!(dump_core, CoreDumpMode::None) {
                 let dumped = compiler.dump_core_with_opts(
-                    &program,
+                    &merged_program,
                     enable_optimize,
                     match dump_core {
                         CoreDumpMode::Readable => flux::core::display::CoreDisplayMode::Readable,
@@ -720,256 +787,154 @@ fn run_file(
                 return;
             }
 
-            // --- JIT execution path ---
-            #[cfg(feature = "jit")]
-            if use_jit {
+            // --- Core-to-LLVM execution path ---
+            #[cfg(feature = "native")]
+            if use_core_to_llvm || emit_llvm || emit_binary {
                 use std::collections::HashMap;
 
-                // JIT must see the same module set as the VM path (entry + imports).
-                let mut jit_program = Program::new();
-                for node in graph.topo_order() {
-                    jit_program
-                        .statements
-                        .extend(node.program.statements.clone());
-                }
+                let mut c2l_program = Program::new();
 
-                // Apply AST optimizations if requested (same pipeline as bytecode path)
-                if enable_optimize {
-                    let desugared = desugar(jit_program);
-                    let optimized = constant_fold_with_interner(desugared, &compiler.interner);
-                    jit_program = rename(optimized, HashMap::new());
-                }
-
-                let jit_options = flux::jit::JitOptions {
-                    source_file: Some(path.to_string()),
-                    source_text: Some(source.clone()),
-                };
-                if trace_aether {
-                    match compiler.render_aether_report(&program, enable_optimize) {
-                        Ok(report) => print_aether_trace(
-                            path,
-                            TraceBackend::Jit,
-                            "AST -> Core -> CFG -> Cranelift JIT",
-                            None,
-                            enable_optimize,
-                            enable_analyze,
-                            strict_mode,
-                            Some(module_count),
-                            &report,
-                        ),
-                        Err(diag) => {
-                            emit_diagnostics(
-                                &[diag],
-                                Some(path),
-                                Some(source.as_str()),
-                                is_multimodule,
-                                max_errors,
-                                diagnostics_format,
-                                all_errors,
-                                true,
-                            );
-                            std::process::exit(1);
+                // Load Flow library (stdlib) — parse prelude .flx files
+                // and prepend their definitions before user code.
+                // Flow library auto-loading: disabled pending separate compilation
+                // support. The Flow functions need their own type inference pass
+                // rather than being mixed into the user program. For now, builtin
+                // functions are handled via builtins.rs (C runtime FFI calls).
+                // See Proposal 0120 for the full design.
+                if false {
+                    let flow_dir = locate_flow_lib_dir().unwrap();
+                    let flow_files = ["List.flx"];
+                    for file in flow_files {
+                        let flow_path = flow_dir.join(file);
+                        if let Ok(base_source) = std::fs::read_to_string(&flow_path) {
+                            let lexer = Lexer::new(&base_source);
+                            let mut parser = Parser::new(lexer);
+                            let base_prog = parser.parse_program();
+                            c2l_program.statements.extend(base_prog.statements);
                         }
                     }
                 }
 
-                let jit_compile_start = Instant::now();
-                let prev_hook = std::panic::take_hook();
-                std::panic::set_hook(Box::new(|_| {}));
-                let jit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    flux::jit::jit_compile(&jit_program, &compiler.interner, &jit_options)
-                }));
-                std::panic::set_hook(prev_hook);
-                let compiled = match jit_result {
-                    Ok(Ok(c)) => c,
-                    Ok(Err(err)) => {
-                        emit_jit_error(&err, path, source.as_str(), max_errors, diagnostics_format);
-                        std::process::exit(1);
-                    }
-                    Err(panic) => {
-                        let msg = panic
-                            .downcast_ref::<String>()
-                            .map(|s| s.as_str())
-                            .or_else(|| panic.downcast_ref::<&str>().copied())
-                            .unwrap_or("unknown panic");
-                        eprintln!("JIT compilation failed: {}", msg);
-                        std::process::exit(1);
-                    }
-                };
-                let jit_compile_ms = jit_compile_start.elapsed().as_secs_f64() * 1000.0;
-
-                let jit_exec_start = Instant::now();
-                match flux::jit::jit_execute(compiled) {
-                    Ok((_result, mut ctx)) => {
-                        let jit_exec_ms = jit_exec_start.elapsed().as_secs_f64() * 1000.0;
-                        let _ = ctx;
-                        if show_stats {
-                            print_stats(&RunStats {
-                                parse_ms: Some(parse_ms),
-                                compile_ms: Some(jit_compile_ms),
-                                execute_ms: jit_exec_ms,
-                                cached: false,
-                                use_jit: true,
-                                module_count: Some(module_count),
-                                source_lines: source.lines().count(),
-                                globals_count: None,
-                                functions_count: None,
-                                instruction_bytes: None,
-                            });
-                        }
-                        ctx.clear_runtime_state();
-                    }
-                    Err(err) => {
-                        emit_jit_error(&err, path, source.as_str(), max_errors, diagnostics_format);
-                        std::process::exit(1);
-                    }
-                }
-                if leak_detector {
-                    print_leak_stats();
-                }
-                return;
-            }
-
-            // --- LLVM execution path ---
-            #[cfg(feature = "llvm")]
-            if use_llvm {
-                use std::collections::HashMap;
-
-                let mut llvm_program = Program::new();
                 for node in graph.topo_order() {
-                    llvm_program
+                    c2l_program
                         .statements
                         .extend(node.program.statements.clone());
                 }
 
                 if enable_optimize {
-                    let desugared = desugar(llvm_program);
+                    let desugared = desugar(c2l_program);
                     let optimized = constant_fold_with_interner(desugared, &compiler.interner);
-                    llvm_program = rename(optimized, HashMap::new());
+                    c2l_program = rename(optimized, HashMap::new());
                 }
 
-                let llvm_opt_level = if enable_optimize { 2 } else { 0 };
-                let llvm_options = flux::llvm::LlvmOptions {
-                    source_file: Some(path.to_string()),
-                    source_text: Some(source.clone()),
-                    opt_level: llvm_opt_level,
+                // Re-run HM type inference on the merged program so all
+                // modules' types are available for Core IR lowering.
+                // Without this, hm_expr_types only contains the last
+                // VM-compiled module's types (Proposal 0121 Phase 2).
+                compiler.infer_expr_types_for_program(&c2l_program);
+
+                // Lower AST → Core IR (with Aether passes).
+                let core = match compiler.lower_aether_report_program(&c2l_program, enable_optimize)
+                {
+                    Ok(core) => core,
+                    Err(diag) => {
+                        emit_diagnostics(
+                            &[diag],
+                            Some(path),
+                            Some(source.as_str()),
+                            is_multimodule,
+                            max_errors,
+                            diagnostics_format,
+                            all_errors,
+                            true,
+                        );
+                        std::process::exit(1);
+                    }
                 };
-                if trace_aether {
-                    match compiler.render_aether_report(&program, enable_optimize) {
-                        Ok(report) => print_aether_trace(
-                            path,
-                            TraceBackend::Llvm,
-                            "AST -> Core -> CFG -> LLVM",
-                            None,
-                            enable_optimize,
-                            enable_analyze,
-                            strict_mode,
-                            Some(module_count),
-                            &report,
-                        ),
-                        Err(diag) => {
-                            emit_diagnostics(
-                                &[diag],
-                                Some(path),
-                                Some(source.as_str()),
-                                is_multimodule,
-                                max_errors,
-                                diagnostics_format,
-                                all_errors,
-                                true,
-                            );
+
+                eprintln!(
+                    "[c2l] Core IR done ({} defs). Starting LLVM codegen...",
+                    core.defs.len()
+                );
+                // Core IR → LLVM IR AST → text.
+                let llvm_module = match flux::core_to_llvm::compile_program_with_interner(
+                    &core,
+                    Some(&compiler.interner),
+                ) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("core_to_llvm compilation failed: {e}");
+                        std::process::exit(1);
+                    }
+                };
+
+                // Inject target triple and data layout.
+                let mut llvm_module = llvm_module;
+                llvm_module.target_triple = Some(flux::core_to_llvm::target::host_triple());
+                llvm_module.data_layout = flux::core_to_llvm::target::host_data_layout();
+
+                let ll_text = flux::core_to_llvm::render_module(&llvm_module);
+
+                if emit_llvm {
+                    if let Some(ref out) = output_path {
+                        if let Err(e) = std::fs::write(out, &ll_text) {
+                            eprintln!("Failed to write LLVM IR: {e}");
                             std::process::exit(1);
                         }
+                        println!("Emitted LLVM IR: {out}");
+                    } else {
+                        println!("{ll_text}");
                     }
+                    return;
                 }
 
-                // AOT: emit object file instead of JIT execution
-                let emit_obj = std::env::args().any(|a| a == "--emit-obj");
-                if emit_obj {
-                    let output = path.replace(".flx", ".o");
-                    let opt = if enable_optimize { 2 } else { 0 };
-                    match flux::llvm::llvm_emit_object(
-                        &llvm_program,
-                        &compiler.interner,
-                        &llvm_options,
-                        &output,
-                        opt,
-                    ) {
-                        Ok(()) => {
-                            println!("Emitted object file: {}", output);
+                if emit_binary {
+                    let runtime_lib_dir = locate_runtime_lib_dir();
+                    let out = output_path
+                        .map(std::path::PathBuf::from)
+                        .unwrap_or_else(|| {
+                            std::path::PathBuf::from(path.strip_suffix(".flx").unwrap_or(path))
+                        });
+                    let config = flux::core_to_llvm::pipeline::PipelineConfig {
+                        ll_text,
+                        opt_level: if enable_optimize { 2 } else { 0 },
+                        output_path: Some(out.clone()),
+                        runtime_lib_dir,
+                    };
+                    match flux::core_to_llvm::pipeline::compile_to_binary(&config) {
+                        Ok(flux::core_to_llvm::pipeline::PipelineResult::EmittedBinary {
+                            path: bin_path,
+                        }) => {
+                            println!("Emitted binary: {}", bin_path.display());
                         }
-                        Err(err) => {
-                            eprintln!("LLVM AOT compilation failed: {}", err);
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("core_to_llvm pipeline failed: {e}");
                             std::process::exit(1);
                         }
                     }
                     return;
                 }
 
-                let llvm_compile_start = Instant::now();
-                let prev_hook = std::panic::take_hook();
-                std::panic::set_hook(Box::new(|_| {}));
-                let llvm_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    flux::llvm::llvm_compile(&llvm_program, &compiler.interner, &llvm_options)
-                }));
-                std::panic::set_hook(prev_hook);
-                let compiled = match llvm_result {
-                    Ok(Ok(c)) => c,
-                    Ok(Err(err)) => {
-                        emit_llvm_error(
-                            &err,
-                            path,
-                            source.as_str(),
-                            max_errors,
-                            diagnostics_format,
-                        );
-                        std::process::exit(1);
-                    }
-                    Err(panic) => {
-                        let msg = panic
-                            .downcast_ref::<String>()
-                            .map(|s| s.as_str())
-                            .or_else(|| panic.downcast_ref::<&str>().copied())
-                            .unwrap_or("unknown panic");
-                        eprintln!("LLVM compilation panicked: {}", msg);
-                        std::process::exit(1);
-                    }
+                // Default: compile and run.
+                let runtime_lib_dir = locate_runtime_lib_dir();
+                let config = flux::core_to_llvm::pipeline::PipelineConfig {
+                    ll_text,
+                    opt_level: if enable_optimize { 2 } else { 0 },
+                    output_path: None,
+                    runtime_lib_dir,
                 };
-                let llvm_compile_ms = llvm_compile_start.elapsed().as_secs_f64() * 1000.0;
-
-                let llvm_exec_start = Instant::now();
-                match flux::llvm::llvm_execute(compiled) {
-                    Ok((_result, mut ctx)) => {
-                        let llvm_exec_ms = llvm_exec_start.elapsed().as_secs_f64() * 1000.0;
-                        if show_stats {
-                            print_stats(&RunStats {
-                                parse_ms: Some(parse_ms),
-                                compile_ms: Some(llvm_compile_ms),
-                                execute_ms: llvm_exec_ms,
-                                cached: false,
-                                use_jit: true,
-                                module_count: Some(module_count),
-                                source_lines: source.lines().count(),
-                                globals_count: None,
-                                functions_count: None,
-                                instruction_bytes: None,
-                            });
+                match flux::core_to_llvm::pipeline::compile_and_run(&config) {
+                    Ok(flux::core_to_llvm::pipeline::PipelineResult::Executed { exit_code }) => {
+                        if exit_code != 0 {
+                            std::process::exit(exit_code);
                         }
-                        ctx.clear_runtime_state();
                     }
-                    Err(err) => {
-                        emit_llvm_error(
-                            &err,
-                            path,
-                            source.as_str(),
-                            max_errors,
-                            diagnostics_format,
-                        );
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("core_to_llvm execution failed: {e}");
                         std::process::exit(1);
                     }
-                }
-                if leak_detector {
-                    print_leak_stats();
                 }
                 return;
             }
@@ -1014,7 +979,7 @@ fn run_file(
                     deps.push((dep, hash));
                 }
             }
-            if !no_cache && !use_jit && !use_llvm {
+            if !no_cache {
                 let stored = cache
                     .store(
                         Path::new(path),
@@ -1046,7 +1011,6 @@ fn run_file(
                     compile_ms: Some(compile_ms),
                     execute_ms,
                     cached: false,
-                    use_jit: false,
                     module_count: Some(module_count),
                     source_lines: source.lines().count(),
                     globals_count: Some(globals_count),
@@ -1069,8 +1033,6 @@ fn run_test_file(
     enable_analyze: bool,
     max_errors: usize,
     extra_roots: &[std::path::PathBuf],
-
-    #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
     test_filter: Option<&str>,
     strict_mode: bool,
     diagnostics_format: DiagnosticOutputFormat,
@@ -1090,7 +1052,7 @@ fn run_test_file(
     // --- Parse ---
     let lexer = Lexer::new(&source);
     let mut parser = Parser::new(lexer);
-    let program = parser.parse_program();
+    let mut program = parser.parse_program();
 
     let mut all_diagnostics: Vec<Diagnostic> = Vec::new();
     let mut parse_warnings = parser.take_warnings();
@@ -1122,6 +1084,9 @@ fn run_test_file(
         std::process::exit(1);
     }
 
+    // Auto-import Flow library for test mode too.
+    inject_flow_prelude(&mut program, &mut parser, false);
+
     let interner = parser.take_interner();
 
     // --- Build module graph ---
@@ -1146,9 +1111,17 @@ fn run_test_file(
         }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
+        let is_flow_library = node.path.to_string_lossy().contains("lib/Flow/")
+            || node.path.to_string_lossy().contains("lib\\Flow\\");
         compiler.set_strict_require_main(is_entry_module);
+        if is_flow_library {
+            compiler.set_strict_mode(false);
+        }
         let compile_result =
             compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
+        if is_flow_library {
+            compiler.set_strict_mode(strict_mode);
+        }
         let mut compiler_warnings = compiler.take_warnings();
         tag_diagnostics(&mut compiler_warnings, DiagnosticPhase::Validation);
         for diag in &mut compiler_warnings {
@@ -1227,75 +1200,6 @@ fn run_test_file(
         .and_then(|n| n.to_str())
         .unwrap_or(path);
 
-    #[cfg(feature = "jit")]
-    let all_passed = if use_jit {
-        let mut jit_program = Program::new();
-        for node in graph.topo_order() {
-            jit_program
-                .statements
-                .extend(node.program.statements.clone());
-        }
-
-        if enable_optimize {
-            let desugared = desugar(jit_program);
-            let optimized = constant_fold_with_interner(desugared, &compiler.interner);
-            jit_program = rename(optimized, std::collections::HashMap::new());
-        }
-
-        let jit_options = flux::jit::JitOptions {
-            source_file: Some(path.to_string()),
-            source_text: Some(source.clone()),
-        };
-
-        let compiled = match flux::jit::jit_compile(&jit_program, &compiler.interner, &jit_options)
-        {
-            Ok(c) => c,
-            Err(err) => {
-                eprintln!("Error during test setup: {}", err);
-                std::process::exit(1);
-            }
-        };
-
-        let mut ctx = match flux::jit::jit_execute(compiled) {
-            Ok((_result, ctx)) => ctx,
-            Err(err) => {
-                eprintln!("Error during test setup: {}", err);
-                std::process::exit(1);
-            }
-        };
-
-        let named_functions = ctx.named_functions.clone();
-        let fns: Vec<(String, Value)> = tests
-            .into_iter()
-            .map(|(name, _)| {
-                let function_index = *named_functions.get(&name).unwrap_or_else(|| {
-                    eprintln!(
-                        "Error during test setup: JIT function not found for `{}`",
-                        name
-                    );
-                    std::process::exit(1);
-                });
-                (
-                    name,
-                    Value::JitClosure(Rc::new(JitClosure::new(function_index, vec![]))),
-                )
-            })
-            .collect();
-        let results = run_test_fns(&mut ctx, fns);
-        print_test_report(file_name, &results)
-    } else {
-        let bytecode = compiler.bytecode();
-        let mut vm = VM::new(bytecode);
-        if let Err(err) = vm.run() {
-            eprintln!("Error during test setup: {}", err);
-            std::process::exit(1);
-        }
-
-        let results = run_tests(&mut vm, tests);
-        print_test_report(file_name, &results)
-    };
-
-    #[cfg(not(feature = "jit"))]
     let all_passed = {
         let bytecode = compiler.bytecode();
         let mut vm = VM::new(bytecode);
@@ -1320,7 +1224,6 @@ struct RunStats {
     compile_ms: Option<f64>,
     execute_ms: f64,
     cached: bool,
-    use_jit: bool,
     module_count: Option<usize>,
     source_lines: usize,
     globals_count: Option<usize>,
@@ -1342,8 +1245,6 @@ fn print_aether_trace(
 ) {
     let backend_name = match backend {
         TraceBackend::Vm => "vm",
-        TraceBackend::Jit => "jit",
-        TraceBackend::Llvm => "llvm",
     };
 
     eprintln!();
@@ -1386,19 +1287,11 @@ fn print_stats(stats: &RunStats) {
 
     if stats.cached {
         eprintln!("  {:<20} {:>12}", "compile", "(cached)");
-    } else if stats.use_jit {
-        if let Some(ms) = stats.compile_ms {
-            eprintln!("  {:<20} {:>8.2} ms  [cranelift]", "jit compile", ms);
-        }
     } else if let Some(ms) = stats.compile_ms {
         eprintln!("  {:<20} {:>8.2} ms  [bytecode]", "compile", ms);
     }
 
-    let backend = if stats.use_jit { "native" } else { "vm" };
-    eprintln!(
-        "  {:<20} {:>8.2} ms  [{}]",
-        "execute", stats.execute_ms, backend
-    );
+    eprintln!("  {:<20} {:>8.2} ms  [vm]", "execute", stats.execute_ms);
     eprintln!("  {:<20} {:>8.2} ms", "total", total_ms);
     eprintln!();
 
@@ -1424,6 +1317,82 @@ fn print_leak_stats() {
         "\nLeak stats (approx):\n  compiled_functions: {}\n  closures: {}\n  arrays: {}\n  hashes: {}\n  somes: {}",
         stats.compiled_functions, stats.closures, stats.arrays, stats.hashes, stats.somes
     );
+}
+
+/// Locate the Flux C runtime library directory (`runtime/c/`).
+///
+/// Searches relative to the running executable and common development paths.
+/// Returns `None` if not found (linker will search system paths).
+#[cfg(feature = "native")]
+fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
+    // Find the runtime/c source directory relative to the executable or cwd.
+    let candidates = {
+        let mut v = Vec::new();
+        if let Ok(exe) = std::env::current_exe() {
+            let mut dir = exe.parent().map(Path::to_path_buf);
+            for _ in 0..5 {
+                if let Some(ref d) = dir {
+                    v.push(d.join("runtime").join("c"));
+                    dir = d.parent().map(Path::to_path_buf);
+                }
+            }
+        }
+        v.push(std::path::PathBuf::from("runtime/c"));
+        v
+    };
+
+    for candidate in &candidates {
+        // Check if source directory exists (has flux_rt.h).
+        if candidate.join("flux_rt.h").exists() {
+            // Auto-build libflux_rt.a if missing or stale.
+            #[cfg(feature = "native")]
+            if let Err(e) = flux::core_to_llvm::pipeline::ensure_runtime_lib(candidate) {
+                eprintln!("Warning: failed to build C runtime: {e}");
+            }
+            if candidate.join("libflux_rt.a").exists() {
+                return Some(candidate.clone());
+            }
+        }
+    }
+    None
+}
+
+/// Locate the Flow library directory (`lib/Flow/`).
+#[cfg(feature = "native")]
+fn locate_flow_lib_dir() -> Option<std::path::PathBuf> {
+    if let Ok(exe) = std::env::current_exe() {
+        let mut dir = exe.parent().map(Path::to_path_buf);
+        for _ in 0..5 {
+            if let Some(ref d) = dir {
+                let candidate = d.join("lib").join("Flow");
+                if candidate.join("List.flx").exists() {
+                    return Some(candidate);
+                }
+                dir = d.parent().map(Path::to_path_buf);
+            }
+        }
+    }
+    let cwd = std::path::PathBuf::from("lib/Flow");
+    if cwd.join("List.flx").exists() {
+        return Some(cwd);
+    }
+    None
+}
+
+fn extract_output_path(args: &mut Vec<String>) -> Option<String> {
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "-o" {
+            args.remove(i);
+            if i < args.len() {
+                return Some(args.remove(i));
+            }
+            eprintln!("Error: -o requires an output path argument.");
+            return None;
+        }
+        i += 1;
+    }
+    None
 }
 
 fn extract_dump_core_mode(args: &mut Vec<String>) -> Option<CoreDumpMode> {
@@ -1603,156 +1572,97 @@ fn emit_diagnostics(
     }
 }
 
-#[cfg(any(feature = "jit", feature = "llvm"))]
-fn normalize_jit_cli_diagnostic(diag: &Diagnostic, source_path: &str) -> Diagnostic {
-    let mut diag = diag.clone();
-    let keep_original = matches!(diag.file(), Some("<unknown>" | "<jit>"));
-    if !keep_original {
-        diag.set_file(flux::diagnostics::render_display_path(source_path));
+/// Inject auto-imports for Flow library modules into the program AST.
+///
+/// Currently injects: `import Flow.Option exposing (..)`
+///
+/// Uses a mini-parser to parse the synthetic import so symbols are
+/// correctly interned in the same interner used for the rest of compilation.
+/// Flow library modules to auto-import.  Each entry is
+/// `(module_name, file_name)` — the file is checked for existence before
+/// injecting `import <module_name> exposing (..)`.
+const FLOW_PRELUDE_MODULES: &[(&str, &str)] = &[
+    ("Flow.Option", "Option.flx"),
+    ("Flow.List", "List.flx"),
+    ("Flow.String", "String.flx"),
+    ("Flow.Numeric", "Numeric.flx"),
+    ("Flow.IO", "IO.flx"),
+    ("Flow.Assert", "Assert.flx"),
+];
+
+fn inject_flow_prelude(
+    program: &mut Program,
+    parser: &mut flux::syntax::parser::Parser,
+    native_mode: bool,
+) {
+    let flow_dir = Path::new("lib").join("Flow");
+    if !flow_dir.exists() {
+        return;
     }
-    diag
+
+    // Both VM and native backends inject all Flow modules.
+    // The native/LLVM backend compiles lib/Flow/*.flx through Core IR
+    // alongside user code, enabling cross-module inlining.
+    let _ = native_mode; // used by both paths now
+    let modules: &[(&str, &str)] = FLOW_PRELUDE_MODULES;
+
+    // Collect the set of already-imported Flow modules.
+    let interner = parser.interner();
+    let existing_imports: Vec<String> = program
+        .statements
+        .iter()
+        .filter_map(|stmt| {
+            if let flux::syntax::statement::Statement::Import { name, .. } = stmt {
+                interner.try_resolve(*name).map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Build the synthetic import source for all missing modules.
+    let mut imports = Vec::new();
+    for &(module_name, file_name) in modules {
+        if existing_imports.iter().any(|s| s == module_name) {
+            continue;
+        }
+        if !flow_dir.join(file_name).exists() {
+            continue;
+        }
+        imports.push(format!("import {module_name} exposing (..)"));
+    }
+
+    if imports.is_empty() {
+        return;
+    }
+
+    let prelude_source = imports.join("\n");
+    let main_interner = parser.take_interner();
+    let prelude_lexer =
+        flux::syntax::lexer::Lexer::new_with_interner(&prelude_source, main_interner);
+    let mut prelude_parser = flux::syntax::parser::Parser::new(prelude_lexer);
+    let prelude_program = prelude_parser.parse_program();
+
+    let enriched_interner = prelude_parser.take_interner();
+    parser.restore_interner(enriched_interner);
+
+    // Prepend the synthetic imports to the program.
+    let mut new_statements = prelude_program.statements;
+    new_statements.append(&mut program.statements);
+    program.statements = new_statements;
 }
 
-#[cfg(feature = "jit")]
-fn emit_jit_error(
-    err: &JitError,
-    source_path: &str,
-    source_text: &str,
-    max_errors: usize,
-    diagnostics_format: DiagnosticOutputFormat,
-) {
-    match err {
-        JitError::Compile(diag) => {
-            let diag = normalize_jit_cli_diagnostic(diag.as_ref(), source_path);
-            emit_diagnostics(
-                std::slice::from_ref(&diag),
-                Some(source_path),
-                Some(source_text),
-                false,
-                max_errors,
-                diagnostics_format,
-                false,
-                true,
-            )
-        }
-        JitError::Runtime(diag) => {
-            // Strip stack trace — Cranelift JIT doesn't support real stack unwinding
-            let mut diag = normalize_jit_cli_diagnostic(diag.as_ref(), source_path);
-            diag.clear_stack_trace();
-            match diagnostics_format {
-                DiagnosticOutputFormat::Text => {
-                    let render_file = diag.file().unwrap_or(source_path);
-                    let render_source = if render_file == source_path {
-                        Some(source_text)
-                    } else {
-                        None
-                    };
-                    let stack_frames: Vec<String> = Vec::new();
-                    let rendered = flux::diagnostics::render_runtime_diagnostic(
-                        &diag,
-                        render_file,
-                        render_source,
-                        &stack_frames,
-                    );
-                    // Strip stack trace — Cranelift JIT doesn't support real stack unwinding
-                    let output = if let Some(idx) = rendered.find("Stack trace:") {
-                        let start = rendered[..idx].rfind('\n').map(|i| i + 1).unwrap_or(idx);
-                        rendered[..start].trim_end().to_string()
-                    } else {
-                        rendered
-                    };
-                    eprintln!("{}", output)
-                }
-                DiagnosticOutputFormat::Json | DiagnosticOutputFormat::JsonCompact => {
-                    emit_diagnostics(
-                        std::slice::from_ref(&diag),
-                        Some(source_path),
-                        Some(source_text),
-                        false,
-                        max_errors,
-                        diagnostics_format,
-                        false,
-                        true,
-                    )
-                }
-            }
-        }
-        JitError::Internal(message) => {
-            let output = if let Some(idx) = message.find("Stack trace:") {
-                let start = message[..idx].rfind('\n').map(|i| i + 1).unwrap_or(idx);
-                message[..start].trim_end()
-            } else {
-                message.as_str()
-            };
-            eprintln!("{}", output);
+/// Extract the module name and symbol from a program's top-level `module Name { ... }` statement.
+fn extract_module_name_and_sym(
+    program: &Program,
+    interner: &flux::syntax::interner::Interner,
+) -> Option<(String, flux::syntax::Identifier)> {
+    for stmt in &program.statements {
+        if let flux::syntax::statement::Statement::Module { name, .. } = stmt {
+            return Some((interner.resolve(*name).to_string(), *name));
         }
     }
-}
-
-#[cfg(feature = "llvm")]
-fn emit_llvm_error(
-    err: &flux::llvm::LlvmError,
-    source_path: &str,
-    source_text: &str,
-    max_errors: usize,
-    diagnostics_format: DiagnosticOutputFormat,
-) {
-    match err {
-        flux::llvm::LlvmError::Compile(diag) | flux::llvm::LlvmError::Runtime(diag) => {
-            // Strip stack trace — LLVM backend doesn't support real stack unwinding
-            let mut diag = normalize_jit_cli_diagnostic(diag.as_ref(), source_path);
-            diag.clear_stack_trace();
-            match diagnostics_format {
-                DiagnosticOutputFormat::Text => {
-                    let render_file = diag.file().unwrap_or(source_path);
-                    let render_source = if render_file == source_path {
-                        Some(source_text)
-                    } else {
-                        None
-                    };
-                    let stack_frames: Vec<String> = Vec::new();
-                    let rendered = flux::diagnostics::render_runtime_diagnostic(
-                        &diag,
-                        render_file,
-                        render_source,
-                        &stack_frames,
-                    );
-                    // Strip stack trace — LLVM doesn't support real stack unwinding
-                    let output = if let Some(idx) = rendered.find("Stack trace:") {
-                        let start = rendered[..idx].rfind('\n').map(|i| i + 1).unwrap_or(idx);
-                        rendered[..start].trim_end().to_string()
-                    } else {
-                        rendered
-                    };
-                    eprintln!("{}", output);
-                }
-                DiagnosticOutputFormat::Json | DiagnosticOutputFormat::JsonCompact => {
-                    emit_diagnostics(
-                        std::slice::from_ref(&diag),
-                        Some(source_path),
-                        Some(source_text),
-                        false,
-                        max_errors,
-                        diagnostics_format,
-                        false,
-                        true,
-                    )
-                }
-            }
-        }
-        flux::llvm::LlvmError::Internal(message) => {
-            // Strip any embedded stack trace from pre-rendered error strings.
-            // The "Stack trace:" marker may be preceded by ANSI color codes.
-            let output = if let Some(idx) = message.find("Stack trace:") {
-                // Back up to the preceding newline
-                let start = message[..idx].rfind('\n').map(|i| i + 1).unwrap_or(idx);
-                message[..start].trim_end()
-            } else {
-                message.as_str()
-            };
-            eprintln!("{}", output);
-        }
-    }
+    None
 }
 
 fn extract_test_filter(args: &mut Vec<String>) -> Option<Option<String>> {
@@ -1809,6 +1719,12 @@ fn collect_roots(entry_path: &Path, extra_roots: &[PathBuf], roots_only: bool) -
         let project_src = Path::new("src");
         if project_src.exists() {
             roots.push(project_src.to_path_buf());
+        }
+        // Add lib/ as a root for Flow library resolution (Proposal 0120).
+        // Searches: relative to cwd, then up from the executable.
+        let project_lib = Path::new("lib");
+        if project_lib.exists() {
+            roots.push(project_lib.to_path_buf());
         }
     }
     roots
@@ -2290,7 +2206,7 @@ fn repl(trace: bool) {
     let stdin = io::stdin();
     let mut reader = stdin.lock();
 
-    // Bootstrap compiler to register Base functions in the symbol table.
+    // Bootstrap compiler to register Flow functions in the symbol table.
     let bootstrap = Compiler::new_with_interner("<repl>", Interner::new());
     let (mut symbol_table, mut constants, mut interner) = bootstrap.take_state();
     let mut globals: Vec<Value> = vec![Value::None; 65536];
