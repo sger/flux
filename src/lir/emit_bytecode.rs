@@ -608,6 +608,94 @@ impl<'a> FnEmitter<'a> {
                 self.emit_op(OpCode::OpTailCall, &[args.len()]);
             }
 
+            LirTerminator::MatchCtor {
+                scrutinee,
+                arms,
+                default,
+            } => {
+                // Emit constructor pattern matching using VM-specific opcodes.
+                // For each arm: push scrutinee, test constructor, jump on match.
+                let mut match_patches: Vec<(usize, BlockId, Vec<LirVar>)> = Vec::new();
+
+                for arm in arms {
+                    self.push_var(*scrutinee);
+                    match &arm.tag {
+                        CtorTag::EmptyList => {
+                            // OpIsEmptyList: TOS → bool
+                            self.emit_op(OpCode::OpIsEmptyList, &[]);
+                        }
+                        CtorTag::None => {
+                            // Compare with None constant.
+                            let none_idx = self.add_constant(Value::None);
+                            self.emit_op(OpCode::OpConstant, &[none_idx]);
+                            self.emit_op(OpCode::OpEqual, &[]);
+                        }
+                        CtorTag::Cons => {
+                            // OpIsCons: TOS → bool
+                            self.emit_op(OpCode::OpIsCons, &[]);
+                        }
+                        CtorTag::Some | CtorTag::Left | CtorTag::Right | CtorTag::Named(_) => {
+                            // OpIsAdt: compare constructor name.
+                            let name = match &arm.tag {
+                                CtorTag::Some => "Some",
+                                CtorTag::Left => "Left",
+                                CtorTag::Right => "Right",
+                                CtorTag::Named(n) => n.as_str(),
+                                _ => unreachable!(),
+                            };
+                            let const_idx =
+                                self.add_constant(Value::String(Rc::new(name.to_string())));
+                            self.emit_op(OpCode::OpIsAdt, &[const_idx]);
+                        }
+                        CtorTag::Tuple => {
+                            // OpIsTuple: TOS → bool
+                            self.emit_op(OpCode::OpIsTuple, &[]);
+                        }
+                    }
+                    // JumpTruthy → trampoline that extracts fields + jumps to block
+                    let patch = self.pos() + 1;
+                    self.emit_op(OpCode::OpJumpTruthy, &[0xFFFF]);
+                    match_patches.push((patch, arm.target, arm.field_binders.clone()));
+                }
+
+                // Default: jump unconditionally.
+                let default_patch = self.pos() + 1;
+                self.emit_op(OpCode::OpJump, &[0xFFFF]);
+                self.jump_patches.push((default_patch, *default));
+
+                // Emit trampolines for each matched arm: pop bool, extract fields, jump.
+                for (patch, target, field_binders) in match_patches {
+                    let trampoline = self.pos();
+                    // Pop the leftover boolean from JumpTruthy.
+                    self.emit_op(OpCode::OpPop, &[]);
+                    // Extract fields from scrutinee into binder slots.
+                    if !field_binders.is_empty() {
+                        self.push_var(*scrutinee);
+                        if field_binders.len() == 2 {
+                            // OpAdtFields2: pop ADT, push field0 then field1.
+                            self.emit_op(OpCode::OpAdtFields2, &[]);
+                            self.pop_into(field_binders[0]);
+                            self.pop_into(field_binders[1]);
+                        } else {
+                            for (i, &binder) in field_binders.iter().enumerate() {
+                                if i > 0 {
+                                    self.push_var(*scrutinee);
+                                }
+                                self.emit_op(OpCode::OpAdtField, &[i]);
+                                self.pop_into(binder);
+                            }
+                        }
+                    }
+                    // Jump to the arm's body block.
+                    let target_patch = self.pos() + 1;
+                    self.emit_op(OpCode::OpJump, &[0xFFFF]);
+                    self.jump_patches.push((target_patch, target));
+                    // Patch the JumpTruthy to point to this trampoline.
+                    self.instructions[patch] = (trampoline >> 8) as u8;
+                    self.instructions[patch + 1] = trampoline as u8;
+                }
+            }
+
             LirTerminator::Unreachable => {
                 // Emit a halt — shouldn't be reached.
                 // Push None and return to avoid VM crash.

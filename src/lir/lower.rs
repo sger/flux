@@ -654,38 +654,51 @@ impl<'a> FnLower<'a> {
         alts: &[CoreAlt],
         join_block: BlockId,
     ) {
-        // Extract the NaN-box tag to determine if it's a pointer or immediate.
-        let tag = self.fresh_var();
-        self.emit(LirInstr::GetTag { dst: tag, val: scrut });
-
-        // Pre-allocate blocks for all alts and collect (case_tag, block_id) pairs.
+        // Pre-allocate blocks for all alts.
         let mut alt_block_indices: Vec<usize> = Vec::new();
         for _alt in alts {
             alt_block_indices.push(self.new_block());
         }
 
-        // Build switch cases based on pattern types.
-        let mut cases: Vec<(i64, BlockId)> = Vec::new();
+        // Build MatchCtor arms from patterns.
+        let mut arms: Vec<CtorArm> = Vec::new();
         let mut default_idx: Option<usize> = None;
 
         for (i, alt) in alts.iter().enumerate() {
             let block_id = BlockId(alt_block_indices[i] as u32);
-            match &alt.pat {
-                CorePat::EmptyList => cases.push((0x4, block_id)),
-                CorePat::Con { tag: core_tag, .. } => match core_tag {
-                    CoreTag::None => cases.push((0x2, block_id)),
-                    CoreTag::Nil => cases.push((0x4, block_id)),
-                    CoreTag::Some => cases.push((-SOME_TAG_ID, block_id)),
-                    CoreTag::Left => cases.push((-LEFT_TAG_ID, block_id)),
-                    CoreTag::Right => cases.push((-RIGHT_TAG_ID, block_id)),
-                    CoreTag::Cons => cases.push((-CONS_TAG_ID, block_id)),
-                    CoreTag::Named(_) => cases.push((-FIRST_USER_TAG_ID, block_id)),
-                },
-                CorePat::Tuple(_) => cases.push((-100, block_id)),
+
+            let (ctor_tag, field_pats) = match &alt.pat {
+                CorePat::EmptyList => (CtorTag::EmptyList, vec![]),
+                CorePat::Con { tag: core_tag, fields, .. } => {
+                    let ct = match core_tag {
+                        CoreTag::None => CtorTag::None,
+                        CoreTag::Nil => CtorTag::EmptyList,
+                        CoreTag::Some => CtorTag::Some,
+                        CoreTag::Left => CtorTag::Left,
+                        CoreTag::Right => CtorTag::Right,
+                        CoreTag::Cons => CtorTag::Cons,
+                        CoreTag::Named(name) => CtorTag::Named(self.resolve_name(*name)),
+                    };
+                    (ct, fields.clone())
+                }
+                CorePat::Tuple(fields) => (CtorTag::Tuple, fields.clone()),
                 CorePat::Wildcard | CorePat::Var(_) | CorePat::Lit(_) => {
                     default_idx = Some(alt_block_indices[i]);
+                    continue;
                 }
-            }
+            };
+
+            // Create field binder LirVars for this arm.
+            let field_binders: Vec<LirVar> = field_pats.iter().map(|_| self.fresh_var()).collect();
+
+            arms.push(CtorArm {
+                tag: ctor_tag,
+                field_binders: field_binders.clone(),
+                target: block_id,
+            });
+
+            // Pre-bind pattern variables in the target block.
+            // We'll bind them when we switch to the block below.
         }
 
         // Default block.
@@ -699,17 +712,43 @@ impl<'a> FnLower<'a> {
         });
         let default_id = BlockId(default_block_idx as u32);
 
-        // Emit the switch from the current block.
-        self.set_terminator(LirTerminator::Switch {
-            scrutinee: tag,
-            cases,
+        // Emit the MatchCtor terminator.
+        self.set_terminator(LirTerminator::MatchCtor {
+            scrutinee: scrut,
+            arms: arms.clone(),
             default: default_id,
         });
 
-        // Lower each alt's body in its pre-allocated block.
+        // Lower each alt's body, binding field binders from MatchCtor arms.
+        let mut arm_idx = 0;
         for (i, alt) in alts.iter().enumerate() {
             self.switch_to_block(alt_block_indices[i]);
-            self.bind_pattern(scrut, &alt.pat);
+
+            match &alt.pat {
+                CorePat::Wildcard | CorePat::Var(_) | CorePat::Lit(_) => {
+                    // Default arm — bind scrutinee to variable if Var pattern.
+                    if let CorePat::Var(binder) = &alt.pat {
+                        self.bind(binder.id, scrut);
+                    }
+                }
+                CorePat::EmptyList => {
+                    // No fields to bind.
+                    arm_idx += 1;
+                }
+                CorePat::Con { fields, .. } | CorePat::Tuple(fields) => {
+                    // Bind field binders from the MatchCtor arm.
+                    if arm_idx < arms.len() {
+                        let arm = &arms[arm_idx];
+                        for (j, field_pat) in fields.iter().enumerate() {
+                            if j < arm.field_binders.len() {
+                                self.bind_pattern(arm.field_binders[j], field_pat);
+                            }
+                        }
+                    }
+                    arm_idx += 1;
+                }
+            }
+
             let val = self.lower_expr(&alt.rhs);
             self.emit_copy_to_join_param(val, join_block);
             self.set_terminator(LirTerminator::Jump(join_block));
@@ -1206,6 +1245,19 @@ fn display_terminator(term: &LirTerminator) -> String {
         LirTerminator::Call { dst, func, args, cont } => {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
             format!("{dst} = call {func}({}) -> {cont}", args_str.join(", "))
+        }
+        LirTerminator::MatchCtor { scrutinee, arms, default } => {
+            let arms_str: Vec<String> = arms
+                .iter()
+                .map(|arm| {
+                    let fs: Vec<String> = arm.field_binders.iter().map(|v| format!("{v}")).collect();
+                    format!("{:?}({}) -> {}", arm.tag, fs.join(", "), arm.target)
+                })
+                .collect();
+            format!(
+                "match_ctor {scrutinee} [{}, default -> {default}]",
+                arms_str.join(", ")
+            )
         }
         LirTerminator::Unreachable => "unreachable".to_string(),
     }
