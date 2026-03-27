@@ -2433,6 +2433,30 @@ impl Compiler {
         }
     }
 
+    /// Lower to Core IR, then to LIR, and return a human-readable dump.
+    #[allow(clippy::result_large_err)]
+    pub fn dump_lir(
+        &self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<String, Diagnostic> {
+        let program_to_lower = if optimize {
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
+            rename(optimized, HashMap::new())
+        } else {
+            program.clone()
+        };
+
+        let mut core =
+            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
+
+        let lir = crate::lir::lower::lower_program(&core);
+        Ok(crate::lir::lower::display_program(&lir))
+    }
+
     #[allow(clippy::result_large_err)]
     pub fn lower_aether_report_program(
         &self,

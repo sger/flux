@@ -65,6 +65,7 @@ fn main() {
     let strict_mode = args.iter().any(|arg| arg == "--strict");
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
     let dump_aether = args.iter().any(|arg| arg == "--dump-aether");
+    let dump_lir = args.iter().any(|arg| arg == "--dump-lir");
     #[cfg(feature = "native")]
     let use_core_to_llvm = args
         .iter()
@@ -113,6 +114,9 @@ fn main() {
     }
     if dump_aether {
         args.retain(|arg| arg != "--dump-aether");
+    }
+    if dump_lir {
+        args.retain(|arg| arg != "--dump-lir");
     }
     if use_core_to_llvm {
         args.retain(|arg| arg != "--core-to-llvm" && arg != "--native");
@@ -190,6 +194,7 @@ fn main() {
                 all_errors,
                 dump_core,
                 dump_aether,
+                dump_lir,
                 use_core_to_llvm,
                 emit_llvm,
                 emit_binary,
@@ -249,6 +254,7 @@ fn main() {
                     all_errors,
                     dump_core,
                     dump_aether,
+                    dump_lir,
                     use_core_to_llvm,
                     emit_llvm,
                     emit_binary,
@@ -460,6 +466,7 @@ fn run_file(
     all_errors: bool,
     dump_core: CoreDumpMode,
     dump_aether: bool,
+    dump_lir: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] use_core_to_llvm: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] emit_llvm: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] emit_binary: bool,
@@ -485,6 +492,7 @@ fn run_file(
                 && !emit_binary
                 && matches!(dump_core, CoreDumpMode::None)
                 && !dump_aether
+                && !dump_lir
                 && !trace_aether
             {
                 if let Some(bytecode) =
@@ -770,6 +778,27 @@ fn run_file(
                         CoreDumpMode::None => unreachable!("checked above"),
                     },
                 );
+                match dumped {
+                    Ok(dumped) => println!("{dumped}"),
+                    Err(diag) => {
+                        emit_diagnostics(
+                            &[diag],
+                            Some(path),
+                            Some(source.as_str()),
+                            is_multimodule,
+                            max_errors,
+                            diagnostics_format,
+                            all_errors,
+                            true,
+                        );
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+
+            if dump_lir {
+                let dumped = compiler.dump_lir(&merged_program, enable_optimize);
                 match dumped {
                     Ok(dumped) => println!("{dumped}"),
                     Err(diag) => {
