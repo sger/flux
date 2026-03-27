@@ -195,62 +195,46 @@ module Flow.Array {
 }
 ```
 
-### Phase 2b: Add GHC Data.Array-inspired functions to Flow.Array
+### Phase 2b: Add GHC Data.Array-inspired functions to Flow.Array (COMPLETED)
 
-Add construction and update functions inspired by GHC's `Data.Array` and `Data.Vector`, adapted to Flux's 0-indexed arrays.
+Construction, update, and utility functions inspired by GHC's `Data.Array` and `Data.Vector`, adapted to Flux's 0-indexed arrays.
 
-**Functional update:**
+**Implemented functions (11 total):**
 
-| Function | Signature | GHC equivalent |
-|----------|-----------|----------------|
-| `update(arr, i, val)` | `(Array a, Int, a) -> Array a` | `(//)` single |
-| `update_many(arr, pairs)` | `(Array a, List (Int, a)) -> Array a` | `(//)` |
-
-```flux
-// Functional update — returns a new array with position i replaced.
-// GHC equivalent: arr // [(2, "new")]
-let xs = [|10, 20, 30, 40|]
-let ys = Array.update(xs, 2, 99)       // [|10, 20, 99, 40|]
-
-// Batch update — multiple positions at once.
-let zs = Array.update_many(xs, [(0, 100), (3, 400)])  // [|100, 20, 30, 400|]
-```
-
-**Accumulation:**
-
-| Function | Signature | GHC equivalent |
-|----------|-----------|----------------|
-| `accum(size, init, pairs, f)` | `(Int, a, List (Int, a), (a, a) -> a) -> Array a` | `accumArray` |
-| `from_list(xs)` | `List a -> Array a` | `listArray` |
-| `tabulate(n, f)` | `(Int, Int -> a) -> Array a` | `genArray` / `generate` |
+| Function | Signature | GHC equivalent | Status |
+|----------|-----------|----------------|--------|
+| `take(arr, n)` | `(Array a, Int) -> Array a` | `take` | Done |
+| `drop(arr, n)` | `(Array a, Int) -> Array a` | `drop` | Done |
+| `update(arr, i, val)` | `(Array a, Int, a) -> Array a` | `(//)` single | Done |
+| `swap(arr, i, j)` | `(Array a, Int, Int) -> Array a` | no direct equivalent | Done |
+| `enumerate(arr)` | `Array a -> Array (Int, a)` | `zip [0..] (elems arr)` | Done |
+| `tabulate(n, f)` | `(Int, Int -> a) -> Array a` | `genArray` / `generate` | Done |
+| `from_list(xs)` | `List a -> Array a` | `listArray` | Done (delegates to `to_array` primop) |
+| `find_index(arr, pred)` | `(Array a, (a) -> Bool) -> Option Int` | `findIndex` | Done |
+| `each_indexed(arr, f)` | `(Array a, (Int, a) -> ()) -> () with IO` | `itraverse_` | Done |
+| `update_many(arr, pairs)` | `(Array a, List (Int, a)) -> Array a` | `(//)` | Done |
+| `accum(size, init, pairs, f)` | `(Int, a, List (Int, a), (a, a) -> a) -> Array a` | `accumArray` | Done |
 
 ```flux
-// Build array by accumulating values at each index.
-// GHC equivalent: accumArray (+) 0 (0,4) [(1,3),(1,5),(3,2)]
-let histogram = Array.accum(5, 0, [(1, 3), (1, 5), (3, 2)], \(a, b) -> a + b)
-// [|0, 8, 0, 2, 0|]
+import Flow.Array as Array
 
-// Build array from a function on indices.
-let squares = Array.tabulate(5, \i -> i * i)  // [|0, 1, 4, 9, 16|]
-
-// Convert cons list to array.
-let arr = Array.from_list([1, 2, 3])  // [|1, 2, 3|]
+let a = [|10, 20, 30, 40, 50|]
+Array.take(a, 3)                    // [|10, 20, 30|]
+Array.drop(a, 2)                    // [|30, 40, 50|]
+Array.update(a, 1, 99)              // [|10, 99, 30, 40, 50|]
+Array.swap(a, 0, 4)                 // [|50, 20, 30, 40, 10|]
+Array.enumerate(a)                  // [|(0, 10), (1, 20), (2, 30), (3, 40), (4, 50)|]
+Array.tabulate(5, \i -> i * i)      // [|0, 1, 4, 9, 16|]
+Array.from_list([1, 2, 3])          // [|1, 2, 3|]
+Array.find_index(a, \x -> x > 25)  // Some(2)
+Array.update_many(a, [(0, 100), (3, 400)])  // [|100, 20, 30, 400, 50|]
+Array.accum(5, 0, [(1, 3), (1, 5), (3, 2)], \(a, b) -> a + b)  // [|0, 8, 0, 2, 0|]
 ```
-
-**Utility:**
-
-| Function | Signature | GHC equivalent |
-|----------|-----------|----------------|
-| `enumerate(arr)` | `Array a -> Array (Int, a)` | `zip [0..] (elems arr)` |
-| `swap(arr, i, j)` | `(Array a, Int, Int) -> Array a` | no direct equivalent |
-| `take(arr, n)` | `(Array a, Int) -> Array a` | `slice` |
-| `drop(arr, n)` | `(Array a, Int) -> Array a` | `slice` |
 
 **Differences from GHC `Data.Array`:**
 - Flux arrays are always 0-indexed (no arbitrary `Ix` bounds)
 - No mutable variants (`STArray`/`IOArray`) — Flux is pure, mutation via functional update
 - `update` returns a new array (structural sharing via Rc when possible)
-- `accum` takes a size instead of bounds tuple — simpler without `Ix` typeclass
 - No lazy elements — Flux arrays are strict
 
 Usage:
@@ -262,12 +246,24 @@ let fast = Array.map([|1, 2, 3|], \x -> x * 2)   // O(n), contiguous
 let idiomatic = map([1, 2, 3], \x -> x * 2)       // O(n), cons list
 ```
 
-### Phase 3: Documentation and boundaries
+### Phase 3: Documentation and boundaries (COMPLETED)
 
-- `to_list(arr)` — convert array to cons list
-- `to_array(xs)` — convert cons list to array
-- Document the performance tradeoff: cons lists for recursion/pattern matching, arrays for random access/bulk operations
-- Update examples to use the appropriate type
+- `Array.to_list(arr)` — convert array to cons list (implemented in Flow.Array)
+- `Array.from_list(xs)` — convert cons list to array (delegates to `to_array` primop)
+- Round-trip: `Array.from_list(Array.to_list([|1,2,3|]))` → `[|1, 2, 3|]`
+
+**Performance tradeoff guide:**
+
+| Use case | Use cons list `[1, 2, 3]` | Use array `[|1, 2, 3|]` |
+|----------|--------------------------|-------------------------|
+| Recursive processing | Yes — `[h \| t]` pattern matching | No |
+| Random access `xs[i]` | No — O(n) | Yes — O(1) |
+| Prepend `[x \| xs]` | Yes — O(1) | No — O(n) |
+| Append `push(arr, x)` | No — O(n) | Yes — O(1) amortized |
+| Map/filter/fold | Both O(n) | Both O(n) |
+| Functional update | No built-in | Yes — `Array.update(arr, i, v)` |
+| Grid/matrix operations | No | Yes |
+| Sorting | `sort_by(xs, f)` merge sort | `Array.sort(arr)` primop |
 
 ## Impact
 
@@ -297,62 +293,63 @@ let idiomatic = map([1, 2, 3], \x -> x * 2)       // O(n), cons list
 
 For most functional programs, cons list traversal is sufficient. Programs that need random access or bulk mutation should use arrays explicitly.
 
-### Phase 4: Primop cleanup — align with GHC's model
+### Phase 4: Primop cleanup — align with GHC's model (COMPLETED)
 
 GHC has **zero list primops**. Lists are a plain ADT (`data [] a = [] | a : [a]`) — `head`, `tail`, `map`, `filter`, `fold`, `length`, `reverse`, `sort`, `concat` are all regular Haskell functions. The only "magic" is that `(:)` and `[]` are wired-in constructors (the compiler knows their tag layout for pattern matching).
 
 GHC has **84 array primops**, but they are all low-level memory operations: `newArray#`, `readArray#`, `writeArray#`, `indexArray#`, `sizeofArray#`, `copyArray#`, `cloneArray#`, `freezeArray#`, `thawArray#`, `casArray#`. There are no `sort`, `map`, `filter`, or `push` primops — those are all library functions.
 
-Flux should follow this model: primops are the low-level memory/hardware primitives; everything else is a library function in `Flow.List` or `Flow.Array`.
+Flux now follows this model: primops are the low-level memory/hardware primitives; everything else is a library function in `Flow.List` or `Flow.Array`.
 
-#### Primops to remove (demote to library functions)
+**Status:** `Hd`, `Tl`, and `ArraySort` primops were already removed in earlier work. The `Len` primop was narrowed to reject cons lists with an error message directing users to `Flow.List.length(xs)`. A `length` function was added to `Flow.List` as the replacement.
 
-| Primop | Why remove | Replacement |
-|--------|-----------|-------------|
-| `Hd` | Not a memory operation — `[h\|t]` pattern match already does this | `Flow.List.first(xs)` (already exists, returns `Option`) |
-| `Tl` | Not a memory operation — `[h\|t]` pattern match already does this | `Flow.List.rest(xs)` (already exists) |
-| `ArraySort` | Not a memory operation — it's an algorithm | `Flow.Array.sort_by(arr, f)` (already exists) |
+#### Primops removed (demoted to library functions) — DONE
 
-**Note:** Removing `Hd`/`Tl` primops does NOT break `[h | t]` pattern matching. Pattern matching on cons cells is handled by the `CorePat::Con { tag: CoreTag::Cons, fields }` path in the compiler, which extracts head and tail from the `ConsCell` struct directly. The `Hd`/`Tl` primops are separate callable functions (`hd(xs)`, `tl(xs)`) that duplicate this functionality.
+| Primop | Status | Replacement |
+|--------|--------|-------------|
+| `Hd` | Already removed (no CorePrimOp variant exists) | `[h \| t]` pattern match + `Flow.List.first(xs)` |
+| `Tl` | Already removed (no CorePrimOp variant exists) | `[h \| t]` pattern match + `Flow.List.rest(xs)` |
+| `ArraySort` | Already removed (no CorePrimOp variant exists) | `Flow.Array.sort(arr)` / `Flow.Array.sort_by(arr, f)` |
+| `Len` on cons lists | Removed (now returns error) | `Flow.List.length(xs)` (added in Phase 4) |
 
-#### Primops to keep (true primitives)
+**Note:** `[h | t]` pattern matching is unaffected — it uses `OpConsHead`/`OpConsTail` bytecode opcodes that destructure the `ConsCell` struct directly, not the removed primops.
 
-| Primop | GHC equivalent | Why it must stay |
-|--------|---------------|-----------------|
-| `MakeList` | `(:)` constructor | Allocates cons cell — this IS the constructor |
-| `MakeArray` | `newArray#` | Allocates contiguous memory |
-| `ArrayGet` | `indexArray#` | Direct memory read at offset |
-| `ArraySet` | `writeArray#` | Direct memory write at offset |
-| `ArrayLen` | `sizeofArray#` | Reads cached size field |
-| `ArrayPush` | — (no GHC equivalent) | Reallocation + copy (C runtime) |
-| `ArrayConcat` | — (uses `copyArray#`) | Allocation + bulk copy |
-| `ArraySlice` | — (uses `cloneArray#`) | Allocation + partial copy |
-| `ToList` | — | Cross-representation conversion (Vec → ConsCell) |
-| `ToArray` | — | Cross-representation conversion (ConsCell → Vec) |
-| `Len` | — | Polymorphic length (dispatches on string/array/tuple/map) |
+#### Primops kept (true primitives) — verified in codebase
+
+| Primop | GHC equivalent | Why it stays | Verified |
+|--------|---------------|--------------|----------|
+| `MakeList` | `(:)` constructor | Allocates cons cell — this IS the constructor | `CorePrimOp::MakeList` |
+| `MakeArray` | `newArray#` | Allocates contiguous memory | `CorePrimOp::MakeArray` |
+| `ArrayGet` | `indexArray#` | Direct memory read at offset | `CorePrimOp::ArrayGet` |
+| `ArraySet` | `writeArray#` | Direct memory write at offset | `CorePrimOp::ArraySet` |
+| `ArrayLen` | `sizeofArray#` | Reads cached size field | `CorePrimOp::ArrayLen` |
+| `ArrayPush` | — (no GHC equivalent) | Reallocation + copy (C runtime) | `CorePrimOp::ArrayPush` |
+| `ArrayConcat` | — (uses `copyArray#`) | Allocation + bulk copy | `CorePrimOp::ArrayConcat` |
+| `ArraySlice` | — (uses `cloneArray#`) | Allocation + partial copy | `CorePrimOp::ArraySlice` |
+| `ToList` | — | Cross-representation conversion (Vec → ConsCell) | `CorePrimOp::ToList` |
+| `ToArray` | — | Cross-representation conversion (ConsCell → Vec) | `CorePrimOp::ToArray` |
+| `Len` | — | Polymorphic O(1) length (string/array/tuple/map only) | `CorePrimOp::Len` |
+
+#### Len primop: dispatch narrowed — DONE
+
+`Len` now dispatches on 4 O(1) types only. Cons lists return an error directing users to `Flow.List.length(xs)`.
+
+| Type | Status | Complexity |
+|------|--------|-----------|
+| String | Kept | O(1) — len field |
+| Array | Kept | O(1) — Vec::len |
+| Tuple | Kept | O(1) — Vec::len |
+| Map (HAMT) | Kept | O(1) — node count |
+| None/EmptyList | Kept | O(1) — returns 0 |
+| Cons list | **Removed** | Was O(n) — use `Flow.List.length(xs)` |
 
 #### Primops to consider adding (future)
 
 | New primop | GHC equivalent | Why |
 |-----------|---------------|-----|
-| `ArrayNew(n, init)` | `newArray# n init` | Allocate array of size n with default value — enables `tabulate` and `accum` |
+| `ArrayNew(n, init)` | `newArray# n init` | Allocate array of size n with default value — would make `tabulate` and `accum` faster |
 | `ArrayCopy(src, srcOff, dst, dstOff, len)` | `copyArray#` | Bulk copy for efficient `update_many` |
-| `ArrayUpdate(arr, i, val)` | — | Single-element functional update (copy + write) — more efficient than full rebuild |
-
-#### Len primop: narrow the dispatch
-
-Currently `Len` dispatches at runtime across 6 types (String, Array, Tuple, List, Map, None). With Flow.List providing `length(xs)` for cons lists, the `Len` primop should narrow to only types that need runtime-level length access:
-
-| Type | Keep in `Len`? | Why |
-|------|---------------|-----|
-| String | Yes | Length stored in C runtime string struct |
-| Array | Yes | Length stored in Vec capacity |
-| Tuple | Yes | Arity stored in runtime tag |
-| Map (HAMT) | Yes | Size stored in HAMT root |
-| Cons list | **Remove** | O(n) walk — should be `Flow.List.length(xs)` |
-| None/EmptyList | **Remove** | Trivially 0 — should be `Flow.List.length([])` |
-
-This makes `Len` a true O(1) primop (access a stored size field) rather than a polymorphic function that sometimes does O(n) work.
+| `ArrayUpdate(arr, i, val)` | — | Single-element functional update (copy + write) — more efficient than slice+concat rebuild |
 
 #### Summary: primop count change
 
