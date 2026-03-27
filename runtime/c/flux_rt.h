@@ -61,8 +61,9 @@ extern "C" {
 /* BigInt heap tag — defined early so inline helpers can reference it. */
 #define FLUX_OBJ_BIGINT   0xF6
 
-/* Forward declaration for overflow boxing. */
+/* Forward declarations for overflow boxing. */
 void *flux_gc_alloc(uint32_t size);
+void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 
 static inline int64_t flux_tag_int(int64_t raw) {
     if (raw >= FLUX_MIN_INLINE_INT && raw <= FLUX_MAX_INLINE_INT) {
@@ -71,7 +72,7 @@ static inline int64_t flux_tag_int(int64_t raw) {
     }
     /* Overflow: heap-box the full 64-bit integer.
      * Layout: { uint8_t obj_tag=FLUX_OBJ_BIGINT, pad[7], int64_t value } */
-    void *mem = flux_gc_alloc(16);
+    void *mem = flux_gc_alloc_header(16, 0, FLUX_OBJ_BIGINT);
     *(uint8_t *)mem = FLUX_OBJ_BIGINT;
     *(int64_t *)((char *)mem + 8) = raw;
     uint64_t payload = (uint64_t)mem >> FLUX_PTR_SHIFT;
@@ -172,15 +173,30 @@ static inline uint8_t flux_obj_tag(void *ptr) {
     return *(uint8_t *)ptr;
 }
 
-/* ── GC ─────────────────────────────────────────────────────────────── */
+/* ── Allocation & Reference Counting (Aether RC) ──────────────────── */
+/*
+ * Every heap object has an 8-byte FluxHeader at (payload - 8):
+ *   { int32_t refcount, uint8_t scan_fsize, uint8_t obj_tag, uint16_t reserved }
+ *
+ * flux_gc_alloc_header: allocate with explicit scan_fsize and obj_tag
+ * flux_gc_alloc: backward-compatible (scan_fsize=0, obj_tag=0)
+ * flux_dup: increment refcount
+ * flux_drop: decrement refcount, recursively drop scan_fsize children, free at 0
+ */
 
 void  flux_gc_init(size_t heap_size);
 void  flux_gc_shutdown(void);
 void *flux_gc_alloc(uint32_t size);
+void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 void  flux_gc_free(void *ptr);
 void  flux_gc_collect(void);
 void  flux_gc_push_root(int64_t *root);
 void  flux_gc_pop_root(void);
+
+/* Aether RC: dup/drop for NaN-boxed heap values. */
+void flux_dup(int64_t val);
+void flux_drop(int64_t val);
+int  flux_rc_is_unique(int64_t val);
 
 /* Allocation stats (for diagnostics / testing). */
 size_t flux_gc_allocated(void);

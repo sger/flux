@@ -35,7 +35,7 @@ static FluxString *string_ptr(int64_t val) {
 
 int64_t flux_string_new(const char *data, uint32_t len) {
     uint32_t alloc_size = (uint32_t)(sizeof(FluxString) + len);
-    void *mem = flux_gc_alloc(alloc_size);
+    void *mem = flux_gc_alloc_header(alloc_size, 0, FLUX_OBJ_STRING);
     FluxString *s = (FluxString *)mem;
     s->obj_tag = FLUX_OBJ_STRING;
     s->len = len;
@@ -70,7 +70,7 @@ int64_t flux_string_concat(int64_t a, int64_t b) {
 
     uint32_t new_len = sa->len + sb->len;
     uint32_t alloc_size = (uint32_t)(sizeof(FluxString) + new_len);
-    void *mem = flux_gc_alloc(alloc_size);
+    void *mem = flux_gc_alloc_header(alloc_size, 0, FLUX_OBJ_STRING);
     FluxString *result = (FluxString *)mem;
     result->obj_tag = FLUX_OBJ_STRING;
     result->len = new_len;
