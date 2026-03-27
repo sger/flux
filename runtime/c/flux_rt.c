@@ -392,7 +392,7 @@ int64_t flux_rt_neg(int64_t a) {
 /* ── Some-wrapping helper ───────────────────────────────────────────── */
 
 static int64_t flux_wrap_some(int64_t val) {
-    void *mem = flux_gc_alloc(8 + 8);
+    void *mem = flux_gc_alloc_header(8 + 8, 1, FLUX_OBJ_ADT);
     int32_t *hdr = (int32_t *)mem;
     hdr[0] = 1; /* ctor_tag = Some */
     hdr[1] = 1; /* field_count = 1 */
@@ -992,7 +992,7 @@ int64_t flux_to_list(int64_t arr_val) {
     /* Build cons list from back to front. */
     int64_t list = flux_make_empty_list();
     for (int32_t i = (int32_t)len - 1; i >= 0; i--) {
-        void *mem = flux_gc_alloc(8 + 2 * 8);
+        void *mem = flux_gc_alloc_header(8 + 2 * 8, 2, FLUX_OBJ_ADT);
         *(int32_t *)mem = 4; /* CONS tag */
         *((int32_t *)mem + 1) = 2;
         int64_t *fields = (int64_t *)((char *)mem + 8);
@@ -1413,7 +1413,7 @@ int64_t flux_ho_map(int64_t collection, int64_t func) {
     /* Build cons list from back to front. */
     int64_t list = flux_make_empty_list();
     for (int32_t i = (int32_t)count - 1; i >= 0; i--) {
-        void *mem = flux_gc_alloc(8 + 2 * 8);
+        void *mem = flux_gc_alloc_header(8 + 2 * 8, 2, FLUX_OBJ_ADT);
         *(int32_t *)mem = 4;
         *((int32_t *)mem + 1) = 2;
         int64_t *f = (int64_t *)((char *)mem + 8);
@@ -1460,7 +1460,7 @@ int64_t flux_ho_filter(int64_t collection, int64_t func) {
     /* Build cons list. */
     int64_t list = flux_make_empty_list();
     for (int32_t i = (int32_t)count - 1; i >= 0; i--) {
-        void *mem = flux_gc_alloc(8 + 2 * 8);
+        void *mem = flux_gc_alloc_header(8 + 2 * 8, 2, FLUX_OBJ_ADT);
         *(int32_t *)mem = 4;
         *((int32_t *)mem + 1) = 2;
         int64_t *f = (int64_t *)((char *)mem + 8);
@@ -1636,7 +1636,7 @@ int64_t flux_zip(int64_t a, int64_t b) {
     int64_t *tuples = (int64_t *)malloc(len * sizeof(int64_t));
     for (uint32_t i = 0; i < len; i++) {
         /* Build 2-tuple: { obj_tag=F3, pad[3], arity=2, elem0, elem1 } */
-        void *mem = flux_gc_alloc(8 + 2 * 8);
+        void *mem = flux_gc_alloc_header(8 + 2 * 8, 2, FLUX_OBJ_TUPLE);
         *(uint8_t *)mem = FLUX_OBJ_TUPLE;
         *(uint32_t *)((char *)mem + 4) = 2;
         int64_t *fields = (int64_t *)((char *)mem + 8);

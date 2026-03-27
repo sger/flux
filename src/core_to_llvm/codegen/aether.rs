@@ -263,12 +263,12 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         Ok(LlvmOperand::Local(result))
     }
 
-    /// Emit a call to `flux_dup(i64 %val)`.
+    /// Emit a call to `flux_dup(i64 %val)` — external C function (Aether RC).
     fn emit_dup_call(&mut self, val: LlvmOperand) {
         self.state.emit(LlvmInstr::Call {
             dst: None,
             tail: false,
-            call_conv: Some(CallConv::Fastcc),
+            call_conv: Some(CallConv::Ccc),
             ret_ty: LlvmType::Void,
             callee: LlvmOperand::Global(flux_prelude_symbol("flux_dup")),
             args: vec![(LlvmType::i64(), val)],
@@ -276,12 +276,12 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         });
     }
 
-    /// Emit a call to `flux_drop(i64 %val)`.
+    /// Emit a call to `flux_drop(i64 %val)` — external C function (Aether RC).
     fn emit_drop_call(&mut self, val: LlvmOperand) {
         self.state.emit(LlvmInstr::Call {
             dst: None,
             tail: false,
-            call_conv: Some(CallConv::Fastcc),
+            call_conv: Some(CallConv::Ccc),
             ret_ty: LlvmType::Void,
             callee: LlvmOperand::Global(flux_prelude_symbol("flux_drop")),
             args: vec![(LlvmType::i64(), val)],

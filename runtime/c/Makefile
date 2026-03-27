@@ -16,7 +16,7 @@ AR      ?= ar
 CFLAGS  += -std=c11 -Wall -Wextra -Wpedantic -O2 -g
 LDFLAGS ?=
 
-SRCS    = gc.c flux_rt.c string.c hamt.c effects.c array.c
+SRCS    = rc.c flux_rt.c string.c hamt.c effects.c array.c
 OBJS    = $(SRCS:.c=.o)
 LIB     = libflux_rt.a
 
@@ -57,7 +57,7 @@ clean:
 
 test: $(LIB) smoke_test.c
 	$(CC) $(CFLAGS) -DFLUX_RT_NO_MAIN -c -o flux_rt_nomain.o flux_rt.c
-	$(AR) rcs libflux_rt_nomain.a gc.o flux_rt_nomain.o string.o hamt.o effects.o
+	$(AR) rcs libflux_rt_nomain.a rc.o flux_rt_nomain.o string.o hamt.o effects.o array.o
 	$(CC) $(CFLAGS) -o smoke_test smoke_test.c -L. -lflux_rt_nomain $(LDFLAGS)
 	./smoke_test
 	@echo "smoke test passed"
