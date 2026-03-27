@@ -9,8 +9,8 @@
 /// Only direct calls with matching arity are promoted; higher-order usage
 /// (`let f = println; f(x)`) falls through to the existing `App(Var …)` path.
 ///
-/// Functions NOT promoted here (map, filter, fold, sort, reverse, abs, min,
-/// max, assert_*, etc.) will be rewritten in Flux (`lib/Flow/*.flx`) using
+/// Functions NOT promoted here (map, filter, fold, sort, reverse,
+/// assert_*, etc.) will be rewritten in Flux (`lib/Flow/*.flx`) using
 /// these primops.
 use std::collections::HashMap;
 
@@ -29,6 +29,7 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         ("read_file", 1, CorePrimOp::ReadFile),
         ("write_file", 2, CorePrimOp::WriteFile),
         ("read_stdin", 0, CorePrimOp::ReadStdin),
+        ("read_lines", 1, CorePrimOp::ReadLines),
         // String memory operations
         ("to_string", 1, CorePrimOp::ToString),
         ("split", 2, CorePrimOp::Split),
@@ -73,12 +74,19 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         // Control
         ("panic", 1, CorePrimOp::Panic),
         ("now_ms", 0, CorePrimOp::ClockNow),
-        ("time", 0, CorePrimOp::ClockNow),
         ("try", 1, CorePrimOp::Try),
         ("assert_throws", 1, CorePrimOp::AssertThrows),
         ("assert_throws", 2, CorePrimOp::AssertThrows),
+        // Math
+        ("abs", 1, CorePrimOp::Abs),
+        ("min", 2, CorePrimOp::Min),
+        ("max", 2, CorePrimOp::Max),
+        // Time
+        ("time", 0, CorePrimOp::Time),
         // Parsing
         ("parse_int", 1, CorePrimOp::ParseInt),
+        ("parse_ints", 1, CorePrimOp::ParseInts),
+        ("split_ints", 2, CorePrimOp::SplitInts),
         // List / cons cell
         ("to_list", 1, CorePrimOp::ToList),
         ("to_array", 1, CorePrimOp::ToArray),

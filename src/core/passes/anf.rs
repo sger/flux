@@ -118,6 +118,18 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::Le
         | CorePrimOp::Gt
         | CorePrimOp::Ge
+        | CorePrimOp::ICmpEq
+        | CorePrimOp::ICmpNe
+        | CorePrimOp::ICmpLt
+        | CorePrimOp::ICmpLe
+        | CorePrimOp::ICmpGt
+        | CorePrimOp::ICmpGe
+        | CorePrimOp::FCmpEq
+        | CorePrimOp::FCmpNe
+        | CorePrimOp::FCmpLt
+        | CorePrimOp::FCmpLe
+        | CorePrimOp::FCmpGt
+        | CorePrimOp::FCmpGe
         | CorePrimOp::And
         | CorePrimOp::Or
         | CorePrimOp::Not
@@ -160,7 +172,7 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
 
         // I/O → UnitRep (print/println) or BoxedRep (read)
         CorePrimOp::Print | CorePrimOp::Println | CorePrimOp::WriteFile => FluxRep::UnitRep,
-        CorePrimOp::ReadFile | CorePrimOp::ReadStdin => FluxRep::BoxedRep,
+        CorePrimOp::ReadFile | CorePrimOp::ReadStdin | CorePrimOp::ReadLines => FluxRep::BoxedRep,
 
         // Polymorphic / unknown → TaggedRep
         _ => FluxRep::TaggedRep,

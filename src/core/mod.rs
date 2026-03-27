@@ -283,6 +283,9 @@ pub enum CorePrimOp {
     FSub,
     FMul,
     FDiv,
+    Abs,
+    Min,
+    Max,
     Neg,
     Not,
     Eq,
@@ -291,6 +294,20 @@ pub enum CorePrimOp {
     Le,
     Gt,
     Ge,
+    // Typed integer comparisons
+    ICmpEq,
+    ICmpNe,
+    ICmpLt,
+    ICmpLe,
+    ICmpGt,
+    ICmpGe,
+    // Typed float comparisons
+    FCmpEq,
+    FCmpNe,
+    FCmpLt,
+    FCmpLe,
+    FCmpGt,
+    FCmpGe,
     And,
     Or,
     Concat,
@@ -315,6 +332,7 @@ pub enum CorePrimOp {
     ReadFile,
     WriteFile,
     ReadStdin,
+    ReadLines,
 
     // String memory operations
     StringLength,
@@ -373,8 +391,13 @@ pub enum CorePrimOp {
     Try,
     AssertThrows,
 
+    // Time
+    Time,
+
     // Parsing
     ParseInt,
+    ParseInts,
+    SplitInts,
 
     // List / cons cell operations
     ToList,

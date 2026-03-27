@@ -375,7 +375,19 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::IMul
         | CorePrimOp::FAdd
         | CorePrimOp::FSub
-        | CorePrimOp::FMul => true,
+        | CorePrimOp::FMul
+        | CorePrimOp::ICmpEq
+        | CorePrimOp::ICmpNe
+        | CorePrimOp::ICmpLt
+        | CorePrimOp::ICmpLe
+        | CorePrimOp::ICmpGt
+        | CorePrimOp::ICmpGe
+        | CorePrimOp::FCmpEq
+        | CorePrimOp::FCmpNe
+        | CorePrimOp::FCmpLt
+        | CorePrimOp::FCmpLe
+        | CorePrimOp::FCmpGt
+        | CorePrimOp::FCmpGe => true,
         // Boolean/equality — can't fail
         CorePrimOp::And | CorePrimOp::Or | CorePrimOp::Not | CorePrimOp::Eq | CorePrimOp::NEq => {
             true
@@ -394,7 +406,7 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::Mod
         | CorePrimOp::IMod => false,
         // Generic arithmetic — may fail (type mismatch under gradual typing)
-        CorePrimOp::Add | CorePrimOp::Sub | CorePrimOp::Mul => false,
+        CorePrimOp::Add | CorePrimOp::Sub | CorePrimOp::Mul | CorePrimOp::Abs | CorePrimOp::Min | CorePrimOp::Max => false,
         // Comparisons — may fail on incomparable types
         CorePrimOp::Lt | CorePrimOp::Le | CorePrimOp::Gt | CorePrimOp::Ge => false,
         // Negation — may fail (wrong type)
@@ -408,6 +420,7 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::ReadFile
         | CorePrimOp::WriteFile
         | CorePrimOp::ReadStdin
+        | CorePrimOp::ReadLines
         | CorePrimOp::StringLength
         | CorePrimOp::StringConcat
         | CorePrimOp::StringSlice
@@ -449,7 +462,10 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::IsMap
         | CorePrimOp::Panic
         | CorePrimOp::ClockNow
+        | CorePrimOp::Time
         | CorePrimOp::ParseInt
+        | CorePrimOp::ParseInts
+        | CorePrimOp::SplitInts
         | CorePrimOp::ToList
         | CorePrimOp::ToArray
         | CorePrimOp::Len
