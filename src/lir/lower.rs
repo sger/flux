@@ -10,6 +10,7 @@ use crate::core::{
     CoreAlt, CoreBinderId, CoreDef, CoreExpr, CoreLit, CorePat, CorePrimOp, CoreProgram, CoreTag,
 };
 use crate::lir::*;
+use crate::syntax::interner::Interner;
 
 // ── Object layout constants (match runtime/c/flux_rt.h) ──────────────────────
 
@@ -26,14 +27,25 @@ const CONS_TAG_ID: i64 = 4;
 const FIRST_USER_TAG_ID: i64 = 5;
 
 /// RC runtime object type tags (match runtime/c/rc.c).
+/// Used by the reuse path (Alloc instructions) and future LLVM emitter.
+#[allow(dead_code)]
 const OBJ_TAG_ADT: u8 = 3;
+#[allow(dead_code)]
 const OBJ_TAG_TUPLE: u8 = 4;
+#[allow(dead_code)]
 const OBJ_TAG_CLOSURE: u8 = 5;
 
 // ── Public entry point ───────────────────────────────────────────────────────
 
 /// Lower a complete `CoreProgram` to `LirProgram`.
 pub fn lower_program(program: &CoreProgram) -> LirProgram {
+    lower_program_with_interner(program, None)
+}
+
+pub fn lower_program_with_interner(
+    program: &CoreProgram,
+    interner: Option<&Interner>,
+) -> LirProgram {
     let mut lir = LirProgram::new();
 
     // Collect all top-level binder IDs so cross-function references resolve.
@@ -47,7 +59,7 @@ pub fn lower_program(program: &CoreProgram) -> LirProgram {
         if i == num_defs - 1 {
             break; // skip main (last def) for now
         }
-        let func = lower_def(def, &mut lir, &top_level_binders, &HashMap::new());
+        let func = lower_def(def, &mut lir, &top_level_binders, &HashMap::new(), interner);
         let func_idx = lir.functions.len();
         lir.functions.push(func);
         binder_func_map.insert(def.binder.id, func_idx);
@@ -55,7 +67,7 @@ pub fn lower_program(program: &CoreProgram) -> LirProgram {
 
     // Phase 2: Lower the main function with knowledge of sibling function indices.
     if let Some(main_def) = program.defs.last() {
-        let func = lower_def(main_def, &mut lir, &top_level_binders, &binder_func_map);
+        let func = lower_def(main_def, &mut lir, &top_level_binders, &binder_func_map, interner);
         lir.functions.push(func);
     }
 
@@ -74,10 +86,12 @@ struct FnLower<'a> {
     current_block: usize,
     /// Reference to the program-level string pool.
     program: &'a mut LirProgram,
+    /// Optional interner for resolving Symbol → string names.
+    interner: Option<&'a Interner>,
 }
 
 impl<'a> FnLower<'a> {
-    fn new(name: String, program: &'a mut LirProgram) -> Self {
+    fn new(name: String, program: &'a mut LirProgram, interner: Option<&'a Interner>) -> Self {
         let entry_block = LirBlock {
             id: BlockId(0),
             params: Vec::new(),
@@ -95,6 +109,17 @@ impl<'a> FnLower<'a> {
             },
             current_block: 0,
             program,
+            interner,
+        }
+    }
+
+    /// Resolve an Identifier (Symbol) to a string name.
+    /// Falls back to the numeric symbol ID if no interner is available.
+    fn resolve_name(&self, name: crate::syntax::Identifier) -> String {
+        if let Some(interner) = self.interner {
+            interner.resolve(name).to_string()
+        } else {
+            format!("ctor_{}", name)
         }
     }
 
@@ -220,7 +245,7 @@ impl<'a> FnLower<'a> {
                     );
 
                     let func_name = format!("closure_{}", temp_program.functions.len());
-                    let mut inner = FnLower::new(func_name, &mut temp_program);
+                    let mut inner = FnLower::new(func_name, &mut temp_program, self.interner);
 
                     // Map captured variables: create fresh LirVars inside the inner
                     // function, mark them as capture_vars (→ OpGetFree in emitter).
@@ -700,7 +725,7 @@ impl<'a> FnLower<'a> {
             }
             CorePat::Lit(_) => {}
             CorePat::EmptyList => {}
-            CorePat::Con { tag, fields, .. } => {
+            CorePat::Con { tag: _, fields, .. } => {
                 if fields.is_empty() {
                     return;
                 }
@@ -763,70 +788,34 @@ impl<'a> FnLower<'a> {
                 dst
             }
             CoreTag::Some | CoreTag::Left | CoreTag::Right | CoreTag::Cons => {
-                let ctor_id = match tag {
-                    CoreTag::Some => SOME_TAG_ID,
-                    CoreTag::Left => LEFT_TAG_ID,
-                    CoreTag::Right => RIGHT_TAG_ID,
-                    CoreTag::Cons => CONS_TAG_ID,
+                let ctor_tag = match tag {
+                    CoreTag::Some => SOME_TAG_ID as i32,
+                    CoreTag::Left => LEFT_TAG_ID as i32,
+                    CoreTag::Right => RIGHT_TAG_ID as i32,
+                    CoreTag::Cons => CONS_TAG_ID as i32,
                     _ => unreachable!(),
                 };
-                self.lower_boxed_ctor(ctor_id as i32, &field_vars)
+                let dst = self.fresh_var();
+                self.emit(LirInstr::MakeCtor {
+                    dst,
+                    ctor_tag,
+                    ctor_name: None, // built-in ctors don't need a name
+                    fields: field_vars,
+                });
+                dst
             }
-            CoreTag::Named(_) => {
-                // User-defined ADT — use FIRST_USER_TAG_ID for now.
-                // TODO: ADT registry for stable tag assignment.
-                self.lower_boxed_ctor(FIRST_USER_TAG_ID as i32, &field_vars)
+            CoreTag::Named(name) => {
+                let ctor_name = self.resolve_name(*name);
+                let dst = self.fresh_var();
+                self.emit(LirInstr::MakeCtor {
+                    dst,
+                    ctor_tag: FIRST_USER_TAG_ID as i32,
+                    ctor_name: Some(ctor_name),
+                    fields: field_vars,
+                });
+                dst
             }
         }
-    }
-
-    /// Allocate a heap ADT: {i32 ctor_tag, i32 field_count, i64 fields[]}.
-    fn lower_boxed_ctor(&mut self, ctor_tag: i32, fields: &[LirVar]) -> LirVar {
-        let n_fields = fields.len();
-        let size = (ADT_HEADER_SIZE as u32) + (n_fields as u32) * 8;
-        let ptr = self.fresh_var();
-        self.emit(LirInstr::Alloc {
-            dst: ptr,
-            size,
-            scan_fields: n_fields as u8,
-            obj_tag: OBJ_TAG_ADT,
-        });
-
-        // Write header: ctor_tag at offset 0, field_count at offset 4.
-        let tag_val = self.fresh_var();
-        self.emit(LirInstr::Const {
-            dst: tag_val,
-            value: LirConst::Tagged(ctor_tag as i64),
-        });
-        self.emit(LirInstr::Store {
-            ptr,
-            offset: 0,
-            val: tag_val,
-        });
-        let count_val = self.fresh_var();
-        self.emit(LirInstr::Const {
-            dst: count_val,
-            value: LirConst::Tagged(n_fields as i64),
-        });
-        self.emit(LirInstr::Store {
-            ptr,
-            offset: 4,
-            val: count_val,
-        });
-
-        // Write fields.
-        for (i, field) in fields.iter().enumerate() {
-            self.emit(LirInstr::Store {
-                ptr,
-                offset: ADT_HEADER_SIZE + (i as i32) * 8,
-                val: *field,
-            });
-        }
-
-        // Tag the pointer for NaN-boxing.
-        let dst = self.fresh_var();
-        self.emit(LirInstr::TagPtr { dst, ptr });
-        dst
     }
 
     // ── Phase 5: Aether RC ───────────────────────────────────────────
@@ -934,10 +923,8 @@ impl<'a> FnLower<'a> {
         });
         for (i, fv) in field_vars.iter().enumerate() {
             // If field_mask is set, skip unchanged fields on the reuse path.
-            if let Some(mask) = field_mask {
-                if mask & (1 << i) == 0 {
-                    continue; // field unchanged, skip write
-                }
+            if let Some(mask) = field_mask && mask & (1 << i) == 0 {
+                continue; // field unchanged, skip write
             }
             self.emit(LirInstr::Store {
                 ptr: reuse_ptr,
@@ -953,9 +940,19 @@ impl<'a> FnLower<'a> {
         self.emit_copy_to_join_param(reuse_tagged, join_id);
         self.set_terminator(LirTerminator::Jump(join_id));
 
-        // Fresh alloc path.
+        // Fresh alloc path — use MakeCtor (high-level).
         self.switch_to_block(fresh_idx);
-        let fresh_val = self.lower_boxed_ctor(ctor_tag, &field_vars);
+        let ctor_name = match tag {
+            CoreTag::Named(name) => Some(self.resolve_name(*name)),
+            _ => None,
+        };
+        let fresh_val = self.fresh_var();
+        self.emit(LirInstr::MakeCtor {
+            dst: fresh_val,
+            ctor_tag,
+            ctor_name,
+            fields: field_vars.clone(),
+        });
         self.emit_copy_to_join_param(fresh_val, join_id);
         self.set_terminator(LirTerminator::Jump(join_id));
 
@@ -1044,9 +1041,10 @@ fn lower_def(
     program: &mut LirProgram,
     top_level_binders: &[CoreBinderId],
     binder_func_map: &HashMap<CoreBinderId, usize>,
+    interner: Option<&Interner>,
 ) -> LirFunction {
     let name = format!("def_{}", def.binder.id.0);
-    let mut ctx = FnLower::new(name, program);
+    let mut ctx = FnLower::new(name, program, interner);
 
     // Pre-register all top-level binders.  If we know the function index
     // (from binder_func_map), emit MakeClosure; otherwise emit None placeholder.
@@ -1177,6 +1175,11 @@ fn display_instr(instr: &LirInstr) -> String {
             let caps: Vec<String> = captures.iter().map(|v| format!("{v}")).collect();
             format!("{dst} = make_closure(func={func_idx}, [{}])", caps.join(", "))
         }
+        LirInstr::MakeCtor { dst, ctor_tag, ctor_name, fields } => {
+            let fs: Vec<String> = fields.iter().map(|v| format!("{v}")).collect();
+            let name = ctor_name.as_deref().unwrap_or("?");
+            format!("{dst} = make_ctor(tag={ctor_tag}, name={name}, [{}])", fs.join(", "))
+        }
         LirInstr::Copy { dst, src } => format!("{dst} = copy {src}"),
         LirInstr::Const { dst, value } => format!("{dst} = const {value:?}"),
     }
@@ -1227,10 +1230,8 @@ fn free_vars_rec(
 ) {
     match expr {
         CoreExpr::Var { var, .. } => {
-            if let Some(b) = var.binder {
-                if !bound.contains(&b) {
-                    free.insert(b);
-                }
+            if let Some(b) = var.binder && !bound.contains(&b) {
+                free.insert(b);
             }
         }
         CoreExpr::Lit(_, _) => {}
@@ -1315,18 +1316,14 @@ fn free_vars_rec(
             free_vars_rec(object, bound, free);
         }
         CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
-            if let Some(b) = var.binder {
-                if !bound.contains(&b) {
-                    free.insert(b);
-                }
+            if let Some(b) = var.binder && !bound.contains(&b) {
+                free.insert(b);
             }
             free_vars_rec(body, bound, free);
         }
         CoreExpr::Reuse { token, fields, .. } => {
-            if let Some(b) = token.binder {
-                if !bound.contains(&b) {
-                    free.insert(b);
-                }
+            if let Some(b) = token.binder && !bound.contains(&b) {
+                free.insert(b);
             }
             for f in fields {
                 free_vars_rec(f, bound, free);
@@ -1338,10 +1335,8 @@ fn free_vars_rec(
             shared_body,
             ..
         } => {
-            if let Some(b) = scrutinee.binder {
-                if !bound.contains(&b) {
-                    free.insert(b);
-                }
+            if let Some(b) = scrutinee.binder && !bound.contains(&b) {
+                free.insert(b);
             }
             free_vars_rec(unique_body, bound, free);
             free_vars_rec(shared_body, bound, free);
