@@ -15,6 +15,8 @@
 //!         └── LIR → LLVM IR emitter (native)
 //! ```
 
+pub mod lower;
+
 use std::fmt;
 
 use crate::core::CorePrimOp;
