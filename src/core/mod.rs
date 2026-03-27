@@ -434,6 +434,145 @@ impl CorePrimOp {
             None
         }
     }
+
+    /// Resolve a function name + arity to a `CorePrimOp`, if it names a
+    /// built-in primitive.  Used by the bytecode compiler to emit `OpPrimOp`.
+    pub fn from_name(name: &str, arity: usize) -> Option<Self> {
+        // Sorted by (name, arity) for binary search.  Includes aliases from
+        // the legacy PrimOp table so all existing Flux code keeps working.
+        static TABLE: &[(&str, usize, CorePrimOp)] = &[
+            ("abs", 1, CorePrimOp::Abs),
+            ("array_get", 2, CorePrimOp::ArrayGet),
+            ("array_len", 1, CorePrimOp::ArrayLen),
+            ("array_set", 3, CorePrimOp::ArraySet),
+            ("assert_throws", 1, CorePrimOp::AssertThrows),
+            ("assert_throws", 2, CorePrimOp::AssertThrows),
+            ("chars", 1, CorePrimOp::Chars),
+            ("clock_now", 0, CorePrimOp::ClockNow),
+            ("cmp_eq", 2, CorePrimOp::CmpEq),
+            ("cmp_ne", 2, CorePrimOp::CmpNe),
+            ("concat", 2, CorePrimOp::ArrayConcat),
+            ("delete", 2, CorePrimOp::HamtDelete),
+            ("ends_with", 2, CorePrimOp::EndsWith),
+            ("fadd", 2, CorePrimOp::FAdd),
+            ("fcmp_eq", 2, CorePrimOp::FCmpEq),
+            ("fcmp_ge", 2, CorePrimOp::FCmpGe),
+            ("fcmp_gt", 2, CorePrimOp::FCmpGt),
+            ("fcmp_le", 2, CorePrimOp::FCmpLe),
+            ("fcmp_lt", 2, CorePrimOp::FCmpLt),
+            ("fcmp_ne", 2, CorePrimOp::FCmpNe),
+            ("fdiv", 2, CorePrimOp::FDiv),
+            ("fmul", 2, CorePrimOp::FMul),
+            ("fsub", 2, CorePrimOp::FSub),
+            ("get", 2, CorePrimOp::HamtGet),
+            ("has_key", 2, CorePrimOp::HamtContains),
+            ("iadd", 2, CorePrimOp::IAdd),
+            ("icmp_eq", 2, CorePrimOp::ICmpEq),
+            ("icmp_ge", 2, CorePrimOp::ICmpGe),
+            ("icmp_gt", 2, CorePrimOp::ICmpGt),
+            ("icmp_le", 2, CorePrimOp::ICmpLe),
+            ("icmp_lt", 2, CorePrimOp::ICmpLt),
+            ("icmp_ne", 2, CorePrimOp::ICmpNe),
+            ("idiv", 2, CorePrimOp::IDiv),
+            ("imod", 2, CorePrimOp::IMod),
+            ("imul", 2, CorePrimOp::IMul),
+            ("is_array", 1, CorePrimOp::IsArray),
+            ("is_bool", 1, CorePrimOp::IsBool),
+            ("is_float", 1, CorePrimOp::IsFloat),
+            ("is_hash", 1, CorePrimOp::IsMap),
+            ("is_int", 1, CorePrimOp::IsInt),
+            ("is_list", 1, CorePrimOp::IsList),
+            ("is_map", 1, CorePrimOp::IsMap),
+            ("is_none", 1, CorePrimOp::IsNone),
+            ("is_some", 1, CorePrimOp::IsSome),
+            ("is_string", 1, CorePrimOp::IsString),
+            ("isub", 2, CorePrimOp::ISub),
+            ("join", 2, CorePrimOp::Join),
+            ("keys", 1, CorePrimOp::HamtKeys),
+            ("len", 1, CorePrimOp::Len),
+            ("lower", 1, CorePrimOp::Lower),
+            ("map_get", 2, CorePrimOp::HamtGet),
+            ("map_has", 2, CorePrimOp::HamtContains),
+            ("map_set", 3, CorePrimOp::HamtSet),
+            ("max", 2, CorePrimOp::Max),
+            ("merge", 2, CorePrimOp::HamtMerge),
+            ("min", 2, CorePrimOp::Min),
+            ("now_ms", 0, CorePrimOp::ClockNow),
+            ("panic", 1, CorePrimOp::Panic),
+            ("parse_int", 1, CorePrimOp::ParseInt),
+            ("parse_ints", 1, CorePrimOp::ParseInts),
+            ("print", 1, CorePrimOp::Print),
+            ("println", 1, CorePrimOp::Println),
+            ("push", 2, CorePrimOp::ArrayPush),
+            ("put", 3, CorePrimOp::HamtSet),
+            ("read_file", 1, CorePrimOp::ReadFile),
+            ("read_lines", 1, CorePrimOp::ReadLines),
+            ("read_stdin", 0, CorePrimOp::ReadStdin),
+            ("replace", 3, CorePrimOp::Replace),
+            ("size", 1, CorePrimOp::HamtSize),
+            ("slice", 3, CorePrimOp::ArraySlice),
+            ("split", 2, CorePrimOp::Split),
+            ("split_ints", 2, CorePrimOp::SplitInts),
+            ("starts_with", 2, CorePrimOp::StartsWith),
+            ("str_contains", 2, CorePrimOp::StrContains),
+            ("string_concat", 2, CorePrimOp::StringConcat),
+            ("string_len", 1, CorePrimOp::StringLength),
+            ("string_length", 1, CorePrimOp::StringLength),
+            ("string_slice", 3, CorePrimOp::StringSlice),
+            ("substring", 3, CorePrimOp::Substring),
+            ("time", 0, CorePrimOp::Time),
+            ("to_array", 1, CorePrimOp::ToArray),
+            ("to_list", 1, CorePrimOp::ToList),
+            ("to_string", 1, CorePrimOp::ToString),
+            ("trim", 1, CorePrimOp::Trim),
+            ("try", 1, CorePrimOp::Try),
+            ("type_of", 1, CorePrimOp::TypeOf),
+            ("upper", 1, CorePrimOp::Upper),
+            ("values", 1, CorePrimOp::HamtValues),
+            ("write_file", 2, CorePrimOp::WriteFile),
+        ];
+        let key = (name, arity);
+        TABLE
+            .binary_search_by(|(n, a, _)| (*n, *a).cmp(&key))
+            .ok()
+            .map(|idx| TABLE[idx].2)
+    }
+
+    /// Number of arguments this primop expects.
+    pub fn arity(self) -> usize {
+        use CorePrimOp::*;
+        match self {
+            ClockNow | ReadStdin | Time => 0,
+            Abs | ArrayLen | Chars | IsArray | IsBool | IsFloat | IsInt | IsList | IsMap
+            | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | ParseInts | Print
+            | Println | ReadFile | ReadLines | StringLength | ToArray | ToList | ToString
+            | Trim | Try | AssertThrows | TypeOf | Upper | HamtKeys | HamtValues | HamtSize
+            | Neg | Not => 1,
+            Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub
+            | FMul | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe
+            | ICmpGt | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq
+            | CmpNe | And | Or | Concat | ArrayGet | ArrayPush | ArrayConcat | HamtGet
+            | HamtContains | HamtDelete | HamtMerge | Index | Join | Max | Min | Split
+            | SplitInts | StartsWith | EndsWith | StringConcat | StrContains | WriteFile => 2,
+            ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
+            // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
+            // are handled separately by the compiler, not via OpPrimOp.
+            MakeList | MakeArray | MakeTuple | MakeHash | Interpolate => 0,
+        }
+    }
+
+    /// Side-effect classification. Used by the compiler to check that
+    /// effectful primops have the required ambient effect in scope.
+    pub fn effect_kind(self) -> crate::primop::PrimEffect {
+        use crate::primop::PrimEffect;
+        match self {
+            Self::Println | Self::ReadFile | Self::WriteFile | Self::ReadStdin | Self::Print
+            | Self::ReadLines => PrimEffect::Io,
+            Self::ClockNow | Self::Time => PrimEffect::Time,
+            Self::Panic => PrimEffect::Control,
+            _ => PrimEffect::Pure,
+        }
+    }
 }
 
 // ── Case alternatives ─────────────────────────────────────────────────────────
