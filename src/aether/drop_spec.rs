@@ -615,7 +615,7 @@ fn rewrite_mode(
             span: *span,
         },
         CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
-            op: op.clone(),
+            op: *op,
             args: args
                 .iter()
                 .map(|arg| rewrite_mode(arg, mode, scrutinee_id, duped_fields))

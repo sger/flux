@@ -267,142 +267,173 @@ pub enum CoreTag {
 /// Typed variants (`IAdd`, `FMul`, …) are emitted by `lower_ast` when the
 /// HM-inferred result type is concretely `Int` or `Float`, enabling backends
 /// to skip the runtime type-dispatch path entirely.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Discriminants are stable across compiler versions for bytecode cache
+/// compatibility. New variants must be appended with the next free ID.
+/// Never reuse or renumber existing discriminants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum CorePrimOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Mod,
-    IAdd,
-    ISub,
-    IMul,
-    IDiv,
-    IMod,
-    FAdd,
-    FSub,
-    FMul,
-    FDiv,
-    Abs,
-    Min,
-    Max,
-    Neg,
-    Not,
-    Eq,
-    NEq,
-    Lt,
-    Le,
-    Gt,
-    Ge,
-    // Typed integer comparisons
-    ICmpEq,
-    ICmpNe,
-    ICmpLt,
-    ICmpLe,
-    ICmpGt,
-    ICmpGe,
-    // Typed float comparisons
-    FCmpEq,
-    FCmpNe,
-    FCmpLt,
-    FCmpLe,
-    FCmpGt,
-    FCmpGe,
-    And,
-    Or,
-    Concat,
-    Interpolate,
-    MakeList,
-    MakeArray,
-    MakeTuple,
-    MakeHash,
-    Index,
+    // ── Generic arithmetic (polymorphic, may fail on type mismatch) ───
+    Add = 0,
+    Sub = 1,
+    Mul = 2,
+    Div = 3,
+    Mod = 4,
 
-    // ── Promoted base-function primops (Proposal 0120 Phase 1) ───────────
-    //
-    // True primitives that need hardware access, memory layout knowledge,
-    // or OS syscalls.  Everything else will be rewritten in Flux
-    // (`lib/Flow/*.flx`) using these primops.
+    // ── Typed integer arithmetic ──────────────────────────────────────
+    IAdd = 5,
+    ISub = 6,
+    IMul = 7,
+    IDiv = 8,
+    IMod = 9,
 
-    // I/O
-    Print,
-    Println,
-    ReadFile,
-    WriteFile,
-    ReadStdin,
-    ReadLines,
+    // ── Typed float arithmetic ────────────────────────────────────────
+    FAdd = 10,
+    FSub = 11,
+    FMul = 12,
+    FDiv = 13,
 
-    // String memory operations
-    StringLength,
-    StringConcat,
-    StringSlice,
-    ToString,
-    Split,
-    Join,
-    Trim,
-    Upper,
-    Lower,
-    StartsWith,
-    EndsWith,
-    Replace,
-    Substring,
-    Chars,
-    StrContains,
+    // ── Numeric helpers ───────────────────────────────────────────────
+    Abs = 14,
+    Min = 15,
+    Max = 16,
+    Neg = 17,
 
-    // Array memory operations
-    ArrayLen,
-    ArrayGet,
-    ArraySet,
-    ArrayPush,
-    ArrayConcat,
-    ArraySlice,
+    // ── Logic ─────────────────────────────────────────────────────────
+    Not = 18,
+    And = 19,
+    Or = 20,
 
-    // HAMT operations
-    HamtGet,
-    HamtSet,
-    HamtDelete,
-    HamtKeys,
-    HamtValues,
-    HamtMerge,
-    HamtSize,
-    HamtContains,
+    // ── Generic comparisons (polymorphic) ─────────────────────────────
+    Eq = 21,
+    NEq = 22,
+    Lt = 23,
+    Le = 24,
+    Gt = 25,
+    Ge = 26,
 
-    // Type tag inspection
-    TypeOf,
-    IsInt,
-    IsFloat,
-    IsString,
-    IsBool,
-    IsArray,
-    IsNone,
-    IsSome,
-    IsList,
-    IsMap,
+    // ── Typed integer comparisons ─────────────────────────────────────
+    ICmpEq = 27,
+    ICmpNe = 28,
+    ICmpLt = 29,
+    ICmpLe = 30,
+    ICmpGt = 31,
+    ICmpGe = 32,
 
-    // Deep structural comparison
-    CmpEq,
-    CmpNe,
+    // ── Typed float comparisons ───────────────────────────────────────
+    FCmpEq = 33,
+    FCmpNe = 34,
+    FCmpLt = 35,
+    FCmpLe = 36,
+    FCmpGt = 37,
+    FCmpGe = 38,
 
-    // Control
-    Panic,
-    ClockNow,
-    Try,
-    AssertThrows,
+    // ── Deep structural comparison ────────────────────────────────────
+    CmpEq = 39,
+    CmpNe = 40,
 
-    // Time
-    Time,
+    // ── String / collection constructors ──────────────────────────────
+    Concat = 41,
+    Interpolate = 42,
+    MakeList = 43,
+    MakeArray = 44,
+    MakeTuple = 45,
+    MakeHash = 46,
+    Index = 47,
 
-    // Parsing
-    ParseInt,
-    ParseInts,
-    SplitInts,
+    // ── I/O ───────────────────────────────────────────────────────────
+    Print = 48,
+    Println = 49,
+    ReadFile = 50,
+    WriteFile = 51,
+    ReadStdin = 52,
+    ReadLines = 53,
 
-    // List / cons cell operations
-    ToList,
-    ToArray,
+    // ── String operations ─────────────────────────────────────────────
+    StringLength = 54,
+    StringConcat = 55,
+    StringSlice = 56,
+    ToString = 57,
+    Split = 58,
+    Join = 59,
+    Trim = 60,
+    Upper = 61,
+    Lower = 62,
+    StartsWith = 63,
+    EndsWith = 64,
+    Replace = 65,
+    Substring = 66,
+    Chars = 67,
+    StrContains = 68,
 
-    // Polymorphic length (dispatches on type tag: string/array/list)
-    Len,
+    // ── Array operations ──────────────────────────────────────────────
+    ArrayLen = 69,
+    ArrayGet = 70,
+    ArraySet = 71,
+    ArrayPush = 72,
+    ArrayConcat = 73,
+    ArraySlice = 74,
+
+    // ── HAMT operations ───────────────────────────────────────────────
+    HamtGet = 75,
+    HamtSet = 76,
+    HamtDelete = 77,
+    HamtKeys = 78,
+    HamtValues = 79,
+    HamtMerge = 80,
+    HamtSize = 81,
+    HamtContains = 82,
+
+    // ── Type tag inspection ───────────────────────────────────────────
+    TypeOf = 83,
+    IsInt = 84,
+    IsFloat = 85,
+    IsString = 86,
+    IsBool = 87,
+    IsArray = 88,
+    IsNone = 89,
+    IsSome = 90,
+    IsList = 91,
+    IsMap = 92,
+
+    // ── Control ───────────────────────────────────────────────────────
+    Panic = 93,
+    ClockNow = 94,
+    Try = 95,
+    AssertThrows = 96,
+    Time = 97,
+
+    // ── Parsing ───────────────────────────────────────────────────────
+    ParseInt = 98,
+    ParseInts = 99,
+    SplitInts = 100,
+
+    // ── List / cons cell operations ───────────────────────────────────
+    ToList = 101,
+    ToArray = 102,
+
+    // ── Polymorphic length (dispatches on type tag) ───────────────────
+    Len = 103,
+    // ── Next free ID: 104 ─────────────────────────────────────────────
+}
+
+impl CorePrimOp {
+    /// Discriminant as a `u8`, for bytecode encoding.
+    pub fn id(self) -> u8 {
+        self as u8
+    }
+
+    /// Reconstruct from a `u8` discriminant.  Returns `None` for invalid IDs.
+    pub fn from_id(id: u8) -> Option<Self> {
+        if id <= 103 {
+            // SAFETY: all discriminants 0..=103 are defined and the enum is
+            // `#[repr(u8)]`, so the transmute is valid for any value in range.
+            Some(unsafe { std::mem::transmute::<u8, CorePrimOp>(id) })
+        } else {
+            None
+        }
+    }
 }
 
 // ── Case alternatives ─────────────────────────────────────────────────────────
