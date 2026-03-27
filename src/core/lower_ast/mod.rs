@@ -718,6 +718,9 @@ mod tests {
                 collect_var_refs(unique_body, out);
                 collect_var_refs(shared_body, out);
             }
+            CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+                collect_var_refs(object, out);
+            }
         }
     }
 

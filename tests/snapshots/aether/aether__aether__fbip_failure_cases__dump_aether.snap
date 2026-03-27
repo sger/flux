@@ -19,7 +19,7 @@ Aether Memory Model Report
   fbip: NotProvable
     - calls indirect or opaque callee `Symbol(4000013)` whose FBIP behavior is unknown
 λx.
-  let %t1 = MemberAccess(10)(Imported)
+  let %t1 = Imported.imported_inc
   aether_call[owned] %t1(x)
 ── fn fail_fresh @fip ──
   Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)

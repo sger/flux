@@ -289,6 +289,47 @@ impl<'a> FnCtx<'a> {
 
             CoreExpr::PrimOp { op, args, span } => self.lower_primop(op, args, *span),
 
+            CoreExpr::MemberAccess {
+                object,
+                member,
+                span,
+            } => {
+                let module_name = match object.as_ref() {
+                    CoreExpr::Var { var, .. } => Some(var.name),
+                    _ => None,
+                };
+                let obj = self.lower_expr(object);
+                let dest = self.ctx.alloc_var();
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: IrExpr::MemberAccess {
+                        object: obj,
+                        member: *member,
+                        module_name,
+                    },
+                    metadata: IrMetadata::from_span(*span),
+                });
+                dest
+            }
+
+            CoreExpr::TupleField {
+                object,
+                index,
+                span,
+            } => {
+                let obj = self.lower_expr(object);
+                let dest = self.ctx.alloc_var();
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: IrExpr::TupleFieldAccess {
+                        object: obj,
+                        index: *index,
+                    },
+                    metadata: IrMetadata::from_span(*span),
+                });
+                dest
+            }
+
             CoreExpr::Return { value, span } => {
                 let ret = self.lower_expr(value);
                 if self.current_block_is_open() {

@@ -10,7 +10,7 @@ use std::{
 use flux::{
     bytecode::compiler::Compiler,
     core::{
-        CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreLit, CorePrimOp, CoreProgram,
+        CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreLit, CoreProgram,
         lower_ast::lower_program_ast, passes::run_core_passes_with_interner,
     },
     core_to_llvm::{compile_program, compile_program_with_interner, render_module},
@@ -217,9 +217,9 @@ fn member_access_remains_unsupported() {
             binder: main_binder,
             expr: CoreExpr::Lam {
                 params: vec![],
-                body: Box::new(CoreExpr::PrimOp {
-                    op: CorePrimOp::MemberAccess(field_name),
-                    args: vec![CoreExpr::Lit(CoreLit::Int(1), span)],
+                body: Box::new(CoreExpr::MemberAccess {
+                    object: Box::new(CoreExpr::Lit(CoreLit::Int(1), span)),
+                    member: field_name,
                     span,
                 }),
                 span,
