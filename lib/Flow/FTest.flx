@@ -62,16 +62,13 @@ module Flow.FTest {
         fn run_case(test_fn, c, fail_count) {
             if try(\() -> test_fn(c)).0 == "error" { fail_count + 1 } else { fail_count }
         }
-        fn for_each_go(arr, i, fail_count) {
-            if i >= len(arr) { fail_count }
-            else {
-                match arr[i] {
-                    Some(c) -> for_each_go(arr, i + 1, run_case(test_fn, c, fail_count)),
-                    _ -> for_each_go(arr, i + 1, fail_count)
-                }
+        fn for_each_list(xs, fail_count) {
+            match xs {
+                [c | rest] -> for_each_list(rest, run_case(test_fn, c, fail_count)),
+                _ -> fail_count
             }
         }
-        fn for_each_n() { for_each_go(cases, 0, 0) }
+        fn for_each_n() { for_each_list(cases, 0) }
         assert_msg(for_each_n() == 0, to_string(for_each_n()) + " case(s) failed in for_each")
     }
 

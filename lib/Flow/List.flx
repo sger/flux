@@ -203,6 +203,16 @@ module Flow.List {
         }
     }
 
+    public fn length(xs) {
+        fn length_go(ys, acc) {
+            match ys {
+                [h | t] -> length_go(t, acc + 1),
+                _ -> acc
+            }
+        }
+        length_go(xs, 0)
+    }
+
     public fn init(xs) {
         match xs {
             [h | t] -> match t {
@@ -218,16 +228,6 @@ module Flow.List {
             [h | t] -> false,
             _ -> true
         }
-    }
-
-    public fn length(xs) {
-        fn length_go(ys, n) {
-            match ys {
-                [h | t] -> length_go(t, n + 1),
-                _ -> n
-            }
-        }
-        length_go(xs, 0)
     }
 
     public fn range(start, stop) {
