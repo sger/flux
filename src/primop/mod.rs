@@ -5,7 +5,7 @@ use std::{
     time::{Instant, SystemTime},
 };
 
-use crate::runtime::value::{cons_list_len, format_value};
+use crate::runtime::value::format_value;
 use crate::runtime::{
     RuntimeContext, cons_cell::ConsCell, hamt as rc_hamt, hash_key::HashKey, value::Value,
 };
@@ -805,12 +805,12 @@ pub fn execute_primop(
             Value::Array(arr) => Ok(Value::Integer(arr.len() as i64)),
             Value::Tuple(t) => Ok(Value::Integer(t.len() as i64)),
             Value::None | Value::EmptyList => Ok(Value::Integer(0)),
-            Value::Cons(_) => match cons_list_len(&args[0]) {
-                Some(len) => Ok(Value::Integer(len as i64)),
-                None => Err("len: malformed list".to_string()),
-            },
+            Value::Cons(_) => Err(
+                "len() on cons lists is O(n). Use length(xs) from Flow.List instead."
+                    .to_string(),
+            ),
             Value::HashMap(node) => Ok(Value::Integer(rc_hamt::hamt_len(node) as i64)),
-            other => Err(type_error(op, "String, Array, Tuple, List, or Map", other)),
+            other => Err(type_error(op, "String, Array, Tuple, or Map", other)),
         },
         PrimOp::Push => {
             let mut args = args;

@@ -3,7 +3,7 @@
 import Flow except [print]
 
 Flow.print("== Flow directives smoke ==");
-Flow.print("len([1,2,3]) = " + to_string(len([1, 2, 3])));
+Flow.print("length([1,2,3]) = " + to_string(length([1, 2, 3])));
 
 fn shadow_demo() {
   let len = fn(x) { 123 };
