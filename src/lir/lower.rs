@@ -40,8 +40,22 @@ pub fn lower_program(program: &CoreProgram) -> LirProgram {
     let top_level_binders: Vec<CoreBinderId> =
         program.defs.iter().map(|d| d.binder.id).collect();
 
-    for def in &program.defs {
-        let func = lower_def(def, &mut lir, &top_level_binders);
+    // Phase 1: Lower all non-main defs first, recording binder → func_idx.
+    let mut binder_func_map: HashMap<CoreBinderId, usize> = HashMap::new();
+    let num_defs = program.defs.len();
+    for (i, def) in program.defs.iter().enumerate() {
+        if i == num_defs - 1 {
+            break; // skip main (last def) for now
+        }
+        let func = lower_def(def, &mut lir, &top_level_binders, &HashMap::new());
+        let func_idx = lir.functions.len();
+        lir.functions.push(func);
+        binder_func_map.insert(def.binder.id, func_idx);
+    }
+
+    // Phase 2: Lower the main function with knowledge of sibling function indices.
+    if let Some(main_def) = program.defs.last() {
+        let func = lower_def(main_def, &mut lir, &top_level_binders, &binder_func_map);
         lir.functions.push(func);
     }
 
@@ -77,6 +91,7 @@ impl<'a> FnLower<'a> {
                 params: Vec::new(),
                 blocks: vec![entry_block],
                 next_var: 0,
+                capture_vars: Vec::new(),
             },
             current_block: 0,
             program,
@@ -96,6 +111,14 @@ impl<'a> FnLower<'a> {
     /// Set the terminator of the current block.
     fn set_terminator(&mut self, term: LirTerminator) {
         self.func.blocks[self.current_block].terminator = term;
+    }
+
+    /// Copy `val` into the first parameter of `target_block` (SSA phi-node bridging).
+    fn emit_copy_to_join_param(&mut self, val: LirVar, target_block: BlockId) {
+        let target_idx = target_block.0 as usize;
+        if let Some(&param) = self.func.blocks[target_idx].params.first() {
+            self.emit(LirInstr::Copy { dst: param, src: val });
+        }
     }
 
     /// Create a new block and return its index.
@@ -179,94 +202,61 @@ impl<'a> FnLower<'a> {
             CoreExpr::PrimOp { op, args, .. } => self.lower_primop(*op, args),
 
             CoreExpr::Lam { params, body, .. } => {
-                // Collect free variables to determine if this is a closure.
+                // Always create a nested LirFunction for lambdas.
+                // Even non-capturing lambdas need to be callable via OpCall.
                 let free = collect_free_vars(expr);
-                if free.is_empty() {
-                    // No captures — inline the body (top-level functions are
-                    // already handled by lower_def; nested non-capturing lambdas
-                    // are rare after ANF but handled here for completeness).
+                let outer_captures: Vec<(CoreBinderId, LirVar)> = free
+                    .iter()
+                    .filter_map(|id| self.env.get(id).copied().map(|v| (*id, v)))
+                    .collect();
+
+                {
+
+                    // Temporarily take the program so the inner FnLower can use it
+                    // (Rust can't have two &mut borrows of self.program).
+                    let mut temp_program = std::mem::replace(
+                        &mut *self.program,
+                        LirProgram { functions: Vec::new(), string_pool: Vec::new() },
+                    );
+
+                    let func_name = format!("closure_{}", temp_program.functions.len());
+                    let mut inner = FnLower::new(func_name, &mut temp_program);
+
+                    // Map captured variables: create fresh LirVars inside the inner
+                    // function, mark them as capture_vars (→ OpGetFree in emitter).
+                    for &(binder_id, _outer_var) in &outer_captures {
+                        let inner_var = inner.fresh_var();
+                        inner.func.capture_vars.push(inner_var);
+                        inner.bind(binder_id, inner_var);
+                    }
+
+                    // Register parameters.
                     for param in params {
-                        let pv = self.fresh_var();
-                        self.bind(param.id, pv);
-                    }
-                    self.lower_expr(body)
-                } else {
-                    // Closure with captures.  Emit allocation:
-                    //   FluxClosure = {ptr fn_ptr, i32 arity, i32 capture_count,
-                    //                  i32 applied_count, [i64 captures...]}
-                    // The fn_ptr and arity are placeholders at LIR level —
-                    // the backend emitter resolves them when emitting the
-                    // closure's compiled entry function.
-                    let capture_vars: Vec<LirVar> = free
-                        .iter()
-                        .filter_map(|id| self.env.get(id).copied())
-                        .collect();
-                    let n_captures = capture_vars.len() as u32;
-                    let arity = params.len() as i32;
-                    let header_size: u32 = 24; // fn_ptr(8) + arity(4) + cap_count(4) + app_count(4) + pad(4)
-                    let size = header_size + n_captures * 8;
-
-                    let ptr = self.fresh_var();
-                    self.emit(LirInstr::Alloc {
-                        dst: ptr,
-                        size,
-                        scan_fields: n_captures as u8,
-                        obj_tag: OBJ_TAG_CLOSURE,
-                    });
-
-                    // Store header fields.
-                    let fn_ptr_placeholder = self.fresh_var();
-                    self.emit(LirInstr::Const {
-                        dst: fn_ptr_placeholder,
-                        value: LirConst::None, // resolved by emitter
-                    });
-                    self.emit(LirInstr::Store {
-                        ptr,
-                        offset: 0,
-                        val: fn_ptr_placeholder,
-                    });
-                    let arity_val = self.fresh_var();
-                    self.emit(LirInstr::Const {
-                        dst: arity_val,
-                        value: LirConst::Tagged(arity as i64),
-                    });
-                    self.emit(LirInstr::Store {
-                        ptr,
-                        offset: 8,
-                        val: arity_val,
-                    });
-                    let cap_count_val = self.fresh_var();
-                    self.emit(LirInstr::Const {
-                        dst: cap_count_val,
-                        value: LirConst::Tagged(n_captures as i64),
-                    });
-                    self.emit(LirInstr::Store {
-                        ptr,
-                        offset: 12,
-                        val: cap_count_val,
-                    });
-                    let zero = self.fresh_var();
-                    self.emit(LirInstr::Const {
-                        dst: zero,
-                        value: LirConst::Tagged(0),
-                    });
-                    self.emit(LirInstr::Store {
-                        ptr,
-                        offset: 16,
-                        val: zero,
-                    }); // applied_count = 0
-
-                    // Store captured values.
-                    for (i, cap_var) in capture_vars.iter().enumerate() {
-                        self.emit(LirInstr::Store {
-                            ptr,
-                            offset: header_size as i32 + (i as i32) * 8,
-                            val: *cap_var,
-                        });
+                        let pv = inner.fresh_var();
+                        inner.bind(param.id, pv);
+                        inner.func.params.push(pv);
                     }
 
+                    // Lower the body in the inner context.
+                    let result = inner.lower_expr(body);
+                    inner.set_terminator(LirTerminator::Return(result));
+
+                    let inner_func = inner.func;
+
+                    // Restore the program and add the inner function.
+                    *self.program = temp_program;
+                    let func_idx = self.program.functions.len();
+                    self.program.functions.push(inner_func);
+
+                    // Emit MakeClosure in the outer context.
+                    let outer_capture_vars: Vec<LirVar> =
+                        outer_captures.iter().map(|&(_, v)| v).collect();
                     let dst = self.fresh_var();
-                    self.emit(LirInstr::TagPtr { dst, ptr });
+                    self.emit(LirInstr::MakeClosure {
+                        dst,
+                        func_idx,
+                        captures: outer_capture_vars,
+                    });
                     dst
                 }
             }
@@ -548,15 +538,9 @@ impl<'a> FnLower<'a> {
         } else {
             // All wildcards/vars — just take the first alt.
             let val = self.lower_single_alt(scrut, &alts[0]);
+            self.emit(LirInstr::Copy { dst: result_var, src: val });
             self.set_terminator(LirTerminator::Jump(join_id));
-            // Patch: the jump needs to pass val as a block arg.
-            // For simplicity, emit a Copy in the join block.
             self.switch_to_block(join_idx);
-            self.emit(LirInstr::Copy {
-                dst: result_var,
-                src: val,
-            });
-            self.set_terminator(LirTerminator::Unreachable); // placeholder
             return result_var;
         }
 
@@ -613,7 +597,8 @@ impl<'a> FnLower<'a> {
                     // Then: evaluate body, jump to join.
                     self.switch_to_block(then_idx);
                     self.bind_pattern(scrut, &alt.pat);
-                    let _val = self.lower_expr(&alt.rhs);
+                    let val = self.lower_expr(&alt.rhs);
+                    self.emit_copy_to_join_param(val, join_block);
                     self.set_terminator(LirTerminator::Jump(join_block));
 
                     // Else: continue chain.
@@ -621,12 +606,14 @@ impl<'a> FnLower<'a> {
                 }
                 CorePat::Wildcard | CorePat::Var(_) => {
                     self.bind_pattern(scrut, &alt.pat);
-                    let _val = self.lower_expr(&alt.rhs);
+                    let val = self.lower_expr(&alt.rhs);
+                    self.emit_copy_to_join_param(val, join_block);
                     self.set_terminator(LirTerminator::Jump(join_block));
                     return; // default handled, done.
                 }
                 _ => {
-                    let _val = self.lower_single_alt(scrut, alt);
+                    let val = self.lower_single_alt(scrut, alt);
+                    self.emit_copy_to_join_param(val, join_block);
                     self.set_terminator(LirTerminator::Jump(join_block));
                 }
             }
@@ -699,7 +686,7 @@ impl<'a> FnLower<'a> {
             self.switch_to_block(alt_block_indices[i]);
             self.bind_pattern(scrut, &alt.pat);
             let val = self.lower_expr(&alt.rhs);
-            let _ = val; // result flows to join block
+            self.emit_copy_to_join_param(val, join_block);
             self.set_terminator(LirTerminator::Jump(join_block));
         }
     }
@@ -963,19 +950,17 @@ impl<'a> FnLower<'a> {
             dst: reuse_tagged,
             ptr: reuse_ptr,
         });
+        self.emit_copy_to_join_param(reuse_tagged, join_id);
         self.set_terminator(LirTerminator::Jump(join_id));
 
         // Fresh alloc path.
         self.switch_to_block(fresh_idx);
         let fresh_val = self.lower_boxed_ctor(ctor_tag, &field_vars);
+        self.emit_copy_to_join_param(fresh_val, join_id);
         self.set_terminator(LirTerminator::Jump(join_id));
 
         // Join.
         self.switch_to_block(join_idx);
-        // The result comes from whichever path was taken.
-        // For now, use the reuse_tagged as the result (both paths jump
-        // to join — a proper implementation would pass block args).
-        let _ = fresh_val;
         result
     }
 
@@ -1023,13 +1008,13 @@ impl<'a> FnLower<'a> {
         // Unique path.
         self.switch_to_block(unique_idx);
         let unique_val = self.lower_expr(unique_body);
-        let _ = unique_val;
+        self.emit_copy_to_join_param(unique_val, join_id);
         self.set_terminator(LirTerminator::Jump(join_id));
 
         // Shared path.
         self.switch_to_block(shared_idx);
         let shared_val = self.lower_expr(shared_body);
-        let _ = shared_val;
+        self.emit_copy_to_join_param(shared_val, join_id);
         self.set_terminator(LirTerminator::Jump(join_id));
 
         // Join.
@@ -1050,24 +1035,37 @@ enum LirIntOp {
 // ── Top-level definition lowering ────────────────────────────────────────────
 
 /// Lower a single `CoreDef` to a `LirFunction`.
+///
+/// `binder_func_map` maps sibling function binder IDs to their LIR function
+/// indices, so cross-function references emit `MakeClosure` instead of
+/// `None` placeholders.
 fn lower_def(
     def: &CoreDef,
     program: &mut LirProgram,
     top_level_binders: &[CoreBinderId],
+    binder_func_map: &HashMap<CoreBinderId, usize>,
 ) -> LirFunction {
     let name = format!("def_{}", def.binder.id.0);
     let mut ctx = FnLower::new(name, program);
 
-    // Pre-register all top-level binders as placeholders so cross-function
-    // references resolve.  Real call lowering happens in Phase 4.
+    // Pre-register all top-level binders.  If we know the function index
+    // (from binder_func_map), emit MakeClosure; otherwise emit None placeholder.
     for &binder_id in top_level_binders {
         if !ctx.env.contains_key(&binder_id) {
-            let placeholder = ctx.fresh_var();
-            ctx.emit(LirInstr::Const {
-                dst: placeholder,
-                value: LirConst::None, // placeholder for function reference
-            });
-            ctx.bind(binder_id, placeholder);
+            let var = ctx.fresh_var();
+            if let Some(&func_idx) = binder_func_map.get(&binder_id) {
+                ctx.emit(LirInstr::MakeClosure {
+                    dst: var,
+                    func_idx,
+                    captures: Vec::new(),
+                });
+            } else {
+                ctx.emit(LirInstr::Const {
+                    dst: var,
+                    value: LirConst::None,
+                });
+            }
+            ctx.bind(binder_id, var);
         }
     }
 
@@ -1105,7 +1103,19 @@ pub fn display_program(program: &LirProgram) -> String {
 fn display_function(func: &LirFunction, out: &mut String) {
     use std::fmt::Write;
     let params: Vec<String> = func.params.iter().map(|v| format!("{v}")).collect();
-    writeln!(out, "fn {}({}) {{", func.name, params.join(", ")).unwrap();
+    if func.capture_vars.is_empty() {
+        writeln!(out, "fn {}({}) {{", func.name, params.join(", ")).unwrap();
+    } else {
+        let caps: Vec<String> = func.capture_vars.iter().map(|v| format!("{v}")).collect();
+        writeln!(
+            out,
+            "fn {}({}) captures [{}] {{",
+            func.name,
+            params.join(", "),
+            caps.join(", ")
+        )
+        .unwrap();
+    }
     for block in &func.blocks {
         display_block(block, out);
     }
@@ -1159,6 +1169,14 @@ fn display_instr(instr: &LirInstr) -> String {
         LirInstr::Drop { val } => format!("drop {val}"),
         LirInstr::IsUnique { dst, val } => format!("{dst} = is_unique({val})"),
         LirInstr::DropReuse { dst, val } => format!("{dst} = drop_reuse({val})"),
+        LirInstr::MakeClosure {
+            dst,
+            func_idx,
+            captures,
+        } => {
+            let caps: Vec<String> = captures.iter().map(|v| format!("{v}")).collect();
+            format!("{dst} = make_closure(func={func_idx}, [{}])", caps.join(", "))
+        }
         LirInstr::Copy { dst, src } => format!("{dst} = copy {src}"),
         LirInstr::Const { dst, value } => format!("{dst} = const {value:?}"),
     }

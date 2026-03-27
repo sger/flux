@@ -2457,6 +2457,31 @@ impl Compiler {
         Ok(crate::lir::lower::display_program(&lir))
     }
 
+    /// Compile via the LIR path: Core → LIR → Bytecode.
+    /// This is the Proposal 0132 path that bypasses CFG.
+    #[allow(clippy::result_large_err)]
+    pub fn compile_via_lir(
+        &self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<crate::bytecode::bytecode::Bytecode, Diagnostic> {
+        let program_to_lower = if optimize {
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
+            rename(optimized, HashMap::new())
+        } else {
+            program.clone()
+        };
+
+        let mut core =
+            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
+
+        let lir = crate::lir::lower::lower_program(&core);
+        Ok(crate::lir::emit_bytecode::emit_program(&lir))
+    }
+
     #[allow(clippy::result_large_err)]
     pub fn lower_aether_report_program(
         &self,
