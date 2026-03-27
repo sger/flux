@@ -28,6 +28,7 @@ const FIRST_USER_TAG_ID: i64 = 5;
 /// RC runtime object type tags (match runtime/c/rc.c).
 const OBJ_TAG_ADT: u8 = 3;
 const OBJ_TAG_TUPLE: u8 = 4;
+const OBJ_TAG_CLOSURE: u8 = 5;
 
 // ── Public entry point ───────────────────────────────────────────────────────
 
@@ -178,34 +179,120 @@ impl<'a> FnLower<'a> {
             CoreExpr::PrimOp { op, args, .. } => self.lower_primop(*op, args),
 
             CoreExpr::Lam { params, body, .. } => {
-                // Phase 2: only handles the body inline (top-level functions
-                // are lowered via lower_def).  Closures with captures are
-                // Phase 4.  For now, lower the body directly.
-                for param in params {
-                    let pv = self.fresh_var();
-                    self.bind(param.id, pv);
-                    self.func.params.push(pv);
+                // Collect free variables to determine if this is a closure.
+                let free = collect_free_vars(expr);
+                if free.is_empty() {
+                    // No captures — inline the body (top-level functions are
+                    // already handled by lower_def; nested non-capturing lambdas
+                    // are rare after ANF but handled here for completeness).
+                    for param in params {
+                        let pv = self.fresh_var();
+                        self.bind(param.id, pv);
+                    }
+                    self.lower_expr(body)
+                } else {
+                    // Closure with captures.  Emit allocation:
+                    //   FluxClosure = {ptr fn_ptr, i32 arity, i32 capture_count,
+                    //                  i32 applied_count, [i64 captures...]}
+                    // The fn_ptr and arity are placeholders at LIR level —
+                    // the backend emitter resolves them when emitting the
+                    // closure's compiled entry function.
+                    let capture_vars: Vec<LirVar> = free
+                        .iter()
+                        .filter_map(|id| self.env.get(id).copied())
+                        .collect();
+                    let n_captures = capture_vars.len() as u32;
+                    let arity = params.len() as i32;
+                    let header_size: u32 = 24; // fn_ptr(8) + arity(4) + cap_count(4) + app_count(4) + pad(4)
+                    let size = header_size + n_captures * 8;
+
+                    let ptr = self.fresh_var();
+                    self.emit(LirInstr::Alloc {
+                        dst: ptr,
+                        size,
+                        scan_fields: n_captures as u8,
+                        obj_tag: OBJ_TAG_CLOSURE,
+                    });
+
+                    // Store header fields.
+                    let fn_ptr_placeholder = self.fresh_var();
+                    self.emit(LirInstr::Const {
+                        dst: fn_ptr_placeholder,
+                        value: LirConst::None, // resolved by emitter
+                    });
+                    self.emit(LirInstr::Store {
+                        ptr,
+                        offset: 0,
+                        val: fn_ptr_placeholder,
+                    });
+                    let arity_val = self.fresh_var();
+                    self.emit(LirInstr::Const {
+                        dst: arity_val,
+                        value: LirConst::Tagged(arity as i64),
+                    });
+                    self.emit(LirInstr::Store {
+                        ptr,
+                        offset: 8,
+                        val: arity_val,
+                    });
+                    let cap_count_val = self.fresh_var();
+                    self.emit(LirInstr::Const {
+                        dst: cap_count_val,
+                        value: LirConst::Tagged(n_captures as i64),
+                    });
+                    self.emit(LirInstr::Store {
+                        ptr,
+                        offset: 12,
+                        val: cap_count_val,
+                    });
+                    let zero = self.fresh_var();
+                    self.emit(LirInstr::Const {
+                        dst: zero,
+                        value: LirConst::Tagged(0),
+                    });
+                    self.emit(LirInstr::Store {
+                        ptr,
+                        offset: 16,
+                        val: zero,
+                    }); // applied_count = 0
+
+                    // Store captured values.
+                    for (i, cap_var) in capture_vars.iter().enumerate() {
+                        self.emit(LirInstr::Store {
+                            ptr,
+                            offset: header_size as i32 + (i as i32) * 8,
+                            val: *cap_var,
+                        });
+                    }
+
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::TagPtr { dst, ptr });
+                    dst
                 }
-                self.lower_expr(body)
             }
 
             CoreExpr::App { func, args, .. }
             | CoreExpr::AetherCall {
                 func, args, ..
             } => {
-                // Phase 4 will handle full call lowering.  For now, emit
-                // a PrimCall placeholder for known function applications.
                 let func_var = self.lower_expr(func);
                 let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
-                let dst = self.fresh_var();
-                self.emit(LirInstr::PrimCall {
-                    dst: Some(dst),
-                    op: CorePrimOp::Len, // placeholder — real call lowering in Phase 4
+
+                // Emit a Call.  The continuation block receives the result.
+                let cont_idx = self.new_block();
+                let cont_id = BlockId(cont_idx as u32);
+                let result = self.fresh_var();
+                self.func.blocks[cont_idx].params.push(result);
+
+                self.set_terminator(LirTerminator::Call {
+                    dst: result,
+                    func: func_var,
                     args: arg_vars,
+                    cont: cont_id,
                 });
-                // TODO(Phase 4): Emit LirTerminator::Call with func_var
-                let _ = func_var;
-                dst
+
+                self.switch_to_block(cont_idx);
+                result
             }
 
             // ── Pattern matching (Phase 3) ────────────────────────────
@@ -896,4 +983,169 @@ fn display_terminator(term: &LirTerminator) -> String {
         }
         LirTerminator::Unreachable => "unreachable".to_string(),
     }
+}
+
+// ── Free variable collection ─────────────────────────────────────────────────
+
+use std::collections::HashSet;
+
+/// Collect free variable binder IDs in a `CoreExpr`.
+fn collect_free_vars(expr: &CoreExpr) -> HashSet<CoreBinderId> {
+    let mut free = HashSet::new();
+    let mut bound = HashSet::new();
+    free_vars_rec(expr, &mut bound, &mut free);
+    free
+}
+
+fn free_vars_rec(
+    expr: &CoreExpr,
+    bound: &mut HashSet<CoreBinderId>,
+    free: &mut HashSet<CoreBinderId>,
+) {
+    match expr {
+        CoreExpr::Var { var, .. } => {
+            if let Some(b) = var.binder {
+                if !bound.contains(&b) {
+                    free.insert(b);
+                }
+            }
+        }
+        CoreExpr::Lit(_, _) => {}
+        CoreExpr::Lam { params, body, .. } => {
+            let added: Vec<_> = params
+                .iter()
+                .filter(|p| bound.insert(p.id))
+                .map(|p| p.id)
+                .collect();
+            free_vars_rec(body, bound, free);
+            for id in added {
+                bound.remove(&id);
+            }
+        }
+        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+            free_vars_rec(func, bound, free);
+            for a in args {
+                free_vars_rec(a, bound, free);
+            }
+        }
+        CoreExpr::Let { var, rhs, body, .. } => {
+            free_vars_rec(rhs, bound, free);
+            let added = bound.insert(var.id);
+            free_vars_rec(body, bound, free);
+            if added {
+                bound.remove(&var.id);
+            }
+        }
+        CoreExpr::LetRec { var, rhs, body, .. } => {
+            let added = bound.insert(var.id);
+            free_vars_rec(rhs, bound, free);
+            free_vars_rec(body, bound, free);
+            if added {
+                bound.remove(&var.id);
+            }
+        }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            free_vars_rec(scrutinee, bound, free);
+            for alt in alts {
+                let added = bind_pat(&alt.pat, bound);
+                if let Some(g) = &alt.guard {
+                    free_vars_rec(g, bound, free);
+                }
+                free_vars_rec(&alt.rhs, bound, free);
+                for id in added {
+                    bound.remove(&id);
+                }
+            }
+        }
+        CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
+            for f in fields {
+                free_vars_rec(f, bound, free);
+            }
+        }
+        CoreExpr::Return { value, .. } => free_vars_rec(value, bound, free),
+        CoreExpr::Perform { args, .. } => {
+            for a in args {
+                free_vars_rec(a, bound, free);
+            }
+        }
+        CoreExpr::Handle { body, handlers, .. } => {
+            free_vars_rec(body, bound, free);
+            for h in handlers {
+                let mut added = vec![];
+                if bound.insert(h.resume.id) {
+                    added.push(h.resume.id);
+                }
+                for p in &h.params {
+                    if bound.insert(p.id) {
+                        added.push(p.id);
+                    }
+                }
+                free_vars_rec(&h.body, bound, free);
+                for id in added {
+                    bound.remove(&id);
+                }
+            }
+        }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            free_vars_rec(object, bound, free);
+        }
+        CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
+            if let Some(b) = var.binder {
+                if !bound.contains(&b) {
+                    free.insert(b);
+                }
+            }
+            free_vars_rec(body, bound, free);
+        }
+        CoreExpr::Reuse { token, fields, .. } => {
+            if let Some(b) = token.binder {
+                if !bound.contains(&b) {
+                    free.insert(b);
+                }
+            }
+            for f in fields {
+                free_vars_rec(f, bound, free);
+            }
+        }
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            if let Some(b) = scrutinee.binder {
+                if !bound.contains(&b) {
+                    free.insert(b);
+                }
+            }
+            free_vars_rec(unique_body, bound, free);
+            free_vars_rec(shared_body, bound, free);
+        }
+    }
+}
+
+/// Bind pattern variables into the bound set, returning newly added IDs.
+fn bind_pat(pat: &CorePat, bound: &mut HashSet<CoreBinderId>) -> Vec<CoreBinderId> {
+    let mut added = vec![];
+    match pat {
+        CorePat::Var(b) => {
+            if bound.insert(b.id) {
+                added.push(b.id);
+            }
+        }
+        CorePat::Con { fields, .. } => {
+            for f in fields {
+                added.extend(bind_pat(f, bound));
+            }
+        }
+        CorePat::Tuple(fields) => {
+            for f in fields {
+                added.extend(bind_pat(f, bound));
+            }
+        }
+        CorePat::Wildcard | CorePat::Lit(_) | CorePat::EmptyList => {}
+    }
+    added
 }
