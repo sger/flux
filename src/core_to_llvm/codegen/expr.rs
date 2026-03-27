@@ -2792,6 +2792,18 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CorePrimOp::IMul => self.lower_typed_int_binop(LlvmValueKind::Mul, args),
             CorePrimOp::IDiv => self.lower_typed_int_binop(LlvmValueKind::SDiv, args),
             CorePrimOp::IMod => self.lower_typed_int_binop(LlvmValueKind::SRem, args),
+            CorePrimOp::ICmpEq => self.lower_typed_int_cmp(LlvmCmpOp::Eq, args),
+            CorePrimOp::ICmpNe => self.lower_typed_int_cmp(LlvmCmpOp::Ne, args),
+            CorePrimOp::ICmpLt => self.lower_typed_int_cmp(LlvmCmpOp::Slt, args),
+            CorePrimOp::ICmpLe => self.lower_typed_int_cmp(LlvmCmpOp::Sle, args),
+            CorePrimOp::ICmpGt => self.lower_typed_int_cmp(LlvmCmpOp::Sgt, args),
+            CorePrimOp::ICmpGe => self.lower_typed_int_cmp(LlvmCmpOp::Sge, args),
+            CorePrimOp::FCmpEq => self.lower_helper_call("flux_fcmp_eq", args),
+            CorePrimOp::FCmpNe => self.lower_helper_call("flux_fcmp_ne", args),
+            CorePrimOp::FCmpLt => self.lower_helper_call("flux_fcmp_lt", args),
+            CorePrimOp::FCmpLe => self.lower_helper_call("flux_fcmp_le", args),
+            CorePrimOp::FCmpGt => self.lower_helper_call("flux_fcmp_gt", args),
+            CorePrimOp::FCmpGe => self.lower_helper_call("flux_fcmp_ge", args),
             CorePrimOp::FAdd => self.lower_helper_call("flux_fadd", args),
             CorePrimOp::FSub => self.lower_helper_call("flux_fsub", args),
             CorePrimOp::FMul => self.lower_helper_call("flux_fmul", args),
@@ -2840,6 +2852,7 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             | CorePrimOp::ReadFile
             | CorePrimOp::WriteFile
             | CorePrimOp::ReadStdin
+            | CorePrimOp::ReadLines
             | CorePrimOp::StringLength
             | CorePrimOp::StringConcat
             | CorePrimOp::StringSlice
@@ -2881,7 +2894,13 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             | CorePrimOp::IsMap
             | CorePrimOp::Panic
             | CorePrimOp::ClockNow
+            | CorePrimOp::Time
+            | CorePrimOp::Abs
+            | CorePrimOp::Min
+            | CorePrimOp::Max
             | CorePrimOp::ParseInt
+            | CorePrimOp::ParseInts
+            | CorePrimOp::SplitInts
             | CorePrimOp::ToList
             | CorePrimOp::ToArray
             | CorePrimOp::Len
@@ -3479,6 +3498,7 @@ fn promoted_primop_flux_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::ReadFile => "read_file",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
+        CorePrimOp::ReadLines => "read_lines",
         CorePrimOp::StringLength => "string_length",
         CorePrimOp::StringConcat => "str_concat",
         CorePrimOp::StringSlice => "str_slice",
@@ -3520,7 +3540,13 @@ fn promoted_primop_flux_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::IsMap => "is_map",
         CorePrimOp::Panic => "panic",
         CorePrimOp::ClockNow => "now_ms",
+        CorePrimOp::Time => "time",
+        CorePrimOp::Abs => "abs",
+        CorePrimOp::Min => "min",
+        CorePrimOp::Max => "max",
         CorePrimOp::ParseInt => "parse_int",
+        CorePrimOp::ParseInts => "parse_ints",
+        CorePrimOp::SplitInts => "split_ints",
         CorePrimOp::ToList => "to_list",
         CorePrimOp::ToArray => "to_array",
         CorePrimOp::Len => "len",

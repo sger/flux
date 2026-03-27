@@ -18,7 +18,7 @@ Hint:
   Define it first: let f = ...;
 
 Help:
-  Did you mean one of: `Flow.List.abs`, `Flow.List.all`, `Flow.List.any`?
+  Did you mean one of: `Flow.List.all`, `Flow.List.any`, `Flow.List.map`?
 
 
 error[E004]: Undefined Variable
@@ -34,6 +34,6 @@ Hint:
   Define it first: let f = ...;
 
 Help:
-  Did you mean one of: `Flow.List.abs`, `Flow.List.all`, `Flow.List.any`?
+  Did you mean one of: `Flow.List.all`, `Flow.List.any`, `Flow.List.map`?
 
 Found 2 errors.

@@ -1,56 +1,6 @@
 ---
 source: tests/aether_cli_snapshots.rs
 ---
-Aether Memory Model Report
-==========================
-
-── fn build_list ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
-  FreshAllocs: 1
-  verifier: ok
-λn.
-  letrec build_go = (λi, acc.
-    let %t1 = Le(i, 0)
-    case %t1 of
-      true →
-        drop i
-        acc
-      _ →
-        let %t2 = ISub(i, 1)
-        let %t3 = ::(i, acc)
-        aether_call[owned, owned] build_go(%t2, %t3))
-  let %t4 = []
-  aether_call[owned, owned] build_go(n, %t4)
-── fn touch_token ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
-  FreshAllocs: 0
-  verifier: ok
-λtoken, value.
-  drop token
-  value
-── fn map_blocked @fip ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
-  FreshAllocs: 1
-  verifier:
-    - MissedReuse: MISSED REUSE (TokenEscapesIntoFields): Case arm destructures Cons and constructs Cons
-  fbip: NotProvable
-    - fresh heap allocation remains on at least one path
-    - calls indirect or opaque callee `f` whose FBIP behavior is unknown
-    - control-flow join loses a precise allocation bound across paths
-λxs, f.
-  case xs of
-    ::(h, t) →
-      let %t1 = (let %t2 = aether_call[owned] f(h)
-      aether_call[borrowed, owned] touch_token(xs, %t2))
-      let %t3 = aether_call[borrowed, borrowed] map_blocked(t, f)
-      ::(%t1, %t3)
-    _ →
-      []
-
-── Total ──
-  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  FBIP: fbip(2)
-  FreshAllocs: 2
-
 Warning: FBIP Contract Not Proven
 
 @fip on `map_blocked` analysis result NotProvable:
@@ -72,3 +22,18 @@ Warning: FBIP Contract Not Proven
    | ^^^^^
 27 | }
    | ^
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `unwrap`.
+
+  examples/aether/bench_reuse_blocked.flx:42:37
+   |
+42 |     print("blocked: result head = #{unwrap(first(mapped))}")
+   |                                     ^^^^^^
+
+Hint:
+  Define it first: let unwrap = ...;
+
+Found 1 error and 1 warning.
