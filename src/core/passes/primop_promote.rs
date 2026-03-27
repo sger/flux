@@ -95,7 +95,7 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
     ];
     entries
         .iter()
-        .map(|&(n, a, ref op)| ((n, a), op.clone()))
+        .map(|&(n, a, op)| ((n, a), op))
         .collect()
 }
 
@@ -125,7 +125,7 @@ fn promote_expr(
                         .is_some();
                 if is_promotable {
                     let name_str = interner.resolve(var.name);
-                    let op = table[&(name_str, args.len())].clone();
+                    let op = table[&(name_str, args.len())];
                     let promoted_args: Vec<CoreExpr> = args
                         .into_iter()
                         .map(|a| promote_expr(a, table, interner))
