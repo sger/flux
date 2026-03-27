@@ -260,155 +260,47 @@ fn emit_is_ptr(module: &mut LlvmModule) {
     });
 }
 
-/// Emit `flux_dup(i64 %val) -> void`: if val is a heap pointer,
-/// increment its reference count (stored at offset -8 from the payload).
+/// Declare `flux_dup(i64) -> void` as an external C function.
+/// The implementation lives in `runtime/c/gc.c` (Aether RC).
 fn emit_dup(module: &mut LlvmModule) {
     let name = "flux_dup";
-    if has_function(module, name) {
+    if has_function(module, name)
+        || module.declarations.iter().any(|d| d.name.0 == name)
+    {
         return;
     }
-    // entry:
-    //   %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
-    //   br i1 %is_ptr, label %do_dup, label %done
-    // do_dup:
-    //   %payload = and i64 %val, PAYLOAD_MASK
-    //   %raw_ptr = inttoptr i64 %payload to ptr  (shifted ptr is in payload)
-    //   -- but our boxing uses ptr>>3, so: payload<<3 = real ptr
-    //   %shifted = shl i64 %payload, 3
-    //   %ptr = inttoptr i64 %shifted to ptr
-    //   %rc_ptr = getelementptr i64, ptr %ptr, i64 -1   (RC word before object)
-    //   %old_rc = load i64, ptr %rc_ptr
-    //   %new_rc = add i64 %old_rc, 1
-    //   store i64 %new_rc, ptr %rc_ptr
-    //   br label %done
-    // done:
-    //   ret void
-    module.functions.push(LlvmFunction {
-        linkage: Linkage::Internal,
+    module.declarations.push(crate::core_to_llvm::LlvmDecl {
+        linkage: Linkage::External,
         name: flux_prelude_symbol(name),
         sig: LlvmFunctionSig {
             ret: LlvmType::Void,
             params: vec![LlvmType::i64()],
             varargs: false,
-            call_conv: CallConv::Fastcc,
+            call_conv: CallConv::Ccc,
         },
-        params: vec![LlvmLocal("val".into())],
-        attrs: helper_attrs(),
-        blocks: vec![
-            LlvmBlock {
-                label: LabelId("entry".into()),
-                instrs: vec![LlvmInstr::Call {
-                    dst: Some(LlvmLocal("is_ptr".into())),
-                    tail: false,
-                    call_conv: Some(CallConv::Fastcc),
-                    ret_ty: LlvmType::i1(),
-                    callee: LlvmOperand::Global(flux_prelude_symbol("flux_is_ptr")),
-                    args: vec![(LlvmType::i64(), local("val"))],
-                    attrs: vec![],
-                }],
-                term: LlvmTerminator::CondBr {
-                    cond_ty: LlvmType::i1(),
-                    cond: local("is_ptr"),
-                    then_label: LabelId("do_dup".into()),
-                    else_label: LabelId("done".into()),
-                },
-            },
-            LlvmBlock {
-                label: LabelId("do_dup".into()),
-                instrs: rc_load_and_update_instrs("add"),
-                term: LlvmTerminator::Br {
-                    target: LabelId("done".into()),
-                },
-            },
-            LlvmBlock {
-                label: LabelId("done".into()),
-                instrs: vec![],
-                term: LlvmTerminator::RetVoid,
-            },
-        ],
+        attrs: vec!["nounwind".into()],
     });
 }
 
-/// Emit `flux_drop(i64 %val) -> void`: if val is a heap pointer,
-/// decrement its reference count.  If the count reaches zero, call
-/// `flux_gc_free` to release the allocation.
+/// Declare `flux_drop(i64) -> void` as an external C function.
+/// The implementation lives in `runtime/c/gc.c` (Aether RC).
 fn emit_drop(module: &mut LlvmModule) {
     let name = "flux_drop";
-    if has_function(module, name) {
+    if has_function(module, name)
+        || module.declarations.iter().any(|d| d.name.0 == name)
+    {
         return;
     }
-    emit_gc_free_decl(module);
-    module.functions.push(LlvmFunction {
-        linkage: Linkage::Internal,
+    module.declarations.push(crate::core_to_llvm::LlvmDecl {
+        linkage: Linkage::External,
         name: flux_prelude_symbol(name),
         sig: LlvmFunctionSig {
             ret: LlvmType::Void,
             params: vec![LlvmType::i64()],
             varargs: false,
-            call_conv: CallConv::Fastcc,
+            call_conv: CallConv::Ccc,
         },
-        params: vec![LlvmLocal("val".into())],
-        attrs: helper_attrs(),
-        blocks: vec![
-            LlvmBlock {
-                label: LabelId("entry".into()),
-                instrs: vec![LlvmInstr::Call {
-                    dst: Some(LlvmLocal("is_ptr".into())),
-                    tail: false,
-                    call_conv: Some(CallConv::Fastcc),
-                    ret_ty: LlvmType::i1(),
-                    callee: LlvmOperand::Global(flux_prelude_symbol("flux_is_ptr")),
-                    args: vec![(LlvmType::i64(), local("val"))],
-                    attrs: vec![],
-                }],
-                term: LlvmTerminator::CondBr {
-                    cond_ty: LlvmType::i1(),
-                    cond: local("is_ptr"),
-                    then_label: LabelId("do_drop".into()),
-                    else_label: LabelId("done".into()),
-                },
-            },
-            LlvmBlock {
-                label: LabelId("do_drop".into()),
-                instrs: {
-                    let mut instrs = rc_load_and_update_instrs("sub");
-                    instrs.push(LlvmInstr::Icmp {
-                        dst: LlvmLocal("is_zero".into()),
-                        op: LlvmCmpOp::Eq,
-                        ty: LlvmType::i64(),
-                        lhs: local("new_rc"),
-                        rhs: const_i64_operand(0),
-                    });
-                    instrs
-                },
-                term: LlvmTerminator::CondBr {
-                    cond_ty: LlvmType::i1(),
-                    cond: local("is_zero"),
-                    then_label: LabelId("free".into()),
-                    else_label: LabelId("done".into()),
-                },
-            },
-            LlvmBlock {
-                label: LabelId("free".into()),
-                instrs: vec![LlvmInstr::Call {
-                    dst: None,
-                    tail: false,
-                    call_conv: Some(CallConv::Ccc),
-                    ret_ty: LlvmType::Void,
-                    callee: LlvmOperand::Global(flux_prelude_symbol("flux_gc_free")),
-                    args: vec![(LlvmType::ptr(), local("ptr"))],
-                    attrs: vec![],
-                }],
-                term: LlvmTerminator::Br {
-                    target: LabelId("done".into()),
-                },
-            },
-            LlvmBlock {
-                label: LabelId("done".into()),
-                instrs: vec![],
-                term: LlvmTerminator::RetVoid,
-            },
-        ],
+        attrs: vec!["nounwind".into()],
     });
 }
 
@@ -477,7 +369,7 @@ fn emit_drop_reuse(module: &mut LlvmModule) {
                     LlvmInstr::Call {
                         dst: None,
                         tail: false,
-                        call_conv: Some(CallConv::Fastcc),
+                        call_conv: Some(CallConv::Ccc),
                         ret_ty: LlvmType::Void,
                         callee: LlvmOperand::Global(flux_prelude_symbol("flux_drop")),
                         args: vec![(LlvmType::i64(), local("val"))],
@@ -648,38 +540,6 @@ fn rc_extract_ptr_instrs() -> Vec<LlvmInstr> {
             indices: vec![(LlvmType::i64(), const_i64_operand(-1))],
         },
     ]
-}
-
-/// Shared instruction sequence: load RC from `%rc_ptr`, apply `op`
-/// (add or sub), store back.  Produces `%old_rc`, `%new_rc`.
-/// Expects `%val`, `%ptr`, `%rc_ptr` to already be in scope
-/// (via `rc_extract_ptr_instrs`).
-fn rc_load_and_update_instrs(op: &str) -> Vec<LlvmInstr> {
-    let mut instrs = rc_extract_ptr_instrs();
-    instrs.push(LlvmInstr::Load {
-        dst: LlvmLocal("old_rc".into()),
-        ty: LlvmType::i64(),
-        ptr: local("rc_ptr"),
-        align: Some(8),
-    });
-    instrs.push(LlvmInstr::Binary {
-        dst: LlvmLocal("new_rc".into()),
-        op: if op == "add" {
-            LlvmValueKind::Add
-        } else {
-            LlvmValueKind::Sub
-        },
-        ty: LlvmType::i64(),
-        lhs: local("old_rc"),
-        rhs: const_i64_operand(1),
-    });
-    instrs.push(LlvmInstr::Store {
-        ty: LlvmType::i64(),
-        value: local("new_rc"),
-        ptr: local("rc_ptr"),
-        align: Some(8),
-    });
-    instrs
 }
 
 pub fn linkage_internal() -> Linkage {
@@ -981,12 +841,10 @@ mod tests {
         assert!(rendered.contains("define internal fastcc i1 @flux_is_ptr(i64 %val) alwaysinline"));
         assert!(rendered.contains("%tag = and i64 %tag_bits, 15"));
         assert!(rendered.contains("%result = select i1 %is_boxed, i1 %is_boxed_value, i1 0"));
-        // flux_dup: checks is_ptr, then increments RC
-        assert!(rendered.contains("define internal fastcc void @flux_dup(i64 %val) alwaysinline"));
-        assert!(rendered.contains("%new_rc = add i64 %old_rc, 1"));
-        // flux_drop: checks is_ptr, decrements RC, frees if zero
-        assert!(rendered.contains("define internal fastcc void @flux_drop(i64 %val) alwaysinline"));
-        assert!(rendered.contains("%new_rc = sub i64 %old_rc, 1"));
+        // flux_dup: external C declaration (Aether RC in gc.c)
+        assert!(rendered.contains("declare ccc void @flux_dup(i64) nounwind"));
+        // flux_drop: external C declaration (Aether RC in gc.c)
+        assert!(rendered.contains("declare ccc void @flux_drop(i64) nounwind"));
         // flux_drop_reuse: returns ptr for reuse if unique, else allocs fresh
         assert!(rendered.contains(
             "define internal fastcc ptr @flux_drop_reuse(i64 %val, i32 %size) alwaysinline"
