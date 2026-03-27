@@ -37,7 +37,8 @@ use crate::{
         quality::{EffectConstraintOrigin, with_effect_constraint_origin},
         types::ErrorType,
     },
-    primop::{PrimEffect, resolve_primop_call},
+    core::CorePrimOp,
+    primop::PrimEffect,
     runtime::{
         compiled_function::CompiledFunction, handler_descriptor::HandlerDescriptor,
         perform_descriptor::PerformDescriptor, runtime_type::RuntimeType, value::Value,
@@ -2919,9 +2920,7 @@ impl Compiler {
             return Ok(true);
         }
 
-        let primop = resolve_primop_call(self.sym(*name), arguments.len());
-
-        let Some(primop) = primop else {
+        let Some(primop) = CorePrimOp::from_name(self.sym(*name), arguments.len()) else {
             return Ok(false);
         };
 

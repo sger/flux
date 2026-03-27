@@ -7,7 +7,7 @@ use crate::{
         symbol_scope::SymbolScope,
     },
     diagnostics::position::Span,
-    primop::PrimOp,
+    core::CorePrimOp,
     runtime::value::Value,
 };
 
@@ -38,8 +38,10 @@ impl Compiler {
         let observed = match op_code {
             OpCode::OpPrimOp => {
                 let primop_id = operands.first().copied();
-                match primop_id.and_then(|id| PrimOp::from_id(id as u8)) {
-                    Some(op) if !op.is_pure() => EffectSummary::HasEffects,
+                match primop_id.and_then(|id| CorePrimOp::from_id(id as u8)) {
+                    Some(op) if op.effect_kind() != crate::primop::PrimEffect::Pure => {
+                        EffectSummary::HasEffects
+                    }
                     Some(_) => EffectSummary::Pure,
                     None => EffectSummary::HasEffects,
                 }
