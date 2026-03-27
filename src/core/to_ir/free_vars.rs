@@ -143,6 +143,9 @@ pub(super) fn free_vars_rec(
             free_vars_rec(unique_body, bound, free);
             free_vars_rec(shared_body, bound, free);
         }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            free_vars_rec(object, bound, free);
+        }
     }
 }
 

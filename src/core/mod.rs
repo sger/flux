@@ -317,8 +317,6 @@ pub enum CorePrimOp {
     MakeTuple,
     MakeHash,
     Index,
-    MemberAccess(Identifier),
-    TupleField(usize),
 
     // ── Promoted base-function primops (Proposal 0120 Phase 1) ───────────
     //
@@ -506,6 +504,22 @@ pub enum CoreExpr {
         args: Vec<CoreExpr>,
         span: Span,
     },
+    /// Module/struct member access, resolved at compile time.
+    /// Moved out of `CorePrimOp` because it carries data (`Identifier`)
+    /// which prevents `#[repr(u8)]` on the primop enum.
+    MemberAccess {
+        object: Box<CoreExpr>,
+        member: Identifier,
+        span: Span,
+    },
+    /// Tuple field access by index.
+    /// Moved out of `CorePrimOp` because it carries data (`usize`)
+    /// which prevents `#[repr(u8)]` on the primop enum.
+    TupleField {
+        object: Box<CoreExpr>,
+        index: usize,
+        span: Span,
+    },
     Return {
         value: Box<CoreExpr>,
         span: Span,
@@ -658,7 +672,9 @@ impl CoreExpr {
             | CoreExpr::Dup { span, .. }
             | CoreExpr::Drop { span, .. }
             | CoreExpr::Reuse { span, .. }
-            | CoreExpr::DropSpecialized { span, .. } => *span,
+            | CoreExpr::DropSpecialized { span, .. }
+            | CoreExpr::MemberAccess { span, .. }
+            | CoreExpr::TupleField { span, .. } => *span,
         }
     }
 

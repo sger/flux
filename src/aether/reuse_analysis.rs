@@ -1679,7 +1679,9 @@ fn is_alias_preserving_rhs(expr: &CoreExpr) -> bool {
         | CoreExpr::Case { .. }
         | CoreExpr::Dup { .. }
         | CoreExpr::Drop { .. }
-        | CoreExpr::DropSpecialized { .. } => false,
+        | CoreExpr::DropSpecialized { .. }
+        | CoreExpr::MemberAccess { .. }
+        | CoreExpr::TupleField { .. } => false,
     }
 }
 
@@ -1724,6 +1726,9 @@ fn is_safe_precompute_rhs(token_binder: CoreBinderId, expr: &CoreExpr) -> bool {
         | CoreExpr::Lam { .. }
         | CoreExpr::LetRec { .. }
         | CoreExpr::DropSpecialized { .. } => false,
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            is_safe_precompute_rhs(token_binder, object)
+        }
     }
 }
 
@@ -1808,6 +1813,9 @@ mod tests {
             } => {
                 collect_reuses(unique_body, out);
                 collect_reuses(shared_body, out);
+            }
+            CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+                collect_reuses(object, out);
             }
             CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
         }

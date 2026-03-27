@@ -127,6 +127,9 @@ fn resolve_expr_binders(expr: &mut CoreExpr, scopes: &mut Vec<BinderScope>) {
             resolve_expr_binders(unique_body, scopes);
             resolve_expr_binders(shared_body, scopes);
         }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            resolve_expr_binders(object, scopes);
+        }
     }
 }
 
@@ -235,6 +238,9 @@ fn validate_expr_binders(expr: &CoreExpr, scopes: &mut Vec<BinderScope>) -> bool
             var_ok
                 && validate_expr_binders(unique_body, scopes)
                 && validate_expr_binders(shared_body, scopes)
+        }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            validate_expr_binders(object, scopes)
         }
     }
 }

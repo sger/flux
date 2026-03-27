@@ -3,7 +3,7 @@ use crate::{
     syntax::expression::{Expression, HandleArm, MatchArm, Pattern},
 };
 
-use crate::core::{CoreAlt, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreTag};
+use crate::core::{CoreAlt, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat, CoreTag};
 
 impl<'a> super::AstLowerer<'a> {
     // ── Pattern lowering ─────────────────────────────────────────────────────
@@ -54,9 +54,9 @@ impl<'a> super::AstLowerer<'a> {
                     if let CorePat::Var(binder) = field_pat {
                         out.push(CoreDef::new(
                             binder,
-                            CoreExpr::PrimOp {
-                                op: CorePrimOp::TupleField(i),
-                                args: vec![CoreExpr::bound_var(tmp_binder, span)],
+                            CoreExpr::TupleField {
+                                object: Box::new(CoreExpr::bound_var(tmp_binder, span)),
+                                index: i,
                                 span,
                             },
                             false,

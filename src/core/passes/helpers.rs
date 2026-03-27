@@ -193,6 +193,24 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
             field_mask,
             span,
         },
+        CoreExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => CoreExpr::MemberAccess {
+            object: Box::new(subst(*object, var, replacement)),
+            member,
+            span,
+        },
+        CoreExpr::TupleField {
+            object,
+            index,
+            span,
+        } => CoreExpr::TupleField {
+            object: Box::new(subst(*object, var, replacement)),
+            index,
+            span,
+        },
         other => other,
     }
 }
@@ -340,6 +358,24 @@ pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreE
             shared_body: Box::new(f(*shared_body)),
             span,
         },
+        CoreExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => CoreExpr::MemberAccess {
+            object: Box::new(f(*object)),
+            member,
+            span,
+        },
+        CoreExpr::TupleField {
+            object,
+            index,
+            span,
+        } => CoreExpr::TupleField {
+            object: Box::new(f(*object)),
+            index,
+            span,
+        },
         other => other,
     }
 }
@@ -412,7 +448,7 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         // Negation — may fail (wrong type)
         CorePrimOp::Neg => false,
         // Access ops — may fail (out of bounds, missing key)
-        CorePrimOp::Index | CorePrimOp::MemberAccess(_) | CorePrimOp::TupleField(_) => false,
+        CorePrimOp::Index => false,
         // Promoted primops — most are impure (I/O, side effects) or may fail.
         // Pure type-inspection primops could be true, but conservatively false.
         CorePrimOp::Print
@@ -540,6 +576,9 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
                 || appears_free(var, unique_body)
                 || appears_free(var, shared_body)
         }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            appears_free(var, object)
+        }
     }
 }
 
@@ -577,6 +616,9 @@ pub(super) fn expr_size(expr: &CoreExpr) -> usize {
             shared_body,
             ..
         } => 1 + expr_size(unique_body) + expr_size(shared_body),
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            1 + expr_size(object)
+        }
     }
 }
 

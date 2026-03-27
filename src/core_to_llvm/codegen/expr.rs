@@ -1066,6 +1066,39 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             } => self.lower_case(scrutinee, alts),
             CoreExpr::Con { tag, fields, .. } => self.lower_constructor(tag, fields),
             CoreExpr::PrimOp { op, args, .. } => self.lower_primop(op, args),
+            CoreExpr::TupleField { object, index, .. } => {
+                let tuple = self.lower_expr(object)?;
+                self.load_tuple_field(tuple, *index)
+            }
+            CoreExpr::MemberAccess { object, member, .. } => {
+                let module_name = match object.as_ref() {
+                    CoreExpr::Var { var, .. } => Some(var.name),
+                    _ => None,
+                };
+                if let Some((binder, info)) = self.program.top_level_member_in_module(*member, module_name) {
+                    let wrapper = self.program.ensure_top_level_wrapper(binder)?;
+                    let arity = info.arity as i32;
+                    self.emit_make_closure_value(wrapper, arity, vec![], vec![])
+                } else {
+                    if let Some(result) = self.try_lower_builtin_call(
+                        &CoreExpr::Var {
+                            var: crate::core::CoreVarRef {
+                                name: *member,
+                                binder: None,
+                            },
+                            span: crate::diagnostics::position::Span::default(),
+                        },
+                        &[],
+                    )? {
+                        return Ok(result);
+                    }
+                    let member_name = super::function::display_ident(*member, self.state.interner);
+                    Err(self.unsupported(
+                        "expr",
+                        format!("MemberAccess `{member_name}` not found in compiled defs"),
+                    ))
+                }
+            }
             CoreExpr::Return { value, .. } => {
                 let ret = self.lower_expr(value)?;
                 if self.state.current_block_open() {
@@ -2839,7 +2872,6 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             CorePrimOp::Ge => self.lower_rt_call("flux_rt_ge", args),
             CorePrimOp::MakeList => self.lower_make_list(args),
             CorePrimOp::MakeTuple => self.lower_make_tuple(args),
-            CorePrimOp::TupleField(index) => self.lower_tuple_field(*index, args),
             CorePrimOp::Concat => self.lower_concat_primop(args),
             CorePrimOp::Interpolate => self.lower_interpolate_primop(args),
             CorePrimOp::MakeArray => self.lower_make_array(args),
@@ -2952,46 +2984,6 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
                     "primop",
                     format!("`{}` requires setjmp/longjmp error recovery (not yet implemented in native backend)", promoted_primop_flux_name(op)),
                 ))
-            }
-            CorePrimOp::MemberAccess(member) => {
-                // Module member access: resolve to the function by name.
-                // Must use ensure_top_level_wrapper to get a closure entry
-                // with the correct (i64, ptr, i32) calling convention.
-                //
-                // When args[0] is a module variable, extract the module name
-                // to disambiguate members that share the same Identifier
-                // (e.g., Flow.List.map vs Flow.Array.map).
-                let module_name = args.first().and_then(|arg| {
-                    if let CoreExpr::Var { var, .. } = arg {
-                        Some(var.name)
-                    } else {
-                        None
-                    }
-                });
-                if let Some((binder, info)) = self.program.top_level_member_in_module(*member, module_name) {
-                    let wrapper = self.program.ensure_top_level_wrapper(binder)?;
-                    let arity = info.arity as i32;
-                    self.emit_make_closure_value(wrapper, arity, vec![], vec![])
-                } else {
-                    // Try as a builtin.
-                    if let Some(result) = self.try_lower_builtin_call(
-                        &CoreExpr::Var {
-                            var: crate::core::CoreVarRef {
-                                name: *member,
-                                binder: None,
-                            },
-                            span: crate::diagnostics::position::Span::default(),
-                        },
-                        &[],
-                    )? {
-                        return Ok(result);
-                    }
-                    let member_name = super::function::display_ident(*member, self.state.interner);
-                    Err(self.unsupported(
-                        "primop",
-                        format!("MemberAccess `{member_name}` not found in compiled defs"),
-                    ))
-                }
             }
         }
     }
