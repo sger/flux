@@ -219,8 +219,54 @@ pub enum LirTerminator {
         args: Vec<LirVar>,
         cont: BlockId,
     },
+    /// Constructor pattern match on a scrutinee value.
+    ///
+    /// High-level terminator that the bytecode emitter maps to VM-specific
+    /// opcodes (OpIsCons, OpIsEmptyList, OpIsAdtJump, etc.) and the LLVM
+    /// emitter expands to GetTag + Switch + Load sequences.
+    ///
+    /// Each arm has a constructor tag, field binders, and a target block.
+    /// Field binders are LirVars that receive the extracted constructor fields
+    /// at the start of the target block.
+    MatchCtor {
+        scrutinee: LirVar,
+        arms: Vec<CtorArm>,
+        default: BlockId,
+    },
     /// Marks unreachable code (after panic, exhaustive match, etc.).
     Unreachable,
+}
+
+/// A single arm of a `MatchCtor` terminator.
+#[derive(Debug, Clone)]
+pub struct CtorArm {
+    /// The constructor tag to match against.
+    pub tag: CtorTag,
+    /// LirVars that receive the extracted fields in the target block.
+    pub field_binders: Vec<LirVar>,
+    /// Target block if this constructor matches.
+    pub target: BlockId,
+}
+
+/// Constructor tags for pattern matching.
+#[derive(Debug, Clone)]
+pub enum CtorTag {
+    /// None value (NaN-box tag 0x2).
+    None,
+    /// Empty list `[]` (NaN-box tag 0x4).
+    EmptyList,
+    /// `Some(val)` — built-in, ctor_tag = 1.
+    Some,
+    /// `Left(val)` — built-in, ctor_tag = 2.
+    Left,
+    /// `Right(val)` — built-in, ctor_tag = 3.
+    Right,
+    /// `[h | t]` cons cell — built-in, ctor_tag = 4.
+    Cons,
+    /// User-defined ADT constructor with string name.
+    Named(String),
+    /// Tuple.
+    Tuple,
 }
 
 // ── Program structure ────────────────────────────────────────────────────────
