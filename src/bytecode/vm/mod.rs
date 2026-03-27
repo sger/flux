@@ -10,6 +10,7 @@ use crate::{
 
 mod binary_ops;
 mod comparison_ops;
+mod core_dispatch;
 mod dispatch;
 mod function_call;
 mod index_ops;
