@@ -15,6 +15,7 @@
 //!         └── LIR → LLVM IR emitter (native)
 //! ```
 
+pub mod emit_bytecode;
 pub mod lower;
 
 use std::fmt;
@@ -153,6 +154,16 @@ pub enum LirInstr {
     /// pointer for in-place reuse.  If shared, return null.
     DropReuse { dst: LirVar, val: LirVar },
 
+    // ── Closures ─────────────────────────────────────────────────────
+    /// Create a closure from a nested function and captured values.
+    /// `func_idx` indexes into `LirProgram.functions`.
+    /// `captures` are outer-scope LirVars whose values are baked into the closure.
+    MakeClosure {
+        dst: LirVar,
+        func_idx: usize,
+        captures: Vec<LirVar>,
+    },
+
     // ── Variables ───────────────────────────────────────────────────
     /// Copy a value (no ref-count change — use Dup for ownership).
     Copy { dst: LirVar, src: LirVar },
@@ -218,6 +229,9 @@ pub struct LirFunction {
     pub blocks: Vec<LirBlock>,
     /// Next free variable ID for this function (for allocating fresh vars).
     pub next_var: u32,
+    /// LirVars in this function that are free (captured from the enclosing scope).
+    /// The bytecode emitter maps these to `OpGetFree(index)` instead of `OpGetLocal`.
+    pub capture_vars: Vec<LirVar>,
 }
 
 /// A complete LIR program — a collection of functions.
