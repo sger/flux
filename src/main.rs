@@ -66,6 +66,7 @@ fn main() {
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
     let dump_aether = args.iter().any(|arg| arg == "--dump-aether");
     let dump_lir = args.iter().any(|arg| arg == "--dump-lir");
+    let run_lir = args.iter().any(|arg| arg == "--run-lir") || std::env::var("FLUX_USE_LIR").is_ok();
     #[cfg(feature = "native")]
     let use_core_to_llvm = args
         .iter()
@@ -117,6 +118,9 @@ fn main() {
     }
     if dump_lir {
         args.retain(|arg| arg != "--dump-lir");
+    }
+    if run_lir {
+        args.retain(|arg| arg != "--run-lir");
     }
     if use_core_to_llvm {
         args.retain(|arg| arg != "--core-to-llvm" && arg != "--native");
@@ -195,6 +199,7 @@ fn main() {
                 dump_core,
                 dump_aether,
                 dump_lir,
+                run_lir,
                 use_core_to_llvm,
                 emit_llvm,
                 emit_binary,
@@ -255,6 +260,7 @@ fn main() {
                     dump_core,
                     dump_aether,
                     dump_lir,
+                    run_lir,
                     use_core_to_llvm,
                     emit_llvm,
                     emit_binary,
@@ -467,6 +473,7 @@ fn run_file(
     dump_core: CoreDumpMode,
     dump_aether: bool,
     dump_lir: bool,
+    run_lir: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] use_core_to_llvm: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] emit_llvm: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] emit_binary: bool,
@@ -801,6 +808,34 @@ fn run_file(
                 let dumped = compiler.dump_lir(&merged_program, enable_optimize);
                 match dumped {
                     Ok(dumped) => println!("{dumped}"),
+                    Err(diag) => {
+                        emit_diagnostics(
+                            &[diag],
+                            Some(path),
+                            Some(source.as_str()),
+                            is_multimodule,
+                            max_errors,
+                            diagnostics_format,
+                            all_errors,
+                            true,
+                        );
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+
+            // --- LIR execution path (Proposal 0132 Phase 6) ---
+            if run_lir {
+                match compiler.compile_via_lir(&merged_program, enable_optimize) {
+                    Ok(bytecode) => {
+                        let mut vm = VM::new(bytecode);
+                        vm.set_trace(trace);
+                        if let Err(err) = vm.run() {
+                            eprintln!("{}", err);
+                            std::process::exit(1);
+                        }
+                    }
                     Err(diag) => {
                         emit_diagnostics(
                             &[diag],
