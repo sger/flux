@@ -179,19 +179,146 @@ LIR:   %result = PrimCall(Upper, [%s])
 
 ---
 
-## Migration strategy
+## Implementation phases
 
-Incremental — LIR is additive until the final step:
+Incremental — LIR is additive until the final phase.  Each phase produces a working compiler.  Existing backends continue operating through the old paths until Phase 7 removes them.
 
-1. **Define LIR data structures** (`src/lir/mod.rs`)
-2. **Core → LIR lowering** for arithmetic, let bindings, function definitions
-3. **Add ADT construction and pattern matching** to LIR
-4. **Add closures and calls** to LIR
-5. **Add Aether dup/drop** to LIR
-6. **Add effect handlers** (VM-only, since native backend doesn't support them)
-7. **Delete CFG** (`src/cfg/`), delete LLVM codegen's Core lowering. Both backends consume LIR exclusively.
+### Phase 1: LIR data structures ✅
 
-At each step, existing backends continue working.
+**Goal:** Define the IR types.  No lowering, no backends — just the data model.
+
+**Scope:**
+- `src/lir/mod.rs` — `LirVar`, `LirConst`, `CmpOp`, `LirInstr`, `LirTerminator`, `LirBlock`, `LirFunction`, `LirProgram`
+- Register `pub mod lir` in `lib.rs`
+- Display impls for debugging
+
+**Verification:** `cargo build` compiles.  No functional changes.
+
+---
+
+### Phase 2: Core → LIR lowering — scalars and let bindings
+
+**Goal:** Lower the simplest Core expressions to LIR: literals, variables, let bindings, arithmetic, comparisons, and function definitions (no closures yet — only top-level non-capturing functions).
+
+**Scope:**
+- `src/lir/lower.rs` — `lower_program(&CoreProgram) -> LirProgram`
+- Handle: `CoreExpr::Lit`, `CoreExpr::Var`, `CoreExpr::Let`, `CoreExpr::LetRec`
+- Handle: `CoreExpr::PrimOp` for typed arithmetic (`IAdd`, `ISub`, …) → `LirInstr::IAdd` etc.
+- Handle: `CoreExpr::PrimOp` for promoted primops → `LirInstr::PrimCall`
+- Handle: `CoreExpr::PrimOp` for generic arithmetic (`Add`, `Sub`, …) → `LirInstr::PrimCall` (runtime dispatch)
+- Handle: `CoreExpr::Lam` for top-level functions (no free variables) → `LirFunction`
+- NaN-box tag/untag insertion for typed arithmetic paths
+- `src/lir/display.rs` — human-readable LIR dump (for `--dump-lir` flag)
+
+**Verification:** Dump LIR for `examples/basics/fibonacci.flx` and verify structure manually.  Existing backends still used for execution.
+
+---
+
+### Phase 3: Pattern matching and ADTs
+
+**Goal:** Lower `CoreExpr::Case` and `CoreExpr::Con` to LIR blocks with switches and memory operations.
+
+**Scope:**
+- `Case` on literals → `LirTerminator::Switch` or `LirTerminator::Branch`
+- `Case` on ADT constructors → `GetTag` + `Switch` + `Load` for field extraction
+- `Case` on cons lists → `GetTag` for `None`/`EmptyList`/`Cons` discrimination
+- `Con` (ADT construction) → `Alloc` + `Store` fields + `TagPtr`
+- `MakeList`, `MakeArray`, `MakeTuple`, `MakeHash` → `PrimCall` or inline alloc sequences
+- `CoreExpr::MemberAccess`, `CoreExpr::TupleField` → `Load` with known offsets
+- Guards in case alternatives
+
+**Verification:** `examples/basics/pattern_matching.flx` lowers to correct LIR.
+
+---
+
+### Phase 4: Closures and function calls
+
+**Goal:** Lower lambda expressions with free variables, function application, and tail calls.
+
+**Scope:**
+- `CoreExpr::Lam` with captures → `Alloc` closure struct + store `fn_ptr` + captured vars
+- `CoreExpr::App` → `LirTerminator::Call` (extract fn_ptr from closure, pass captures + args)
+- Tail call detection → `LirTerminator::TailCall`
+- `CoreExpr::AetherCall` → same as `App` but with borrow mode metadata
+- Self-recursive tail calls → `LirTerminator::Jump` back to entry block
+
+**Verification:** `examples/basics/higher_order.flx` lowers correctly.
+
+---
+
+### Phase 5: Aether dup/drop/reuse
+
+**Goal:** Lower Aether annotations in Core IR to explicit LIR RC instructions.
+
+**Scope:**
+- `CoreExpr::Dup` → `LirInstr::Dup`
+- `CoreExpr::Drop` → `LirInstr::Drop`
+- `CoreExpr::DropSpecialized` → `LirInstr::IsUnique` + `LirTerminator::Branch` (unique vs shared paths)
+- `CoreExpr::Reuse` → `LirInstr::DropReuse` + conditional `Alloc` or reuse
+
+**Verification:** `--dump-lir` on Aether-annotated programs shows dup/drop/reuse instructions.  Compare against `--dump-core` Aether stats.
+
+---
+
+### Phase 6: Bytecode emitter (LIR → VM)
+
+**Goal:** Emit bytecode from LIR instead of from CFG.  Run the compiler with `FLUX_USE_LIR=1` to opt in.
+
+**Scope:**
+- `src/lir/emit_bytecode.rs` — walk `LirProgram`, emit opcodes
+- `LirInstr::PrimCall` → `OpPrimOp`
+- `LirTerminator::Branch` → `OpJumpNotTruthy` / `OpJumpIfFalse`
+- `LirTerminator::Switch` → series of compare-and-jump
+- `LirTerminator::Call` → `OpCall` / `OpTailCall`
+- `LirInstr::Dup` → clone slot, `LirInstr::Drop` → `OpAetherDropLocal`
+- `LirTerminator::Return` → `OpReturnValue`
+- Feature flag `FLUX_USE_LIR` in bytecode compiler pipeline to switch paths
+
+**Verification:** `scripts/run_examples.sh --all` produces identical output with `FLUX_USE_LIR=1`.  Parity with existing CFG path.
+
+---
+
+### Phase 7: LLVM emitter (LIR → LLVM IR)
+
+**Goal:** Emit LLVM IR from LIR instead of from Core directly.
+
+**Scope:**
+- `src/lir/emit_llvm.rs` — walk `LirProgram`, emit LLVM IR text
+- `LirInstr::PrimCall` → `call i64 @flux_<name>(i64 ...)`
+- `LirTerminator::Branch` → `br i1`
+- `LirTerminator::Switch` → `switch i32`
+- `LirInstr::Dup`/`Drop` → `call void @flux_dup`/`@flux_drop`
+- Memory instructions → direct LLVM `load`/`store`/`call @malloc`
+
+**Verification:** `scripts/check_core_to_llvm_parity.sh` passes with LIR-based LLVM emitter.
+
+---
+
+### Phase 8: Delete old paths
+
+**Goal:** Remove the CFG IR and Core-to-LLVM direct lowering.  Both backends consume LIR exclusively.
+
+**Scope:**
+- Delete `src/cfg/` (~2,000 lines)
+- Delete `src/core/to_ir/` (~800 lines)
+- Delete Core lowering in `src/core_to_llvm/codegen/expr.rs` (~1,500 lines)
+- Remove `FLUX_USE_LIR` feature flag (LIR is the only path)
+- Update CLAUDE.md architecture diagram
+
+**Verification:** Full test suite passes.  `scripts/check_core_to_llvm_parity.sh` passes.  No references to `cfg::` or `IrExpr` remain.
+
+---
+
+### Phase 9: Effect handlers in LIR
+
+**Goal:** Lower effect handlers to LIR (VM-only initially, native backend can be added later via CPS or setjmp/longjmp).
+
+**Scope:**
+- `CoreExpr::Perform` → LIR perform instruction (new `LirInstr` variant)
+- `CoreExpr::Handle` → LIR handler scope setup/teardown
+- VM bytecode emitter handles these; LLVM emitter returns `unsupported` error
+
+**Verification:** Effect handler examples (`examples/effects/`) work on VM.
 
 ---
 

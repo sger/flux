@@ -1,0 +1,290 @@
+//! Low-Level IR (LIR) — shared backend IR for Flux (Proposal 0132).
+//!
+//! LIR is a flat, NaN-box-aware CFG with explicit memory operations.  It sits
+//! between Core IR (functional, high-level) and machine code / bytecode.
+//!
+//! Both the VM bytecode emitter and the LLVM IR emitter consume the same LIR,
+//! following GHC's Cmm architecture: one lowering pass, multiple backends.
+//!
+//! ```text
+//! Core IR (functional)
+//!   │
+//!   └── Core → LIR lowering (single pass)
+//!         │
+//!         ├── LIR → Bytecode emitter (VM)
+//!         └── LIR → LLVM IR emitter (native)
+//! ```
+
+use std::fmt;
+
+use crate::core::CorePrimOp;
+
+// ── Variables and constants ──────────────────────────────────────────────────
+
+/// An SSA variable in LIR.  Each variable is assigned exactly once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LirVar(pub u32);
+
+/// A block identifier in a function's CFG.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BlockId(pub u32);
+
+/// Literal constant values that can appear inline in LIR instructions.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LirConst {
+    /// Raw signed 64-bit integer (before NaN-boxing).
+    Int(i64),
+    /// IEEE 754 double (before NaN-boxing).
+    Float(f64),
+    /// Boolean value.
+    Bool(bool),
+    /// Interned string reference (index into string table).
+    String(String),
+    /// The None / unit sentinel value.
+    None,
+    /// NaN-boxed empty list sentinel.
+    EmptyList,
+    /// A pre-tagged NaN-boxed i64 literal (already in runtime representation).
+    Tagged(i64),
+}
+
+/// Integer comparison operators for `ICmp` instructions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CmpOp {
+    Eq,
+    Ne,
+    Slt,
+    Sle,
+    Sgt,
+    Sge,
+}
+
+// ── Instructions ─────────────────────────────────────────────────────────────
+
+/// A single LIR instruction.  All instructions operate on `LirVar` SSA values
+/// representing NaN-boxed `i64` words (the Flux runtime representation).
+#[derive(Debug, Clone)]
+pub enum LirInstr {
+    // ── Memory ──────────────────────────────────────────────────────
+    /// Load a NaN-boxed word from `ptr + offset`.
+    Load {
+        dst: LirVar,
+        ptr: LirVar,
+        offset: i32,
+    },
+    /// Store a NaN-boxed word to `ptr + offset`.
+    Store {
+        ptr: LirVar,
+        offset: i32,
+        val: LirVar,
+    },
+    /// Allocate `size` bytes of heap memory.  Returns a raw pointer
+    /// (not yet NaN-boxed).  The caller must `TagPtr` before storing.
+    Alloc {
+        dst: LirVar,
+        size: u32,
+        /// Number of pointer-sized fields the GC/RC system should scan.
+        scan_fields: u8,
+        /// Object type tag for the RC runtime header.
+        obj_tag: u8,
+    },
+
+    // ── NaN-boxing ──────────────────────────────────────────────────
+    /// Tag a raw i64 as a NaN-boxed integer.
+    TagInt { dst: LirVar, raw: LirVar },
+    /// Untag a NaN-boxed integer to raw i64.
+    UntagInt { dst: LirVar, val: LirVar },
+    /// Tag a raw f64 as a NaN-boxed float.
+    TagFloat { dst: LirVar, raw: LirVar },
+    /// Untag a NaN-boxed float to raw f64.
+    UntagFloat { dst: LirVar, val: LirVar },
+    /// Extract the NaN-box type tag (discriminant) from a value.
+    GetTag { dst: LirVar, val: LirVar },
+    /// Tag a raw heap pointer as a NaN-boxed pointer value.
+    TagPtr { dst: LirVar, ptr: LirVar },
+    /// Untag a NaN-boxed pointer to a raw heap pointer.
+    UntagPtr { dst: LirVar, val: LirVar },
+    /// Tag a boolean (0 or 1) into NaN-boxed form.
+    TagBool { dst: LirVar, raw: LirVar },
+    /// Untag a NaN-boxed boolean to 0 or 1.
+    UntagBool { dst: LirVar, val: LirVar },
+
+    // ── Inline arithmetic (no C call overhead) ──────────────────────
+    /// Integer addition on raw (untagged) i64 values.
+    IAdd { dst: LirVar, a: LirVar, b: LirVar },
+    /// Integer subtraction on raw (untagged) i64 values.
+    ISub { dst: LirVar, a: LirVar, b: LirVar },
+    /// Integer multiplication on raw (untagged) i64 values.
+    IMul { dst: LirVar, a: LirVar, b: LirVar },
+    /// Signed integer division on raw i64 values.
+    IDiv { dst: LirVar, a: LirVar, b: LirVar },
+    /// Signed integer remainder on raw i64 values.
+    IRem { dst: LirVar, a: LirVar, b: LirVar },
+    /// Integer comparison on raw i64 values.  Result is 0 or 1.
+    ICmp {
+        dst: LirVar,
+        op: CmpOp,
+        a: LirVar,
+        b: LirVar,
+    },
+
+    // ── C runtime calls (CorePrimOp dispatch) ───────────────────────
+    /// Call a C runtime function identified by `CorePrimOp`.
+    /// Arguments and result are NaN-boxed i64 values.
+    PrimCall {
+        dst: Option<LirVar>,
+        op: CorePrimOp,
+        args: Vec<LirVar>,
+    },
+
+    // ── Aether reference counting ───────────────────────────────────
+    /// Increment the reference count of a NaN-boxed value.
+    /// No-op for non-pointer values (Int, Float, Bool, None).
+    Dup { val: LirVar },
+    /// Decrement the reference count and free if zero.
+    /// No-op for non-pointer values.
+    Drop { val: LirVar },
+    /// Check if a value's refcount is exactly 1 (uniquely owned).
+    /// Result is 0 or 1 (raw, not NaN-boxed).
+    IsUnique { dst: LirVar, val: LirVar },
+    /// Drop for reuse: decrement refcount.  If unique, return the raw
+    /// pointer for in-place reuse.  If shared, return null.
+    DropReuse { dst: LirVar, val: LirVar },
+
+    // ── Variables ───────────────────────────────────────────────────
+    /// Copy a value (no ref-count change — use Dup for ownership).
+    Copy { dst: LirVar, src: LirVar },
+    /// Load an immediate constant.
+    Const { dst: LirVar, value: LirConst },
+}
+
+// ── Block terminators ────────────────────────────────────────────────────────
+
+/// The terminator of a basic block — exactly one per block.
+#[derive(Debug, Clone)]
+pub enum LirTerminator {
+    /// Return a value from the current function.
+    Return(LirVar),
+    /// Unconditional jump to a block.
+    Jump(BlockId),
+    /// Conditional branch on a boolean (0 or 1).
+    Branch {
+        cond: LirVar,
+        then_block: BlockId,
+        else_block: BlockId,
+    },
+    /// Multi-way switch on an integer tag.
+    Switch {
+        scrutinee: LirVar,
+        cases: Vec<(i64, BlockId)>,
+        default: BlockId,
+    },
+    /// Tail call (reuses the current stack frame).
+    TailCall { func: LirVar, args: Vec<LirVar> },
+    /// Non-tail function call with a continuation block.
+    /// The result is bound to `dst` in `cont`.
+    Call {
+        dst: LirVar,
+        func: LirVar,
+        args: Vec<LirVar>,
+        cont: BlockId,
+    },
+    /// Marks unreachable code (after panic, exhaustive match, etc.).
+    Unreachable,
+}
+
+// ── Program structure ────────────────────────────────────────────────────────
+
+/// A basic block: a sequence of instructions followed by a terminator.
+#[derive(Debug, Clone)]
+pub struct LirBlock {
+    pub id: BlockId,
+    /// Block parameters (like phi-node arguments in SSA).
+    pub params: Vec<LirVar>,
+    pub instrs: Vec<LirInstr>,
+    pub terminator: LirTerminator,
+}
+
+/// A function in LIR.
+#[derive(Debug, Clone)]
+pub struct LirFunction {
+    /// Human-readable name for debugging / symbol tables.
+    pub name: String,
+    /// Parameter variables.
+    pub params: Vec<LirVar>,
+    /// The entry block is always `blocks[0]`.
+    pub blocks: Vec<LirBlock>,
+    /// Next free variable ID for this function (for allocating fresh vars).
+    pub next_var: u32,
+}
+
+/// A complete LIR program — a collection of functions.
+#[derive(Debug, Clone)]
+pub struct LirProgram {
+    pub functions: Vec<LirFunction>,
+    /// String constants referenced by `LirConst::String`.
+    pub string_pool: Vec<String>,
+}
+
+// ── Display ──────────────────────────────────────────────────────────────────
+
+impl fmt::Display for LirVar {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "%{}", self.0)
+    }
+}
+
+impl fmt::Display for BlockId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "bb{}", self.0)
+    }
+}
+
+impl fmt::Display for CmpOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CmpOp::Eq => write!(f, "eq"),
+            CmpOp::Ne => write!(f, "ne"),
+            CmpOp::Slt => write!(f, "slt"),
+            CmpOp::Sle => write!(f, "sle"),
+            CmpOp::Sgt => write!(f, "sgt"),
+            CmpOp::Sge => write!(f, "sge"),
+        }
+    }
+}
+
+impl LirFunction {
+    /// Allocate a fresh `LirVar`.
+    pub fn fresh_var(&mut self) -> LirVar {
+        let v = LirVar(self.next_var);
+        self.next_var += 1;
+        v
+    }
+}
+
+impl LirProgram {
+    /// Create an empty program.
+    pub fn new() -> Self {
+        Self {
+            functions: Vec::new(),
+            string_pool: Vec::new(),
+        }
+    }
+
+    /// Intern a string constant, returning its index.
+    pub fn intern_string(&mut self, s: String) -> usize {
+        if let Some(idx) = self.string_pool.iter().position(|existing| *existing == s) {
+            idx
+        } else {
+            let idx = self.string_pool.len();
+            self.string_pool.push(s);
+            idx
+        }
+    }
+}
+
+impl Default for LirProgram {
+    fn default() -> Self {
+        Self::new()
+    }
+}
