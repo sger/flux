@@ -427,7 +427,18 @@ pub fn execute_core_primop(
             Value::Array(arr) => Ok(Value::Integer(arr.len() as i64)),
             Value::Tuple(t) => Ok(Value::Integer(t.len() as i64)),
             Value::None | Value::EmptyList => Ok(Value::Integer(0)),
-            Value::Cons(_) => Err("len() on cons lists is O(n). Use length(xs) from Flow.List instead.".into()),
+            Value::Cons(_) => {
+                let mut count: i64 = 0;
+                let mut cur = &args[0];
+                loop {
+                    match cur {
+                        Value::None | Value::EmptyList => break,
+                        Value::Cons(cell) => { count += 1; cur = &cell.tail; }
+                        _ => break,
+                    }
+                }
+                Ok(Value::Integer(count))
+            }
             Value::HashMap(node) => Ok(Value::Integer(rc_hamt::hamt_len(node) as i64)),
             other => Err(terr("len", "String, Array, Tuple, or Map", other)),
         },
