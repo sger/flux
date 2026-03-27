@@ -1063,6 +1063,9 @@ fn collect_used_candidate_binders(
             collect_used_candidate_binders(unique_body, bound, candidates, used);
             collect_used_candidate_binders(shared_body, bound, candidates, used);
         }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            collect_used_candidate_binders(object, bound, candidates, used);
+        }
     }
 }
 

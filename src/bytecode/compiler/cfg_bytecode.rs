@@ -1028,8 +1028,8 @@ impl Compiler {
                     && let Some(primop) = crate::core::CorePrimOp::from_name(name_str, args.len())
                 {
                     let required = match primop.effect_kind() {
-                        crate::primop::PrimEffect::Io => Some("IO"),
-                        crate::primop::PrimEffect::Time => Some("Time"),
+                        crate::core::PrimEffect::Io => Some("IO"),
+                        crate::core::PrimEffect::Time => Some("Time"),
                         _ => None,
                     };
                     if let Some(required_name) = required
@@ -1153,8 +1153,8 @@ impl Compiler {
             && let Some(primop) = crate::core::CorePrimOp::from_name(name_str, args.len())
         {
             let required = match primop.effect_kind() {
-                crate::primop::PrimEffect::Io => Some("IO"),
-                crate::primop::PrimEffect::Time => Some("Time"),
+                crate::core::PrimEffect::Io => Some("IO"),
+                crate::core::PrimEffect::Time => Some("Time"),
                 _ => None,
             };
             if let Some(required_name) = required

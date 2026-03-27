@@ -37,8 +37,7 @@ use crate::{
         quality::{EffectConstraintOrigin, with_effect_constraint_origin},
         types::ErrorType,
     },
-    core::CorePrimOp,
-    primop::PrimEffect,
+    core::{CorePrimOp, PrimEffect},
     runtime::{
         compiled_function::CompiledFunction, handler_descriptor::HandlerDescriptor,
         perform_descriptor::PerformDescriptor, runtime_type::RuntimeType, value::Value,

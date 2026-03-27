@@ -3005,20 +3005,6 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
         self.emit_make_tuple_value(fields)
     }
 
-    fn lower_tuple_field(
-        &mut self,
-        index: usize,
-        args: &[CoreExpr],
-    ) -> Result<LlvmOperand, CoreToLlvmError> {
-        if args.len() != 1 {
-            return Err(CoreToLlvmError::Malformed {
-                message: format!("TupleField expects 1 arg, got {}", args.len()),
-            });
-        }
-        let tuple = self.lower_expr(&args[0])?;
-        self.load_tuple_field(tuple, index)
-    }
-
     fn lower_helper_call(
         &mut self,
         name: &str,

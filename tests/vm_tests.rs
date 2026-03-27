@@ -5,7 +5,7 @@ use flux::bytecode::{
     op_code::{OpCode, make},
 };
 use flux::diagnostics::{DiagnosticsAggregator, render_diagnostics};
-use flux::primop::resolve_primop_call;
+use flux::core::CorePrimOp;
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::module_graph::ModuleGraph;
@@ -1546,9 +1546,9 @@ fn test_list_phase_1b_empty_list_panics() {
 
 #[test]
 fn test_removed_list_and_array_sort_primops_require_library_apis() {
-    assert_eq!(resolve_primop_call("hd", 1), None);
-    assert_eq!(resolve_primop_call("tl", 1), None);
-    assert_eq!(resolve_primop_call("sort", 1), None);
+    assert_eq!(CorePrimOp::from_name("hd", 1), None);
+    assert_eq!(CorePrimOp::from_name("tl", 1), None);
+    assert_eq!(CorePrimOp::from_name("sort", 1), None);
 
     assert_eq!(
         run("to_string(Array.sort([|3, 1, 2|]));"),

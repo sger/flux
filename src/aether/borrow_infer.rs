@@ -226,7 +226,7 @@ fn register_explicit_named_fallbacks(
     for (name, arity) in unresolved_callees {
         if let Some(interner) = interner
             && let Some((primop_arity, borrows)) =
-                crate::primop::resolve_primop_borrow_info(interner.resolve(name))
+                crate::core::CorePrimOp::resolve_borrow_info(interner.resolve(name))
         {
             let mode = if borrows {
                 BorrowMode::Borrowed
