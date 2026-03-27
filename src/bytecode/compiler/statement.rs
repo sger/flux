@@ -620,10 +620,10 @@ impl Compiler {
                 }
                 let name_str = self.sym(*name).to_string();
                 name_str != "list"
-                    && crate::primop::resolve_primop_call(&name_str, 0).is_none()
-                    && crate::primop::resolve_primop_call(&name_str, 1).is_none()
-                    && crate::primop::resolve_primop_call(&name_str, 2).is_none()
-                    && crate::primop::resolve_primop_call(&name_str, 3).is_none()
+                    && crate::core::CorePrimOp::from_name(&name_str, 0).is_none()
+                    && crate::core::CorePrimOp::from_name(&name_str, 1).is_none()
+                    && crate::core::CorePrimOp::from_name(&name_str, 2).is_none()
+                    && crate::core::CorePrimOp::from_name(&name_str, 3).is_none()
             }
             Expression::If {
                 condition,

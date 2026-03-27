@@ -227,7 +227,7 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
 
     let cc = std::env::var("CC").unwrap_or_else(|_| "cc".into());
     let c_files = [
-        "gc.c",
+        "rc.c",
         "flux_rt.c",
         "string.c",
         "hamt.c",

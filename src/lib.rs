@@ -6,7 +6,6 @@ pub mod core;
 #[cfg(feature = "native")]
 pub mod core_to_llvm;
 pub mod diagnostics;
-pub mod primop;
 pub mod runtime;
 pub mod shared_ir;
 pub mod syntax;

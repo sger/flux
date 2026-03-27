@@ -258,9 +258,26 @@ pub enum CoreTag {
     Cons,
 }
 
+// ── Effect classification ─────────────────────────────────────────────────────
+
+/// Side-effect classification for primitive operations.
+///
+/// Used for optimization/planning decisions where purity matters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrimEffect {
+    /// Deterministic and side-effect free.
+    Pure,
+    /// Performs observable I/O.
+    Io,
+    /// Depends on wall-clock or monotonic time.
+    Time,
+    /// Affects control flow in non-local ways.
+    Control,
+}
+
 // ── Primitive operations ──────────────────────────────────────────────────────
 
-/// All operators and built-in operations lower to `PrimOp`.
+/// All operators and built-in operations lower to `CorePrimOp`.
 ///
 /// Generic variants (`Add`, `Mul`, …) are used when the operand type is not
 /// known at Core IR construction time (e.g. polymorphic or unresolved).
@@ -563,8 +580,7 @@ impl CorePrimOp {
 
     /// Side-effect classification. Used by the compiler to check that
     /// effectful primops have the required ambient effect in scope.
-    pub fn effect_kind(self) -> crate::primop::PrimEffect {
-        use crate::primop::PrimEffect;
+    pub fn effect_kind(self) -> PrimEffect {
         match self {
             Self::Println | Self::ReadFile | Self::WriteFile | Self::ReadStdin | Self::Print
             | Self::ReadLines => PrimEffect::Io,
@@ -572,6 +588,25 @@ impl CorePrimOp {
             Self::Panic => PrimEffect::Control,
             _ => PrimEffect::Pure,
         }
+    }
+
+    /// Whether this primop borrows its arguments (no ownership transfer).
+    /// Most primops borrow; only `ArrayPush` and `ArrayConcat` consume args.
+    pub fn borrows_args(self) -> bool {
+        !matches!(self, Self::ArrayPush | Self::ArrayConcat)
+    }
+
+    /// Look up borrow mode for a named function that may be a primop.
+    /// Returns `Some((arity, borrows))` if the name resolves at any arity.
+    /// Used by Aether borrow inference.
+    pub fn resolve_borrow_info(name: &str) -> Option<(usize, bool)> {
+        // Try arities 0..=3 (covers all primops).
+        for arity in 0..=3 {
+            if let Some(op) = Self::from_name(name, arity) {
+                return Some((arity, op.borrows_args()));
+            }
+        }
+        None
     }
 }
 

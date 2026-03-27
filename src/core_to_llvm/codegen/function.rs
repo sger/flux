@@ -282,6 +282,9 @@ fn has_nontail_self_call(expr: &CoreExpr, self_id: CoreBinderId, in_tail: bool) 
             has_nontail_self_call(unique_body, self_id, in_tail)
                 || has_nontail_self_call(shared_body, self_id, in_tail)
         }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            has_nontail_self_call(object, self_id, false)
+        }
     }
 }
 
@@ -377,6 +380,9 @@ fn collect_tail_callees(
         } => {
             collect_tail_callees(unique_body, def_ids, out, in_tail);
             collect_tail_callees(shared_body, def_ids, out, in_tail);
+        }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            collect_tail_callees(object, def_ids, out, false);
         }
     }
 }
