@@ -176,6 +176,9 @@ fn count_nodes(expr: &CoreExpr, stats: &mut AetherStats) {
                 count_nodes(&h.body, stats);
             }
         }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            count_nodes(object, stats);
+        }
         CoreExpr::DropSpecialized {
             unique_body,
             shared_body,

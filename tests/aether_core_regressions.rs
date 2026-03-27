@@ -101,6 +101,9 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
             out.extend(collect_core_exprs(unique_body));
             out.extend(collect_core_exprs(shared_body));
         }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            out.extend(collect_core_exprs(object));
+        }
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
     }
     out

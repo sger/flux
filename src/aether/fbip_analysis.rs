@@ -385,6 +385,9 @@ fn analyze_expr(expr: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
             fact.reasons.insert(FbipFailureReason::EffectBoundary);
             fact
         }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            analyze_expr(object, ctx)
+        }
         CoreExpr::DropSpecialized {
             unique_body,
             shared_body,
@@ -640,6 +643,9 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
         }
         CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
             collect_unresolved_callees(body, unresolved)
+        }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            collect_unresolved_callees(object, unresolved)
         }
         CoreExpr::Reuse { fields, .. } => {
             for field in fields {

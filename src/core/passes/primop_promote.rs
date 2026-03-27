@@ -294,5 +294,15 @@ fn promote_expr(
             shared_body: Box::new(promote_expr(*shared_body, table, interner)),
             span,
         },
+        CoreExpr::MemberAccess { object, member, span } => CoreExpr::MemberAccess {
+            object: Box::new(promote_expr(*object, table, interner)),
+            member,
+            span,
+        },
+        CoreExpr::TupleField { object, index, span } => CoreExpr::TupleField {
+            object: Box::new(promote_expr(*object, table, interner)),
+            index,
+            span,
+        },
     }
 }

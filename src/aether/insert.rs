@@ -496,6 +496,38 @@ fn plan_expr(
                 env_before,
             }
         }
+        CoreExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => {
+            let object_plan =
+                plan_expr(*object, tail_env, ValueDemand::Borrowed, registry, scope);
+            AetherPlan {
+                expr: CoreExpr::MemberAccess {
+                    object: Box::new(object_plan.expr),
+                    member,
+                    span,
+                },
+                env_before: object_plan.env_before,
+            }
+        }
+        CoreExpr::TupleField {
+            object,
+            index,
+            span,
+        } => {
+            let object_plan =
+                plan_expr(*object, tail_env, ValueDemand::Borrowed, registry, scope);
+            AetherPlan {
+                expr: CoreExpr::TupleField {
+                    object: Box::new(object_plan.expr),
+                    index,
+                    span,
+                },
+                env_before: object_plan.env_before,
+            }
+        }
         CoreExpr::DropSpecialized {
             scrutinee,
             unique_body,
@@ -751,6 +783,9 @@ fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
             shared_body,
             ..
         } => expr_drops_binder(unique_body, binder) || expr_drops_binder(shared_body, binder),
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            expr_drops_binder(object, binder)
+        }
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => false,
     }
 }
@@ -833,6 +868,9 @@ mod tests {
             } => {
                 count_binder_nodes(unique_body, binder, predicate)
                     + count_binder_nodes(shared_body, binder, predicate)
+            }
+            CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+                count_binder_nodes(object, binder, predicate)
             }
             CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => 0,
         };

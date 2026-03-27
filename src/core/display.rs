@@ -304,6 +304,19 @@ impl<'a> Formatter<'a> {
                 push_indent(out, indent);
                 out.push('}');
             }
+            CoreExpr::MemberAccess {
+                object, member, ..
+            } => {
+                self.write_expr_inline(out, object, indent);
+                out.push('.');
+                out.push_str(&self.resolve_name(*member));
+            }
+            CoreExpr::TupleField {
+                object, index, ..
+            } => {
+                self.write_expr_inline(out, object, indent);
+                write!(out, ".{index}").unwrap();
+            }
         }
     }
 
@@ -532,8 +545,6 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::MakeTuple => out.push_str("MakeTuple"),
         CorePrimOp::MakeHash => out.push_str("MakeHash"),
         CorePrimOp::Index => out.push_str("Index"),
-        CorePrimOp::MemberAccess(name) => write!(out, "MemberAccess({})", name.as_u32()).unwrap(),
-        CorePrimOp::TupleField(index) => write!(out, "TupleField({index})").unwrap(),
         // Promoted primops (Proposal 0120)
         CorePrimOp::Print => out.push_str("Print"),
         CorePrimOp::Println => out.push_str("Println"),

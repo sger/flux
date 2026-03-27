@@ -289,6 +289,34 @@ fn rewrite_with_ctx(
                 span,
             }
         }
+        CoreExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => CoreExpr::MemberAccess {
+            object: Box::new(rewrite_with_ctx(
+                *object,
+                pat_binders,
+                pat_tag,
+                blocked_outer_token,
+            )),
+            member,
+            span,
+        },
+        CoreExpr::TupleField {
+            object,
+            index,
+            span,
+        } => CoreExpr::TupleField {
+            object: Box::new(rewrite_with_ctx(
+                *object,
+                pat_binders,
+                pat_tag,
+                blocked_outer_token,
+            )),
+            index,
+            span,
+        },
         // Atoms — no children
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
     }

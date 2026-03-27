@@ -203,33 +203,6 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                     metadata: meta,
                 });
             }
-            CorePrimOp::MemberAccess(member) => {
-                let module_name = match &args[0] {
-                    CoreExpr::Var { var, .. } => Some(var.name),
-                    _ => None,
-                };
-                let object = self.lower_expr(&args[0]);
-                self.emit(IrInstr::Assign {
-                    dest,
-                    expr: IrExpr::MemberAccess {
-                        object,
-                        member: *member,
-                        module_name,
-                    },
-                    metadata: meta,
-                });
-            }
-            CorePrimOp::TupleField(idx) => {
-                let object = self.lower_expr(&args[0]);
-                self.emit(IrInstr::Assign {
-                    dest,
-                    expr: IrExpr::TupleFieldAccess {
-                        object,
-                        index: *idx,
-                    },
-                    metadata: meta,
-                });
-            }
             // Promoted primops — lower back to named function calls.
             // The bytecode compiler already handles these via
             // resolve_primop_call / OpCallBase dispatch.

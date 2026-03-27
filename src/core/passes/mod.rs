@@ -254,6 +254,9 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
             collect_max_binder_id(unique_body, max);
             collect_max_binder_id(shared_body, max);
         }
+        MemberAccess { object, .. } | TupleField { object, .. } => {
+            collect_max_binder_id(object, max);
+        }
     }
 }
 
