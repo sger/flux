@@ -164,6 +164,23 @@ pub enum LirInstr {
         captures: Vec<LirVar>,
     },
 
+    // ── Constructor creation ────────────────────────────────────────
+    /// Build a constructor value from a tag and fields.
+    ///
+    /// This is a high-level instruction that the bytecode emitter maps to
+    /// VM-specific opcodes (OpSome, OpCons, OpMakeAdt, etc.) and the LLVM
+    /// emitter expands to Alloc/Store/TagPtr sequences.
+    ///
+    /// `ctor_tag`: the constructor's integer tag (Some=1, Left=2, Right=3, Cons=4, user=5+)
+    /// `ctor_name`: the constructor's string name (for OpMakeAdt which needs it in the constant pool)
+    /// `fields`: the field values (already lowered to LirVars)
+    MakeCtor {
+        dst: LirVar,
+        ctor_tag: i32,
+        ctor_name: Option<String>,
+        fields: Vec<LirVar>,
+    },
+
     // ── Variables ───────────────────────────────────────────────────
     /// Copy a value (no ref-count change — use Dup for ownership).
     Copy { dst: LirVar, src: LirVar },
