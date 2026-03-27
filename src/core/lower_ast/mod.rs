@@ -626,7 +626,7 @@ mod tests {
     fn collect_ops_in_expr(expr: &CoreExpr, out: &mut Vec<CorePrimOp>) {
         match expr {
             CoreExpr::PrimOp { op, args, .. } => {
-                out.push(op.clone());
+                out.push(*op);
                 for a in args {
                     collect_ops_in_expr(a, out);
                 }
