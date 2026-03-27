@@ -92,6 +92,7 @@ fn compile_nested_function(
 
 struct FnEmitter<'a> {
     func: &'a LirFunction,
+    #[allow(dead_code)] // used by future LLVM emitter + string pool lookups
     program: &'a LirProgram,
     /// Output instruction stream.
     instructions: Instructions,
@@ -366,10 +367,55 @@ impl<'a> FnEmitter<'a> {
                 self.pop_into(*dst);
             }
 
-            // ── Memory (VM uses Value types, not raw memory) ─────────
+            // ── Constructor creation ──────────────────────────────────
+            LirInstr::MakeCtor {
+                dst,
+                ctor_tag,
+                ctor_name,
+                fields,
+            } => {
+                // Push all fields onto the stack first.
+                for &field in fields {
+                    self.push_var(field);
+                }
+                match (*ctor_tag, fields.len()) {
+                    // Built-in constructors with dedicated opcodes.
+                    (1, 1) => {
+                        // Some(val): OpSome wraps TOS
+                        self.emit_op(OpCode::OpSome, &[]);
+                    }
+                    (2, 1) => {
+                        // Left(val): OpLeft wraps TOS
+                        self.emit_op(OpCode::OpLeft, &[]);
+                    }
+                    (3, 1) => {
+                        // Right(val): OpRight wraps TOS
+                        self.emit_op(OpCode::OpRight, &[]);
+                    }
+                    (4, 2) => {
+                        // Cons(head, tail): OpCons pops 2
+                        self.emit_op(OpCode::OpCons, &[]);
+                    }
+                    _ => {
+                        // User-defined ADT: OpMakeAdt(const_idx, arity)
+                        // OpMakeAdt needs the constructor name as a string constant.
+                        let name = ctor_name.as_deref().unwrap_or("?");
+                        let const_idx =
+                            self.add_constant(Value::String(Rc::new(name.to_string())));
+                        self.emit_op(
+                            OpCode::OpMakeAdt,
+                            &[const_idx, fields.len()],
+                        );
+                    }
+                }
+                self.pop_into(*dst);
+            }
+
+            // ── Memory (raw Alloc/Store/Load — used by reuse path, ──
+            // ── not by normal constructor emission) ─────────────────
             LirInstr::Alloc { dst, .. } => {
-                // VM doesn't do explicit alloc — constructors are built by
-                // OpSome/OpCons/OpMakeAdt etc.  Store None as placeholder.
+                // Reuse path fallback — should not appear in normal code
+                // after MakeCtor is used. Emit None as placeholder.
                 self.emit_op(OpCode::OpNone, &[]);
                 self.pop_into(*dst);
             }
@@ -378,7 +424,7 @@ impl<'a> FnEmitter<'a> {
                 self.pop_into(*dst);
             }
             LirInstr::Store { .. } => {
-                // No-op for VM — construction is atomic via OpSome etc.
+                // No-op for VM — reuse path writes are handled by OpReuseAdt.
             }
 
             // ── Aether RC ────────────────────────────────────────────

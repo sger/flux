@@ -2453,7 +2453,7 @@ impl Compiler {
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
         crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
 
-        let lir = crate::lir::lower::lower_program(&core);
+        let lir = crate::lir::lower::lower_program_with_interner(&core, Some(&self.interner));
         Ok(crate::lir::lower::display_program(&lir))
     }
 
@@ -2478,7 +2478,7 @@ impl Compiler {
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
         crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
 
-        let lir = crate::lir::lower::lower_program(&core);
+        let lir = crate::lir::lower::lower_program_with_interner(&core, Some(&self.interner));
         Ok(crate::lir::emit_bytecode::emit_program(&lir))
     }
 
