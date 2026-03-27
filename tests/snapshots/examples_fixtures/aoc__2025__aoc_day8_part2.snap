@@ -3,85 +3,19 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day8_part2.flx
 == compile ==
-failed (compile)
+failed (module)
 == diagnostics ==
-error[E004]: Undefined Variable
+error[E018]: Import Not Found
 
-I can't find a value named `range`.
+Cannot find module `Flow.Array` to import.
 
-  examples/aoc/2025/aoc_day8_part2.flx:126:16
-    |
-126 |     let idxs = range(0, n)
-    |                ^^^^^
-
-Hint:
-  Define it first: let range = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2025/aoc_day8_part2.flx:128:5
-    |
-128 |     fold(idxs, [||], /(acc, i) -> {
-    |     ^^^^
+  examples/aoc/2025/aoc_day8_part2.flx:6:1
+  |
+6 | import Flow.Array as Array
+  | ^
 
 Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `range`.
-
-  examples/aoc/2025/aoc_day8_part2.flx:134:20
-    |
-134 |     let parents0 = range(0, n)
-    |                    ^^^^^
-
-Hint:
-  Define it first: let range = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day8_part2.flx:135:18
-    |
-135 |     let sizes0 = map(range(0, n), /_ -> 1)
-    |                  ^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2025/aoc_day8_part2.flx:137:5
-    |
-137 |     fold(sorted_keys, state0, /(st, k) -> union_key(st, k))
-    |     ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day8_part2.flx:156:14
-    |
-156 | let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
-    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
-
-Found 6 errors.
+  Check that: 1) The module file exists (e.g., `Flow.Array.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Flow.Array` under roots: examples/aoc/2025, src (imported from examples/aoc/2025/aoc_day8_part2.flx).
 == stdout ==
 <not executed>

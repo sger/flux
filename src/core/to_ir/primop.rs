@@ -17,6 +17,7 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::ReadFile => "read_file",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
+        CorePrimOp::ReadLines => "read_lines",
         CorePrimOp::StringLength => "string_length",
         CorePrimOp::StringConcat => "string_concat",
         CorePrimOp::StringSlice => "string_slice",
@@ -60,11 +61,17 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::CmpNe => "cmp_ne",
         CorePrimOp::Panic => "panic",
         CorePrimOp::ClockNow => "now_ms",
+        CorePrimOp::Time => "time",
         CorePrimOp::Try => "try",
         CorePrimOp::AssertThrows => "assert_throws",
         CorePrimOp::ParseInt => "parse_int",
+        CorePrimOp::ParseInts => "parse_ints",
+        CorePrimOp::SplitInts => "split_ints",
         CorePrimOp::ToList => "to_list",
         CorePrimOp::ToArray => "to_array",
+        CorePrimOp::Abs => "abs",
+        CorePrimOp::Min => "min",
+        CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
         _ => unreachable!("not a promoted primop"),
     }
@@ -96,6 +103,18 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::Le
             | CorePrimOp::Gt
             | CorePrimOp::Ge
+            | CorePrimOp::ICmpEq
+            | CorePrimOp::ICmpNe
+            | CorePrimOp::ICmpLt
+            | CorePrimOp::ICmpLe
+            | CorePrimOp::ICmpGt
+            | CorePrimOp::ICmpGe
+            | CorePrimOp::FCmpEq
+            | CorePrimOp::FCmpNe
+            | CorePrimOp::FCmpLt
+            | CorePrimOp::FCmpLe
+            | CorePrimOp::FCmpGt
+            | CorePrimOp::FCmpGe
             | CorePrimOp::And
             | CorePrimOp::Or
             | CorePrimOp::Concat => {
@@ -219,6 +238,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::ReadFile
             | CorePrimOp::WriteFile
             | CorePrimOp::ReadStdin
+            | CorePrimOp::ReadLines
             | CorePrimOp::StringLength
             | CorePrimOp::StringConcat
             | CorePrimOp::StringSlice
@@ -260,9 +280,15 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::IsMap
             | CorePrimOp::Panic
             | CorePrimOp::ClockNow
+            | CorePrimOp::Time
             | CorePrimOp::ParseInt
+            | CorePrimOp::ParseInts
+            | CorePrimOp::SplitInts
             | CorePrimOp::ToList
             | CorePrimOp::ToArray
+            | CorePrimOp::Abs
+            | CorePrimOp::Min
+            | CorePrimOp::Max
             | CorePrimOp::Len
             | CorePrimOp::CmpEq
             | CorePrimOp::CmpNe
@@ -310,6 +336,20 @@ pub(super) fn primop_to_binop(op: &CorePrimOp) -> IrBinaryOp {
         CorePrimOp::Le => IrBinaryOp::Le,
         CorePrimOp::Gt => IrBinaryOp::Gt,
         CorePrimOp::Ge => IrBinaryOp::Ge,
+        // Typed integer comparisons — map to generic IR comparison ops
+        CorePrimOp::ICmpEq => IrBinaryOp::Eq,
+        CorePrimOp::ICmpNe => IrBinaryOp::NotEq,
+        CorePrimOp::ICmpLt => IrBinaryOp::Lt,
+        CorePrimOp::ICmpLe => IrBinaryOp::Le,
+        CorePrimOp::ICmpGt => IrBinaryOp::Gt,
+        CorePrimOp::ICmpGe => IrBinaryOp::Ge,
+        // Typed float comparisons
+        CorePrimOp::FCmpEq => IrBinaryOp::Eq,
+        CorePrimOp::FCmpNe => IrBinaryOp::NotEq,
+        CorePrimOp::FCmpLt => IrBinaryOp::Lt,
+        CorePrimOp::FCmpLe => IrBinaryOp::Le,
+        CorePrimOp::FCmpGt => IrBinaryOp::Gt,
+        CorePrimOp::FCmpGe => IrBinaryOp::Ge,
         CorePrimOp::And => IrBinaryOp::And,
         CorePrimOp::Or => IrBinaryOp::Or,
         _ => unreachable!("not a binary op: {:?}", op),
