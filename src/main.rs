@@ -66,6 +66,10 @@ fn main() {
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
     let dump_aether = args.iter().any(|arg| arg == "--dump-aether");
     let dump_lir = args.iter().any(|arg| arg == "--dump-lir");
+    #[cfg(feature = "core_to_llvm")]
+    let dump_lir_llvm = args.iter().any(|arg| arg == "--dump-lir-llvm");
+    #[cfg(not(feature = "core_to_llvm"))]
+    let dump_lir_llvm = false;
     let run_lir = args.iter().any(|arg| arg == "--run-lir") || std::env::var("FLUX_USE_LIR").is_ok();
     #[cfg(feature = "native")]
     let use_core_to_llvm = args
@@ -118,6 +122,9 @@ fn main() {
     }
     if dump_lir {
         args.retain(|arg| arg != "--dump-lir");
+    }
+    if dump_lir_llvm {
+        args.retain(|arg| arg != "--dump-lir-llvm");
     }
     if run_lir {
         args.retain(|arg| arg != "--run-lir");
@@ -199,6 +206,7 @@ fn main() {
                 dump_core,
                 dump_aether,
                 dump_lir,
+                dump_lir_llvm,
                 run_lir,
                 use_core_to_llvm,
                 emit_llvm,
@@ -260,6 +268,7 @@ fn main() {
                     dump_core,
                     dump_aether,
                     dump_lir,
+                    dump_lir_llvm,
                     run_lir,
                     use_core_to_llvm,
                     emit_llvm,
@@ -473,6 +482,7 @@ fn run_file(
     dump_core: CoreDumpMode,
     dump_aether: bool,
     dump_lir: bool,
+    #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] dump_lir_llvm: bool,
     run_lir: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] use_core_to_llvm: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] emit_llvm: bool,
@@ -500,6 +510,7 @@ fn run_file(
                 && matches!(dump_core, CoreDumpMode::None)
                 && !dump_aether
                 && !dump_lir
+                && !dump_lir_llvm
                 && !trace_aether
             {
                 if let Some(bytecode) =
@@ -818,6 +829,28 @@ fn run_file(
                 let dumped = compiler.dump_lir(&merged_program, enable_optimize);
                 match dumped {
                     Ok(dumped) => println!("{dumped}"),
+                    Err(diag) => {
+                        emit_diagnostics(
+                            &[diag],
+                            Some(path),
+                            Some(source.as_str()),
+                            is_multimodule,
+                            max_errors,
+                            diagnostics_format,
+                            all_errors,
+                            true,
+                        );
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+
+            // --- LIR → LLVM IR dump (Proposal 0132 Phase 7) ---
+            #[cfg(feature = "core_to_llvm")]
+            if dump_lir_llvm {
+                match compiler.dump_lir_llvm(&merged_program, enable_optimize) {
+                    Ok(ir_text) => println!("{ir_text}"),
                     Err(diag) => {
                         emit_diagnostics(
                             &[diag],
