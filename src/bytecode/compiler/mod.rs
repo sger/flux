@@ -2491,7 +2491,10 @@ impl Compiler {
 
         // Build a globals map from the symbol table so the LIR lowerer can
         // emit GetGlobal for imported/prelude functions (GHC-style external labels).
-        let globals_map = self.build_globals_map();
+        // Extract import aliases from the program's import statements since
+        // the entry module wasn't compiled via CFG (aliases weren't populated).
+        let extra_aliases = self.extract_import_aliases(program);
+        let globals_map = self.build_globals_map_with_aliases(&extra_aliases);
 
         let lir = crate::lir::lower::lower_program_with_interner(
             &core,
@@ -2504,12 +2507,30 @@ impl Compiler {
         ))
     }
 
-    /// Build a Symbol → global index map from the compiler's symbol table.
-    /// This lets the LIR lowerer emit `GetGlobal` for imported/prelude functions.
+    /// Extract import aliases from a program's import statements.
+    /// Returns (alias_name, module_name) pairs as resolved strings.
+    fn extract_import_aliases(&self, program: &Program) -> Vec<(String, String)> {
+        let mut aliases = Vec::new();
+        for stmt in &program.statements {
+            if let Statement::Import { name, alias: Some(alias_sym), .. } = stmt {
+                let module_name = self.interner.resolve(crate::syntax::Identifier::from(*name)).to_string();
+                let alias_name = self.interner.resolve(crate::syntax::Identifier::from(*alias_sym)).to_string();
+                aliases.push((alias_name, module_name));
+            }
+        }
+        aliases
+    }
+
+    fn build_globals_map(&self) -> HashMap<String, usize> {
+        self.build_globals_map_with_aliases(&[])
+    }
+
     /// Build a string-name → global index map from the compiler's symbol table.
     /// Maps both qualified ("Flow.List.map") and unqualified ("map") names so
     /// the LIR lowerer can resolve external variables regardless of naming.
-    fn build_globals_map(&self) -> HashMap<String, usize> {
+    /// `extra_aliases` are (alias, module) pairs from the entry module's imports
+    /// that weren't processed via CFG compilation.
+    fn build_globals_map_with_aliases(&self, extra_aliases: &[(String, String)]) -> HashMap<String, usize> {
         // Build reverse alias map: "Flow.Array" → ["Array"]
         let mut module_aliases: HashMap<String, Vec<String>> = HashMap::new();
         for (alias_sym, target_sym) in &self.import_aliases {
@@ -2517,17 +2538,28 @@ impl Compiler {
             let target = self.interner.resolve(crate::syntax::Identifier::from(*target_sym)).to_string();
             module_aliases.entry(target).or_default().push(alias);
         }
+        for (alias, target) in extra_aliases {
+            module_aliases.entry(target.clone()).or_default().push(alias.clone());
+        }
 
         let mut map = HashMap::new();
-        for (sym, idx) in self.symbol_table.global_definitions() {
+        // Sort by global index so later-compiled modules (higher indices)
+        // shadow earlier ones for unqualified names. This ensures Flow.Array's
+        // `first`/`last`/`contains`/`reverse` shadow Flow.List's versions.
+        let mut globals = self.symbol_table.global_definitions();
+        globals.sort_by_key(|&(_, idx)| idx);
+        for (sym, idx) in globals {
             let name = self.interner.resolve(crate::syntax::Identifier::from(sym)).to_string();
             // Add qualified name (e.g. "Flow.Array.sort")
             map.insert(name.clone(), idx);
-            // Add unqualified name (last segment after last '.')
+            // Add unqualified name (last segment after last '.').
+            // Always overwrite: later-compiled modules (e.g. Flow.Array)
+            // shadow earlier ones (e.g. Flow.List) for the same unqualified
+            // name, matching the CFG compiler's resolution order.
             if let Some(short) = name.rsplit('.').next()
                 && short != name
             {
-                map.entry(short.to_string()).or_insert(idx);
+                map.insert(short.to_string(), idx);
             }
             // Add alias-qualified names (e.g. "Array.sort" for "Flow.Array.sort"
             // when "import Flow.Array as Array" is in effect).
