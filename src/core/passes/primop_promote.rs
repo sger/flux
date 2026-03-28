@@ -93,9 +93,11 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         // Polymorphic length
         ("len", 1, CorePrimOp::Len),
         // Collection helpers (C runtime implementations).
-        // first/rest are NOT promoted — wrapping semantics differ.
         // map/filter/sort/sort_by are NOT promoted — they take closures
         // which the VM dispatch can't call (needs prelude closure path).
+        // first/last/rest: handled by Flow.List prelude (polymorphic for
+        // both arrays and cons lists). Not promoted here because they have
+        // binders from the prelude import.
         ("reverse", 1, CorePrimOp::Reverse),
         ("contains", 2, CorePrimOp::Contains),
     ];
