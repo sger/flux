@@ -757,13 +757,13 @@ impl<'a> FnEmitter<'a> {
                 self.emit_make_collection_fastcc(*dst, elements, "flux_make_tuple");
             }
             LirInstr::MakeHash { dst, pairs } => {
-                self.emit_make_collection(*dst, pairs, "flux_hamt_from_pairs");
+                self.emit_make_hash(*dst, pairs);
             }
             LirInstr::MakeList { dst, elements } => {
                 self.emit_make_list(*dst, elements);
             }
             LirInstr::Interpolate { dst, parts } => {
-                self.emit_make_collection(*dst, parts, "flux_interpolate");
+                self.emit_interpolate(*dst, parts);
             }
 
             // ── Constructor creation ────────────────────────────────
@@ -1014,6 +1014,92 @@ impl<'a> FnEmitter<'a> {
                 LlvmType::i64(),
             );
         }
+    }
+
+    fn emit_interpolate(&mut self, dst: LirVar, parts: &[LirVar]) {
+        // String interpolation: to_string each part, then concat.
+        if parts.is_empty() {
+            self.call_c(
+                Some(self.var_local(dst)),
+                "flux_string_new",
+                vec![
+                    (LlvmType::Ptr, LlvmOperand::Const(LlvmConst::Null)),
+                    (LlvmType::i32(), self.i32_const(0)),
+                ],
+                LlvmType::i64(),
+            );
+            return;
+        }
+        let mut current = self.tmp();
+        self.call_c(
+            Some(current.clone()),
+            "flux_to_string",
+            vec![(LlvmType::i64(), self.var(parts[0]))],
+            LlvmType::i64(),
+        );
+        for &part in &parts[1..] {
+            let part_str = self.tmp();
+            self.call_c(
+                Some(part_str.clone()),
+                "flux_to_string",
+                vec![(LlvmType::i64(), self.var(part))],
+                LlvmType::i64(),
+            );
+            let next = self.tmp();
+            self.call_c(
+                Some(next.clone()),
+                "flux_string_concat",
+                vec![
+                    (LlvmType::i64(), LlvmOperand::Local(current)),
+                    (LlvmType::i64(), LlvmOperand::Local(part_str)),
+                ],
+                LlvmType::i64(),
+            );
+            current = next;
+        }
+        self.emit(LlvmInstr::Binary {
+            dst: self.var_local(dst),
+            op: LlvmValueKind::Add,
+            ty: LlvmType::i64(),
+            lhs: LlvmOperand::Local(current),
+            rhs: self.i64_const(0),
+        });
+    }
+
+    fn emit_make_hash(&mut self, dst: LirVar, pairs: &[LirVar]) {
+        // Build HAMT from interleaved key-value pairs.
+        // Start with flux_hamt_empty(), then flux_hamt_set(map, key, val) for each pair.
+        let mut current = self.tmp();
+        self.call_c(
+            Some(current.clone()),
+            "flux_hamt_empty",
+            Vec::new(),
+            LlvmType::i64(),
+        );
+        for chunk in pairs.chunks(2) {
+            if chunk.len() == 2 {
+                let next = self.tmp();
+                self.call_c(
+                    Some(next.clone()),
+                    "flux_hamt_set",
+                    vec![
+                        (LlvmType::i64(), LlvmOperand::Local(current)),
+                        (LlvmType::i64(), self.var(chunk[0])),
+                        (LlvmType::i64(), self.var(chunk[1])),
+                    ],
+                    LlvmType::i64(),
+                );
+                current = next;
+            }
+        }
+        // Copy result to dst.
+        self.emit(LlvmInstr::Binary {
+            dst: self.var_local(dst),
+            op: LlvmValueKind::Add,
+            ty: LlvmType::i64(),
+            lhs: LlvmOperand::Local(current),
+            rhs: self.i64_const(0),
+        });
     }
 
     fn emit_make_list(&mut self, dst: LirVar, elements: &[LirVar]) {
@@ -1583,8 +1669,8 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::MakeTuple => return "flux_make_tuple".to_string(),
         CorePrimOp::MakeHash => return "flux_make_hash".to_string(),
         CorePrimOp::MakeList => return "flux_make_list".to_string(),
-        CorePrimOp::Interpolate => return "flux_interpolate".to_string(),
-        CorePrimOp::Index => return "flux_index".to_string(),
+        CorePrimOp::Interpolate => return "flux_to_string".to_string(), // simplified: single-arg toString
+        CorePrimOp::Index => return "flux_rt_index".to_string(),
     };
 
     // Look up in builtins table for the C name.
