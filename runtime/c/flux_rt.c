@@ -1703,6 +1703,20 @@ int64_t flux_ho_sort(int64_t collection, int64_t func) {
     return result;
 }
 
+/* Globals table for LIR native backend.
+ * Populated by module init functions before flux_main runs.
+ * TODO: replace with proper linker-based symbol resolution. */
+static int64_t flux_globals[256];
+
+int64_t flux_get_global(int64_t idx) {
+    if (idx >= 0 && idx < 256) return flux_globals[idx];
+    return flux_make_none();
+}
+
+void flux_set_global(int64_t idx, int64_t val) {
+    if (idx >= 0 && idx < 256) flux_globals[idx] = val;
+}
+
 #ifndef FLUX_RT_NO_MAIN
 
 /*
