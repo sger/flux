@@ -16,6 +16,8 @@
 //! ```
 
 pub mod emit_bytecode;
+#[cfg(feature = "core_to_llvm")]
+pub mod emit_llvm;
 pub mod lower;
 
 use std::fmt;

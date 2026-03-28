@@ -39,6 +39,7 @@ pub const FLUX_TUPLE_ARITY_FIELD: i32 = 4;
 pub const FLUX_TUPLE_PAYLOAD_FIELD: i32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub struct AdtMetadata {
     user_constructor_tags: HashMap<Identifier, i32>,
     constructor_arities: HashMap<Identifier, usize>,
