@@ -46,19 +46,6 @@ Hint:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `contains`.
-
-  examples/primop/collections.flx:7:11
-  |
-7 |     print(contains(arr, 20));
-  |           ^^^^^^^^
-
-Hint:
-  Define it first: let contains = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `first`.
 
   examples/primop/collections.flx:10:11
@@ -101,19 +88,6 @@ Hint:
 Help:
   Did you mean `lst`?
 
-
-error[E004]: Undefined Variable
-
-I can't find a value named `contains`.
-
-  examples/primop/collections.flx:13:11
-   |
-13 |     print(contains(lst, 2));
-   |           ^^^^^^^^
-
-Hint:
-  Define it first: let contains = ...;
-
-Found 8 errors.
+Found 6 errors.
 == stdout ==
 <not executed>

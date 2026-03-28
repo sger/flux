@@ -2937,7 +2937,24 @@ impl<'a, 'p> FunctionLowering<'a, 'p> {
             | CorePrimOp::ToArray
             | CorePrimOp::Len
             | CorePrimOp::CmpEq
-            | CorePrimOp::CmpNe => {
+            | CorePrimOp::CmpNe
+            | CorePrimOp::First
+            | CorePrimOp::Rest
+            | CorePrimOp::Reverse
+            | CorePrimOp::Contains
+            | CorePrimOp::Sort
+            | CorePrimOp::SortBy
+            | CorePrimOp::HoMap
+            | CorePrimOp::HoFilter
+            | CorePrimOp::Last
+            | CorePrimOp::HoAny
+            | CorePrimOp::HoAll
+            | CorePrimOp::HoEach
+            | CorePrimOp::HoFind
+            | CorePrimOp::HoCount
+            | CorePrimOp::Zip
+            | CorePrimOp::Flatten
+            | CorePrimOp::HoFlatMap => {
                 let flux_name = promoted_primop_flux_name(op);
                 let Some(mapping) = super::builtins::find_builtin(flux_name) else {
                     return Err(self.unsupported(
@@ -3532,6 +3549,23 @@ fn promoted_primop_flux_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::CmpNe => "cmp_ne",
         CorePrimOp::Try => "try",
         CorePrimOp::AssertThrows => "assert_throws",
+        CorePrimOp::First => "first",
+        CorePrimOp::Rest => "rest",
+        CorePrimOp::Reverse => "reverse",
+        CorePrimOp::Contains => "contains",
+        CorePrimOp::Sort => "sort",
+        CorePrimOp::SortBy => "sort_by",
+        CorePrimOp::HoMap => "map",
+        CorePrimOp::HoFilter => "filter",
+        CorePrimOp::Last => "last",
+        CorePrimOp::HoAny => "any",
+        CorePrimOp::HoAll => "all",
+        CorePrimOp::HoEach => "each",
+        CorePrimOp::HoFind => "find",
+        CorePrimOp::HoCount => "count",
+        CorePrimOp::Zip => "zip",
+        CorePrimOp::Flatten => "flatten",
+        CorePrimOp::HoFlatMap => "flat_map",
         _ => unreachable!("not a promoted primop"),
     }
 }

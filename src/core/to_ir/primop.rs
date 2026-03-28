@@ -73,6 +73,23 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Min => "min",
         CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
+        CorePrimOp::First => "first",
+        CorePrimOp::Rest => "rest",
+        CorePrimOp::Reverse => "reverse",
+        CorePrimOp::Contains => "contains",
+        CorePrimOp::Sort => "sort",
+        CorePrimOp::SortBy => "sort_by",
+        CorePrimOp::HoMap => "map",
+        CorePrimOp::HoFilter => "filter",
+        CorePrimOp::Last => "last",
+        CorePrimOp::HoAny => "any",
+        CorePrimOp::HoAll => "all",
+        CorePrimOp::HoEach => "each",
+        CorePrimOp::HoFind => "find",
+        CorePrimOp::HoCount => "count",
+        CorePrimOp::Zip => "zip",
+        CorePrimOp::Flatten => "flatten",
+        CorePrimOp::HoFlatMap => "flat_map",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -266,7 +283,24 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::CmpEq
             | CorePrimOp::CmpNe
             | CorePrimOp::Try
-            | CorePrimOp::AssertThrows => {
+            | CorePrimOp::AssertThrows
+            | CorePrimOp::First
+            | CorePrimOp::Rest
+            | CorePrimOp::Reverse
+            | CorePrimOp::Contains
+            | CorePrimOp::Sort
+            | CorePrimOp::SortBy
+            | CorePrimOp::HoMap
+            | CorePrimOp::HoFilter
+            | CorePrimOp::Last
+            | CorePrimOp::HoAny
+            | CorePrimOp::HoAll
+            | CorePrimOp::HoEach
+            | CorePrimOp::HoFind
+            | CorePrimOp::HoCount
+            | CorePrimOp::Zip
+            | CorePrimOp::Flatten
+            | CorePrimOp::HoFlatMap => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target
