@@ -346,6 +346,10 @@ int64_t flux_zip(int64_t a, int64_t b);
 int64_t flux_starts_with(int64_t s, int64_t prefix);
 int64_t flux_ends_with(int64_t s, int64_t suffix);
 
+/* ── Globals table (LIR native backend) ─────────────────────────────── */
+int64_t flux_get_global(int64_t idx);
+void flux_set_global(int64_t idx, int64_t val);
+
 /* ── Higher-order functions (closure calling) ──────────────────────── */
 /* flux_call_closure_c is defined in LLVM IR (ccc trampoline). */
 extern int64_t flux_call_closure_c(int64_t closure, int64_t *args, int32_t nargs);

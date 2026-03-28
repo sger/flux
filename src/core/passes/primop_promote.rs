@@ -38,12 +38,11 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         ("starts_with", 2, CorePrimOp::StartsWith),
         ("ends_with", 2, CorePrimOp::EndsWith),
         ("substring", 3, CorePrimOp::Substring),
-        // TODO: promote when C runtime implements these:
-        // ("upper", 1, CorePrimOp::Upper),
-        // ("lower", 1, CorePrimOp::Lower),
-        // ("replace", 3, CorePrimOp::Replace),
-        // ("chars", 1, CorePrimOp::Chars),
-        // ("str_contains", 2, CorePrimOp::StrContains),
+        ("upper", 1, CorePrimOp::Upper),
+        ("lower", 1, CorePrimOp::Lower),
+        ("replace", 3, CorePrimOp::Replace),
+        ("chars", 1, CorePrimOp::Chars),
+        ("str_contains", 2, CorePrimOp::StrContains),
         // Array memory operations
         ("push", 2, CorePrimOp::ArrayPush),
         ("concat", 2, CorePrimOp::ArrayConcat),
