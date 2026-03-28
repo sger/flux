@@ -17,6 +17,9 @@ use crate::syntax::interner::Interner;
 /// ADT header: {i32 ctor_tag, i32 field_count}, then i64 fields[].
 const ADT_HEADER_SIZE: i32 = 8;
 /// Tuple header: {i32 obj_tag, i32 arity}, then i64 fields[].
+/// Used by the LLVM emitter for direct memory access; the bytecode emitter
+/// uses TupleGet (→ OpTupleIndex) instead.
+#[allow(dead_code)]
 const TUPLE_PAYLOAD_OFFSET: i32 = 8;
 
 /// Constructor tag IDs (must match core_to_llvm/codegen/adt.rs and runtime).
@@ -39,12 +42,18 @@ const OBJ_TAG_CLOSURE: u8 = 5;
 
 /// Lower a complete `CoreProgram` to `LirProgram`.
 pub fn lower_program(program: &CoreProgram) -> LirProgram {
-    lower_program_with_interner(program, None)
+    lower_program_with_interner(program, None, None)
 }
 
+/// Lower a `CoreProgram` to `LirProgram` with symbol resolution support.
+///
+/// `globals_map` maps `Symbol` → VM global index for imported/prelude functions.
+/// When a `CoreExpr::Var` has no binder (external reference), the lowerer checks
+/// this map and emits `LirInstr::GetGlobal` instead of a `None` placeholder.
 pub fn lower_program_with_interner(
     program: &CoreProgram,
     interner: Option<&Interner>,
+    globals_map: Option<&HashMap<String, usize>>,
 ) -> LirProgram {
     let mut lir = LirProgram::new();
 
@@ -52,24 +61,42 @@ pub fn lower_program_with_interner(
     let top_level_binders: Vec<CoreBinderId> =
         program.defs.iter().map(|d| d.binder.id).collect();
 
-    // Phase 1: Lower all non-main defs first, recording binder → func_idx.
+    // Find the main def — it could be at any position in defs[].
+    let main_idx = if let Some(interner) = interner {
+        program
+            .defs
+            .iter()
+            .position(|d| interner.resolve(d.name) == "main")
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    // Phase 1: Lower all non-main defs, pre-assigning function indices
+    // so self-recursive and mutually-recursive functions work.
     let mut binder_func_map: HashMap<CoreBinderId, usize> = HashMap::new();
-    let num_defs = program.defs.len();
+    let mut func_counter = 0;
     for (i, def) in program.defs.iter().enumerate() {
-        if i == num_defs - 1 {
-            break; // skip main (last def) for now
+        if i == main_idx {
+            continue;
         }
-        let func = lower_def(def, &mut lir, &top_level_binders, &HashMap::new(), interner);
-        let func_idx = lir.functions.len();
-        lir.functions.push(func);
-        binder_func_map.insert(def.binder.id, func_idx);
+        binder_func_map.insert(def.binder.id, func_counter);
+        func_counter += 1;
     }
 
-    // Phase 2: Lower the main function with knowledge of sibling function indices.
-    if let Some(main_def) = program.defs.last() {
-        let func = lower_def(main_def, &mut lir, &top_level_binders, &binder_func_map, interner);
+    for (i, def) in program.defs.iter().enumerate() {
+        if i == main_idx {
+            continue;
+        }
+        let func = lower_def(def, &mut lir, &top_level_binders, &binder_func_map, interner, globals_map);
         lir.functions.push(func);
     }
+
+    // Phase 2: Lower main with knowledge of all sibling function indices.
+    // Main is always last in LIR (emit_program expects this).
+    let main_def = &program.defs[main_idx];
+    let func = lower_def(main_def, &mut lir, &top_level_binders, &binder_func_map, interner, globals_map);
+    lir.functions.push(func);
 
     lir
 }
@@ -88,10 +115,17 @@ struct FnLower<'a> {
     program: &'a mut LirProgram,
     /// Optional interner for resolving Symbol → string names.
     interner: Option<&'a Interner>,
+    /// Optional mapping from function name → VM global index for imported functions.
+    globals_map: Option<&'a HashMap<String, usize>>,
 }
 
 impl<'a> FnLower<'a> {
-    fn new(name: String, program: &'a mut LirProgram, interner: Option<&'a Interner>) -> Self {
+    fn new(
+        name: String,
+        program: &'a mut LirProgram,
+        interner: Option<&'a Interner>,
+        globals_map: Option<&'a HashMap<String, usize>>,
+    ) -> Self {
         let entry_block = LirBlock {
             id: BlockId(0),
             params: Vec::new(),
@@ -110,6 +144,7 @@ impl<'a> FnLower<'a> {
             current_block: 0,
             program,
             interner,
+            globals_map,
         }
     }
 
@@ -186,9 +221,24 @@ impl<'a> FnLower<'a> {
             CoreExpr::Var { var, .. } => {
                 if let Some(binder) = var.binder {
                     self.lookup(binder)
+                } else if let Some(globals) = self.globals_map {
+                    // External variable — resolve name and check the globals map.
+                    let name = self.resolve_name(var.name);
+                    if let Some(&global_idx) = globals.get(&name) {
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::GetGlobal { dst, global_idx });
+                        dst
+                    } else {
+                        // Unknown external — emit None placeholder.
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::Const {
+                            dst,
+                            value: LirConst::None,
+                        });
+                        dst
+                    }
                 } else {
-                    // Unresolved external variable — emit as a named constant
-                    // placeholder.  Full resolution happens in later phases.
+                    // No globals map available — emit None placeholder.
                     let dst = self.fresh_var();
                     self.emit(LirInstr::Const {
                         dst,
@@ -209,19 +259,96 @@ impl<'a> FnLower<'a> {
             CoreExpr::LetRec {
                 var, rhs, body, ..
             } => {
-                // For letrec, bind the variable first (for recursive references),
-                // then lower the RHS.  The RHS is typically a Lam which will be
-                // handled as a closure in Phase 4.  For now, use a placeholder.
-                let placeholder = self.fresh_var();
-                self.emit(LirInstr::Const {
-                    dst: placeholder,
-                    value: LirConst::None,
-                });
-                self.bind(var.id, placeholder);
-                let rhs_var = self.lower_expr(rhs);
-                // Update the binding to point to the actual value.
-                self.bind(var.id, rhs_var);
-                self.lower_expr(body)
+                // For letrec where the RHS is a lambda (recursive function):
+                // 1. Pre-assign a function index in the program
+                // 2. Create a MakeClosure that the lambda body can reference
+                // 3. The inner lambda sees itself via its own function index
+                if let CoreExpr::Lam { params, body: lam_body, .. } = rhs.as_ref() {
+                    let free = collect_free_vars(rhs);
+                    let outer_captures: Vec<(CoreBinderId, LirVar)> = free
+                        .iter()
+                        .filter(|id| **id != var.id) // exclude self-reference
+                        .filter_map(|id| self.env.get(id).copied().map(|v| (*id, v)))
+                        .collect();
+
+                    let mut temp_program = std::mem::replace(
+                        &mut *self.program,
+                        LirProgram { functions: Vec::new(), string_pool: Vec::new() },
+                    );
+
+                    // Pre-assign function index so self-recursion works.
+                    // Push a placeholder to reserve the slot so nested letrecs
+                    // don't occupy this index.
+                    let func_idx = temp_program.functions.len();
+                    temp_program.functions.push(LirFunction {
+                        name: format!("letrec_{}_placeholder", func_idx),
+                        params: Vec::new(),
+                        blocks: Vec::new(),
+                        next_var: 0,
+                        capture_vars: Vec::new(),
+                    });
+
+                    let func_name = format!("letrec_{}", func_idx);
+                    let mut inner = FnLower::new(func_name, &mut temp_program, self.interner, self.globals_map);
+
+                    // Capture outer variables.
+                    for &(binder_id, _outer_var) in &outer_captures {
+                        let inner_var = inner.fresh_var();
+                        inner.func.capture_vars.push(inner_var);
+                        inner.bind(binder_id, inner_var);
+                    }
+
+                    // Self-reference: the letrec variable inside the lambda
+                    // creates a MakeClosure to itself (same func_idx).
+                    let self_var = inner.fresh_var();
+                    inner.emit(LirInstr::MakeClosure {
+                        dst: self_var,
+                        func_idx,
+                        captures: (0..outer_captures.len())
+                            .map(|i| inner.func.capture_vars[i])
+                            .collect(),
+                    });
+                    inner.bind(var.id, self_var);
+
+                    // Register parameters.
+                    for param in params {
+                        let pv = inner.fresh_var();
+                        inner.bind(param.id, pv);
+                        inner.func.params.push(pv);
+                    }
+
+                    // Lower the body.
+                    let result = inner.lower_expr(lam_body);
+                    inner.set_terminator(LirTerminator::Return(result));
+                    let inner_func = inner.func;
+
+                    *self.program = temp_program;
+                    // Replace the placeholder with the actual function.
+                    self.program.functions[func_idx] = inner_func;
+
+                    // Emit MakeClosure in the outer context.
+                    let outer_capture_vars: Vec<LirVar> =
+                        outer_captures.iter().map(|&(_, v)| v).collect();
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::MakeClosure {
+                        dst,
+                        func_idx,
+                        captures: outer_capture_vars,
+                    });
+                    self.bind(var.id, dst);
+                    self.lower_expr(body)
+                } else {
+                    // Non-lambda letrec (rare): use placeholder approach.
+                    let placeholder = self.fresh_var();
+                    self.emit(LirInstr::Const {
+                        dst: placeholder,
+                        value: LirConst::None,
+                    });
+                    self.bind(var.id, placeholder);
+                    let rhs_var = self.lower_expr(rhs);
+                    self.bind(var.id, rhs_var);
+                    self.lower_expr(body)
+                }
             }
 
             CoreExpr::PrimOp { op, args, .. } => self.lower_primop(*op, args),
@@ -245,7 +372,7 @@ impl<'a> FnLower<'a> {
                     );
 
                     let func_name = format!("closure_{}", temp_program.functions.len());
-                    let mut inner = FnLower::new(func_name, &mut temp_program, self.interner);
+                    let mut inner = FnLower::new(func_name, &mut temp_program, self.interner, self.globals_map);
 
                     // Map captured variables: create fresh LirVars inside the inner
                     // function, mark them as capture_vars (→ OpGetFree in emitter).
@@ -320,35 +447,58 @@ impl<'a> FnLower<'a> {
             // ── ADT / collection construction (Phase 3) ──────────────
             CoreExpr::Con { tag, fields, .. } => self.lower_con(tag, fields),
 
-            CoreExpr::Return { value, .. } => self.lower_expr(value),
+            CoreExpr::Return { value, .. } => {
+                // Early return from function — emit Return terminator.
+                let val = self.lower_expr(value);
+                self.set_terminator(LirTerminator::Return(val));
+                // Create a new unreachable block for any dead code after the return.
+                let dead_idx = self.new_block();
+                self.switch_to_block(dead_idx);
+                val
+            }
 
             CoreExpr::MemberAccess { object, member, .. } => {
-                // Member access on a module object.  At LIR level this is
-                // a runtime field load.  The bytecode/LLVM emitters resolve
-                // module members statically; LIR emits a PrimCall placeholder.
+                // Qualified member access (e.g. Array.sort).  Try to resolve
+                // "<object_name>.<member_name>" in the globals map.
+                if let Some(globals) = self.globals_map {
+                    let member_str = self.resolve_name(*member);
+                    // Try resolving with the object's name as prefix.
+                    let qualified = if let CoreExpr::Var { var, .. } = object.as_ref() {
+                        let obj_name = self.resolve_name(var.name);
+                        Some(format!("{obj_name}.{member_str}"))
+                    } else {
+                        None
+                    };
+                    if let Some(ref qname) = qualified
+                        && let Some(&global_idx) = globals.get(qname.as_str())
+                    {
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::GetGlobal { dst, global_idx });
+                        return dst;
+                    }
+                    // Try just the member name (unqualified).
+                    if let Some(&global_idx) = globals.get(&member_str) {
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::GetGlobal { dst, global_idx });
+                        return dst;
+                    }
+                }
+                // Fallback: lower the object and ignore the member.
                 let obj = self.lower_expr(object);
                 let dst = self.fresh_var();
                 self.emit(LirInstr::Copy { dst, src: obj });
-                // TODO: resolve module member at emit time
-                let _ = member;
                 dst
             }
 
             CoreExpr::TupleField {
                 object, index, ..
             } => {
-                // Tuple field access → untag pointer, load at field offset.
                 let obj = self.lower_expr(object);
-                let ptr = self.fresh_var();
-                self.emit(LirInstr::UntagPtr { dst: ptr, val: obj });
                 let dst = self.fresh_var();
-                // Tuple layout: {i32 obj_tag, i32 arity, i64 fields[]}
-                // Fields start at offset 8, each field is 8 bytes.
-                let offset = TUPLE_PAYLOAD_OFFSET + (*index as i32) * 8;
-                self.emit(LirInstr::Load {
+                self.emit(LirInstr::TupleGet {
                     dst,
-                    ptr,
-                    offset,
+                    tuple: obj,
+                    index: *index,
                 });
                 dst
             }
@@ -436,6 +586,108 @@ impl<'a> FnLower<'a> {
             CorePrimOp::ICmpLe => self.lower_int_cmp(CmpOp::Sle, &arg_vars),
             CorePrimOp::ICmpGt => self.lower_int_cmp(CmpOp::Sgt, &arg_vars),
             CorePrimOp::ICmpGe => self.lower_int_cmp(CmpOp::Sge, &arg_vars),
+
+            // Boolean logic → control flow (no VM opcode for And/Or).
+            CorePrimOp::And => {
+                // a && b → if a then b else false
+                let a = arg_vars[0];
+                let b = arg_vars[1];
+                let then_idx = self.new_block();
+                let else_idx = self.new_block();
+                let join_idx = self.new_block();
+                let then_id = BlockId(then_idx as u32);
+                let else_id = BlockId(else_idx as u32);
+                let join_id = BlockId(join_idx as u32);
+                let result = self.fresh_var();
+                self.func.blocks[join_idx].params.push(result);
+
+                // Branch on a.
+                let a_bool = self.fresh_var();
+                self.emit(LirInstr::UntagBool { dst: a_bool, val: a });
+                self.set_terminator(LirTerminator::Branch {
+                    cond: a_bool,
+                    then_block: then_id,
+                    else_block: else_id,
+                });
+
+                // Then: result = b
+                self.switch_to_block(then_idx);
+                self.emit_copy_to_join_param(b, join_id);
+                self.set_terminator(LirTerminator::Jump(join_id));
+
+                // Else: result = false
+                self.switch_to_block(else_idx);
+                let false_val = self.fresh_var();
+                self.emit(LirInstr::Const { dst: false_val, value: LirConst::Bool(false) });
+                self.emit_copy_to_join_param(false_val, join_id);
+                self.set_terminator(LirTerminator::Jump(join_id));
+
+                self.switch_to_block(join_idx);
+                result
+            }
+            CorePrimOp::Or => {
+                // a || b → if a then true else b
+                let a = arg_vars[0];
+                let b = arg_vars[1];
+                let then_idx = self.new_block();
+                let else_idx = self.new_block();
+                let join_idx = self.new_block();
+                let then_id = BlockId(then_idx as u32);
+                let else_id = BlockId(else_idx as u32);
+                let join_id = BlockId(join_idx as u32);
+                let result = self.fresh_var();
+                self.func.blocks[join_idx].params.push(result);
+
+                let a_bool = self.fresh_var();
+                self.emit(LirInstr::UntagBool { dst: a_bool, val: a });
+                self.set_terminator(LirTerminator::Branch {
+                    cond: a_bool,
+                    then_block: then_id,
+                    else_block: else_id,
+                });
+
+                // Then: result = true
+                self.switch_to_block(then_idx);
+                let true_val = self.fresh_var();
+                self.emit(LirInstr::Const { dst: true_val, value: LirConst::Bool(true) });
+                self.emit_copy_to_join_param(true_val, join_id);
+                self.set_terminator(LirTerminator::Jump(join_id));
+
+                // Else: result = b
+                self.switch_to_block(else_idx);
+                self.emit_copy_to_join_param(b, join_id);
+                self.set_terminator(LirTerminator::Jump(join_id));
+
+                self.switch_to_block(join_idx);
+                result
+            }
+
+            // Collection constructors → dedicated LIR instructions.
+            CorePrimOp::MakeArray => {
+                let dst = self.fresh_var();
+                self.emit(LirInstr::MakeArray { dst, elements: arg_vars });
+                dst
+            }
+            CorePrimOp::MakeTuple => {
+                let dst = self.fresh_var();
+                self.emit(LirInstr::MakeTuple { dst, elements: arg_vars });
+                dst
+            }
+            CorePrimOp::MakeHash => {
+                let dst = self.fresh_var();
+                self.emit(LirInstr::MakeHash { dst, pairs: arg_vars });
+                dst
+            }
+            CorePrimOp::MakeList => {
+                let dst = self.fresh_var();
+                self.emit(LirInstr::MakeList { dst, elements: arg_vars });
+                dst
+            }
+            CorePrimOp::Interpolate => {
+                let dst = self.fresh_var();
+                self.emit(LirInstr::Interpolate { dst, parts: arg_vars });
+                dst
+            }
 
             // Everything else → C runtime call via PrimCall.
             _ => {
@@ -789,18 +1041,12 @@ impl<'a> FnLower<'a> {
                 if fields.is_empty() {
                     return;
                 }
-                let ptr = self.fresh_var();
-                self.emit(LirInstr::UntagPtr {
-                    dst: ptr,
-                    val: scrut,
-                });
                 for (i, field_pat) in fields.iter().enumerate() {
                     let field_val = self.fresh_var();
-                    let offset = TUPLE_PAYLOAD_OFFSET + (i as i32) * 8;
-                    self.emit(LirInstr::Load {
+                    self.emit(LirInstr::TupleGet {
                         dst: field_val,
-                        ptr,
-                        offset,
+                        tuple: scrut,
+                        index: i,
                     });
                     self.bind_pattern(field_val, field_pat);
                 }
@@ -1081,27 +1327,22 @@ fn lower_def(
     top_level_binders: &[CoreBinderId],
     binder_func_map: &HashMap<CoreBinderId, usize>,
     interner: Option<&Interner>,
+    globals_map: Option<&HashMap<String, usize>>,
 ) -> LirFunction {
     let name = format!("def_{}", def.binder.id.0);
-    let mut ctx = FnLower::new(name, program, interner);
+    let mut ctx = FnLower::new(name, program, interner, globals_map);
 
-    // Pre-register all top-level binders.  If we know the function index
-    // (from binder_func_map), emit MakeClosure; otherwise emit None placeholder.
+    // Pre-register top-level binders that are callable functions.
+    // Only binders in binder_func_map have compiled functions — skip the rest
+    // (e.g., main's own binder) to avoid wasting variable slots.
     for &binder_id in top_level_binders {
-        if !ctx.env.contains_key(&binder_id) {
+        if !ctx.env.contains_key(&binder_id) && let Some(&func_idx) = binder_func_map.get(&binder_id) {
             let var = ctx.fresh_var();
-            if let Some(&func_idx) = binder_func_map.get(&binder_id) {
-                ctx.emit(LirInstr::MakeClosure {
-                    dst: var,
-                    func_idx,
-                    captures: Vec::new(),
-                });
-            } else {
-                ctx.emit(LirInstr::Const {
-                    dst: var,
-                    value: LirConst::None,
-                });
-            }
+            ctx.emit(LirInstr::MakeClosure {
+                dst: var,
+                func_idx,
+                captures: Vec::new(),
+            });
             ctx.bind(binder_id, var);
         }
     }
@@ -1214,6 +1455,26 @@ fn display_instr(instr: &LirInstr) -> String {
             let caps: Vec<String> = captures.iter().map(|v| format!("{v}")).collect();
             format!("{dst} = make_closure(func={func_idx}, [{}])", caps.join(", "))
         }
+        LirInstr::MakeArray { dst, elements } => {
+            let es: Vec<String> = elements.iter().map(|v| format!("{v}")).collect();
+            format!("{dst} = make_array([{}])", es.join(", "))
+        }
+        LirInstr::MakeTuple { dst, elements } => {
+            let es: Vec<String> = elements.iter().map(|v| format!("{v}")).collect();
+            format!("{dst} = make_tuple([{}])", es.join(", "))
+        }
+        LirInstr::MakeHash { dst, pairs } => {
+            let ps: Vec<String> = pairs.iter().map(|v| format!("{v}")).collect();
+            format!("{dst} = make_hash([{}])", ps.join(", "))
+        }
+        LirInstr::MakeList { dst, elements } => {
+            let es: Vec<String> = elements.iter().map(|v| format!("{v}")).collect();
+            format!("{dst} = make_list([{}])", es.join(", "))
+        }
+        LirInstr::Interpolate { dst, parts } => {
+            let ps: Vec<String> = parts.iter().map(|v| format!("{v}")).collect();
+            format!("{dst} = interpolate([{}])", ps.join(", "))
+        }
         LirInstr::MakeCtor { dst, ctor_tag, ctor_name, fields } => {
             let fs: Vec<String> = fields.iter().map(|v| format!("{v}")).collect();
             let name = ctor_name.as_deref().unwrap_or("?");
@@ -1221,6 +1482,8 @@ fn display_instr(instr: &LirInstr) -> String {
         }
         LirInstr::Copy { dst, src } => format!("{dst} = copy {src}"),
         LirInstr::Const { dst, value } => format!("{dst} = const {value:?}"),
+        LirInstr::TupleGet { dst, tuple, index } => format!("{dst} = tuple_get({tuple}, {index})"),
+        LirInstr::GetGlobal { dst, global_idx } => format!("{dst} = get_global({global_idx})"),
     }
 }
 

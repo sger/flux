@@ -164,6 +164,25 @@ pub enum LirInstr {
         captures: Vec<LirVar>,
     },
 
+    // ── Collection construction ────────────────────────────────────
+    /// Build an array from elements on the stack.
+    MakeArray { dst: LirVar, elements: Vec<LirVar> },
+    /// Build a tuple from elements.
+    MakeTuple { dst: LirVar, elements: Vec<LirVar> },
+    /// Build a hash map from interleaved key-value pairs.
+    MakeHash { dst: LirVar, pairs: Vec<LirVar> },
+    /// Build a cons list from elements (syntactic `[a, b, c]`).
+    MakeList { dst: LirVar, elements: Vec<LirVar> },
+    /// String interpolation from parts.
+    Interpolate { dst: LirVar, parts: Vec<LirVar> },
+
+    // ── Field access ──────────────────────────────────────────────────
+    /// Extract a field from a tuple by index.
+    ///
+    /// High-level instruction: the bytecode emitter maps this to `OpTupleIndex`,
+    /// the LLVM emitter expands to UntagPtr + Load at the field offset.
+    TupleGet { dst: LirVar, tuple: LirVar, index: usize },
+
     // ── Constructor creation ────────────────────────────────────────
     /// Build a constructor value from a tag and fields.
     ///
@@ -186,6 +205,12 @@ pub enum LirInstr {
     Copy { dst: LirVar, src: LirVar },
     /// Load an immediate constant.
     Const { dst: LirVar, value: LirConst },
+
+    // ── Globals ────────────────────────────────────────────────────────
+    /// Load a value from the VM's global variable table.
+    /// Used for imported/prelude functions that were compiled by the
+    /// regular CFG pipeline and stored as globals.
+    GetGlobal { dst: LirVar, global_idx: usize },
 }
 
 // ── Block terminators ────────────────────────────────────────────────────────
