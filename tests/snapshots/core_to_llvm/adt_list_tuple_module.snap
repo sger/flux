@@ -32,9 +32,15 @@ expression: render_module(&module)
 
 @trace.file.3 = private constant [1 x i8] [i8 0]
 
+declare ccc void @flux_dup(i64) nounwind
+
+declare ccc void @flux_drop(i64) nounwind
+
 declare ccc void @flux_gc_free(ptr) nounwind
 
 declare ccc ptr @flux_gc_alloc(i32) nounwind
+
+declare ccc ptr @flux_gc_alloc_header(i32, i32, i32) nounwind
 
 declare ccc void @flux_trace_push(ptr, ptr, i32) nounwind
 
@@ -70,57 +76,24 @@ entry:
   ret i1 %result
 }
 
-define internal fastcc void @flux_dup(i64 %val) alwaysinline {
-entry:
-  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
-  br i1 %is_ptr, label %do_dup, label %done
-do_dup:
-  %payload = and i64 %val, 70368744177663
-  %shifted = shl i64 %payload, 3
-  %ptr = inttoptr i64 %shifted to ptr
-  %rc_ptr = getelementptr i64, ptr %ptr, i64 -1
-  %old_rc = load i64, ptr %rc_ptr, align 8
-  %new_rc = add i64 %old_rc, 1
-  store i64 %new_rc, ptr %rc_ptr, align 8
-  br label %done
-done:
-  ret void
-}
-
-define internal fastcc void @flux_drop(i64 %val) alwaysinline {
-entry:
-  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
-  br i1 %is_ptr, label %do_drop, label %done
-do_drop:
-  %payload = and i64 %val, 70368744177663
-  %shifted = shl i64 %payload, 3
-  %ptr = inttoptr i64 %shifted to ptr
-  %rc_ptr = getelementptr i64, ptr %ptr, i64 -1
-  %old_rc = load i64, ptr %rc_ptr, align 8
-  %new_rc = sub i64 %old_rc, 1
-  store i64 %new_rc, ptr %rc_ptr, align 8
-  %is_zero = icmp eq i64 %new_rc, 0
-  br i1 %is_zero, label %free, label %done
-free:
-  call ccc void @flux_gc_free(ptr %ptr)
-  br label %done
-done:
-  ret void
-}
-
 define internal fastcc ptr @flux_drop_reuse(i64 %val, i32 %size) alwaysinline {
 entry:
+  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
+  br i1 %is_ptr, label %check_rc, label %not_ptr
+not_ptr:
+  ret ptr null
+check_rc:
   %payload = and i64 %val, 70368744177663
   %shifted = shl i64 %payload, 3
   %ptr = inttoptr i64 %shifted to ptr
-  %rc_ptr = getelementptr i64, ptr %ptr, i64 -1
-  %rc = load i64, ptr %rc_ptr, align 8
-  %unique = icmp eq i64 %rc, 1
+  %rc_ptr = getelementptr i8, ptr %ptr, i64 -8
+  %rc = load i32, ptr %rc_ptr, align 4
+  %unique = icmp eq i32 %rc, 1
   br i1 %unique, label %reuse, label %fresh
 reuse:
   ret ptr %ptr
 fresh:
-  call fastcc void @flux_drop(i64 %val)
+  call ccc void @flux_drop(i64 %val)
   %new_mem = call ccc ptr @flux_gc_alloc(i32 %size)
   ret ptr %new_mem
 }
@@ -133,7 +106,7 @@ check_rc:
   %payload = and i64 %val, 70368744177663
   %shifted = shl i64 %payload, 3
   %ptr = inttoptr i64 %shifted to ptr
-  %rc_ptr = getelementptr i64, ptr %ptr, i64 -1
+  %rc_ptr = getelementptr i8, ptr %ptr, i64 -8
   %rc = load i64, ptr %rc_ptr, align 8
   %is_one = icmp eq i64 %rc, 1
   ret i1 %is_one
@@ -488,7 +461,7 @@ define internal fastcc i64 @flux_make_adt(ptr %fields, i32 %field_count, i32 %ct
 entry:
   %payload.bytes = mul i32 %field_count, 8
   %alloc.bytes = add i32 %payload.bytes, 8
-  %mem = call ccc ptr @flux_gc_alloc(i32 %alloc.bytes)
+  %mem = call ccc ptr @flux_gc_alloc_header(i32 %alloc.bytes, i32 %field_count, i32 242)
   %tag.ptr = getelementptr inbounds %FluxAdt, ptr %mem, i32 0, i32 0
   store i32 %ctor_tag, ptr %tag.ptr, align 4
   %field_count.ptr = getelementptr inbounds %FluxAdt, ptr %mem, i32 0, i32 1
@@ -514,7 +487,7 @@ define internal fastcc i64 @flux_make_tuple(ptr %fields, i32 %arity) alwaysinlin
 entry:
   %payload.bytes = mul i32 %arity, 8
   %alloc.bytes = add i32 %payload.bytes, 8
-  %mem = call ccc ptr @flux_gc_alloc(i32 %alloc.bytes)
+  %mem = call ccc ptr @flux_gc_alloc_header(i32 %alloc.bytes, i32 %arity, i32 243)
   %tag.ptr = getelementptr inbounds %FluxTuple, ptr %mem, i32 0, i32 0
   store i8 243, ptr %tag.ptr, align 1
   %arity.ptr = getelementptr inbounds %FluxTuple, ptr %mem, i32 0, i32 4

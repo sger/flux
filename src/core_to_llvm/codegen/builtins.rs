@@ -224,7 +224,7 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     // Array operations
     BuiltinMapping {
         flux_name: "len",
-        c_name: "flux_array_len",
+        c_name: "flux_rt_len",
         arity: 1,
         returns_value: true,
     },
@@ -557,6 +557,12 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     },
     BuiltinMapping {
         flux_name: "string_length",
+        c_name: "flux_string_length",
+        arity: 1,
+        returns_value: true,
+    },
+    BuiltinMapping {
+        flux_name: "string_len",
         c_name: "flux_string_length",
         arity: 1,
         returns_value: true,

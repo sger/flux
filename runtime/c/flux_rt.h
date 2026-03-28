@@ -249,6 +249,8 @@ int64_t flux_array_concat(int64_t a, int64_t b);
 int64_t flux_array_slice(int64_t arr, int64_t start, int64_t end);
 int64_t flux_array_reverse(int64_t arr);
 int64_t flux_array_contains(int64_t arr, int64_t value);
+int64_t flux_reverse(int64_t collection);
+int64_t flux_contains(int64_t collection, int64_t value);
 
 /* ── HAMT (persistent hash map) ─────────────────────────────────────── */
 
@@ -346,6 +348,8 @@ int64_t flux_sum(int64_t collection);
 int64_t flux_sort_default(int64_t collection);
 int64_t flux_split_ints(int64_t s, int64_t delim);
 int64_t flux_zip(int64_t a, int64_t b);
+int64_t flux_flatten(int64_t collection);
+int64_t flux_ho_flat_map(int64_t collection, int64_t func);
 int64_t flux_starts_with(int64_t s, int64_t prefix);
 int64_t flux_ends_with(int64_t s, int64_t suffix);
 

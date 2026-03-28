@@ -92,6 +92,12 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         ("to_array", 1, CorePrimOp::ToArray),
         // Polymorphic length
         ("len", 1, CorePrimOp::Len),
+        // Collection helpers (C runtime implementations).
+        // first/rest are NOT promoted — wrapping semantics differ.
+        // map/filter/sort/sort_by are NOT promoted — they take closures
+        // which the VM dispatch can't call (needs prelude closure path).
+        ("reverse", 1, CorePrimOp::Reverse),
+        ("contains", 2, CorePrimOp::Contains),
     ];
     entries
         .iter()
