@@ -2462,6 +2462,36 @@ impl Compiler {
         Ok(crate::lir::lower::display_program(&lir))
     }
 
+    /// Dump LIR as LLVM IR text (Proposal 0132 Phase 7).
+    #[cfg(feature = "core_to_llvm")]
+    #[allow(clippy::result_large_err)]
+    pub fn dump_lir_llvm(
+        &self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<String, Diagnostic> {
+        let program_to_lower = if optimize {
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
+            rename(optimized, HashMap::new())
+        } else {
+            program.clone()
+        };
+
+        let mut core =
+            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
+
+        let globals_map = self.build_globals_map();
+        let lir = crate::lir::lower::lower_program_with_interner(
+            &core,
+            Some(&self.interner),
+            Some(&globals_map),
+        );
+        Ok(crate::lir::emit_llvm::emit_llvm_ir(&lir))
+    }
+
     /// Compile via the LIR path: Core → LIR → Bytecode.
     /// This is the Proposal 0132 path that bypasses CFG.
     ///
