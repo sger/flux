@@ -2453,17 +2453,28 @@ impl Compiler {
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
         crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
 
-        let lir = crate::lir::lower::lower_program_with_interner(&core, Some(&self.interner));
+        let globals_map = self.build_globals_map();
+        let lir = crate::lir::lower::lower_program_with_interner(
+            &core,
+            Some(&self.interner),
+            Some(&globals_map),
+        );
         Ok(crate::lir::lower::display_program(&lir))
     }
 
     /// Compile via the LIR path: Core → LIR → Bytecode.
     /// This is the Proposal 0132 path that bypasses CFG.
+    ///
+    /// `base_constants` contains constants from previously compiled modules
+    /// (e.g., prelude functions compiled via the CFG pipeline). These are
+    /// prepended to the LIR constants pool so CFG-compiled closures can
+    /// find their sub-closures at the expected indices.
     #[allow(clippy::result_large_err)]
     pub fn compile_via_lir(
         &self,
         program: &Program,
         optimize: bool,
+        base_constants: Vec<Value>,
     ) -> Result<crate::bytecode::bytecode::Bytecode, Diagnostic> {
         let program_to_lower = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
@@ -2478,8 +2489,59 @@ impl Compiler {
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
         crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
 
-        let lir = crate::lir::lower::lower_program_with_interner(&core, Some(&self.interner));
-        Ok(crate::lir::emit_bytecode::emit_program(&lir))
+        // Build a globals map from the symbol table so the LIR lowerer can
+        // emit GetGlobal for imported/prelude functions (GHC-style external labels).
+        let globals_map = self.build_globals_map();
+
+        let lir = crate::lir::lower::lower_program_with_interner(
+            &core,
+            Some(&self.interner),
+            Some(&globals_map),
+        );
+        Ok(crate::lir::emit_bytecode::emit_program_with_base_constants(
+            &lir,
+            base_constants,
+        ))
+    }
+
+    /// Build a Symbol → global index map from the compiler's symbol table.
+    /// This lets the LIR lowerer emit `GetGlobal` for imported/prelude functions.
+    /// Build a string-name → global index map from the compiler's symbol table.
+    /// Maps both qualified ("Flow.List.map") and unqualified ("map") names so
+    /// the LIR lowerer can resolve external variables regardless of naming.
+    fn build_globals_map(&self) -> HashMap<String, usize> {
+        // Build reverse alias map: "Flow.Array" → ["Array"]
+        let mut module_aliases: HashMap<String, Vec<String>> = HashMap::new();
+        for (alias_sym, target_sym) in &self.import_aliases {
+            let alias = self.interner.resolve(crate::syntax::Identifier::from(*alias_sym)).to_string();
+            let target = self.interner.resolve(crate::syntax::Identifier::from(*target_sym)).to_string();
+            module_aliases.entry(target).or_default().push(alias);
+        }
+
+        let mut map = HashMap::new();
+        for (sym, idx) in self.symbol_table.global_definitions() {
+            let name = self.interner.resolve(crate::syntax::Identifier::from(sym)).to_string();
+            // Add qualified name (e.g. "Flow.Array.sort")
+            map.insert(name.clone(), idx);
+            // Add unqualified name (last segment after last '.')
+            if let Some(short) = name.rsplit('.').next()
+                && short != name
+            {
+                map.entry(short.to_string()).or_insert(idx);
+            }
+            // Add alias-qualified names (e.g. "Array.sort" for "Flow.Array.sort"
+            // when "import Flow.Array as Array" is in effect).
+            for (module_prefix, aliases) in &module_aliases {
+                if let Some(suffix) = name.strip_prefix(module_prefix)
+                    && let Some(suffix) = suffix.strip_prefix('.')
+                {
+                    for alias in aliases {
+                        map.entry(format!("{alias}.{suffix}")).or_insert(idx);
+                    }
+                }
+            }
+        }
+        map
     }
 
     #[allow(clippy::result_large_err)]
