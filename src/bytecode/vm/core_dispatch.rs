@@ -443,11 +443,38 @@ pub fn execute_core_primop(
             other => Err(terr("len", "String, Array, Tuple, or Map", other)),
         },
 
-        // ── Collection helpers (promoted for native; VM dispatches here) ──
-        First | Rest => {
-            // first/rest are NOT promoted to primops (they stay as prelude closures).
-            // If we somehow reach here, it's an internal error.
-            Err(format!("CorePrimOp {:?} should be dispatched via prelude closures", op))
+        // ── Collection helpers (promoted for both VM and native) ──────
+        First => match &args[0] {
+            Value::Array(arr) => Ok(if arr.is_empty() { Value::None } else { arr[0].clone() }),
+            Value::Cons(cell) => Ok(cell.head.clone()),
+            Value::None | Value::EmptyList => Ok(Value::None),
+            other => Err(terr("first", "Array or List", other)),
+        },
+        Last => match &args[0] {
+            Value::Array(arr) => Ok(if arr.is_empty() { Value::None } else { arr[arr.len() - 1].clone() }),
+            Value::Cons(_) => {
+                let mut last_val = Value::None;
+                let mut cur = &args[0];
+                loop {
+                    match cur {
+                        Value::None | Value::EmptyList => break,
+                        Value::Cons(cell) => { last_val = cell.head.clone(); cur = &cell.tail; }
+                        _ => break,
+                    }
+                }
+                Ok(last_val)
+            }
+            Value::None | Value::EmptyList => Ok(Value::None),
+            other => Err(terr("last", "Array or List", other)),
+        },
+        Rest => match &args[0] {
+            Value::Array(arr) => {
+                if arr.len() <= 1 { Ok(Value::Array(Rc::new(Vec::new()))) }
+                else { Ok(Value::Array(Rc::new(arr[1..].to_vec()))) }
+            }
+            Value::Cons(cell) => Ok(cell.tail.clone()),
+            Value::None | Value::EmptyList => Ok(Value::EmptyList),
+            other => Err(terr("rest", "Array or List", other)),
         },
         Reverse => match &args[0] {
             Value::Array(arr) => {
@@ -495,7 +522,7 @@ pub fn execute_core_primop(
                 other => Err(terr("contains", "Array or List", other)),
             }
         },
-        Sort | SortBy | HoMap | HoFilter | Last | HoAny | HoAll | HoEach | HoFind | HoCount | Zip | Flatten | HoFlatMap => {
+        Sort | SortBy | HoMap | HoFilter | HoAny | HoAll | HoEach | HoFind | HoCount | Zip | Flatten | HoFlatMap => {
             // These higher-order ops require closure calls; in VM they go through
             // the prelude Flow.* modules (not OpPrimOp). If we reach here, it
             // means the bytecode compiler emitted them — fall through gracefully.
