@@ -21,9 +21,9 @@ fn test_core_hofs() {
 }
 
 fn test_accessors_and_predicates() {
-    assert_eq(to_string(first([10, 20, 30])), "Some(10)")
+    assert_eq(to_string(first([10, 20, 30])), "10")
     assert_eq(to_string(first([])), "None")
-    assert_eq(to_string(last([10, 20, 30])), "Some(30)")
+    assert_eq(to_string(last([10, 20, 30])), "30")
     assert_eq(to_string(last([])), "None")
     assert_eq(to_string(rest([1, 2, 3])), "[2, 3]")
     assert_eq(to_string(rest([])), "[]")
