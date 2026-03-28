@@ -326,23 +326,52 @@ fn emit_drop_reuse(module: &mut LlvmModule) {
         params: vec![LlvmLocal("val".into()), LlvmLocal("size".into())],
         attrs: helper_attrs(),
         blocks: vec![
-            // entry: extract pointer, load RC, check if unique.
+            // entry: check if value is a pointer. Non-pointer values
+            // (integers, booleans, etc.) cannot be reused — return null.
             LlvmBlock {
                 label: LabelId("entry".into()),
+                instrs: vec![LlvmInstr::Call {
+                    dst: Some(LlvmLocal("is_ptr".into())),
+                    tail: false,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::i1(),
+                    callee: LlvmOperand::Global(flux_prelude_symbol("flux_is_ptr")),
+                    args: vec![(LlvmType::i64(), local("val"))],
+                    attrs: vec![],
+                }],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("is_ptr"),
+                    then_label: LabelId("check_rc".into()),
+                    else_label: LabelId("not_ptr".into()),
+                },
+            },
+            // not_ptr: return null (not reusable).
+            LlvmBlock {
+                label: LabelId("not_ptr".into()),
+                instrs: vec![],
+                term: LlvmTerminator::Ret {
+                    ty: LlvmType::ptr(),
+                    value: LlvmOperand::Const(LlvmConst::Null),
+                },
+            },
+            // check_rc: extract pointer, load RC, check if unique.
+            LlvmBlock {
+                label: LabelId("check_rc".into()),
                 instrs: {
                     let mut instrs = rc_extract_ptr_instrs();
                     instrs.push(LlvmInstr::Load {
                         dst: LlvmLocal("rc".into()),
-                        ty: LlvmType::i64(),
+                        ty: LlvmType::i32(),
                         ptr: local("rc_ptr"),
-                        align: Some(8),
+                        align: Some(4),
                     });
                     instrs.push(LlvmInstr::Icmp {
                         dst: LlvmLocal("unique".into()),
                         op: LlvmCmpOp::Eq,
-                        ty: LlvmType::i64(),
+                        ty: LlvmType::i32(),
                         lhs: local("rc"),
-                        rhs: const_i64_operand(1),
+                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 1 }),
                     });
                     instrs
                 },
@@ -503,6 +532,24 @@ fn emit_gc_free_decl(module: &mut LlvmModule) {
             attrs: vec!["nounwind".into()],
         });
     }
+
+    // flux_gc_alloc_header(i32 size, i32 scan_fsize, i32 obj_tag) → ptr
+    let alloc_hdr_name = "flux_gc_alloc_header";
+    if !has_function(module, alloc_hdr_name)
+        && !module.declarations.iter().any(|d| d.name.0 == alloc_hdr_name)
+    {
+        module.declarations.push(crate::core_to_llvm::LlvmDecl {
+            linkage: Linkage::External,
+            name: flux_prelude_symbol(alloc_hdr_name),
+            sig: LlvmFunctionSig {
+                ret: LlvmType::ptr(),
+                params: vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i32()],
+                varargs: false,
+                call_conv: CallConv::Ccc,
+            },
+            attrs: vec!["nounwind".into()],
+        });
+    }
 }
 
 /// Shared instruction sequence: extract the raw pointer and RC word
@@ -532,12 +579,14 @@ fn rc_extract_ptr_instrs() -> Vec<LlvmInstr> {
             operand: local("shifted"),
             to_ty: LlvmType::ptr(),
         },
+        // FluxHeader is at ptr - 8.  Its first field is i32 refcount.
+        // GEP by -8 bytes (not -1 i64) to get the header start.
         LlvmInstr::GetElementPtr {
             dst: LlvmLocal("rc_ptr".into()),
             inbounds: false,
-            element_ty: LlvmType::i64(),
+            element_ty: LlvmType::i8(),
             base: local("ptr"),
-            indices: vec![(LlvmType::i64(), const_i64_operand(-1))],
+            indices: vec![(LlvmType::i64(), const_i64_operand(-8))],
         },
     ]
 }

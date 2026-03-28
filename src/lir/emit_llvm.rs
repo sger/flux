@@ -106,15 +106,16 @@ pub fn emit_llvm_ir(program: &LirProgram) -> String {
         {
             continue;
         }
-        // Try builtins table first.
+        // Known C runtime functions with fixed signatures (checked first
+        // because builtins table may map to a different function name).
+        if let Some(decl) = known_c_decl(name) {
+            module.declarations.push(decl);
+            continue;
+        }
+        // Try builtins table.
         let flux_name = name.strip_prefix("flux_").unwrap_or(name);
         if let Some(mapping) = builtins::find_builtin(flux_name) {
             builtins::ensure_builtin_declared(&mut module, mapping);
-            continue;
-        }
-        // Known C runtime functions with fixed signatures.
-        if let Some(decl) = known_c_decl(name) {
-            module.declarations.push(decl);
             continue;
         }
         // Generic fallback: all-i64 params based on common arities.
@@ -197,7 +198,9 @@ impl<'a> FnEmitter<'a> {
         })
     }
 
-    /// Emit a call to a C runtime function (ccc convention).
+    /// Emit a call to a C runtime function.
+    /// Automatically uses `fastcc` for LLVM prelude helpers (arithmetic, NaN-box,
+    /// ADT constructors) and `ccc` for actual C runtime functions.
     fn call_c(
         &mut self,
         dst: Option<LlvmLocal>,
@@ -205,11 +208,16 @@ impl<'a> FnEmitter<'a> {
         args: Vec<(LlvmType, LlvmOperand)>,
         ret: LlvmType,
     ) {
-        self.needed_decls.insert(name.to_string());
+        let conv = if is_fastcc_prelude_helper(name) {
+            CallConv::Fastcc
+        } else {
+            self.needed_decls.insert(name.to_string());
+            CallConv::Ccc
+        };
         self.emit(LlvmInstr::Call {
             dst,
             tail: false,
-            call_conv: Some(CallConv::Ccc),
+            call_conv: Some(conv),
             ret_ty: ret,
             callee: LlvmOperand::Global(GlobalId(name.to_string())),
             args,
@@ -641,6 +649,27 @@ impl<'a> FnEmitter<'a> {
                     operand: self.var(*ptr),
                     to_ty: LlvmType::Ptr,
                 });
+                // ADT header fields (ctor_tag at offset 0, field_count at offset 4)
+                // are i32; payload fields (offset >= 8) are i64.
+                let (store_ty, align) = if *offset < 8 {
+                    (LlvmType::i32(), 4)
+                } else {
+                    (LlvmType::i64(), 8)
+                };
+                // For i32 stores, truncate the i64 value.
+                let store_val = if *offset < 8 {
+                    let trunc = self.tmp();
+                    self.emit(LlvmInstr::Cast {
+                        dst: trunc.clone(),
+                        op: LlvmValueKind::Trunc,
+                        from_ty: LlvmType::i64(),
+                        operand: self.var(*val),
+                        to_ty: LlvmType::i32(),
+                    });
+                    LlvmOperand::Local(trunc)
+                } else {
+                    self.var(*val)
+                };
                 if *offset != 0 {
                     let gep = self.tmp();
                     self.emit(LlvmInstr::GetElementPtr {
@@ -651,17 +680,17 @@ impl<'a> FnEmitter<'a> {
                         indices: vec![(LlvmType::i32(), self.i32_const(*offset))],
                     });
                     self.emit(LlvmInstr::Store {
-                        ty: LlvmType::i64(),
-                        value: self.var(*val),
+                        ty: store_ty,
+                        value: store_val,
                         ptr: LlvmOperand::Local(gep),
-                        align: Some(8),
+                        align: Some(align),
                     });
                 } else {
                     self.emit(LlvmInstr::Store {
-                        ty: LlvmType::i64(),
-                        value: self.var(*val),
+                        ty: store_ty,
+                        value: store_val,
                         ptr: LlvmOperand::Local(raw_ptr),
-                        align: Some(8),
+                        align: Some(align),
                     });
                 }
             }
@@ -1116,7 +1145,7 @@ impl<'a> FnEmitter<'a> {
             } else {
                 current.clone()
             };
-            self.call_c(
+            self.call_fastcc(
                 Some(result.clone()),
                 "flux_make_cons",
                 vec![
@@ -1461,7 +1490,18 @@ impl<'a> FnEmitter<'a> {
             };
         }
 
-        // For boxed arms: extract ADT tag, emit extraction blocks for field binders.
+        // Separate tuple arms from ADT arms — they use different memory layouts.
+        let mut tuple_arm: Option<&CtorArm> = None;
+        let mut adt_arms: Vec<&CtorArm> = Vec::new();
+        for arm in &boxed_arms {
+            if matches!(&arm.tag, CtorTag::Tuple) {
+                tuple_arm = Some(arm);
+            } else {
+                adt_arms.push(arm);
+            }
+        }
+
+        // For ADT arms: extract ADT ctor_tag for dispatch.
         let adt_tag = self.tmp();
         self.call_c(
             Some(adt_tag.clone()),
@@ -1480,83 +1520,76 @@ impl<'a> FnEmitter<'a> {
             boxed_label.clone(),
         ));
 
-        // Build the boxed dispatch block: switch on ADT tag.
+        // Helper: emit an extraction block for field binders.
+        let emit_extract_block = |this: &mut Self, arm: &CtorArm, field_fn: &str| -> LabelId {
+            if arm.field_binders.is_empty() {
+                return this.label(arm.target);
+            }
+            let extract_label = LabelId(format!(
+                "match.extract.{}.{}",
+                arm.target.0, this.next_tmp
+            ));
+            this.next_tmp += 1;
+
+            let mut extract_instrs = Vec::new();
+            for (i, binder) in arm.field_binders.iter().enumerate() {
+                let ptr_tmp = LlvmLocal(format!("ext.{}.{}", arm.target.0, i));
+                extract_instrs.push(LlvmInstr::Call {
+                    dst: Some(ptr_tmp.clone()),
+                    tail: false,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::Ptr,
+                    callee: LlvmOperand::Global(GlobalId(field_fn.to_string())),
+                    args: vec![
+                        (LlvmType::i64(), this.var(scrutinee)),
+                        (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int {
+                            bits: 32,
+                            value: i as i128,
+                        })),
+                    ],
+                    attrs: Vec::new(),
+                });
+                extract_instrs.push(LlvmInstr::Load {
+                    dst: this.var_local(*binder),
+                    ty: LlvmType::i64(),
+                    ptr: LlvmOperand::Local(ptr_tmp),
+                    align: Some(8),
+                });
+            }
+
+            this.extra_blocks.push(LlvmBlock {
+                label: extract_label.clone(),
+                instrs: extract_instrs,
+                term: LlvmTerminator::Br {
+                    target: this.label(arm.target),
+                },
+            });
+            extract_label
+        };
+
+        // Build ADT dispatch cases.
         let mut adt_cases: Vec<(LlvmConst, LabelId)> = Vec::new();
-        for arm in &boxed_arms {
+        for arm in &adt_arms {
             let tag_val = match &arm.tag {
                 CtorTag::Some => SOME_TAG,
                 CtorTag::Left => LEFT_TAG,
                 CtorTag::Right => RIGHT_TAG,
                 CtorTag::Cons => CONS_TAG,
-                CtorTag::Tuple => 0,
                 CtorTag::Named(_) => 5, // TODO: user tag lookup
                 _ => continue,
             };
-
-            if arm.field_binders.is_empty() {
-                // No fields to extract — jump directly.
-                adt_cases.push((
-                    LlvmConst::Int { bits: 32, value: tag_val as i128 },
-                    self.label(arm.target),
-                ));
-            } else {
-                // Emit an extraction block that binds field binders.
-                let extract_label = LabelId(format!(
-                    "match.extract.{}.{}",
-                    arm.target.0, self.next_tmp
-                ));
-                self.next_tmp += 1;
-
-                let mut extract_instrs = Vec::new();
-                let field_fn = match &arm.tag {
-                    CtorTag::Tuple => "flux_tuple_field_ptr",
-                    _ => "flux_adt_field_ptr",
-                };
-
-                for (i, binder) in arm.field_binders.iter().enumerate() {
-                    let ptr_tmp = LlvmLocal(format!("ext.{}.{}", arm.target.0, i));
-                    self.needed_decls.insert(field_fn.to_string());
-                    extract_instrs.push(LlvmInstr::Call {
-                        dst: Some(ptr_tmp.clone()),
-                        tail: false,
-                        call_conv: Some(CallConv::Fastcc),
-                        ret_ty: LlvmType::Ptr,
-                        callee: LlvmOperand::Global(GlobalId(field_fn.to_string())),
-                        args: vec![
-                            (LlvmType::i64(), self.var(scrutinee)),
-                            (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int {
-                                bits: 32,
-                                value: i as i128,
-                            })),
-                        ],
-                        attrs: Vec::new(),
-                    });
-                    extract_instrs.push(LlvmInstr::Load {
-                        dst: self.var_local(*binder),
-                        ty: LlvmType::i64(),
-                        ptr: LlvmOperand::Local(ptr_tmp),
-                        align: Some(8),
-                    });
-                }
-
-                self.extra_blocks.push(LlvmBlock {
-                    label: extract_label.clone(),
-                    instrs: extract_instrs,
-                    term: LlvmTerminator::Br {
-                        target: self.label(arm.target),
-                    },
-                });
-
-                adt_cases.push((
-                    LlvmConst::Int { bits: 32, value: tag_val as i128 },
-                    extract_label,
-                ));
-            }
+            let target = emit_extract_block(self, arm, "flux_adt_field_ptr");
+            adt_cases.push((
+                LlvmConst::Int { bits: 32, value: tag_val as i128 },
+                target,
+            ));
         }
 
-        // Emit the boxed dispatch block.
+        // The ADT dispatch block (switch on ctor_tag).
+        let adt_dispatch_label = LabelId(format!("match.adt.{}", self.next_tmp));
+        self.next_tmp += 1;
         self.extra_blocks.push(LlvmBlock {
-            label: boxed_label,
+            label: adt_dispatch_label.clone(),
             instrs: Vec::new(),
             term: LlvmTerminator::Switch {
                 ty: LlvmType::i32(),
@@ -1565,6 +1598,82 @@ impl<'a> FnEmitter<'a> {
                 cases: adt_cases,
             },
         });
+
+        // Boxed dispatch: if there's a Tuple arm, check obj_tag first.
+        // Tuples have FluxHeader obj_tag = 0xF3 (FLUX_OBJ_TUPLE), while ADTs
+        // have 0xF2. We read the obj_tag to distinguish them before reading ctor_tag.
+        if let Some(t_arm) = tuple_arm {
+            let tuple_target = emit_extract_block(self, t_arm, "flux_tuple_field_ptr");
+
+            // Build instructions for the boxed block inline.
+            let ptr_tmp = LlvmLocal(format!("match.ptr.{}", self.next_tmp));
+            self.next_tmp += 1;
+            let obj_tag_ptr = LlvmLocal(format!("match.otptr.{}", self.next_tmp));
+            self.next_tmp += 1;
+            let obj_tag_tmp = LlvmLocal(format!("match.ot.{}", self.next_tmp));
+            self.next_tmp += 1;
+            let is_tuple = LlvmLocal(format!("match.istup.{}", self.next_tmp));
+            self.next_tmp += 1;
+
+            let boxed_instrs = vec![
+                // Untag pointer.
+                LlvmInstr::Call {
+                    dst: Some(ptr_tmp.clone()),
+                    tail: false,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::Ptr,
+                    callee: LlvmOperand::Global(GlobalId("flux_untag_boxed_ptr".to_string())),
+                    args: vec![(LlvmType::i64(), self.var(scrutinee))],
+                    attrs: Vec::new(),
+                },
+                // GEP to ptr - 3 (obj_tag field in FluxHeader).
+                LlvmInstr::GetElementPtr {
+                    dst: obj_tag_ptr.clone(),
+                    inbounds: false,
+                    element_ty: LlvmType::i8(),
+                    base: LlvmOperand::Local(ptr_tmp),
+                    indices: vec![(LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int {
+                        bits: 32,
+                        value: -3_i32 as i128,
+                    }))],
+                },
+                // Load obj_tag byte.
+                LlvmInstr::Load {
+                    dst: obj_tag_tmp.clone(),
+                    ty: LlvmType::i8(),
+                    ptr: LlvmOperand::Local(obj_tag_ptr),
+                    align: Some(1),
+                },
+                // Compare with FLUX_OBJ_TUPLE (0xF3).
+                LlvmInstr::Icmp {
+                    dst: is_tuple.clone(),
+                    op: LlvmCmpOp::Eq,
+                    ty: LlvmType::i8(),
+                    lhs: LlvmOperand::Local(obj_tag_tmp),
+                    rhs: LlvmOperand::Const(LlvmConst::Int { bits: 8, value: 0xF3 }),
+                },
+            ];
+
+            self.extra_blocks.push(LlvmBlock {
+                label: boxed_label,
+                instrs: boxed_instrs,
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: LlvmOperand::Local(is_tuple),
+                    then_label: tuple_target,
+                    else_label: adt_dispatch_label,
+                },
+            });
+        } else {
+            // No tuple arm — boxed dispatch is the ADT dispatch directly.
+            self.extra_blocks.push(LlvmBlock {
+                label: boxed_label,
+                instrs: Vec::new(),
+                term: LlvmTerminator::Br {
+                    target: adt_dispatch_label,
+                },
+            });
+        }
 
         // Main switch on NaN-box tag.
         LlvmTerminator::Switch {
@@ -1595,6 +1704,35 @@ impl LirInstr {
             0
         }
     }
+}
+
+/// Returns true if the function is a fastcc LLVM prelude helper (emitted by
+/// `core_to_llvm/codegen/prelude.rs` or `adt.rs`), as opposed to a true C
+/// runtime function that uses the C calling convention.
+fn is_fastcc_prelude_helper(name: &str) -> bool {
+    matches!(
+        name,
+        // NaN-box tag/untag
+        "flux_tag_int" | "flux_untag_int" | "flux_is_ptr"
+        | "flux_tag_thunk" | "flux_untag_thunk_ptr" | "flux_is_thunk"
+        | "flux_tag_boxed_ptr" | "flux_untag_boxed_ptr"
+        // Integer arithmetic
+        | "flux_iadd" | "flux_isub" | "flux_imul" | "flux_idiv" | "flux_imod" | "flux_ineg"
+        // Float arithmetic
+        | "flux_fadd" | "flux_fsub" | "flux_fmul" | "flux_fdiv" | "flux_fmod" | "flux_fneg"
+        // Polymorphic arithmetic (mixed int/float)
+        | "flux_add" | "flux_sub" | "flux_mul" | "flux_div" | "flux_mod" | "flux_neg"
+        // Logic
+        | "flux_not" | "flux_and" | "flux_or"
+        // RC helpers
+        | "flux_drop_reuse" | "flux_rc_is_unique"
+        // ADT/Tuple/Closure construction
+        | "flux_make_adt" | "flux_make_cons" | "flux_make_tuple"
+        | "flux_adt_tag" | "flux_adt_field_ptr"
+        | "flux_tuple_len" | "flux_tuple_field_ptr"
+        | "flux_copy_i64s"
+        | "flux_make_closure" | "flux_call_closure"
+    )
 }
 
 /// Map a `CorePrimOp` to its C runtime function name.
@@ -1708,6 +1846,24 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::MakeList => return "flux_make_list".to_string(),
         CorePrimOp::Interpolate => return "flux_to_string".to_string(), // simplified: single-arg toString
         CorePrimOp::Index => return "flux_rt_index".to_string(),
+        // Collection helpers (promoted for native)
+        CorePrimOp::First => return "flux_first".to_string(),
+        CorePrimOp::Rest => return "flux_rest".to_string(),
+        CorePrimOp::Reverse => return "flux_reverse".to_string(),
+        CorePrimOp::Contains => return "flux_contains".to_string(),
+        CorePrimOp::Sort => return "flux_sort_default".to_string(),
+        CorePrimOp::SortBy => return "flux_ho_sort_by".to_string(),
+        CorePrimOp::HoMap => return "flux_ho_map".to_string(),
+        CorePrimOp::HoFilter => return "flux_ho_filter".to_string(),
+        CorePrimOp::Last => return "flux_last".to_string(),
+        CorePrimOp::HoAny => return "flux_ho_any".to_string(),
+        CorePrimOp::HoAll => return "flux_ho_all".to_string(),
+        CorePrimOp::HoEach => return "flux_ho_each".to_string(),
+        CorePrimOp::HoFind => return "flux_ho_find".to_string(),
+        CorePrimOp::HoCount => return "flux_ho_count".to_string(),
+        CorePrimOp::Zip => return "flux_zip".to_string(),
+        CorePrimOp::Flatten => return "flux_flatten".to_string(),
+        CorePrimOp::HoFlatMap => return "flux_ho_flat_map".to_string(),
     };
 
     // Look up in builtins table for the C name.
@@ -1735,6 +1891,16 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_adt_tag" => (LlvmType::i32(), vec![LlvmType::i64()]),
         "flux_rc_is_unique" => (LlvmType::i1(), vec![LlvmType::i64()]),
         "flux_drop_reuse" => (LlvmType::Ptr, vec![LlvmType::i64()]),
+        // Collection helpers
+        "flux_first" | "flux_rest" | "flux_reverse" | "flux_sort_default"
+        | "flux_last" | "flux_flatten" => {
+            (LlvmType::i64(), vec![LlvmType::i64()])
+        }
+        "flux_contains" | "flux_ho_sort_by" | "flux_ho_map" | "flux_ho_filter"
+        | "flux_ho_any" | "flux_ho_all" | "flux_ho_each" | "flux_ho_find"
+        | "flux_ho_count" | "flux_ho_flat_map" | "flux_zip" => {
+            (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()])
+        }
         _ => return None,
     };
     Some(LlvmDecl {

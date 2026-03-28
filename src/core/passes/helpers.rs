@@ -509,6 +509,24 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::CmpNe
         | CorePrimOp::Try
         | CorePrimOp::AssertThrows => false,
+        // Collection operations — pure (no I/O, no side effects)
+        CorePrimOp::First
+        | CorePrimOp::Rest
+        | CorePrimOp::Reverse
+        | CorePrimOp::Contains
+        | CorePrimOp::Sort
+        | CorePrimOp::SortBy
+        | CorePrimOp::HoMap
+        | CorePrimOp::HoFilter
+        | CorePrimOp::Last
+        | CorePrimOp::HoAny
+        | CorePrimOp::HoAll
+        | CorePrimOp::HoEach
+        | CorePrimOp::HoFind
+        | CorePrimOp::HoCount
+        | CorePrimOp::Zip
+        | CorePrimOp::Flatten
+        | CorePrimOp::HoFlatMap => true,
     }
 }
 

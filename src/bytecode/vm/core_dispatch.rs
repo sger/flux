@@ -443,6 +443,65 @@ pub fn execute_core_primop(
             other => Err(terr("len", "String, Array, Tuple, or Map", other)),
         },
 
+        // ── Collection helpers (promoted for native; VM dispatches here) ──
+        First | Rest => {
+            // first/rest are NOT promoted to primops (they stay as prelude closures).
+            // If we somehow reach here, it's an internal error.
+            Err(format!("CorePrimOp {:?} should be dispatched via prelude closures", op))
+        },
+        Reverse => match &args[0] {
+            Value::Array(arr) => {
+                let mut v: Vec<Value> = arr.iter().cloned().collect();
+                v.reverse();
+                Ok(Value::Array(Rc::new(v)))
+            }
+            Value::Cons(_) => {
+                let mut elems = Vec::new();
+                let mut cur = args[0].clone();
+                loop {
+                    match &cur {
+                        Value::None | Value::EmptyList => break,
+                        Value::Cons(cell) => { elems.push(cell.head.clone()); cur = cell.tail.clone(); }
+                        _ => break,
+                    }
+                }
+                let mut list = Value::EmptyList;
+                for e in &elems {
+                    list = ConsCell::cons(e.clone(), list);
+                }
+                Ok(list)
+            }
+            Value::None | Value::EmptyList => Ok(Value::EmptyList),
+            other => Err(terr("reverse", "Array or List", other)),
+        },
+        Contains => {
+            let (collection, target) = (&args[0], &args[1]);
+            match collection {
+                Value::Array(arr) => Ok(Value::Boolean(arr.iter().any(|e| e == target))),
+                Value::Cons(_) => {
+                    let mut cur = collection.clone();
+                    loop {
+                        match &cur {
+                            Value::None | Value::EmptyList => break Ok(Value::Boolean(false)),
+                            Value::Cons(cell) => {
+                                if &cell.head == target { break Ok(Value::Boolean(true)); }
+                                cur = cell.tail.clone();
+                            }
+                            _ => break Ok(Value::Boolean(false)),
+                        }
+                    }
+                }
+                Value::None | Value::EmptyList => Ok(Value::Boolean(false)),
+                other => Err(terr("contains", "Array or List", other)),
+            }
+        },
+        Sort | SortBy | HoMap | HoFilter | Last | HoAny | HoAll | HoEach | HoFind | HoCount | Zip | Flatten | HoFlatMap => {
+            // These higher-order ops require closure calls; in VM they go through
+            // the prelude Flow.* modules (not OpPrimOp). If we reach here, it
+            // means the bytecode compiler emitted them — fall through gracefully.
+            Err(format!("CorePrimOp {:?} requires closure dispatch; use prelude functions", op))
+        },
+
         // ── Generic/structural ops (never emitted as OpPrimOp) ───────
         Add | Sub | Mul | Div | Mod | Not | Eq | NEq | Lt | Le | Gt | Ge
         | And | Or | Concat | Interpolate | MakeList | MakeArray | MakeTuple

@@ -432,7 +432,26 @@ pub enum CorePrimOp {
 
     // ── Polymorphic length (dispatches on type tag) ───────────────────
     Len = 103,
-    // ── Next free ID: 104 ─────────────────────────────────────────────
+
+    // ── Collection helpers (promoted for native compilation) ─────────
+    First = 104,
+    Rest = 105,
+    Reverse = 106,
+    Contains = 107,
+    Sort = 108,
+    SortBy = 109,
+    HoMap = 110,
+    HoFilter = 111,
+    Last = 112,
+    HoAny = 113,
+    HoAll = 114,
+    HoEach = 115,
+    HoFind = 116,
+    HoCount = 117,
+    Zip = 118,
+    Flatten = 119,
+    HoFlatMap = 120,
+    // ── Next free ID: 121 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -443,8 +462,8 @@ impl CorePrimOp {
 
     /// Reconstruct from a `u8` discriminant.  Returns `None` for invalid IDs.
     pub fn from_id(id: u8) -> Option<Self> {
-        if id <= 103 {
-            // SAFETY: all discriminants 0..=103 are defined and the enum is
+        if id <= 120 {
+            // SAFETY: all discriminants 0..=120 are defined and the enum is
             // `#[repr(u8)]`, so the transmute is valid for any value in range.
             Some(unsafe { std::mem::transmute::<u8, CorePrimOp>(id) })
         } else {
@@ -469,6 +488,7 @@ impl CorePrimOp {
             ("cmp_eq", 2, CorePrimOp::CmpEq),
             ("cmp_ne", 2, CorePrimOp::CmpNe),
             ("concat", 2, CorePrimOp::ArrayConcat),
+            ("contains", 2, CorePrimOp::Contains),
             ("delete", 2, CorePrimOp::HamtDelete),
             ("ends_with", 2, CorePrimOp::EndsWith),
             ("fadd", 2, CorePrimOp::FAdd),
@@ -526,6 +546,7 @@ impl CorePrimOp {
             ("read_lines", 1, CorePrimOp::ReadLines),
             ("read_stdin", 0, CorePrimOp::ReadStdin),
             ("replace", 3, CorePrimOp::Replace),
+            ("reverse", 1, CorePrimOp::Reverse),
             ("size", 1, CorePrimOp::HamtSize),
             ("slice", 3, CorePrimOp::ArraySlice),
             ("split", 2, CorePrimOp::Split),
@@ -564,13 +585,15 @@ impl CorePrimOp {
             | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | ParseInts | Print
             | Println | ReadFile | ReadLines | StringLength | ToArray | ToList | ToString
             | Trim | Try | AssertThrows | TypeOf | Upper | HamtKeys | HamtValues | HamtSize
-            | Neg | Not => 1,
+            | Neg | Not | First | Rest | Reverse | Sort | Last | Flatten => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub
             | FMul | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe
             | ICmpGt | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq
             | CmpNe | And | Or | Concat | ArrayGet | ArrayPush | ArrayConcat | HamtGet
             | HamtContains | HamtDelete | HamtMerge | Index | Join | Max | Min | Split
-            | SplitInts | StartsWith | EndsWith | StringConcat | StrContains | WriteFile => 2,
+            | SplitInts | StartsWith | EndsWith | StringConcat | StrContains | WriteFile
+            | Contains | SortBy | HoMap | HoFilter | HoAny | HoAll | HoEach | HoFind
+            | HoCount | HoFlatMap | Zip => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.

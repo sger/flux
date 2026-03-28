@@ -38,6 +38,38 @@ const OBJ_TAG_TUPLE: u8 = 4;
 #[allow(dead_code)]
 const OBJ_TAG_CLOSURE: u8 = 5;
 
+// ── Library function → PrimOp resolution ────────────────────────────────────
+//
+// Maps unbound function names (from Flow.* prelude modules) to CorePrimOp
+// variants that have C runtime implementations.  This allows the LIR to emit
+// direct PrimCall instructions instead of GetGlobal + closure Call, which is
+// essential for native compilation where the VM globals table is unavailable.
+
+fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
+    // Strip module prefix (e.g. "Flow.List.first" → "first")
+    let short = name.rsplit('.').next().unwrap_or(name);
+    match (short, arity) {
+        // Collection access
+        ("first", 1) => Some(CorePrimOp::First),
+        ("last", 1) => Some(CorePrimOp::Last),
+        ("rest", 1) => Some(CorePrimOp::Rest),
+        // Higher-order (C runtime calls closures via flux_call_closure_c)
+        ("map", 2) => Some(CorePrimOp::HoMap),
+        ("filter", 2) => Some(CorePrimOp::HoFilter),
+        ("sort", 1) => Some(CorePrimOp::Sort),
+        ("sort_by", 2) => Some(CorePrimOp::SortBy),
+        ("any", 2) => Some(CorePrimOp::HoAny),
+        ("all", 2) => Some(CorePrimOp::HoAll),
+        ("each", 2) => Some(CorePrimOp::HoEach),
+        ("find", 2) => Some(CorePrimOp::HoFind),
+        ("count", 2) => Some(CorePrimOp::HoCount),
+        ("flat_map", 2) => Some(CorePrimOp::HoFlatMap),
+        ("zip", 2) => Some(CorePrimOp::Zip),
+        ("flatten", 1) => Some(CorePrimOp::Flatten),
+        _ => None,
+    }
+}
+
 // ── Public entry point ───────────────────────────────────────────────────────
 
 /// Lower a complete `CoreProgram` to `LirProgram`.
@@ -117,6 +149,10 @@ struct FnLower<'a> {
     interner: Option<&'a Interner>,
     /// Optional mapping from function name → VM global index for imported functions.
     globals_map: Option<&'a HashMap<String, usize>>,
+    /// Tracks LIR variables that were produced by GetGlobal, mapping to their
+    /// function name.  Used by the App handler to intercept closure calls to
+    /// known library functions and emit PrimCall instead.
+    global_var_names: HashMap<LirVar, String>,
 }
 
 impl<'a> FnLower<'a> {
@@ -144,6 +180,7 @@ impl<'a> FnLower<'a> {
             current_block: 0,
             program,
             interner,
+            global_var_names: HashMap::new(),
             globals_map,
         }
     }
@@ -227,6 +264,7 @@ impl<'a> FnLower<'a> {
                     if let Some(&global_idx) = globals.get(&name) {
                         let dst = self.fresh_var();
                         self.emit(LirInstr::GetGlobal { dst, global_idx });
+                        self.global_var_names.insert(dst, name);
                         dst
                     } else {
                         // Unknown external — emit None placeholder.
@@ -417,8 +455,50 @@ impl<'a> FnLower<'a> {
             | CoreExpr::AetherCall {
                 func, args, ..
             } => {
+                // Check if func is an unbound variable that maps to a known
+                // library function with a C runtime implementation.  If so,
+                // emit PrimCall directly instead of GetGlobal + Call (which
+                // would crash in native mode where the globals table is empty).
+                // Check for unbound Var or MemberAccess → library primop.
+                let resolved_name = match func.as_ref() {
+                    CoreExpr::Var { var, .. } if var.binder.is_none() => {
+                        Some(self.resolve_name(var.name))
+                    }
+                    CoreExpr::MemberAccess { member, .. } => {
+                        Some(self.resolve_name(*member))
+                    }
+                    _ => None,
+                };
+                if let Some(name) = resolved_name {
+                    if let Some(op) = resolve_library_primop(&name, args.len()) {
+                        let arg_vars: Vec<LirVar> =
+                            args.iter().map(|a| self.lower_expr(a)).collect();
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::PrimCall {
+                            dst: Some(dst),
+                            op,
+                            args: arg_vars,
+                        });
+                        return dst;
+                    }
+                }
+
                 let func_var = self.lower_expr(func);
                 let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
+
+                // If func_var was produced by a GetGlobal for a known library
+                // function, emit a direct PrimCall instead of a closure Call.
+                if let Some(name) = self.global_var_names.get(&func_var).cloned() {
+                    if let Some(op) = resolve_library_primop(&name, arg_vars.len()) {
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::PrimCall {
+                            dst: Some(dst),
+                            op,
+                            args: arg_vars,
+                        });
+                        return dst;
+                    }
+                }
 
                 // Emit a Call.  The continuation block receives the result.
                 let cont_idx = self.new_block();
@@ -474,12 +554,14 @@ impl<'a> FnLower<'a> {
                     {
                         let dst = self.fresh_var();
                         self.emit(LirInstr::GetGlobal { dst, global_idx });
+                        self.global_var_names.insert(dst, member_str.clone());
                         return dst;
                     }
                     // Try just the member name (unqualified).
                     if let Some(&global_idx) = globals.get(&member_str) {
                         let dst = self.fresh_var();
                         self.emit(LirInstr::GetGlobal { dst, global_idx });
+                        self.global_var_names.insert(dst, member_str.clone());
                         return dst;
                     }
                 }

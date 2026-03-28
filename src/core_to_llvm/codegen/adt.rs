@@ -30,6 +30,10 @@ const RIGHT_TAG_ID: i32 = 3;
 const CONS_TAG_ID: i32 = 4;
 const FIRST_USER_TAG_ID: i32 = 5;
 
+// C runtime obj_tag values (must match flux_rt.h)
+const FLUX_OBJ_ADT: i32 = 0xF2;
+const FLUX_OBJ_TUPLE: i32 = 0xF3;
+
 pub const FLUX_ADT_TAG_FIELD: i32 = 0;
 pub const FLUX_ADT_FIELD_COUNT_FIELD: i32 = 1;
 pub const FLUX_ADT_PAYLOAD_FIELD: i32 = 2;
@@ -260,8 +264,12 @@ fn emit_make_adt(module: &mut LlvmModule) {
                     tail: false,
                     call_conv: Some(CallConv::Ccc),
                     ret_ty: LlvmType::ptr(),
-                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc")),
-                    args: vec![(LlvmType::i32(), local_operand("alloc.bytes"))],
+                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc_header")),
+                    args: vec![
+                        (LlvmType::i32(), local_operand("alloc.bytes")),
+                        (LlvmType::i32(), local_operand("field_count")), // scan_fsize
+                        (LlvmType::i32(), const_i32_operand(FLUX_OBJ_ADT)),
+                    ],
                     attrs: vec![],
                 },
                 gep_struct_field(
@@ -418,8 +426,12 @@ fn emit_make_tuple(module: &mut LlvmModule) {
                     tail: false,
                     call_conv: Some(CallConv::Ccc),
                     ret_ty: LlvmType::ptr(),
-                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc")),
-                    args: vec![(LlvmType::i32(), local_operand("alloc.bytes"))],
+                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc_header")),
+                    args: vec![
+                        (LlvmType::i32(), local_operand("alloc.bytes")),
+                        (LlvmType::i32(), local_operand("arity")), // scan_fsize
+                        (LlvmType::i32(), const_i32_operand(FLUX_OBJ_TUPLE)),
+                    ],
                     attrs: vec![],
                 },
                 // Store obj_tag = FLUX_OBJ_TUPLE (0xF3)

@@ -604,6 +604,23 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::CmpNe => out.push_str("CmpNe"),
         CorePrimOp::Try => out.push_str("Try"),
         CorePrimOp::AssertThrows => out.push_str("AssertThrows"),
+        CorePrimOp::First => out.push_str("First"),
+        CorePrimOp::Rest => out.push_str("Rest"),
+        CorePrimOp::Reverse => out.push_str("Reverse"),
+        CorePrimOp::Contains => out.push_str("Contains"),
+        CorePrimOp::Sort => out.push_str("Sort"),
+        CorePrimOp::SortBy => out.push_str("SortBy"),
+        CorePrimOp::HoMap => out.push_str("HoMap"),
+        CorePrimOp::HoFilter => out.push_str("HoFilter"),
+        CorePrimOp::Last => out.push_str("Last"),
+        CorePrimOp::HoAny => out.push_str("HoAny"),
+        CorePrimOp::HoAll => out.push_str("HoAll"),
+        CorePrimOp::HoEach => out.push_str("HoEach"),
+        CorePrimOp::HoFind => out.push_str("HoFind"),
+        CorePrimOp::HoCount => out.push_str("HoCount"),
+        CorePrimOp::Zip => out.push_str("Zip"),
+        CorePrimOp::Flatten => out.push_str("Flatten"),
+        CorePrimOp::HoFlatMap => out.push_str("HoFlatMap"),
     }
 }
 

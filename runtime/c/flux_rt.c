@@ -880,8 +880,46 @@ int64_t flux_to_string(int64_t val) {
                 pos += snprintf(buf + pos, sizeof(buf) - pos, ")");
                 return flux_string_new(buf, (uint32_t)pos);
             }
-            /* HAMT (hash map) */
-            if (flux_is_hamt(ptr)) {
+            /* ADT or HAMT?  ADTs have obj_tag FLUX_OBJ_ADT; HAMTs don't. */
+            if (obj == FLUX_OBJ_ADT) {
+                int32_t ctor_tag = *(int32_t *)ptr;
+                int32_t field_count = *((int32_t *)ptr + 1);
+                /* Some/Left/Right/None */
+                if (ctor_tag == 1 && field_count >= 1) {
+                    int64_t *fields = (int64_t *)((char *)ptr + 8);
+                    char buf[4096]; int pos = 0;
+                    pos += snprintf(buf + pos, sizeof(buf) - pos, "Some(");
+                    int64_t s = flux_to_string(fields[0]);
+                    const char *sd = flux_string_data(s); uint32_t sl = flux_string_len(s);
+                    if (pos + sl < sizeof(buf) - 10) { memcpy(buf + pos, sd, sl); pos += sl; }
+                    pos += snprintf(buf + pos, sizeof(buf) - pos, ")");
+                    return flux_string_new(buf, (uint32_t)pos);
+                }
+                if (ctor_tag == 2 && field_count >= 1) {
+                    int64_t *fields = (int64_t *)((char *)ptr + 8);
+                    char buf[4096]; int pos = 0;
+                    pos += snprintf(buf + pos, sizeof(buf) - pos, "Left(");
+                    int64_t s = flux_to_string(fields[0]);
+                    const char *sd = flux_string_data(s); uint32_t sl = flux_string_len(s);
+                    if (pos + sl < sizeof(buf) - 10) { memcpy(buf + pos, sd, sl); pos += sl; }
+                    pos += snprintf(buf + pos, sizeof(buf) - pos, ")");
+                    return flux_string_new(buf, (uint32_t)pos);
+                }
+                if (ctor_tag == 3 && field_count >= 1) {
+                    int64_t *fields = (int64_t *)((char *)ptr + 8);
+                    char buf[4096]; int pos = 0;
+                    pos += snprintf(buf + pos, sizeof(buf) - pos, "Right(");
+                    int64_t s = flux_to_string(fields[0]);
+                    const char *sd = flux_string_data(s); uint32_t sl = flux_string_len(s);
+                    if (pos + sl < sizeof(buf) - 10) { memcpy(buf + pos, sd, sl); pos += sl; }
+                    pos += snprintf(buf + pos, sizeof(buf) - pos, ")");
+                    return flux_string_new(buf, (uint32_t)pos);
+                }
+                if (ctor_tag == 0 && field_count == 0) {
+                    return flux_string_new("None", 4);
+                }
+                /* Cons list: ctor_tag=4, field_count=2 — fall through below */
+            } else if (flux_is_hamt(ptr)) {
                 return flux_hamt_format(val);
             }
             /* Cons list: ADT with ctor_tag=4, field_count=2 */
@@ -985,7 +1023,7 @@ int64_t flux_first(int64_t collection) {
             uint32_t len = *(uint32_t *)((char *)ptr + 4);
             if (len == 0) return flux_make_none();
             int64_t *elems = (int64_t *)((char *)ptr + 16);
-            return flux_wrap_some(elems[0]);
+            return elems[0];  /* raw element — matches VM's arr[0] unwrap */
         }
 
         /* Check for cons list: ADT with ctor_tag=4, field_count=2 */
@@ -993,7 +1031,7 @@ int64_t flux_first(int64_t collection) {
         int32_t field_count = *((int32_t *)ptr + 1);
         if (ctor_tag == 4 && field_count == 2) {
             int64_t *fields = (int64_t *)((char *)ptr + 8);
-            return flux_wrap_some(fields[0]);
+            return fields[0];  /* raw head element */
         }
     }
 
@@ -1040,15 +1078,8 @@ int64_t flux_is_map(int64_t val) {
     if (!flux_is_ptr(val)) return flux_make_bool(0);
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return flux_make_bool(0);
-    uint8_t obj = flux_obj_tag(ptr);
-    /* Known obj_tags are 0xF1..0xF5.  HAMT nodes use HamtKind enum values
-     * (0=EMPTY, 1=LEAF, 2=BRANCH, 3=COLLISION) as their first bytes.
-     * So if obj_tag is NOT one of the FLUX_OBJ_* tags, assume HAMT. */
-    if (obj == FLUX_OBJ_STRING || obj == FLUX_OBJ_ARRAY ||
-        obj == FLUX_OBJ_TUPLE || obj == FLUX_OBJ_ADT || obj == FLUX_OBJ_CLOSURE) {
-        return flux_make_bool(0);
-    }
-    return flux_make_bool(1);
+    /* HAMT nodes have no FluxHeader — identify by structural checks only. */
+    return flux_make_bool(flux_is_hamt(ptr));
 }
 
 /* last(collection) → Some(last_element) or None. */
@@ -1064,7 +1095,7 @@ int64_t flux_last(int64_t collection) {
         uint32_t len = *(uint32_t *)((char *)ptr + 4);
         if (len == 0) return flux_make_none();
         int64_t *elems = (int64_t *)((char *)ptr + 16);
-        return flux_wrap_some(elems[len - 1]);
+        return elems[len - 1];  /* raw element */
     }
     /* Cons list: walk to the end. */
     int64_t cur = collection;
@@ -1077,10 +1108,7 @@ int64_t flux_last(int64_t collection) {
         last_head = fields[0];
         cur = fields[1];
     }
-    if (flux_is_nanbox(last_head) && flux_nanbox_tag(last_head) == FLUX_TAG_NONE) {
-        return flux_make_none();
-    }
-    return flux_wrap_some(last_head);
+    return last_head;  /* raw element or None if empty */
 }
 
 /* rest(collection) → tail of list/array (everything except first). */
@@ -1109,36 +1137,38 @@ int64_t flux_rest(int64_t collection) {
 
 /* len/length — returns length of array, string, list, tuple, or map. */
 int64_t flux_rt_len(int64_t collection) {
-    if (flux_is_nanbox(collection)) {
-        if (flux_nanbox_tag(collection) == FLUX_TAG_EMPTY_LIST) return flux_tag_int(0);
+    /* Check boxed pointer first — boxed values are also NaN-boxed. */
+    if (flux_is_ptr(collection)) {
+        void *ptr = flux_untag_ptr(collection);
+        if (!ptr) return flux_tag_int(0);
+        uint8_t obj = flux_obj_tag(ptr);
+        if (obj == FLUX_OBJ_ARRAY) {
+            uint32_t len = *(uint32_t *)((char *)ptr + 4);
+            return flux_tag_int((int64_t)len);
+        }
+        if (obj == FLUX_OBJ_STRING) {
+            return flux_string_length(collection);
+        }
+        if (obj == FLUX_OBJ_TUPLE) {
+            uint32_t arity = *(uint32_t *)((char *)ptr + 4);
+            return flux_tag_int((int64_t)arity);
+        }
+        /* Cons list: count nodes. */
+        int64_t count = 0;
+        int64_t cur = collection;
+        while (flux_is_ptr(cur)) {
+            void *cp = flux_untag_ptr(cur);
+            int32_t ct = *(int32_t *)cp;
+            if (ct != 4) break;
+            count++;
+            cur = ((int64_t *)((char *)cp + 8))[1];
+        }
+        return flux_tag_int(count);
+    }
+    /* NaN-boxed non-pointer (empty list, integer, etc.) */
+    if (flux_is_nanbox(collection) && flux_nanbox_tag(collection) == FLUX_TAG_EMPTY_LIST)
         return flux_tag_int(0);
-    }
-    if (!flux_is_ptr(collection)) return flux_tag_int(0);
-    void *ptr = flux_untag_ptr(collection);
-    if (!ptr) return flux_tag_int(0);
-    uint8_t obj = flux_obj_tag(ptr);
-    if (obj == FLUX_OBJ_ARRAY) {
-        uint32_t len = *(uint32_t *)((char *)ptr + 4);
-        return flux_tag_int((int64_t)len);
-    }
-    if (obj == FLUX_OBJ_STRING) {
-        return flux_string_length(collection);
-    }
-    if (obj == FLUX_OBJ_TUPLE) {
-        uint32_t arity = *(uint32_t *)((char *)ptr + 4);
-        return flux_tag_int((int64_t)arity);
-    }
-    /* Cons list: count nodes. */
-    int64_t count = 0;
-    int64_t cur = collection;
-    while (flux_is_ptr(cur)) {
-        void *cp = flux_untag_ptr(cur);
-        int32_t ct = *(int32_t *)cp;
-        if (ct != 4) break;
-        count++;
-        cur = ((int64_t *)((char *)cp + 8))[1];
-    }
-    return flux_tag_int(count);
+    return flux_tag_int(0);
 }
 
 /* to_array(list) → array. Converts cons list to array. */
@@ -1382,11 +1412,17 @@ int64_t flux_split_ints(int64_t s, int64_t delim) {
 /* These call Flux closures via the ccc trampoline flux_call_closure_c. */
 
 static int64_t call1(int64_t func, int64_t arg) {
+    /* Dup the arg: the Aether-compiled closure may drop its parameter
+     * (e.g. `\_ -> true`), which would free a heap object still owned
+     * by the calling collection. */
+    flux_dup(arg);
     int64_t args[1] = { arg };
     return flux_call_closure_c(func, args, 1);
 }
 
 static int64_t call2(int64_t func, int64_t a, int64_t b) {
+    flux_dup(a);
+    flux_dup(b);
     int64_t args[2] = { a, b };
     return flux_call_closure_c(func, args, 2);
 }
@@ -1723,6 +1759,141 @@ int64_t flux_ho_sort(int64_t collection, int64_t func) {
     int64_t result = flux_array_new(sorted, (int32_t)len);
     free(sorted);
     return result;
+}
+
+/* flatten(collection) — flatten array of arrays into single array. */
+int64_t flux_flatten(int64_t collection) {
+    int64_t *elems; uint32_t len;
+    if (!flux_get_array_elems(collection, &elems, &len))
+        return flux_array_new(NULL, 0);
+
+    /* First pass: count total elements. */
+    uint32_t total = 0;
+    for (uint32_t i = 0; i < len; i++) {
+        int64_t *sub_elems; uint32_t sub_len;
+        if (flux_get_array_elems(elems[i], &sub_elems, &sub_len)) {
+            total += sub_len;
+        } else {
+            total++; /* non-array element kept as-is */
+        }
+    }
+
+    int64_t *result = (int64_t *)malloc(total * sizeof(int64_t));
+    uint32_t idx = 0;
+    for (uint32_t i = 0; i < len; i++) {
+        int64_t *sub_elems; uint32_t sub_len;
+        if (flux_get_array_elems(elems[i], &sub_elems, &sub_len)) {
+            memcpy(result + idx, sub_elems, sub_len * sizeof(int64_t));
+            idx += sub_len;
+        } else {
+            result[idx++] = elems[i];
+        }
+    }
+    int64_t out = flux_array_new(result, (int32_t)total);
+    free(result);
+    return out;
+}
+
+/* flat_map(collection, func) — map each element, concat results. */
+int64_t flux_ho_flat_map(int64_t collection, int64_t func) {
+    /* For arrays, map+flatten works. */
+    int64_t *elems; uint32_t len;
+    if (flux_get_array_elems(collection, &elems, &len)) {
+        int64_t mapped = flux_ho_map(collection, func);
+        return flux_flatten(mapped);
+    }
+    /* For cons lists: iterate, call func on each element, concat sub-lists. */
+    /* Collect all sub-list elements into a buffer, then build result cons list. */
+    uint32_t cap = 64;
+    int64_t *buf = (int64_t *)malloc(cap * sizeof(int64_t));
+    uint32_t count = 0;
+    int64_t cur = collection;
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        if (!cp || *(int32_t *)cp != 4) break;
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        flux_dup(fields[0]);
+        int64_t sub = call1(func, fields[0]);
+        /* Walk the sub-list and collect elements. */
+        int64_t sc = sub;
+        while (flux_is_ptr(sc)) {
+            void *sp = flux_untag_ptr(sc);
+            if (!sp || *(int32_t *)sp != 4) break;
+            int64_t *sf = (int64_t *)((char *)sp + 8);
+            if (count >= cap) { cap *= 2; buf = (int64_t *)realloc(buf, cap * sizeof(int64_t)); }
+            buf[count++] = sf[0];
+            sc = sf[1];
+        }
+        cur = fields[1];
+    }
+    /* Build cons list from back to front. */
+    int64_t result = flux_make_empty_list();
+    for (int32_t i = (int32_t)count - 1; i >= 0; i--) {
+        void *mem = flux_gc_alloc_header(8 + 2 * 8, 2, FLUX_OBJ_ADT);
+        *(int32_t *)mem = 4;
+        *((int32_t *)mem + 1) = 2;
+        int64_t *f = (int64_t *)((char *)mem + 8);
+        f[0] = buf[i];
+        f[1] = result;
+        result = flux_tag_ptr(mem);
+    }
+    free(buf);
+    return result;
+}
+
+/* reverse(collection) — polymorphic reverse for arrays and cons lists. */
+int64_t flux_reverse(int64_t collection) {
+    if (flux_is_ptr(collection)) {
+        void *ptr = flux_untag_ptr(collection);
+        if (ptr && flux_obj_tag(ptr) == FLUX_OBJ_ARRAY) {
+            return flux_array_reverse(collection);
+        }
+    }
+    /* Cons list: collect elements, build reversed list. */
+    int64_t cur = collection;
+    int64_t reversed = flux_make_empty_list();
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        if (!cp) break;
+        int32_t ct = *(int32_t *)cp;
+        if (ct != 4) break;
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        /* Cons(head, reversed) builds the reversed list. */
+        void *mem = flux_gc_alloc_header(8 + 2 * 8, 2, FLUX_OBJ_ADT);
+        *(int32_t *)mem = 4;
+        *((int32_t *)mem + 1) = 2;
+        int64_t *f = (int64_t *)((char *)mem + 8);
+        f[0] = fields[0];
+        f[1] = reversed;
+        reversed = flux_tag_ptr(mem);
+        cur = fields[1];
+    }
+    return reversed;
+}
+
+/* contains(collection, value) — polymorphic contains. */
+int64_t flux_contains(int64_t collection, int64_t value) {
+    if (flux_is_ptr(collection)) {
+        void *ptr = flux_untag_ptr(collection);
+        if (ptr && flux_obj_tag(ptr) == FLUX_OBJ_ARRAY) {
+            return flux_array_contains(collection, value);
+        }
+    }
+    /* Cons list: walk and compare. */
+    int64_t cur = collection;
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        if (!cp) break;
+        int32_t ct = *(int32_t *)cp;
+        if (ct != 4) break;
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        if (fields[0] == value) return flux_make_bool(1);
+        if (flux_is_ptr(fields[0]) && flux_is_ptr(value)) {
+            if (flux_string_eq(fields[0], value)) return flux_make_bool(1);
+        }
+        cur = fields[1];
+    }
+    return flux_make_bool(0);
 }
 
 /* Globals table for LIR native backend.

@@ -7,19 +7,6 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
-I can't find a value named `contains`.
-
-  examples/aoc/2025/aoc_day12_refactored.flx:13:26
-   |
-13 |     fn has_char(s, ch) { contains(chars(s), ch) }
-   |                          ^^^^^^^^
-
-Hint:
-  Define it first: let contains = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `fold`.
 
   examples/aoc/2025/aoc_day12_refactored.flx:17:9
@@ -69,6 +56,6 @@ I can't find a value named `fold`.
 Hint:
   Define it first: let fold = ...;
 
-Found 5 errors.
+Found 4 errors.
 == stdout ==
 <not executed>
