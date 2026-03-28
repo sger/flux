@@ -115,11 +115,7 @@ static void flux_print_value(int64_t val) {
             }
             if (arity == 1) printf(",");
             printf(")");
-        } else if (flux_is_hamt(ptr)) {
-            /* HAMT (hash map) */
-            int64_t s = flux_hamt_format(val);
-            fwrite(flux_string_data(s), 1, flux_string_len(s), stdout);
-        } else {
+        } else if (obj == FLUX_OBJ_ADT) {
             /* ADT: { i32 tag, i32 field_count, i64 fields[] } */
             int32_t ctor_tag = *(int32_t *)ptr;
             int32_t field_count = *((int32_t *)ptr + 1);
@@ -183,6 +179,12 @@ static void flux_print_value(int64_t val) {
                 }
                 break;
             }
+        } else if (flux_is_hamt(ptr)) {
+            /* HAMT (hash map) */
+            int64_t s = flux_hamt_format(val);
+            fwrite(flux_string_data(s), 1, flux_string_len(s), stdout);
+        } else {
+            printf("<unknown obj=0x%02x>", obj);
         }
         break;
     }
@@ -391,10 +393,30 @@ int64_t flux_rt_neg(int64_t a) {
 
 /* ── Some-wrapping helper ───────────────────────────────────────────── */
 
-static int64_t flux_wrap_some(int64_t val) {
+int64_t flux_wrap_some(int64_t val) {
     void *mem = flux_gc_alloc_header(8 + 8, 1, FLUX_OBJ_ADT);
     int32_t *hdr = (int32_t *)mem;
     hdr[0] = 1; /* ctor_tag = Some */
+    hdr[1] = 1; /* field_count = 1 */
+    int64_t *fields = (int64_t *)((char *)mem + 8);
+    fields[0] = val;
+    return flux_tag_ptr(mem);
+}
+
+int64_t flux_make_left(int64_t val) {
+    void *mem = flux_gc_alloc_header(8 + 8, 1, FLUX_OBJ_ADT);
+    int32_t *hdr = (int32_t *)mem;
+    hdr[0] = 2; /* ctor_tag = Left */
+    hdr[1] = 1; /* field_count = 1 */
+    int64_t *fields = (int64_t *)((char *)mem + 8);
+    fields[0] = val;
+    return flux_tag_ptr(mem);
+}
+
+int64_t flux_make_right(int64_t val) {
+    void *mem = flux_gc_alloc_header(8 + 8, 1, FLUX_OBJ_ADT);
+    int32_t *hdr = (int32_t *)mem;
+    hdr[0] = 3; /* ctor_tag = Right */
     hdr[1] = 1; /* field_count = 1 */
     int64_t *fields = (int64_t *)((char *)mem + 8);
     fields[0] = val;

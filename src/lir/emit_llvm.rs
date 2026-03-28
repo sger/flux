@@ -1150,19 +1150,56 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn emit_make_ctor(&mut self, dst: LirVar, ctor_tag: i32, fields: &[LirVar]) {
-        if ctor_tag == CONS_TAG && fields.len() == 2 {
-            // Cons(head, tail): use dedicated flux_make_cons helper.
-            self.call_fastcc(
-                Some(self.var_local(dst)),
-                "flux_make_cons",
-                vec![
-                    (LlvmType::i64(), self.var(fields[0])),
-                    (LlvmType::i64(), self.var(fields[1])),
-                ],
-                LlvmType::i64(),
-            );
-        } else {
-            // All constructors (Some, Left, Right, user ADTs): use flux_make_adt.
+        // Built-in constructors with dedicated C runtime functions
+        // that use flux_gc_alloc_header (correct RC metadata).
+        match (ctor_tag, fields.len()) {
+            (1, 1) => {
+                // Some(val)
+                self.call_c(
+                    Some(self.var_local(dst)),
+                    "flux_wrap_some",
+                    vec![(LlvmType::i64(), self.var(fields[0]))],
+                    LlvmType::i64(),
+                );
+                return;
+            }
+            (2, 1) => {
+                // Left(val)
+                self.call_c(
+                    Some(self.var_local(dst)),
+                    "flux_make_left",
+                    vec![(LlvmType::i64(), self.var(fields[0]))],
+                    LlvmType::i64(),
+                );
+                return;
+            }
+            (3, 1) => {
+                // Right(val)
+                self.call_c(
+                    Some(self.var_local(dst)),
+                    "flux_make_right",
+                    vec![(LlvmType::i64(), self.var(fields[0]))],
+                    LlvmType::i64(),
+                );
+                return;
+            }
+            (4, 2) => {
+                // Cons(head, tail)
+                self.call_fastcc(
+                    Some(self.var_local(dst)),
+                    "flux_make_cons",
+                    vec![
+                        (LlvmType::i64(), self.var(fields[0])),
+                        (LlvmType::i64(), self.var(fields[1])),
+                    ],
+                    LlvmType::i64(),
+                );
+                return;
+            }
+            _ => {}
+        }
+        {
+            // User-defined ADTs: use flux_make_adt LLVM helper.
             // flux_make_adt(ptr fields, i32 field_count, i32 ctor_tag) → i64
             let arr = self.tmp();
             if fields.is_empty() {
