@@ -25,14 +25,36 @@ use crate::runtime::value::Value;
 /// `CompiledFunction` objects stored in the shared constants pool,
 /// referenced by `MakeClosure` instructions via `OpClosure`.
 pub fn emit_program(program: &LirProgram) -> Bytecode {
+    emit_program_with_base_constants(program, Vec::new())
+}
+
+/// Emit bytecode with a pre-populated constants pool base.
+///
+/// `base_constants` contains constants from previously compiled modules
+/// (e.g., prelude functions compiled via the CFG pipeline). The LIR-compiled
+/// constants are appended after these, so CFG-compiled closures can find
+/// their sub-closures at the expected indices.
+pub fn emit_program_with_base_constants(
+    program: &LirProgram,
+    base_constants: Vec<Value>,
+) -> Bytecode {
     let main_func = program.functions.last().expect("empty LIR program");
     let num_funcs = program.functions.len();
 
-    // Shared constants pool — nested functions and main all reference this.
-    let mut shared_constants: Vec<Value> = Vec::new();
+    // Shared constants pool — starts with base constants from CFG compilation.
+    let mut shared_constants = base_constants;
     let mut func_const_indices = vec![0usize; num_funcs];
 
-    // Compile nested functions first, each adding constants to the shared pool.
+    // Pre-reserve constant pool slots for all nested functions so that
+    // self-recursive and mutually-recursive closures can reference the
+    // correct constant index during compilation.
+    for idx in func_const_indices.iter_mut().take(num_funcs - 1) {
+        let slot = shared_constants.len();
+        shared_constants.push(Value::None); // placeholder
+        *idx = slot;
+    }
+
+    // Compile nested functions, then backfill their constant pool slots.
     for (i, func) in program.functions.iter().enumerate() {
         if i == num_funcs - 1 {
             break; // skip main
@@ -43,13 +65,12 @@ pub fn emit_program(program: &LirProgram) -> Bytecode {
             &mut shared_constants,
             &func_const_indices,
         );
-        let const_idx = shared_constants.len();
-        shared_constants.push(Value::Function(Rc::new(compiled)));
-        func_const_indices[i] = const_idx;
+        shared_constants[func_const_indices[i]] = Value::Function(Rc::new(compiled));
     }
 
     // Compile main, sharing the same constants pool.
     let mut emitter = FnEmitter::new(main_func, program);
+    emitter.is_main = true;
     emitter.constants = shared_constants;
     emitter.func_const_indices = func_const_indices;
     emitter.emit_function();
@@ -94,6 +115,8 @@ struct FnEmitter<'a> {
     func: &'a LirFunction,
     #[allow(dead_code)] // used by future LLVM emitter + string pool lookups
     program: &'a LirProgram,
+    /// True if this is the top-level main function (uses OpPop+OpJump for return).
+    is_main: bool,
     /// Output instruction stream.
     instructions: Instructions,
     /// Constants pool.
@@ -119,6 +142,7 @@ impl<'a> FnEmitter<'a> {
         Self {
             func,
             program,
+            is_main: false,
             instructions: Vec::new(),
             constants: Vec::new(),
             locals: HashMap::new(),
@@ -256,6 +280,17 @@ impl<'a> FnEmitter<'a> {
                 self.pop_into(*dst);
             }
 
+            LirInstr::GetGlobal { dst, global_idx } => {
+                self.emit_op(OpCode::OpGetGlobal, &[*global_idx]);
+                self.pop_into(*dst);
+            }
+
+            LirInstr::TupleGet { dst, tuple, index } => {
+                self.push_var(*tuple);
+                self.emit_op(OpCode::OpTupleIndex, &[*index]);
+                self.pop_into(*dst);
+            }
+
             LirInstr::PrimCall { dst, op, args } => {
                 // Push all arguments onto the stack.
                 for &arg in args {
@@ -281,6 +316,18 @@ impl<'a> FnEmitter<'a> {
                     CorePrimOp::Gt => self.emit_op(OpCode::OpGreaterThan, &[]),
                     CorePrimOp::Ge => self.emit_op(OpCode::OpGreaterThanOrEqual, &[]),
                     CorePrimOp::Not => self.emit_op(OpCode::OpBang, &[]),
+                    CorePrimOp::Neg => {
+                        // Unary negation
+                        self.emit_op(OpCode::OpMinus, &[]);
+                    }
+                    CorePrimOp::Index => {
+                        // collection[key] — OpIndex pops (collection, key)
+                        self.emit_op(OpCode::OpIndex, &[]);
+                    }
+                    CorePrimOp::Concat => {
+                        // String/array concatenation — polymorphic add
+                        self.emit_op(OpCode::OpAdd, &[]);
+                    }
                     _ => {
                         self.emit_op(OpCode::OpPrimOp, &[op.id() as usize, args.len()]);
                     }
@@ -367,6 +414,64 @@ impl<'a> FnEmitter<'a> {
                 self.pop_into(*dst);
             }
 
+            // ── Collection construction ──────────────────────────────
+            LirInstr::MakeArray { dst, elements } => {
+                for &elem in elements {
+                    self.push_var(elem);
+                }
+                self.emit_op(OpCode::OpArray, &[elements.len()]);
+                self.pop_into(*dst);
+            }
+            LirInstr::MakeTuple { dst, elements } => {
+                for &elem in elements {
+                    self.push_var(elem);
+                }
+                self.emit_op(OpCode::OpTuple, &[elements.len()]);
+                self.pop_into(*dst);
+            }
+            LirInstr::MakeHash { dst, pairs } => {
+                // pairs are interleaved: [key0, val0, key1, val1, ...]
+                for &p in pairs {
+                    self.push_var(p);
+                }
+                self.emit_op(OpCode::OpHash, &[pairs.len()]);
+                self.pop_into(*dst);
+            }
+            LirInstr::MakeList { dst, elements } => {
+                // Build cons list: push all elements forward, push EmptyList, then
+                // OpCons N times (matching CFG compiler's MakeList emission).
+                // OpCons pops (head=below, tail=TOS) → Cons(head, tail).
+                //   [e1, e2, e3, EmptyList] → Cons(e3, []) → Cons(e2, Cons(e3, [])) → ...
+                for &elem in elements {
+                    self.push_var(elem);
+                }
+                let empty_idx = self.add_constant(Value::EmptyList);
+                self.emit_op(OpCode::OpConstant, &[empty_idx]);
+                for _ in 0..elements.len() {
+                    self.emit_op(OpCode::OpCons, &[]);
+                }
+                self.pop_into(*dst);
+            }
+            LirInstr::Interpolate { dst, parts } => {
+                // String interpolation: convert each part to string, then concatenate.
+                // Uses OpToString (interpolation-safe, no added quotes) not
+                // OpPrimOp(ToString) (which wraps strings in quotes via format_value).
+                if parts.is_empty() {
+                    let idx = self.add_constant(Value::String(Rc::new(String::new())));
+                    self.emit_op(OpCode::OpConstant, &[idx]);
+                    self.pop_into(*dst);
+                } else {
+                    self.push_var(parts[0]);
+                    self.emit_op(OpCode::OpToString, &[]);
+                    for &part in &parts[1..] {
+                        self.push_var(part);
+                        self.emit_op(OpCode::OpToString, &[]);
+                        self.emit_op(OpCode::OpAdd, &[]);
+                    }
+                    self.pop_into(*dst);
+                }
+            }
+
             // ── Constructor creation ──────────────────────────────────
             LirInstr::MakeCtor {
                 dst,
@@ -444,8 +549,13 @@ impl<'a> FnEmitter<'a> {
                 self.pop_into(*dst);
             }
             LirInstr::DropReuse { dst, val } => {
-                self.push_var(*val);
-                self.emit_op(OpCode::OpDropReuse, &[]);
+                // The reuse path (Store/TagPtr) cannot work with the VM's
+                // Rust-heap values — it's designed for the LLVM backend's C-heap
+                // memory model.  Always return "not unique" (Tagged(0) = null
+                // pointer) so the MakeCtor fallback path is taken.
+                let _ = val;
+                let idx = self.add_constant(Value::Integer(0));
+                self.emit_op(OpCode::OpConstant, &[idx]);
                 self.pop_into(*dst);
             }
 
@@ -502,7 +612,7 @@ impl<'a> FnEmitter<'a> {
         match term {
             LirTerminator::Return(val) => {
                 self.push_var(*val);
-                if self.func.capture_vars.is_empty() && self.func.params.is_empty() {
+                if self.is_main {
                     // Top-level main: no call frame to return to.
                     // OpPop stores the value in last_popped, then jump past end.
                     self.emit_op(OpCode::OpPop, &[]);
@@ -615,7 +725,7 @@ impl<'a> FnEmitter<'a> {
             } => {
                 // Emit constructor pattern matching using VM-specific opcodes.
                 // For each arm: push scrutinee, test constructor, jump on match.
-                let mut match_patches: Vec<(usize, BlockId, Vec<LirVar>)> = Vec::new();
+                let mut match_patches: Vec<(usize, BlockId, Vec<LirVar>, CtorTag)> = Vec::new();
 
                 for arm in arms {
                     self.push_var(*scrutinee);
@@ -634,15 +744,16 @@ impl<'a> FnEmitter<'a> {
                             // OpIsCons: TOS → bool
                             self.emit_op(OpCode::OpIsCons, &[]);
                         }
-                        CtorTag::Some | CtorTag::Left | CtorTag::Right | CtorTag::Named(_) => {
-                            // OpIsAdt: compare constructor name.
-                            let name = match &arm.tag {
-                                CtorTag::Some => "Some",
-                                CtorTag::Left => "Left",
-                                CtorTag::Right => "Right",
-                                CtorTag::Named(n) => n.as_str(),
-                                _ => unreachable!(),
-                            };
+                        CtorTag::Some => {
+                            self.emit_op(OpCode::OpIsSome, &[]);
+                        }
+                        CtorTag::Left => {
+                            self.emit_op(OpCode::OpIsLeft, &[]);
+                        }
+                        CtorTag::Right => {
+                            self.emit_op(OpCode::OpIsRight, &[]);
+                        }
+                        CtorTag::Named(name) => {
                             let const_idx =
                                 self.add_constant(Value::String(Rc::new(name.to_string())));
                             self.emit_op(OpCode::OpIsAdt, &[const_idx]);
@@ -655,7 +766,7 @@ impl<'a> FnEmitter<'a> {
                     // JumpTruthy → trampoline that extracts fields + jumps to block
                     let patch = self.pos() + 1;
                     self.emit_op(OpCode::OpJumpTruthy, &[0xFFFF]);
-                    match_patches.push((patch, arm.target, arm.field_binders.clone()));
+                    match_patches.push((patch, arm.target, arm.field_binders.clone(), arm.tag.clone()));
                 }
 
                 // Default: jump unconditionally.
@@ -664,25 +775,66 @@ impl<'a> FnEmitter<'a> {
                 self.jump_patches.push((default_patch, *default));
 
                 // Emit trampolines for each matched arm: pop bool, extract fields, jump.
-                for (patch, target, field_binders) in match_patches {
+                for (patch, target, field_binders, ctor_tag) in match_patches {
                     let trampoline = self.pos();
                     // Pop the leftover boolean from JumpTruthy.
                     self.emit_op(OpCode::OpPop, &[]);
                     // Extract fields from scrutinee into binder slots.
                     if !field_binders.is_empty() {
-                        self.push_var(*scrutinee);
-                        if field_binders.len() == 2 {
-                            // OpAdtFields2: pop ADT, push field0 then field1.
-                            self.emit_op(OpCode::OpAdtFields2, &[]);
-                            self.pop_into(field_binders[0]);
-                            self.pop_into(field_binders[1]);
-                        } else {
-                            for (i, &binder) in field_binders.iter().enumerate() {
-                                if i > 0 {
+                        match &ctor_tag {
+                            // Some/Left/Right are single-field wrappers with dedicated unwrap opcodes.
+                            CtorTag::Some if field_binders.len() == 1 => {
+                                self.push_var(*scrutinee);
+                                self.emit_op(OpCode::OpUnwrapSome, &[]);
+                                self.pop_into(field_binders[0]);
+                            }
+                            CtorTag::Left if field_binders.len() == 1 => {
+                                self.push_var(*scrutinee);
+                                self.emit_op(OpCode::OpUnwrapLeft, &[]);
+                                self.pop_into(field_binders[0]);
+                            }
+                            CtorTag::Right if field_binders.len() == 1 => {
+                                self.push_var(*scrutinee);
+                                self.emit_op(OpCode::OpUnwrapRight, &[]);
+                                self.pop_into(field_binders[0]);
+                            }
+                            // Cons: extract head and tail via OpConsHead/OpConsTail.
+                            CtorTag::Cons if field_binders.len() == 2 => {
+                                self.push_var(*scrutinee);
+                                self.emit_op(OpCode::OpConsHead, &[]);
+                                // OpConsHead pushes Some(head) — unwrap it.
+                                self.emit_op(OpCode::OpUnwrapSome, &[]);
+                                self.pop_into(field_binders[0]);
+                                self.push_var(*scrutinee);
+                                self.emit_op(OpCode::OpConsTail, &[]);
+                                // OpConsTail pushes Some(tail) — unwrap it.
+                                self.emit_op(OpCode::OpUnwrapSome, &[]);
+                                self.pop_into(field_binders[1]);
+                            }
+                            // Tuple: use OpTupleIndex for each field.
+                            CtorTag::Tuple => {
+                                for (i, &binder) in field_binders.iter().enumerate() {
                                     self.push_var(*scrutinee);
+                                    self.emit_op(OpCode::OpTupleIndex, &[i]);
+                                    self.pop_into(binder);
                                 }
-                                self.emit_op(OpCode::OpAdtField, &[i]);
-                                self.pop_into(binder);
+                            }
+                            // General ADT: use OpAdtField for each field.
+                            _ => {
+                                self.push_var(*scrutinee);
+                                if field_binders.len() == 2 {
+                                    self.emit_op(OpCode::OpAdtFields2, &[]);
+                                    self.pop_into(field_binders[0]);
+                                    self.pop_into(field_binders[1]);
+                                } else {
+                                    for (i, &binder) in field_binders.iter().enumerate() {
+                                        if i > 0 {
+                                            self.push_var(*scrutinee);
+                                        }
+                                        self.emit_op(OpCode::OpAdtField, &[i]);
+                                        self.pop_into(binder);
+                                    }
+                                }
                             }
                         }
                     }

@@ -68,6 +68,7 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         ("is_some", 1, CorePrimOp::IsSome),
         ("is_list", 1, CorePrimOp::IsList),
         ("is_map", 1, CorePrimOp::IsMap),
+        ("is_hash", 1, CorePrimOp::IsMap),
         // Deep structural comparison
         ("cmp_eq", 2, CorePrimOp::CmpEq),
         ("cmp_ne", 2, CorePrimOp::CmpNe),

@@ -644,6 +644,16 @@ fn run_file(
 
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
+
+                // For --run-lir: skip CFG compilation of the entry module.
+                // Prelude/library modules are still compiled via CFG to populate
+                // globals, and the entry module will be compiled via LIR later.
+                if run_lir && is_entry_module {
+                    // Still need type inference for the LIR path.
+                    compiler.infer_expr_types_for_program(&node.program);
+                    continue;
+                }
+
                 let is_flow_library = node.path.to_string_lossy().contains("lib/Flow/")
                     || node.path.to_string_lossy().contains("lib\\Flow\\");
                 compiler.set_strict_require_main(is_entry_module);
@@ -827,9 +837,28 @@ fn run_file(
 
             // --- LIR execution path (Proposal 0132 Phase 6) ---
             if run_lir {
-                match compiler.compile_via_lir(&merged_program, enable_optimize) {
-                    Ok(bytecode) => {
-                        let mut vm = VM::new(bytecode);
+                // 1. Run CFG bytecode (prelude modules) to populate globals.
+                let cfg_bytecode = compiler.bytecode();
+                let mut cfg_vm = VM::new(cfg_bytecode);
+                if let Err(err) = cfg_vm.run() {
+                    eprintln!("{}", err);
+                    std::process::exit(1);
+                }
+
+                // 2. Export CFG constants and globals for the LIR VM.
+                let cfg_constants = cfg_vm.export_constants();
+                let mut globals_buf = vec![Value::None; 65536];
+                cfg_vm.swap_globals_values(&mut globals_buf);
+
+                // 3. Compile user module via LIR, using CFG constants as base.
+                match compiler.compile_via_lir(
+                    &merged_program,
+                    enable_optimize,
+                    cfg_constants,
+                ) {
+                    Ok(lir_bytecode) => {
+                        let mut vm = VM::new(lir_bytecode);
+                        vm.swap_globals_values(&mut globals_buf);
                         vm.set_trace(trace);
                         if let Err(err) = vm.run() {
                             eprintln!("{}", err);
