@@ -170,7 +170,10 @@ static inline int64_t flux_make_empty_list(void) {
 /* FLUX_OBJ_BIGINT (0xF6) defined above near inline helpers */
 
 static inline uint8_t flux_obj_tag(void *ptr) {
-    return *(uint8_t *)ptr;
+    /* Read obj_tag from the FluxHeader at ptr - 8.
+     * Layout: { i32 refcount, u8 scan_fsize, u8 obj_tag, u16 reserved }
+     * obj_tag is at offset 5 within the header. */
+    return *((uint8_t *)ptr - 3);
 }
 
 /* ── Allocation & Reference Counting (Aether RC) ──────────────────── */
@@ -345,6 +348,11 @@ int64_t flux_split_ints(int64_t s, int64_t delim);
 int64_t flux_zip(int64_t a, int64_t b);
 int64_t flux_starts_with(int64_t s, int64_t prefix);
 int64_t flux_ends_with(int64_t s, int64_t suffix);
+
+/* ── ADT construction (LIR native backend) ─────────────────────────── */
+int64_t flux_wrap_some(int64_t val);
+int64_t flux_make_left(int64_t val);
+int64_t flux_make_right(int64_t val);
 
 /* ── Globals table (LIR native backend) ─────────────────────────────── */
 int64_t flux_get_global(int64_t idx);
