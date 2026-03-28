@@ -75,6 +75,7 @@ pub fn emit_llvm_ir(program: &LirProgram) -> String {
             needed_decls: &mut needed_decls,
             string_globals: &mut string_globals,
             current_instrs: Vec::new(),
+            extra_blocks: Vec::new(),
         };
         let llvm_func = emitter.emit_function();
         module.functions.push(llvm_func);
@@ -145,6 +146,8 @@ struct FnEmitter<'a> {
     needed_decls: &'a mut HashSet<String>,
     string_globals: &'a mut Vec<(GlobalId, String)>,
     current_instrs: Vec<LlvmInstr>,
+    /// Extra blocks emitted by MatchCtor for field extraction.
+    extra_blocks: Vec<LlvmBlock>,
 }
 
 impl<'a> FnEmitter<'a> {
@@ -299,6 +302,8 @@ impl<'a> FnEmitter<'a> {
                 instrs: std::mem::take(&mut self.current_instrs),
                 term,
             });
+            // Append any extra blocks emitted by MatchCtor.
+            blocks.append(&mut self.extra_blocks);
         }
 
         if self.is_main {
@@ -745,13 +750,14 @@ impl<'a> FnEmitter<'a> {
 
             // ── Collections ─────────────────────────────────────────
             LirInstr::MakeArray { dst, elements } => {
-                self.emit_make_collection(*dst, elements, "flux_make_array");
+                self.emit_make_collection(*dst, elements, "flux_array_new");
             }
             LirInstr::MakeTuple { dst, elements } => {
-                self.emit_make_collection(*dst, elements, "flux_make_tuple");
+                // flux_make_tuple is emitted by emit_adt_support (fastcc LLVM helper).
+                self.emit_make_collection_fastcc(*dst, elements, "flux_make_tuple");
             }
             LirInstr::MakeHash { dst, pairs } => {
-                self.emit_make_collection(*dst, pairs, "flux_make_hash");
+                self.emit_make_collection(*dst, pairs, "flux_hamt_from_pairs");
             }
             LirInstr::MakeList { dst, elements } => {
                 self.emit_make_list(*dst, elements);
@@ -945,9 +951,23 @@ impl<'a> FnEmitter<'a> {
         }
     }
 
+    fn emit_make_collection_fastcc(&mut self, dst: LirVar, elements: &[LirVar], func: &str) {
+        self.emit_make_collection_inner(dst, elements, func, true);
+    }
+
     fn emit_make_collection(&mut self, dst: LirVar, elements: &[LirVar], c_func: &str) {
+        self.emit_make_collection_inner(dst, elements, c_func, false);
+    }
+
+    fn emit_make_collection_inner(&mut self, dst: LirVar, elements: &[LirVar], c_func: &str, use_fastcc: bool) {
+        let call = if use_fastcc {
+            FnEmitter::call_fastcc
+        } else {
+            FnEmitter::call_c
+        };
         if elements.is_empty() {
-            self.call_c(
+            call(
+                self,
                 Some(self.var_local(dst)),
                 c_func,
                 vec![
@@ -983,7 +1003,8 @@ impl<'a> FnEmitter<'a> {
                     align: Some(8),
                 });
             }
-            self.call_c(
+            call(
+                self,
                 Some(self.var_local(dst)),
                 c_func,
                 vec![
@@ -1043,57 +1064,68 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn emit_make_ctor(&mut self, dst: LirVar, ctor_tag: i32, fields: &[LirVar]) {
-        match (ctor_tag, fields.len()) {
-            // Some(val)
-            (1, 1) => {
-                self.call_c(
+        if ctor_tag == CONS_TAG && fields.len() == 2 {
+            // Cons(head, tail): use dedicated flux_make_cons helper.
+            self.call_fastcc(
+                Some(self.var_local(dst)),
+                "flux_make_cons",
+                vec![
+                    (LlvmType::i64(), self.var(fields[0])),
+                    (LlvmType::i64(), self.var(fields[1])),
+                ],
+                LlvmType::i64(),
+            );
+        } else {
+            // All constructors (Some, Left, Right, user ADTs): use flux_make_adt.
+            // flux_make_adt(ptr fields, i32 field_count, i32 ctor_tag) → i64
+            let arr = self.tmp();
+            if fields.is_empty() {
+                self.call_fastcc(
                     Some(self.var_local(dst)),
-                    "flux_wrap_some",
-                    vec![(LlvmType::i64(), self.var(fields[0]))],
-                    LlvmType::i64(),
-                );
-            }
-            // Left(val)
-            (2, 1) => {
-                self.call_c(
-                    Some(self.var_local(dst)),
-                    "flux_make_left",
-                    vec![(LlvmType::i64(), self.var(fields[0]))],
-                    LlvmType::i64(),
-                );
-            }
-            // Right(val)
-            (3, 1) => {
-                self.call_c(
-                    Some(self.var_local(dst)),
-                    "flux_make_right",
-                    vec![(LlvmType::i64(), self.var(fields[0]))],
-                    LlvmType::i64(),
-                );
-            }
-            // Cons(head, tail)
-            (4, 2) => {
-                self.call_c(
-                    Some(self.var_local(dst)),
-                    "flux_make_cons",
+                    "flux_make_adt",
                     vec![
-                        (LlvmType::i64(), self.var(fields[0])),
-                        (LlvmType::i64(), self.var(fields[1])),
+                        (LlvmType::Ptr, LlvmOperand::Const(LlvmConst::Null)),
+                        (LlvmType::i32(), self.i32_const(0)),
+                        (LlvmType::i32(), self.i32_const(ctor_tag)),
                     ],
                     LlvmType::i64(),
                 );
-            }
-            // User-defined ADT
-            _ => {
-                self.emit_make_collection(dst, fields, "flux_make_adt_fields");
-                // Patch: flux_make_adt_fields(ptr, count, tag)
-                // Actually, use the 3-arg version.
-                // Remove the last call and re-emit with tag.
-                let last = self.current_instrs.pop();
-                if let Some(LlvmInstr::Call { dst: d, args: mut a, .. }) = last {
-                    a.push((LlvmType::i32(), self.i32_const(ctor_tag)));
-                    self.call_c(d, "flux_make_adt", a, LlvmType::i64());
+            } else {
+                self.emit(LlvmInstr::Alloca {
+                    dst: arr.clone(),
+                    ty: LlvmType::Array {
+                        len: fields.len() as u64,
+                        element: Box::new(LlvmType::i64()),
+                    },
+                    count: None,
+                    align: Some(8),
+                });
+                for (i, field) in fields.iter().enumerate() {
+                    let gep = self.tmp();
+                    self.emit(LlvmInstr::GetElementPtr {
+                        dst: gep.clone(),
+                        inbounds: true,
+                        element_ty: LlvmType::i64(),
+                        base: LlvmOperand::Local(arr.clone()),
+                        indices: vec![(LlvmType::i32(), self.i32_const(i as i32))],
+                    });
+                    self.emit(LlvmInstr::Store {
+                        ty: LlvmType::i64(),
+                        value: self.var(*field),
+                        ptr: LlvmOperand::Local(gep),
+                        align: Some(8),
+                    });
                 }
+                self.call_fastcc(
+                    Some(self.var_local(dst)),
+                    "flux_make_adt",
+                    vec![
+                        (LlvmType::Ptr, LlvmOperand::Local(arr)),
+                        (LlvmType::i32(), self.i32_const(fields.len() as i32)),
+                        (LlvmType::i32(), self.i32_const(ctor_tag)),
+                    ],
+                    LlvmType::i64(),
+                );
             }
         }
     }
@@ -1251,10 +1283,9 @@ impl<'a> FnEmitter<'a> {
         arms: &[CtorArm],
         default: BlockId,
     ) -> LlvmTerminator {
-        // Separate arms by type: immediate (None/EmptyList) vs boxed (ADT/Cons/Tuple/etc.)
-        let mut boxed_arms: Vec<&CtorArm> = Vec::new();
         let mut none_arm: Option<&CtorArm> = None;
         let mut empty_list_arm: Option<&CtorArm> = None;
+        let mut boxed_arms: Vec<&CtorArm> = Vec::new();
 
         for arm in arms {
             match &arm.tag {
@@ -1264,14 +1295,9 @@ impl<'a> FnEmitter<'a> {
             }
         }
 
-        // For simplicity, emit a chain of checks:
-        // 1. Check None
-        // 2. Check EmptyList
-        // 3. For boxed values, extract ADT tag and switch.
-
-        // Get NaN-box tag.
-        let nb_tag = self.tmp();
+        // Get NaN-box tag for dispatch.
         let shifted = self.tmp();
+        let nb_tag = self.tmp();
         self.emit(LlvmInstr::Binary {
             dst: shifted.clone(),
             op: LlvmValueKind::LShr,
@@ -1287,9 +1313,9 @@ impl<'a> FnEmitter<'a> {
             rhs: self.i64_const(0xF),
         });
 
-        // Build switch on NaN-box tag.
         let mut switch_cases: Vec<(LlvmConst, LabelId)> = Vec::new();
 
+        // For None/EmptyList: no field binders, jump directly.
         if let Some(arm) = none_arm {
             switch_cases.push((
                 LlvmConst::Int { bits: 64, value: TAG_NONE as i128 },
@@ -1304,7 +1330,6 @@ impl<'a> FnEmitter<'a> {
         }
 
         if boxed_arms.is_empty() {
-            // Only immediate arms — switch directly.
             return LlvmTerminator::Switch {
                 ty: LlvmType::i64(),
                 scrutinee: LlvmOperand::Local(nb_tag),
@@ -1313,42 +1338,112 @@ impl<'a> FnEmitter<'a> {
             };
         }
 
-        // For boxed arms: if nb_tag == BOXED_VALUE, extract ADT tag and switch.
-        // Otherwise fall through to default.
-        // Since we can't emit new blocks from terminator emission,
-        // just emit a switch on the full NaN-boxed value's ADT tag.
-        // For boxed values, extract tag and do nested switch.
-
-        // Simplified: extract ADT tag (only valid for boxed values, undefined for others).
+        // For boxed arms: extract ADT tag, emit extraction blocks for field binders.
         let adt_tag = self.tmp();
         self.call_c(
             Some(adt_tag.clone()),
-            "flux_adt_tag_safe",
+            "flux_adt_tag",
             vec![(LlvmType::i64(), self.var(scrutinee))],
             LlvmType::i32(),
         );
 
-        // Map CtorTag to integer ADT tag for boxed arms.
+        // Boxed dispatch block label.
+        let boxed_label = LabelId(format!("match.boxed.{}", self.next_tmp));
+        self.next_tmp += 1;
+
+        // NaN-box tag 0x8 (BoxedValue) goes to boxed dispatch.
+        switch_cases.push((
+            LlvmConst::Int { bits: 64, value: TAG_BOXED_VALUE as i128 },
+            boxed_label.clone(),
+        ));
+
+        // Build the boxed dispatch block: switch on ADT tag.
+        let mut adt_cases: Vec<(LlvmConst, LabelId)> = Vec::new();
         for arm in &boxed_arms {
             let tag_val = match &arm.tag {
                 CtorTag::Some => SOME_TAG,
                 CtorTag::Left => LEFT_TAG,
                 CtorTag::Right => RIGHT_TAG,
                 CtorTag::Cons => CONS_TAG,
-                CtorTag::Tuple => 0, // Tuples use a different dispatch
-                CtorTag::Named(_) => 5, // TODO: proper user tag lookup
+                CtorTag::Tuple => 0,
+                CtorTag::Named(_) => 5, // TODO: user tag lookup
                 _ => continue,
             };
-            switch_cases.push((
-                LlvmConst::Int { bits: 64, value: tag_val as i128 },
-                self.label(arm.target),
-            ));
+
+            if arm.field_binders.is_empty() {
+                // No fields to extract — jump directly.
+                adt_cases.push((
+                    LlvmConst::Int { bits: 32, value: tag_val as i128 },
+                    self.label(arm.target),
+                ));
+            } else {
+                // Emit an extraction block that binds field binders.
+                let extract_label = LabelId(format!(
+                    "match.extract.{}.{}",
+                    arm.target.0, self.next_tmp
+                ));
+                self.next_tmp += 1;
+
+                let mut extract_instrs = Vec::new();
+                let field_fn = match &arm.tag {
+                    CtorTag::Tuple => "flux_tuple_field_ptr",
+                    _ => "flux_adt_field_ptr",
+                };
+
+                for (i, binder) in arm.field_binders.iter().enumerate() {
+                    let ptr_tmp = LlvmLocal(format!("ext.{}.{}", arm.target.0, i));
+                    self.needed_decls.insert(field_fn.to_string());
+                    extract_instrs.push(LlvmInstr::Call {
+                        dst: Some(ptr_tmp.clone()),
+                        tail: false,
+                        call_conv: Some(CallConv::Fastcc),
+                        ret_ty: LlvmType::Ptr,
+                        callee: LlvmOperand::Global(GlobalId(field_fn.to_string())),
+                        args: vec![
+                            (LlvmType::i64(), self.var(scrutinee)),
+                            (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int {
+                                bits: 32,
+                                value: i as i128,
+                            })),
+                        ],
+                        attrs: Vec::new(),
+                    });
+                    extract_instrs.push(LlvmInstr::Load {
+                        dst: self.var_local(*binder),
+                        ty: LlvmType::i64(),
+                        ptr: LlvmOperand::Local(ptr_tmp),
+                        align: Some(8),
+                    });
+                }
+
+                self.extra_blocks.push(LlvmBlock {
+                    label: extract_label.clone(),
+                    instrs: extract_instrs,
+                    term: LlvmTerminator::Br {
+                        target: self.label(arm.target),
+                    },
+                });
+
+                adt_cases.push((
+                    LlvmConst::Int { bits: 32, value: tag_val as i128 },
+                    extract_label,
+                ));
+            }
         }
 
-        // Use the NaN-box tag for None/EmptyList, ADT tag for boxed.
-        // This is a simplification — a full implementation would use a
-        // two-level dispatch. For now, combine into one switch using
-        // negative values for NaN-box tags and positive for ADT tags.
+        // Emit the boxed dispatch block.
+        self.extra_blocks.push(LlvmBlock {
+            label: boxed_label,
+            instrs: Vec::new(),
+            term: LlvmTerminator::Switch {
+                ty: LlvmType::i32(),
+                scrutinee: LlvmOperand::Local(adt_tag),
+                default: self.label(default),
+                cases: adt_cases,
+            },
+        });
+
+        // Main switch on NaN-box tag.
         LlvmTerminator::Switch {
             ty: LlvmType::i64(),
             scrutinee: LlvmOperand::Local(nb_tag),
@@ -1514,7 +1609,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
             (LlvmType::i64(), vec![LlvmType::Ptr, LlvmType::i32()])
         }
         "flux_make_adt" => (LlvmType::i64(), vec![LlvmType::Ptr, LlvmType::i32(), LlvmType::i32()]),
-        "flux_adt_tag_safe" => (LlvmType::i32(), vec![LlvmType::i64()]),
+        "flux_adt_tag" => (LlvmType::i32(), vec![LlvmType::i64()]),
         "flux_rc_is_unique" => (LlvmType::i1(), vec![LlvmType::i64()]),
         "flux_drop_reuse" => (LlvmType::Ptr, vec![LlvmType::i64()]),
         _ => return None,
