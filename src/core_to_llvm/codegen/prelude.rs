@@ -264,9 +264,7 @@ fn emit_is_ptr(module: &mut LlvmModule) {
 /// The implementation lives in `runtime/c/gc.c` (Aether RC).
 fn emit_dup(module: &mut LlvmModule) {
     let name = "flux_dup";
-    if has_function(module, name)
-        || module.declarations.iter().any(|d| d.name.0 == name)
-    {
+    if has_function(module, name) || module.declarations.iter().any(|d| d.name.0 == name) {
         return;
     }
     module.declarations.push(crate::core_to_llvm::LlvmDecl {
@@ -286,9 +284,7 @@ fn emit_dup(module: &mut LlvmModule) {
 /// The implementation lives in `runtime/c/gc.c` (Aether RC).
 fn emit_drop(module: &mut LlvmModule) {
     let name = "flux_drop";
-    if has_function(module, name)
-        || module.declarations.iter().any(|d| d.name.0 == name)
-    {
+    if has_function(module, name) || module.declarations.iter().any(|d| d.name.0 == name) {
         return;
     }
     module.declarations.push(crate::core_to_llvm::LlvmDecl {
@@ -536,7 +532,10 @@ fn emit_gc_free_decl(module: &mut LlvmModule) {
     // flux_gc_alloc_header(i32 size, i32 scan_fsize, i32 obj_tag) → ptr
     let alloc_hdr_name = "flux_gc_alloc_header";
     if !has_function(module, alloc_hdr_name)
-        && !module.declarations.iter().any(|d| d.name.0 == alloc_hdr_name)
+        && !module
+            .declarations
+            .iter()
+            .any(|d| d.name.0 == alloc_hdr_name)
     {
         module.declarations.push(crate::core_to_llvm::LlvmDecl {
             linkage: Linkage::External,

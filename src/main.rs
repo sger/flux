@@ -68,7 +68,18 @@ fn main() {
     let dump_lir_llvm = args.iter().any(|arg| arg == "--dump-lir-llvm");
     #[cfg(not(feature = "core_to_llvm"))]
     let dump_lir_llvm = false;
-    let run_lir = args.iter().any(|arg| arg == "--run-lir") || std::env::var("FLUX_USE_LIR").is_ok();
+    if args.iter().any(|arg| arg == "--run-lir") {
+        eprintln!(
+            "Error: --run-lir is no longer supported. Use the default CFG VM path or --native for LIR -> LLVM."
+        );
+        return;
+    }
+    if std::env::var("FLUX_USE_LIR").is_ok() {
+        eprintln!(
+            "Error: FLUX_USE_LIR is no longer supported. Use the default CFG VM path or --native for LIR -> LLVM."
+        );
+        return;
+    }
     #[cfg(feature = "native")]
     let use_core_to_llvm = args
         .iter()
@@ -123,9 +134,6 @@ fn main() {
     }
     if dump_lir_llvm {
         args.retain(|arg| arg != "--dump-lir-llvm");
-    }
-    if run_lir {
-        args.retain(|arg| arg != "--run-lir");
     }
     if use_core_to_llvm {
         args.retain(|arg| arg != "--core-to-llvm" && arg != "--native");
@@ -205,7 +213,6 @@ fn main() {
                 dump_aether,
                 dump_lir,
                 dump_lir_llvm,
-                run_lir,
                 use_core_to_llvm,
                 emit_llvm,
                 emit_binary,
@@ -267,7 +274,6 @@ fn main() {
                     dump_aether,
                     dump_lir,
                     dump_lir_llvm,
-                    run_lir,
                     use_core_to_llvm,
                     emit_llvm,
                     emit_binary,
@@ -481,7 +487,6 @@ fn run_file(
     dump_aether: bool,
     dump_lir: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] dump_lir_llvm: bool,
-    run_lir: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] use_core_to_llvm: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] emit_llvm: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] emit_binary: bool,
@@ -534,7 +539,9 @@ fn run_file(
                         print_stats(&RunStats {
                             parse_ms: None,
                             compile_ms: None,
+                            compile_backend: Some("bytecode"),
                             execute_ms,
+                            execute_backend: "vm",
                             cached: true,
                             module_count: None,
                             source_lines: source.lines().count(),
@@ -654,10 +661,6 @@ fn run_file(
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
 
-                // For --run-lir: still run the CFG compilation pipeline for
-                // diagnostics, type checking, and error reporting. Execution
-                // will use the LIR path instead of CFG bytecode.
-
                 let is_flow_library = node.path.to_string_lossy().contains("lib/Flow/")
                     || node.path.to_string_lossy().contains("lib\\Flow\\");
                 compiler.set_strict_require_main(is_entry_module);
@@ -756,17 +759,22 @@ fn run_file(
                 );
             }
 
-            // Build merged program from all modules for dump/analysis or LIR execution.
-            let merged_program =
-                if is_multimodule && (run_lir || dump_aether || !matches!(dump_core, CoreDumpMode::None) || dump_lir || dump_lir_llvm) {
-                    let mut merged = Program::new();
-                    for node in graph.topo_order() {
-                        merged.statements.extend(node.program.statements.clone());
-                    }
-                    merged
-                } else {
-                    program.clone()
-                };
+            // Build merged program from all modules for dump/analysis surfaces that
+            // need whole-program visibility.
+            let merged_program = if is_multimodule
+                && (dump_aether
+                    || !matches!(dump_core, CoreDumpMode::None)
+                    || dump_lir
+                    || dump_lir_llvm)
+            {
+                let mut merged = Program::new();
+                for node in graph.topo_order() {
+                    merged.statements.extend(node.program.statements.clone());
+                }
+                merged
+            } else {
+                program.clone()
+            };
 
             if dump_aether {
                 match compiler.dump_aether_report(&merged_program, enable_optimize) {
@@ -860,61 +868,6 @@ fn run_file(
                 return;
             }
 
-            // --- LIR execution path (Proposal 0132 Phase 8b) ---
-            // Merged-program approach: all modules compiled via LIR → Bytecode.
-            // No CFG precompilation or globals table needed.
-            // Only use LIR when the program has a `main` function — test files
-            // (with test_* discovery) fall through to the CFG bytecode path.
-            let has_main = merged_program.statements.iter().any(|stmt| {
-                matches!(stmt, flux::syntax::statement::Statement::Function { name, .. }
-                    if compiler.interner.resolve(flux::syntax::Identifier::from(*name)) == "main")
-            });
-            if run_lir && has_main {
-                compiler.infer_expr_types_for_program(&merged_program);
-
-                let compile_start_lir = Instant::now();
-                match compiler.compile_all_via_lir(&merged_program, enable_optimize) {
-                    Ok(lir_bytecode) => {
-                        let compile_ms = compile_start_lir.elapsed().as_secs_f64() * 1000.0;
-                        let mut vm = VM::new(lir_bytecode);
-                        vm.set_trace(trace);
-                        let exec_start = Instant::now();
-                        if let Err(err) = vm.run() {
-                            eprintln!("{}", err);
-                            std::process::exit(1);
-                        }
-                        let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
-                        if show_stats {
-                            print_stats(&RunStats {
-                                parse_ms: Some(parse_ms),
-                                compile_ms: Some(compile_ms),
-                                execute_ms,
-                                cached: false,
-                                module_count: Some(module_count),
-                                source_lines: source.lines().count(),
-                                globals_count: None,
-                                functions_count: None,
-                                instruction_bytes: None,
-                            });
-                        }
-                    }
-                    Err(diag) => {
-                        emit_diagnostics(
-                            &[diag],
-                            Some(path),
-                            Some(source.as_str()),
-                            is_multimodule,
-                            max_errors,
-                            diagnostics_format,
-                            all_errors,
-                            true,
-                        );
-                        std::process::exit(1);
-                    }
-                }
-                return;
-            }
-
             // --- LIR → LLVM native execution path (Proposal 0132) ---
             #[cfg(feature = "core_to_llvm")]
             if use_core_to_llvm || emit_llvm || emit_binary {
@@ -932,23 +885,23 @@ fn run_file(
 
                 // AST → Core IR → Aether → LIR → LLVM IR module.
                 eprintln!("[lir→llvm] Compiling via LIR → LLVM native backend...");
-                let mut llvm_module = match compiler.lower_to_lir_llvm_module(&native_program, enable_optimize)
-                {
-                    Ok(m) => m,
-                    Err(diag) => {
-                        emit_diagnostics(
-                            &[diag],
-                            Some(path),
-                            Some(source.as_str()),
-                            is_multimodule,
-                            max_errors,
-                            diagnostics_format,
-                            all_errors,
-                            true,
-                        );
-                        std::process::exit(1);
-                    }
-                };
+                let mut llvm_module =
+                    match compiler.lower_to_lir_llvm_module(&native_program, enable_optimize) {
+                        Ok(m) => m,
+                        Err(diag) => {
+                            emit_diagnostics(
+                                &[diag],
+                                Some(path),
+                                Some(source.as_str()),
+                                is_multimodule,
+                                max_errors,
+                                diagnostics_format,
+                                all_errors,
+                                true,
+                            );
+                            std::process::exit(1);
+                        }
+                    };
 
                 // Inject target triple and data layout.
                 llvm_module.target_triple = Some(flux::core_to_llvm::target::host_triple());
@@ -1010,11 +963,14 @@ fn run_file(
                     Ok(flux::core_to_llvm::pipeline::PipelineResult::Executed { exit_code }) => {
                         let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
                         if show_stats {
-                            let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0 - execute_ms;
+                            let compile_ms =
+                                compile_start.elapsed().as_secs_f64() * 1000.0 - execute_ms;
                             print_stats(&RunStats {
                                 parse_ms: Some(parse_ms),
                                 compile_ms: Some(compile_ms),
+                                compile_backend: Some("llvm"),
                                 execute_ms,
+                                execute_backend: "native",
                                 cached: false,
                                 module_count: Some(module_count),
                                 source_lines: source.lines().count(),
@@ -1091,7 +1047,7 @@ fn run_file(
                 }
             }
 
-            eprintln!("[lir→vm] Running via LIR → bytecode VM backend...");
+            eprintln!("[cfg→vm] Running via CFG → bytecode VM backend...");
             let mut vm = VM::new(bytecode);
             vm.set_trace(trace);
             let exec_start = Instant::now();
@@ -1107,7 +1063,9 @@ fn run_file(
                 print_stats(&RunStats {
                     parse_ms: Some(parse_ms),
                     compile_ms: Some(compile_ms),
+                    compile_backend: Some("bytecode"),
                     execute_ms,
+                    execute_backend: "vm",
                     cached: false,
                     module_count: Some(module_count),
                     source_lines: source.lines().count(),
@@ -1375,7 +1333,10 @@ fn run_tests_native(
         ));
         let harness_source = format!("{source}\n\nfn main() {{ {name}(); }}\n");
         if let Err(e) = fs::write(&harness_path, harness_source) {
-            eprintln!("Failed to write native test harness {}: {e}", harness_path.display());
+            eprintln!(
+                "Failed to write native test harness {}: {e}",
+                harness_path.display()
+            );
             std::process::exit(1);
         }
 
@@ -1426,7 +1387,9 @@ fn run_tests_native(
 struct RunStats {
     parse_ms: Option<f64>,
     compile_ms: Option<f64>,
+    compile_backend: Option<&'static str>,
     execute_ms: f64,
+    execute_backend: &'static str,
     cached: bool,
     module_count: Option<usize>,
     source_lines: usize,
@@ -1492,10 +1455,18 @@ fn print_stats(stats: &RunStats) {
     if stats.cached {
         eprintln!("  {:<20} {:>12}", "compile", "(cached)");
     } else if let Some(ms) = stats.compile_ms {
-        eprintln!("  {:<20} {:>8.2} ms  [bytecode]", "compile", ms);
+        eprintln!(
+            "  {:<20} {:>8.2} ms  [{}]",
+            "compile",
+            ms,
+            stats.compile_backend.unwrap_or("unknown")
+        );
     }
 
-    eprintln!("  {:<20} {:>8.2} ms  [vm]", "execute", stats.execute_ms);
+    eprintln!(
+        "  {:<20} {:>8.2} ms  [{}]",
+        "execute", stats.execute_ms, stats.execute_backend
+    );
     eprintln!("  {:<20} {:>8.2} ms", "total", total_ms);
     eprintln!();
 
@@ -1565,7 +1536,6 @@ fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
     }
     None
 }
-
 
 fn extract_output_path(args: &mut Vec<String>) -> Option<String> {
     let mut i = 0;

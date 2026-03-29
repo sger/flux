@@ -586,14 +586,14 @@ impl CorePrimOp {
             | Println | ReadFile | ReadLines | StringLength | ToArray | ToList | ToString
             | Trim | Try | AssertThrows | TypeOf | Upper | HamtKeys | HamtValues | HamtSize
             | Neg | Not | First | Rest | Reverse | Sort | Last | Flatten => 1,
-            Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub
-            | FMul | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe
-            | ICmpGt | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq
-            | CmpNe | And | Or | Concat | ArrayGet | ArrayPush | ArrayConcat | HamtGet
-            | HamtContains | HamtDelete | HamtMerge | Index | Join | Max | Min | Split
-            | SplitInts | StartsWith | EndsWith | StringConcat | StrContains | WriteFile
-            | Contains | SortBy | HoMap | HoFilter | HoAny | HoAll | HoEach | HoFind
-            | HoCount | HoFlatMap | Zip => 2,
+            Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
+            | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
+            | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
+            | And | Or | Concat | ArrayGet | ArrayPush | ArrayConcat | HamtGet | HamtContains
+            | HamtDelete | HamtMerge | Index | Join | Max | Min | Split | SplitInts
+            | StartsWith | EndsWith | StringConcat | StrContains | WriteFile | Contains
+            | SortBy | HoMap | HoFilter | HoAny | HoAll | HoEach | HoFind | HoCount | HoFlatMap
+            | Zip => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.
@@ -605,7 +605,11 @@ impl CorePrimOp {
     /// effectful primops have the required ambient effect in scope.
     pub fn effect_kind(self) -> PrimEffect {
         match self {
-            Self::Println | Self::ReadFile | Self::WriteFile | Self::ReadStdin | Self::Print
+            Self::Println
+            | Self::ReadFile
+            | Self::WriteFile
+            | Self::ReadStdin
+            | Self::Print
             | Self::ReadLines => PrimEffect::Io,
             Self::ClockNow | Self::Time => PrimEffect::Time,
             Self::Panic => PrimEffect::Control,

@@ -304,16 +304,12 @@ impl<'a> Formatter<'a> {
                 push_indent(out, indent);
                 out.push('}');
             }
-            CoreExpr::MemberAccess {
-                object, member, ..
-            } => {
+            CoreExpr::MemberAccess { object, member, .. } => {
                 self.write_expr_inline(out, object, indent);
                 out.push('.');
                 out.push_str(&self.resolve_name(*member));
             }
-            CoreExpr::TupleField {
-                object, index, ..
-            } => {
+            CoreExpr::TupleField { object, index, .. } => {
                 self.write_expr_inline(out, object, indent);
                 write!(out, ".{index}").unwrap();
             }
