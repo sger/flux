@@ -591,7 +591,10 @@ fn emit_call_closure(module: &mut LlvmModule) {
                 instrs: vec![LlvmInstr::Call {
                     dst: Some(LlvmLocal("exact.result".into())),
                     tail: false,
-                    call_conv: Some(CallConv::Fastcc),
+                    // Use ccc for indirect call — target functions are ccc
+                    // in the LIR→LLVM path.  Must match the function
+                    // definition's calling convention.
+                    call_conv: Some(CallConv::Ccc),
                     ret_ty: LlvmType::i64(),
                     callee: local("fn_ptr"),
                     args: vec![
@@ -697,7 +700,8 @@ fn emit_call_closure(module: &mut LlvmModule) {
                     LlvmInstr::Call {
                         dst: Some(LlvmLocal("over.first".into())),
                         tail: false,
-                        call_conv: Some(CallConv::Fastcc),
+                        // Use ccc for indirect call — matches ccc function defs.
+                        call_conv: Some(CallConv::Ccc),
                         ret_ty: LlvmType::i64(),
                         callee: local("fn_ptr"),
                         args: vec![
@@ -1100,7 +1104,7 @@ mod tests {
         assert!(rendered.contains("call fastcc void @flux_copy_i64s("));
         assert!(rendered.contains("define internal fastcc i64 @flux_call_closure(i64 %closure_value, ptr %args, i32 %nargs)"));
         assert!(
-            rendered.contains("call fastcc i64 %fn_ptr(i64 %closure_value, ptr %args, i32 %nargs)")
+            rendered.contains("call ccc i64 %fn_ptr(i64 %closure_value, ptr %args, i32 %nargs)")
         );
         assert!(rendered.contains("call fastcc i64 @flux_call_closure(i64 %over.first, ptr %leftover.args, i32 %leftover.count)"));
     }
