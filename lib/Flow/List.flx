@@ -673,15 +673,20 @@ module Flow.List {
     }
 
     fn merge_sort_by(xs, key_fn) {
-        let n = length(xs)
-        if n <= 1 { xs }
-        else { merge_sort_split(xs, key_fn, n / 2) }
+        match xs {
+            [_ | t] -> match t {
+                [_ | _] -> merge_sort_do(xs, key_fn),
+                _ -> xs
+            },
+            _ -> xs
+        }
     }
 
-    fn merge_sort_split(xs, key_fn, mid) {
+    fn merge_sort_do(xs, key_fn) {
+        let mid = length(xs) / 2
         match split_at(xs, mid) {
             (left, right) -> merge_by_key(merge_sort_by(left, key_fn), merge_sort_by(right, key_fn), key_fn),
-            _ -> xs
+            _ -> []
         }
     }
 
