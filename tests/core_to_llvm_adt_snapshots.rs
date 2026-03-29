@@ -5,12 +5,13 @@ use std::collections::HashMap;
 use flux::{
     bytecode::compiler::Compiler,
     core::{lower_ast::lower_program_ast, passes::run_core_passes_with_interner},
-    core_to_llvm::{compile_program_with_interner, render_module},
+    core_to_llvm::render_module,
+    lir,
     syntax::{expression::ExprId, interner::Interner, lexer::Lexer, parser::Parser},
     types::infer_type::InferType,
 };
 
-fn parse_and_lower_core(src: &str) -> (flux::core::CoreProgram, Interner) {
+fn parse_and_lower_to_llvm_module(src: &str) -> (flux::core_to_llvm::LlvmModule, Interner) {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
     assert!(
@@ -23,7 +24,9 @@ fn parse_and_lower_core(src: &str) -> (flux::core::CoreProgram, Interner) {
     let hm_expr_types: HashMap<ExprId, InferType> = compiler.infer_expr_types_for_program(&program);
     let mut core = lower_program_ast(&program, &hm_expr_types);
     run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
-    (core, interner)
+    let lir_program = lir::lower::lower_program_with_interner(&core, Some(&interner), None);
+    let module = lir::emit_llvm::emit_llvm_module(&lir_program);
+    (module, interner)
 }
 
 #[test]
@@ -49,8 +52,7 @@ fn main() {
     }
 }
 "#;
-    let (core, interner) = parse_and_lower_core(src);
-    let module = compile_program_with_interner(&core, Some(&interner)).expect("lower to llvm");
+    let (module, _interner) = parse_and_lower_to_llvm_module(src);
 
     insta::with_settings!({
         snapshot_path => "snapshots/core_to_llvm",

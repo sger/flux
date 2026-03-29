@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `Modules.Analytics.Rules` doesn't match file path `//?/examples/Modules/Analytics/Rules.flx`.
+Module name `Modules.Analytics.Rules` doesn't match file path `examples/Modules/Analytics/Rules.flx`.
 
   examples/Modules/Analytics/Rules.flx:1:1
   |

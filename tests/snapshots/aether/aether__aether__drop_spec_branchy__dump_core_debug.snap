@@ -5,17 +5,21 @@ letrec copy_or_keep_head : List<Any> =
 λxs#1, copy#2.
     case xs#1 of
       ::(h#3, t#4) →
-        case copy#2 of
-          true →
-            let %t1:Box = ::(dup h#3
-            h#3, dup t#4
-            t#4)
-            ::(dup h#3
-            h#3, #4000014[synthetic]#14)
-          _ →
-            ::(dup h#3
-            h#3, dup t#4
-            t#4)
+        drop_spec xs#1 {
+          unique -> case copy#2 of
+              true →
+                let %t1:Box = ::(h#3, t#4)
+                reuse xs#1 ::(h#3, #4000014[synthetic]#14) @mask=0b10
+              _ →
+                reuse xs#1 ::(h#3, t#4) @mask=0b0
+          shared -> case copy#2 of
+              true →
+                let %t1:Box = ::(dup h#3
+                h#3, t#4)
+                ::(h#3, #4000014[synthetic]#14)
+              _ →
+                ::(h#3, t#4)
+        }
       _ →
         []
 
@@ -32,18 +36,11 @@ letrec keep_or_dup_left : Tree =
                 reuse t#6 Node(color#8, left#9, key#10, left#9) @mask=0b1000
           shared -> case keep#7 of
               true →
-                aether_call[owned, owned, owned, owned] Node#?[external](dup color#8
-                color#8, dup left#9
-                left#9, dup key#10
-                key#10, dup right#11
-                right#11)
+                aether_call[owned, owned, owned, owned] Node#?[external](color#8, left#9, key#10, right#11)
               _ →
                 drop right#11
-                aether_call[owned, owned, owned, owned] Node#?[external](dup color#8
-                color#8, dup left#9
-                left#9, dup key#10
-                key#10, dup left#9
-                left#9)
+                aether_call[owned, owned, owned, owned] Node#?[external](color#8, dup left#9
+                left#9, key#10, left#9)
         }
       _ →
         t#6
@@ -59,4 +56,4 @@ letrec main : Any =
     Print(#4000018[synthetic]#18)
 
 ── Aether stats ──
-Dups: 13  Drops: 3  Reuses: 2  DropSpecs: 1  FBIP: fbip(3)
+Dups: 2  Drops: 3  Reuses: 4  DropSpecs: 2  FBIP: fbip(4)

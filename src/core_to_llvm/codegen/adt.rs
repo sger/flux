@@ -7,14 +7,13 @@ use crate::{
         LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType, LlvmTypeDef,
         LlvmValueKind,
     },
-    runtime::nanbox::NanTag,
     syntax::{Identifier, interner::Interner},
 };
 
 use super::{
+    CoreToLlvmError, display_ident,
     closure::{const_i32_operand, flux_closure_symbol, local as local_operand},
-    function::{CoreToLlvmError, display_ident},
-    prelude::{FluxNanboxLayout, has_function, helper_attrs},
+    prelude::{has_function, helper_attrs},
 };
 
 pub const FLUX_ADT_TYPE_NAME: &str = "FluxAdt";
@@ -127,11 +126,6 @@ pub fn adt_type() -> LlvmType {
 
 pub fn tuple_type() -> LlvmType {
     LlvmType::Named(FLUX_TUPLE_TYPE_NAME.into())
-}
-
-pub fn tagged_empty_list_bits() -> i64 {
-    (FluxNanboxLayout::NANBOX_SENTINEL_U64
-        | ((NanTag::EmptyList as u64) << FluxNanboxLayout::TAG_SHIFT)) as i64
 }
 
 fn collect_items(
