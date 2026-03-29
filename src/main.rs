@@ -654,14 +654,9 @@ fn run_file(
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
 
-                // For --run-lir: skip CFG compilation of the entry module.
-                // Prelude/library modules are still compiled via CFG to populate
-                // globals, and the entry module will be compiled via LIR later.
-                if run_lir && is_entry_module {
-                    // Still need type inference for the LIR path.
-                    compiler.infer_expr_types_for_program(&node.program);
-                    continue;
-                }
+                // For --run-lir: still run the CFG compilation pipeline for
+                // diagnostics, type checking, and error reporting. Execution
+                // will use the LIR path instead of CFG bytecode.
 
                 let is_flow_library = node.path.to_string_lossy().contains("lib/Flow/")
                     || node.path.to_string_lossy().contains("lib\\Flow\\");
@@ -761,10 +756,9 @@ fn run_file(
                 );
             }
 
-            // Build merged program from all modules for dump-core / dump-aether.
-            // This ensures module functions are visible in the output.
+            // Build merged program from all modules for dump/analysis or LIR execution.
             let merged_program =
-                if is_multimodule && (dump_aether || !matches!(dump_core, CoreDumpMode::None) || dump_lir || dump_lir_llvm) {
+                if is_multimodule && (run_lir || dump_aether || !matches!(dump_core, CoreDumpMode::None) || dump_lir || dump_lir_llvm) {
                     let mut merged = Program::new();
                     for node in graph.topo_order() {
                         merged.statements.extend(node.program.statements.clone());
@@ -866,30 +860,21 @@ fn run_file(
                 return;
             }
 
-            // --- LIR execution path (Proposal 0132 Phase 6) ---
-            if run_lir {
-                // 1. Run CFG bytecode (prelude modules) to populate globals.
-                let cfg_bytecode = compiler.bytecode();
-                let mut cfg_vm = VM::new(cfg_bytecode);
-                if let Err(err) = cfg_vm.run() {
-                    eprintln!("{}", err);
-                    std::process::exit(1);
-                }
+            // --- LIR execution path (Proposal 0132 Phase 8b) ---
+            // Merged-program approach: all modules compiled via LIR → Bytecode.
+            // No CFG precompilation or globals table needed.
+            // Only use LIR when the program has a `main` function — test files
+            // (with test_* discovery) fall through to the CFG bytecode path.
+            let has_main = merged_program.statements.iter().any(|stmt| {
+                matches!(stmt, flux::syntax::statement::Statement::Function { name, .. }
+                    if compiler.interner.resolve(flux::syntax::Identifier::from(*name)) == "main")
+            });
+            if run_lir && has_main {
+                compiler.infer_expr_types_for_program(&merged_program);
 
-                // 2. Export CFG constants and globals for the LIR VM.
-                let cfg_constants = cfg_vm.export_constants();
-                let mut globals_buf = vec![Value::None; 65536];
-                cfg_vm.swap_globals_values(&mut globals_buf);
-
-                // 3. Compile user module via LIR, using CFG constants as base.
-                match compiler.compile_via_lir(
-                    &merged_program,
-                    enable_optimize,
-                    cfg_constants,
-                ) {
+                match compiler.compile_all_via_lir(&merged_program, enable_optimize) {
                     Ok(lir_bytecode) => {
                         let mut vm = VM::new(lir_bytecode);
-                        vm.swap_globals_values(&mut globals_buf);
                         vm.set_trace(trace);
                         if let Err(err) = vm.run() {
                             eprintln!("{}", err);
