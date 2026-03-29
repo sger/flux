@@ -2462,14 +2462,16 @@ impl Compiler {
         Ok(crate::lir::lower::display_program(&lir))
     }
 
-    /// Dump LIR as LLVM IR text (Proposal 0132 Phase 7).
+    /// Lower program through LIR to an LLVM IR module (Proposal 0132 Phase 7).
+    /// Returns the `LlvmModule` struct so the caller can inject target triple
+    /// and data layout before rendering.
     #[cfg(feature = "core_to_llvm")]
     #[allow(clippy::result_large_err)]
-    pub fn dump_lir_llvm(
+    pub fn lower_to_lir_llvm_module(
         &self,
         program: &Program,
         optimize: bool,
-    ) -> Result<String, Diagnostic> {
+    ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
         let program_to_lower = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
@@ -2491,7 +2493,19 @@ impl Compiler {
             Some(&self.interner),
             None,
         );
-        Ok(crate::lir::emit_llvm::emit_llvm_ir(&lir))
+        Ok(crate::lir::emit_llvm::emit_llvm_module(&lir))
+    }
+
+    /// Dump LIR as LLVM IR text (Proposal 0132 Phase 7).
+    #[cfg(feature = "core_to_llvm")]
+    #[allow(clippy::result_large_err)]
+    pub fn dump_lir_llvm(
+        &self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<String, Diagnostic> {
+        let module = self.lower_to_lir_llvm_module(program, optimize)?;
+        Ok(crate::core_to_llvm::render_module(&module))
     }
 
     /// Compile via the LIR path: Core → LIR → Bytecode.

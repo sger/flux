@@ -19,7 +19,6 @@ pub const FLUX_CLOSURE_FN_FIELD: u32 = 0;
 pub const FLUX_CLOSURE_REMAINING_ARITY_FIELD: u32 = 1;
 pub const FLUX_CLOSURE_CAPTURE_COUNT_FIELD: u32 = 2;
 pub const FLUX_CLOSURE_APPLIED_COUNT_FIELD: u32 = 3;
-pub const FLUX_CLOSURE_PADDING_FIELD: u32 = 4;
 pub const FLUX_CLOSURE_PAYLOAD_FIELD: u32 = 5;
 
 pub fn flux_closure_symbol(name: &str) -> GlobalId {
