@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `Modules.Data.Other` doesn't match file path `examples/Debug/Modules/Data/List.flx`.
+Module name `Modules.Data.Other` doesn't match file path `//?/examples/Debug/Modules/Data/List.flx`.
 
   examples/Debug/Modules/Data/List.flx:1:1
   |

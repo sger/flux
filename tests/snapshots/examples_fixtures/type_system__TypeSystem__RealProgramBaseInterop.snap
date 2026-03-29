@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `TypeSystem.RealProgramBaseInterop` doesn't match file path `examples/type_system/TypeSystem/RealProgramBaseInterop.flx`.
+Module name `TypeSystem.RealProgramBaseInterop` doesn't match file path `//?/examples/type_system/TypeSystem/RealProgramBaseInterop.flx`.
 
   examples/type_system/TypeSystem/RealProgramBaseInterop.flx:3:1
   |
