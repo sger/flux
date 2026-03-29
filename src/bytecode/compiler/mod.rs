@@ -2462,6 +2462,41 @@ impl Compiler {
         Ok(crate::lir::lower::display_program(&lir))
     }
 
+    /// Compile a merged program entirely through LIR → Bytecode.
+    ///
+    /// This is the Phase 8b path: all modules (prelude + user) are merged into
+    /// a single program, lowered to Core IR, then to LIR with no globals_map,
+    /// and emitted as bytecode. No CFG compilation step is needed.
+    #[allow(clippy::result_large_err)]
+    pub fn compile_all_via_lir(
+        &self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<crate::bytecode::bytecode::Bytecode, Diagnostic> {
+        let program_to_lower = if optimize {
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
+            rename(optimized, HashMap::new())
+        } else {
+            program.clone()
+        };
+
+        let mut core =
+            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
+
+        // Pass None for globals_map so ALL functions are lowered to LIR
+        // functions (no GetGlobal). Cross-module references resolve through
+        // Core binders in the merged program.
+        let lir = crate::lir::lower::lower_program_with_interner(
+            &core,
+            Some(&self.interner),
+            None,
+        );
+        Ok(crate::lir::emit_bytecode::emit_program(&lir))
+    }
+
     /// Lower program through LIR to an LLVM IR module (Proposal 0132 Phase 7).
     /// Returns the `LlvmModule` struct so the caller can inject target triple
     /// and data layout before rendering.
