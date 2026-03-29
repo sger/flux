@@ -5,8 +5,7 @@ letrec rev_append : List<Any> =
 λxs#1, acc#2.
     case xs#1 of
       ::(h#3, t#4) →
-        let %t1:Box = ::(dup h#3
-        h#3, acc#2)
+        let %t1:Box = ::(h#3, acc#2)
         aether_call[borrowed, owned] rev_append#0(t#4, #4000043[synthetic]#43)
       _ →
         acc#2
@@ -26,21 +25,16 @@ letrec push : Queue =
 λq#9, value#10.
     case q#9 of
       Queue(front#11, back#12) →
-        let %t5:Box = ::(value#10, dup back#12
-        back#12)
-        aether_call[owned, owned] Queue#?[external](dup front#11
-        front#11, #4000047[synthetic]#47)
+        let %t5:Box = ::(value#10, back#12)
+        reuse q#9 Queue(front#11, #4000047[synthetic]#47)
 
 letrec pop : Pop =
 λq#14.
     let %t6 = aether_call[owned] normalize#5(q#14)
     case #4000048[synthetic]#48 of
       Queue(::(h#15, t#16), back#17) →
-        let %t7 = aether_call[owned, owned] Queue#?[external](dup t#16
-        t#16, dup back#17
-        back#17)
-        aether_call[owned, owned] Popped#?[external](dup h#15
-        h#15, #4000049[synthetic]#49)
+        let %t7 = aether_call[owned, owned] Queue#?[external](t#16, back#17)
+        aether_call[owned, owned] Popped#?[external](h#15, #4000049[synthetic]#49)
       _ →
         EmptyQ#?[external]
 
@@ -86,8 +80,7 @@ letrec drain_sum : Int =
     case #4000062[synthetic]#62 of
       Popped(value#32, rest#33) →
         let %t21:Int = IAdd(total#31, value#32)
-        aether_call[owned, owned] drain_sum#29(dup rest#33
-        rest#33, #4000063[synthetic]#63)
+        aether_call[owned, owned] drain_sum#29(rest#33, #4000063[synthetic]#63)
       _ →
         total#31
 
@@ -108,4 +101,4 @@ letrec main : Any =
     Print(#4000069[synthetic]#69)
 
 ── Aether stats ──
-Dups: 7  Drops: 5  Reuses: 1  DropSpecs: 0  FBIP: fbip(2)
+Dups: 0  Drops: 5  Reuses: 2  DropSpecs: 0  FBIP: fbip(2)

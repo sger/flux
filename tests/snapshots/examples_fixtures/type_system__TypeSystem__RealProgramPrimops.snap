@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `TypeSystem.RealProgramPrimops` doesn't match file path `//?/examples/type_system/TypeSystem/RealProgramPrimops.flx`.
+Module name `TypeSystem.RealProgramPrimops` doesn't match file path `examples/type_system/TypeSystem/RealProgramPrimops.flx`.
 
   examples/type_system/TypeSystem/RealProgramPrimops.flx:3:1
   |

@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `Dup.Mod` doesn't match file path `//?/examples/roots/root_b/Dup/Mod.flx`.
+Module name `Dup.Mod` doesn't match file path `examples/roots/root_b/Dup/Mod.flx`.
 
   examples/roots/root_b/Dup/Mod.flx:1:1
   |
