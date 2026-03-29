@@ -16,6 +16,6 @@ Cannot find module `Flow.Array` to import.
 
 Hint:
   Check that: 1) The module file exists (e.g., `Flow.Array.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Flow.Array` under roots: //?/examples/basics, //?/src (imported from //?/examples/basics/array_builtins.flx).
+  Looked for module `Flow.Array` under roots: examples/basics, src (imported from examples/basics/array_builtins.flx).
 == stdout ==
 <not executed>

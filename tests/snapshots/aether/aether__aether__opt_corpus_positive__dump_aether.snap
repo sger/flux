@@ -5,36 +5,27 @@ Aether Memory Model Report
 ==========================
 
 ── fn list_rebuild ──
-  Dups: 2  Drops: 0  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
-  FreshAllocs: 1
-  verifier:
-    - MissedReuse: MISSED REUSE: Case arm destructures Cons and constructs Cons — could reuse allocation
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
 λxs.
   case xs of
     ::(h, t) →
-      ::(dup h
-      h, dup t
-      t)
+      reuse xs ::(h, t) @mask=0b0
     _ →
       []
 ── fn set_black ──
-  Dups: 3  Drops: 0  Reuses: 1  DropSpecs: 1  FBIP: fip
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 λt.
   case t of
     Node(_, left, key, right) →
-      drop_spec t {
-        unique -> reuse t Node(Black, left, key, right) @mask=0b1
-        shared -> aether_call[owned, owned, owned, owned] Node(Black, dup left
-          left, dup key
-          key, dup right
-          right)
-      }
+      reuse t Node(Black, left, key, right) @mask=0b1
     _ →
       t
 ── fn keep_or_dup_left ──
-  Dups: 8  Drops: 2  Reuses: 2  DropSpecs: 1  FBIP: fip
+  Dups: 1  Drops: 2  Reuses: 2  DropSpecs: 1  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 λt, keep.
@@ -49,51 +40,25 @@ Aether Memory Model Report
               reuse t Node(color, left, key, left) @mask=0b1000
         shared -> case keep of
             true →
-              aether_call[owned, owned, owned, owned] Node(dup color
-              color, dup left
-              left, dup key
-              key, dup right
-              right)
+              aether_call[owned, owned, owned, owned] Node(color, left, key, right)
             _ →
               drop right
-              aether_call[owned, owned, owned, owned] Node(dup color
-              color, dup left
-              left, dup key
-              key, dup left
-              left)
+              aether_call[owned, owned, owned, owned] Node(color, dup left
+              left, key, left)
       }
     _ →
       t
 ── fn forwarded_child ──
-  Dups: 2  Drops: 0  Reuses: 0  DropSpecs: 1  FBIP: fbip(2)
-  FreshAllocs: 2
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
   verifier: ok
 λxs, acc.
   case xs of
     ::(y, ys) →
-      drop_spec xs {
-        unique -> let %t1 = ::(y, acc)
-          aether_call[owned, owned] Pair2(%t1, ys)
-        shared -> let %t1 = ::(dup y
-          y, acc)
-          aether_call[owned, owned] Pair2(%t1, dup ys
-          ys)
-      }
+      let %t1 = ::(y, acc)
+      aether_call[owned, owned] Pair2(reuse Color ::(y, acc) @mask=0b10, ys)
     _ →
       aether_call[owned, owned] Pair2(xs, acc)
-── fn sum_by ──
-  Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0
-  FreshAllocs: 0
-  verifier: ok
-λxs, f.
-  case xs of
-    ::(h, t) →
-      let %t1 = aether_call[owned] f(dup h
-      h)
-      let %t2 = aether_call[borrowed, borrowed] sum_by(t, f)
-      Add(%t1, %t2)
-    _ →
-      0
 ── fn main ──
   Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
@@ -121,5 +86,5 @@ Aether Memory Model Report
   Print(%t14)
 
 ── Total ──
-  Dups: 16  Drops: 6  Reuses: 3  DropSpecs: 3  FBIP: fbip(3)
-  FreshAllocs: 3
+  Dups: 1  Drops: 6  Reuses: 5  DropSpecs: 1  FBIP: fbip(1)
+  FreshAllocs: 1

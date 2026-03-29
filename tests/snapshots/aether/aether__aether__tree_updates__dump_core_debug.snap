@@ -5,13 +5,7 @@ letrec set_black : Tree =
 λt#1.
     case t#1 of
       Node(_, left#2, key#3, right#4) →
-        drop_spec t#1 {
-          unique -> reuse t#1 Node(Black#?[external], left#2, key#3, right#4) @mask=0b1
-          shared -> aether_call[owned, owned, owned, owned] Node#?[external](Black#?[external], dup left#2
-            left#2, dup key#3
-            key#3, dup right#4
-            right#4)
-        }
+        reuse t#1 Node(Black#?[external], left#2, key#3, right#4) @mask=0b1
       _ →
         t#1
 
@@ -19,14 +13,7 @@ letrec rebuild_same : Tree =
 λt#6.
     case t#6 of
       Node(color#7, left#8, key#9, right#10) →
-        drop_spec t#6 {
-          unique -> reuse t#6 Node(color#7, left#8, key#9, right#10) @mask=0b0
-          shared -> aether_call[owned, owned, owned, owned] Node#?[external](dup color#7
-            color#7, dup left#8
-            left#8, dup key#9
-            key#9, dup right#10
-            right#10)
-        }
+        reuse t#6 Node(color#7, left#8, key#9, right#10) @mask=0b0
       _ →
         t#6
 
@@ -37,8 +24,7 @@ letrec rewrite_many : Tree =
         drop_spec t#12 {
           unique -> reuse t#12 Node(Black#?[external], left#13, 0, left#13)
           shared -> aether_call[owned, owned, owned, owned] Node#?[external](Black#?[external], dup left#13
-            left#13, 0, dup left#13
-            left#13)
+            left#13, 0, left#13)
         }
       _ →
         t#12
@@ -56,18 +42,11 @@ letrec keep_or_dup_left : Tree =
                 reuse t#15 Node(color#17, left#18, key#19, left#18) @mask=0b1000
           shared -> case keep#16 of
               true →
-                aether_call[owned, owned, owned, owned] Node#?[external](dup color#17
-                color#17, dup left#18
-                left#18, dup key#19
-                key#19, dup right#20
-                right#20)
+                aether_call[owned, owned, owned, owned] Node#?[external](color#17, left#18, key#19, right#20)
               _ →
                 drop right#20
-                aether_call[owned, owned, owned, owned] Node#?[external](dup color#17
-                color#17, dup left#18
-                left#18, dup key#19
-                key#19, dup left#18
-                left#18)
+                aether_call[owned, owned, owned, owned] Node#?[external](color#17, dup left#18
+                left#18, key#19, left#18)
         }
       _ →
         t#15
@@ -115,4 +94,4 @@ letrec main : Any =
     Print(#4000055[synthetic]#55)
 
 ── Aether stats ──
-Dups: 17  Drops: 8  Reuses: 5  DropSpecs: 4  FBIP: fip
+Dups: 2  Drops: 8  Reuses: 5  DropSpecs: 2  FBIP: fip
