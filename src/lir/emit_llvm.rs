@@ -39,8 +39,9 @@ const CONS_TAG: i32 = 4;
 
 // ── Public entry point ──────────────────────────────────────────────────────
 
-/// Emit LLVM IR text from a `LirProgram`.
-pub fn emit_llvm_ir(program: &LirProgram) -> String {
+/// Emit an `LlvmModule` from a `LirProgram`.
+/// The caller can inject target triple / data layout before rendering.
+pub fn emit_llvm_module(program: &LirProgram) -> LlvmModule {
     let mut module = LlvmModule {
         source_filename: Some("flux_lir".to_string()),
         target_triple: None,
@@ -143,7 +144,12 @@ pub fn emit_llvm_ir(program: &LirProgram) -> String {
         });
     }
 
-    render_module(&module)
+    module
+}
+
+/// Emit LLVM IR text from a `LirProgram`.
+pub fn emit_llvm_ir(program: &LirProgram) -> String {
+    render_module(&emit_llvm_module(program))
 }
 
 /// Emit a thin closure-convention wrapper for a direct-convention function.
