@@ -698,20 +698,21 @@ impl<'a> FnEmitter<'a> {
                 cont,
                 kind,
             } => {
-                // Push function, then args, then OpCall.
-                // For direct calls, load the closure from the constants pool
-                // instead of the (dummy None) func variable.
+                // For direct calls, use OpCallDirect — no closure on stack.
                 if let CallKind::Direct { func_id } = kind
                     && let Some(&const_idx) = self.func_const_indices.get(func_id)
                 {
-                    self.emit_op(OpCode::OpClosure, &[const_idx, 0]);
+                    for &arg in args {
+                        self.push_var(arg);
+                    }
+                    self.emit_op(OpCode::OpCallDirect, &[const_idx, args.len()]);
                 } else {
                     self.push_var(*func);
+                    for &arg in args {
+                        self.push_var(arg);
+                    }
+                    self.emit_op(OpCode::OpCall, &[args.len()]);
                 }
-                for &arg in args {
-                    self.push_var(arg);
-                }
-                self.emit_op(OpCode::OpCall, &[args.len()]);
                 self.pop_into(*dst);
                 // Fall through to continuation block — emit jump if needed.
                 let patch_pos = self.pos() + 1;
@@ -723,14 +724,17 @@ impl<'a> FnEmitter<'a> {
                 if let CallKind::Direct { func_id } = kind
                     && let Some(&const_idx) = self.func_const_indices.get(func_id)
                 {
-                    self.emit_op(OpCode::OpClosure, &[const_idx, 0]);
+                    for &arg in args {
+                        self.push_var(arg);
+                    }
+                    self.emit_op(OpCode::OpTailCallDirect, &[const_idx, args.len()]);
                 } else {
                     self.push_var(*func);
+                    for &arg in args {
+                        self.push_var(arg);
+                    }
+                    self.emit_op(OpCode::OpTailCall, &[args.len()]);
                 }
-                for &arg in args {
-                    self.push_var(arg);
-                }
-                self.emit_op(OpCode::OpTailCall, &[args.len()]);
             }
 
             LirTerminator::MatchCtor {
