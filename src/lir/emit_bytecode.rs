@@ -43,15 +43,15 @@ pub fn emit_program_with_base_constants(
 
     // Shared constants pool — starts with base constants from CFG compilation.
     let mut shared_constants = base_constants;
-    let mut func_const_indices = vec![0usize; num_funcs];
+    let mut func_const_indices: HashMap<LirFuncId, usize> = HashMap::new();
 
     // Pre-reserve constant pool slots for all nested functions so that
     // self-recursive and mutually-recursive closures can reference the
     // correct constant index during compilation.
-    for idx in func_const_indices.iter_mut().take(num_funcs - 1) {
+    for func in program.functions.iter().take(num_funcs - 1) {
         let slot = shared_constants.len();
         shared_constants.push(Value::None); // placeholder
-        *idx = slot;
+        func_const_indices.insert(func.id, slot);
     }
 
     // Compile nested functions, then backfill their constant pool slots.
@@ -65,7 +65,7 @@ pub fn emit_program_with_base_constants(
             &mut shared_constants,
             &func_const_indices,
         );
-        shared_constants[func_const_indices[i]] = Value::Function(Rc::new(compiled));
+        shared_constants[func_const_indices[&func.id]] = Value::Function(Rc::new(compiled));
     }
 
     // Compile main, sharing the same constants pool.
@@ -90,12 +90,12 @@ fn compile_nested_function(
     func: &LirFunction,
     program: &LirProgram,
     shared_constants: &mut Vec<Value>,
-    func_const_indices: &[usize],
+    func_const_indices: &HashMap<LirFuncId, usize>,
 ) -> CompiledFunction {
     let mut emitter = FnEmitter::new(func, program);
     // Share the constants pool.
     emitter.constants = std::mem::take(shared_constants);
-    emitter.func_const_indices = func_const_indices.to_vec();
+    emitter.func_const_indices = func_const_indices.clone();
     emitter.emit_function();
     // Return the constants pool to the caller.
     *shared_constants = emitter.constants;
@@ -131,8 +131,8 @@ struct FnEmitter<'a> {
     jump_patches: Vec<(usize, BlockId)>,
     /// Positions of OpJump operands that should be patched to the end of bytecode.
     return_patches: Vec<usize>,
-    /// LIR function index → constants pool index (for MakeClosure).
-    func_const_indices: Vec<usize>,
+    /// LirFuncId → constants pool index (for MakeClosure).
+    func_const_indices: HashMap<LirFuncId, usize>,
     /// LirVar → free variable index (for OpGetFree in nested functions).
     free_var_indices: HashMap<LirVar, usize>,
 }
@@ -150,7 +150,7 @@ impl<'a> FnEmitter<'a> {
             block_offsets: HashMap::new(),
             jump_patches: Vec::new(),
             return_patches: Vec::new(),
-            func_const_indices: Vec::new(),
+            func_const_indices: HashMap::new(),
             free_var_indices: HashMap::new(),
         }
     }
@@ -561,7 +561,7 @@ impl<'a> FnEmitter<'a> {
 
             LirInstr::MakeClosure {
                 dst,
-                func_idx,
+                func_id,
                 captures,
             } => {
                 // Push captured values onto the stack.
@@ -570,7 +570,7 @@ impl<'a> FnEmitter<'a> {
                 }
                 // OpClosure pops the captures and creates a Closure from
                 // the CompiledFunction stored in the constants pool.
-                let const_idx = self.func_const_indices[*func_idx];
+                let const_idx = self.func_const_indices[func_id];
                 self.emit_op(OpCode::OpClosure, &[const_idx, captures.len()]);
                 self.pop_into(*dst);
             }

@@ -766,7 +766,7 @@ fn run_file(
             // Build merged program from all modules for dump-core / dump-aether.
             // This ensures module functions are visible in the output.
             let merged_program =
-                if is_multimodule && (dump_aether || !matches!(dump_core, CoreDumpMode::None)) {
+                if is_multimodule && (dump_aether || !matches!(dump_core, CoreDumpMode::None) || dump_lir || dump_lir_llvm) {
                     let mut merged = Program::new();
                     for node in graph.topo_order() {
                         merged.statements.extend(node.program.statements.clone());

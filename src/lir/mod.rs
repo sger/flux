@@ -20,9 +20,23 @@ pub mod emit_bytecode;
 pub mod emit_llvm;
 pub mod lower;
 
+use std::collections::HashMap;
 use std::fmt;
 
 use crate::core::CorePrimOp;
+
+// ── Function identity ──────────────────────────────────────────────────────
+
+/// Stable, unique identifier for a function in the LIR program.
+///
+/// For top-level functions, this is 1:1 with `CoreBinderId`.
+/// For letrec/lambda-generated functions, synthetic IDs are assigned
+/// starting above the max `CoreBinderId`.
+///
+/// Both the bytecode and LLVM backends resolve function references
+/// through `LirFuncId`, following GHC's Unique-based Cmm labels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LirFuncId(pub u32);
 
 // ── Variables and constants ──────────────────────────────────────────────────
 
@@ -158,11 +172,12 @@ pub enum LirInstr {
 
     // ── Closures ─────────────────────────────────────────────────────
     /// Create a closure from a nested function and captured values.
-    /// `func_idx` indexes into `LirProgram.functions`.
+    /// `func_id` is the stable unique identity of the target function,
+    /// resolved via `LirProgram.func_index` by each backend.
     /// `captures` are outer-scope LirVars whose values are baked into the closure.
     MakeClosure {
         dst: LirVar,
-        func_idx: usize,
+        func_id: LirFuncId,
         captures: Vec<LirVar>,
     },
 
@@ -313,6 +328,11 @@ pub struct LirBlock {
 pub struct LirFunction {
     /// Human-readable name for debugging / symbol tables.
     pub name: String,
+    /// Stable unique identity (1:1 with CoreBinderId for top-level defs).
+    pub id: LirFuncId,
+    /// Module-qualified symbol name for LLVM emission.
+    /// E.g. `"Flow_List_sort"`, `"main"`, `"lambda_42"`.
+    pub qualified_name: String,
     /// Parameter variables.
     pub params: Vec<LirVar>,
     /// The entry block is always `blocks[0]`.
@@ -330,9 +350,18 @@ pub struct LirProgram {
     pub functions: Vec<LirFunction>,
     /// String constants referenced by `LirConst::String`.
     pub string_pool: Vec<String>,
+    /// Index from stable function ID → position in `functions[]`.
+    /// Both backends use this to resolve `LirFuncId` references.
+    pub func_index: HashMap<LirFuncId, usize>,
 }
 
 // ── Display ──────────────────────────────────────────────────────────────────
+
+impl fmt::Display for LirFuncId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "fn#{}", self.0)
+    }
+}
 
 impl fmt::Display for LirVar {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -374,7 +403,26 @@ impl LirProgram {
         Self {
             functions: Vec::new(),
             string_pool: Vec::new(),
+            func_index: HashMap::new(),
         }
+    }
+
+    /// Push a function and register it in the index.
+    pub fn push_function(&mut self, func: LirFunction) -> usize {
+        let idx = self.functions.len();
+        self.func_index.insert(func.id, idx);
+        self.functions.push(func);
+        idx
+    }
+
+    /// Look up a function by its stable `LirFuncId`.
+    pub fn func_by_id(&self, id: LirFuncId) -> Option<&LirFunction> {
+        self.func_index.get(&id).map(|&idx| &self.functions[idx])
+    }
+
+    /// Get the position index for a `LirFuncId`.
+    pub fn func_idx(&self, id: LirFuncId) -> Option<usize> {
+        self.func_index.get(&id).copied()
     }
 
     /// Intern a string constant, returning its index.
