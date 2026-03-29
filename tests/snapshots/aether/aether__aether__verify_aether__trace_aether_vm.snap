@@ -4,7 +4,6 @@ source: tests/aether_cli_snapshots.rs
 Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:
-- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
@@ -27,7 +26,6 @@ Warning: FBIP Contract Not Proven
 Warning: FBIP Contract Not Proven
 
 @fip on `option_map` analysis result NotProvable:
-- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
@@ -50,7 +48,7 @@ Found 2 warnings.
 
 
 ── Aether Trace ──
-file: <workspace>\examples\aether/verify_aether.flx
+file: <workspace>/examples/aether/verify_aether.flx
 backend: vm
 pipeline: AST -> Core -> CFG -> bytecode -> VM
 cache: disabled
@@ -63,73 +61,70 @@ Aether Memory Model Report
 ==========================
 
 ── fn my_map @fip ──
-  Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
-  FreshAllocs: 1
-  verifier:
-    - MissedReuse: MISSED REUSE: Case arm destructures Cons and constructs Cons — could reuse allocation
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
   fbip: NotProvable
-    - fresh heap allocation remains on at least one path
     - calls indirect or opaque callee `f` whose FBIP behavior is unknown
     - control-flow join loses a precise allocation bound across paths
 λxs, f.
   case xs of
     ::(h, t) →
-      let %t1 = aether_call[owned] f(dup h
-      h)
+      let %t1 = aether_call[owned] f(h)
       let %t2 = aether_call[borrowed, borrowed] my_map(t, f)
-      ::(%t1, %t2)
+      reuse xs ::(%t1, %t2)
     _ →
       []
 ── fn option_map @fip ──
-  Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
-  FreshAllocs: 1
-  verifier:
-    - MissedReuse: MISSED REUSE: Case arm destructures Some and constructs Some — could reuse allocation
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
   fbip: NotProvable
-    - fresh heap allocation remains on at least one path
     - calls indirect or opaque callee `f` whose FBIP behavior is unknown
     - control-flow join loses a precise allocation bound across paths
 λopt, f.
   case opt of
     Some(x) →
-      let %t1 = aether_call[owned] f(dup x
-      x)
-      Some(%t1)
+      let %t1 = aether_call[owned] f(x)
+      reuse opt Some(%t1)
     _ →
       None
 ── fn set_black ──
-  Dups: 3  Drops: 0  Reuses: 1  DropSpecs: 1  FBIP: fip
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 λt.
   case t of
     Node(_, left, key, right) →
-      drop_spec t {
-        unique -> reuse t Node(Black, left, key, right) @mask=0b1
-        shared -> aether_call[owned, owned, owned, owned] Node(Black, dup left
-          left, dup key
-          key, dup right
-          right)
-      }
+      reuse t Node(Black, left, key, right) @mask=0b1
     _ →
       t
 ── fn my_filter ──
-  Dups: 2  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  Dups: 1  Drops: 2  Reuses: 1  DropSpecs: 1  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 λxs, f.
   case xs of
     ::(h, t) →
-      let %t1 = aether_call[owned] f(dup h
-      h)
-      case %t1 of
-        true →
-          let %t2 = aether_call[borrowed, borrowed] my_filter(t, f)
-          ::(dup h
-          h, %t2)
-        _ →
-          drop h
-          aether_call[borrowed, borrowed] my_filter(t, f)
+      drop_spec xs {
+        unique -> let %t1 = aether_call[owned] f(h)
+          case %t1 of
+            true →
+              let %t2 = aether_call[borrowed, borrowed] my_filter(t, f)
+              reuse xs ::(h, %t2) @mask=0b10
+            _ →
+              drop h
+              aether_call[borrowed, borrowed] my_filter(t, f)
+        shared -> let %t1 = aether_call[owned] f(dup h
+          h)
+          case %t1 of
+            true →
+              let %t2 = aether_call[borrowed, borrowed] my_filter(t, f)
+              ::(h, %t2)
+            _ →
+              drop h
+              aether_call[borrowed, borrowed] my_filter(t, f)
+      }
     _ →
       []
 ── fn main ──
@@ -169,8 +164,8 @@ Aether Memory Model Report
   Print(%t20)
 
 ── Total ──
-  Dups: 7  Drops: 6  Reuses: 1  DropSpecs: 1  FBIP: fbip(4)
-  FreshAllocs: 4
+  Dups: 1  Drops: 7  Reuses: 4  DropSpecs: 1  FBIP: fbip(2)
+  FreshAllocs: 2
 
 [lir→vm] Running via LIR → bytecode VM backend...
 [2, 4, 6]

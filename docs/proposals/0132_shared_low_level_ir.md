@@ -296,16 +296,42 @@ Incremental — LIR is additive until the final phase.  Each phase produces a wo
 
 ### Phase 8: Delete old paths
 
-**Goal:** Remove the CFG IR and Core-to-LLVM direct lowering.  Both backends consume LIR exclusively.
+**Goal:** Remove the old Core-to-LLVM direct lowering and eventually the CFG IR so both backends consume LIR exclusively.
 
-**Scope:**
+**Phase 8a — Old Core→LLVM codegen (DONE):**
+- ✅ Deleted `src/core_to_llvm/codegen/expr.rs` (3,571 lines)
+- ✅ Deleted `src/core_to_llvm/codegen/function.rs` (1,804 lines)
+- ✅ Deleted `src/core_to_llvm/codegen/aether.rs` (324 lines)
+- ✅ Deleted old test files (`core_to_llvm_adt.rs`, `core_to_llvm_closures.rs`, `core_to_llvm_codegen.rs`)
+- ✅ Moved `CoreToLlvmError` + `display_ident` to `codegen/mod.rs`
+- ✅ Cleaned dead code in `closure.rs` and `adt.rs` (~150 lines)
+- ✅ Updated snapshot test to use LIR→LLVM path
+- **Total removed:** ~5,700 lines of old codegen + ~150 lines dead code
+
+**Phase 8b — CFG IR removal (TODO):**
+
+The CFG path (`src/cfg/`, `src/core/to_ir/`, `src/bytecode/compiler/cfg_bytecode.rs`) is still used by the default bytecode pipeline for prelude/module compilation. The LIR path depends on a globals table populated by CFG-compiled prelude modules.
+
+To eliminate CFG, adopt GHC's approach — separate compilation with deferred symbol resolution:
+
+1. **Module interface metadata:** Each compiled module produces export metadata (function names, arities, indices) — like GHC's `.hi` files. Downstream modules read this instead of requiring a pre-populated globals table.
+2. **Symbolic references in LIR:** Cross-module calls emit `SymbolRef("Flow.List.map")` instead of resolved `GetGlobal(idx)`. Resolution happens at link time.
+3. **Two-pass pipeline:**
+   - Pass 1: Compile all modules (prelude + user) through LIR → bytecode with symbolic refs
+   - Pass 2: Link — resolve symbolic refs to actual global indices
+4. **Remove `FLUX_USE_LIR` / `--run-lir` flag** — LIR becomes the only path
+
+**Scope (Phase 8b):**
+- Add module interface / export metadata to LIR compilation output
+- Add symbolic reference support to LIR lowerer (replace `globals_map` dependency)
+- Add link phase for bytecode (resolve symbolic refs → global indices)
 - Delete `src/cfg/` (~2,000 lines)
 - Delete `src/core/to_ir/` (~800 lines)
-- Delete Core lowering in `src/core_to_llvm/codegen/expr.rs` (~1,500 lines)
-- Remove `FLUX_USE_LIR` feature flag (LIR is the only path)
+- Delete `src/bytecode/compiler/cfg_bytecode.rs`
+- Remove `--run-lir` flag and `FLUX_USE_LIR` env var
 - Update CLAUDE.md architecture diagram
 
-**Verification:** Full test suite passes.  `scripts/check_core_to_llvm_parity.sh` passes.  No references to `cfg::` or `IrExpr` remain.
+**Verification:** Full test suite passes. No references to `cfg::`, `IrExpr`, or `IrProgram` remain in production code.
 
 ---
 

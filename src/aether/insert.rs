@@ -331,18 +331,10 @@ fn plan_expr(
                 let mut env_without_pats = branch_env.clone();
                 env_without_pats.remove_all(pat_ids.iter().copied());
 
-                // Drop the scrutinee if it's not used in this arm.
-                // But only if none of its destructured fields (pattern binders)
-                // are still live — they borrow from the scrutinee's memory.
-                let any_pat_binder_live = pat_ids.iter().any(|&bid| {
-                    rhs_plan.env_before.is_live(bid) || expr_uses_binder(&rhs, bid)
-                });
-
                 if let Some(scrut_binder) = scrutinee_var
                     && is_constructor_pat(&pat)
                     && !env_without_pats.is_live(scrut_binder.id)
                     && !expr_uses_binder(&rhs, scrut_binder.id)
-                    && !any_pat_binder_live
                     && has_compatible_con(&pat, &rhs)
                 {
                     rhs = wrap_drop(scrut_binder, rhs, alt_span);
@@ -372,27 +364,6 @@ fn plan_expr(
                             })
                             .filter(|binder_id| !expr_uses_binder(&rhs, *binder_id))
                             .filter(|binder_id| !expr_drops_binder(&rhs, *binder_id))
-                            // Don't drop a variable if any of its destructured
-                            // fields (pattern binders) are still live in this arm.
-                            // Dropping a parent while its fields are live is
-                            // use-after-free (they share the same heap memory).
-                            .filter(|binder_id| {
-                                !field_parents.iter().any(|(child, parent)| {
-                                    *parent == *binder_id
-                                        && (env_without_pats.is_live(*child)
-                                            || expr_uses_binder(&rhs, *child))
-                                })
-                            })
-                            // Don't drop a field (child) if its parent scrutinee
-                            // is still live — the field borrows from the parent.
-                            .filter(|binder_id| {
-                                if let Some(parent_id) = field_parents.get(binder_id) {
-                                    !(env_without_pats.is_live(*parent_id)
-                                        || expr_uses_binder(&rhs, *parent_id))
-                                } else {
-                                    true
-                                }
-                            })
                             .filter_map(|binder_id| scope.get(&binder_id).copied())
                             .collect();
                         let rhs = compensation
@@ -686,16 +657,7 @@ fn plan_var(
             }
         }
         ValueDemand::Owned => {
-            // Dup if variable has multiple uses OR if it's a field
-            // extracted from a case scrutinee. Fields share memory with
-            // their parent — the parent's refcount covers the field.
-            // Taking ownership (e.g. placing in a new constructor)
-            // requires duping so the field gets its own refcount.
-            // This is conservative: it dups even when the parent is
-            // dead, but avoids use-after-free when the parent is
-            // borrowed or shared.
-            let is_extracted_field = field_parents.contains_key(&id);
-            let needs_dup = tail_env.is_live(id) || is_extracted_field;
+            let needs_dup = tail_env.is_live(id);
             tail_env.mark_owned(id);
             let expr = if needs_dup {
                 if let Some(binder) = scope.get(&id).copied() {

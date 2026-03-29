@@ -11,35 +11,18 @@ Aether Memory Model Report
 λtoken, value.
   drop token
   value
-── fn blocked_list ──
-  Dups: 2  Drops: 0  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
-  FreshAllocs: 1
-  verifier:
-    - MissedReuse: MISSED REUSE (TokenEscapesIntoFields): Case arm destructures Cons and constructs Cons
-λxs.
-  case xs of
-    ::(h, t) →
-      let %t1 = aether_call[borrowed, owned] touch_token(xs, dup h
-      h)
-      ::(%t1, dup t
-      t)
-    _ →
-      []
 ── fn fresh_tree ──
-  Dups: 2  Drops: 0  Reuses: 0  DropSpecs: 0
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
   FreshAllocs: 0
-  verifier:
-    - MissedReuse: MISSED REUSE: Case arm destructures Named(Symbol(5)) and constructs Named(Symbol(5)) — could reuse allocation
+  verifier: ok
 λt.
   case t of
     Node(_, left, _, right) →
-      aether_call[owned, owned, owned, owned] Node(Black, dup left
-      left, 0, dup right
-      right)
+      reuse t Node(Black, left, 0, right) @mask=0b101
     _ →
       aether_call[owned, owned, owned, owned] Node(Black, Leaf, 0, Leaf)
 ── fn forwarded_child_near_miss ──
-  Dups: 4  Drops: 2  Reuses: 0  DropSpecs: 1  FBIP: fbip(4)
+  Dups: 3  Drops: 2  Reuses: 0  DropSpecs: 1  FBIP: fbip(4)
   FreshAllocs: 4
   verifier: ok
 λxs, acc.
@@ -55,8 +38,7 @@ Aether Memory Model Report
           let %t1 = ::(dup y
           y, dup acc
           acc)
-          let %t2 = ::(dup y
-          y, acc)
+          let %t2 = ::(y, acc)
           aether_call[owned, owned] Pair2(%t1, %t2)
       }
     _ →
@@ -84,5 +66,5 @@ Aether Memory Model Report
   Print(%t10)
 
 ── Total ──
-  Dups: 8  Drops: 6  Reuses: 0  DropSpecs: 1  FBIP: fbip(5)
-  FreshAllocs: 5
+  Dups: 3  Drops: 6  Reuses: 1  DropSpecs: 1  FBIP: fbip(4)
+  FreshAllocs: 4

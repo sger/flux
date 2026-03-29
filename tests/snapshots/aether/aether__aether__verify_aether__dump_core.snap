@@ -5,10 +5,9 @@ letrec my_map =
 λxs, f.
     case xs of
       ::(h, t) →
-        let %t1 = aether_call[owned] f(dup h
-        h)
+        let %t1 = aether_call[owned] f(h)
         let %t2 = aether_call[borrowed, borrowed] my_map(t, f)
-        ::(%t1, %t2)
+        reuse xs ::(%t1, %t2)
       _ →
         []
 
@@ -16,9 +15,8 @@ letrec option_map =
 λopt, f.
     case opt of
       Some(x) →
-        let %t3 = aether_call[owned] f(dup x
-        x)
-        Some(%t3)
+        let %t3 = aether_call[owned] f(x)
+        reuse opt Some(%t3)
       _ →
         None
 
@@ -26,13 +24,7 @@ letrec set_black =
 λt.
     case t of
       Node(_, left, key, right) →
-        drop_spec t {
-          unique -> reuse t Node(Black, left, key, right) @mask=0b1
-          shared -> aether_call[owned, owned, owned, owned] Node(Black, dup left
-            left, dup key
-            key, dup right
-            right)
-        }
+        reuse t Node(Black, left, key, right) @mask=0b1
       _ →
         t
 
@@ -49,16 +41,25 @@ letrec my_filter =
 λxs, f.
     case xs of
       ::(h, t) →
-        let %t5 = aether_call[owned] f(dup h
-        h)
-        case %t5 of
-          true →
-            let %t6 = aether_call[borrowed, borrowed] my_filter(t, f)
-            ::(dup h
-            h, %t6)
-          _ →
-            drop h
-            aether_call[borrowed, borrowed] my_filter(t, f)
+        drop_spec xs {
+          unique -> let %t5 = aether_call[owned] f(h)
+            case %t5 of
+              true →
+                let %t6 = aether_call[borrowed, borrowed] my_filter(t, f)
+                reuse xs ::(h, %t6) @mask=0b10
+              _ →
+                drop h
+                aether_call[borrowed, borrowed] my_filter(t, f)
+          shared -> let %t5 = aether_call[owned] f(dup h
+            h)
+            case %t5 of
+              true →
+                let %t6 = aether_call[borrowed, borrowed] my_filter(t, f)
+                ::(h, %t6)
+              _ →
+                drop h
+                aether_call[borrowed, borrowed] my_filter(t, f)
+        }
       _ →
         []
 
@@ -104,11 +105,10 @@ let %t8 = (let %t9 = (let %t10 = MakeList(1, 2, 3)
   Print(%t27)
 
 ── Aether stats ──
-Dups: 7  Drops: 6  Reuses: 1  DropSpecs: 1  FBIP: fbip(4)
+Dups: 1  Drops: 7  Reuses: 4  DropSpecs: 1  FBIP: fbip(2)
 Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:
-- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
@@ -131,7 +131,6 @@ Warning: FBIP Contract Not Proven
 Warning: FBIP Contract Not Proven
 
 @fip on `option_map` analysis result NotProvable:
-- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
