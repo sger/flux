@@ -540,33 +540,64 @@ pub fn compile_program_with_interner(
     let mut trace_qualified_names: HashMap<Identifier, String> = HashMap::new();
     let mut module_members: HashMap<Identifier, Vec<(Identifier, CoreBinderId)>> = HashMap::new();
     let mut import_aliases: HashMap<Identifier, Identifier> = HashMap::new();
-    // Track which binder IDs have been claimed by modules to avoid duplicates.
-    let mut claimed_binders: HashSet<CoreBinderId> = HashSet::new();
+    // Build a per-name queue of def binder IDs so that modules processed
+    // earlier claim earlier defs (matching the topo-sorted def order).
+    let mut name_def_queues: HashMap<Identifier, Vec<CoreBinderId>> = HashMap::new();
+    for def in &core.defs {
+        name_def_queues.entry(def.name).or_default().push(def.binder.id);
+    }
+    // Also build a set of def binder IDs per module for cross-referencing.
+    // When multiple modules export the same function name (e.g., Flow.List.sort
+    // and Flow.Array.sort), we need to match each module's function to the
+    // correct def. We do this by tracking which def indices fall within each
+    // module's range based on the order defs appear.
+    //
+    // Strategy: for each module, collect its function names as a set. Then
+    // iterate core.defs once, assigning each def to the first module that
+    // (a) contains that function name and (b) hasn't yet claimed a def for it.
+    struct ModuleInfo {
+        name: Identifier,
+        fn_names: HashSet<Identifier>,
+        members: Vec<(Identifier, CoreBinderId)>,
+    }
+    let mut module_infos: Vec<ModuleInfo> = Vec::new();
+    for item in &core.top_level_items {
+        if let crate::core::CoreTopLevelItem::Module { name: mod_name, body, .. } = item {
+            let mod_str = display_ident(*mod_name, interner);
+            let mut fn_names = HashSet::new();
+            for child in body {
+                if let crate::core::CoreTopLevelItem::Function { name: fn_name, .. } = child {
+                    let fn_str = display_ident(*fn_name, interner);
+                    trace_qualified_names.insert(*fn_name, format!("{mod_str}.{fn_str}"));
+                    fn_names.insert(*fn_name);
+                }
+            }
+            module_infos.push(ModuleInfo {
+                name: *mod_name,
+                fn_names,
+                members: Vec::new(),
+            });
+        }
+    }
+    // Assign defs to modules in def order. Each def goes to the first
+    // module that (a) lists that function name and (b) hasn't claimed it yet.
+    let mut claimed_names_per_module: Vec<HashSet<Identifier>> = vec![HashSet::new(); module_infos.len()];
+    for def in &core.defs {
+        for (i, minfo) in module_infos.iter_mut().enumerate() {
+            if minfo.fn_names.contains(&def.name) && !claimed_names_per_module[i].contains(&def.name) {
+                minfo.members.push((def.name, def.binder.id));
+                claimed_names_per_module[i].insert(def.name);
+                break;
+            }
+        }
+    }
+    for minfo in module_infos {
+        module_members.insert(minfo.name, minfo.members);
+    }
     for item in &core.top_level_items {
         match item {
-            crate::core::CoreTopLevelItem::Module {
-                name: mod_name,
-                body,
-                ..
-            } => {
-                let mod_str = display_ident(*mod_name, interner);
-                let members = module_members.entry(*mod_name).or_default();
-                for child in body {
-                    if let crate::core::CoreTopLevelItem::Function { name: fn_name, .. } = child {
-                        let fn_str = display_ident(*fn_name, interner);
-                        trace_qualified_names.insert(*fn_name, format!("{mod_str}.{fn_str}"));
-                        // Find the CoreDef for this module function.
-                        // Use the first unclaimed def with this name to handle
-                        // multiple modules exporting the same function name.
-                        for def in &core.defs {
-                            if def.name == *fn_name && !claimed_binders.contains(&def.binder.id) {
-                                members.push((*fn_name, def.binder.id));
-                                claimed_binders.insert(def.binder.id);
-                                break;
-                            }
-                        }
-                    }
-                }
+            crate::core::CoreTopLevelItem::Module { .. } => {
+                // Already handled above
             }
             crate::core::CoreTopLevelItem::Import {
                 name,

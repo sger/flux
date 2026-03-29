@@ -2483,11 +2483,13 @@ impl Compiler {
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
         crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
 
-        let globals_map = self.build_globals_map();
+        // Pass None for globals_map so ALL functions are lowered to LIR
+        // functions (no GetGlobal). In native mode there's no VM globals
+        // table, so every function must be compiled into the LLVM module.
         let lir = crate::lir::lower::lower_program_with_interner(
             &core,
             Some(&self.interner),
-            Some(&globals_map),
+            None,
         );
         Ok(crate::lir::emit_llvm::emit_llvm_ir(&lir))
     }
