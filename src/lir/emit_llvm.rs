@@ -64,6 +64,7 @@ pub fn emit_llvm_ir(program: &LirProgram) -> String {
 
     // Emit each LIR function.
     let num_funcs = program.functions.len();
+    let mut closure_wrappers_needed: HashSet<LirFuncId> = HashSet::new();
     for (i, func) in program.functions.iter().enumerate() {
         let is_main = i == num_funcs - 1;
         let mut emitter = FnEmitter {
@@ -75,9 +76,19 @@ pub fn emit_llvm_ir(program: &LirProgram) -> String {
             string_globals: &mut string_globals,
             current_instrs: Vec::new(),
             extra_blocks: Vec::new(),
+            closure_wrappers_needed: &mut closure_wrappers_needed,
         };
         let llvm_func = emitter.emit_function();
         module.functions.push(llvm_func);
+    }
+
+    // Emit closure entry wrappers for direct functions used as higher-order values.
+    // These thin wrappers convert (i64 closure_raw, ptr args, i32 nargs) → direct call.
+    for &func_id in &closure_wrappers_needed {
+        if let Some(target) = program.func_by_id(func_id) {
+            let wrapper = emit_closure_wrapper(target);
+            module.functions.push(wrapper);
+        }
     }
 
     // Add string globals.
@@ -135,6 +146,77 @@ pub fn emit_llvm_ir(program: &LirProgram) -> String {
     render_module(&module)
 }
 
+/// Emit a thin closure-convention wrapper for a direct-convention function.
+/// The wrapper has signature `(i64, ptr, i32) → i64` and unpacks args from
+/// the args array, then calls the direct function with individual params.
+fn emit_closure_wrapper(func: &LirFunction) -> LlvmFunction {
+    let direct_name = format!("flux_{}", func.qualified_name);
+    let wrapper_name = format!("flux_{}.closure_entry", func.qualified_name);
+
+    let closure_param = LlvmLocal("closure_raw".into());
+    let args_param = LlvmLocal("args_ptr".into());
+    let nargs_param = LlvmLocal("nargs".into());
+
+    let mut instrs = Vec::new();
+
+    // Unpack parameters from args array.
+    let mut call_args = Vec::new();
+    for (i, _param) in func.params.iter().enumerate() {
+        let gep = LlvmLocal(format!("arg.{i}.ptr"));
+        instrs.push(LlvmInstr::GetElementPtr {
+            dst: gep.clone(),
+            inbounds: true,
+            element_ty: LlvmType::i64(),
+            base: LlvmOperand::Local(args_param.clone()),
+            indices: vec![(
+                LlvmType::i32(),
+                LlvmOperand::Const(LlvmConst::Int { bits: 32, value: i as i128 }),
+            )],
+        });
+        let val = LlvmLocal(format!("arg.{i}"));
+        instrs.push(LlvmInstr::Load {
+            dst: val.clone(),
+            ty: LlvmType::i64(),
+            ptr: LlvmOperand::Local(gep),
+            align: Some(8),
+        });
+        call_args.push((LlvmType::i64(), LlvmOperand::Local(val)));
+    }
+
+    // Call the direct function.
+    let result = LlvmLocal("result".into());
+    instrs.push(LlvmInstr::Call {
+        dst: Some(result.clone()),
+        tail: false,
+        call_conv: Some(CallConv::Fastcc),
+        ret_ty: LlvmType::i64(),
+        callee: LlvmOperand::Global(GlobalId(direct_name)),
+        args: call_args,
+        attrs: Vec::new(),
+    });
+
+    LlvmFunction {
+        linkage: Linkage::Internal,
+        name: GlobalId(wrapper_name),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::i64(),
+            params: vec![LlvmType::i64(), LlvmType::Ptr, LlvmType::i32()],
+            varargs: false,
+            call_conv: CallConv::Ccc,
+        },
+        params: vec![closure_param, args_param, nargs_param],
+        attrs: vec!["nounwind".to_string()],
+        blocks: vec![LlvmBlock {
+            label: LabelId("entry".into()),
+            instrs,
+            term: LlvmTerminator::Ret {
+                ty: LlvmType::i64(),
+                value: LlvmOperand::Local(result),
+            },
+        }],
+    }
+}
+
 // ── Per-function emitter ────────────────────────────────────────────────────
 
 struct FnEmitter<'a> {
@@ -147,6 +229,9 @@ struct FnEmitter<'a> {
     current_instrs: Vec<LlvmInstr>,
     /// Extra blocks emitted by MatchCtor for field extraction.
     extra_blocks: Vec<LlvmBlock>,
+    /// Set of LirFuncIds that need closure entry wrappers
+    /// (top-level direct functions used as higher-order values via MakeClosure).
+    closure_wrappers_needed: &'a mut HashSet<LirFuncId>,
 }
 
 impl<'a> FnEmitter<'a> {
@@ -327,9 +412,33 @@ impl<'a> FnEmitter<'a> {
                 attrs: vec!["nounwind".to_string()],
                 blocks,
             }
+        } else if self.func.capture_vars.is_empty() {
+            // ── Direct calling convention (GHC-style known calls) ──────
+            // Top-level function with no captures: takes individual i64 params.
+            // No closure preamble needed — params are used directly.
+            let param_locals: Vec<LlvmLocal> = self.func.params.iter()
+                .map(|p| self.var_local(*p))
+                .collect();
+            let param_types: Vec<LlvmType> = self.func.params.iter()
+                .map(|_| LlvmType::i64())
+                .collect();
+
+            LlvmFunction {
+                linkage: Linkage::Internal,
+                name: self.func_name(),
+                sig: LlvmFunctionSig {
+                    ret: LlvmType::i64(),
+                    params: param_types,
+                    varargs: false,
+                    call_conv: CallConv::Fastcc,
+                },
+                params: param_locals,
+                attrs: vec!["nounwind".to_string()],
+                blocks,
+            }
         } else {
-            // Nested function (closure entry): signature matches flux_call_closure
-            // convention: (i64 closure_value, ptr args, i32 nargs) → i64.
+            // ── Closure calling convention ─────────────────────────────
+            // Function with captures: signature (i64 closure_raw, ptr args_ptr, i32 nargs).
             // Insert an entry preamble that unpacks captures and args.
             let mut entry_instrs = Vec::new();
             let closure_param = LlvmLocal("closure_raw".into());
@@ -413,14 +522,18 @@ impl<'a> FnEmitter<'a> {
                 first.instrs = merged;
             }
 
+            // Closure entry functions use ccc (C calling convention) so
+            // they're compatible with the C runtime's flux_call_closure_c
+            // trampoline and safe under opt -O1 (no fastcc register
+            // mismatches across indirect calls).
             LlvmFunction {
-                linkage: Linkage::Private,
+                linkage: Linkage::Internal,
                 name: self.func_name(),
                 sig: LlvmFunctionSig {
                     ret: LlvmType::i64(),
                     params: vec![LlvmType::i64(), LlvmType::Ptr, LlvmType::i32()],
                     varargs: false,
-                    call_conv: CallConv::Fastcc,
+                    call_conv: CallConv::Ccc,
                 },
                 params: vec![closure_param, args_param, _nargs_param],
                 attrs: vec!["nounwind".to_string()],
@@ -749,12 +862,15 @@ impl<'a> FnEmitter<'a> {
                     to_ty: LlvmType::i64(),
                 });
             }
-            LirInstr::DropReuse { dst, val } => {
+            LirInstr::DropReuse { dst, val, size } => {
                 let ptr_tmp = self.tmp();
                 self.call_c(
                     Some(ptr_tmp.clone()),
                     "flux_drop_reuse",
-                    vec![(LlvmType::i64(), self.var(*val))],
+                    vec![
+                        (LlvmType::i64(), self.var(*val)),
+                        (LlvmType::i32(), self.i32_const(*size as i32)),
+                    ],
                     LlvmType::Ptr,
                 );
                 self.emit(LlvmInstr::Cast {
@@ -917,12 +1033,19 @@ impl<'a> FnEmitter<'a> {
     fn emit_make_closure(&mut self, dst: LirVar, func_id: LirFuncId, captures: &[LirVar]) {
         let target = self.program.func_by_id(func_id)
             .expect("MakeClosure references unknown LirFuncId");
-        let func_name = if target.qualified_name == "main" {
+        let arity = target.params.len();
+
+        // For direct-convention functions (no captures), the closure must
+        // reference the closure-convention WRAPPER, not the direct function.
+        // The wrapper unpacks args and calls the direct function.
+        let fn_ptr_name = if target.capture_vars.is_empty() && target.qualified_name != "main" {
+            self.closure_wrappers_needed.insert(func_id);
+            format!("flux_{}.closure_entry", target.qualified_name)
+        } else if target.qualified_name == "main" {
             "flux_main".to_string()
         } else {
             format!("flux_{}", target.qualified_name)
         };
-        let arity = target.params.len();
 
         // flux_make_closure(ptr fn_ptr, i32 arity, ptr captures, i32 cap_count,
         //                   ptr applied, i32 applied_count) → i64
@@ -932,7 +1055,7 @@ impl<'a> FnEmitter<'a> {
                 Some(self.var_local(dst)),
                 "flux_make_closure",
                 vec![
-                    (LlvmType::Ptr, LlvmOperand::Global(GlobalId(func_name))),
+                    (LlvmType::Ptr, LlvmOperand::Global(GlobalId(fn_ptr_name))),
                     (LlvmType::i32(), self.i32_const(arity as i32)),
                     (LlvmType::Ptr, LlvmOperand::Const(LlvmConst::Null)),
                     (LlvmType::i32(), self.i32_const(0)),
@@ -972,7 +1095,7 @@ impl<'a> FnEmitter<'a> {
                 Some(self.var_local(dst)),
                 "flux_make_closure",
                 vec![
-                    (LlvmType::Ptr, LlvmOperand::Global(GlobalId(func_name))),
+                    (LlvmType::Ptr, LlvmOperand::Global(GlobalId(format!("flux_{}", target.qualified_name)))),
                     (LlvmType::i32(), self.i32_const(arity as i32)),
                     (LlvmType::Ptr, LlvmOperand::Local(arr)),
                     (LlvmType::i32(), self.i32_const(captures.len() as i32)),
@@ -1347,37 +1470,77 @@ impl<'a> FnEmitter<'a> {
                 func,
                 args,
                 cont,
+                kind,
             } => {
-                // Build args array on stack, call flux_call_closure (fastcc).
-                let llvm_args = self.build_call_args(args);
-                self.call_fastcc(
-                    Some(self.var_local(*dst)),
-                    "flux_call_closure",
-                    vec![
-                        (LlvmType::i64(), self.var(*func)),
-                        (LlvmType::Ptr, LlvmOperand::Local(llvm_args.0)),
-                        (LlvmType::i32(), self.i32_const(args.len() as i32)),
-                    ],
-                    LlvmType::i64(),
-                );
+                match kind {
+                    CallKind::Direct { func_id } => {
+                        // Direct call: call @flux_<name>(i64 %a0, i64 %a1, ...)
+                        let target = self.program.func_by_id(*func_id)
+                            .expect("Direct call references unknown LirFuncId");
+                        let target_name = format!("flux_{}", target.qualified_name);
+                        let call_args: Vec<(LlvmType, LlvmOperand)> = args
+                            .iter()
+                            .map(|a| (LlvmType::i64(), self.var(*a)))
+                            .collect();
+                        self.call_fastcc(
+                            Some(self.var_local(*dst)),
+                            &target_name,
+                            call_args,
+                            LlvmType::i64(),
+                        );
+                    }
+                    CallKind::Indirect => {
+                        // Closure dispatch: flux_call_closure(closure, args_array, nargs)
+                        let llvm_args = self.build_call_args(args);
+                        self.call_fastcc(
+                            Some(self.var_local(*dst)),
+                            "flux_call_closure",
+                            vec![
+                                (LlvmType::i64(), self.var(*func)),
+                                (LlvmType::Ptr, LlvmOperand::Local(llvm_args.0)),
+                                (LlvmType::i32(), self.i32_const(args.len() as i32)),
+                            ],
+                            LlvmType::i64(),
+                        );
+                    }
+                }
                 LlvmTerminator::Br {
                     target: self.label(*cont),
                 }
             }
 
-            LirTerminator::TailCall { func, args } => {
-                let llvm_args = self.build_call_args(args);
+            LirTerminator::TailCall { func, args, kind } => {
                 let result = self.tmp();
-                self.call_fastcc(
-                    Some(result.clone()),
-                    "flux_call_closure",
-                    vec![
-                        (LlvmType::i64(), self.var(*func)),
-                        (LlvmType::Ptr, LlvmOperand::Local(llvm_args.0)),
-                        (LlvmType::i32(), self.i32_const(args.len() as i32)),
-                    ],
-                    LlvmType::i64(),
-                );
+                match kind {
+                    CallKind::Direct { func_id } => {
+                        let target = self.program.func_by_id(*func_id)
+                            .expect("Direct tail call references unknown LirFuncId");
+                        let target_name = format!("flux_{}", target.qualified_name);
+                        let call_args: Vec<(LlvmType, LlvmOperand)> = args
+                            .iter()
+                            .map(|a| (LlvmType::i64(), self.var(*a)))
+                            .collect();
+                        self.call_fastcc(
+                            Some(result.clone()),
+                            &target_name,
+                            call_args,
+                            LlvmType::i64(),
+                        );
+                    }
+                    CallKind::Indirect => {
+                        let llvm_args = self.build_call_args(args);
+                        self.call_fastcc(
+                            Some(result.clone()),
+                            "flux_call_closure",
+                            vec![
+                                (LlvmType::i64(), self.var(*func)),
+                                (LlvmType::Ptr, LlvmOperand::Local(llvm_args.0)),
+                                (LlvmType::i32(), self.i32_const(args.len() as i32)),
+                            ],
+                            LlvmType::i64(),
+                        );
+                    }
+                }
                 LlvmTerminator::Ret {
                     ty: LlvmType::i64(),
                     value: LlvmOperand::Local(result),
@@ -1505,14 +1668,10 @@ impl<'a> FnEmitter<'a> {
             }
         }
 
-        // For ADT arms: extract ADT ctor_tag for dispatch.
+        // ADT tag extraction is deferred to the adt_dispatch block
+        // (only reached after NaN-box switch confirms TAG_BOXED_VALUE).
+        // Calling flux_adt_tag here would crash for None/EmptyList values.
         let adt_tag = self.tmp();
-        self.call_c(
-            Some(adt_tag.clone()),
-            "flux_adt_tag",
-            vec![(LlvmType::i64(), self.var(scrutinee))],
-            LlvmType::i32(),
-        );
 
         // Boxed dispatch block label.
         let boxed_label = LabelId(format!("match.boxed.{}", self.next_tmp));
@@ -1579,7 +1738,12 @@ impl<'a> FnEmitter<'a> {
                 CtorTag::Left => LEFT_TAG,
                 CtorTag::Right => RIGHT_TAG,
                 CtorTag::Cons => CONS_TAG,
-                CtorTag::Named(_) => 5, // TODO: user tag lookup
+                CtorTag::Named(name) => {
+                    self.program.constructor_tags
+                        .get(name.as_str())
+                        .copied()
+                        .unwrap_or(5)
+                }
                 _ => continue,
             };
             let target = emit_extract_block(self, arm, "flux_adt_field_ptr");
@@ -1589,12 +1753,23 @@ impl<'a> FnEmitter<'a> {
             ));
         }
 
-        // The ADT dispatch block (switch on ctor_tag).
+        // The ADT dispatch block: extract ctor_tag THEN switch.
+        // flux_adt_tag is safe here because this block is only reached
+        // when the NaN-box tag is TAG_BOXED_VALUE (confirmed pointer).
         let adt_dispatch_label = LabelId(format!("match.adt.{}", self.next_tmp));
         self.next_tmp += 1;
+        let adt_tag_call = LlvmInstr::Call {
+            dst: Some(adt_tag.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i32(),
+            callee: LlvmOperand::Global(GlobalId("flux_adt_tag".to_string())),
+            args: vec![(LlvmType::i64(), self.var(scrutinee))],
+            attrs: Vec::new(),
+        };
         self.extra_blocks.push(LlvmBlock {
             label: adt_dispatch_label.clone(),
-            instrs: Vec::new(),
+            instrs: vec![adt_tag_call],
             term: LlvmTerminator::Switch {
                 ty: LlvmType::i32(),
                 scrutinee: LlvmOperand::Local(adt_tag),
@@ -1894,7 +2069,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_make_adt" => (LlvmType::i64(), vec![LlvmType::Ptr, LlvmType::i32(), LlvmType::i32()]),
         "flux_adt_tag" => (LlvmType::i32(), vec![LlvmType::i64()]),
         "flux_rc_is_unique" => (LlvmType::i1(), vec![LlvmType::i64()]),
-        "flux_drop_reuse" => (LlvmType::Ptr, vec![LlvmType::i64()]),
+        "flux_drop_reuse" => (LlvmType::Ptr, vec![LlvmType::i64(), LlvmType::i32()]),
         // Collection helpers
         "flux_first" | "flux_rest" | "flux_reverse" | "flux_sort_default"
         | "flux_last" | "flux_flatten" => {

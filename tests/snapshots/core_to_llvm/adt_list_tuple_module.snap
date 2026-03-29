@@ -431,7 +431,7 @@ entry:
 non_exact:
   br i1 %is_under, label %under, label %over
 exact:
-  %exact.result = call fastcc i64 %fn_ptr(i64 %closure_value, ptr %args, i32 %nargs)
+  %exact.result = call ccc i64 %fn_ptr(i64 %closure_value, ptr %args, i32 %nargs)
   ret i64 %exact.result
 under:
   %existing.applied = getelementptr inbounds i64, ptr %payload, i32 %capture_count
@@ -444,7 +444,7 @@ under:
   %under.result = call fastcc i64 @flux_make_closure(ptr %fn_ptr, i32 %new.remaining, ptr %payload, i32 %capture_count, ptr %new.applied, i32 %new.applied.count)
   ret i64 %under.result
 over:
-  %over.first = call fastcc i64 %fn_ptr(i64 %closure_value, ptr %args, i32 %remaining_arity)
+  %over.first = call ccc i64 %fn_ptr(i64 %closure_value, ptr %args, i32 %remaining_arity)
   %leftover.count = sub i32 %nargs, %remaining_arity
   %leftover.args = getelementptr inbounds i64, ptr %args, i32 %remaining_arity
   %over.result = tail call fastcc i64 @flux_call_closure(i64 %over.first, ptr %leftover.args, i32 %leftover.count)
