@@ -69,7 +69,6 @@ pub fn emit_llvm_ir(program: &LirProgram) -> String {
         let mut emitter = FnEmitter {
             program,
             func,
-            func_idx: i,
             is_main,
             next_tmp: 0,
             needed_decls: &mut needed_decls,
@@ -141,7 +140,6 @@ pub fn emit_llvm_ir(program: &LirProgram) -> String {
 struct FnEmitter<'a> {
     program: &'a LirProgram,
     func: &'a LirFunction,
-    func_idx: usize,
     is_main: bool,
     next_tmp: u32,
     needed_decls: &'a mut HashSet<String>,
@@ -176,7 +174,7 @@ impl<'a> FnEmitter<'a> {
         if self.is_main {
             GlobalId("flux_main".to_string())
         } else {
-            GlobalId(format!("flux_fn_{}", self.func_idx))
+            GlobalId(format!("flux_{}", self.func.qualified_name))
         }
     }
 
@@ -771,10 +769,10 @@ impl<'a> FnEmitter<'a> {
             // ── Closures ────────────────────────────────────────────
             LirInstr::MakeClosure {
                 dst,
-                func_idx,
+                func_id,
                 captures,
             } => {
-                self.emit_make_closure(*dst, *func_idx, captures);
+                self.emit_make_closure(*dst, *func_id, captures);
             }
 
             // ── Collections ─────────────────────────────────────────
@@ -916,9 +914,15 @@ impl<'a> FnEmitter<'a> {
         self.call_c(dst_local, &c_name, llvm_args, ret_ty);
     }
 
-    fn emit_make_closure(&mut self, dst: LirVar, func_idx: usize, captures: &[LirVar]) {
-        let func_name = format!("flux_fn_{}", func_idx);
-        let arity = self.program.functions[func_idx].params.len();
+    fn emit_make_closure(&mut self, dst: LirVar, func_id: LirFuncId, captures: &[LirVar]) {
+        let target = self.program.func_by_id(func_id)
+            .expect("MakeClosure references unknown LirFuncId");
+        let func_name = if target.qualified_name == "main" {
+            "flux_main".to_string()
+        } else {
+            format!("flux_{}", target.qualified_name)
+        };
+        let arity = target.params.len();
 
         // flux_make_closure(ptr fn_ptr, i32 arity, ptr captures, i32 cap_count,
         //                   ptr applied, i32 applied_count) → i64

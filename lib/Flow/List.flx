@@ -305,19 +305,11 @@ module Flow.List {
     }
 
     public fn sort(xs) {
-        if is_array(xs) {
-            to_array(merge_sort_by(to_list(xs), fn(x) { x }))
-        } else {
-            merge_sort_by(xs, fn(x) { x })
-        }
+        merge_sort_by(xs, fn(x) { x })
     }
 
     public fn sort_by(xs, f) {
-        if is_array(xs) {
-            to_array(merge_sort_by(to_list(xs), f))
-        } else {
-            merge_sort_by(xs, f)
-        }
+        merge_sort_by(xs, f)
     }
 
     public fn first(xs) {

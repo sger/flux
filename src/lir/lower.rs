@@ -6,8 +6,11 @@
 
 use std::collections::HashMap;
 
+use std::collections::HashSet;
+
 use crate::core::{
-    CoreAlt, CoreBinderId, CoreDef, CoreExpr, CoreLit, CorePat, CorePrimOp, CoreProgram, CoreTag,
+    CoreAlt, CoreBinderId, CoreDef, CoreExpr, CoreLit, CorePat, CorePrimOp, CoreProgram,
+    CoreTag, CoreTopLevelItem,
 };
 use crate::lir::*;
 use crate::syntax::interner::Interner;
@@ -70,6 +73,98 @@ fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
     }
 }
 
+// ── Qualified name resolution ────────────────────────────────────────────────
+
+/// Walk the `CoreTopLevelItem` tree to build a module-qualified name for each
+/// function.  E.g. `Module("Flow") → Module("List") → Function("sort")`
+/// produces `"Flow_List_sort"`.
+///
+/// Returns a mapping from `Identifier` (bare function name) to a list of
+/// qualified names.  Since multiple modules may export the same bare name
+/// (e.g. Flow.List.sort and Flow.Array.sort), we return Vec to handle duplicates.
+fn collect_module_paths(
+    item: &CoreTopLevelItem,
+    prefix: &[String],
+    out: &mut Vec<(crate::syntax::Identifier, String)>,
+    interner: Option<&Interner>,
+) {
+    match item {
+        CoreTopLevelItem::Function { name, .. } => {
+            let func_name = interner
+                .map(|i| i.resolve(*name).to_string())
+                .unwrap_or_else(|| format!("sym_{}", name.as_u32()));
+            let qualified = if prefix.is_empty() {
+                func_name
+            } else {
+                let mut parts = prefix.to_vec();
+                parts.push(func_name);
+                parts.join("_")
+            };
+            // Sanitize for LLVM symbol names: replace '.' with '_'
+            let sanitized = qualified.replace('.', "_");
+            out.push((*name, sanitized));
+        }
+        CoreTopLevelItem::Module { name, body, .. } => {
+            let mod_name = interner
+                .map(|i| i.resolve(*name).to_string())
+                .unwrap_or_else(|| format!("mod_{}", name.as_u32()));
+            // Sanitize module name for LLVM symbols
+            let mod_name = mod_name.replace('.', "_");
+            let mut new_prefix = prefix.to_vec();
+            new_prefix.push(mod_name);
+            for child in body {
+                collect_module_paths(child, &new_prefix, out, interner);
+            }
+        }
+        _ => {} // Import, Data, EffectDecl — skip
+    }
+}
+
+/// Build a map from `CoreBinderId` → module-qualified name by cross-referencing
+/// the module tree (`top_level_items`) with the flat def list (`defs`).
+///
+/// For each module function, finds the first unclaimed `CoreDef` with a matching
+/// bare name and assigns it the qualified name.
+fn build_qualified_names(
+    program: &CoreProgram,
+    interner: Option<&Interner>,
+) -> HashMap<CoreBinderId, String> {
+    // Step 1: Collect (bare_name, qualified_name) pairs from the module tree.
+    let mut name_qualified_pairs: Vec<(crate::syntax::Identifier, String)> = Vec::new();
+    for item in &program.top_level_items {
+        collect_module_paths(item, &[], &mut name_qualified_pairs, interner);
+    }
+
+    // Step 2: Match CoreDef entries to qualified names.
+    // For each (bare_name, qualified_name) pair, find the first def with that
+    // bare name that hasn't been claimed yet.
+    let mut result = HashMap::new();
+    let mut claimed: HashSet<CoreBinderId> = HashSet::new();
+
+    for (bare_name, qualified_name) in &name_qualified_pairs {
+        for def in &program.defs {
+            if def.name == *bare_name && !claimed.contains(&def.binder.id) {
+                result.insert(def.binder.id, qualified_name.clone());
+                claimed.insert(def.binder.id);
+                break;
+            }
+        }
+    }
+
+    // Step 3: Assign fallback names for defs not found in any module
+    // (anonymous lambdas, letrec bindings, etc.)
+    for def in &program.defs {
+        if !result.contains_key(&def.binder.id) {
+            let bare = interner
+                .map(|i| i.resolve(def.name).to_string())
+                .unwrap_or_else(|| format!("def_{}", def.binder.id.0));
+            result.insert(def.binder.id, bare);
+        }
+    }
+
+    result
+}
+
 // ── Public entry point ───────────────────────────────────────────────────────
 
 /// Lower a complete `CoreProgram` to `LirProgram`.
@@ -89,6 +184,9 @@ pub fn lower_program_with_interner(
 ) -> LirProgram {
     let mut lir = LirProgram::new();
 
+    // Build module-qualified names from the CoreTopLevelItem tree.
+    let qualified_names = build_qualified_names(program, interner);
+
     // Collect all top-level binder IDs so cross-function references resolve.
     let top_level_binders: Vec<CoreBinderId> =
         program.defs.iter().map(|d| d.binder.id).collect();
@@ -104,31 +202,29 @@ pub fn lower_program_with_interner(
         0
     };
 
-    // Phase 1: Lower all non-main defs, pre-assigning function indices
-    // so self-recursive and mutually-recursive functions work.
-    let mut binder_func_map: HashMap<CoreBinderId, usize> = HashMap::new();
-    let mut func_counter = 0;
+    // Pre-assign LirFuncIds for all top-level defs (1:1 with CoreBinderId).
+    let mut binder_func_map: HashMap<CoreBinderId, LirFuncId> = HashMap::new();
     for (i, def) in program.defs.iter().enumerate() {
         if i == main_idx {
             continue;
         }
-        binder_func_map.insert(def.binder.id, func_counter);
-        func_counter += 1;
+        binder_func_map.insert(def.binder.id, LirFuncId(def.binder.id.0));
     }
 
+    // Phase 1: Lower all non-main defs.
     for (i, def) in program.defs.iter().enumerate() {
         if i == main_idx {
             continue;
         }
-        let func = lower_def(def, &mut lir, &top_level_binders, &binder_func_map, interner, globals_map);
-        lir.functions.push(func);
+        let func = lower_def(def, &mut lir, &top_level_binders, &binder_func_map, &qualified_names, interner, globals_map);
+        lir.push_function(func);
     }
 
-    // Phase 2: Lower main with knowledge of all sibling function indices.
+    // Phase 2: Lower main with knowledge of all sibling functions.
     // Main is always last in LIR (emit_program expects this).
     let main_def = &program.defs[main_idx];
-    let func = lower_def(main_def, &mut lir, &top_level_binders, &binder_func_map, interner, globals_map);
-    lir.functions.push(func);
+    let func = lower_def(main_def, &mut lir, &top_level_binders, &binder_func_map, &qualified_names, interner, globals_map);
+    lir.push_function(func);
 
     lir
 }
@@ -158,6 +254,8 @@ struct FnLower<'a> {
 impl<'a> FnLower<'a> {
     fn new(
         name: String,
+        id: LirFuncId,
+        qualified_name: String,
         program: &'a mut LirProgram,
         interner: Option<&'a Interner>,
         globals_map: Option<&'a HashMap<String, usize>>,
@@ -172,6 +270,8 @@ impl<'a> FnLower<'a> {
             env: HashMap::new(),
             func: LirFunction {
                 name,
+                id,
+                qualified_name,
                 params: Vec::new(),
                 blocks: vec![entry_block],
                 next_var: 0,
@@ -311,23 +411,27 @@ impl<'a> FnLower<'a> {
 
                     let mut temp_program = std::mem::replace(
                         &mut *self.program,
-                        LirProgram { functions: Vec::new(), string_pool: Vec::new() },
+                        LirProgram::new(),
                     );
 
-                    // Pre-assign function index so self-recursion works.
-                    // Push a placeholder to reserve the slot so nested letrecs
-                    // don't occupy this index.
+                    // Assign a synthetic LirFuncId for this letrec function.
+                    let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
+
+                    // Pre-assign function slot so self-recursion works.
                     let func_idx = temp_program.functions.len();
                     temp_program.functions.push(LirFunction {
                         name: format!("letrec_{}_placeholder", func_idx),
+                        id: synthetic_id,
+                        qualified_name: format!("letrec_{}", synthetic_id.0),
                         params: Vec::new(),
                         blocks: Vec::new(),
                         next_var: 0,
                         capture_vars: Vec::new(),
                     });
+                    temp_program.func_index.insert(synthetic_id, func_idx);
 
                     let func_name = format!("letrec_{}", func_idx);
-                    let mut inner = FnLower::new(func_name, &mut temp_program, self.interner, self.globals_map);
+                    let mut inner = FnLower::new(func_name, synthetic_id, format!("letrec_{}", synthetic_id.0), &mut temp_program, self.interner, self.globals_map);
 
                     // Capture outer variables.
                     for &(binder_id, _outer_var) in &outer_captures {
@@ -337,11 +441,11 @@ impl<'a> FnLower<'a> {
                     }
 
                     // Self-reference: the letrec variable inside the lambda
-                    // creates a MakeClosure to itself (same func_idx).
+                    // creates a MakeClosure to itself (same func_id).
                     let self_var = inner.fresh_var();
                     inner.emit(LirInstr::MakeClosure {
                         dst: self_var,
-                        func_idx,
+                        func_id: synthetic_id,
                         captures: (0..outer_captures.len())
                             .map(|i| inner.func.capture_vars[i])
                             .collect(),
@@ -370,7 +474,7 @@ impl<'a> FnLower<'a> {
                     let dst = self.fresh_var();
                     self.emit(LirInstr::MakeClosure {
                         dst,
-                        func_idx,
+                        func_id: synthetic_id,
                         captures: outer_capture_vars,
                     });
                     self.bind(var.id, dst);
@@ -406,11 +510,12 @@ impl<'a> FnLower<'a> {
                     // (Rust can't have two &mut borrows of self.program).
                     let mut temp_program = std::mem::replace(
                         &mut *self.program,
-                        LirProgram { functions: Vec::new(), string_pool: Vec::new() },
+                        LirProgram::new(),
                     );
 
+                    let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
                     let func_name = format!("closure_{}", temp_program.functions.len());
-                    let mut inner = FnLower::new(func_name, &mut temp_program, self.interner, self.globals_map);
+                    let mut inner = FnLower::new(func_name, synthetic_id, format!("lambda_{}", synthetic_id.0), &mut temp_program, self.interner, self.globals_map);
 
                     // Map captured variables: create fresh LirVars inside the inner
                     // function, mark them as capture_vars (→ OpGetFree in emitter).
@@ -435,8 +540,7 @@ impl<'a> FnLower<'a> {
 
                     // Restore the program and add the inner function.
                     *self.program = temp_program;
-                    let func_idx = self.program.functions.len();
-                    self.program.functions.push(inner_func);
+                    self.program.push_function(inner_func);
 
                     // Emit MakeClosure in the outer context.
                     let outer_capture_vars: Vec<LirVar> =
@@ -444,7 +548,7 @@ impl<'a> FnLower<'a> {
                     let dst = self.fresh_var();
                     self.emit(LirInstr::MakeClosure {
                         dst,
-                        func_idx,
+                        func_id: synthetic_id,
                         captures: outer_capture_vars,
                     });
                     dst
@@ -1407,22 +1511,28 @@ fn lower_def(
     def: &CoreDef,
     program: &mut LirProgram,
     top_level_binders: &[CoreBinderId],
-    binder_func_map: &HashMap<CoreBinderId, usize>,
+    binder_func_map: &HashMap<CoreBinderId, LirFuncId>,
+    qualified_names: &HashMap<CoreBinderId, String>,
     interner: Option<&Interner>,
     globals_map: Option<&HashMap<String, usize>>,
 ) -> LirFunction {
-    let name = format!("def_{}", def.binder.id.0);
-    let mut ctx = FnLower::new(name, program, interner, globals_map);
+    let func_id = LirFuncId(def.binder.id.0);
+    let debug_name = format!("def_{}", def.binder.id.0);
+    let qualified_name = qualified_names
+        .get(&def.binder.id)
+        .cloned()
+        .unwrap_or_else(|| debug_name.clone());
+    let mut ctx = FnLower::new(debug_name, func_id, qualified_name, program, interner, globals_map);
 
     // Pre-register top-level binders that are callable functions.
     // Only binders in binder_func_map have compiled functions — skip the rest
     // (e.g., main's own binder) to avoid wasting variable slots.
     for &binder_id in top_level_binders {
-        if !ctx.env.contains_key(&binder_id) && let Some(&func_idx) = binder_func_map.get(&binder_id) {
+        if !ctx.env.contains_key(&binder_id) && let Some(&func_id) = binder_func_map.get(&binder_id) {
             let var = ctx.fresh_var();
             ctx.emit(LirInstr::MakeClosure {
                 dst: var,
-                func_idx,
+                func_id,
                 captures: Vec::new(),
             });
             ctx.bind(binder_id, var);
@@ -1464,13 +1574,14 @@ fn display_function(func: &LirFunction, out: &mut String) {
     use std::fmt::Write;
     let params: Vec<String> = func.params.iter().map(|v| format!("{v}")).collect();
     if func.capture_vars.is_empty() {
-        writeln!(out, "fn {}({}) {{", func.name, params.join(", ")).unwrap();
+        writeln!(out, "fn {} [{}] ({}) {{", func.qualified_name, func.id, params.join(", ")).unwrap();
     } else {
         let caps: Vec<String> = func.capture_vars.iter().map(|v| format!("{v}")).collect();
         writeln!(
             out,
-            "fn {}({}) captures [{}] {{",
-            func.name,
+            "fn {} [{}] ({}) captures [{}] {{",
+            func.qualified_name,
+            func.id,
             params.join(", "),
             caps.join(", ")
         )
@@ -1531,11 +1642,11 @@ fn display_instr(instr: &LirInstr) -> String {
         LirInstr::DropReuse { dst, val } => format!("{dst} = drop_reuse({val})"),
         LirInstr::MakeClosure {
             dst,
-            func_idx,
+            func_id,
             captures,
         } => {
             let caps: Vec<String> = captures.iter().map(|v| format!("{v}")).collect();
-            format!("{dst} = make_closure(func={func_idx}, [{}])", caps.join(", "))
+            format!("{dst} = make_closure({func_id}, [{}])", caps.join(", "))
         }
         LirInstr::MakeArray { dst, elements } => {
             let es: Vec<String> = elements.iter().map(|v| format!("{v}")).collect();
@@ -1609,8 +1720,6 @@ fn display_terminator(term: &LirTerminator) -> String {
 }
 
 // ── Free variable collection ─────────────────────────────────────────────────
-
-use std::collections::HashSet;
 
 /// Collect free variable binder IDs in a `CoreExpr`.
 fn collect_free_vars(expr: &CoreExpr) -> HashSet<CoreBinderId> {
