@@ -1712,7 +1712,7 @@ enum LirIntOp {
 fn lower_def(
     def: &CoreDef,
     program: &mut LirProgram,
-    top_level_binders: &[CoreBinderId],
+    _top_level_binders: &[CoreBinderId],
     binder_func_map: &HashMap<CoreBinderId, LirFuncId>,
     qualified_names: &HashMap<CoreBinderId, String>,
     name_binder_map: &HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
