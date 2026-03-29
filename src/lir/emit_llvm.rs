@@ -457,9 +457,9 @@ impl<'a> FnEmitter<'a> {
                     args: vec![(LlvmType::i64(), LlvmOperand::Local(closure_param.clone()))],
                     attrs: Vec::new(),
                 });
-                // Captures start at offset 16 in FluxClosure struct (after fn_ptr, arity, cap_count, applied_count).
-                // Actually: FluxClosure = {ptr, i32, i32, i32, [0 x i64]}
-                // field 4 is the payload. GEP into it.
+                // Captures start at FluxClosure payload field.
+                // FluxClosure = {ptr, i32, i32, i32, i32(pad), [0 x i64]}
+                // field 5 is the payload (after padding for i64 alignment).
                 let cap_base = LlvmLocal("cap.base".into());
                 entry_instrs.push(LlvmInstr::GetElementPtr {
                     dst: cap_base.clone(),
@@ -468,7 +468,7 @@ impl<'a> FnEmitter<'a> {
                     base: LlvmOperand::Local(clo_ptr),
                     indices: vec![
                         (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
-                        (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 4 })),
+                        (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 5 })),
                         (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
                     ],
                 });

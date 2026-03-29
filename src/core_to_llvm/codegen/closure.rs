@@ -19,7 +19,8 @@ pub const FLUX_CLOSURE_FN_FIELD: u32 = 0;
 pub const FLUX_CLOSURE_REMAINING_ARITY_FIELD: u32 = 1;
 pub const FLUX_CLOSURE_CAPTURE_COUNT_FIELD: u32 = 2;
 pub const FLUX_CLOSURE_APPLIED_COUNT_FIELD: u32 = 3;
-pub const FLUX_CLOSURE_PAYLOAD_FIELD: u32 = 4;
+pub const FLUX_CLOSURE_PADDING_FIELD: u32 = 4;
+pub const FLUX_CLOSURE_PAYLOAD_FIELD: u32 = 5;
 
 pub fn flux_closure_symbol(name: &str) -> GlobalId {
     GlobalId(name.to_string())
@@ -97,11 +98,12 @@ fn emit_closure_type(module: &mut LlvmModule) {
         ty: LlvmType::Struct {
             packed: false,
             fields: vec![
-                LlvmType::ptr(),
-                LlvmType::i32(),
-                LlvmType::i32(),
-                LlvmType::i32(),
-                LlvmType::Array {
+                LlvmType::ptr(),  // fn_ptr (offset 0, 8 bytes)
+                LlvmType::i32(),  // remaining_arity (offset 8)
+                LlvmType::i32(),  // capture_count (offset 12)
+                LlvmType::i32(),  // applied_count (offset 16)
+                LlvmType::i32(),  // padding to align payload to 8 bytes (offset 20)
+                LlvmType::Array { // payload[] (offset 24)
                     len: 0,
                     element: Box::new(LlvmType::i64()),
                 },
@@ -1085,7 +1087,7 @@ mod tests {
         emit_closure_support(&mut module);
         let rendered = render_module(&module);
 
-        assert!(rendered.contains("%FluxClosure = type {ptr, i32, i32, i32, [0 x i64]}"));
+        assert!(rendered.contains("%FluxClosure = type {ptr, i32, i32, i32, i32, [0 x i64]}"));
         assert!(rendered.contains("declare ccc ptr @flux_gc_alloc(i32)"));
         assert!(rendered.contains("define internal fastcc i64 @flux_tag_boxed_ptr(ptr %ptr)"));
         assert!(rendered.contains("lshr i64 %addr, 3"));
