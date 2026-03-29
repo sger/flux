@@ -5,8 +5,6 @@ use std::{
     time::Instant,
 };
 
-#[cfg(feature = "native")]
-use flux::ast::{constant_fold_with_interner, desugar, rename};
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
@@ -915,56 +913,26 @@ fn run_file(
                 return;
             }
 
-            // --- Core-to-LLVM execution path ---
-            #[cfg(feature = "native")]
+            // --- LIR → LLVM native execution path (Proposal 0132) ---
+            #[cfg(feature = "core_to_llvm")]
             if use_core_to_llvm || emit_llvm || emit_binary {
-                use std::collections::HashMap;
-
-                let mut c2l_program = Program::new();
-
-                // Load Flow library (stdlib) — parse prelude .flx files
-                // and prepend their definitions before user code.
-                // Flow library auto-loading: disabled pending separate compilation
-                // support. The Flow functions need their own type inference pass
-                // rather than being mixed into the user program. For now, builtin
-                // functions are handled via builtins.rs (C runtime FFI calls).
-                // See Proposal 0120 for the full design.
-                if false {
-                    let flow_dir = locate_flow_lib_dir().unwrap();
-                    let flow_files = ["List.flx"];
-                    for file in flow_files {
-                        let flow_path = flow_dir.join(file);
-                        if let Ok(base_source) = std::fs::read_to_string(&flow_path) {
-                            let lexer = Lexer::new(&base_source);
-                            let mut parser = Parser::new(lexer);
-                            let base_prog = parser.parse_program();
-                            c2l_program.statements.extend(base_prog.statements);
-                        }
-                    }
-                }
-
+                // Build merged program from all modules.
+                let mut native_program = Program::new();
                 for node in graph.topo_order() {
-                    c2l_program
+                    native_program
                         .statements
                         .extend(node.program.statements.clone());
                 }
 
-                if enable_optimize {
-                    let desugared = desugar(c2l_program);
-                    let optimized = constant_fold_with_interner(desugared, &compiler.interner);
-                    c2l_program = rename(optimized, HashMap::new());
-                }
-
                 // Re-run HM type inference on the merged program so all
                 // modules' types are available for Core IR lowering.
-                // Without this, hm_expr_types only contains the last
-                // VM-compiled module's types (Proposal 0121 Phase 2).
-                compiler.infer_expr_types_for_program(&c2l_program);
+                compiler.infer_expr_types_for_program(&native_program);
 
-                // Lower AST → Core IR (with Aether passes).
-                let core = match compiler.lower_aether_report_program(&c2l_program, enable_optimize)
+                // AST → Core IR → Aether → LIR → LLVM IR module.
+                eprintln!("[lir→llvm] Compiling via LIR → LLVM native backend...");
+                let mut llvm_module = match compiler.lower_to_lir_llvm_module(&native_program, enable_optimize)
                 {
-                    Ok(core) => core,
+                    Ok(m) => m,
                     Err(diag) => {
                         emit_diagnostics(
                             &[diag],
@@ -980,24 +948,7 @@ fn run_file(
                     }
                 };
 
-                eprintln!(
-                    "[c2l] Core IR done ({} defs). Starting LLVM codegen...",
-                    core.defs.len()
-                );
-                // Core IR → LLVM IR AST → text.
-                let llvm_module = match flux::core_to_llvm::compile_program_with_interner(
-                    &core,
-                    Some(&compiler.interner),
-                ) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        eprintln!("core_to_llvm compilation failed: {e}");
-                        std::process::exit(1);
-                    }
-                };
-
                 // Inject target triple and data layout.
-                let mut llvm_module = llvm_module;
                 llvm_module.target_triple = Some(flux::core_to_llvm::target::host_triple());
                 llvm_module.data_layout = flux::core_to_llvm::target::host_data_layout();
 
@@ -1122,6 +1073,7 @@ fn run_file(
                 }
             }
 
+            eprintln!("[lir→vm] Running via LIR → bytecode VM backend...");
             let mut vm = VM::new(bytecode);
             vm.set_trace(trace);
             let exec_start = Instant::now();
@@ -1165,7 +1117,7 @@ fn run_test_file(
     strict_mode: bool,
     diagnostics_format: DiagnosticOutputFormat,
     all_errors: bool,
-    #[cfg_attr(not(feature = "native"), allow(unused))] use_core_to_llvm: bool,
+    #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] use_core_to_llvm: bool,
 ) {
     let source = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -1591,27 +1543,6 @@ fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
     None
 }
 
-/// Locate the Flow library directory (`lib/Flow/`).
-#[cfg(feature = "native")]
-fn locate_flow_lib_dir() -> Option<std::path::PathBuf> {
-    if let Ok(exe) = std::env::current_exe() {
-        let mut dir = exe.parent().map(Path::to_path_buf);
-        for _ in 0..5 {
-            if let Some(ref d) = dir {
-                let candidate = d.join("lib").join("Flow");
-                if candidate.join("List.flx").exists() {
-                    return Some(candidate);
-                }
-                dir = d.parent().map(Path::to_path_buf);
-            }
-        }
-    }
-    let cwd = std::path::PathBuf::from("lib/Flow");
-    if cwd.join("List.flx").exists() {
-        return Some(cwd);
-    }
-    None
-}
 
 fn extract_output_path(args: &mut Vec<String>) -> Option<String> {
     let mut i = 0;
