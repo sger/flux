@@ -141,6 +141,46 @@ impl VM {
         Ok(())
     }
 
+    /// Direct function call — load the closure from the constants pool by index.
+    /// No callee value is consumed from the stack. Arguments are on top of stack.
+    /// The result will be placed at `sp - num_args` (where the first arg was).
+    pub(super) fn execute_call_direct(
+        &mut self,
+        const_idx: usize,
+        num_args: usize,
+    ) -> Result<(), String> {
+        let closure = self.closure_from_const(const_idx, "OpCallDirect")?;
+        let args_start = self.sp - num_args;
+        // Return slot is where the first arg was (no callee slot to overwrite).
+        self.call_closure_with_return_slot(closure, num_args, args_start, args_start)
+    }
+
+    /// Direct tail call — same as execute_call_direct but reuses the current frame.
+    pub(super) fn execute_tail_call_direct(
+        &mut self,
+        const_idx: usize,
+        num_args: usize,
+    ) -> Result<(), String> {
+        let closure = self.closure_from_const(const_idx, "OpTailCallDirect")?;
+        self.tail_call_closure(closure, num_args)
+    }
+
+    /// Load a closure from the constants pool, wrapping bare Functions.
+    fn closure_from_const(
+        &self,
+        const_idx: usize,
+        opcode_name: &str,
+    ) -> Result<Rc<Closure>, String> {
+        match self.const_get(const_idx) {
+            Value::Function(func) => Ok(Rc::new(Closure::new(func, Vec::new()))),
+            Value::Closure(c) => Ok(c),
+            other => Err(format!(
+                "{opcode_name}: expected Function in constants[{const_idx}], got {}",
+                other.type_name()
+            )),
+        }
+    }
+
     pub(super) fn execute_tail_call(&mut self, num_args: usize) -> Result<(), String> {
         let callee_idx = self.sp - 1 - num_args;
         let callee_val = self.stack_get(callee_idx);
