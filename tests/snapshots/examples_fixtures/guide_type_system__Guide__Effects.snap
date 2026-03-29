@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `Guide.Effects` doesn't match file path `examples/guide_type_system/Guide/Effects.flx`.
+Module name `Guide.Effects` doesn't match file path `//?/examples/guide_type_system/Guide/Effects.flx`.
 
   examples/guide_type_system/Guide/Effects.flx:1:1
   |

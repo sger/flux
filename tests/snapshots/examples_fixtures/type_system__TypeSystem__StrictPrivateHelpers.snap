@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `TypeSystem.StrictPrivateHelpers` doesn't match file path `examples/type_system/TypeSystem/StrictPrivateHelpers.flx`.
+Module name `TypeSystem.StrictPrivateHelpers` doesn't match file path `//?/examples/type_system/TypeSystem/StrictPrivateHelpers.flx`.
 
   examples/type_system/TypeSystem/StrictPrivateHelpers.flx:1:1
   |
