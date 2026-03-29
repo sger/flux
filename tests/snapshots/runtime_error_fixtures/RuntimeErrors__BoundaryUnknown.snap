@@ -1,0 +1,36 @@
+---
+source: tests/runtime_error_fixtures_snapshots.rs
+---
+Fixture: examples/runtime_errors/RuntimeErrors/BoundaryUnknown.flx
+== vm ==
+status: 1
+stdout:
+<empty>
+stderr:
+error[E024]: Module Path Mismatch
+
+Module name `RuntimeErrors.BoundaryUnknown` doesn't match file path `//?/examples/runtime_errors/RuntimeErrors/BoundaryUnknown.flx`.
+
+  examples/runtime_errors/RuntimeErrors/BoundaryUnknown.flx:1:1
+  |
+1 | module RuntimeErrors.BoundaryUnknown {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== jit ==
+status: 1
+stdout:
+<empty>
+stderr:
+error[E024]: Module Path Mismatch
+
+Module name `RuntimeErrors.BoundaryUnknown` doesn't match file path `//?/examples/runtime_errors/RuntimeErrors/BoundaryUnknown.flx`.
+
+  examples/runtime_errors/RuntimeErrors/BoundaryUnknown.flx:1:1
+  |
+1 | module RuntimeErrors.BoundaryUnknown {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.

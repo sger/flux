@@ -21,9 +21,13 @@ pub fn render_display_path(file: &str) -> Cow<'_, str> {
     let path = std::path::Path::new(file);
     if path.is_absolute()
         && let Ok(cwd) = std::env::current_dir()
-        && let Ok(stripped) = path.strip_prefix(&cwd)
     {
-        return Cow::Owned(stripped.to_string_lossy().to_string());
+        // Canonicalize both paths to handle Windows \\?\ prefix mismatches.
+        let canon_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let canon_cwd = std::fs::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone());
+        if let Ok(stripped) = canon_path.strip_prefix(&canon_cwd) {
+            return Cow::Owned(stripped.to_string_lossy().replace('\\', "/"));
+        }
     }
     Cow::Borrowed(file)
 }

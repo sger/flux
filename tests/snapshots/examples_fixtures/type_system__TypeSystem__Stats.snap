@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `TypeSystem.Stats` doesn't match file path `examples/type_system/TypeSystem/Stats.flx`.
+Module name `TypeSystem.Stats` doesn't match file path `//?/examples/type_system/TypeSystem/Stats.flx`.
 
   examples/type_system/TypeSystem/Stats.flx:9:1
   |

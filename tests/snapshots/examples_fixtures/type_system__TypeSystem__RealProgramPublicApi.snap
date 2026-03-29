@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `TypeSystem.RealProgramPublicApi` doesn't match file path `examples/type_system/TypeSystem/RealProgramPublicApi.flx`.
+Module name `TypeSystem.RealProgramPublicApi` doesn't match file path `//?/examples/type_system/TypeSystem/RealProgramPublicApi.flx`.
 
   examples/type_system/TypeSystem/RealProgramPublicApi.flx:1:1
   |
