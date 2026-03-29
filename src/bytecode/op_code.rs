@@ -180,15 +180,6 @@ pub enum OpCode {
     /// Operand: `[local_idx: u8]`.
     /// Immediate `Int`/`Float`/`Bool` locals are left unchanged.
     OpAetherDropLocal = 91,
-    /// Direct function call: `[const_idx: u16, num_args: u8]`.
-    /// Calls `constants[const_idx]` (a compiled function) with `num_args` arguments
-    /// from the stack. No callee closure is pushed or consumed — the function
-    /// is loaded directly from the constants pool.
-    /// Result is placed where the first argument was (like OpCall).
-    OpCallDirect = 92,
-    /// Direct tail call: `[const_idx: u16, num_args: u8]`.
-    /// Same as OpCallDirect but reuses the current call frame.
-    OpTailCallDirect = 93,
 }
 
 impl From<u8> for OpCode {
@@ -286,8 +277,6 @@ impl From<u8> for OpCode {
             89 => OpCode::OpReuseRight,
             90 => OpCode::OpIsUnique,
             91 => OpCode::OpAetherDropLocal,
-            92 => OpCode::OpCallDirect,
-            93 => OpCode::OpTailCallDirect,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -330,7 +319,6 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpTupleIndex
         | OpCode::OpAetherDropLocal => vec![1],
         OpCode::OpPrimOp | OpCode::OpCallBase => vec![1, 1],
-        OpCode::OpCallDirect | OpCode::OpTailCallDirect => vec![2, 1], // const_idx: u16, num_args: u8
         OpCode::OpClosure => vec![2, 1],
         OpCode::OpClosureLong => vec![4, 1],
         // ADT opcodes
