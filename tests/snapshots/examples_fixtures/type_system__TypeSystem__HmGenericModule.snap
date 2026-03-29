@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `TypeSystem.HmGenericModule` doesn't match file path `examples/type_system/TypeSystem/HmGenericModule.flx`.
+Module name `TypeSystem.HmGenericModule` doesn't match file path `//?/examples/type_system/TypeSystem/HmGenericModule.flx`.
 
   examples/type_system/TypeSystem/HmGenericModule.flx:1:1
   |

@@ -5,7 +5,13 @@ letrec set_black : Tree =
 λt#1.
     case t#1 of
       Node(_, left#2, key#3, right#4) →
-        reuse t#1 Node(Black#?[external], left#2, key#3, right#4) @mask=0b1
+        drop_spec t#1 {
+          unique -> reuse t#1 Node(Black#?[external], left#2, key#3, right#4) @mask=0b1
+          shared -> aether_call[owned, owned, owned, owned] Node#?[external](Black#?[external], dup left#2
+            left#2, dup key#3
+            key#3, dup right#4
+            right#4)
+        }
       _ →
         t#1
 
@@ -13,10 +19,16 @@ letrec keep_right_only : Tree =
 λt#6.
     case t#6 of
       Node(color#7, left#8, key#9, right#10) →
-        drop color#7
-        drop left#8
-        drop t#6
-        reuse key#9 Node(Black#?[external], Leaf#?[external], 0, right#10)
+        drop_spec t#6 {
+          unique -> drop color#7
+            drop key#9
+            drop left#8
+            reuse t#6 Node(Black#?[external], Leaf#?[external], 0, right#10)
+          shared -> drop color#7
+            drop left#8
+            reuse key#9 Node(Black#?[external], Leaf#?[external], 0, dup right#10
+            right#10)
+        }
       _ →
         t#6
 
@@ -24,8 +36,9 @@ letrec option_map : Option<Any> =
 λopt#12, f#13.
     case opt#12 of
       Some(x#14) →
-        let %t1 = aether_call[owned] f#13(x#14)
-        reuse opt#12 Some(#4000019[synthetic]#19)
+        let %t1 = aether_call[owned] f#13(dup x#14
+        x#14)
+        Some(#4000019[synthetic]#19)
       _ →
         None
 
@@ -46,4 +59,4 @@ letrec main : Any =
     Print(#4000026[synthetic]#26)
 
 ── Aether stats ──
-Dups: 0  Drops: 5  Reuses: 3  DropSpecs: 0  FBIP: fbip(1)
+Dups: 5  Drops: 7  Reuses: 3  DropSpecs: 2  FBIP: fbip(2)

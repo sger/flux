@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `Debug.IceDemo` doesn't match file path `examples/Debug/IceDemo.flx`.
+Module name `Debug.IceDemo` doesn't match file path `//?/examples/Debug/IceDemo.flx`.
 
   examples/Debug/IceDemo.flx:15:1
    |

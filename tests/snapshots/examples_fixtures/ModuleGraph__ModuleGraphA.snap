@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `ModuleGraph.ModuleGraphA` doesn't match file path `examples/ModuleGraph/ModuleGraphA.flx`.
+Module name `ModuleGraph.ModuleGraphA` doesn't match file path `//?/examples/ModuleGraph/ModuleGraphA.flx`.
 
   examples/ModuleGraph/ModuleGraphA.flx:3:1
   |

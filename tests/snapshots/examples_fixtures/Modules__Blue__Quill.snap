@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `Modules.Blue.Quill` doesn't match file path `examples/Modules/Blue/Quill.flx`.
+Module name `Modules.Blue.Quill` doesn't match file path `//?/examples/Modules/Blue/Quill.flx`.
 
   examples/Modules/Blue/Quill.flx:1:1
   |

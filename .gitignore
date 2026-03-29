@@ -37,6 +37,8 @@ Thumbs.db
 runtime/c/*.a
 runtime/c/*.dylib
 runtime/c/*.o
+runtime/c/*.obj
+runtime/c/*.lib
 runtime/c/smoke_test
 
 # Benchmark artifacts

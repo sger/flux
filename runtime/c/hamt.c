@@ -13,6 +13,10 @@
 
 #include "flux_rt.h"
 #include <stdlib.h>
+#if defined(_MSC_VER)
+#include <intrin.h>
+#define __builtin_popcount __popcnt
+#endif
 #include <string.h>
 #include <stdio.h>
 

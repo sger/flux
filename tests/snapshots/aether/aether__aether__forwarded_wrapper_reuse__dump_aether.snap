@@ -5,18 +5,24 @@ Aether Memory Model Report
 ==========================
 
 ── fn forwarded_child ──
-  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fbip(1)
-  FreshAllocs: 1
+  Dups: 2  Drops: 0  Reuses: 0  DropSpecs: 1  FBIP: fbip(2)
+  FreshAllocs: 2
   verifier: ok
 λxs, acc.
   case xs of
     ::(y, ys) →
-      let %t1 = ::(y, acc)
-      aether_call[owned, owned] Pair2(reuse Pair2 ::(y, acc) @mask=0b10, ys)
+      drop_spec xs {
+        unique -> let %t1 = ::(y, acc)
+          aether_call[owned, owned] Pair2(%t1, ys)
+        shared -> let %t1 = ::(dup y
+          y, acc)
+          aether_call[owned, owned] Pair2(%t1, dup ys
+          ys)
+      }
     _ →
       aether_call[owned, owned] Pair2(xs, acc)
 ── fn forwarded_child_near_miss ──
-  Dups: 3  Drops: 2  Reuses: 0  DropSpecs: 1  FBIP: fbip(4)
+  Dups: 4  Drops: 2  Reuses: 0  DropSpecs: 1  FBIP: fbip(4)
   FreshAllocs: 4
   verifier: ok
 λxs, acc.
@@ -32,7 +38,8 @@ Aether Memory Model Report
           let %t1 = ::(dup y
           y, dup acc
           acc)
-          let %t2 = ::(y, acc)
+          let %t2 = ::(dup y
+          y, acc)
           aether_call[owned, owned] Pair2(%t1, %t2)
       }
     _ →
@@ -53,5 +60,5 @@ Aether Memory Model Report
   Print(%t5)
 
 ── Total ──
-  Dups: 3  Drops: 3  Reuses: 1  DropSpecs: 1  FBIP: fbip(5)
-  FreshAllocs: 5
+  Dups: 6  Drops: 3  Reuses: 0  DropSpecs: 2  FBIP: fbip(6)
+  FreshAllocs: 6

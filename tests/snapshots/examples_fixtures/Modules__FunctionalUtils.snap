@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `Modules.FunctionalUtils` doesn't match file path `examples/Modules/FunctionalUtils.flx`.
+Module name `Modules.FunctionalUtils` doesn't match file path `//?/examples/Modules/FunctionalUtils.flx`.
 
   examples/Modules/FunctionalUtils.flx:4:1
   |

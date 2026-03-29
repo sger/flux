@@ -1535,7 +1535,12 @@ fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
             if let Err(e) = flux::core_to_llvm::pipeline::ensure_runtime_lib(candidate) {
                 eprintln!("Warning: failed to build C runtime: {e}");
             }
-            if candidate.join("libflux_rt.a").exists() {
+            let lib_exists = if cfg!(windows) {
+                candidate.join("flux_rt.lib").exists()
+            } else {
+                candidate.join("libflux_rt.a").exists()
+            };
+            if lib_exists {
                 return Some(candidate.clone());
             }
         }

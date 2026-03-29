@@ -7,6 +7,7 @@ status: 1
 stdout:
 <empty>
 stderr:
+[lir→vm] Running via LIR → bytecode VM backend...
 • 1 error • lib/Flow/List.flx
 error[E1004]: primop concat expected Array, got Int
 
@@ -25,6 +26,7 @@ status: 1
 stdout:
 <empty>
 stderr:
+[lir→vm] Running via LIR → bytecode VM backend...
 • 1 error • lib/Flow/List.flx
 error[E1004]: primop concat expected Array, got Int
 

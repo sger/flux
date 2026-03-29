@@ -40,7 +40,12 @@ typedef struct {
     uint16_t _reserved;
 } FluxHeader;
 
+/* _Static_assert is C11; MSVC uses static_assert in C mode. */
+#if defined(_MSC_VER)
+static_assert(sizeof(FluxHeader) == 8, "FluxHeader must be 8 bytes");
+#else
 _Static_assert(sizeof(FluxHeader) == 8, "FluxHeader must be 8 bytes");
+#endif
 
 #define FLUX_HEADER_SIZE  sizeof(FluxHeader)
 #define FLUX_ALIGN        8

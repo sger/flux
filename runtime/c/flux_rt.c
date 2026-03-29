@@ -15,6 +15,9 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
+#if defined(_MSC_VER) || defined(_WIN32)
+#include <windows.h>
+#endif
 
 /* ── Forward declarations for string helpers (string.c) ─────────────── */
 
@@ -679,9 +682,17 @@ void flux_panic(int64_t msg) {
 }
 
 int64_t flux_clock_now(void) {
+#if defined(_MSC_VER) || defined(_WIN32)
+    /* Windows: use QueryPerformanceCounter for monotonic time. */
+    LARGE_INTEGER freq, counter;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&counter);
+    int64_t ms = (int64_t)(counter.QuadPart * 1000 / freq.QuadPart);
+#else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     int64_t ms = (int64_t)ts.tv_sec * 1000 + (int64_t)ts.tv_nsec / 1000000;
+#endif
     return flux_tag_int(ms);
 }
 

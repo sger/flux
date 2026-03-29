@@ -4,6 +4,7 @@ source: tests/aether_cli_snapshots.rs
 Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:
+- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 

@@ -7,6 +7,7 @@ status: 1
 stdout:
 <empty>
 stderr:
+[lir→vm] Running via LIR → bytecode VM backend...
 • 1 error • examples/runtime_errors/primop_string_len_type.flx
 error[E1004]: primop string_length expected String, got Int
 
@@ -23,6 +24,7 @@ status: 1
 stdout:
 <empty>
 stderr:
+[lir→vm] Running via LIR → bytecode VM backend...
 • 1 error • examples/runtime_errors/primop_string_len_type.flx
 error[E1004]: primop string_length expected String, got Int
 
