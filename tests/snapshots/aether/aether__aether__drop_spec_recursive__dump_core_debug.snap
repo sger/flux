@@ -5,25 +5,17 @@ letrec rec_copy_or_keep : List<Any> =
 λxs#1, choose#2.
     case xs#1 of
       ::(h#3, t#4) →
-        drop_spec xs#1 {
-          unique -> case choose#2 of
-              true →
-                let %t1 = aether_call[borrowed, borrowed] rec_copy_or_keep#0(t#4, choose#2)
-                reuse xs#1 ::(h#3, #4000006[synthetic]#6) @mask=0b10
-              _ →
-                let %t2:Box = (let %t3 = aether_call[borrowed, borrowed] rec_copy_or_keep#0(t#4, choose#2)
-                ::(h#3, #4000007[synthetic]#7))
-                reuse xs#1 ::(h#3, #4000008[synthetic]#8) @mask=0b10
-          shared -> case choose#2 of
-              true →
-                let %t1 = aether_call[borrowed, borrowed] rec_copy_or_keep#0(t#4, choose#2)
-                ::(h#3, #4000006[synthetic]#6)
-              _ →
-                let %t2:Box = (let %t3 = aether_call[borrowed, borrowed] rec_copy_or_keep#0(t#4, choose#2)
-                ::(dup h#3
-                h#3, #4000007[synthetic]#7))
-                ::(h#3, #4000008[synthetic]#8)
-        }
+        case choose#2 of
+          true →
+            let %t1 = aether_call[borrowed, borrowed] rec_copy_or_keep#0(t#4, choose#2)
+            ::(dup h#3
+            h#3, #4000006[synthetic]#6)
+          _ →
+            let %t2:Box = (let %t3 = aether_call[borrowed, borrowed] rec_copy_or_keep#0(t#4, choose#2)
+            ::(dup h#3
+            h#3, #4000007[synthetic]#7))
+            ::(dup h#3
+            h#3, #4000008[synthetic]#8)
       _ →
         []
 
@@ -34,4 +26,4 @@ letrec main : Any =
     Print(#4000010[synthetic]#10)
 
 ── Aether stats ──
-Dups: 1  Drops: 0  Reuses: 2  DropSpecs: 1  FBIP: fbip(4)
+Dups: 3  Drops: 0  Reuses: 0  DropSpecs: 0  FBIP: fbip(3)

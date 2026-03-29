@@ -7,12 +7,11 @@ use std::process::Command;
 
 /// Detect the host target triple.
 ///
-/// Tries `llvm-config --host-target` first.  Falls back to a
-/// compile-time guess based on `cfg!(target_arch/os/env)`.
+/// Uses compile-time `cfg` attributes to match the architecture of the
+/// Flux binary itself.  This is more reliable than `llvm-config` which
+/// may report a different architecture (e.g. a 32-bit LLVM build on a
+/// 64-bit host).
 pub fn host_triple() -> String {
-    if let Some(triple) = llvm_config_triple() {
-        return triple;
-    }
     compile_time_triple()
 }
 
@@ -22,24 +21,45 @@ pub fn host_triple() -> String {
 /// Returns `None` if detection fails — the generated `.ll` will omit
 /// `target datalayout` and LLVM will infer it.
 pub fn host_data_layout() -> Option<String> {
-    // Common default for x86_64.
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", target_os = "windows"))]
+    {
+        Some(
+            "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+                .into(),
+        )
+    }
+    #[cfg(all(target_arch = "x86_64", target_os = "macos"))]
     {
         Some(
             "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
                 .into(),
         )
     }
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+    {
+        Some(
+            "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+                .into(),
+        )
+    }
+    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
     {
         Some("e-m:o-i64:64-i128:128-n32:64-S128-Fn32".into())
     }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+    {
+        Some("e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32".into())
+    }
+    #[cfg(not(any(
+        all(target_arch = "x86_64", any(target_os = "windows", target_os = "macos", target_os = "linux")),
+        all(target_arch = "aarch64", any(target_os = "macos", target_os = "linux"))
+    )))]
     {
         None
     }
 }
 
+#[allow(dead_code)]
 fn llvm_config_triple() -> Option<String> {
     let output = Command::new("llvm-config")
         .arg("--host-target")
