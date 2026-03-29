@@ -730,24 +730,46 @@ impl<'a> FnEmitter<'a> {
                 then_block,
                 else_block,
             } => {
-                self.push_var(*cond);
-                // OpJumpNotTruthy: truthy → pops, falls through; not truthy → peeks (no pop), jumps.
-                // We jump to a trampoline that pops the leftover value before going to else_block.
-                let patch_not_truthy = self.pos() + 1;
-                self.emit_op(OpCode::OpJumpNotTruthy, &[0xFFFF]);
-                // Truthy: condition was popped. Jump to then_block.
-                let patch_then = self.pos() + 1;
-                self.emit_op(OpCode::OpJump, &[0xFFFF]);
-                self.jump_patches.push((patch_then, *then_block));
-                // Not-truthy trampoline: pop leftover condition, jump to else_block.
-                let trampoline = self.pos();
-                self.emit_op(OpCode::OpPop, &[]);
-                let patch_else = self.pos() + 1;
-                self.emit_op(OpCode::OpJump, &[0xFFFF]);
-                self.jump_patches.push((patch_else, *else_block));
-                // Patch OpJumpNotTruthy to point to trampoline (direct offset).
-                self.instructions[patch_not_truthy] = (trampoline >> 8) as u8;
-                self.instructions[patch_not_truthy + 1] = trampoline as u8;
+                // Peephole: fused compare-and-jump.
+                // Pattern: PrimCall(Ge/Gt/...) → CmpEq(result, true) → UntagBool → Branch
+                // Emit: push a, push b, OpCmpXxJumpNotTruthy
+                let fused = self.try_fused_cmp_branch(*cond);
+                if let Some((cmp_opcode, args)) = fused {
+                    for &arg in &args {
+                        self.push_var(arg);
+                    }
+                    let patch_target = self.pos() + 1;
+                    self.emit_op(cmp_opcode, &[0xFFFF]);
+                    // Fused cmp-jump: falls through on truthy → then_block.
+                    let patch_then = self.pos() + 1;
+                    self.emit_op(OpCode::OpJump, &[0xFFFF]);
+                    self.jump_patches.push((patch_then, *then_block));
+                    // Jump target for not-truthy → else_block.
+                    let target = self.pos();
+                    let patch_else = self.pos() + 1;
+                    self.emit_op(OpCode::OpJump, &[0xFFFF]);
+                    self.jump_patches.push((patch_else, *else_block));
+                    self.instructions[patch_target] = (target >> 8) as u8;
+                    self.instructions[patch_target + 1] = target as u8;
+                } else {
+                    self.push_var(*cond);
+                    // OpJumpNotTruthy: truthy → pops, falls through; not truthy → peeks (no pop), jumps.
+                    // We jump to a trampoline that pops the leftover value before going to else_block.
+                    let patch_not_truthy = self.pos() + 1;
+                    self.emit_op(OpCode::OpJumpNotTruthy, &[0xFFFF]);
+                    // Truthy: condition was popped. Jump to then_block.
+                    let patch_then = self.pos() + 1;
+                    self.emit_op(OpCode::OpJump, &[0xFFFF]);
+                    self.jump_patches.push((patch_then, *then_block));
+                    // Not-truthy trampoline: pop leftover condition, jump to else_block.
+                    let trampoline = self.pos();
+                    self.emit_op(OpCode::OpPop, &[]);
+                    let patch_else = self.pos() + 1;
+                    self.emit_op(OpCode::OpJump, &[0xFFFF]);
+                    self.jump_patches.push((patch_else, *else_block));
+                    self.instructions[patch_not_truthy] = (trampoline >> 8) as u8;
+                    self.instructions[patch_not_truthy + 1] = trampoline as u8;
+                }
             }
 
             LirTerminator::Switch {
