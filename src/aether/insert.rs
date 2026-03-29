@@ -20,8 +20,10 @@ type Scope = HashMap<CoreBinderId, CoreBinder>;
 /// Maps pattern binder ID → scrutinee binder ID.
 /// Tracks which variables were extracted from which scrutinee via
 /// constructor pattern matching. Used to prevent dropping a scrutinee
-/// while its destructured fields are still live.
+/// while its destructured fields are still live, and to dup fields
+/// from borrowed scrutinees when used in constructors (owned demand).
 type FieldParents = HashMap<CoreBinderId, CoreBinderId>;
+
 
 /// Insert Dup/Drop annotations into a Core IR expression.
 pub fn insert_dup_drop(expr: CoreExpr) -> CoreExpr {
@@ -63,7 +65,7 @@ fn plan_expr(
     field_parents: &mut FieldParents,
 ) -> AetherPlan {
     match expr {
-        CoreExpr::Var { var, span } => plan_var(var, span, tail_env, demand, scope),
+        CoreExpr::Var { var, span } => plan_var(var, span, tail_env, demand, scope, field_parents),
         CoreExpr::Lit(_, _) => AetherPlan {
             expr,
             env_before: tail_env,
@@ -662,6 +664,7 @@ fn plan_var(
     mut tail_env: AetherEnv,
     demand: ValueDemand,
     scope: &Scope,
+    field_parents: &FieldParents,
 ) -> AetherPlan {
     let Some(id) = var.binder else {
         return AetherPlan {
@@ -683,7 +686,16 @@ fn plan_var(
             }
         }
         ValueDemand::Owned => {
-            let needs_dup = tail_env.is_live(id);
+            // Dup if variable has multiple uses OR if it's a field
+            // extracted from a case scrutinee. Fields share memory with
+            // their parent — the parent's refcount covers the field.
+            // Taking ownership (e.g. placing in a new constructor)
+            // requires duping so the field gets its own refcount.
+            // This is conservative: it dups even when the parent is
+            // dead, but avoids use-after-free when the parent is
+            // borrowed or shared.
+            let is_extracted_field = field_parents.contains_key(&id);
+            let needs_dup = tail_env.is_live(id) || is_extracted_field;
             tail_env.mark_owned(id);
             let expr = if needs_dup {
                 if let Some(binder) = scope.get(&id).copied() {
