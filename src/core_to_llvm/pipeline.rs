@@ -195,7 +195,11 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
 
     let ll_path = dir.join("program.ll");
     let bc_path = dir.join("program.bc");
-    let obj_path = dir.join(if cfg!(windows) { "program.obj" } else { "program.o" });
+    let obj_path = dir.join(if cfg!(windows) {
+        "program.obj"
+    } else {
+        "program.o"
+    });
 
     emit_llvm_ir(&config.ll_text, &ll_path)?;
 
@@ -277,7 +281,10 @@ fn detect_c_toolchain() -> Result<CToolchain, PipelineError> {
             } else {
                 "ar".into()
             };
-            return Ok(CToolchain::Gcc { cc: "clang".into(), ar });
+            return Ok(CToolchain::Gcc {
+                cc: "clang".into(),
+                ar,
+            });
         }
         // 3. Try MSVC cl.exe (Developer Command Prompt).
         if which("cl").is_some() {
@@ -374,7 +381,8 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
             }
 
             let mut cmd = Command::new(lib_tool);
-            cmd.args(["/nologo"]).arg(format!("/OUT:{}", lib_path.display()));
+            cmd.args(["/nologo"])
+                .arg(format!("/OUT:{}", lib_path.display()));
             for obj in &obj_files {
                 cmd.arg(obj);
             }

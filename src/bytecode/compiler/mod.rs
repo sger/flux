@@ -2435,11 +2435,7 @@ impl Compiler {
 
     /// Lower to Core IR, then to LIR, and return a human-readable dump.
     #[allow(clippy::result_large_err)]
-    pub fn dump_lir(
-        &self,
-        program: &Program,
-        optimize: bool,
-    ) -> Result<String, Diagnostic> {
+    pub fn dump_lir(&self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
         let program_to_lower = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
@@ -2489,11 +2485,7 @@ impl Compiler {
         // Pass None for globals_map so ALL functions are lowered to LIR
         // functions (no GetGlobal). Cross-module references resolve through
         // Core binders in the merged program.
-        let lir = crate::lir::lower::lower_program_with_interner(
-            &core,
-            Some(&self.interner),
-            None,
-        );
+        let lir = crate::lir::lower::lower_program_with_interner(&core, Some(&self.interner), None);
         Ok(crate::lir::emit_bytecode::emit_program(&lir))
     }
 
@@ -2523,22 +2515,14 @@ impl Compiler {
         // Pass None for globals_map so ALL functions are lowered to LIR
         // functions (no GetGlobal). In native mode there's no VM globals
         // table, so every function must be compiled into the LLVM module.
-        let lir = crate::lir::lower::lower_program_with_interner(
-            &core,
-            Some(&self.interner),
-            None,
-        );
+        let lir = crate::lir::lower::lower_program_with_interner(&core, Some(&self.interner), None);
         Ok(crate::lir::emit_llvm::emit_llvm_module(&lir))
     }
 
     /// Dump LIR as LLVM IR text (Proposal 0132 Phase 7).
     #[cfg(feature = "core_to_llvm")]
     #[allow(clippy::result_large_err)]
-    pub fn dump_lir_llvm(
-        &self,
-        program: &Program,
-        optimize: bool,
-    ) -> Result<String, Diagnostic> {
+    pub fn dump_lir_llvm(&self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
         let module = self.lower_to_lir_llvm_module(program, optimize)?;
         Ok(crate::core_to_llvm::render_module(&module))
     }
@@ -2593,9 +2577,20 @@ impl Compiler {
     fn extract_import_aliases(&self, program: &Program) -> Vec<(String, String)> {
         let mut aliases = Vec::new();
         for stmt in &program.statements {
-            if let Statement::Import { name, alias: Some(alias_sym), .. } = stmt {
-                let module_name = self.interner.resolve(crate::syntax::Identifier::from(*name)).to_string();
-                let alias_name = self.interner.resolve(crate::syntax::Identifier::from(*alias_sym)).to_string();
+            if let Statement::Import {
+                name,
+                alias: Some(alias_sym),
+                ..
+            } = stmt
+            {
+                let module_name = self
+                    .interner
+                    .resolve(crate::syntax::Identifier::from(*name))
+                    .to_string();
+                let alias_name = self
+                    .interner
+                    .resolve(crate::syntax::Identifier::from(*alias_sym))
+                    .to_string();
                 aliases.push((alias_name, module_name));
             }
         }
@@ -2611,16 +2606,28 @@ impl Compiler {
     /// the LIR lowerer can resolve external variables regardless of naming.
     /// `extra_aliases` are (alias, module) pairs from the entry module's imports
     /// that weren't processed via CFG compilation.
-    fn build_globals_map_with_aliases(&self, extra_aliases: &[(String, String)]) -> HashMap<String, usize> {
+    fn build_globals_map_with_aliases(
+        &self,
+        extra_aliases: &[(String, String)],
+    ) -> HashMap<String, usize> {
         // Build reverse alias map: "Flow.Array" → ["Array"]
         let mut module_aliases: HashMap<String, Vec<String>> = HashMap::new();
         for (alias_sym, target_sym) in &self.import_aliases {
-            let alias = self.interner.resolve(crate::syntax::Identifier::from(*alias_sym)).to_string();
-            let target = self.interner.resolve(crate::syntax::Identifier::from(*target_sym)).to_string();
+            let alias = self
+                .interner
+                .resolve(crate::syntax::Identifier::from(*alias_sym))
+                .to_string();
+            let target = self
+                .interner
+                .resolve(crate::syntax::Identifier::from(*target_sym))
+                .to_string();
             module_aliases.entry(target).or_default().push(alias);
         }
         for (alias, target) in extra_aliases {
-            module_aliases.entry(target.clone()).or_default().push(alias.clone());
+            module_aliases
+                .entry(target.clone())
+                .or_default()
+                .push(alias.clone());
         }
 
         let mut map = HashMap::new();
@@ -2630,7 +2637,10 @@ impl Compiler {
         let mut globals = self.symbol_table.global_definitions();
         globals.sort_by_key(|&(_, idx)| idx);
         for (sym, idx) in globals {
-            let name = self.interner.resolve(crate::syntax::Identifier::from(sym)).to_string();
+            let name = self
+                .interner
+                .resolve(crate::syntax::Identifier::from(sym))
+                .to_string();
             // Add qualified name (e.g. "Flow.Array.sort")
             map.insert(name.clone(), idx);
             // Add unqualified name (last segment after last '.').

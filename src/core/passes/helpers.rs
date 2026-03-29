@@ -442,7 +442,12 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::Mod
         | CorePrimOp::IMod => false,
         // Generic arithmetic — may fail (type mismatch under gradual typing)
-        CorePrimOp::Add | CorePrimOp::Sub | CorePrimOp::Mul | CorePrimOp::Abs | CorePrimOp::Min | CorePrimOp::Max => false,
+        CorePrimOp::Add
+        | CorePrimOp::Sub
+        | CorePrimOp::Mul
+        | CorePrimOp::Abs
+        | CorePrimOp::Min
+        | CorePrimOp::Max => false,
         // Comparisons — may fail on incomparable types
         CorePrimOp::Lt | CorePrimOp::Le | CorePrimOp::Gt | CorePrimOp::Ge => false,
         // Negation — may fail (wrong type)

@@ -9,11 +9,11 @@ use std::rc::Rc;
 use std::time::{Instant, SystemTime};
 
 use crate::core::CorePrimOp;
-use crate::runtime::hash_key::HashKey;
-use crate::runtime::hamt as rc_hamt;
-use crate::runtime::cons_cell::ConsCell;
-use crate::runtime::value::{Value, format_value};
 use crate::runtime::RuntimeContext;
+use crate::runtime::cons_cell::ConsCell;
+use crate::runtime::hamt as rc_hamt;
+use crate::runtime::hash_key::HashKey;
+use crate::runtime::value::{Value, format_value};
 
 /// Execute a `CorePrimOp` with the given arguments.
 ///
@@ -32,12 +32,28 @@ pub fn execute_core_primop(
         IAdd => int2(&args, |a, b| Value::Integer(a + b), "iadd"),
         ISub => int2(&args, |a, b| Value::Integer(a - b), "isub"),
         IMul => int2(&args, |a, b| Value::Integer(a * b), "imul"),
-        IDiv => int2_result(&args, |a, b| {
-            if b == 0 { Err("division by zero".into()) } else { Ok(Value::Integer(a / b)) }
-        }, "idiv"),
-        IMod => int2_result(&args, |a, b| {
-            if b == 0 { Err("modulo by zero".into()) } else { Ok(Value::Integer(a % b)) }
-        }, "imod"),
+        IDiv => int2_result(
+            &args,
+            |a, b| {
+                if b == 0 {
+                    Err("division by zero".into())
+                } else {
+                    Ok(Value::Integer(a / b))
+                }
+            },
+            "idiv",
+        ),
+        IMod => int2_result(
+            &args,
+            |a, b| {
+                if b == 0 {
+                    Err("modulo by zero".into())
+                } else {
+                    Ok(Value::Integer(a % b))
+                }
+            },
+            "imod",
+        ),
 
         // ── Typed float arithmetic ────────────────────────────────────
         FAdd => float2(&args, |a, b| Value::Float(a + b), "fadd"),
@@ -102,7 +118,11 @@ pub fn execute_core_primop(
             match &args[0] {
                 Value::Array(items) => {
                     if index < 0 || index as usize >= items.len() {
-                        return Err(format!("array_set: index {} out of bounds for length {}", index, items.len()));
+                        return Err(format!(
+                            "array_set: index {} out of bounds for length {}",
+                            index,
+                            items.len()
+                        ));
                     }
                     let mut items = items.clone();
                     Rc::make_mut(&mut items)[index as usize] = args[2].clone();
@@ -136,7 +156,11 @@ pub fn execute_core_primop(
             let end = eint(&args[2], "slice")?;
             let len = arr.len() as i64;
             let start = if start < 0 { 0 } else { start as usize };
-            let end = if end > len { len as usize } else { end as usize };
+            let end = if end > len {
+                len as usize
+            } else {
+                end as usize
+            };
             if start >= end || start >= arr.len() {
                 Ok(Value::Array(vec![].into()))
             } else {
@@ -146,7 +170,9 @@ pub fn execute_core_primop(
 
         // ── HAMT operations ───────────────────────────────────────────
         HamtGet => {
-            let key = args[1].to_hash_key().ok_or_else(|| hkey_err("get", &args[1]))?;
+            let key = args[1]
+                .to_hash_key()
+                .ok_or_else(|| hkey_err("get", &args[1]))?;
             match &args[0] {
                 Value::HashMap(node) => match rc_hamt::hamt_lookup(node, &key) {
                     Some(value) => Ok(Value::Some(Rc::new(value))),
@@ -156,33 +182,53 @@ pub fn execute_core_primop(
             }
         }
         HamtSet => {
-            let key = args[1].to_hash_key().ok_or_else(|| hkey_err("put", &args[1]))?;
+            let key = args[1]
+                .to_hash_key()
+                .ok_or_else(|| hkey_err("put", &args[1]))?;
             match &args[0] {
-                Value::HashMap(node) => Ok(Value::HashMap(rc_hamt::hamt_insert(node, key, args[2].clone()))),
+                Value::HashMap(node) => Ok(Value::HashMap(rc_hamt::hamt_insert(
+                    node,
+                    key,
+                    args[2].clone(),
+                ))),
                 other => Err(terr("put", "Map", other)),
             }
         }
         HamtContains => {
-            let key = args[1].to_hash_key().ok_or_else(|| hkey_err("has_key", &args[1]))?;
+            let key = args[1]
+                .to_hash_key()
+                .ok_or_else(|| hkey_err("has_key", &args[1]))?;
             match &args[0] {
-                Value::HashMap(node) => Ok(Value::Boolean(rc_hamt::hamt_lookup(node, &key).is_some())),
+                Value::HashMap(node) => {
+                    Ok(Value::Boolean(rc_hamt::hamt_lookup(node, &key).is_some()))
+                }
                 other => Err(terr("has_key", "Map", other)),
             }
         }
         HamtDelete => {
             let node = ehamt(&args[0], "delete")?;
-            let key = args[1].to_hash_key().ok_or_else(|| hkey_err("delete", &args[1]))?;
+            let key = args[1]
+                .to_hash_key()
+                .ok_or_else(|| hkey_err("delete", &args[1]))?;
             Ok(Value::HashMap(rc_hamt::hamt_delete(node, &key)))
         }
         HamtKeys => {
             let node = ehamt(&args[0], "keys")?;
             let pairs = rc_hamt::hamt_iter(node);
-            Ok(Value::Array(pairs.iter().map(|(k, _)| hash_key_to_value(k)).collect::<Vec<_>>().into()))
+            Ok(Value::Array(
+                pairs
+                    .iter()
+                    .map(|(k, _)| hash_key_to_value(k))
+                    .collect::<Vec<_>>()
+                    .into(),
+            ))
         }
         HamtValues => {
             let node = ehamt(&args[0], "values")?;
             let pairs = rc_hamt::hamt_iter(node);
-            Ok(Value::Array(pairs.into_iter().map(|(_, v)| v).collect::<Vec<_>>().into()))
+            Ok(Value::Array(
+                pairs.into_iter().map(|(_, v)| v).collect::<Vec<_>>().into(),
+            ))
         }
         HamtMerge => {
             let node1 = ehamt(&args[0], "merge")?;
@@ -206,7 +252,11 @@ pub fn execute_core_primop(
         },
         StringConcat => match (&args[0], &args[1]) {
             (Value::String(l), Value::String(r)) => Ok(Value::String(format!("{}{}", l, r).into())),
-            (l, r) => Err(format!("string_concat expects (String, String), got ({}, {})", l.type_name(), r.type_name())),
+            (l, r) => Err(format!(
+                "string_concat expects (String, String), got ({}, {})",
+                l.type_name(),
+                r.type_name()
+            )),
         },
         StringSlice | Substring => {
             let s = estr(&args[0], "string_slice")?;
@@ -215,11 +265,19 @@ pub fn execute_core_primop(
             let chars: Vec<char> = s.chars().collect();
             let len = chars.len() as i64;
             let start = if start < 0 { 0 } else { start as usize };
-            let end = if end < 0 { 0 } else if end > len { len as usize } else { end as usize };
+            let end = if end < 0 {
+                0
+            } else if end > len {
+                len as usize
+            } else {
+                end as usize
+            };
             if start >= end || start >= chars.len() {
                 Ok(Value::String(String::new().into()))
             } else {
-                Ok(Value::String(chars[start..end].iter().collect::<String>().into()))
+                Ok(Value::String(
+                    chars[start..end].iter().collect::<String>().into(),
+                ))
             }
         }
         ToString => Ok(Value::String(format_value(&args[0]).into())),
@@ -227,32 +285,63 @@ pub fn execute_core_primop(
             let s = estr(&args[0], "split")?;
             let delim = estr(&args[1], "split")?;
             let parts: Vec<Value> = if delim.is_empty() {
-                s.chars().map(|c| Value::String(c.to_string().into())).collect()
+                s.chars()
+                    .map(|c| Value::String(c.to_string().into()))
+                    .collect()
             } else {
-                s.split(delim).map(|p| Value::String(p.to_string().into())).collect()
+                s.split(delim)
+                    .map(|p| Value::String(p.to_string().into()))
+                    .collect()
             };
             Ok(Value::Array(parts.into()))
         }
         Join => {
             let arr = earr(&args[0], "join")?;
             let delim = estr(&args[1], "join")?;
-            let strings: Result<Vec<String>, String> = arr.iter().map(|item| match item {
-                Value::String(s) => Ok(s.to_string()),
-                other => Err(format!("join expects String elements, got {}", other.type_name())),
-            }).collect();
+            let strings: Result<Vec<String>, String> = arr
+                .iter()
+                .map(|item| match item {
+                    Value::String(s) => Ok(s.to_string()),
+                    other => Err(format!(
+                        "join expects String elements, got {}",
+                        other.type_name()
+                    )),
+                })
+                .collect();
             Ok(Value::String(strings?.join(delim).into()))
         }
-        Trim => Ok(Value::String(estr(&args[0], "trim")?.trim().to_string().into())),
-        Upper => Ok(Value::String(estr(&args[0], "upper")?.to_uppercase().into())),
-        Lower => Ok(Value::String(estr(&args[0], "lower")?.to_lowercase().into())),
-        StartsWith => Ok(Value::Boolean(estr(&args[0], "starts_with")?.starts_with(estr(&args[1], "starts_with")?))),
-        EndsWith => Ok(Value::Boolean(estr(&args[0], "ends_with")?.ends_with(estr(&args[1], "ends_with")?))),
-        Replace => Ok(Value::String(estr(&args[0], "replace")?.replace(estr(&args[1], "replace")?, estr(&args[2], "replace")?).into())),
+        Trim => Ok(Value::String(
+            estr(&args[0], "trim")?.trim().to_string().into(),
+        )),
+        Upper => Ok(Value::String(
+            estr(&args[0], "upper")?.to_uppercase().into(),
+        )),
+        Lower => Ok(Value::String(
+            estr(&args[0], "lower")?.to_lowercase().into(),
+        )),
+        StartsWith => Ok(Value::Boolean(
+            estr(&args[0], "starts_with")?.starts_with(estr(&args[1], "starts_with")?),
+        )),
+        EndsWith => Ok(Value::Boolean(
+            estr(&args[0], "ends_with")?.ends_with(estr(&args[1], "ends_with")?),
+        )),
+        Replace => Ok(Value::String(
+            estr(&args[0], "replace")?
+                .replace(estr(&args[1], "replace")?, estr(&args[2], "replace")?)
+                .into(),
+        )),
         Chars => {
             let s = estr(&args[0], "chars")?;
-            Ok(Value::Array(s.chars().map(|c| Value::String(c.to_string().into())).collect::<Vec<_>>().into()))
+            Ok(Value::Array(
+                s.chars()
+                    .map(|c| Value::String(c.to_string().into()))
+                    .collect::<Vec<_>>()
+                    .into(),
+            ))
         }
-        StrContains => Ok(Value::Boolean(estr(&args[0], "str_contains")?.contains(estr(&args[1], "str_contains")?))),
+        StrContains => Ok(Value::Boolean(
+            estr(&args[0], "str_contains")?.contains(estr(&args[1], "str_contains")?),
+        )),
 
         // ── Type tag inspection ───────────────────────────────────────
         IsInt => Ok(Value::Boolean(matches!(args[0], Value::Integer(_)))),
@@ -262,7 +351,10 @@ pub fn execute_core_primop(
         IsArray => Ok(Value::Boolean(matches!(args[0], Value::Array(_)))),
         IsNone => Ok(Value::Boolean(matches!(args[0], Value::None))),
         IsSome => Ok(Value::Boolean(matches!(args[0], Value::Some(_)))),
-        IsList => Ok(Value::Boolean(matches!(args[0], Value::None | Value::EmptyList | Value::Cons(_)))),
+        IsList => Ok(Value::Boolean(matches!(
+            args[0],
+            Value::None | Value::EmptyList | Value::Cons(_)
+        ))),
         IsMap => Ok(Value::Boolean(matches!(args[0], Value::HashMap(_)))),
         TypeOf => {
             let name = match &args[0] {
@@ -276,7 +368,9 @@ pub fn execute_core_primop(
         // ── I/O ───────────────────────────────────────────────────────
         Print => {
             for (i, arg) in args.iter().enumerate() {
-                if i > 0 { print!(" "); }
+                if i > 0 {
+                    print!(" ");
+                }
                 print!("{}", format_value(arg));
             }
             println!();
@@ -301,7 +395,8 @@ pub fn execute_core_primop(
         }
         ReadStdin => {
             let mut input = String::new();
-            std::io::stdin().read_to_string(&mut input)
+            std::io::stdin()
+                .read_to_string(&mut input)
                 .map_err(|e| format!("read_stdin failed: {}", e))?;
             Ok(Value::String(input.into()))
         }
@@ -309,7 +404,8 @@ pub fn execute_core_primop(
             let path = estr(&args[0], "read_lines")?;
             let content = fs::read_to_string(path)
                 .map_err(|e| format!("read_lines failed for '{}': {}", path, e))?;
-            let lines = content.lines()
+            let lines = content
+                .lines()
                 .map(|line| Value::String(line.trim_end_matches('\r').to_string().into()))
                 .collect::<Vec<_>>();
             Ok(Value::Array(lines.into()))
@@ -325,14 +421,16 @@ pub fn execute_core_primop(
         }
         Time => {
             let start = Instant::now();
-            let _ = ctx.invoke_value(args[0].clone(), vec![])
+            let _ = ctx
+                .invoke_value(args[0].clone(), vec![])
                 .map_err(|e| format!("time: callback error: {}", e))?;
             let elapsed_ms = start.elapsed().as_millis();
             Ok(Value::Integer(elapsed_ms.min(i64::MAX as u128) as i64))
         }
         Try => match ctx.invoke_value(args[0].clone(), vec![]) {
             Ok(val) => Ok(Value::Tuple(Rc::new(vec![
-                Value::String("ok".to_string().into()), val,
+                Value::String("ok".to_string().into()),
+                val,
             ]))),
             Err(msg) => Ok(Value::Tuple(Rc::new(vec![
                 Value::String("error".to_string().into()),
@@ -341,7 +439,10 @@ pub fn execute_core_primop(
         },
         AssertThrows => {
             let expected_msg: Option<&str> = if args.len() >= 2 {
-                match &args[1] { Value::String(s) => Some(s.as_ref()), _ => None }
+                match &args[1] {
+                    Value::String(s) => Some(s.as_ref()),
+                    _ => None,
+                }
             } else {
                 None
             };
@@ -350,7 +451,8 @@ pub fn execute_core_primop(
                 Err(msg) => match expected_msg {
                     Some(expected) if msg.contains(expected) => Ok(Value::None),
                     Some(expected) => Err(format!(
-                        "assert_throws failed\n  expected error containing: {}\n  actual error: {}", expected, msg
+                        "assert_throws failed\n  expected error containing: {}\n  actual error: {}",
+                        expected, msg
                     )),
                     None => Ok(Value::None),
                 },
@@ -360,7 +462,9 @@ pub fn execute_core_primop(
         // ── Parsing ───────────────────────────────────────────────────
         ParseInt => {
             let text = estr(&args[0], "parse_int")?;
-            let parsed = text.trim().parse::<i64>()
+            let parsed = text
+                .trim()
+                .parse::<i64>()
                 .map_err(|_| format!("parse_int: could not parse '{}' as Int", text))?;
             Ok(Value::Integer(parsed))
         }
@@ -369,7 +473,9 @@ pub fn execute_core_primop(
             let mut out = Vec::with_capacity(arr.len());
             for value in arr.iter() {
                 let s = estr(value, "parse_ints")?;
-                let parsed = s.trim().parse::<i64>()
+                let parsed = s
+                    .trim()
+                    .parse::<i64>()
                     .map_err(|_| format!("parse_ints: could not parse '{}' as Int", s))?;
                 out.push(Value::Integer(parsed));
             }
@@ -382,13 +488,15 @@ pub fn execute_core_primop(
             if delim.is_empty() {
                 for ch in s.chars() {
                     let text = ch.to_string();
-                    out.push(Value::Integer(text.trim().parse::<i64>()
-                        .map_err(|_| format!("split_ints: could not parse '{}' as Int", text))?));
+                    out.push(Value::Integer(text.trim().parse::<i64>().map_err(
+                        |_| format!("split_ints: could not parse '{}' as Int", text),
+                    )?));
                 }
             } else {
                 for part in s.split(delim) {
-                    out.push(Value::Integer(part.trim().parse::<i64>()
-                        .map_err(|_| format!("split_ints: could not parse '{}' as Int", part))?));
+                    out.push(Value::Integer(part.trim().parse::<i64>().map_err(
+                        |_| format!("split_ints: could not parse '{}' as Int", part),
+                    )?));
                 }
             }
             Ok(Value::Array(out.into()))
@@ -433,7 +541,10 @@ pub fn execute_core_primop(
                 loop {
                     match cur {
                         Value::None | Value::EmptyList => break,
-                        Value::Cons(cell) => { count += 1; cur = &cell.tail; }
+                        Value::Cons(cell) => {
+                            count += 1;
+                            cur = &cell.tail;
+                        }
                         _ => break,
                     }
                 }
@@ -445,20 +556,31 @@ pub fn execute_core_primop(
 
         // ── Collection helpers (promoted for both VM and native) ──────
         First => match &args[0] {
-            Value::Array(arr) => Ok(if arr.is_empty() { Value::None } else { arr[0].clone() }),
+            Value::Array(arr) => Ok(if arr.is_empty() {
+                Value::None
+            } else {
+                arr[0].clone()
+            }),
             Value::Cons(cell) => Ok(cell.head.clone()),
             Value::None | Value::EmptyList => Ok(Value::None),
             other => Err(terr("first", "Array or List", other)),
         },
         Last => match &args[0] {
-            Value::Array(arr) => Ok(if arr.is_empty() { Value::None } else { arr[arr.len() - 1].clone() }),
+            Value::Array(arr) => Ok(if arr.is_empty() {
+                Value::None
+            } else {
+                arr[arr.len() - 1].clone()
+            }),
             Value::Cons(_) => {
                 let mut last_val = Value::None;
                 let mut cur = &args[0];
                 loop {
                     match cur {
                         Value::None | Value::EmptyList => break,
-                        Value::Cons(cell) => { last_val = cell.head.clone(); cur = &cell.tail; }
+                        Value::Cons(cell) => {
+                            last_val = cell.head.clone();
+                            cur = &cell.tail;
+                        }
                         _ => break,
                     }
                 }
@@ -469,8 +591,11 @@ pub fn execute_core_primop(
         },
         Rest => match &args[0] {
             Value::Array(arr) => {
-                if arr.len() <= 1 { Ok(Value::Array(Rc::new(Vec::new()))) }
-                else { Ok(Value::Array(Rc::new(arr[1..].to_vec()))) }
+                if arr.len() <= 1 {
+                    Ok(Value::Array(Rc::new(Vec::new())))
+                } else {
+                    Ok(Value::Array(Rc::new(arr[1..].to_vec())))
+                }
             }
             Value::Cons(cell) => Ok(cell.tail.clone()),
             Value::None | Value::EmptyList => Ok(Value::EmptyList),
@@ -488,7 +613,10 @@ pub fn execute_core_primop(
                 loop {
                     match &cur {
                         Value::None | Value::EmptyList => break,
-                        Value::Cons(cell) => { elems.push(cell.head.clone()); cur = cell.tail.clone(); }
+                        Value::Cons(cell) => {
+                            elems.push(cell.head.clone());
+                            cur = cell.tail.clone();
+                        }
                         _ => break,
                     }
                 }
@@ -511,7 +639,9 @@ pub fn execute_core_primop(
                         match &cur {
                             Value::None | Value::EmptyList => break Ok(Value::Boolean(false)),
                             Value::Cons(cell) => {
-                                if &cell.head == target { break Ok(Value::Boolean(true)); }
+                                if &cell.head == target {
+                                    break Ok(Value::Boolean(true));
+                                }
                                 cur = cell.tail.clone();
                             }
                             _ => break Ok(Value::Boolean(false)),
@@ -521,58 +651,90 @@ pub fn execute_core_primop(
                 Value::None | Value::EmptyList => Ok(Value::Boolean(false)),
                 other => Err(terr("contains", "Array or List", other)),
             }
-        },
-        Sort | SortBy | HoMap | HoFilter | HoAny | HoAll | HoEach | HoFind | HoCount | Zip | Flatten | HoFlatMap => {
+        }
+        Sort | SortBy | HoMap | HoFilter | HoAny | HoAll | HoEach | HoFind | HoCount | Zip
+        | Flatten | HoFlatMap => {
             // These higher-order ops require closure calls; in VM they go through
             // the prelude Flow.* modules (not OpPrimOp). If we reach here, it
             // means the bytecode compiler emitted them — fall through gracefully.
-            Err(format!("CorePrimOp {:?} requires closure dispatch; use prelude functions", op))
-        },
+            Err(format!(
+                "CorePrimOp {:?} requires closure dispatch; use prelude functions",
+                op
+            ))
+        }
 
         // ── Generic/structural ops (never emitted as OpPrimOp) ───────
-        Add | Sub | Mul | Div | Mod | Not | Eq | NEq | Lt | Le | Gt | Ge
-        | And | Or | Concat | Interpolate | MakeList | MakeArray | MakeTuple
-        | MakeHash | Index => {
-            Err(format!("CorePrimOp {:?} should not appear in OpPrimOp bytecode", op))
-        }
+        Add | Sub | Mul | Div | Mod | Not | Eq | NEq | Lt | Le | Gt | Ge | And | Or | Concat
+        | Interpolate | MakeList | MakeArray | MakeTuple | MakeHash | Index => Err(format!(
+            "CorePrimOp {:?} should not appear in OpPrimOp bytecode",
+            op
+        )),
     }
 }
 
 // ── Compact helper functions ─────────────────────────────────────────────────
 
 fn terr(op: &str, expected: &str, got: &Value) -> String {
-    format!("primop {} expected {}, got {}", op, expected, got.type_name())
+    format!(
+        "primop {} expected {}, got {}",
+        op,
+        expected,
+        got.type_name()
+    )
 }
 
 fn hkey_err(op: &str, v: &Value) -> String {
-    format!("primop {} expects hashable key (String, Int, Bool), got {}", op, v.type_name())
+    format!(
+        "primop {} expects hashable key (String, Int, Bool), got {}",
+        op,
+        v.type_name()
+    )
 }
 
 fn estr<'a>(v: &'a Value, op: &str) -> Result<&'a str, String> {
-    match v { Value::String(s) => Ok(s.as_ref()), other => Err(terr(op, "String", other)) }
+    match v {
+        Value::String(s) => Ok(s.as_ref()),
+        other => Err(terr(op, "String", other)),
+    }
 }
 
 fn eint(v: &Value, op: &str) -> Result<i64, String> {
-    match v { Value::Integer(n) => Ok(*n), other => Err(terr(op, "Int", other)) }
+    match v {
+        Value::Integer(n) => Ok(*n),
+        other => Err(terr(op, "Int", other)),
+    }
 }
 
 fn efloat(v: &Value, op: &str) -> Result<f64, String> {
-    match v { Value::Float(n) => Ok(*n), other => Err(terr(op, "Float", other)) }
+    match v {
+        Value::Float(n) => Ok(*n),
+        other => Err(terr(op, "Float", other)),
+    }
 }
 
 fn earr<'a>(v: &'a Value, op: &str) -> Result<&'a Rc<Vec<Value>>, String> {
-    match v { Value::Array(a) => Ok(a), other => Err(terr(op, "Array", other)) }
+    match v {
+        Value::Array(a) => Ok(a),
+        other => Err(terr(op, "Array", other)),
+    }
 }
 
 fn ehamt<'a>(v: &'a Value, op: &str) -> Result<&'a Rc<rc_hamt::HamtNode>, String> {
-    match v { Value::HashMap(n) => Ok(n), other => Err(terr(op, "Map", other)) }
+    match v {
+        Value::HashMap(n) => Ok(n),
+        other => Err(terr(op, "Map", other)),
+    }
 }
 
 fn int2(args: &[Value], f: impl FnOnce(i64, i64) -> Value, op: &str) -> Result<Value, String> {
     Ok(f(eint(&args[0], op)?, eint(&args[1], op)?))
 }
 
-fn int2_result(args: &[Value], f: impl FnOnce(i64, i64) -> Result<Value, String>, op: &str) -> Result<Value, String> {
+fn int2_result(
+    args: &[Value],
+    f: impl FnOnce(i64, i64) -> Result<Value, String>,
+    op: &str,
+) -> Result<Value, String> {
     f(eint(&args[0], op)?, eint(&args[1], op)?)
 }
 
@@ -585,7 +747,10 @@ fn int_cmp(args: &[Value], f: impl FnOnce(i64, i64) -> bool, op: &str) -> Result
 }
 
 fn float_cmp(args: &[Value], f: impl FnOnce(f64, f64) -> bool, op: &str) -> Result<Value, String> {
-    Ok(Value::Boolean(f(efloat(&args[0], op)?, efloat(&args[1], op)?)))
+    Ok(Value::Boolean(f(
+        efloat(&args[0], op)?,
+        efloat(&args[1], op)?,
+    )))
 }
 
 fn numeric_min_max(args: &[Value], op: &str, is_min: bool) -> Result<Value, String> {
@@ -594,9 +759,20 @@ fn numeric_min_max(args: &[Value], op: &str, is_min: bool) -> Result<Value, Stri
         (Value::Integer(x), Value::Float(y)) => (*x as f64, *y),
         (Value::Float(x), Value::Integer(y)) => (*x, *y as f64),
         (Value::Float(x), Value::Float(y)) => (*x, *y),
-        (l, r) => return Err(format!("primop {} expects (Number, Number), got ({}, {})", op, l.type_name(), r.type_name())),
+        (l, r) => {
+            return Err(format!(
+                "primop {} expects (Number, Number), got ({}, {})",
+                op,
+                l.type_name(),
+                r.type_name()
+            ));
+        }
     };
-    let result = if is_min { a_num.min(b_num) } else { a_num.max(b_num) };
+    let result = if is_min {
+        a_num.min(b_num)
+    } else {
+        a_num.max(b_num)
+    };
     match (&args[0], &args[1]) {
         (Value::Integer(_), Value::Integer(_)) => Ok(Value::Integer(result as i64)),
         _ => Ok(Value::Float(result)),
