@@ -16,6 +16,6 @@ Cannot find module `Flow.FTest` to import.
 
 Hint:
   Check that: 1) The module file exists (e.g., `Flow.FTest.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Flow.FTest` under roots: examples/type_system, src (imported from examples/type_system/71_real_program_base_interop_module_test.flx).
+  Looked for module `Flow.FTest` under roots: //?/examples/type_system, //?/src (imported from //?/examples/type_system/71_real_program_base_interop_module_test.flx).
 == stdout ==
 <not executed>

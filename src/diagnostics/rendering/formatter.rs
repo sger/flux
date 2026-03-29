@@ -26,6 +26,7 @@ pub fn render_display_path(file: &str) -> Cow<'_, str> {
         let canon_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let canon_cwd = std::fs::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone());
         if let Ok(stripped) = canon_path.strip_prefix(&canon_cwd) {
+            // Always use forward slashes for consistent cross-platform display.
             return Cow::Owned(stripped.to_string_lossy().replace('\\', "/"));
         }
     }
