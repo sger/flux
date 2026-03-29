@@ -135,6 +135,20 @@ struct FnEmitter<'a> {
     func_const_indices: HashMap<LirFuncId, usize>,
     /// LirVar → free variable index (for OpGetFree in nested functions).
     free_var_indices: HashMap<LirVar, usize>,
+    /// Tracks how each LirVar was produced, for peephole optimizations.
+    /// Only populated for instructions relevant to fused compare-and-jump.
+    var_producer: HashMap<LirVar, VarProducer>,
+}
+
+/// Tracks how a LirVar was produced, for peephole optimization.
+#[derive(Clone)]
+enum VarProducer {
+    /// PrimCall comparison: Ge, Gt, Le, Lt, Eq, Ne
+    Comparison { op: crate::core::CorePrimOp, args: Vec<LirVar> },
+    /// CmpEq(var, true) — boolean truthiness check
+    CmpEqTrue { inner: LirVar },
+    /// UntagBool(var) — unwrap boolean
+    UntagBool { inner: LirVar },
 }
 
 impl<'a> FnEmitter<'a> {
@@ -152,6 +166,7 @@ impl<'a> FnEmitter<'a> {
             return_patches: Vec::new(),
             func_const_indices: HashMap::new(),
             free_var_indices: HashMap::new(),
+            var_producer: HashMap::new(),
         }
     }
 
@@ -164,6 +179,54 @@ impl<'a> FnEmitter<'a> {
             self.next_local += 1;
             self.locals.insert(var, slot);
             slot
+        }
+    }
+
+    /// Try to produce a fused compare-and-jump for a Branch condition.
+    /// Returns (fused_opcode, [arg_a, arg_b]) if the condition matches
+    /// the pattern: PrimCall(cmp) → CmpEq(result, true) → UntagBool.
+    fn try_fused_cmp_branch(&self, cond: LirVar) -> Option<(OpCode, Vec<LirVar>)> {
+        use crate::core::CorePrimOp;
+
+        // Walk the producer chain: cond ← UntagBool ← CmpEqTrue ← Comparison
+        let inner1 = match self.var_producer.get(&cond)? {
+            VarProducer::UntagBool { inner } => *inner,
+            // Also handle direct comparison (no CmpEq wrapper).
+            VarProducer::CmpEqTrue { inner } => *inner,
+            VarProducer::Comparison { op, args } => {
+                let fused = Self::comparison_to_fused_opcode(op)?;
+                return Some((fused, args.clone()));
+            }
+        };
+
+        let inner2 = match self.var_producer.get(&inner1)? {
+            VarProducer::CmpEqTrue { inner } => *inner,
+            VarProducer::Comparison { op, args } => {
+                let fused = Self::comparison_to_fused_opcode(op)?;
+                return Some((fused, args.clone()));
+            }
+            _ => return None,
+        };
+
+        match self.var_producer.get(&inner2)? {
+            VarProducer::Comparison { op, args } => {
+                let fused = Self::comparison_to_fused_opcode(op)?;
+                Some((fused, args.clone()))
+            }
+            _ => None,
+        }
+    }
+
+    fn comparison_to_fused_opcode(op: &crate::core::CorePrimOp) -> Option<OpCode> {
+        use crate::core::CorePrimOp;
+        match op {
+            CorePrimOp::Eq => Some(OpCode::OpCmpEqJumpNotTruthy),
+            CorePrimOp::NEq => Some(OpCode::OpCmpNeJumpNotTruthy),
+            CorePrimOp::Gt => Some(OpCode::OpCmpGtJumpNotTruthy),
+            CorePrimOp::Ge => Some(OpCode::OpCmpGeJumpNotTruthy),
+            CorePrimOp::Le => Some(OpCode::OpCmpLeJumpNotTruthy),
+            // No fused Lt opcode exists — skip.
+            _ => None,
         }
     }
 
@@ -292,13 +355,32 @@ impl<'a> FnEmitter<'a> {
             }
 
             LirInstr::PrimCall { dst, op, args } => {
+                // Record comparison producers for fused compare-and-jump.
+                use crate::core::CorePrimOp;
+                if let Some(dst_var) = dst {
+                    match op {
+                        CorePrimOp::Ge | CorePrimOp::Gt | CorePrimOp::Le
+                        | CorePrimOp::Lt | CorePrimOp::Eq | CorePrimOp::NEq => {
+                            self.var_producer.insert(*dst_var, VarProducer::Comparison {
+                                op: *op,
+                                args: args.clone(),
+                            });
+                        }
+                        CorePrimOp::CmpEq if args.len() == 2 => {
+                            if let Some(VarProducer::Comparison { .. }) = self.var_producer.get(&args[0]) {
+                                self.var_producer.insert(*dst_var, VarProducer::CmpEqTrue { inner: args[0] });
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
                 // Push all arguments onto the stack.
                 for &arg in args {
                     self.push_var(arg);
                 }
                 // Polymorphic ops use dedicated VM stack opcodes, not OpPrimOp
                 // (the VM rejects them via OpPrimOp dispatch).
-                use crate::core::CorePrimOp;
                 match op {
                     CorePrimOp::Add => self.emit_op(OpCode::OpAdd, &[]),
                     CorePrimOp::Sub => self.emit_op(OpCode::OpSub, &[]),
@@ -392,19 +474,30 @@ impl<'a> FnEmitter<'a> {
                 self.pop_into(*dst);
             }
 
-            // ── NaN-boxing (mostly no-ops for the VM since Values are
-            //    already tagged — these are for the LLVM path) ────────
+            // ── NaN-boxing (no-ops for the VM since Values are already
+            //    tagged — these exist for the LLVM path) ────────
+            LirInstr::UntagBool { dst, val } => {
+                // Record for fused compare-and-jump peephole.
+                if let Some(producer) = self.var_producer.get(val).cloned() {
+                    if matches!(producer, VarProducer::CmpEqTrue { .. } | VarProducer::Comparison { .. }) {
+                        self.var_producer.insert(*dst, VarProducer::UntagBool { inner: *val });
+                    }
+                }
+                // Alias dst to val's slot (identity op).
+                let slot = self.local_for(*val);
+                self.locals.insert(*dst, slot);
+            }
             LirInstr::TagInt { dst, raw }
             | LirInstr::UntagInt { dst, val: raw }
             | LirInstr::TagFloat { dst, raw }
             | LirInstr::UntagFloat { dst, val: raw }
             | LirInstr::TagBool { dst, raw }
-            | LirInstr::UntagBool { dst, val: raw }
             | LirInstr::TagPtr { dst, ptr: raw }
             | LirInstr::UntagPtr { dst, val: raw } => {
                 // VM values are already NaN-boxed — tag/untag is identity.
-                self.push_var(*raw);
-                self.pop_into(*dst);
+                // Alias dst to raw's slot so no bytecode is emitted.
+                let slot = self.local_for(*raw);
+                self.locals.insert(*dst, slot);
             }
 
             LirInstr::GetTag { dst, val } => {
