@@ -310,13 +310,21 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
             span,
         },
 
-        CoreExpr::MemberAccess { object, member, span } => CoreExpr::MemberAccess {
+        CoreExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => CoreExpr::MemberAccess {
             object: Box::new(evidence_transform(*object, next_id, evidence)),
             member,
             span,
         },
 
-        CoreExpr::TupleField { object, index, span } => CoreExpr::TupleField {
+        CoreExpr::TupleField {
+            object,
+            index,
+            span,
+        } => CoreExpr::TupleField {
             object: Box::new(evidence_transform(*object, next_id, evidence)),
             index,
             span,

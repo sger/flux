@@ -51,7 +51,10 @@ pub fn host_data_layout() -> Option<String> {
         Some("e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32".into())
     }
     #[cfg(not(any(
-        all(target_arch = "x86_64", any(target_os = "windows", target_os = "macos", target_os = "linux")),
+        all(
+            target_arch = "x86_64",
+            any(target_os = "windows", target_os = "macos", target_os = "linux")
+        ),
         all(target_arch = "aarch64", any(target_os = "macos", target_os = "linux"))
     )))]
     {

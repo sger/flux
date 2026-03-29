@@ -435,7 +435,11 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         },
 
         // MemberAccess — normalize object to atom.
-        CoreExpr::MemberAccess { object, member, span } => {
+        CoreExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => {
             let mut bindings = Vec::new();
             let object = anf_expr(*object, next_id);
             let object = anf_atom(object, next_id, &mut bindings);
@@ -448,7 +452,11 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         }
 
         // TupleField — normalize object to atom.
-        CoreExpr::TupleField { object, index, span } => {
+        CoreExpr::TupleField {
+            object,
+            index,
+            span,
+        } => {
             let mut bindings = Vec::new();
             let object = anf_expr(*object, next_id);
             let object = anf_atom(object, next_id, &mut bindings);

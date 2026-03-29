@@ -11,8 +11,9 @@ use crate::{
 };
 
 use super::{
-    CoreToLlvmError, display_ident,
+    CoreToLlvmError,
     closure::{const_i32_operand, flux_closure_symbol, local as local_operand},
+    display_ident,
     prelude::{has_function, helper_attrs},
 };
 
@@ -41,8 +42,7 @@ pub const FLUX_TUPLE_OBJ_TAG_FIELD: i32 = 0;
 pub const FLUX_TUPLE_ARITY_FIELD: i32 = 4;
 pub const FLUX_TUPLE_PAYLOAD_FIELD: i32 = 5;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AdtMetadata {
     user_constructor_tags: HashMap<Identifier, i32>,
     constructor_arities: HashMap<Identifier, usize>,

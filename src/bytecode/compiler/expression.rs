@@ -19,6 +19,7 @@ use crate::{
         op_code::{OpCode, make},
         symbol_scope::SymbolScope,
     },
+    core::{CorePrimOp, PrimEffect},
     diagnostics::{
         ADT_NON_EXHAUSTIVE_MATCH, CONSTRUCTOR_ARITY_MISMATCH, DUPLICATE_PARAMETER, Diagnostic,
         DiagnosticBuilder, DiagnosticCategory, ICE_SYMBOL_SCOPE_PATTERN,
@@ -37,7 +38,6 @@ use crate::{
         quality::{EffectConstraintOrigin, with_effect_constraint_origin},
         types::ErrorType,
     },
-    core::{CorePrimOp, PrimEffect},
     runtime::{
         compiled_function::CompiledFunction, handler_descriptor::HandlerDescriptor,
         perform_descriptor::PerformDescriptor, runtime_type::RuntimeType, value::Value,

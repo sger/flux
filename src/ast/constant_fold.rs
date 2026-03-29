@@ -1,6 +1,6 @@
 use crate::ast::fold::{self, Folder};
-use crate::diagnostics::position::Span;
 use crate::core::{CorePrimOp, PrimEffect};
+use crate::diagnostics::position::Span;
 use crate::syntax::expression::ExprId;
 use crate::syntax::interner::Interner;
 use crate::syntax::{expression::Expression, program::Program};

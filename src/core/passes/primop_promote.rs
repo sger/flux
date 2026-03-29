@@ -101,10 +101,7 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         ("reverse", 1, CorePrimOp::Reverse),
         ("contains", 2, CorePrimOp::Contains),
     ];
-    entries
-        .iter()
-        .map(|&(n, a, op)| ((n, a), op))
-        .collect()
+    entries.iter().map(|&(n, a, op)| ((n, a), op)).collect()
 }
 
 /// Run the primop promotion pass on a `CoreProgram`.
@@ -221,7 +218,9 @@ fn promote_expr(
                 .into_iter()
                 .map(|alt| crate::core::CoreAlt {
                     rhs: promote_expr(alt.rhs, table, interner, def_arities),
-                    guard: alt.guard.map(|g| promote_expr(g, table, interner, def_arities)),
+                    guard: alt
+                        .guard
+                        .map(|g| promote_expr(g, table, interner, def_arities)),
                     ..alt
                 })
                 .collect(),
@@ -332,12 +331,20 @@ fn promote_expr(
             shared_body: Box::new(promote_expr(*shared_body, table, interner, def_arities)),
             span,
         },
-        CoreExpr::MemberAccess { object, member, span } => CoreExpr::MemberAccess {
+        CoreExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => CoreExpr::MemberAccess {
             object: Box::new(promote_expr(*object, table, interner, def_arities)),
             member,
             span,
         },
-        CoreExpr::TupleField { object, index, span } => CoreExpr::TupleField {
+        CoreExpr::TupleField {
+            object,
+            index,
+            span,
+        } => CoreExpr::TupleField {
             object: Box::new(promote_expr(*object, table, interner, def_arities)),
             index,
             span,

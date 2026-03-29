@@ -65,12 +65,13 @@ fn emit_closure_type(module: &mut LlvmModule) {
         ty: LlvmType::Struct {
             packed: false,
             fields: vec![
-                LlvmType::ptr(),  // fn_ptr (offset 0, 8 bytes)
-                LlvmType::i32(),  // remaining_arity (offset 8)
-                LlvmType::i32(),  // capture_count (offset 12)
-                LlvmType::i32(),  // applied_count (offset 16)
-                LlvmType::i32(),  // padding to align payload to 8 bytes (offset 20)
-                LlvmType::Array { // payload[] (offset 24)
+                LlvmType::ptr(), // fn_ptr (offset 0, 8 bytes)
+                LlvmType::i32(), // remaining_arity (offset 8)
+                LlvmType::i32(), // capture_count (offset 12)
+                LlvmType::i32(), // applied_count (offset 16)
+                LlvmType::i32(), // padding to align payload to 8 bytes (offset 20)
+                LlvmType::Array {
+                    // payload[] (offset 24)
                     len: 0,
                     element: Box::new(LlvmType::i64()),
                 },

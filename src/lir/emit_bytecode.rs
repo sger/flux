@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::bytecode::bytecode::Bytecode;
-use crate::bytecode::op_code::{make, OpCode, Instructions};
+use crate::bytecode::op_code::{Instructions, OpCode, make};
 use crate::lir::*;
 use crate::runtime::compiled_function::CompiledFunction;
 use crate::runtime::value::Value;
@@ -59,12 +59,8 @@ pub fn emit_program_with_base_constants(
         if i == num_funcs - 1 {
             break; // skip main
         }
-        let compiled = compile_nested_function(
-            func,
-            program,
-            &mut shared_constants,
-            &func_const_indices,
-        );
+        let compiled =
+            compile_nested_function(func, program, &mut shared_constants, &func_const_indices);
         shared_constants[func_const_indices[&func.id]] = Value::Function(Rc::new(compiled));
     }
 
@@ -103,9 +99,9 @@ fn compile_nested_function(
     let extra_locals = emitter.next_local.saturating_sub(num_params);
     CompiledFunction::new(
         emitter.instructions,
-        extra_locals,          // num_locals (extra, beyond params)
-        num_params,            // num_parameters
-        None,                  // debug_info
+        extra_locals, // num_locals (extra, beyond params)
+        num_params,   // num_parameters
+        None,         // debug_info
     )
 }
 
@@ -505,12 +501,8 @@ impl<'a> FnEmitter<'a> {
                         // User-defined ADT: OpMakeAdt(const_idx, arity)
                         // OpMakeAdt needs the constructor name as a string constant.
                         let name = ctor_name.as_deref().unwrap_or("?");
-                        let const_idx =
-                            self.add_constant(Value::String(Rc::new(name.to_string())));
-                        self.emit_op(
-                            OpCode::OpMakeAdt,
-                            &[const_idx, fields.len()],
-                        );
+                        let const_idx = self.add_constant(Value::String(Rc::new(name.to_string())));
+                        self.emit_op(OpCode::OpMakeAdt, &[const_idx, fields.len()]);
                     }
                 }
                 self.pop_into(*dst);
@@ -711,7 +703,11 @@ impl<'a> FnEmitter<'a> {
                 self.jump_patches.push((patch_pos, *cont));
             }
 
-            LirTerminator::TailCall { func, args, kind: _ } => {
+            LirTerminator::TailCall {
+                func,
+                args,
+                kind: _,
+            } => {
                 self.push_var(*func);
                 for &arg in args {
                     self.push_var(arg);
@@ -767,7 +763,12 @@ impl<'a> FnEmitter<'a> {
                     // JumpTruthy → trampoline that extracts fields + jumps to block
                     let patch = self.pos() + 1;
                     self.emit_op(OpCode::OpJumpTruthy, &[0xFFFF]);
-                    match_patches.push((patch, arm.target, arm.field_binders.clone(), arm.tag.clone()));
+                    match_patches.push((
+                        patch,
+                        arm.target,
+                        arm.field_binders.clone(),
+                        arm.tag.clone(),
+                    ));
                 }
 
                 // Default: jump unconditionally.
@@ -862,11 +863,7 @@ impl<'a> FnEmitter<'a> {
 
     fn patch_jumps(&mut self) {
         for &(patch_pos, target_block) in &self.jump_patches {
-            let target_offset = self
-                .block_offsets
-                .get(&target_block)
-                .copied()
-                .unwrap_or(0);
+            let target_offset = self.block_offsets.get(&target_block).copied().unwrap_or(0);
             // Encode as big-endian u16.
             self.instructions[patch_pos] = (target_offset >> 8) as u8;
             self.instructions[patch_pos + 1] = target_offset as u8;

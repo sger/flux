@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use crate::core::{
-    CoreAlt, CoreBinderId, CoreDef, CoreExpr, CoreLit, CorePat, CorePrimOp, CoreProgram,
-    CoreTag, CoreTopLevelItem,
+    CoreAlt, CoreBinderId, CoreDef, CoreExpr, CoreLit, CorePat, CorePrimOp, CoreProgram, CoreTag,
+    CoreTopLevelItem,
 };
 use crate::lir::*;
 use crate::syntax::interner::Interner;
@@ -226,11 +226,14 @@ pub fn lower_program_with_interner(
     let qualified_names = build_qualified_names(program, interner);
 
     // Collect user-defined ADT constructor tags from Data declarations.
-    collect_constructor_tags(&program.top_level_items, &mut lir.constructor_tags, interner);
+    collect_constructor_tags(
+        &program.top_level_items,
+        &mut lir.constructor_tags,
+        interner,
+    );
 
     // Collect all top-level binder IDs so cross-function references resolve.
-    let top_level_binders: Vec<CoreBinderId> =
-        program.defs.iter().map(|d| d.binder.id).collect();
+    let top_level_binders: Vec<CoreBinderId> = program.defs.iter().map(|d| d.binder.id).collect();
 
     // Find the main def — it could be at any position in defs[].
     let main_idx = if let Some(interner) = interner {
@@ -257,7 +260,10 @@ pub fn lower_program_with_interner(
     // access by looking up the member's binder in the env).
     let mut name_binder_map: HashMap<crate::syntax::Identifier, Vec<CoreBinderId>> = HashMap::new();
     for def in &program.defs {
-        name_binder_map.entry(def.name).or_default().push(def.binder.id);
+        name_binder_map
+            .entry(def.name)
+            .or_default()
+            .push(def.binder.id);
     }
 
     // Phase 1: Lower all non-main defs.
@@ -265,14 +271,32 @@ pub fn lower_program_with_interner(
         if i == main_idx {
             continue;
         }
-        let func = lower_def(def, &mut lir, &top_level_binders, &binder_func_map, &qualified_names, &name_binder_map, interner, globals_map);
+        let func = lower_def(
+            def,
+            &mut lir,
+            &top_level_binders,
+            &binder_func_map,
+            &qualified_names,
+            &name_binder_map,
+            interner,
+            globals_map,
+        );
         lir.push_function(func);
     }
 
     // Phase 2: Lower main with knowledge of all sibling functions.
     // Main is always last in LIR (emit_program expects this).
     let main_def = &program.defs[main_idx];
-    let func = lower_def(main_def, &mut lir, &top_level_binders, &binder_func_map, &qualified_names, &name_binder_map, interner, globals_map);
+    let func = lower_def(
+        main_def,
+        &mut lir,
+        &top_level_binders,
+        &binder_func_map,
+        &qualified_names,
+        &name_binder_map,
+        interner,
+        globals_map,
+    );
     lir.push_function(func);
 
     lir
@@ -377,7 +401,10 @@ impl<'a> FnLower<'a> {
     fn emit_copy_to_join_param(&mut self, val: LirVar, target_block: BlockId) {
         let target_idx = target_block.0 as usize;
         if let Some(&param) = self.func.blocks[target_idx].params.first() {
-            self.emit(LirInstr::Copy { dst: param, src: val });
+            self.emit(LirInstr::Copy {
+                dst: param,
+                src: val,
+            });
         }
     }
 
@@ -405,9 +432,10 @@ impl<'a> FnLower<'a> {
 
     /// Look up a Core binder, returning its LIR variable.
     fn lookup(&self, binder: CoreBinderId) -> LirVar {
-        *self.env.get(&binder).unwrap_or_else(|| {
-            panic!("LIR lower: unbound CoreBinderId({})", binder.0)
-        })
+        *self
+            .env
+            .get(&binder)
+            .unwrap_or_else(|| panic!("LIR lower: unbound CoreBinderId({})", binder.0))
     }
 
     // ── Expression lowering ──────────────────────────────────────────
@@ -439,7 +467,10 @@ impl<'a> FnLower<'a> {
                     }
                     // Fallback: emit None for unknown binders.
                     let dst = self.fresh_var();
-                    self.emit(LirInstr::Const { dst, value: LirConst::None });
+                    self.emit(LirInstr::Const {
+                        dst,
+                        value: LirConst::None,
+                    });
                     dst
                 } else if let Some(globals) = self.globals_map {
                     // External variable — resolve name and check the globals map.
@@ -480,32 +511,39 @@ impl<'a> FnLower<'a> {
                             }
                         }
                         let dst = self.fresh_var();
-                        self.emit(LirInstr::Const { dst, value: LirConst::None });
+                        self.emit(LirInstr::Const {
+                            dst,
+                            value: LirConst::None,
+                        });
                         dst
                     } else {
                         let dst = self.fresh_var();
-                        self.emit(LirInstr::Const { dst, value: LirConst::None });
+                        self.emit(LirInstr::Const {
+                            dst,
+                            value: LirConst::None,
+                        });
                         dst
                     }
                 }
             }
 
-            CoreExpr::Let {
-                var, rhs, body, ..
-            } => {
+            CoreExpr::Let { var, rhs, body, .. } => {
                 let rhs_var = self.lower_expr(rhs);
                 self.bind(var.id, rhs_var);
                 self.lower_expr(body)
             }
 
-            CoreExpr::LetRec {
-                var, rhs, body, ..
-            } => {
+            CoreExpr::LetRec { var, rhs, body, .. } => {
                 // For letrec where the RHS is a lambda (recursive function):
                 // 1. Pre-assign a function index in the program
                 // 2. Create a MakeClosure that the lambda body can reference
                 // 3. The inner lambda sees itself via its own function index
-                if let CoreExpr::Lam { params, body: lam_body, .. } = rhs.as_ref() {
+                if let CoreExpr::Lam {
+                    params,
+                    body: lam_body,
+                    ..
+                } = rhs.as_ref()
+                {
                     let free = collect_free_vars(rhs);
                     let outer_captures: Vec<(CoreBinderId, LirVar)> = free
                         .iter()
@@ -513,10 +551,7 @@ impl<'a> FnLower<'a> {
                         .filter_map(|id| self.env.get(id).copied().map(|v| (*id, v)))
                         .collect();
 
-                    let mut temp_program = std::mem::replace(
-                        &mut *self.program,
-                        LirProgram::new(),
-                    );
+                    let mut temp_program = std::mem::replace(&mut *self.program, LirProgram::new());
 
                     // Assign a synthetic LirFuncId for this letrec function.
                     let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
@@ -535,7 +570,16 @@ impl<'a> FnLower<'a> {
                     temp_program.func_index.insert(synthetic_id, func_idx);
 
                     let func_name = format!("letrec_{}", func_idx);
-                    let mut inner = FnLower::new(func_name, synthetic_id, format!("letrec_{}", synthetic_id.0), &mut temp_program, self.interner, self.globals_map, self.name_binder_map, self.binder_func_id_map);
+                    let mut inner = FnLower::new(
+                        func_name,
+                        synthetic_id,
+                        format!("letrec_{}", synthetic_id.0),
+                        &mut temp_program,
+                        self.interner,
+                        self.globals_map,
+                        self.name_binder_map,
+                        self.binder_func_id_map,
+                    );
 
                     // Capture outer variables.
                     for &(binder_id, _outer_var) in &outer_captures {
@@ -609,17 +653,22 @@ impl<'a> FnLower<'a> {
                     .collect();
 
                 {
-
                     // Temporarily take the program so the inner FnLower can use it
                     // (Rust can't have two &mut borrows of self.program).
-                    let mut temp_program = std::mem::replace(
-                        &mut *self.program,
-                        LirProgram::new(),
-                    );
+                    let mut temp_program = std::mem::replace(&mut *self.program, LirProgram::new());
 
                     let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
                     let func_name = format!("closure_{}", temp_program.functions.len());
-                    let mut inner = FnLower::new(func_name, synthetic_id, format!("lambda_{}", synthetic_id.0), &mut temp_program, self.interner, self.globals_map, self.name_binder_map, self.binder_func_id_map);
+                    let mut inner = FnLower::new(
+                        func_name,
+                        synthetic_id,
+                        format!("lambda_{}", synthetic_id.0),
+                        &mut temp_program,
+                        self.interner,
+                        self.globals_map,
+                        self.name_binder_map,
+                        self.binder_func_id_map,
+                    );
 
                     // Map captured variables: create fresh LirVars inside the inner
                     // function, mark them as capture_vars (→ OpGetFree in emitter).
@@ -659,10 +708,7 @@ impl<'a> FnLower<'a> {
                 }
             }
 
-            CoreExpr::App { func, args, .. }
-            | CoreExpr::AetherCall {
-                func, args, ..
-            } => {
+            CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
                 // Check if func is an unbound variable that maps to a known
                 // library function with a C runtime implementation.  If so,
                 // emit PrimCall directly instead of GetGlobal + Call (which
@@ -672,9 +718,7 @@ impl<'a> FnLower<'a> {
                     CoreExpr::Var { var, .. } if var.binder.is_none() => {
                         Some(self.resolve_name(var.name))
                     }
-                    CoreExpr::MemberAccess { member, .. } => {
-                        Some(self.resolve_name(*member))
-                    }
+                    CoreExpr::MemberAccess { member, .. } => Some(self.resolve_name(*member)),
                     _ => None,
                 };
                 if let Some(ref name) = resolved_name {
@@ -712,9 +756,9 @@ impl<'a> FnLower<'a> {
                 // If func is a Var with a binder in binder_func_id_map,
                 // emit a Direct call without creating a closure.
                 let direct_func_id = match func.as_ref() {
-                    CoreExpr::Var { var, .. } if var.binder.is_some() => {
-                        var.binder.and_then(|bid| self.binder_func_id_map.get(&bid).copied())
-                    }
+                    CoreExpr::Var { var, .. } if var.binder.is_some() => var
+                        .binder
+                        .and_then(|bid| self.binder_func_id_map.get(&bid).copied()),
                     _ => None,
                 };
 
@@ -729,7 +773,10 @@ impl<'a> FnLower<'a> {
 
                     // Use a dummy var for func (not needed in direct calls).
                     let dummy = self.fresh_var();
-                    self.emit(LirInstr::Const { dst: dummy, value: LirConst::None });
+                    self.emit(LirInstr::Const {
+                        dst: dummy,
+                        value: LirConst::None,
+                    });
 
                     self.set_terminator(LirTerminator::Call {
                         dst: result,
@@ -780,9 +827,7 @@ impl<'a> FnLower<'a> {
 
             // ── Pattern matching (Phase 3) ────────────────────────────
             CoreExpr::Case {
-                scrutinee,
-                alts,
-                ..
+                scrutinee, alts, ..
             } => self.lower_case(scrutinee, alts),
 
             // ── ADT / collection construction (Phase 3) ──────────────
@@ -865,9 +910,7 @@ impl<'a> FnLower<'a> {
                 dst
             }
 
-            CoreExpr::TupleField {
-                object, index, ..
-            } => {
+            CoreExpr::TupleField { object, index, .. } => {
                 let obj = self.lower_expr(object);
                 let dst = self.fresh_var();
                 self.emit(LirInstr::TupleGet {
@@ -978,7 +1021,10 @@ impl<'a> FnLower<'a> {
 
                 // Branch on a.
                 let a_bool = self.fresh_var();
-                self.emit(LirInstr::UntagBool { dst: a_bool, val: a });
+                self.emit(LirInstr::UntagBool {
+                    dst: a_bool,
+                    val: a,
+                });
                 self.set_terminator(LirTerminator::Branch {
                     cond: a_bool,
                     then_block: then_id,
@@ -993,7 +1039,10 @@ impl<'a> FnLower<'a> {
                 // Else: result = false
                 self.switch_to_block(else_idx);
                 let false_val = self.fresh_var();
-                self.emit(LirInstr::Const { dst: false_val, value: LirConst::Bool(false) });
+                self.emit(LirInstr::Const {
+                    dst: false_val,
+                    value: LirConst::Bool(false),
+                });
                 self.emit_copy_to_join_param(false_val, join_id);
                 self.set_terminator(LirTerminator::Jump(join_id));
 
@@ -1014,7 +1063,10 @@ impl<'a> FnLower<'a> {
                 self.func.blocks[join_idx].params.push(result);
 
                 let a_bool = self.fresh_var();
-                self.emit(LirInstr::UntagBool { dst: a_bool, val: a });
+                self.emit(LirInstr::UntagBool {
+                    dst: a_bool,
+                    val: a,
+                });
                 self.set_terminator(LirTerminator::Branch {
                     cond: a_bool,
                     then_block: then_id,
@@ -1024,7 +1076,10 @@ impl<'a> FnLower<'a> {
                 // Then: result = true
                 self.switch_to_block(then_idx);
                 let true_val = self.fresh_var();
-                self.emit(LirInstr::Const { dst: true_val, value: LirConst::Bool(true) });
+                self.emit(LirInstr::Const {
+                    dst: true_val,
+                    value: LirConst::Bool(true),
+                });
                 self.emit_copy_to_join_param(true_val, join_id);
                 self.set_terminator(LirTerminator::Jump(join_id));
 
@@ -1040,27 +1095,42 @@ impl<'a> FnLower<'a> {
             // Collection constructors → dedicated LIR instructions.
             CorePrimOp::MakeArray => {
                 let dst = self.fresh_var();
-                self.emit(LirInstr::MakeArray { dst, elements: arg_vars });
+                self.emit(LirInstr::MakeArray {
+                    dst,
+                    elements: arg_vars,
+                });
                 dst
             }
             CorePrimOp::MakeTuple => {
                 let dst = self.fresh_var();
-                self.emit(LirInstr::MakeTuple { dst, elements: arg_vars });
+                self.emit(LirInstr::MakeTuple {
+                    dst,
+                    elements: arg_vars,
+                });
                 dst
             }
             CorePrimOp::MakeHash => {
                 let dst = self.fresh_var();
-                self.emit(LirInstr::MakeHash { dst, pairs: arg_vars });
+                self.emit(LirInstr::MakeHash {
+                    dst,
+                    pairs: arg_vars,
+                });
                 dst
             }
             CorePrimOp::MakeList => {
                 let dst = self.fresh_var();
-                self.emit(LirInstr::MakeList { dst, elements: arg_vars });
+                self.emit(LirInstr::MakeList {
+                    dst,
+                    elements: arg_vars,
+                });
                 dst
             }
             CorePrimOp::Interpolate => {
                 let dst = self.fresh_var();
-                self.emit(LirInstr::Interpolate { dst, parts: arg_vars });
+                self.emit(LirInstr::Interpolate {
+                    dst,
+                    parts: arg_vars,
+                });
                 dst
             }
 
@@ -1190,7 +1260,10 @@ impl<'a> FnLower<'a> {
         } else {
             // All wildcards/vars — just take the first alt.
             let val = self.lower_single_alt(scrut, &alts[0]);
-            self.emit(LirInstr::Copy { dst: result_var, src: val });
+            self.emit(LirInstr::Copy {
+                dst: result_var,
+                src: val,
+            });
             self.set_terminator(LirTerminator::Jump(join_id));
             self.switch_to_block(join_idx);
             return result_var;
@@ -1213,12 +1286,7 @@ impl<'a> FnLower<'a> {
     }
 
     /// Lower a Case on literal patterns — chain of if-else comparisons.
-    fn lower_case_lit(
-        &mut self,
-        scrut: LirVar,
-        alts: &[CoreAlt],
-        join_block: BlockId,
-    ) {
+    fn lower_case_lit(&mut self, scrut: LirVar, alts: &[CoreAlt], join_block: BlockId) {
         for alt in alts {
             match &alt.pat {
                 CorePat::Lit(lit) => {
@@ -1275,12 +1343,7 @@ impl<'a> FnLower<'a> {
     }
 
     /// Lower a Case on constructor patterns (ADT, cons, None, Some, etc.).
-    fn lower_case_con(
-        &mut self,
-        scrut: LirVar,
-        alts: &[CoreAlt],
-        join_block: BlockId,
-    ) {
+    fn lower_case_con(&mut self, scrut: LirVar, alts: &[CoreAlt], join_block: BlockId) {
         // Pre-allocate blocks for all alts.
         let mut alt_block_indices: Vec<usize> = Vec::new();
         for _alt in alts {
@@ -1296,7 +1359,11 @@ impl<'a> FnLower<'a> {
 
             let (ctor_tag, field_pats) = match &alt.pat {
                 CorePat::EmptyList => (CtorTag::EmptyList, vec![]),
-                CorePat::Con { tag: core_tag, fields, .. } => {
+                CorePat::Con {
+                    tag: core_tag,
+                    fields,
+                    ..
+                } => {
                     let ct = match core_tag {
                         CoreTag::None => CtorTag::None,
                         CoreTag::Nil => CtorTag::EmptyList,
@@ -1466,7 +1533,9 @@ impl<'a> FnLower<'a> {
             }
             CoreTag::Named(name) => {
                 let ctor_name = self.resolve_name(*name);
-                let ctor_tag = self.program.constructor_tags
+                let ctor_tag = self
+                    .program
+                    .constructor_tags
                     .get(&ctor_name)
                     .copied()
                     .unwrap_or(FIRST_USER_TAG_ID as i32);
@@ -1506,7 +1575,8 @@ impl<'a> FnLower<'a> {
             CoreTag::Cons => CONS_TAG_ID as i32,
             CoreTag::Named(name) => {
                 let ctor_name = self.resolve_name(*name);
-                self.program.constructor_tags
+                self.program
+                    .constructor_tags
                     .get(&ctor_name)
                     .copied()
                     .unwrap_or(FIRST_USER_TAG_ID as i32)
@@ -1529,7 +1599,10 @@ impl<'a> FnLower<'a> {
             self.lookup(b)
         } else {
             let v = self.fresh_var();
-            self.emit(LirInstr::Const { dst: v, value: LirConst::None });
+            self.emit(LirInstr::Const {
+                dst: v,
+                value: LirConst::None,
+            });
             v
         };
 
@@ -1596,7 +1669,9 @@ impl<'a> FnLower<'a> {
         });
         for (i, fv) in field_vars.iter().enumerate() {
             // If field_mask is set, skip unchanged fields on the reuse path.
-            if let Some(mask) = field_mask && mask & (1 << i) == 0 {
+            if let Some(mask) = field_mask
+                && mask & (1 << i) == 0
+            {
                 continue; // field unchanged, skip write
             }
             self.emit(LirInstr::Store {
@@ -1649,7 +1724,10 @@ impl<'a> FnLower<'a> {
             self.lookup(b)
         } else {
             let v = self.fresh_var();
-            self.emit(LirInstr::Const { dst: v, value: LirConst::None });
+            self.emit(LirInstr::Const {
+                dst: v,
+                value: LirConst::None,
+            });
             v
         };
 
@@ -1725,7 +1803,16 @@ fn lower_def(
         .get(&def.binder.id)
         .cloned()
         .unwrap_or_else(|| debug_name.clone());
-    let mut ctx = FnLower::new(debug_name, func_id, qualified_name, program, interner, globals_map, name_binder_map, binder_func_map);
+    let mut ctx = FnLower::new(
+        debug_name,
+        func_id,
+        qualified_name,
+        program,
+        interner,
+        globals_map,
+        name_binder_map,
+        binder_func_map,
+    );
 
     // Register top-level binders for direct call resolution.
     // Unlike the old approach (which created MakeClosure for every sibling),
@@ -1770,7 +1857,14 @@ fn display_function(func: &LirFunction, out: &mut String) {
     use std::fmt::Write;
     let params: Vec<String> = func.params.iter().map(|v| format!("{v}")).collect();
     if func.capture_vars.is_empty() {
-        writeln!(out, "fn {} [{}] ({}) {{", func.qualified_name, func.id, params.join(", ")).unwrap();
+        writeln!(
+            out,
+            "fn {} [{}] ({}) {{",
+            func.qualified_name,
+            func.id,
+            params.join(", ")
+        )
+        .unwrap();
     } else {
         let caps: Vec<String> = func.capture_vars.iter().map(|v| format!("{v}")).collect();
         writeln!(
@@ -1807,7 +1901,12 @@ fn display_instr(instr: &LirInstr) -> String {
     match instr {
         LirInstr::Load { dst, ptr, offset } => format!("{dst} = load {ptr}[{offset}]"),
         LirInstr::Store { ptr, offset, val } => format!("store {ptr}[{offset}] = {val}"),
-        LirInstr::Alloc { dst, size, scan_fields, obj_tag } => {
+        LirInstr::Alloc {
+            dst,
+            size,
+            scan_fields,
+            obj_tag,
+        } => {
             format!("{dst} = alloc({size}, scan={scan_fields}, tag={obj_tag})")
         }
         LirInstr::TagInt { dst, raw } => format!("{dst} = tag_int({raw})"),
@@ -1864,10 +1963,18 @@ fn display_instr(instr: &LirInstr) -> String {
             let ps: Vec<String> = parts.iter().map(|v| format!("{v}")).collect();
             format!("{dst} = interpolate([{}])", ps.join(", "))
         }
-        LirInstr::MakeCtor { dst, ctor_tag, ctor_name, fields } => {
+        LirInstr::MakeCtor {
+            dst,
+            ctor_tag,
+            ctor_name,
+            fields,
+        } => {
             let fs: Vec<String> = fields.iter().map(|v| format!("{v}")).collect();
             let name = ctor_name.as_deref().unwrap_or("?");
-            format!("{dst} = make_ctor(tag={ctor_tag}, name={name}, [{}])", fs.join(", "))
+            format!(
+                "{dst} = make_ctor(tag={ctor_tag}, name={name}, [{}])",
+                fs.join(", ")
+            )
         }
         LirInstr::Copy { dst, src } => format!("{dst} = copy {src}"),
         LirInstr::Const { dst, value } => format!("{dst} = const {value:?}"),
@@ -1880,31 +1987,62 @@ fn display_terminator(term: &LirTerminator) -> String {
     match term {
         LirTerminator::Return(v) => format!("ret {v}"),
         LirTerminator::Jump(block) => format!("jmp {block}"),
-        LirTerminator::Branch { cond, then_block, else_block } => {
+        LirTerminator::Branch {
+            cond,
+            then_block,
+            else_block,
+        } => {
             format!("br {cond}, {then_block}, {else_block}")
         }
-        LirTerminator::Switch { scrutinee, cases, default } => {
+        LirTerminator::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
             let cases_str: Vec<String> = cases
                 .iter()
                 .map(|(val, block)| format!("{val} -> {block}"))
                 .collect();
-            format!("switch {scrutinee} [{}, default -> {default}]", cases_str.join(", "))
+            format!(
+                "switch {scrutinee} [{}, default -> {default}]",
+                cases_str.join(", ")
+            )
         }
         LirTerminator::TailCall { func, args, kind } => {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
-            let kind_str = match kind { CallKind::Direct { func_id } => format!(" [direct {}]", func_id), CallKind::Indirect => String::new() };
+            let kind_str = match kind {
+                CallKind::Direct { func_id } => format!(" [direct {}]", func_id),
+                CallKind::Indirect => String::new(),
+            };
             format!("tailcall {func}({}){kind_str}", args_str.join(", "))
         }
-        LirTerminator::Call { dst, func, args, cont, kind } => {
+        LirTerminator::Call {
+            dst,
+            func,
+            args,
+            cont,
+            kind,
+        } => {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
-            let kind_str = match kind { CallKind::Direct { func_id } => format!(" [direct {}]", func_id), CallKind::Indirect => String::new() };
-            format!("{dst} = call {func}({}){kind_str} -> {cont}", args_str.join(", "))
+            let kind_str = match kind {
+                CallKind::Direct { func_id } => format!(" [direct {}]", func_id),
+                CallKind::Indirect => String::new(),
+            };
+            format!(
+                "{dst} = call {func}({}){kind_str} -> {cont}",
+                args_str.join(", ")
+            )
         }
-        LirTerminator::MatchCtor { scrutinee, arms, default } => {
+        LirTerminator::MatchCtor {
+            scrutinee,
+            arms,
+            default,
+        } => {
             let arms_str: Vec<String> = arms
                 .iter()
                 .map(|arm| {
-                    let fs: Vec<String> = arm.field_binders.iter().map(|v| format!("{v}")).collect();
+                    let fs: Vec<String> =
+                        arm.field_binders.iter().map(|v| format!("{v}")).collect();
                     format!("{:?}({}) -> {}", arm.tag, fs.join(", "), arm.target)
                 })
                 .collect();
@@ -1934,7 +2072,9 @@ fn free_vars_rec(
 ) {
     match expr {
         CoreExpr::Var { var, .. } => {
-            if let Some(b) = var.binder && !bound.contains(&b) {
+            if let Some(b) = var.binder
+                && !bound.contains(&b)
+            {
                 free.insert(b);
             }
         }
@@ -2020,13 +2160,17 @@ fn free_vars_rec(
             free_vars_rec(object, bound, free);
         }
         CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
-            if let Some(b) = var.binder && !bound.contains(&b) {
+            if let Some(b) = var.binder
+                && !bound.contains(&b)
+            {
                 free.insert(b);
             }
             free_vars_rec(body, bound, free);
         }
         CoreExpr::Reuse { token, fields, .. } => {
-            if let Some(b) = token.binder && !bound.contains(&b) {
+            if let Some(b) = token.binder
+                && !bound.contains(&b)
+            {
                 free.insert(b);
             }
             for f in fields {
@@ -2039,7 +2183,9 @@ fn free_vars_rec(
             shared_body,
             ..
         } => {
-            if let Some(b) = scrutinee.binder && !bound.contains(&b) {
+            if let Some(b) = scrutinee.binder
+                && !bound.contains(&b)
+            {
                 free.insert(b);
             }
             free_vars_rec(unique_body, bound, free);
