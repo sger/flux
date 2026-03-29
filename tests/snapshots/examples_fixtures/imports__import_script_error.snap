@@ -16,6 +16,6 @@ Cannot find module `Errors.ScriptOnly` to import.
 
 Hint:
   Check that: 1) The module file exists (e.g., `Errors.ScriptOnly.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Errors.ScriptOnly` under roots: examples/imports, src (imported from examples/imports/import_script_error.flx).
+  Looked for module `Errors.ScriptOnly` under roots: //?/examples/imports, //?/src (imported from //?/examples/imports/import_script_error.flx).
 == stdout ==
 <not executed>
