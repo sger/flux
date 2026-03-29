@@ -872,13 +872,30 @@ fn run_file(
             if run_lir && has_main {
                 compiler.infer_expr_types_for_program(&merged_program);
 
+                let compile_start_lir = Instant::now();
                 match compiler.compile_all_via_lir(&merged_program, enable_optimize) {
                     Ok(lir_bytecode) => {
+                        let compile_ms = compile_start_lir.elapsed().as_secs_f64() * 1000.0;
                         let mut vm = VM::new(lir_bytecode);
                         vm.set_trace(trace);
+                        let exec_start = Instant::now();
                         if let Err(err) = vm.run() {
                             eprintln!("{}", err);
                             std::process::exit(1);
+                        }
+                        let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
+                        if show_stats {
+                            print_stats(&RunStats {
+                                parse_ms: Some(parse_ms),
+                                compile_ms: Some(compile_ms),
+                                execute_ms,
+                                cached: false,
+                                module_count: Some(module_count),
+                                source_lines: source.lines().count(),
+                                globals_count: None,
+                                functions_count: None,
+                                instruction_bytes: None,
+                            });
                         }
                     }
                     Err(diag) => {
@@ -988,8 +1005,24 @@ fn run_file(
                     output_path: None,
                     runtime_lib_dir,
                 };
+                let exec_start = Instant::now();
                 match flux::core_to_llvm::pipeline::compile_and_run(&config) {
                     Ok(flux::core_to_llvm::pipeline::PipelineResult::Executed { exit_code }) => {
+                        let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
+                        if show_stats {
+                            let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0 - execute_ms;
+                            print_stats(&RunStats {
+                                parse_ms: Some(parse_ms),
+                                compile_ms: Some(compile_ms),
+                                execute_ms,
+                                cached: false,
+                                module_count: Some(module_count),
+                                source_lines: source.lines().count(),
+                                globals_count: None,
+                                functions_count: None,
+                                instruction_bytes: None,
+                            });
+                        }
                         if exit_code != 0 {
                             std::process::exit(exit_code);
                         }
