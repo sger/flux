@@ -168,7 +168,9 @@ pub enum LirInstr {
     IsUnique { dst: LirVar, val: LirVar },
     /// Drop for reuse: decrement refcount.  If unique, return the raw
     /// pointer for in-place reuse.  If shared, return null.
-    DropReuse { dst: LirVar, val: LirVar },
+    /// `size` is the allocation size in bytes (header + fields) needed for
+    /// fresh allocation when the value is shared.
+    DropReuse { dst: LirVar, val: LirVar, size: u32 },
 
     // ── Closures ─────────────────────────────────────────────────────
     /// Create a closure from a nested function and captured values.
@@ -252,7 +254,7 @@ pub enum LirTerminator {
         default: BlockId,
     },
     /// Tail call (reuses the current stack frame).
-    TailCall { func: LirVar, args: Vec<LirVar> },
+    TailCall { func: LirVar, args: Vec<LirVar>, kind: CallKind },
     /// Non-tail function call with a continuation block.
     /// The result is bound to `dst` in `cont`.
     Call {
@@ -260,6 +262,7 @@ pub enum LirTerminator {
         func: LirVar,
         args: Vec<LirVar>,
         cont: BlockId,
+        kind: CallKind,
     },
     /// Constructor pattern match on a scrutinee value.
     ///
@@ -311,6 +314,19 @@ pub enum CtorTag {
     Tuple,
 }
 
+// ── Call kind ───────────────────────────────────────────────────────────────
+
+/// Distinguishes known direct calls from unknown closure dispatch.
+/// Following GHC's Cmm approach: known calls use direct `call @func(i64, ...)`
+/// while unknown/higher-order calls go through `flux_call_closure`.
+#[derive(Debug, Clone)]
+pub enum CallKind {
+    /// Known top-level function — emit direct call with individual i64 params.
+    Direct { func_id: LirFuncId },
+    /// Unknown closure or higher-order value — dispatch via `flux_call_closure`.
+    Indirect,
+}
+
 // ── Program structure ────────────────────────────────────────────────────────
 
 /// A basic block: a sequence of instructions followed by a terminator.
@@ -353,6 +369,10 @@ pub struct LirProgram {
     /// Index from stable function ID → position in `functions[]`.
     /// Both backends use this to resolve `LirFuncId` references.
     pub func_index: HashMap<LirFuncId, usize>,
+    /// User-defined ADT constructor name → tag ID.
+    /// Built-in constructors (Some=1, Left=2, Right=3, Cons=4) are implicit.
+    /// User constructors start at 5 and are assigned sequentially.
+    pub constructor_tags: HashMap<String, i32>,
 }
 
 // ── Display ──────────────────────────────────────────────────────────────────
@@ -404,6 +424,7 @@ impl LirProgram {
             functions: Vec::new(),
             string_pool: Vec::new(),
             func_index: HashMap::new(),
+            constructor_tags: HashMap::new(),
         }
     }
 

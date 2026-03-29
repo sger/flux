@@ -165,6 +165,44 @@ fn build_qualified_names(
     result
 }
 
+/// Collect user-defined ADT constructor tags from `CoreTopLevelItem::Data`
+/// declarations.  Tags are assigned sequentially starting at `FIRST_USER_TAG_ID`.
+fn collect_constructor_tags(
+    items: &[CoreTopLevelItem],
+    tags: &mut HashMap<String, i32>,
+    interner: Option<&Interner>,
+) {
+    let mut next_tag = FIRST_USER_TAG_ID as i32;
+    collect_ctor_tags_inner(items, tags, &mut next_tag, interner);
+}
+
+fn collect_ctor_tags_inner(
+    items: &[CoreTopLevelItem],
+    tags: &mut HashMap<String, i32>,
+    next_tag: &mut i32,
+    interner: Option<&Interner>,
+) {
+    for item in items {
+        match item {
+            CoreTopLevelItem::Data { variants, .. } => {
+                for variant in variants {
+                    let name = interner
+                        .map(|i| i.resolve(variant.name).to_string())
+                        .unwrap_or_else(|| format!("ctor_{}", variant.name.as_u32()));
+                    if !tags.contains_key(&name) {
+                        tags.insert(name, *next_tag);
+                        *next_tag += 1;
+                    }
+                }
+            }
+            CoreTopLevelItem::Module { body, .. } => {
+                collect_ctor_tags_inner(body, tags, next_tag, interner);
+            }
+            _ => {}
+        }
+    }
+}
+
 // ── Public entry point ───────────────────────────────────────────────────────
 
 /// Lower a complete `CoreProgram` to `LirProgram`.
@@ -186,6 +224,9 @@ pub fn lower_program_with_interner(
 
     // Build module-qualified names from the CoreTopLevelItem tree.
     let qualified_names = build_qualified_names(program, interner);
+
+    // Collect user-defined ADT constructor tags from Data declarations.
+    collect_constructor_tags(&program.top_level_items, &mut lir.constructor_tags, interner);
 
     // Collect all top-level binder IDs so cross-function references resolve.
     let top_level_binders: Vec<CoreBinderId> =
@@ -211,19 +252,27 @@ pub fn lower_program_with_interner(
         binder_func_map.insert(def.binder.id, LirFuncId(def.binder.id.0));
     }
 
+    // Build name → binder map for MemberAccess resolution in the LLVM path
+    // (where globals_map is None and we need to resolve qualified member
+    // access by looking up the member's binder in the env).
+    let mut name_binder_map: HashMap<crate::syntax::Identifier, Vec<CoreBinderId>> = HashMap::new();
+    for def in &program.defs {
+        name_binder_map.entry(def.name).or_default().push(def.binder.id);
+    }
+
     // Phase 1: Lower all non-main defs.
     for (i, def) in program.defs.iter().enumerate() {
         if i == main_idx {
             continue;
         }
-        let func = lower_def(def, &mut lir, &top_level_binders, &binder_func_map, &qualified_names, interner, globals_map);
+        let func = lower_def(def, &mut lir, &top_level_binders, &binder_func_map, &qualified_names, &name_binder_map, interner, globals_map);
         lir.push_function(func);
     }
 
     // Phase 2: Lower main with knowledge of all sibling functions.
     // Main is always last in LIR (emit_program expects this).
     let main_def = &program.defs[main_idx];
-    let func = lower_def(main_def, &mut lir, &top_level_binders, &binder_func_map, &qualified_names, interner, globals_map);
+    let func = lower_def(main_def, &mut lir, &top_level_binders, &binder_func_map, &qualified_names, &name_binder_map, interner, globals_map);
     lir.push_function(func);
 
     lir
@@ -249,6 +298,15 @@ struct FnLower<'a> {
     /// function name.  Used by the App handler to intercept closure calls to
     /// known library functions and emit PrimCall instead.
     global_var_names: HashMap<LirVar, String>,
+    /// Maps bare function Identifier → list of CoreBinderIds.
+    /// Used for MemberAccess resolution when globals_map is None (LLVM path).
+    name_binder_map: &'a HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
+    /// Maps LirVar → LirFuncId for variables produced by MakeClosure with
+    /// no captures (top-level function references).  Used to detect known
+    /// calls and emit CallKind::Direct.
+    direct_func_vars: HashMap<LirVar, LirFuncId>,
+    /// Maps CoreBinderId → LirFuncId for top-level functions.
+    binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
 }
 
 impl<'a> FnLower<'a> {
@@ -259,6 +317,8 @@ impl<'a> FnLower<'a> {
         program: &'a mut LirProgram,
         interner: Option<&'a Interner>,
         globals_map: Option<&'a HashMap<String, usize>>,
+        name_binder_map: &'a HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
+        binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
     ) -> Self {
         let entry_block = LirBlock {
             id: BlockId(0),
@@ -282,6 +342,9 @@ impl<'a> FnLower<'a> {
             interner,
             global_var_names: HashMap::new(),
             globals_map,
+            name_binder_map,
+            direct_func_vars: HashMap::new(),
+            binder_func_id_map,
         }
     }
 
@@ -357,7 +420,27 @@ impl<'a> FnLower<'a> {
 
             CoreExpr::Var { var, .. } => {
                 if let Some(binder) = var.binder {
-                    self.lookup(binder)
+                    // Check env first (locals, parameters, letrec bindings).
+                    if let Some(&v) = self.env.get(&binder) {
+                        return v;
+                    }
+                    // Not in env — check if it's a top-level function.
+                    // Create a closure lazily (only when used as a value).
+                    if let Some(&func_id) = self.binder_func_id_map.get(&binder) {
+                        let var = self.fresh_var();
+                        self.emit(LirInstr::MakeClosure {
+                            dst: var,
+                            func_id,
+                            captures: Vec::new(),
+                        });
+                        self.bind(binder, var);
+                        self.direct_func_vars.insert(var, func_id);
+                        return var;
+                    }
+                    // Fallback: emit None for unknown binders.
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::Const { dst, value: LirConst::None });
+                    dst
                 } else if let Some(globals) = self.globals_map {
                     // External variable — resolve name and check the globals map.
                     let name = self.resolve_name(var.name);
@@ -376,13 +459,34 @@ impl<'a> FnLower<'a> {
                         dst
                     }
                 } else {
-                    // No globals map available — emit None placeholder.
-                    let dst = self.fresh_var();
-                    self.emit(LirInstr::Const {
-                        dst,
-                        value: LirConst::None,
-                    });
-                    dst
+                    // No globals map (LLVM native path).
+                    // Check if this unbound name is a known ADT constructor
+                    // (zero-field constructors like Dir.Up appear as unbound Vars).
+                    let name = self.resolve_name(var.name);
+                    if let Some(&ctor_tag) = self.program.constructor_tags.get(&name) {
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::MakeCtor {
+                            dst,
+                            ctor_tag,
+                            ctor_name: Some(name),
+                            fields: Vec::new(),
+                        });
+                        dst
+                    } else if let Some(binders) = self.name_binder_map.get(&var.name) {
+                        // Check if it's a top-level function reference.
+                        for &bid in binders {
+                            if let Some(&lir_var) = self.env.get(&bid) {
+                                return lir_var;
+                            }
+                        }
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::Const { dst, value: LirConst::None });
+                        dst
+                    } else {
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::Const { dst, value: LirConst::None });
+                        dst
+                    }
                 }
             }
 
@@ -431,7 +535,7 @@ impl<'a> FnLower<'a> {
                     temp_program.func_index.insert(synthetic_id, func_idx);
 
                     let func_name = format!("letrec_{}", func_idx);
-                    let mut inner = FnLower::new(func_name, synthetic_id, format!("letrec_{}", synthetic_id.0), &mut temp_program, self.interner, self.globals_map);
+                    let mut inner = FnLower::new(func_name, synthetic_id, format!("letrec_{}", synthetic_id.0), &mut temp_program, self.interner, self.globals_map, self.name_binder_map, self.binder_func_id_map);
 
                     // Capture outer variables.
                     for &(binder_id, _outer_var) in &outer_captures {
@@ -515,7 +619,7 @@ impl<'a> FnLower<'a> {
 
                     let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
                     let func_name = format!("closure_{}", temp_program.functions.len());
-                    let mut inner = FnLower::new(func_name, synthetic_id, format!("lambda_{}", synthetic_id.0), &mut temp_program, self.interner, self.globals_map);
+                    let mut inner = FnLower::new(func_name, synthetic_id, format!("lambda_{}", synthetic_id.0), &mut temp_program, self.interner, self.globals_map, self.name_binder_map, self.binder_func_id_map);
 
                     // Map captured variables: create fresh LirVars inside the inner
                     // function, mark them as capture_vars (→ OpGetFree in emitter).
@@ -573,8 +677,8 @@ impl<'a> FnLower<'a> {
                     }
                     _ => None,
                 };
-                if let Some(name) = resolved_name {
-                    if let Some(op) = resolve_library_primop(&name, args.len()) {
+                if let Some(ref name) = resolved_name {
+                    if let Some(op) = resolve_library_primop(name, args.len()) {
                         let arg_vars: Vec<LirVar> =
                             args.iter().map(|a| self.lower_expr(a)).collect();
                         let dst = self.fresh_var();
@@ -587,8 +691,58 @@ impl<'a> FnLower<'a> {
                     }
                 }
 
-                let func_var = self.lower_expr(func);
+                // Check if func is an ADT constructor applied to arguments.
+                // e.g. JumpNext(hit+1, c, Rgt) in an AetherCall.
+                if let Some(ref name) = resolved_name {
+                    if let Some(&ctor_tag) = self.program.constructor_tags.get(name.as_str()) {
+                        let arg_vars: Vec<LirVar> =
+                            args.iter().map(|a| self.lower_expr(a)).collect();
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::MakeCtor {
+                            dst,
+                            ctor_tag,
+                            ctor_name: Some(name.clone()),
+                            fields: arg_vars,
+                        });
+                        return dst;
+                    }
+                }
+
+                // Detect known direct calls BEFORE lowering func.
+                // If func is a Var with a binder in binder_func_id_map,
+                // emit a Direct call without creating a closure.
+                let direct_func_id = match func.as_ref() {
+                    CoreExpr::Var { var, .. } if var.binder.is_some() => {
+                        var.binder.and_then(|bid| self.binder_func_id_map.get(&bid).copied())
+                    }
+                    _ => None,
+                };
+
                 let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
+
+                if let Some(func_id) = direct_func_id {
+                    // Direct call — no closure needed (GHC-style known call).
+                    let cont_idx = self.new_block();
+                    let cont_id = BlockId(cont_idx as u32);
+                    let result = self.fresh_var();
+                    self.func.blocks[cont_idx].params.push(result);
+
+                    // Use a dummy var for func (not needed in direct calls).
+                    let dummy = self.fresh_var();
+                    self.emit(LirInstr::Const { dst: dummy, value: LirConst::None });
+
+                    self.set_terminator(LirTerminator::Call {
+                        dst: result,
+                        func: dummy,
+                        args: arg_vars,
+                        cont: cont_id,
+                        kind: CallKind::Direct { func_id },
+                    });
+                    self.switch_to_block(cont_idx);
+                    return result;
+                }
+
+                let func_var = self.lower_expr(func);
 
                 // If func_var was produced by a GetGlobal for a known library
                 // function, emit a direct PrimCall instead of a closure Call.
@@ -604,6 +758,8 @@ impl<'a> FnLower<'a> {
                     }
                 }
 
+                let call_kind = CallKind::Indirect;
+
                 // Emit a Call.  The continuation block receives the result.
                 let cont_idx = self.new_block();
                 let cont_id = BlockId(cont_idx as u32);
@@ -615,6 +771,7 @@ impl<'a> FnLower<'a> {
                     func: func_var,
                     args: arg_vars,
                     cont: cont_id,
+                    kind: call_kind,
                 });
 
                 self.switch_to_block(cont_idx);
@@ -642,8 +799,17 @@ impl<'a> FnLower<'a> {
             }
 
             CoreExpr::MemberAccess { object, member, .. } => {
-                // Qualified member access (e.g. Array.sort).  Try to resolve
-                // "<object_name>.<member_name>" in the globals map.
+                // Qualified member access (e.g. Array.sort, T.hello).
+                //
+                // Resolution strategy:
+                // 1. If globals_map is available (bytecode VM path), look up
+                //    the qualified/unqualified name in the globals table.
+                // 2. If no globals_map (LLVM native path), check if the member
+                //    has a binder registered in the env (from pre-registered
+                //    top-level binders).  This handles cross-module references
+                //    in the merged program.
+                // 3. Fallback: lower the object expression.
+
                 if let Some(globals) = self.globals_map {
                     let member_str = self.resolve_name(*member);
                     // Try resolving with the object's name as prefix.
@@ -669,6 +835,29 @@ impl<'a> FnLower<'a> {
                         return dst;
                     }
                 }
+
+                // No globals_map (LLVM native path): resolve via binder env
+                // or binder_func_id_map (lazy closure creation).
+                if let Some(binders) = self.name_binder_map.get(member) {
+                    for &bid in binders {
+                        if let Some(&lir_var) = self.env.get(&bid) {
+                            return lir_var;
+                        }
+                        // Not in env — create closure lazily for top-level function.
+                        if let Some(&func_id) = self.binder_func_id_map.get(&bid) {
+                            let var = self.fresh_var();
+                            self.emit(LirInstr::MakeClosure {
+                                dst: var,
+                                func_id,
+                                captures: Vec::new(),
+                            });
+                            self.bind(bid, var);
+                            self.direct_func_vars.insert(var, func_id);
+                            return var;
+                        }
+                    }
+                }
+
                 // Fallback: lower the object and ignore the member.
                 let obj = self.lower_expr(object);
                 let dst = self.fresh_var();
@@ -1277,10 +1466,14 @@ impl<'a> FnLower<'a> {
             }
             CoreTag::Named(name) => {
                 let ctor_name = self.resolve_name(*name);
+                let ctor_tag = self.program.constructor_tags
+                    .get(&ctor_name)
+                    .copied()
+                    .unwrap_or(FIRST_USER_TAG_ID as i32);
                 let dst = self.fresh_var();
                 self.emit(LirInstr::MakeCtor {
                     dst,
-                    ctor_tag: FIRST_USER_TAG_ID as i32,
+                    ctor_tag,
                     ctor_name: Some(ctor_name),
                     fields: field_vars,
                 });
@@ -1311,7 +1504,13 @@ impl<'a> FnLower<'a> {
             CoreTag::Left => LEFT_TAG_ID as i32,
             CoreTag::Right => RIGHT_TAG_ID as i32,
             CoreTag::Cons => CONS_TAG_ID as i32,
-            CoreTag::Named(_) => FIRST_USER_TAG_ID as i32,
+            CoreTag::Named(name) => {
+                let ctor_name = self.resolve_name(*name);
+                self.program.constructor_tags
+                    .get(&ctor_name)
+                    .copied()
+                    .unwrap_or(FIRST_USER_TAG_ID as i32)
+            }
             CoreTag::None | CoreTag::Nil => {
                 // None/Nil are immediates — no allocation to reuse.
                 let dst = self.fresh_var();
@@ -1335,9 +1534,12 @@ impl<'a> FnLower<'a> {
         };
 
         let reuse_ptr = self.fresh_var();
+        // Size: 8 (ADT header: tag + field_count) + 8 * nfields
+        let alloc_size = (ADT_HEADER_SIZE as u32) + (field_vars.len() as u32) * 8;
         self.emit(LirInstr::DropReuse {
             dst: reuse_ptr,
             val: token_var,
+            size: alloc_size,
         });
 
         // Branch: if reuse_ptr != 0, reuse; else fresh alloc.
@@ -1513,6 +1715,7 @@ fn lower_def(
     top_level_binders: &[CoreBinderId],
     binder_func_map: &HashMap<CoreBinderId, LirFuncId>,
     qualified_names: &HashMap<CoreBinderId, String>,
+    name_binder_map: &HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
     interner: Option<&Interner>,
     globals_map: Option<&HashMap<String, usize>>,
 ) -> LirFunction {
@@ -1522,22 +1725,15 @@ fn lower_def(
         .get(&def.binder.id)
         .cloned()
         .unwrap_or_else(|| debug_name.clone());
-    let mut ctx = FnLower::new(debug_name, func_id, qualified_name, program, interner, globals_map);
+    let mut ctx = FnLower::new(debug_name, func_id, qualified_name, program, interner, globals_map, name_binder_map, binder_func_map);
 
-    // Pre-register top-level binders that are callable functions.
-    // Only binders in binder_func_map have compiled functions — skip the rest
-    // (e.g., main's own binder) to avoid wasting variable slots.
-    for &binder_id in top_level_binders {
-        if !ctx.env.contains_key(&binder_id) && let Some(&func_id) = binder_func_map.get(&binder_id) {
-            let var = ctx.fresh_var();
-            ctx.emit(LirInstr::MakeClosure {
-                dst: var,
-                func_id,
-                captures: Vec::new(),
-            });
-            ctx.bind(binder_id, var);
-        }
-    }
+    // Register top-level binders for direct call resolution.
+    // Unlike the old approach (which created MakeClosure for every sibling),
+    // we only record the binder→func_id mapping.  Closures are created lazily
+    // in lower_expr(Var) only when a function is used as a higher-order value.
+    // Direct calls (CallKind::Direct) don't need closure objects at all.
+    // This follows GHC's approach: known calls are free, closures are only
+    // created when functions escape as values.
 
     // If the def is a lambda, register its parameters.
     let body = match &def.expr {
@@ -1639,7 +1835,7 @@ fn display_instr(instr: &LirInstr) -> String {
         LirInstr::Dup { val } => format!("dup {val}"),
         LirInstr::Drop { val } => format!("drop {val}"),
         LirInstr::IsUnique { dst, val } => format!("{dst} = is_unique({val})"),
-        LirInstr::DropReuse { dst, val } => format!("{dst} = drop_reuse({val})"),
+        LirInstr::DropReuse { dst, val, size } => format!("{dst} = drop_reuse({val}, size={size})"),
         LirInstr::MakeClosure {
             dst,
             func_id,
@@ -1694,13 +1890,15 @@ fn display_terminator(term: &LirTerminator) -> String {
                 .collect();
             format!("switch {scrutinee} [{}, default -> {default}]", cases_str.join(", "))
         }
-        LirTerminator::TailCall { func, args } => {
+        LirTerminator::TailCall { func, args, kind } => {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
-            format!("tailcall {func}({})", args_str.join(", "))
+            let kind_str = match kind { CallKind::Direct { func_id } => format!(" [direct {}]", func_id), CallKind::Indirect => String::new() };
+            format!("tailcall {func}({}){kind_str}", args_str.join(", "))
         }
-        LirTerminator::Call { dst, func, args, cont } => {
+        LirTerminator::Call { dst, func, args, cont, kind } => {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
-            format!("{dst} = call {func}({}) -> {cont}", args_str.join(", "))
+            let kind_str = match kind { CallKind::Direct { func_id } => format!(" [direct {}]", func_id), CallKind::Indirect => String::new() };
+            format!("{dst} = call {func}({}){kind_str} -> {cont}", args_str.join(", "))
         }
         LirTerminator::MatchCtor { scrutinee, arms, default } => {
             let arms_str: Vec<String> = arms
