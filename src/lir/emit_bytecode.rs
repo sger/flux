@@ -696,10 +696,18 @@ impl<'a> FnEmitter<'a> {
                 func,
                 args,
                 cont,
-                kind: _, // VM ignores CallKind — all calls go through OpCall
+                kind,
             } => {
                 // Push function, then args, then OpCall.
-                self.push_var(*func);
+                // For direct calls, load the closure from the constants pool
+                // instead of the (dummy None) func variable.
+                if let CallKind::Direct { func_id } = kind
+                    && let Some(&const_idx) = self.func_const_indices.get(func_id)
+                {
+                    self.emit_op(OpCode::OpClosure, &[const_idx, 0]);
+                } else {
+                    self.push_var(*func);
+                }
                 for &arg in args {
                     self.push_var(arg);
                 }
@@ -711,8 +719,14 @@ impl<'a> FnEmitter<'a> {
                 self.jump_patches.push((patch_pos, *cont));
             }
 
-            LirTerminator::TailCall { func, args, kind: _ } => {
-                self.push_var(*func);
+            LirTerminator::TailCall { func, args, kind } => {
+                if let CallKind::Direct { func_id } = kind
+                    && let Some(&const_idx) = self.func_const_indices.get(func_id)
+                {
+                    self.emit_op(OpCode::OpClosure, &[const_idx, 0]);
+                } else {
+                    self.push_var(*func);
+                }
                 for &arg in args {
                     self.push_var(arg);
                 }
@@ -800,16 +814,13 @@ impl<'a> FnEmitter<'a> {
                                 self.pop_into(field_binders[0]);
                             }
                             // Cons: extract head and tail via OpConsHead/OpConsTail.
+                            // These opcodes push the raw value directly (not Some-wrapped).
                             CtorTag::Cons if field_binders.len() == 2 => {
                                 self.push_var(*scrutinee);
                                 self.emit_op(OpCode::OpConsHead, &[]);
-                                // OpConsHead pushes Some(head) — unwrap it.
-                                self.emit_op(OpCode::OpUnwrapSome, &[]);
                                 self.pop_into(field_binders[0]);
                                 self.push_var(*scrutinee);
                                 self.emit_op(OpCode::OpConsTail, &[]);
-                                // OpConsTail pushes Some(tail) — unwrap it.
-                                self.emit_op(OpCode::OpUnwrapSome, &[]);
                                 self.pop_into(field_binders[1]);
                             }
                             // Tuple: use OpTupleIndex for each field.
