@@ -548,7 +548,7 @@ impl<'a> FnEmitter<'a> {
                 self.emit_op(OpCode::OpIsUnique, &[]);
                 self.pop_into(*dst);
             }
-            LirInstr::DropReuse { dst, val } => {
+            LirInstr::DropReuse { dst, val, size: _ } => {
                 // The reuse path (Store/TagPtr) cannot work with the VM's
                 // Rust-heap values — it's designed for the LLVM backend's C-heap
                 // memory model.  Always return "not unique" (Tagged(0) = null
@@ -696,6 +696,7 @@ impl<'a> FnEmitter<'a> {
                 func,
                 args,
                 cont,
+                kind: _, // VM ignores CallKind — all calls go through OpCall
             } => {
                 // Push function, then args, then OpCall.
                 self.push_var(*func);
@@ -710,7 +711,7 @@ impl<'a> FnEmitter<'a> {
                 self.jump_patches.push((patch_pos, *cont));
             }
 
-            LirTerminator::TailCall { func, args } => {
+            LirTerminator::TailCall { func, args, kind: _ } => {
                 self.push_var(*func);
                 for &arg in args {
                     self.push_var(arg);
