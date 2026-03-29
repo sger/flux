@@ -200,7 +200,11 @@ pub enum LirInstr {
     ///
     /// High-level instruction: the bytecode emitter maps this to `OpTupleIndex`,
     /// the LLVM emitter expands to UntagPtr + Load at the field offset.
-    TupleGet { dst: LirVar, tuple: LirVar, index: usize },
+    TupleGet {
+        dst: LirVar,
+        tuple: LirVar,
+        index: usize,
+    },
 
     // ── Constructor creation ────────────────────────────────────────
     /// Build a constructor value from a tag and fields.
@@ -254,7 +258,11 @@ pub enum LirTerminator {
         default: BlockId,
     },
     /// Tail call (reuses the current stack frame).
-    TailCall { func: LirVar, args: Vec<LirVar>, kind: CallKind },
+    TailCall {
+        func: LirVar,
+        args: Vec<LirVar>,
+        kind: CallKind,
+    },
     /// Non-tail function call with a continuation block.
     /// The result is bound to `dst` in `cont`.
     Call {

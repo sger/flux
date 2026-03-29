@@ -4,8 +4,8 @@ use flux::bytecode::{
     compiler::Compiler,
     op_code::{OpCode, make},
 };
-use flux::diagnostics::{DiagnosticsAggregator, render_diagnostics};
 use flux::core::CorePrimOp;
+use flux::diagnostics::{DiagnosticsAggregator, render_diagnostics};
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::module_graph::ModuleGraph;
@@ -64,19 +64,20 @@ fn compile_program(input: &str, with_prelude: bool) -> Result<Bytecode, String> 
         workspace_root.join("lib"),
         workspace_root.join("src"),
     ];
-    let graph_result = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &roots);
+    let graph_result =
+        ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &roots);
     if !graph_result.diagnostics.is_empty() {
-        return Err(
-            DiagnosticsAggregator::new(&graph_result.diagnostics)
-                .with_default_source(entry_path.to_string_lossy(), full_source)
-                .with_file_headers(false)
-                .report()
-                .rendered,
-        );
+        return Err(DiagnosticsAggregator::new(&graph_result.diagnostics)
+            .with_default_source(entry_path.to_string_lossy(), full_source)
+            .with_file_headers(false)
+            .report()
+            .rendered);
     }
 
-    let mut compiler =
-        Compiler::new_with_interner(entry_path.to_string_lossy().to_string(), graph_result.interner);
+    let mut compiler = Compiler::new_with_interner(
+        entry_path.to_string_lossy().to_string(),
+        graph_result.interner,
+    );
     for node in graph_result.graph.topo_order() {
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         if let Err(diags) = compiler.compile(&node.program) {
@@ -908,7 +909,9 @@ fn test_base_map_empty() {
 #[test]
 fn test_base_map_with_base_callback() {
     assert_eq!(
-        run("import Flow.List as L\nL.fold(L.map([1, 2, 3], \\x -> to_string(x)), \"\", fn(a, x) { a + x });"),
+        run(
+            "import Flow.List as L\nL.fold(L.map([1, 2, 3], \\x -> to_string(x)), \"\", fn(a, x) { a + x });"
+        ),
         Value::String("123".to_string().into())
     );
 }
@@ -1038,7 +1041,10 @@ fn test_filter_type_error() {
 #[test]
 fn test_fold_type_error() {
     // fold now operates on cons lists; passing an integer just returns the accumulator
-    assert_eq!(run("import Flow.List as L\nL.fold(42, 0, fn(a, x) { a + x });"), Value::Integer(0));
+    assert_eq!(
+        run("import Flow.List as L\nL.fold(42, 0, fn(a, x) { a + x });"),
+        Value::Integer(0)
+    );
 }
 
 #[test]
@@ -1334,14 +1340,23 @@ fn test_cons_syntax() {
 #[test]
 fn test_cons_first_rest() {
     assert_eq!(run("unwrap(first([1 | [2 | []]]));"), Value::Integer(1));
-    assert_eq!(run("unwrap(first(rest([1 | [2 | []]])));"), Value::Integer(2));
+    assert_eq!(
+        run("unwrap(first(rest([1 | [2 | []]])));"),
+        Value::Integer(2)
+    );
 }
 
 #[test]
 fn test_list_constructor() {
     assert_eq!(run("unwrap(first(list(10, 20, 30)));"), Value::Integer(10));
-    assert_eq!(run("unwrap(first(rest(list(10, 20, 30))));"), Value::Integer(20));
-    assert_eq!(run("unwrap(first(rest(rest(list(10, 20, 30)))));"), Value::Integer(30));
+    assert_eq!(
+        run("unwrap(first(rest(list(10, 20, 30))));"),
+        Value::Integer(20)
+    );
+    assert_eq!(
+        run("unwrap(first(rest(rest(list(10, 20, 30)))));"),
+        Value::Integer(30)
+    );
 }
 
 #[test]
@@ -1402,10 +1417,19 @@ fn test_list_is_list() {
 
 #[test]
 fn test_list_phase_1b_slicing_and_span() {
-    assert_eq!(run("to_string(take([1, 2, 3, 4], 2));"), make_string("[1, 2]"));
-    assert_eq!(run("to_string(drop([1, 2, 3, 4], 2));"), make_string("[3, 4]"));
+    assert_eq!(
+        run("to_string(take([1, 2, 3, 4], 2));"),
+        make_string("[1, 2]")
+    );
+    assert_eq!(
+        run("to_string(drop([1, 2, 3, 4], 2));"),
+        make_string("[3, 4]")
+    );
     assert_eq!(run("to_string(take([1, 2, 3], 0));"), make_string("[]"));
-    assert_eq!(run("to_string(drop([1, 2, 3], -1));"), make_string("[1, 2, 3]"));
+    assert_eq!(
+        run("to_string(drop([1, 2, 3], -1));"),
+        make_string("[1, 2, 3]")
+    );
     assert_eq!(run("to_string(take([1, 2], 10));"), make_string("[1, 2]"));
     assert_eq!(
         run("to_string(take_while([1, 2, 3, 1], fn(x) { x < 3 }));"),
@@ -1431,7 +1455,10 @@ fn test_list_phase_1b_folds_scans_and_builders() {
         run(r#"foldr(["a", "b", "c"], "", fn(x, acc) { x + acc });"#),
         make_string("abc")
     );
-    assert_eq!(run("fold1([2, 3, 4], fn(a, b) { a * b });"), Value::Integer(24));
+    assert_eq!(
+        run("fold1([2, 3, 4], fn(a, b) { a * b });"),
+        Value::Integer(24)
+    );
     assert_eq!(
         run("to_string(scanl([1, 2, 3], 0, fn(acc, x) { acc + x }));"),
         make_string("[0, 1, 3, 6]")
@@ -1440,10 +1467,7 @@ fn test_list_phase_1b_folds_scans_and_builders() {
         run("to_string(scanr([1, 2, 3], 0, fn(x, acc) { x + acc }));"),
         make_string("[6, 5, 3, 0]")
     );
-    assert_eq!(
-        run("to_string(replicate(3, 9));"),
-        make_string("[9, 9, 9]")
-    );
+    assert_eq!(run("to_string(replicate(3, 9));"), make_string("[9, 9, 9]"));
     assert_eq!(
         run("to_string(iterate(1, fn(x) { x * 2 }, 4));"),
         make_string("[1, 2, 4, 8]")
@@ -1513,14 +1537,32 @@ fn test_list_phase_1b_utilities_and_sorting() {
     assert_eq!(run("null([]);"), Value::Boolean(true));
     assert_eq!(run("null([1]);"), Value::Boolean(false));
     assert_eq!(run("to_string(init([1, 2, 3]));"), make_string("[1, 2]"));
-    assert_eq!(run("to_string(nth([10, 20, 30], 1));"), make_string("Some(20)"));
-    assert_eq!(run("to_string(nth([10, 20, 30], 99));"), make_string("None"));
-    assert_eq!(run("to_string(nth([10, 20, 30], -1));"), make_string("None"));
-    assert_eq!(run("to_string(maximum([3, 9, 4]));"), make_string("Some(9)"));
-    assert_eq!(run("to_string(minimum([3, 9, 4]));"), make_string("Some(3)"));
+    assert_eq!(
+        run("to_string(nth([10, 20, 30], 1));"),
+        make_string("Some(20)")
+    );
+    assert_eq!(
+        run("to_string(nth([10, 20, 30], 99));"),
+        make_string("None")
+    );
+    assert_eq!(
+        run("to_string(nth([10, 20, 30], -1));"),
+        make_string("None")
+    );
+    assert_eq!(
+        run("to_string(maximum([3, 9, 4]));"),
+        make_string("Some(9)")
+    );
+    assert_eq!(
+        run("to_string(minimum([3, 9, 4]));"),
+        make_string("Some(3)")
+    );
     assert_eq!(run("to_string(maximum([]));"), make_string("None"));
     assert_eq!(run("to_string(minimum([]));"), make_string("None"));
-    assert_eq!(run("to_string(sort([3, 1, 4, 1, 2]));"), make_string("[1, 1, 2, 3, 4]"));
+    assert_eq!(
+        run("to_string(sort([3, 1, 4, 1, 2]));"),
+        make_string("[1, 1, 2, 3, 4]")
+    );
     assert_eq!(
         run("to_string(sort_by([\"bbb\", \"a\", \"cc\"], fn(x) { len(x) }));"),
         make_string("[\"a\", \"cc\", \"bbb\"]")

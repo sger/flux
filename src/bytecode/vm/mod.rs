@@ -543,10 +543,7 @@ impl VM {
     /// Used by the LIR execution path to transfer CFG-compiled constants
     /// (prelude function closures) into the LIR VM.
     pub fn export_constants(&self) -> Vec<Value> {
-        self.constants
-            .iter()
-            .map(slot::from_slot_ref)
-            .collect()
+        self.constants.iter().map(slot::from_slot_ref).collect()
     }
 
     /// Swap the VM's globals with an external `Vec<Value>` buffer.
