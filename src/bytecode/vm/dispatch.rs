@@ -549,6 +549,21 @@ impl VM {
                 self.execute_call_self(num_args)?;
                 Ok(2)
             }
+            OpCode::OpCallDirect => {
+                // Direct call: [const_idx: u16, num_args: u8].
+                // Load function from constants pool, no callee on stack.
+                let const_idx = Self::read_u16_fast(instructions, ip + 1) as usize;
+                let num_args = Self::read_u8_fast(instructions, ip + 3);
+                self.execute_call_direct(const_idx, num_args)?;
+                Ok(4)
+            }
+            OpCode::OpTailCallDirect => {
+                // Direct tail call: [const_idx: u16, num_args: u8].
+                let const_idx = Self::read_u16_fast(instructions, ip + 1) as usize;
+                let num_args = Self::read_u8_fast(instructions, ip + 3);
+                self.execute_tail_call_direct(const_idx, num_args)?;
+                Ok(4)
+            }
             OpCode::OpCallBase => {
                 // OpCallBase is no longer emitted by the compiler.
                 // Base functions are resolved as module members from lib/Flow/.
