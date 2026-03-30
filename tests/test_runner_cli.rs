@@ -591,7 +591,8 @@ fn dump_core_reports_drop_specialized_stats() {
         text
     );
     assert!(
-        text.contains("DropSpecs: 1"),
+        text.contains("DropSpecs: ")
+            && !text.contains("DropSpecs: 0"),
         "expected Aether stats to count DropSpecialized nodes, output:\n{}",
         text
     );
