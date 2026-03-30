@@ -373,58 +373,52 @@ fn plan_expr(
 
             let alts = branch_plans
                 .into_iter()
-                .map(
-                    |(pat, guard, rhs, alt_span, env_without_pats)| {
-                        let compensation: Vec<_> = joined
-                            .owned
-                            .iter()
-                            .copied()
-                            .filter(|binder_id| {
-                                !env_without_pats.is_live(*binder_id)
-                                    && !tail_env.is_live(*binder_id)
-                            })
-                            .filter(|binder_id| {
-                                let Some((parent_id, _)) = field_parents.get(binder_id).cloned()
-                                else {
-                                    return true;
-                                };
-                                !env_without_pats.is_live(parent_id)
-                                    && !expr_uses_binder(&rhs, parent_id)
-                            })
-                            .filter(|binder_id| {
-                                let mut child_tag = None;
-                                let child_used = field_parents.iter().any(
-                                    |(child_id, (parent_id, tag))| {
-                                        let used = *parent_id == *binder_id
-                                            && (env_without_pats.is_live(*child_id)
-                                                || expr_uses_binder(&rhs, *child_id));
-                                        if used && child_tag.is_none() {
-                                            child_tag = tag.clone();
-                                        }
-                                        used
-                                    },
-                                );
-                                !child_used
-                                    || child_tag
-                                        .is_some_and(|tag| rhs_has_compatible_tag(&rhs, &tag))
-                            })
-                            .filter(|binder_id| !expr_uses_binder(&rhs, *binder_id))
-                            .filter(|binder_id| !expr_drops_binder(&rhs, *binder_id))
-                            .filter_map(|binder_id| scope.get(&binder_id).copied())
-                            .collect();
-                        let rhs = compensation
-                            .into_iter()
-                            .rev()
-                            .fold(rhs, |body, binder| wrap_drop(binder, body, alt_span));
+                .map(|(pat, guard, rhs, alt_span, env_without_pats)| {
+                    let compensation: Vec<_> = joined
+                        .owned
+                        .iter()
+                        .copied()
+                        .filter(|binder_id| {
+                            !env_without_pats.is_live(*binder_id) && !tail_env.is_live(*binder_id)
+                        })
+                        .filter(|binder_id| {
+                            let Some((parent_id, _)) = field_parents.get(binder_id).cloned() else {
+                                return true;
+                            };
+                            !env_without_pats.is_live(parent_id)
+                                && !expr_uses_binder(&rhs, parent_id)
+                        })
+                        .filter(|binder_id| {
+                            let mut child_tag = None;
+                            let child_used =
+                                field_parents.iter().any(|(child_id, (parent_id, tag))| {
+                                    let used = *parent_id == *binder_id
+                                        && (env_without_pats.is_live(*child_id)
+                                            || expr_uses_binder(&rhs, *child_id));
+                                    if used && child_tag.is_none() {
+                                        child_tag = tag.clone();
+                                    }
+                                    used
+                                });
+                            !child_used
+                                || child_tag.is_some_and(|tag| rhs_has_compatible_tag(&rhs, &tag))
+                        })
+                        .filter(|binder_id| !expr_uses_binder(&rhs, *binder_id))
+                        .filter(|binder_id| !expr_drops_binder(&rhs, *binder_id))
+                        .filter_map(|binder_id| scope.get(&binder_id).copied())
+                        .collect();
+                    let rhs = compensation
+                        .into_iter()
+                        .rev()
+                        .fold(rhs, |body, binder| wrap_drop(binder, body, alt_span));
 
-                        CoreAlt {
-                            pat,
-                            guard,
-                            rhs,
-                            span: alt_span,
-                        }
-                    },
-                )
+                    CoreAlt {
+                        pat,
+                        guard,
+                        rhs,
+                        span: alt_span,
+                    }
+                })
                 .collect();
 
             let scrutinee_plan = plan_expr(
@@ -869,7 +863,8 @@ fn has_compatible_con(pat: &crate::core::CorePat, rhs: &CoreExpr) -> bool {
 }
 
 fn rhs_has_compatible_tag(rhs: &CoreExpr, tag: &CoreTag) -> bool {
-    find_con_tag_in_spine(rhs, Some(tag)).is_some_and(|ref con_tag| tags_shape_compatible(tag, con_tag))
+    find_con_tag_in_spine(rhs, Some(tag))
+        .is_some_and(|ref con_tag| tags_shape_compatible(tag, con_tag))
 }
 
 fn find_con_tag_in_spine(

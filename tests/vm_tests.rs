@@ -1341,19 +1341,13 @@ fn test_cons_syntax() {
 #[test]
 fn test_cons_first_rest() {
     assert_eq!(run("first([1 | [2 | []]]);"), Value::Integer(1));
-    assert_eq!(
-        run("first(rest([1 | [2 | []]]));"),
-        Value::Integer(2)
-    );
+    assert_eq!(run("first(rest([1 | [2 | []]]));"), Value::Integer(2));
 }
 
 #[test]
 fn test_list_constructor() {
     assert_eq!(run("first(list(10, 20, 30));"), Value::Integer(10));
-    assert_eq!(
-        run("first(rest(list(10, 20, 30)));"),
-        Value::Integer(20)
-    );
+    assert_eq!(run("first(rest(list(10, 20, 30)));"), Value::Integer(20));
     assert_eq!(
         run("first(rest(rest(list(10, 20, 30))));"),
         Value::Integer(30)
@@ -1369,10 +1363,7 @@ fn test_list_len() {
 #[test]
 fn test_list_first_rest() {
     assert_eq!(run("first(list(10, 20));"), Value::Integer(10));
-    assert_eq!(
-        run("first(rest(list(10, 20, 30)));"),
-        Value::Integer(20)
-    );
+    assert_eq!(run("first(rest(list(10, 20, 30)));"), Value::Integer(20));
 }
 
 #[test]
