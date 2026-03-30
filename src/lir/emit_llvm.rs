@@ -839,6 +839,43 @@ impl<'a> FnEmitter<'a> {
                     });
                 }
             }
+            LirInstr::StoreI32 { ptr, offset, value } => {
+                let raw_ptr = self.tmp();
+                self.emit(LlvmInstr::Cast {
+                    dst: raw_ptr.clone(),
+                    op: LlvmValueKind::IntToPtr,
+                    from_ty: LlvmType::i64(),
+                    operand: self.var(*ptr),
+                    to_ty: LlvmType::Ptr,
+                });
+                let store_val = LlvmOperand::Const(LlvmConst::Int {
+                    bits: 32,
+                    value: (*value) as i128,
+                });
+                if *offset != 0 {
+                    let gep = self.tmp();
+                    self.emit(LlvmInstr::GetElementPtr {
+                        dst: gep.clone(),
+                        inbounds: true,
+                        element_ty: LlvmType::i8(),
+                        base: LlvmOperand::Local(raw_ptr),
+                        indices: vec![(LlvmType::i32(), self.i32_const(*offset))],
+                    });
+                    self.emit(LlvmInstr::Store {
+                        ty: LlvmType::i32(),
+                        value: store_val,
+                        ptr: LlvmOperand::Local(gep),
+                        align: Some(4),
+                    });
+                } else {
+                    self.emit(LlvmInstr::Store {
+                        ty: LlvmType::i32(),
+                        value: store_val,
+                        ptr: LlvmOperand::Local(raw_ptr),
+                        align: Some(4),
+                    });
+                }
+            }
             LirInstr::Alloc { dst, size, .. } => {
                 let ptr_tmp = self.tmp();
                 self.call_c(
@@ -1781,6 +1818,15 @@ impl<'a> FnEmitter<'a> {
                     ty: LlvmType::i64(),
                     ptr: LlvmOperand::Local(ptr_tmp),
                     align: Some(8),
+                });
+                extract_instrs.push(LlvmInstr::Call {
+                    dst: None,
+                    tail: false,
+                    call_conv: Some(CallConv::Ccc),
+                    ret_ty: LlvmType::Void,
+                    callee: LlvmOperand::Global(GlobalId("flux_dup".to_string())),
+                    args: vec![(LlvmType::i64(), this.var(*binder))],
+                    attrs: Vec::new(),
                 });
             }
 

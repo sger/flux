@@ -1884,27 +1884,10 @@ impl<'a> FnLower<'a> {
             v
         };
 
-        let reuse_ptr = self.fresh_var();
-        // Size: 8 (ADT header: tag + field_count) + 8 * nfields
-        let alloc_size = (ADT_HEADER_SIZE as u32) + (field_vars.len() as u32) * 8;
-        self.emit(LirInstr::DropReuse {
-            dst: reuse_ptr,
-            val: token_var,
-            size: alloc_size,
-        });
-
-        // Branch: if reuse_ptr != 0, reuse; else fresh alloc.
         let is_reusable = self.fresh_var();
-        let null = self.fresh_var();
-        self.emit(LirInstr::Const {
-            dst: null,
-            value: LirConst::Tagged(0),
-        });
-        self.emit(LirInstr::ICmp {
+        self.emit(LirInstr::IsUnique {
             dst: is_reusable,
-            op: CmpOp::Ne,
-            a: reuse_ptr,
-            b: null,
+            val: token_var,
         });
 
         let reuse_idx = self.new_block();
@@ -1925,25 +1908,20 @@ impl<'a> FnLower<'a> {
 
         // Reuse path: write header + fields into existing allocation.
         self.switch_to_block(reuse_idx);
-        let tag_val = self.fresh_var();
-        self.emit(LirInstr::Const {
-            dst: tag_val,
-            value: LirConst::Tagged(ctor_tag as i64),
+        let reuse_ptr = self.fresh_var();
+        self.emit(LirInstr::UntagPtr {
+            dst: reuse_ptr,
+            val: token_var,
         });
-        self.emit(LirInstr::Store {
+        self.emit(LirInstr::StoreI32 {
             ptr: reuse_ptr,
             offset: 0,
-            val: tag_val,
+            value: ctor_tag,
         });
-        let count_val = self.fresh_var();
-        self.emit(LirInstr::Const {
-            dst: count_val,
-            value: LirConst::Tagged(field_vars.len() as i64),
-        });
-        self.emit(LirInstr::Store {
+        self.emit(LirInstr::StoreI32 {
             ptr: reuse_ptr,
             offset: 4,
-            val: count_val,
+            value: field_vars.len() as i32,
         });
         for (i, fv) in field_vars.iter().enumerate() {
             // If field_mask is set, skip unchanged fields on the reuse path.
@@ -1968,6 +1946,7 @@ impl<'a> FnLower<'a> {
 
         // Fresh alloc path — use MakeCtor (high-level).
         self.switch_to_block(fresh_idx);
+        self.emit(LirInstr::Drop { val: token_var });
         let ctor_name = match tag {
             CoreTag::Named(name) => Some(self.resolve_name(*name)),
             _ => None,
@@ -2184,6 +2163,9 @@ fn display_instr(instr: &LirInstr) -> String {
     match instr {
         LirInstr::Load { dst, ptr, offset } => format!("{dst} = load {ptr}[{offset}]"),
         LirInstr::Store { ptr, offset, val } => format!("store {ptr}[{offset}] = {val}"),
+        LirInstr::StoreI32 { ptr, offset, value } => {
+            format!("store_i32 {ptr}[{offset}] = {value}")
+        }
         LirInstr::Alloc {
             dst,
             size,

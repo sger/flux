@@ -8,6 +8,9 @@ use std::fmt;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static NEXT_NATIVE_BUILD_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// Errors from external tool invocation.
 #[derive(Debug)]
@@ -186,11 +189,9 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
         .map(|d| d.join("target").join("native"))
         .filter(|d| d.parent().is_some_and(|p| p.exists()))
         .unwrap_or_else(|| std::env::temp_dir().join("flux_core_to_llvm"));
-    // Clean up stale builds from previous runs to avoid WDAC caching issues.
-    if base_dir.exists() {
-        let _ = std::fs::remove_dir_all(&base_dir);
-    }
-    let dir = base_dir.join(format!("flux_{}", std::process::id()));
+    std::fs::create_dir_all(&base_dir)?;
+    let build_id = NEXT_NATIVE_BUILD_ID.fetch_add(1, Ordering::Relaxed);
+    let dir = base_dir.join(format!("flux_{}_{}", std::process::id(), build_id));
     std::fs::create_dir_all(&dir)?;
 
     let ll_path = dir.join("program.ll");
