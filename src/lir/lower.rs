@@ -13,8 +13,8 @@ use crate::core::{
     CoreProgram, CoreTag, CoreTopLevelItem,
 };
 use crate::lir::*;
-use crate::syntax::interner::Interner;
 use crate::syntax::Identifier;
+use crate::syntax::interner::Interner;
 
 // ── Object layout constants (match runtime/c/flux_rt.h) ──────────────────────
 

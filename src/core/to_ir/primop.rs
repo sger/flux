@@ -318,7 +318,11 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::PerformDirect => {
                 // These are emitted only by the LIR lowerer for the native backend.
                 // Emit a no-op constant for the VM path.
-                self.emit(IrInstr::Assign { dest, expr: crate::cfg::IrExpr::None, metadata: meta });
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: crate::cfg::IrExpr::None,
+                    metadata: meta,
+                });
             }
         }
         dest
