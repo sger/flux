@@ -1,6 +1,5 @@
 ---
 source: tests/core_to_llvm_codegen_snapshots.rs
-assertion_line: 26
 expression: render_module(&module)
 ---
 source_filename = "helpers.flx"
@@ -94,7 +93,7 @@ check_rc:
   %is_one = icmp eq i32 %rc, 1
   ret i1 %is_one
 not_unique:
-  ret i1 1
+  ret i1 0
 }
 
 define internal fastcc i1 @flux_is_thunk(i64 %val) alwaysinline {

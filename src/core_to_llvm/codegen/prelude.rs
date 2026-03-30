@@ -420,8 +420,7 @@ fn emit_drop_reuse(module: &mut LlvmModule) {
 }
 
 /// Emit `flux_rc_is_unique(i64 %val) -> i1`:
-/// Returns true if the value is not heap-allocated, or if it is a heap
-/// pointer with RC == 1.
+/// Returns true only if the value is a heap pointer with RC == 1.
 /// Used by DropSpecialized to branch on uniqueness.
 pub fn emit_rc_is_unique(module: &mut LlvmModule) {
     let name = "flux_rc_is_unique";
@@ -487,7 +486,7 @@ pub fn emit_rc_is_unique(module: &mut LlvmModule) {
                 instrs: vec![],
                 term: LlvmTerminator::Ret {
                     ty: LlvmType::i1(),
-                    value: const_i1_operand(true),
+                    value: const_i1_operand(false),
                 },
             },
         ],

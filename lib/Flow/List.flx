@@ -305,11 +305,11 @@ module Flow.List {
     }
 
     public fn sort(xs) {
-        insertion_sort_by(xs, fn(x) { x })
+        merge_sort_by(xs, fn(x) { x })
     }
 
     public fn sort_by(xs, f) {
-        insertion_sort_by(xs, f)
+        merge_sort_by(xs, f)
     }
 
     public fn first(xs) {
@@ -482,6 +482,24 @@ module Flow.List {
 
     fn delete_go(xs, x) {
         delete_go_acc(xs, x, [])
+    }
+
+    fn delete_go_acc(xs, x, acc) {
+        match xs {
+            [h | t] -> if cmp_eq(h, x) {
+                append(reverse(acc), clone_list(t))
+            } else {
+                delete_go_acc(t, x, [h | acc])
+            },
+            _ -> reverse(acc)
+        }
+    }
+
+    fn clone_list(xs) {
+        match xs {
+            [h | t] -> [h | clone_list(t)],
+            _ -> []
+        }
     }
 
     public fn intersperse(xs, sep) {
@@ -686,24 +704,6 @@ module Flow.List {
         }
     }
 
-    fn insertion_sort_by(xs, key_fn) {
-        match xs {
-            [h | t] -> insert_sorted_by(h, insertion_sort_by(t, key_fn), key_fn),
-            _ -> []
-        }
-    }
-
-    fn insert_sorted_by(x, xs, key_fn) {
-        match xs {
-            [h | t] -> if key_fn(x) <= key_fn(h) {
-                [x | xs]
-            } else {
-                [h | insert_sorted_by(x, t, key_fn)]
-            },
-            _ -> [x]
-        }
-    }
-
     fn zip_go(xs, ys, acc) {
         match xs {
             [a | at] -> match ys {
@@ -721,24 +721,6 @@ module Flow.List {
                 _ -> acc
             },
             _ -> acc
-        }
-    }
-
-    fn delete_go_acc(xs, x, acc) {
-        match xs {
-            [h | t] -> if cmp_eq(h, x) {
-                append(reverse(acc), clone_list(t))
-            } else {
-                delete_go_acc(t, x, [h | acc])
-            },
-            _ -> reverse(acc)
-        }
-    }
-
-    fn clone_list(xs) {
-        match xs {
-            [h | t] -> [h | clone_list(t)],
-            _ -> []
         }
     }
 
