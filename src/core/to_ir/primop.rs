@@ -73,15 +73,12 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Min => "min",
         CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
-        CorePrimOp::First => "first",
-        CorePrimOp::Rest => "rest",
         CorePrimOp::Reverse => "reverse",
         CorePrimOp::Contains => "contains",
         CorePrimOp::Sort => "sort",
         CorePrimOp::SortBy => "sort_by",
         CorePrimOp::HoMap => "map",
         CorePrimOp::HoFilter => "filter",
-        CorePrimOp::Last => "last",
         CorePrimOp::HoAny => "any",
         CorePrimOp::HoAll => "all",
         CorePrimOp::HoEach => "each",
@@ -284,15 +281,12 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::CmpNe
             | CorePrimOp::Try
             | CorePrimOp::AssertThrows
-            | CorePrimOp::First
-            | CorePrimOp::Rest
             | CorePrimOp::Reverse
             | CorePrimOp::Contains
             | CorePrimOp::Sort
             | CorePrimOp::SortBy
             | CorePrimOp::HoMap
             | CorePrimOp::HoFilter
-            | CorePrimOp::Last
             | CorePrimOp::HoAny
             | CorePrimOp::HoAll
             | CorePrimOp::HoEach

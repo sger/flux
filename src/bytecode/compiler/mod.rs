@@ -2496,31 +2496,6 @@ impl Compiler {
         Ok(crate::core_to_llvm::render_module(&module))
     }
 
-    /// Extract import aliases from a program's import statements.
-    /// Returns (alias_name, module_name) pairs as resolved strings.
-    fn extract_import_aliases(&self, program: &Program) -> Vec<(String, String)> {
-        let mut aliases = Vec::new();
-        for stmt in &program.statements {
-            if let Statement::Import {
-                name,
-                alias: Some(alias_sym),
-                ..
-            } = stmt
-            {
-                let module_name = self
-                    .interner
-                    .resolve(crate::syntax::Identifier::from(*name))
-                    .to_string();
-                let alias_name = self
-                    .interner
-                    .resolve(crate::syntax::Identifier::from(*alias_sym))
-                    .to_string();
-                aliases.push((alias_name, module_name));
-            }
-        }
-        aliases
-    }
-
     fn build_globals_map(&self) -> HashMap<String, usize> {
         self.build_globals_map_with_aliases(&[])
     }

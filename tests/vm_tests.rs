@@ -383,11 +383,12 @@ fn make_string(v: &str) -> Value {
 
 #[test]
 fn test_base_array_functions() {
-    // first/last/rest now operate on cons lists
-    assert_eq!(run("first([1, 2, 3]);"), make_some(Value::Integer(1)));
-    assert_eq!(run("last([1, 2, 3]);"), make_some(Value::Integer(3)));
+    // first/last/rest are stdlib functions (Flow.List), not primops.
+    // They return raw values, not Option-wrapped.
+    assert_eq!(run("first([1, 2, 3]);"), Value::Integer(1));
+    assert_eq!(run("last([1, 2, 3]);"), Value::Integer(3));
     assert_eq!(run("len(rest([1, 2, 3]));"), Value::Integer(2));
-    assert_eq!(run("unwrap(first(rest([1, 2, 3])));"), Value::Integer(2));
+    assert_eq!(run("first(rest([1, 2, 3]));"), Value::Integer(2));
     // push still works on arrays
     assert_eq!(
         run("push(#[1, 2], 3);"),
@@ -561,7 +562,7 @@ fn test_pipe_operator() {
     // Pipe with array operations
     assert_eq!(
         run("let getFirst = fn(arr) { first(arr) }; [1, 2, 3] |> getFirst;"),
-        make_some(Value::Integer(1))
+        Value::Integer(1)
     );
 
     // Nested pipe expressions
@@ -1126,7 +1127,7 @@ fn test_map_returns_nested_arrays() {
     );
     // Check first element is array [1, 2]
     assert_eq!(
-        run("let result = map([1, 2], fn(x) { #[x, x * 2] }); len(unwrap(first(result)));"),
+        run("let result = map([1, 2], fn(x) { #[x, x * 2] }); len(first(result));"),
         Value::Integer(2)
     );
 }
@@ -1234,7 +1235,7 @@ fn test_map_with_option_values() {
         Value::Integer(3)
     );
     assert_eq!(
-        run(r#"unwrap(first(map([1, 2, 3], fn(x) { if x == 2 { None } else { Some(x) } })));"#),
+        run(r#"first(map([1, 2, 3], fn(x) { if x == 2 { None } else { Some(x) } }));"#),
         make_some(Value::Integer(1))
     );
 }
@@ -1339,22 +1340,22 @@ fn test_cons_syntax() {
 
 #[test]
 fn test_cons_first_rest() {
-    assert_eq!(run("unwrap(first([1 | [2 | []]]));"), Value::Integer(1));
+    assert_eq!(run("first([1 | [2 | []]]);"), Value::Integer(1));
     assert_eq!(
-        run("unwrap(first(rest([1 | [2 | []]])));"),
+        run("first(rest([1 | [2 | []]]));"),
         Value::Integer(2)
     );
 }
 
 #[test]
 fn test_list_constructor() {
-    assert_eq!(run("unwrap(first(list(10, 20, 30)));"), Value::Integer(10));
+    assert_eq!(run("first(list(10, 20, 30));"), Value::Integer(10));
     assert_eq!(
-        run("unwrap(first(rest(list(10, 20, 30))));"),
+        run("first(rest(list(10, 20, 30)));"),
         Value::Integer(20)
     );
     assert_eq!(
-        run("unwrap(first(rest(rest(list(10, 20, 30)))));"),
+        run("first(rest(rest(list(10, 20, 30))));"),
         Value::Integer(30)
     );
 }
@@ -1367,10 +1368,10 @@ fn test_list_len() {
 
 #[test]
 fn test_list_first_rest() {
-    assert_eq!(run("first(list(10, 20));"), make_some(Value::Integer(10)));
+    assert_eq!(run("first(list(10, 20));"), Value::Integer(10));
     assert_eq!(
         run("first(rest(list(10, 20, 30)));"),
-        make_some(Value::Integer(20))
+        Value::Integer(20)
     );
 }
 
@@ -1386,7 +1387,7 @@ fn test_list_to_array_round_trip() {
 #[test]
 fn test_list_reverse() {
     // reverse now operates on cons lists
-    assert_eq!(run("unwrap(first(reverse([1, 2, 3])));"), Value::Integer(3));
+    assert_eq!(run("first(reverse([1, 2, 3]));"), Value::Integer(3));
     assert_eq!(run("len(reverse([1, 2, 3]));"), Value::Integer(3));
 }
 

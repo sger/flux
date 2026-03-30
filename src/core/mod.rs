@@ -434,15 +434,13 @@ pub enum CorePrimOp {
     Len = 103,
 
     // ── Collection helpers (promoted for native compilation) ─────────
-    First = 104,
-    Rest = 105,
+    // First (104), Rest (105), Last (112) removed — stdlib is source of truth.
     Reverse = 106,
     Contains = 107,
     Sort = 108,
     SortBy = 109,
     HoMap = 110,
     HoFilter = 111,
-    Last = 112,
     HoAny = 113,
     HoAll = 114,
     HoEach = 115,
@@ -597,7 +595,7 @@ impl CorePrimOp {
             | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | ParseInts | Print
             | Println | ReadFile | ReadLines | StringLength | ToArray | ToList | ToString
             | Trim | Try | AssertThrows | TypeOf | Upper | HamtKeys | HamtValues | HamtSize
-            | Neg | Not | First | Rest | Reverse | Sort | Last | Flatten => 1,
+            | Neg | Not | Reverse | Sort | Flatten => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
