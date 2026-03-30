@@ -420,7 +420,8 @@ fn emit_drop_reuse(module: &mut LlvmModule) {
 }
 
 /// Emit `flux_rc_is_unique(i64 %val) -> i1`:
-/// Returns true if the value is a heap pointer with RC == 1.
+/// Returns true if the value is not heap-allocated, or if it is a heap
+/// pointer with RC == 1.
 /// Used by DropSpecialized to branch on uniqueness.
 pub fn emit_rc_is_unique(module: &mut LlvmModule) {
     let name = "flux_rc_is_unique";
@@ -463,16 +464,16 @@ pub fn emit_rc_is_unique(module: &mut LlvmModule) {
                     let mut instrs = rc_extract_ptr_instrs();
                     instrs.push(LlvmInstr::Load {
                         dst: LlvmLocal("rc".into()),
-                        ty: LlvmType::i64(),
+                        ty: LlvmType::i32(),
                         ptr: local("rc_ptr"),
-                        align: Some(8),
+                        align: Some(4),
                     });
                     instrs.push(LlvmInstr::Icmp {
                         dst: LlvmLocal("is_one".into()),
                         op: LlvmCmpOp::Eq,
-                        ty: LlvmType::i64(),
+                        ty: LlvmType::i32(),
                         lhs: local("rc"),
-                        rhs: const_i64_operand(1),
+                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 1 }),
                     });
                     instrs
                 },
@@ -486,7 +487,7 @@ pub fn emit_rc_is_unique(module: &mut LlvmModule) {
                 instrs: vec![],
                 term: LlvmTerminator::Ret {
                     ty: LlvmType::i1(),
-                    value: const_i1_operand(false),
+                    value: const_i1_operand(true),
                 },
             },
         ],

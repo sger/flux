@@ -184,7 +184,7 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
     let base_dir = std::env::current_dir()
         .ok()
         .map(|d| d.join("target").join("native"))
-        .filter(|d| d.parent().map_or(false, |p| p.exists()))
+        .filter(|d| d.parent().is_some_and(|p| p.exists()))
         .unwrap_or_else(|| std::env::temp_dir().join("flux_core_to_llvm"));
     // Clean up stale builds from previous runs to avoid WDAC caching issues.
     if base_dir.exists() {

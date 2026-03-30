@@ -151,12 +151,11 @@ fn build_qualified_names(
     // Step 3: Assign fallback names for defs not found in any module
     // (anonymous lambdas, letrec bindings, etc.)
     for def in &program.defs {
-        if !result.contains_key(&def.binder.id) {
-            let bare = interner
+        result.entry(def.binder.id).or_insert_with(|| {
+            interner
                 .map(|i| i.resolve(def.name).to_string())
-                .unwrap_or_else(|| format!("def_{}", def.binder.id.0));
-            result.insert(def.binder.id, bare);
-        }
+                .unwrap_or_else(|| format!("def_{}", def.binder.id.0))
+        });
     }
 
     result
@@ -186,8 +185,8 @@ fn collect_ctor_tags_inner(
                     let name = interner
                         .map(|i| i.resolve(variant.name).to_string())
                         .unwrap_or_else(|| format!("ctor_{}", variant.name.as_u32()));
-                    if !tags.contains_key(&name) {
-                        tags.insert(name, *next_tag);
+                    if let std::collections::hash_map::Entry::Vacant(entry) = tags.entry(name) {
+                        entry.insert(*next_tag);
                         *next_tag += 1;
                     }
                 }
@@ -229,9 +228,6 @@ pub fn lower_program_with_interner(
         interner,
     );
 
-    // Collect all top-level binder IDs so cross-function references resolve.
-    let top_level_binders: Vec<CoreBinderId> = program.defs.iter().map(|d| d.binder.id).collect();
-
     // Find the main def — it could be at any position in defs[].
     let main_idx = if let Some(interner) = interner {
         program
@@ -268,32 +264,30 @@ pub fn lower_program_with_interner(
         if i == main_idx {
             continue;
         }
-        let func = lower_def(
-            def,
-            &mut lir,
-            &top_level_binders,
-            &binder_func_map,
-            &qualified_names,
-            &name_binder_map,
+        let ctx = LowerDefCtx {
+            program: &mut lir,
+            binder_func_map: &binder_func_map,
+            qualified_names: &qualified_names,
+            name_binder_map: &name_binder_map,
             interner,
             globals_map,
-        );
+        };
+        let func = lower_def(def, ctx);
         lir.push_function(func);
     }
 
     // Phase 2: Lower main with knowledge of all sibling functions.
     // Main is always last in LIR (emit_program expects this).
     let main_def = &program.defs[main_idx];
-    let func = lower_def(
-        main_def,
-        &mut lir,
-        &top_level_binders,
-        &binder_func_map,
-        &qualified_names,
-        &name_binder_map,
+    let ctx = LowerDefCtx {
+        program: &mut lir,
+        binder_func_map: &binder_func_map,
+        qualified_names: &qualified_names,
+        name_binder_map: &name_binder_map,
         interner,
         globals_map,
-    );
+    };
+    let func = lower_def(main_def, ctx);
     lir.push_function(func);
 
     lir
@@ -330,17 +324,16 @@ struct FnLower<'a> {
     binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
 }
 
+struct FnLowerCtx<'a> {
+    program: &'a mut LirProgram,
+    interner: Option<&'a Interner>,
+    globals_map: Option<&'a HashMap<String, usize>>,
+    name_binder_map: &'a HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
+    binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
+}
+
 impl<'a> FnLower<'a> {
-    fn new(
-        name: String,
-        id: LirFuncId,
-        qualified_name: String,
-        program: &'a mut LirProgram,
-        interner: Option<&'a Interner>,
-        globals_map: Option<&'a HashMap<String, usize>>,
-        name_binder_map: &'a HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
-        binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
-    ) -> Self {
+    fn new(name: String, id: LirFuncId, qualified_name: String, ctx: FnLowerCtx<'a>) -> Self {
         let entry_block = LirBlock {
             id: BlockId(0),
             params: Vec::new(),
@@ -359,13 +352,13 @@ impl<'a> FnLower<'a> {
                 capture_vars: Vec::new(),
             },
             current_block: 0,
-            program,
-            interner,
+            program: ctx.program,
+            interner: ctx.interner,
             global_var_names: HashMap::new(),
-            globals_map,
-            name_binder_map,
+            globals_map: ctx.globals_map,
+            name_binder_map: ctx.name_binder_map,
             direct_func_vars: HashMap::new(),
-            binder_func_id_map,
+            binder_func_id_map: ctx.binder_func_id_map,
         }
     }
 
@@ -548,7 +541,7 @@ impl<'a> FnLower<'a> {
                         .filter_map(|id| self.env.get(id).copied().map(|v| (*id, v)))
                         .collect();
 
-                    let mut temp_program = std::mem::replace(&mut *self.program, LirProgram::new());
+                    let mut temp_program = std::mem::take(&mut *self.program);
 
                     // Assign a synthetic LirFuncId for this letrec function.
                     let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
@@ -571,11 +564,13 @@ impl<'a> FnLower<'a> {
                         func_name,
                         synthetic_id,
                         format!("letrec_{}", synthetic_id.0),
-                        &mut temp_program,
-                        self.interner,
-                        self.globals_map,
-                        self.name_binder_map,
-                        self.binder_func_id_map,
+                        FnLowerCtx {
+                            program: &mut temp_program,
+                            interner: self.interner,
+                            globals_map: self.globals_map,
+                            name_binder_map: self.name_binder_map,
+                            binder_func_id_map: self.binder_func_id_map,
+                        },
                     );
 
                     // Capture outer variables.
@@ -652,7 +647,7 @@ impl<'a> FnLower<'a> {
                 {
                     // Temporarily take the program so the inner FnLower can use it
                     // (Rust can't have two &mut borrows of self.program).
-                    let mut temp_program = std::mem::replace(&mut *self.program, LirProgram::new());
+                    let mut temp_program = std::mem::take(&mut *self.program);
 
                     let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
                     let func_name = format!("closure_{}", temp_program.functions.len());
@@ -660,11 +655,13 @@ impl<'a> FnLower<'a> {
                         func_name,
                         synthetic_id,
                         format!("lambda_{}", synthetic_id.0),
-                        &mut temp_program,
-                        self.interner,
-                        self.globals_map,
-                        self.name_binder_map,
-                        self.binder_func_id_map,
+                        FnLowerCtx {
+                            program: &mut temp_program,
+                            interner: self.interner,
+                            globals_map: self.globals_map,
+                            name_binder_map: self.name_binder_map,
+                            binder_func_id_map: self.binder_func_id_map,
+                        },
                     );
 
                     // Map captured variables: create fresh LirVars inside the inner
@@ -718,35 +715,33 @@ impl<'a> FnLower<'a> {
                     CoreExpr::MemberAccess { member, .. } => Some(self.resolve_name(*member)),
                     _ => None,
                 };
-                if let Some(ref name) = resolved_name {
-                    if let Some(op) = resolve_library_primop(name, args.len()) {
-                        let arg_vars: Vec<LirVar> =
-                            args.iter().map(|a| self.lower_expr(a)).collect();
-                        let dst = self.fresh_var();
-                        self.emit(LirInstr::PrimCall {
-                            dst: Some(dst),
-                            op,
-                            args: arg_vars,
-                        });
-                        return dst;
-                    }
+                if let Some(ref name) = resolved_name
+                    && let Some(op) = resolve_library_primop(name, args.len())
+                {
+                    let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::PrimCall {
+                        dst: Some(dst),
+                        op,
+                        args: arg_vars,
+                    });
+                    return dst;
                 }
 
                 // Check if func is an ADT constructor applied to arguments.
                 // e.g. JumpNext(hit+1, c, Rgt) in an AetherCall.
-                if let Some(ref name) = resolved_name {
-                    if let Some(&ctor_tag) = self.program.constructor_tags.get(name.as_str()) {
-                        let arg_vars: Vec<LirVar> =
-                            args.iter().map(|a| self.lower_expr(a)).collect();
-                        let dst = self.fresh_var();
-                        self.emit(LirInstr::MakeCtor {
-                            dst,
-                            ctor_tag,
-                            ctor_name: Some(name.clone()),
-                            fields: arg_vars,
-                        });
-                        return dst;
-                    }
+                if let Some(ref name) = resolved_name
+                    && let Some(&ctor_tag) = self.program.constructor_tags.get(name.as_str())
+                {
+                    let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::MakeCtor {
+                        dst,
+                        ctor_tag,
+                        ctor_name: Some(name.clone()),
+                        fields: arg_vars,
+                    });
+                    return dst;
                 }
 
                 // Detect known direct calls BEFORE lowering func.
@@ -791,16 +786,16 @@ impl<'a> FnLower<'a> {
 
                 // If func_var was produced by a GetGlobal for a known library
                 // function, emit a direct PrimCall instead of a closure Call.
-                if let Some(name) = self.global_var_names.get(&func_var).cloned() {
-                    if let Some(op) = resolve_library_primop(&name, arg_vars.len()) {
-                        let dst = self.fresh_var();
-                        self.emit(LirInstr::PrimCall {
-                            dst: Some(dst),
-                            op,
-                            args: arg_vars,
-                        });
-                        return dst;
-                    }
+                if let Some(name) = self.global_var_names.get(&func_var).cloned()
+                    && let Some(op) = resolve_library_primop(&name, arg_vars.len())
+                {
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::PrimCall {
+                        dst: Some(dst),
+                        op,
+                        args: arg_vars,
+                    });
+                    return dst;
                 }
 
                 let call_kind = CallKind::Indirect;
@@ -1091,7 +1086,7 @@ impl<'a> FnLower<'a> {
             .collect();
 
         // Temporarily take the program for the inner FnLower.
-        let mut temp_program = std::mem::replace(self.program, LirProgram::new());
+        let mut temp_program = std::mem::take(self.program);
 
         let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
         let func_name = format!("handler_clause_{}", temp_program.functions.len());
@@ -1099,11 +1094,13 @@ impl<'a> FnLower<'a> {
             func_name,
             synthetic_id,
             format!("handler_{}", synthetic_id.0),
-            &mut temp_program,
-            self.interner,
-            self.globals_map,
-            self.name_binder_map,
-            self.binder_func_id_map,
+            FnLowerCtx {
+                program: &mut temp_program,
+                interner: self.interner,
+                globals_map: self.globals_map,
+                name_binder_map: self.name_binder_map,
+                binder_func_id_map: self.binder_func_id_map,
+            },
         );
 
         // Map captured variables.
@@ -1204,7 +1201,7 @@ impl<'a> FnLower<'a> {
     /// Create an identity closure: a function that returns its argument.
     /// Used as the `resume` parameter for tail-resumptive effect handlers.
     fn make_identity_closure(&mut self) -> LirVar {
-        let mut temp_program = std::mem::replace(self.program, LirProgram::new());
+        let mut temp_program = std::mem::take(self.program);
 
         let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
         let func_name = format!("resume_identity_{}", temp_program.functions.len());
@@ -1212,11 +1209,13 @@ impl<'a> FnLower<'a> {
             func_name,
             synthetic_id,
             format!("resume_id_{}", synthetic_id.0),
-            &mut temp_program,
-            self.interner,
-            self.globals_map,
-            self.name_binder_map,
-            self.binder_func_id_map,
+            FnLowerCtx {
+                program: &mut temp_program,
+                interner: self.interner,
+                globals_map: self.globals_map,
+                name_binder_map: self.name_binder_map,
+                binder_func_id_map: self.binder_func_id_map,
+            },
         );
 
         // Single parameter: the value to return.
@@ -2042,19 +2041,20 @@ enum LirIntOp {
 /// `binder_func_map` maps sibling function binder IDs to their LIR function
 /// indices, so cross-function references emit `MakeClosure` instead of
 /// `None` placeholders.
-fn lower_def(
-    def: &CoreDef,
-    program: &mut LirProgram,
-    _top_level_binders: &[CoreBinderId],
-    binder_func_map: &HashMap<CoreBinderId, LirFuncId>,
-    qualified_names: &HashMap<CoreBinderId, String>,
-    name_binder_map: &HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
-    interner: Option<&Interner>,
-    globals_map: Option<&HashMap<String, usize>>,
-) -> LirFunction {
+struct LowerDefCtx<'a> {
+    program: &'a mut LirProgram,
+    binder_func_map: &'a HashMap<CoreBinderId, LirFuncId>,
+    qualified_names: &'a HashMap<CoreBinderId, String>,
+    name_binder_map: &'a HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
+    interner: Option<&'a Interner>,
+    globals_map: Option<&'a HashMap<String, usize>>,
+}
+
+fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
     let func_id = LirFuncId(def.binder.id.0);
     let debug_name = format!("def_{}", def.binder.id.0);
-    let qualified_name = qualified_names
+    let qualified_name = ctx
+        .qualified_names
         .get(&def.binder.id)
         .cloned()
         .unwrap_or_else(|| debug_name.clone());
@@ -2062,11 +2062,13 @@ fn lower_def(
         debug_name,
         func_id,
         qualified_name,
-        program,
-        interner,
-        globals_map,
-        name_binder_map,
-        binder_func_map,
+        FnLowerCtx {
+            program: ctx.program,
+            interner: ctx.interner,
+            globals_map: ctx.globals_map,
+            name_binder_map: ctx.name_binder_map,
+            binder_func_id_map: ctx.binder_func_map,
+        },
     );
 
     // Register top-level binders for direct call resolution.

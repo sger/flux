@@ -305,11 +305,11 @@ module Flow.List {
     }
 
     public fn sort(xs) {
-        merge_sort_by(xs, fn(x) { x })
+        insertion_sort_by(xs, fn(x) { x })
     }
 
     public fn sort_by(xs, f) {
-        merge_sort_by(xs, f)
+        insertion_sort_by(xs, f)
     }
 
     public fn first(xs) {
@@ -420,24 +420,12 @@ module Flow.List {
             }
             zip_arr(0, [||])
         } else {
-            match xs {
-                [a | at] -> match ys {
-                    [b | bt] -> [(a, b) | zip(at, bt)],
-                    _ -> []
-                },
-                _ -> []
-            }
+            reverse(zip_go(xs, ys, []))
         }
     }
 
     public fn zip_with(xs, ys, f) {
-        match xs {
-            [a | at] -> match ys {
-                [b | bt] -> [f(a, b) | zip_with(at, bt, f)],
-                _ -> []
-            },
-            _ -> []
-        }
+        reverse(zip_with_go(xs, ys, f, []))
     }
 
     public fn unzip(xs) {
@@ -493,10 +481,7 @@ module Flow.List {
     }
 
     fn delete_go(xs, x) {
-        match xs {
-            [h | t] -> if cmp_eq(h, x) { t } else { [h | delete_go(t, x)] },
-            _ -> []
-        }
+        delete_go_acc(xs, x, [])
     }
 
     public fn intersperse(xs, sep) {
@@ -507,10 +492,7 @@ module Flow.List {
     }
 
     public fn intercalate(xss, sep) {
-        match xss {
-            [h | t] -> append(h, intercalate_rest(t, sep)),
-            _ -> []
-        }
+        concat(intersperse(xss, sep))
     }
 
     public fn is_prefix(prefix, xs) {
@@ -701,6 +683,62 @@ module Flow.List {
                 _ -> left
             },
             _ -> right
+        }
+    }
+
+    fn insertion_sort_by(xs, key_fn) {
+        match xs {
+            [h | t] -> insert_sorted_by(h, insertion_sort_by(t, key_fn), key_fn),
+            _ -> []
+        }
+    }
+
+    fn insert_sorted_by(x, xs, key_fn) {
+        match xs {
+            [h | t] -> if key_fn(x) <= key_fn(h) {
+                [x | xs]
+            } else {
+                [h | insert_sorted_by(x, t, key_fn)]
+            },
+            _ -> [x]
+        }
+    }
+
+    fn zip_go(xs, ys, acc) {
+        match xs {
+            [a | at] -> match ys {
+                [b | bt] -> zip_go(at, bt, [(a, b) | acc]),
+                _ -> acc
+            },
+            _ -> acc
+        }
+    }
+
+    fn zip_with_go(xs, ys, f, acc) {
+        match xs {
+            [a | at] -> match ys {
+                [b | bt] -> zip_with_go(at, bt, f, [f(a, b) | acc]),
+                _ -> acc
+            },
+            _ -> acc
+        }
+    }
+
+    fn delete_go_acc(xs, x, acc) {
+        match xs {
+            [h | t] -> if cmp_eq(h, x) {
+                append(reverse(acc), clone_list(t))
+            } else {
+                delete_go_acc(t, x, [h | acc])
+            },
+            _ -> reverse(acc)
+        }
+    }
+
+    fn clone_list(xs) {
+        match xs {
+            [h | t] -> [h | clone_list(t)],
+            _ -> []
         }
     }
 
