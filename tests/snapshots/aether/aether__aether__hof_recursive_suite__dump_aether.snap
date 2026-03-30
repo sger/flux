@@ -621,6 +621,36 @@ Aether Memory Model Report
       let %t7 = []
       let %t8 = []
       MakeTuple(%t7, %t8)
+── fn delete_go_acc ──
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+  verifier: ok
+λxs, x, acc.
+  case xs of
+    ::(h, t) →
+      let %t1 = CmpEq(h, x)
+      case %t1 of
+        true →
+          drop h
+          let %t2 = aether_call[owned] reverse(acc)
+          let %t3 = aether_call[borrowed] clone_list(t)
+          aether_call[borrowed, owned] append(%t2, %t3)
+        _ →
+          let %t4 = ::(h, acc)
+          aether_call[borrowed, borrowed, owned] delete_go_acc(t, x, %t4)
+    _ →
+      aether_call[owned] reverse(acc)
+── fn clone_list ──
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
+  verifier: ok
+λxs.
+  case xs of
+    ::(h, t) →
+      let %t1 = aether_call[borrowed] clone_list(t)
+      reuse xs ::(h, %t1) @mask=0b10
+    _ →
+      []
 ── fn intersperse ──
   Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  FBIP: fip
   FreshAllocs: 0
@@ -838,27 +868,6 @@ Aether Memory Model Report
     _ →
       drop left
       right
-── fn insert_sorted_by ──
-  Dups: 2  Drops: 1  Reuses: 1  DropSpecs: 0  FBIP: fbip(1)
-  FreshAllocs: 1
-  verifier: ok
-λx, xs, key_fn.
-  case xs of
-    ::(h, t) →
-      let %t1 = (let %t2 = aether_call[owned] key_fn(dup x
-      x)
-      let %t3 = aether_call[owned] key_fn(dup h
-      h)
-      Le(%t2, %t3))
-      case %t1 of
-        true →
-          ::(x, xs)
-        _ →
-          let %t4 = aether_call[owned, owned, borrowed] insert_sorted_by(x, t, key_fn)
-          reuse xs ::(h, %t4) @mask=0b10
-    _ →
-      drop xs
-      MakeList(x)
 ── fn zip_with_go ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
   FreshAllocs: 1
@@ -876,36 +885,6 @@ Aether Memory Model Report
           acc
     _ →
       acc
-── fn delete_go_acc ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
-  FreshAllocs: 1
-  verifier: ok
-λxs, x, acc.
-  case xs of
-    ::(h, t) →
-      let %t1 = CmpEq(h, x)
-      case %t1 of
-        true →
-          drop h
-          let %t2 = aether_call[owned] reverse(acc)
-          let %t3 = aether_call[borrowed] clone_list(t)
-          aether_call[borrowed, owned] append(%t2, %t3)
-        _ →
-          let %t4 = ::(h, acc)
-          aether_call[borrowed, borrowed, owned] delete_go_acc(t, x, %t4)
-    _ →
-      aether_call[owned] reverse(acc)
-── fn clone_list ──
-  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
-  FreshAllocs: 0
-  verifier: ok
-λxs.
-  case xs of
-    ::(h, t) →
-      let %t1 = aether_call[borrowed] clone_list(t)
-      reuse xs ::(h, %t1) @mask=0b10
-    _ →
-      []
 ── fn maximum_go ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
@@ -1098,8 +1077,8 @@ Aether Memory Model Report
   Print(%t10)
 
 ── Total ──
-  Dups: 20  Drops: 60  Reuses: 17  DropSpecs: 3  FBIP: fbip(23)
-  FreshAllocs: 23
+  Dups: 18  Drops: 59  Reuses: 16  DropSpecs: 3  FBIP: fbip(22)
+  FreshAllocs: 22
 
 • 2 warnings • examples/aether/hof_recursive_suite.flx
 Warning: FBIP Contract Not Proven

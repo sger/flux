@@ -95,10 +95,18 @@ The harness must check both.
 
 ### Proposed tool
 
-Add a Rust CLI tool, for example:
+Add a Rust CLI tool:
 
 ```text
-cargo run --bin flux-parity -- examples/advanced
+cargo run --bin parity -- [OPTIONS] <path>
+
+  <path>           Single .flx file or directory of .flx files
+
+Options:
+  --check-core     Also compare --dump-core output between backends
+  --timeout <N>    Per-test timeout in seconds (default: 15)
+  --jobs <N>       Parallel test workers (default: CPU count)
+  --root <DIR>     Extra module root passed through to flux (repeatable)
 ```
 
 Expected capabilities:
@@ -239,15 +247,15 @@ Recommended CI steps:
 
 ```text
 1. cargo test --all --all-features
-2. cargo run --bin flux-parity -- tests/parity
-3. cargo run --bin flux-parity -- examples/advanced
+2. cargo run --bin parity -- tests/parity
+3. cargo run --bin parity -- examples/advanced
 ```
 
 ## Proposed implementation
 
 ### Phase 1: Rust parity binary
 
-Add `src/bin/flux-parity.rs` with:
+Add `src/bin/parity.rs` with:
 
 - directory traversal for `.flx`
 - isolated target dirs for VM and native builds

@@ -866,7 +866,19 @@ int64_t flux_to_string(int64_t val) {
                 int len = snprintf(buf, sizeof(buf), "%lld", (long long)bigval);
                 return flux_string_new(buf, (uint32_t)len);
             }
-            if (obj == FLUX_OBJ_STRING) return val;
+            if (obj == FLUX_OBJ_STRING) {
+                /* Wrap in quotes to match VM's ToString behavior. */
+                const char *sd = flux_string_data(val);
+                uint32_t sl = flux_string_len(val);
+                char tmp[4096];
+                char *buf = (sl + 3 <= sizeof(tmp)) ? tmp : (char *)malloc(sl + 3);
+                buf[0] = '"';
+                memcpy(buf + 1, sd, sl);
+                buf[sl + 1] = '"';
+                int64_t result = flux_string_new(buf, sl + 2);
+                if (buf != tmp) free(buf);
+                return result;
+            }
             if (obj == FLUX_OBJ_ARRAY) {
                 /* Render array as "[|elem1, elem2, ...|]" */
                 uint32_t len = *(uint32_t *)((char *)ptr + 4);
@@ -970,8 +982,6 @@ int64_t flux_to_string(int64_t val) {
                         if (!first_elem) pos += snprintf(buf + pos, sizeof(buf) - pos, ", ");
                         first_elem = 0;
                         int64_t elem = fields[0];
-                        int is_str = flux_is_ptr(elem) && flux_obj_tag(flux_untag_ptr(elem)) == FLUX_OBJ_STRING;
-                        if (is_str) buf[pos++] = '"';
                         int64_t s = flux_to_string(elem);
                         const char *sd = flux_string_data(s);
                         uint32_t sl = flux_string_len(s);
@@ -979,7 +989,6 @@ int64_t flux_to_string(int64_t val) {
                             memcpy(buf + pos, sd, sl);
                             pos += sl;
                         }
-                        if (is_str) buf[pos++] = '"';
                         cur = fields[1];
                     }
                     pos += snprintf(buf + pos, sizeof(buf) - pos, "]");
