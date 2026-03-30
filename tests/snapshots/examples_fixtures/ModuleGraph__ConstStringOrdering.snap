@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `ModuleGraph.ConstStringOrdering` doesn't match file path `//?/examples/ModuleGraph/ConstStringOrdering.flx`.
+Module name `ModuleGraph.ConstStringOrdering` doesn't match file path `examples/ModuleGraph/ConstStringOrdering.flx`.
 
   examples/ModuleGraph/ConstStringOrdering.flx:3:1
   |

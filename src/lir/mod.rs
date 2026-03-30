@@ -1,21 +1,17 @@
-//! Low-Level IR (LIR) — shared backend IR for Flux (Proposal 0132).
+//! Low-Level IR (LIR) — native backend IR for Flux (Proposal 0132).
 //!
 //! LIR is a flat, NaN-box-aware CFG with explicit memory operations.  It sits
-//! between Core IR (functional, high-level) and machine code / bytecode.
-//!
-//! Both the VM bytecode emitter and the LLVM IR emitter consume the same LIR,
-//! following GHC's Cmm architecture: one lowering pass, multiple backends.
+//! between Core IR (functional, high-level) and LLVM IR (native binary).
+//! The VM bytecode path uses CFG (`src/cfg/`) instead.
 //!
 //! ```text
 //! Core IR (functional)
 //!   │
 //!   └── Core → LIR lowering (single pass)
 //!         │
-//!         ├── LIR → Bytecode emitter (VM)
 //!         └── LIR → LLVM IR emitter (native)
 //! ```
 
-pub mod emit_bytecode;
 #[cfg(feature = "core_to_llvm")]
 pub mod emit_llvm;
 pub mod lower;
@@ -271,6 +267,11 @@ pub enum LirTerminator {
         args: Vec<LirVar>,
         cont: BlockId,
         kind: CallKind,
+        /// Optional yield continuation function (Proposal 0134).
+        /// When present, the LLVM emitter inserts a yield check after the call:
+        /// if `flux_is_yielding()`, build a closure from this function + captured
+        /// live vars, call `flux_yield_extend`, and return YIELD_SENTINEL.
+        yield_cont: Option<(LirFuncId, Vec<LirVar>)>,
     },
     /// Constructor pattern match on a scrutinee value.
     ///
@@ -470,4 +471,17 @@ impl Default for LirProgram {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ── NaN-box helpers for LIR constants ───────────────────────────────────────
+
+/// NaN-box layout constants (must match `runtime/c/flux_rt.h`).
+const NANBOX_SENTINEL: u64 = 0x7FFC_0000_0000_0000;
+const PAYLOAD_MASK: u64 = (1u64 << 46) - 1;
+
+/// Produce a pre-tagged NaN-boxed integer literal (inline, no overflow boxing).
+/// Used for effect tags and other small compile-time constants.
+pub fn nanbox_tag_int(raw: i64) -> i64 {
+    let payload = (raw as u64) & PAYLOAD_MASK;
+    (payload | NANBOX_SENTINEL) as i64
 }

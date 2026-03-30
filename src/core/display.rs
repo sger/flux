@@ -617,6 +617,16 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::Zip => out.push_str("Zip"),
         CorePrimOp::Flatten => out.push_str("Flatten"),
         CorePrimOp::HoFlatMap => out.push_str("HoFlatMap"),
+        // Effect handlers (Koka-style yield model)
+        CorePrimOp::EvvGet => out.push_str("EvvGet"),
+        CorePrimOp::EvvSet => out.push_str("EvvSet"),
+        CorePrimOp::FreshMarker => out.push_str("FreshMarker"),
+        CorePrimOp::EvvInsert => out.push_str("EvvInsert"),
+        CorePrimOp::YieldTo => out.push_str("YieldTo"),
+        CorePrimOp::YieldExtend => out.push_str("YieldExtend"),
+        CorePrimOp::YieldPrompt => out.push_str("YieldPrompt"),
+        CorePrimOp::IsYielding => out.push_str("IsYielding"),
+        CorePrimOp::PerformDirect => out.push_str("PerformDirect"),
     }
 }
 

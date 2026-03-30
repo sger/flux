@@ -451,7 +451,19 @@ pub enum CorePrimOp {
     Zip = 118,
     Flatten = 119,
     HoFlatMap = 120,
-    // ── Next free ID: 121 ─────────────────────────────────────────────
+
+    // ── Effect handlers (Koka-style yield model, Proposal 0134) ───────
+    EvvGet = 121,
+    EvvSet = 122,
+    FreshMarker = 123,
+    EvvInsert = 124,
+    YieldTo = 125,
+    YieldExtend = 126,
+    YieldPrompt = 127,
+    IsYielding = 128,
+    /// Direct (tail-resumptive) perform: calls handler inline, no yield.
+    PerformDirect = 129,
+    // ── Next free ID: 130 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -462,8 +474,8 @@ impl CorePrimOp {
 
     /// Reconstruct from a `u8` discriminant.  Returns `None` for invalid IDs.
     pub fn from_id(id: u8) -> Option<Self> {
-        if id <= 120 {
-            // SAFETY: all discriminants 0..=120 are defined and the enum is
+        if id <= 129 {
+            // SAFETY: all discriminants 0..=129 are defined and the enum is
             // `#[repr(u8)]`, so the transmute is valid for any value in range.
             Some(unsafe { std::mem::transmute::<u8, CorePrimOp>(id) })
         } else {
@@ -598,6 +610,13 @@ impl CorePrimOp {
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.
             MakeList | MakeArray | MakeTuple | MakeHash | Interpolate => 0,
+            // Effect handler ops (native-only, arity used for display only)
+            EvvGet | IsYielding => 0,
+            EvvSet | YieldExtend | FreshMarker => 1,
+            YieldTo => 3,
+            EvvInsert => 4,
+            YieldPrompt => 3,
+            PerformDirect => 4,
         }
     }
 

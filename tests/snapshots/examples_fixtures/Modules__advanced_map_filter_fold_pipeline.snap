@@ -16,7 +16,7 @@ Cannot find module `Modules.Analytics.Transforms` to import.
 
 Hint:
   Check that: 1) The module file exists (e.g., `Modules.Analytics.Transforms.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Modules.Analytics.Transforms` under roots: //?/examples/Modules, //?/src (imported from //?/examples/Modules/advanced_map_filter_fold_pipeline.flx).
+  Looked for module `Modules.Analytics.Transforms` under roots: examples/Modules, src (imported from examples/Modules/advanced_map_filter_fold_pipeline.flx).
 
 
 error[E018]: Import Not Found
@@ -30,7 +30,7 @@ Cannot find module `Modules.Math` to import.
 
 Hint:
   Check that: 1) The module file exists (e.g., `Modules.Math.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Modules.Math` under roots: //?/examples/Modules, //?/src (imported from //?/examples/Modules/advanced_map_filter_fold_pipeline.flx).
+  Looked for module `Modules.Math` under roots: examples/Modules, src (imported from examples/Modules/advanced_map_filter_fold_pipeline.flx).
 
 Found 2 errors.
 == stdout ==

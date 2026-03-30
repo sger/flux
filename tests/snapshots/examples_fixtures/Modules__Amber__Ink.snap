@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `Modules.Amber.Ink` doesn't match file path `//?/examples/Modules/Amber/Ink.flx`.
+Module name `Modules.Amber.Ink` doesn't match file path `examples/Modules/Amber/Ink.flx`.
 
   examples/Modules/Amber/Ink.flx:4:1
   |
