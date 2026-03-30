@@ -95,17 +95,14 @@ The harness must check both.
 
 ### Proposed tool
 
-Add a Rust CLI tool:
+Add a parity harness entry point:
 
 ```text
-cargo run --bin parity -- [OPTIONS] <path>
+scripts/check_core_to_llvm_parity.sh [dir] [--root dir ...]
 
-  <path>           Single .flx file or directory of .flx files
+  [dir]            Single .flx file or directory of .flx files
 
 Options:
-  --check-core     Also compare --dump-core output between backends
-  --timeout <N>    Per-test timeout in seconds (default: 15)
-  --jobs <N>       Parallel test workers (default: CPU count)
   --root <DIR>     Extra module root passed through to flux (repeatable)
 ```
 
@@ -247,15 +244,15 @@ Recommended CI steps:
 
 ```text
 1. cargo test --all --all-features
-2. cargo run --bin parity -- tests/parity
-3. cargo run --bin parity -- examples/advanced
+2. scripts/check_core_to_llvm_parity.sh tests/parity
+3. scripts/check_core_to_llvm_parity.sh examples/advanced
 ```
 
 ## Proposed implementation
 
-### Phase 1: Rust parity binary
+### Phase 1: parity harness entry point
 
-Add `src/bin/parity.rs` with:
+Provide a maintained parity harness with:
 
 - directory traversal for `.flx`
 - isolated target dirs for VM and native builds
@@ -340,7 +337,7 @@ This proposal is successful when:
 
 ## Open questions
 
-- Should the parity binary live under `src/bin/`, `tools/`, or a future `xtask`?
+- Should the parity harness continue to live as a shell script or move to a future `xtask`?
 - Should `stderr` comparison allow an explicit ignore list for compile banners?
 - Should the tool support JSON output for CI annotation?
 - Should parity checks be sharded by directory to control CI time?

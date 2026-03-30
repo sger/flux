@@ -1258,7 +1258,7 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn emit_interpolate(&mut self, dst: LirVar, parts: &[LirVar]) {
-        // String interpolation: to_string each part, then concat.
+        // String interpolation: use interpolation-friendly formatting for each part.
         if parts.is_empty() {
             self.call_c(
                 Some(self.var_local(dst)),
@@ -1274,7 +1274,7 @@ impl<'a> FnEmitter<'a> {
         let mut current = self.tmp();
         self.call_c(
             Some(current.clone()),
-            "flux_to_string",
+            "flux_to_string_value",
             vec![(LlvmType::i64(), self.var(parts[0]))],
             LlvmType::i64(),
         );
@@ -1282,7 +1282,7 @@ impl<'a> FnEmitter<'a> {
             let part_str = self.tmp();
             self.call_c(
                 Some(part_str.clone()),
-                "flux_to_string",
+                "flux_to_string_value",
                 vec![(LlvmType::i64(), self.var(part))],
                 LlvmType::i64(),
             );
