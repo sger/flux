@@ -7,7 +7,7 @@ status: 1
 stdout:
 <empty>
 stderr:
-[lir→vm] Running via LIR → bytecode VM backend...
+[cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/primop_array_len_type.flx
 error[E1004]: primop array_len expected Array, got Int
 
@@ -24,7 +24,7 @@ status: 1
 stdout:
 <empty>
 stderr:
-[lir→vm] Running via LIR → bytecode VM backend...
+[cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/primop_array_len_type.flx
 error[E1004]: primop array_len expected Array, got Int
 

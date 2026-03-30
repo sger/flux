@@ -532,6 +532,16 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::Zip
         | CorePrimOp::Flatten
         | CorePrimOp::HoFlatMap => true,
+        // Effect handler ops — not higher-order promoted
+        CorePrimOp::EvvGet
+        | CorePrimOp::EvvSet
+        | CorePrimOp::FreshMarker
+        | CorePrimOp::EvvInsert
+        | CorePrimOp::YieldTo
+        | CorePrimOp::YieldExtend
+        | CorePrimOp::YieldPrompt
+        | CorePrimOp::IsYielding
+        | CorePrimOp::PerformDirect => false,
     }
 }
 

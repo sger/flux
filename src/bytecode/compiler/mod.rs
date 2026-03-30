@@ -2458,37 +2458,6 @@ impl Compiler {
         Ok(crate::lir::lower::display_program(&lir))
     }
 
-    /// Compile a merged program entirely through LIR → Bytecode.
-    ///
-    /// This is the Phase 8b path: all modules (prelude + user) are merged into
-    /// a single program, lowered to Core IR, then to LIR with no globals_map,
-    /// and emitted as bytecode. No CFG compilation step is needed.
-    #[allow(clippy::result_large_err)]
-    pub fn compile_all_via_lir(
-        &self,
-        program: &Program,
-        optimize: bool,
-    ) -> Result<crate::bytecode::bytecode::Bytecode, Diagnostic> {
-        let program_to_lower = if optimize {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(program.clone());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            rename(optimized, HashMap::new())
-        } else {
-            program.clone()
-        };
-
-        let mut core =
-            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
-        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
-
-        // Pass None for globals_map so ALL functions are lowered to LIR
-        // functions (no GetGlobal). Cross-module references resolve through
-        // Core binders in the merged program.
-        let lir = crate::lir::lower::lower_program_with_interner(&core, Some(&self.interner), None);
-        Ok(crate::lir::emit_bytecode::emit_program(&lir))
-    }
-
     /// Lower program through LIR to an LLVM IR module (Proposal 0132 Phase 7).
     /// Returns the `LlvmModule` struct so the caller can inject target triple
     /// and data layout before rendering.
@@ -2525,51 +2494,6 @@ impl Compiler {
     pub fn dump_lir_llvm(&self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
         let module = self.lower_to_lir_llvm_module(program, optimize)?;
         Ok(crate::core_to_llvm::render_module(&module))
-    }
-
-    /// Compile via the LIR path: Core → LIR → Bytecode.
-    /// This is the Proposal 0132 path that bypasses CFG.
-    ///
-    /// `base_constants` contains constants from previously compiled modules
-    /// (e.g., prelude functions compiled via the CFG pipeline). These are
-    /// prepended to the LIR constants pool so CFG-compiled closures can
-    /// find their sub-closures at the expected indices.
-    #[allow(clippy::result_large_err)]
-    pub fn compile_via_lir(
-        &self,
-        program: &Program,
-        optimize: bool,
-        base_constants: Vec<Value>,
-    ) -> Result<crate::bytecode::bytecode::Bytecode, Diagnostic> {
-        let program_to_lower = if optimize {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(program.clone());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            rename(optimized, HashMap::new())
-        } else {
-            program.clone()
-        };
-
-        let mut core =
-            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
-        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
-
-        // Build a globals map from the symbol table so the LIR lowerer can
-        // emit GetGlobal for imported/prelude functions (GHC-style external labels).
-        // Extract import aliases from the program's import statements since
-        // the entry module wasn't compiled via CFG (aliases weren't populated).
-        let extra_aliases = self.extract_import_aliases(program);
-        let globals_map = self.build_globals_map_with_aliases(&extra_aliases);
-
-        let lir = crate::lir::lower::lower_program_with_interner(
-            &core,
-            Some(&self.interner),
-            Some(&globals_map),
-        );
-        Ok(crate::lir::emit_bytecode::emit_program_with_base_constants(
-            &lir,
-            base_constants,
-        ))
     }
 
     /// Extract import aliases from a program's import statements.

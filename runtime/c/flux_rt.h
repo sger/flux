@@ -50,6 +50,11 @@ extern "C" {
 #define FLUX_TAG_BASE_FUNCTION 0x5
 #define FLUX_TAG_THUNK         0x6
 #define FLUX_TAG_BOXED_VALUE   0x8
+#define FLUX_TAG_YIELD         0x9
+
+/* Yield sentinel: returned by perform / yield_extend to signal unwinding. */
+#define FLUX_YIELD_SENTINEL    ((int64_t)(FLUX_NANBOX_SENTINEL \
+                                | ((uint64_t)FLUX_TAG_YIELD << FLUX_TAG_SHIFT)))
 
 #define FLUX_PTR_SHIFT         3
 
@@ -168,6 +173,7 @@ static inline int64_t flux_make_empty_list(void) {
 #define FLUX_OBJ_ARRAY    0xF4
 #define FLUX_OBJ_CLOSURE  0xF5
 /* FLUX_OBJ_BIGINT (0xF6) defined above near inline helpers */
+#define FLUX_OBJ_EVIDENCE 0xF7
 
 static inline uint8_t flux_obj_tag(void *ptr) {
     /* Read obj_tag from the FluxHeader at ptr - 8.
@@ -375,12 +381,24 @@ int64_t flux_ho_fold(int64_t collection, int64_t init, int64_t func);
 int64_t flux_ho_each(int64_t collection, int64_t func);
 int64_t flux_ho_find(int64_t collection, int64_t func);
 
-/* ── Effect handlers ────────────────────────────────────────────────── */
+/* ── Effect handlers (Koka-style yield model, Proposal 0134) ───────── */
 
-void    flux_push_handler(int64_t effect_tag, void *handler_fn, void *resume_fn);
-void    flux_pop_handler(void);
-int64_t flux_perform(int64_t effect_tag, int64_t arg);
-int64_t flux_resume(int64_t continuation, int64_t value);
+/* Yield state — accessible from LLVM IR for inline yield checks. */
+extern int32_t flux_yield_yielding;
+
+/* Evidence vector management. */
+int64_t flux_evv_get(void);
+void    flux_evv_set(int64_t evv);
+int64_t flux_fresh_marker(void);
+int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler);
+
+/* Yield operations. */
+int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg);
+int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t resume);
+int64_t flux_yield_extend(int64_t cont);
+int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result);
+int64_t flux_compose_conts(void);
+int32_t flux_is_yielding(void);
 
 #ifdef __cplusplus
 }

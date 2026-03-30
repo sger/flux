@@ -7,7 +7,7 @@ status: 1
 stdout:
 <empty>
 stderr:
-[lir→vm] Running via LIR → bytecode VM backend...
+[cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/indirect_call_not_callable.flx
 error[E1001]: Not A Function
 
@@ -26,7 +26,7 @@ status: 1
 stdout:
 <empty>
 stderr:
-[lir→vm] Running via LIR → bytecode VM backend...
+[cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/indirect_call_not_callable.flx
 error[E1001]: Not A Function
 

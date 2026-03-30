@@ -663,6 +663,13 @@ pub fn execute_core_primop(
             ))
         }
 
+        // ── Effect handler ops (native-only, Koka-style yield model) ────
+        EvvGet | EvvSet | FreshMarker | EvvInsert | YieldTo | YieldExtend | YieldPrompt
+        | IsYielding | PerformDirect => Err(format!(
+            "CorePrimOp {:?} is native-backend only (Koka yield model)",
+            op
+        )),
+
         // ── Generic/structural ops (never emitted as OpPrimOp) ───────
         Add | Sub | Mul | Div | Mod | Not | Eq | NEq | Lt | Le | Gt | Ge | And | Or | Concat
         | Interpolate | MakeList | MakeArray | MakeTuple | MakeHash | Index => Err(format!(
