@@ -529,8 +529,10 @@ bb0:
 match.extract.3.4:
   %ext.3.0 = call fastcc ptr @flux_adt_field_ptr(i64 %v0, i32 0)
   %v2 = load i64, ptr %ext.3.0, align 8
+  call ccc void @flux_dup(i64 %v2)
   %ext.3.1 = call fastcc ptr @flux_adt_field_ptr(i64 %v0, i32 1)
   %v3 = load i64, ptr %ext.3.1, align 8
+  call ccc void @flux_dup(i64 %v3)
   br label %bb3
 match.adt.5:
   %t2 = call fastcc i32 @flux_adt_tag(i64 %v0)
@@ -589,8 +591,10 @@ match.adt.11:
 match.extract.4.12:
   %ext.4.0 = call fastcc ptr @flux_tuple_field_ptr(i64 %v7, i32 0)
   %v11 = load i64, ptr %ext.4.0, align 8
+  call ccc void @flux_dup(i64 %v11)
   %ext.4.1 = call fastcc ptr @flux_tuple_field_ptr(i64 %v7, i32 1)
   %v12 = load i64, ptr %ext.4.1, align 8
+  call ccc void @flux_dup(i64 %v12)
   br label %bb4
 match.boxed.10:
   %match.ptr.13 = call fastcc ptr @flux_untag_boxed_ptr(i64 %v7)
