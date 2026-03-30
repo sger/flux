@@ -68,18 +68,6 @@ fn main() {
     let dump_lir_llvm = args.iter().any(|arg| arg == "--dump-lir-llvm");
     #[cfg(not(feature = "core_to_llvm"))]
     let dump_lir_llvm = false;
-    if args.iter().any(|arg| arg == "--run-lir") {
-        eprintln!(
-            "Error: --run-lir is no longer supported. Use the default CFG VM path or --native for LIR -> LLVM."
-        );
-        return;
-    }
-    if std::env::var("FLUX_USE_LIR").is_ok() {
-        eprintln!(
-            "Error: FLUX_USE_LIR is no longer supported. Use the default CFG VM path or --native for LIR -> LLVM."
-        );
-        return;
-    }
     #[cfg(feature = "native")]
     let use_core_to_llvm = args
         .iter()
