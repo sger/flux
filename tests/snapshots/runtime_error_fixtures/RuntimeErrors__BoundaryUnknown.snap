@@ -9,7 +9,7 @@ stdout:
 stderr:
 error[E024]: Module Path Mismatch
 
-Module name `RuntimeErrors.BoundaryUnknown` doesn't match file path `//?/examples/runtime_errors/RuntimeErrors/BoundaryUnknown.flx`.
+Module name `RuntimeErrors.BoundaryUnknown` doesn't match file path `examples/runtime_errors/RuntimeErrors/BoundaryUnknown.flx`.
 
   examples/runtime_errors/RuntimeErrors/BoundaryUnknown.flx:1:1
   |
@@ -25,7 +25,7 @@ stdout:
 stderr:
 error[E024]: Module Path Mismatch
 
-Module name `RuntimeErrors.BoundaryUnknown` doesn't match file path `//?/examples/runtime_errors/RuntimeErrors/BoundaryUnknown.flx`.
+Module name `RuntimeErrors.BoundaryUnknown` doesn't match file path `examples/runtime_errors/RuntimeErrors/BoundaryUnknown.flx`.
 
   examples/runtime_errors/RuntimeErrors/BoundaryUnknown.flx:1:1
   |
