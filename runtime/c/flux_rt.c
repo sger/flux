@@ -51,7 +51,7 @@ static void flux_print_value(int64_t val) {
     if ((bits & FLUX_SENTINEL_MASK) != FLUX_NANBOX_SENTINEL) {
         double d;
         memcpy(&d, &bits, sizeof(d));
-        printf("%g", d);
+        printf("%.15g", d);
         return;
     }
 
@@ -466,6 +466,23 @@ int64_t flux_rt_eq(int64_t a, int64_t b) {
                 int64_t *fa = (int64_t *)((char *)pa + 8);
                 int64_t *fb = (int64_t *)((char *)pb + 8);
                 for (uint32_t i = 0; i < arity_a; i++) {
+                    int64_t eq = flux_rt_eq(fa[i], fb[i]);
+                    if (eq == flux_make_bool(0)) return flux_make_bool(0);
+                }
+                return flux_make_bool(1);
+            }
+            /* ADT structural equality (Option/Either/List/user ctors). */
+            if (tag_a == FLUX_OBJ_ADT) {
+                int32_t ctor_a = *(int32_t *)pa;
+                int32_t ctor_b = *(int32_t *)pb;
+                int32_t field_count_a = *((int32_t *)pa + 1);
+                int32_t field_count_b = *((int32_t *)pb + 1);
+                if (ctor_a != ctor_b || field_count_a != field_count_b) {
+                    return flux_make_bool(0);
+                }
+                int64_t *fa = (int64_t *)((char *)pa + 8);
+                int64_t *fb = (int64_t *)((char *)pb + 8);
+                for (int32_t i = 0; i < field_count_a; i++) {
                     int64_t eq = flux_rt_eq(fa[i], fb[i]);
                     if (eq == flux_make_bool(0)) return flux_make_bool(0);
                 }

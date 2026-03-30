@@ -540,20 +540,9 @@ impl Compiler {
             }
             Expression::Identifier { name, span, .. } => {
                 let name = *name;
-                // Exposed bindings from `import M exposing (..)` are checked
-                // first so that `lib/Flow/*.flx` Flux implementations take
-                // priority.
-                if self.exposed_bindings.contains_key(&name) {
-                    let qualified = self.exposed_bindings[&name];
-                    if let Some(symbol) = self.resolve_visible_symbol(qualified) {
-                        self.load_symbol(&symbol);
-                    } else {
-                        let name_str = self.sym(name);
-                        return Err(Self::boxed(
-                            self.make_undefined_variable_error(name_str, *span),
-                        ));
-                    }
-                } else if let Some(symbol) = self.resolve_visible_symbol(name) {
+                // Local/lexically visible bindings must shadow names imported
+                // via `import M exposing (..)`.
+                if let Some(symbol) = self.resolve_visible_symbol(name) {
                     if !self.try_emit_consumed_local(name) {
                         self.load_symbol(&symbol);
                     }
