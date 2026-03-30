@@ -61,13 +61,17 @@ fn run_flux_trace_snapshot(args: &[&str]) -> String {
 
 fn normalize_transcript(text: &str) -> String {
     let ws = workspace_root().to_string_lossy().to_string();
+    let ws_forward = ws.replace('\\', "/");
     let mut normalized = Vec::new();
     let mut pending_drops = Vec::new();
 
     for line in text.lines() {
         // Replace absolute workspace path with a stable placeholder so
         // snapshots don't break across machines (local vs CI).
-        let line = line.replace(&ws, "<workspace>");
+        let line = line
+            .replace(&ws, "<workspace>")
+            .replace(&ws_forward, "<workspace>")
+            .replace("<workspace>\\", "<workspace>/");
 
         if is_plain_drop_line(&line) {
             pending_drops.push(line);
