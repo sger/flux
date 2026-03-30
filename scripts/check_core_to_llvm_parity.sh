@@ -5,7 +5,8 @@
 #   scripts/check_core_to_llvm_parity.sh [dir] [--root dir ...]
 #
 # Runs each .flx file through both backends and reports parity.
-# Requires: cargo build --features native
+# Requires: cargo and the native backend feature toolchain when using
+# `--features core_to_llvm`.
 
 DIR="${1:-examples/basics}"
 shift 2>/dev/null || true
@@ -13,14 +14,11 @@ shift 2>/dev/null || true
 # Collect extra args (e.g. --root lib --root examples/aoc/2024)
 EXTRA_ARGS=("$@")
 
-TMPBIN="/tmp/flux_parity_test_$$"
-FLUX="target/debug/flux"
 TIMEOUT=15
-
-if [ ! -f "$FLUX" ]; then
-    echo "Build first: cargo build --all --all-features"
-    exit 1
-fi
+VM_TARGET_DIR="target/parity_vm"
+NATIVE_TARGET_DIR="target/parity_native"
+VM_FLUX="$VM_TARGET_DIR/debug/flux"
+NATIVE_FLUX="$NATIVE_TARGET_DIR/debug/flux"
 
 pass=0
 skip=0
@@ -33,6 +31,11 @@ YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+echo -e "${CYAN}Building VM binary...${NC}"
+CARGO_TARGET_DIR="$VM_TARGET_DIR" cargo build >/dev/null || exit 1
+echo -e "${CYAN}Building native binary...${NC}"
+CARGO_TARGET_DIR="$NATIVE_TARGET_DIR" cargo build --features core_to_llvm >/dev/null || exit 1
+
 for f in "$DIR"/*.flx; do
     [ -f "$f" ] || continue
     name=$(basename "$f")
@@ -43,12 +46,12 @@ for f in "$DIR"/*.flx; do
     rm -f "$fxc"
 
     # Build the command arrays
-    vm_cmd=("$FLUX" "$f" --no-cache "${EXTRA_ARGS[@]}")
-    native_cmd=("$FLUX" "$f" --native --no-cache "${EXTRA_ARGS[@]}")
+    vm_cmd=("$VM_FLUX" "$f" --no-cache "${EXTRA_ARGS[@]}")
+    native_cmd=("$NATIVE_FLUX" "$f" --native --no-cache "${EXTRA_ARGS[@]}")
 
     # Print full cargo run commands for easy copy-paste
     vm_cargo="cargo run -- $f --no-cache${EXTRA_ARGS[*]:+ ${EXTRA_ARGS[*]}}"
-    native_cargo="cargo run --features native -- $f --native --no-cache${EXTRA_ARGS[*]:+ ${EXTRA_ARGS[*]}}"
+    native_cargo="cargo run --features core_to_llvm -- $f --native --no-cache${EXTRA_ARGS[*]:+ ${EXTRA_ARGS[*]}}"
     echo -e "${CYAN}vm:${NC}     ${vm_cargo}"
     echo -e "${CYAN}native:${NC} ${native_cargo}"
 
@@ -80,7 +83,7 @@ for f in "$DIR"/*.flx; do
     fi
     echo ""
 
-    rm -f "$TMPBIN" "$native_err"
+    rm -f "$native_err"
 done
 
 echo "=== Parity Results ==="

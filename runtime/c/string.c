@@ -110,7 +110,7 @@ int64_t flux_float_to_string(int64_t f) {
     uint64_t bits = (uint64_t)f;
     memcpy(&d, &bits, sizeof(d));
     char buf[64];
-    int len = snprintf(buf, sizeof(buf), "%g", d);
+    int len = snprintf(buf, sizeof(buf), "%.15g", d);
     if (len < 0) len = 0;
     return flux_string_new(buf, (uint32_t)len);
 }
