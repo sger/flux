@@ -5,8 +5,6 @@ use std::{
     time::Instant,
 };
 
-#[cfg(feature = "native")]
-use flux::ast::{constant_fold_with_interner, desugar, rename};
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
@@ -21,7 +19,7 @@ use flux::{
     },
     diagnostics::{
         DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticPhase, DiagnosticsAggregator,
-        quality::module_skipped_note, render_diagnostics_json,
+        quality::module_skipped_note, render_diagnostics_json, render_display_path,
     },
     runtime::value::Value,
     syntax::{
@@ -65,6 +63,11 @@ fn main() {
     let strict_mode = args.iter().any(|arg| arg == "--strict");
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
     let dump_aether = args.iter().any(|arg| arg == "--dump-aether");
+    let dump_lir = args.iter().any(|arg| arg == "--dump-lir");
+    #[cfg(feature = "core_to_llvm")]
+    let dump_lir_llvm = args.iter().any(|arg| arg == "--dump-lir-llvm");
+    #[cfg(not(feature = "core_to_llvm"))]
+    let dump_lir_llvm = false;
     #[cfg(feature = "native")]
     let use_core_to_llvm = args
         .iter()
@@ -113,6 +116,12 @@ fn main() {
     }
     if dump_aether {
         args.retain(|arg| arg != "--dump-aether");
+    }
+    if dump_lir {
+        args.retain(|arg| arg != "--dump-lir");
+    }
+    if dump_lir_llvm {
+        args.retain(|arg| arg != "--dump-lir-llvm");
     }
     if use_core_to_llvm {
         args.retain(|arg| arg != "--core-to-llvm" && arg != "--native");
@@ -169,6 +178,7 @@ fn main() {
                 strict_mode,
                 diagnostics_format,
                 all_errors,
+                use_core_to_llvm,
             );
         } else {
             run_file(
@@ -189,6 +199,8 @@ fn main() {
                 all_errors,
                 dump_core,
                 dump_aether,
+                dump_lir,
+                dump_lir_llvm,
                 use_core_to_llvm,
                 emit_llvm,
                 emit_binary,
@@ -227,6 +239,7 @@ fn main() {
                     strict_mode,
                     diagnostics_format,
                     all_errors,
+                    use_core_to_llvm,
                 );
             } else {
                 run_file(
@@ -247,6 +260,8 @@ fn main() {
                     all_errors,
                     dump_core,
                     dump_aether,
+                    dump_lir,
+                    dump_lir_llvm,
                     use_core_to_llvm,
                     emit_llvm,
                     emit_binary,
@@ -458,6 +473,8 @@ fn run_file(
     all_errors: bool,
     dump_core: CoreDumpMode,
     dump_aether: bool,
+    dump_lir: bool,
+    #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] dump_lir_llvm: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] use_core_to_llvm: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] emit_llvm: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] emit_binary: bool,
@@ -483,6 +500,8 @@ fn run_file(
                 && !emit_binary
                 && matches!(dump_core, CoreDumpMode::None)
                 && !dump_aether
+                && !dump_lir
+                && !dump_lir_llvm
                 && !trace_aether
             {
                 if let Some(bytecode) =
@@ -508,7 +527,9 @@ fn run_file(
                         print_stats(&RunStats {
                             parse_ms: None,
                             compile_ms: None,
+                            compile_backend: Some("bytecode"),
                             execute_ms,
+                            execute_backend: "vm",
                             cached: true,
                             module_count: None,
                             source_lines: source.lines().count(),
@@ -553,12 +574,13 @@ fn run_file(
             }
 
             // Auto-import Flow library modules (Proposal 0120/0121 Phase 4).
-            // Inject `import Flow.Option exposing (..)` into the program AST
-            // so Option helpers are available without explicit import.
-            // Skip for --dump-aether/--dump-core/--trace-aether to keep
-            // diagnostic output focused on user code.
+            // Dump/analysis surfaces should see the same enriched program that
+            // normal compilation executes, otherwise `--dump-core` and related
+            // commands become semantically inconsistent with real runs.
+            // Only skip the injection for `--trace-aether`, which is intended
+            // to show the direct execution path without extra dump-only noise.
             let mut program = program;
-            if !dump_aether && !trace_aether && matches!(dump_core, CoreDumpMode::None) {
+            if !trace_aether {
                 inject_flow_prelude(&mut program, &mut parser, use_core_to_llvm);
             }
 
@@ -617,9 +639,10 @@ fn run_file(
                     .find(|e| failed.contains(&e.target_path));
                 if let Some(dep) = failed_dep {
                     failed.insert(node.path.clone());
+                    let display = render_display_path(&node.path.to_string_lossy()).into_owned();
                     all_diagnostics.push(module_skipped_note(
-                        node.path.to_string_lossy().to_string(),
-                        node.path.to_string_lossy().to_string(),
+                        display.clone(),
+                        display,
                         dep.name.clone(),
                     ));
                     continue;
@@ -627,6 +650,7 @@ fn run_file(
 
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
+
                 let is_flow_library = node.path.to_string_lossy().contains("lib/Flow/")
                     || node.path.to_string_lossy().contains("lib\\Flow\\");
                 compiler.set_strict_require_main(is_entry_module);
@@ -725,18 +749,22 @@ fn run_file(
                 );
             }
 
-            // Build merged program from all modules for dump-core / dump-aether.
-            // This ensures module functions are visible in the output.
-            let merged_program =
-                if is_multimodule && (dump_aether || !matches!(dump_core, CoreDumpMode::None)) {
-                    let mut merged = Program::new();
-                    for node in graph.topo_order() {
-                        merged.statements.extend(node.program.statements.clone());
-                    }
-                    merged
-                } else {
-                    program.clone()
-                };
+            // Build merged program from all modules for dump/analysis surfaces that
+            // need whole-program visibility.
+            let merged_program = if is_multimodule
+                && (dump_aether
+                    || !matches!(dump_core, CoreDumpMode::None)
+                    || dump_lir
+                    || dump_lir_llvm)
+            {
+                let mut merged = Program::new();
+                for node in graph.topo_order() {
+                    merged.statements.extend(node.program.statements.clone());
+                }
+                merged
+            } else {
+                program.clone()
+            };
 
             if dump_aether {
                 match compiler.dump_aether_report(&merged_program, enable_optimize) {
@@ -787,56 +815,10 @@ fn run_file(
                 return;
             }
 
-            // --- Core-to-LLVM execution path ---
-            #[cfg(feature = "native")]
-            if use_core_to_llvm || emit_llvm || emit_binary {
-                use std::collections::HashMap;
-
-                let mut c2l_program = Program::new();
-
-                // Load Flow library (stdlib) — parse prelude .flx files
-                // and prepend their definitions before user code.
-                // Flow library auto-loading: disabled pending separate compilation
-                // support. The Flow functions need their own type inference pass
-                // rather than being mixed into the user program. For now, builtin
-                // functions are handled via builtins.rs (C runtime FFI calls).
-                // See Proposal 0120 for the full design.
-                if false {
-                    let flow_dir = locate_flow_lib_dir().unwrap();
-                    let flow_files = ["List.flx"];
-                    for file in flow_files {
-                        let flow_path = flow_dir.join(file);
-                        if let Ok(base_source) = std::fs::read_to_string(&flow_path) {
-                            let lexer = Lexer::new(&base_source);
-                            let mut parser = Parser::new(lexer);
-                            let base_prog = parser.parse_program();
-                            c2l_program.statements.extend(base_prog.statements);
-                        }
-                    }
-                }
-
-                for node in graph.topo_order() {
-                    c2l_program
-                        .statements
-                        .extend(node.program.statements.clone());
-                }
-
-                if enable_optimize {
-                    let desugared = desugar(c2l_program);
-                    let optimized = constant_fold_with_interner(desugared, &compiler.interner);
-                    c2l_program = rename(optimized, HashMap::new());
-                }
-
-                // Re-run HM type inference on the merged program so all
-                // modules' types are available for Core IR lowering.
-                // Without this, hm_expr_types only contains the last
-                // VM-compiled module's types (Proposal 0121 Phase 2).
-                compiler.infer_expr_types_for_program(&c2l_program);
-
-                // Lower AST → Core IR (with Aether passes).
-                let core = match compiler.lower_aether_report_program(&c2l_program, enable_optimize)
-                {
-                    Ok(core) => core,
+            if dump_lir {
+                let dumped = compiler.dump_lir(&merged_program, enable_optimize);
+                match dumped {
+                    Ok(dumped) => println!("{dumped}"),
                     Err(diag) => {
                         emit_diagnostics(
                             &[diag],
@@ -850,26 +832,68 @@ fn run_file(
                         );
                         std::process::exit(1);
                     }
-                };
+                }
+                return;
+            }
 
-                eprintln!(
-                    "[c2l] Core IR done ({} defs). Starting LLVM codegen...",
-                    core.defs.len()
-                );
-                // Core IR → LLVM IR AST → text.
-                let llvm_module = match flux::core_to_llvm::compile_program_with_interner(
-                    &core,
-                    Some(&compiler.interner),
-                ) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        eprintln!("core_to_llvm compilation failed: {e}");
+            // --- LIR → LLVM IR dump (Proposal 0132 Phase 7) ---
+            #[cfg(feature = "core_to_llvm")]
+            if dump_lir_llvm {
+                match compiler.dump_lir_llvm(&merged_program, enable_optimize) {
+                    Ok(ir_text) => println!("{ir_text}"),
+                    Err(diag) => {
+                        emit_diagnostics(
+                            &[diag],
+                            Some(path),
+                            Some(source.as_str()),
+                            is_multimodule,
+                            max_errors,
+                            diagnostics_format,
+                            all_errors,
+                            true,
+                        );
                         std::process::exit(1);
                     }
-                };
+                }
+                return;
+            }
+
+            // --- LIR → LLVM native execution path (Proposal 0132) ---
+            #[cfg(feature = "core_to_llvm")]
+            if use_core_to_llvm || emit_llvm || emit_binary {
+                // Build merged program from all modules.
+                let mut native_program = Program::new();
+                for node in graph.topo_order() {
+                    native_program
+                        .statements
+                        .extend(node.program.statements.clone());
+                }
+
+                // Re-run HM type inference on the merged program so all
+                // modules' types are available for Core IR lowering.
+                compiler.infer_expr_types_for_program(&native_program);
+
+                // AST → Core IR → Aether → LIR → LLVM IR module.
+                eprintln!("[lir→llvm] Compiling via LIR → LLVM native backend...");
+                let mut llvm_module =
+                    match compiler.lower_to_lir_llvm_module(&native_program, enable_optimize) {
+                        Ok(m) => m,
+                        Err(diag) => {
+                            emit_diagnostics(
+                                &[diag],
+                                Some(path),
+                                Some(source.as_str()),
+                                is_multimodule,
+                                max_errors,
+                                diagnostics_format,
+                                all_errors,
+                                true,
+                            );
+                            std::process::exit(1);
+                        }
+                    };
 
                 // Inject target triple and data layout.
-                let mut llvm_module = llvm_module;
                 llvm_module.target_triple = Some(flux::core_to_llvm::target::host_triple());
                 llvm_module.data_layout = flux::core_to_llvm::target::host_data_layout();
 
@@ -924,8 +948,27 @@ fn run_file(
                     output_path: None,
                     runtime_lib_dir,
                 };
+                let exec_start = Instant::now();
                 match flux::core_to_llvm::pipeline::compile_and_run(&config) {
                     Ok(flux::core_to_llvm::pipeline::PipelineResult::Executed { exit_code }) => {
+                        let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
+                        if show_stats {
+                            let compile_ms =
+                                compile_start.elapsed().as_secs_f64() * 1000.0 - execute_ms;
+                            print_stats(&RunStats {
+                                parse_ms: Some(parse_ms),
+                                compile_ms: Some(compile_ms),
+                                compile_backend: Some("llvm"),
+                                execute_ms,
+                                execute_backend: "native",
+                                cached: false,
+                                module_count: Some(module_count),
+                                source_lines: source.lines().count(),
+                                globals_count: None,
+                                functions_count: None,
+                                instruction_bytes: None,
+                            });
+                        }
                         if exit_code != 0 {
                             std::process::exit(exit_code);
                         }
@@ -994,6 +1037,7 @@ fn run_file(
                 }
             }
 
+            eprintln!("[cfg→vm] Running via CFG → bytecode VM backend...");
             let mut vm = VM::new(bytecode);
             vm.set_trace(trace);
             let exec_start = Instant::now();
@@ -1009,7 +1053,9 @@ fn run_file(
                 print_stats(&RunStats {
                     parse_ms: Some(parse_ms),
                     compile_ms: Some(compile_ms),
+                    compile_backend: Some("bytecode"),
                     execute_ms,
+                    execute_backend: "vm",
                     cached: false,
                     module_count: Some(module_count),
                     source_lines: source.lines().count(),
@@ -1037,6 +1083,7 @@ fn run_test_file(
     strict_mode: bool,
     diagnostics_format: DiagnosticOutputFormat,
     all_errors: bool,
+    #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] use_core_to_llvm: bool,
 ) {
     let source = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -1085,7 +1132,7 @@ fn run_test_file(
     }
 
     // Auto-import Flow library for test mode too.
-    inject_flow_prelude(&mut program, &mut parser, false);
+    inject_flow_prelude(&mut program, &mut parser, use_core_to_llvm);
 
     let interner = parser.take_interner();
 
@@ -1200,6 +1247,30 @@ fn run_test_file(
         .and_then(|n| n.to_str())
         .unwrap_or(path);
 
+    #[cfg(feature = "native")]
+    let all_passed = if use_core_to_llvm {
+        run_tests_native(
+            file_name,
+            path,
+            &source,
+            &roots,
+            &tests,
+            enable_optimize,
+            strict_mode,
+        )
+    } else {
+        let bytecode = compiler.bytecode();
+        let mut vm = VM::new(bytecode);
+        if let Err(err) = vm.run() {
+            eprintln!("Error during test setup: {}", err);
+            std::process::exit(1);
+        }
+
+        let results = run_tests(&mut vm, tests);
+        print_test_report(file_name, &results)
+    };
+
+    #[cfg(not(feature = "native"))]
     let all_passed = {
         let bytecode = compiler.bytecode();
         let mut vm = VM::new(bytecode);
@@ -1217,12 +1288,98 @@ fn run_test_file(
     }
 }
 
+#[cfg(feature = "native")]
+fn run_tests_native(
+    file_name: &str,
+    source_path: &str,
+    source: &str,
+    roots: &[PathBuf],
+    tests: &[(String, usize)],
+    enable_optimize: bool,
+    strict_mode: bool,
+) -> bool {
+    use flux::bytecode::vm::test_runner::{TestOutcome, TestResult, print_test_report};
+    use std::fs;
+    use std::process::Command;
+    use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+    let exe = std::env::current_exe().unwrap_or_else(|e| {
+        eprintln!("Failed to locate current executable for native test mode: {e}");
+        std::process::exit(1);
+    });
+
+    let mut results = Vec::new();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+
+    for (idx, (name, _)) in tests.iter().enumerate() {
+        let harness_path = std::env::temp_dir().join(format!(
+            "flux_native_test_{}_{}_{}.flx",
+            std::process::id(),
+            unique,
+            idx
+        ));
+        let harness_source = format!("{source}\n\nfn main() {{ {name}(); }}\n");
+        if let Err(e) = fs::write(&harness_path, harness_source) {
+            eprintln!(
+                "Failed to write native test harness {}: {e}",
+                harness_path.display()
+            );
+            std::process::exit(1);
+        }
+
+        let start = Instant::now();
+        let mut cmd = Command::new(&exe);
+        cmd.arg("--native").arg("--no-cache");
+        if enable_optimize {
+            cmd.arg("--optimize");
+        }
+        if strict_mode {
+            cmd.arg("--strict");
+        }
+        for root in roots {
+            cmd.arg("--root").arg(root);
+        }
+        cmd.arg(&harness_path);
+        cmd.env("NO_COLOR", "1");
+        let output = cmd.output();
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+        let outcome = match output {
+            Ok(output) if output.status.success() => TestOutcome::Pass,
+            Ok(output) => {
+                let mut text = String::new();
+                text.push_str(&String::from_utf8_lossy(&output.stdout));
+                text.push_str(&String::from_utf8_lossy(&output.stderr));
+                TestOutcome::Fail(text.trim().to_string())
+            }
+            Err(err) => TestOutcome::Fail(format!(
+                "failed to run native test harness for {} (from {}): {}",
+                name, source_path, err
+            )),
+        };
+
+        let _ = fs::remove_file(&harness_path);
+        results.push(TestResult {
+            name: name.clone(),
+            elapsed_ms,
+            outcome,
+        });
+    }
+
+    print_test_report(file_name, &results)
+}
+
 // ─── Analytics ───────────────────────────────────────────────────────────────
 
 struct RunStats {
     parse_ms: Option<f64>,
     compile_ms: Option<f64>,
+    compile_backend: Option<&'static str>,
     execute_ms: f64,
+    execute_backend: &'static str,
     cached: bool,
     module_count: Option<usize>,
     source_lines: usize,
@@ -1288,10 +1445,18 @@ fn print_stats(stats: &RunStats) {
     if stats.cached {
         eprintln!("  {:<20} {:>12}", "compile", "(cached)");
     } else if let Some(ms) = stats.compile_ms {
-        eprintln!("  {:<20} {:>8.2} ms  [bytecode]", "compile", ms);
+        eprintln!(
+            "  {:<20} {:>8.2} ms  [{}]",
+            "compile",
+            ms,
+            stats.compile_backend.unwrap_or("unknown")
+        );
     }
 
-    eprintln!("  {:<20} {:>8.2} ms  [vm]", "execute", stats.execute_ms);
+    eprintln!(
+        "  {:<20} {:>8.2} ms  [{}]",
+        "execute", stats.execute_ms, stats.execute_backend
+    );
     eprintln!("  {:<20} {:>8.2} ms", "total", total_ms);
     eprintln!();
 
@@ -1349,32 +1514,15 @@ fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
             if let Err(e) = flux::core_to_llvm::pipeline::ensure_runtime_lib(candidate) {
                 eprintln!("Warning: failed to build C runtime: {e}");
             }
-            if candidate.join("libflux_rt.a").exists() {
+            let lib_exists = if cfg!(windows) {
+                candidate.join("flux_rt.lib").exists()
+            } else {
+                candidate.join("libflux_rt.a").exists()
+            };
+            if lib_exists {
                 return Some(candidate.clone());
             }
         }
-    }
-    None
-}
-
-/// Locate the Flow library directory (`lib/Flow/`).
-#[cfg(feature = "native")]
-fn locate_flow_lib_dir() -> Option<std::path::PathBuf> {
-    if let Ok(exe) = std::env::current_exe() {
-        let mut dir = exe.parent().map(Path::to_path_buf);
-        for _ in 0..5 {
-            if let Some(ref d) = dir {
-                let candidate = d.join("lib").join("Flow");
-                if candidate.join("List.flx").exists() {
-                    return Some(candidate);
-                }
-                dir = d.parent().map(Path::to_path_buf);
-            }
-        }
-    }
-    let cwd = std::path::PathBuf::from("lib/Flow");
-    if cwd.join("List.flx").exists() {
-        return Some(cwd);
     }
     None
 }
@@ -1629,7 +1777,11 @@ fn inject_flow_prelude(
         if !flow_dir.join(file_name).exists() {
             continue;
         }
-        imports.push(format!("import {module_name} exposing (..)"));
+        if module_name == "Flow.List" {
+            imports.push(format!("import {module_name} except [concat, delete]"));
+        } else {
+            imports.push(format!("import {module_name} exposing (..)"));
+        }
     }
 
     if imports.is_empty() {

@@ -3,8 +3,18 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aether/bench_reuse.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `unwrap`.
+
+  examples/aether/bench_reuse.flx:83:33
+   |
+83 |     print("map: result head = #{unwrap(first(mapped))}")
+   |                                 ^^^^^^
+
+Hint:
+  Define it first: let unwrap = ...;
 == stdout ==
 <not executed>

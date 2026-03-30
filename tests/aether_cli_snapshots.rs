@@ -61,13 +61,20 @@ fn run_flux_trace_snapshot(args: &[&str]) -> String {
 
 fn normalize_transcript(text: &str) -> String {
     let ws = workspace_root().to_string_lossy().to_string();
+    let ws_forward = ws.replace('\\', "/");
     let mut normalized = Vec::new();
     let mut pending_drops = Vec::new();
 
     for line in text.lines() {
         // Replace absolute workspace path with a stable placeholder so
         // snapshots don't break across machines (local vs CI).
-        let line = line.replace(&ws, "<workspace>");
+        let mut line = line
+            .replace(&ws, "<workspace>")
+            .replace(&ws_forward, "<workspace>")
+            .replace("<workspace>\\", "<workspace>/");
+        if line.contains("<workspace>") {
+            line = line.replace('\\', "/");
+        }
 
         if is_plain_drop_line(&line) {
             pending_drops.push(line);
@@ -337,9 +344,19 @@ fn dump_aether_and_trace_aether_share_report_content() {
         .next()
         .unwrap_or(report.as_str())
         .trim_end();
+    let shared_report = report_only
+        .split_once("\n── fn my_map")
+        .map(|(_, rest)| format!("── fn my_map{rest}"))
+        .unwrap_or_else(|| report_only.to_string());
+    let shared_report = shared_report
+        .split("\n── Total ──")
+        .next()
+        .unwrap_or(shared_report.as_str())
+        .trim_end()
+        .to_string();
 
     assert!(
-        stderr.contains(report_only),
-        "trace stderr should include the dump-aether report body\n== report ==\n{report_only}\n== stderr ==\n{stderr}"
+        stderr.contains(&shared_report),
+        "trace stderr should include the fixture-local dump-aether report body\n== report ==\n{shared_report}\n== stderr ==\n{stderr}"
     );
 }

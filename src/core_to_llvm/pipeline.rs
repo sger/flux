@@ -8,6 +8,9 @@ use std::fmt;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static NEXT_NATIVE_BUILD_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// Errors from external tool invocation.
 #[derive(Debug)]
@@ -103,7 +106,8 @@ fn run_llc(bc_path: &Path, obj_path: &Path) -> Result<(), PipelineError> {
     cmd.arg(bc_path)
         .arg("-o")
         .arg(obj_path)
-        .arg("--filetype=obj");
+        .arg("--filetype=obj")
+        .arg(format!("--mtriple={}", super::target::host_triple()));
     // macOS Mach-O is position-independent by default; Linux and Windows
     // require PIC for PIE executables (the default linker mode).
     if !cfg!(target_os = "macos") {
@@ -113,39 +117,90 @@ fn run_llc(bc_path: &Path, obj_path: &Path) -> Result<(), PipelineError> {
     check_output("llc", &output)
 }
 
-/// Run `cc` (system linker) to link `.o` + `libflux_rt.a` → executable.
+/// Link `.o`/`.obj` + runtime library → executable.
+///
+/// On Unix: uses `cc` (system linker).
+/// On Windows: tries `clang` first, then falls back to MSVC `link.exe`.
 fn run_linker(
     obj_path: &Path,
     exe_path: &Path,
     runtime_lib_dir: Option<&Path>,
 ) -> Result<(), PipelineError> {
-    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".into());
-    let mut cmd = Command::new(&cc);
-    cmd.arg(obj_path).arg("-o").arg(exe_path);
-    if let Some(dir) = runtime_lib_dir {
-        cmd.arg(format!("-L{}", dir.display()));
-        cmd.arg("-lflux_rt");
+    let toolchain = detect_c_toolchain()?;
+
+    match &toolchain {
+        CToolchain::Msvc { .. } => {
+            let exe_path_with_ext = if exe_path.extension().is_none() {
+                exe_path.with_extension("exe")
+            } else {
+                exe_path.to_path_buf()
+            };
+            let mut cmd = Command::new("link");
+            cmd.args(["/nologo", "/subsystem:console"])
+                .arg(format!("/OUT:{}", exe_path_with_ext.display()))
+                .arg(obj_path);
+            // Set large stack size for deeply recursive programs.
+            cmd.arg("/STACK:67108864"); // 64 MB stack
+            if let Some(dir) = runtime_lib_dir {
+                cmd.arg(format!("/LIBPATH:{}", dir.display()));
+                cmd.arg("flux_rt.lib");
+            }
+            // Link the C runtime and kernel libraries.
+            cmd.args(["libcmt.lib", "kernel32.lib"]);
+            let output = cmd.output()?;
+            check_output("link", &output)
+        }
+        CToolchain::Gcc { cc, .. } => {
+            let exe_path_final = if cfg!(windows) && exe_path.extension().is_none() {
+                exe_path.with_extension("exe")
+            } else {
+                exe_path.to_path_buf()
+            };
+            let mut cmd = Command::new(cc);
+            cmd.arg(obj_path).arg("-o").arg(&exe_path_final);
+            if let Some(dir) = runtime_lib_dir {
+                cmd.arg(format!("-L{}", dir.display()));
+                cmd.arg("-lflux_rt");
+            }
+            if cfg!(windows) {
+                // Windows: set subsystem and stack size via lld-link.
+                cmd.args(["-Wl,/subsystem:console", "-Wl,/STACK:67108864"]);
+            }
+            // Set large stack size for deeply recursive programs.
+            #[cfg(target_os = "macos")]
+            cmd.args(["-Wl,-stack_size,0x4000000"]); // 64 MB stack
+            // Link math library on Linux.
+            #[cfg(target_os = "linux")]
+            cmd.arg("-lm");
+            let output = cmd.output()?;
+            check_output("cc", &output)
+        }
     }
-    // Set large stack size for deeply recursive programs.
-    #[cfg(target_os = "macos")]
-    cmd.args(["-Wl,-stack_size,0x4000000"]); // 64 MB stack
-    // Link math library on Linux.
-    #[cfg(target_os = "linux")]
-    cmd.arg("-lm");
-    let output = cmd.output()?;
-    check_output("cc", &output)
 }
 
 /// Compile LLVM IR to a native binary.
 ///
 /// Steps: `.ll` → `opt` → `.bc` → `llc` → `.o` → `cc` → executable.
 pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, PipelineError> {
-    let dir = std::env::temp_dir().join(format!("flux_core_to_llvm_{}", std::process::id()));
+    // Use target/native/ inside the project (if available) to avoid Windows
+    // Application Control policies that block unsigned executables from temp dirs.
+    let base_dir = std::env::current_dir()
+        .ok()
+        .map(|d| d.join("target").join("native"))
+        .filter(|d| d.parent().is_some_and(|p| p.exists()))
+        .unwrap_or_else(|| std::env::temp_dir().join("flux_core_to_llvm"));
+    std::fs::create_dir_all(&base_dir)?;
+    let build_id = NEXT_NATIVE_BUILD_ID.fetch_add(1, Ordering::Relaxed);
+    let dir = base_dir.join(format!("flux_{}_{}", std::process::id(), build_id));
     std::fs::create_dir_all(&dir)?;
 
     let ll_path = dir.join("program.ll");
     let bc_path = dir.join("program.bc");
-    let obj_path = dir.join("program.o");
+    let obj_path = dir.join(if cfg!(windows) {
+        "program.obj"
+    } else {
+        "program.o"
+    });
 
     emit_llvm_ir(&config.ll_text, &ll_path)?;
 
@@ -192,14 +247,87 @@ pub fn compile_and_run(config: &PipelineConfig) -> Result<PipelineResult, Pipeli
     Ok(PipelineResult::Executed { exit_code })
 }
 
-/// Build `libflux_rt.a` from the C source files if it doesn't exist.
+/// Detected C toolchain on the current system.
+enum CToolchain {
+    /// GCC/Clang-compatible: `cc`/`clang` + `ar`/`llvm-ar` (Unix flags).
+    Gcc { cc: String, ar: String },
+    /// MSVC: `cl.exe` + `lib.exe` (MSVC flags, Developer Command Prompt).
+    Msvc { cc: String, lib_tool: String },
+}
+
+/// Detect the available C toolchain.
+///
+/// Priority:
+/// 1. `CC`/`AR` environment variables (user override).
+/// 2. On Windows: `clang` + `llvm-ar` (works from any terminal).
+/// 3. On Windows: `cl.exe` + `lib.exe` (requires Developer Command Prompt).
+/// 4. On Unix: `cc` + `ar` (always available).
+fn detect_c_toolchain() -> Result<CToolchain, PipelineError> {
+    // 1. User override via environment variables.
+    if let Ok(cc) = std::env::var("CC") {
+        let is_msvc = cc == "cl" || cc == "cl.exe";
+        if is_msvc {
+            let lib_tool = std::env::var("AR").unwrap_or_else(|_| "lib".into());
+            return Ok(CToolchain::Msvc { cc, lib_tool });
+        }
+        let ar = std::env::var("AR").unwrap_or_else(|_| "ar".into());
+        return Ok(CToolchain::Gcc { cc, ar });
+    }
+
+    if cfg!(windows) {
+        // 2. Try clang + llvm-ar (winget LLVM, any terminal).
+        if which("clang").is_some() {
+            let ar = if which("llvm-ar").is_some() {
+                "llvm-ar".into()
+            } else {
+                "ar".into()
+            };
+            return Ok(CToolchain::Gcc {
+                cc: "clang".into(),
+                ar,
+            });
+        }
+        // 3. Try MSVC cl.exe (Developer Command Prompt).
+        if which("cl").is_some() {
+            return Ok(CToolchain::Msvc {
+                cc: "cl".into(),
+                lib_tool: "lib".into(),
+            });
+        }
+        return Err(PipelineError::ToolNotFound {
+            tool: "cc",
+            detail: "No C compiler found. Either install LLVM (`winget install LLVM.LLVM`) \
+                     or run from a Visual Studio Developer Command Prompt."
+                .into(),
+        });
+    }
+
+    // 4. Unix: cc + ar.
+    Ok(CToolchain::Gcc {
+        cc: "cc".into(),
+        ar: "ar".into(),
+    })
+}
+
+/// Build the Flux C runtime as a static library if it doesn't exist.
 ///
 /// This mirrors what `make` does in `runtime/c/`, but runs automatically
 /// so users never need to build the C runtime manually.
+///
+/// On Unix: produces `libflux_rt.a` using `cc` + `ar`.
+/// On Windows: produces `flux_rt.lib` using `clang` + `llvm-ar` or `cl.exe` + `lib.exe`.
 pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
-    let lib_path = runtime_c_dir.join("libflux_rt.a");
+    let toolchain = detect_c_toolchain()?;
+
+    let lib_name = match &toolchain {
+        CToolchain::Msvc { .. } => "flux_rt.lib",
+        CToolchain::Gcc { .. } if cfg!(windows) => "flux_rt.lib",
+        CToolchain::Gcc { .. } => "libflux_rt.a",
+    };
+    let lib_path = runtime_c_dir.join(lib_name);
+
     if lib_path.exists() {
-        // Check if any .c or .h file is newer than the .a
+        // Check if any .c or .h file is newer than the library
         let lib_mtime = std::fs::metadata(&lib_path).and_then(|m| m.modified()).ok();
         let sources_newer = lib_mtime.is_none_or(|lib_t| {
             let mut newer = false;
@@ -223,11 +351,10 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
         }
     }
 
-    eprintln!("[c2l] Building C runtime (libflux_rt.a)...");
+    eprintln!("[c2l] Building C runtime ({lib_name})...");
 
-    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".into());
     let c_files = [
-        "gc.c",
+        "rc.c",
         "flux_rt.c",
         "string.c",
         "hamt.c",
@@ -236,32 +363,66 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
     ];
     let mut obj_files = Vec::new();
 
-    for c_file in &c_files {
-        let src = runtime_c_dir.join(c_file);
-        if !src.exists() {
-            continue;
+    match &toolchain {
+        CToolchain::Msvc { cc, lib_tool } => {
+            for c_file in &c_files {
+                let src = runtime_c_dir.join(c_file);
+                if !src.exists() {
+                    continue;
+                }
+                let obj = runtime_c_dir.join(c_file.replace(".c", ".obj"));
+                let output = Command::new(cc)
+                    .args(["/nologo", "/c", "/O2", "/W3"])
+                    .arg(format!("/Fo{}", obj.display()))
+                    .arg(&src)
+                    .arg(format!("/I{}", runtime_c_dir.display()))
+                    .output()?;
+                check_output("cl (runtime)", &output)?;
+                obj_files.push(obj);
+            }
+
+            let mut cmd = Command::new(lib_tool);
+            cmd.args(["/nologo"])
+                .arg(format!("/OUT:{}", lib_path.display()));
+            for obj in &obj_files {
+                cmd.arg(obj);
+            }
+            let output = cmd.output()?;
+            check_output("lib (runtime)", &output)?;
         }
-        let obj = runtime_c_dir.join(c_file.replace(".c", ".o"));
-        let output = Command::new(&cc)
-            .args(["-std=c11", "-Wall", "-O2", "-g", "-c"])
-            .arg("-o")
-            .arg(&obj)
-            .arg(&src)
-            .arg(format!("-I{}", runtime_c_dir.display()))
-            .output()?;
-        check_output("cc (runtime)", &output)?;
-        obj_files.push(obj);
+        CToolchain::Gcc { cc, ar } => {
+            let obj_ext = if cfg!(windows) { ".obj" } else { ".o" };
+            for c_file in &c_files {
+                let src = runtime_c_dir.join(c_file);
+                if !src.exists() {
+                    continue;
+                }
+                let obj = runtime_c_dir.join(c_file.replace(".c", obj_ext));
+                let output = Command::new(cc)
+                    .args(["-std=c11", "-Wall", "-O2", "-g", "-c"])
+                    .arg("-o")
+                    .arg(&obj)
+                    .arg(&src)
+                    .arg(format!("-I{}", runtime_c_dir.display()))
+                    .output()?;
+                check_output("cc (runtime)", &output)?;
+                obj_files.push(obj);
+            }
+
+            let mut cmd = Command::new(ar);
+            cmd.args(["rcs"]).arg(&lib_path);
+            for obj in &obj_files {
+                cmd.arg(obj);
+            }
+            let output = cmd.output()?;
+            check_output("ar", &output)?;
+        }
     }
 
-    // Create static library
-    let ar = std::env::var("AR").unwrap_or_else(|_| "ar".into());
-    let mut cmd = Command::new(&ar);
-    cmd.args(["rcs"]).arg(&lib_path);
+    // Clean up object files
     for obj in &obj_files {
-        cmd.arg(obj);
+        let _ = std::fs::remove_file(obj);
     }
-    let output = cmd.output()?;
-    check_output("ar", &output)?;
 
     eprintln!("[c2l] Built {}", lib_path.display());
     Ok(())
@@ -304,6 +465,12 @@ fn find_tool(name: &'static str) -> Result<PathBuf, PipelineError> {
         if candidate.is_file() {
             return Ok(candidate);
         }
+        if cfg!(windows) {
+            let candidate_exe = PathBuf::from(dir).join(format!("{name}.exe"));
+            if candidate_exe.is_file() {
+                return Ok(candidate_exe);
+            }
+        }
     }
 
     Err(PipelineError::ToolNotFound {
@@ -317,14 +484,17 @@ fn find_tool(name: &'static str) -> Result<PathBuf, PipelineError> {
 
 /// Simple `which`-style lookup.
 fn which(name: &str) -> Option<PathBuf> {
+    let names: Vec<String> = if cfg!(windows) {
+        vec![format!("{name}.exe"), name.to_string()]
+    } else {
+        vec![name.to_string()]
+    };
     std::env::var_os("PATH").and_then(|paths| {
         std::env::split_paths(&paths).find_map(|dir| {
-            let candidate = dir.join(name);
-            if candidate.is_file() {
-                Some(candidate)
-            } else {
-                None
-            }
+            names.iter().find_map(|n| {
+                let candidate = dir.join(n);
+                candidate.is_file().then_some(candidate)
+            })
         })
     })
 }
@@ -334,10 +504,18 @@ fn check_output(tool: &'static str, output: &std::process::Output) -> Result<(),
     if output.status.success() {
         Ok(())
     } else {
+        // MSVC tools (cl, link, lib) write diagnostics to stdout, not stderr.
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let combined = if stderr.trim().is_empty() {
+            stdout.into_owned()
+        } else {
+            stderr.into_owned()
+        };
         Err(PipelineError::ToolFailed {
             tool,
             exit_code: output.status.code(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            stderr: combined,
         })
     }
 }

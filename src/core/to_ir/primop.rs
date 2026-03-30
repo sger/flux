@@ -17,6 +17,7 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::ReadFile => "read_file",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
+        CorePrimOp::ReadLines => "read_lines",
         CorePrimOp::StringLength => "string_length",
         CorePrimOp::StringConcat => "string_concat",
         CorePrimOp::StringSlice => "string_slice",
@@ -38,7 +39,6 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::ArrayPush => "push",
         CorePrimOp::ArrayConcat => "concat",
         CorePrimOp::ArraySlice => "slice",
-        CorePrimOp::ArraySort => "sort",
         CorePrimOp::HamtGet => "get",
         CorePrimOp::HamtSet => "put",
         CorePrimOp::HamtDelete => "delete",
@@ -61,14 +61,32 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::CmpNe => "cmp_ne",
         CorePrimOp::Panic => "panic",
         CorePrimOp::ClockNow => "now_ms",
+        CorePrimOp::Time => "time",
         CorePrimOp::Try => "try",
         CorePrimOp::AssertThrows => "assert_throws",
         CorePrimOp::ParseInt => "parse_int",
-        CorePrimOp::Hd => "hd",
-        CorePrimOp::Tl => "tl",
+        CorePrimOp::ParseInts => "parse_ints",
+        CorePrimOp::SplitInts => "split_ints",
         CorePrimOp::ToList => "to_list",
         CorePrimOp::ToArray => "to_array",
+        CorePrimOp::Abs => "abs",
+        CorePrimOp::Min => "min",
+        CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
+        CorePrimOp::Reverse => "reverse",
+        CorePrimOp::Contains => "contains",
+        CorePrimOp::Sort => "sort",
+        CorePrimOp::SortBy => "sort_by",
+        CorePrimOp::HoMap => "map",
+        CorePrimOp::HoFilter => "filter",
+        CorePrimOp::HoAny => "any",
+        CorePrimOp::HoAll => "all",
+        CorePrimOp::HoEach => "each",
+        CorePrimOp::HoFind => "find",
+        CorePrimOp::HoCount => "count",
+        CorePrimOp::Zip => "zip",
+        CorePrimOp::Flatten => "flatten",
+        CorePrimOp::HoFlatMap => "flat_map",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -99,6 +117,18 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::Le
             | CorePrimOp::Gt
             | CorePrimOp::Ge
+            | CorePrimOp::ICmpEq
+            | CorePrimOp::ICmpNe
+            | CorePrimOp::ICmpLt
+            | CorePrimOp::ICmpLe
+            | CorePrimOp::ICmpGt
+            | CorePrimOp::ICmpGe
+            | CorePrimOp::FCmpEq
+            | CorePrimOp::FCmpNe
+            | CorePrimOp::FCmpLt
+            | CorePrimOp::FCmpLe
+            | CorePrimOp::FCmpGt
+            | CorePrimOp::FCmpGe
             | CorePrimOp::And
             | CorePrimOp::Or
             | CorePrimOp::Concat => {
@@ -187,33 +217,6 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                     metadata: meta,
                 });
             }
-            CorePrimOp::MemberAccess(member) => {
-                let module_name = match &args[0] {
-                    CoreExpr::Var { var, .. } => Some(var.name),
-                    _ => None,
-                };
-                let object = self.lower_expr(&args[0]);
-                self.emit(IrInstr::Assign {
-                    dest,
-                    expr: IrExpr::MemberAccess {
-                        object,
-                        member: *member,
-                        module_name,
-                    },
-                    metadata: meta,
-                });
-            }
-            CorePrimOp::TupleField(idx) => {
-                let object = self.lower_expr(&args[0]);
-                self.emit(IrInstr::Assign {
-                    dest,
-                    expr: IrExpr::TupleFieldAccess {
-                        object,
-                        index: *idx,
-                    },
-                    metadata: meta,
-                });
-            }
             // Promoted primops — lower back to named function calls.
             // The bytecode compiler already handles these via
             // resolve_primop_call / OpCallBase dispatch.
@@ -222,6 +225,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::ReadFile
             | CorePrimOp::WriteFile
             | CorePrimOp::ReadStdin
+            | CorePrimOp::ReadLines
             | CorePrimOp::StringLength
             | CorePrimOp::StringConcat
             | CorePrimOp::StringSlice
@@ -243,7 +247,6 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::ArrayPush
             | CorePrimOp::ArrayConcat
             | CorePrimOp::ArraySlice
-            | CorePrimOp::ArraySort
             | CorePrimOp::HamtGet
             | CorePrimOp::HamtSet
             | CorePrimOp::HamtDelete
@@ -264,16 +267,34 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::IsMap
             | CorePrimOp::Panic
             | CorePrimOp::ClockNow
+            | CorePrimOp::Time
             | CorePrimOp::ParseInt
-            | CorePrimOp::Hd
-            | CorePrimOp::Tl
+            | CorePrimOp::ParseInts
+            | CorePrimOp::SplitInts
             | CorePrimOp::ToList
             | CorePrimOp::ToArray
+            | CorePrimOp::Abs
+            | CorePrimOp::Min
+            | CorePrimOp::Max
             | CorePrimOp::Len
             | CorePrimOp::CmpEq
             | CorePrimOp::CmpNe
             | CorePrimOp::Try
-            | CorePrimOp::AssertThrows => {
+            | CorePrimOp::AssertThrows
+            | CorePrimOp::Reverse
+            | CorePrimOp::Contains
+            | CorePrimOp::Sort
+            | CorePrimOp::SortBy
+            | CorePrimOp::HoMap
+            | CorePrimOp::HoFilter
+            | CorePrimOp::HoAny
+            | CorePrimOp::HoAll
+            | CorePrimOp::HoEach
+            | CorePrimOp::HoFind
+            | CorePrimOp::HoCount
+            | CorePrimOp::Zip
+            | CorePrimOp::Flatten
+            | CorePrimOp::HoFlatMap => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target
@@ -282,6 +303,24 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                     dest,
                     target: IrCallTarget::Builtin(name_str),
                     args: arg_vars,
+                    metadata: meta,
+                });
+            }
+            // Effect handler ops — native-only, should never appear in CFG pipeline
+            CorePrimOp::EvvGet
+            | CorePrimOp::EvvSet
+            | CorePrimOp::FreshMarker
+            | CorePrimOp::EvvInsert
+            | CorePrimOp::YieldTo
+            | CorePrimOp::YieldExtend
+            | CorePrimOp::YieldPrompt
+            | CorePrimOp::IsYielding
+            | CorePrimOp::PerformDirect => {
+                // These are emitted only by the LIR lowerer for the native backend.
+                // Emit a no-op constant for the VM path.
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: crate::cfg::IrExpr::None,
                     metadata: meta,
                 });
             }
@@ -316,6 +355,20 @@ pub(super) fn primop_to_binop(op: &CorePrimOp) -> IrBinaryOp {
         CorePrimOp::Le => IrBinaryOp::Le,
         CorePrimOp::Gt => IrBinaryOp::Gt,
         CorePrimOp::Ge => IrBinaryOp::Ge,
+        // Typed integer comparisons — map to generic IR comparison ops
+        CorePrimOp::ICmpEq => IrBinaryOp::Eq,
+        CorePrimOp::ICmpNe => IrBinaryOp::NotEq,
+        CorePrimOp::ICmpLt => IrBinaryOp::Lt,
+        CorePrimOp::ICmpLe => IrBinaryOp::Le,
+        CorePrimOp::ICmpGt => IrBinaryOp::Gt,
+        CorePrimOp::ICmpGe => IrBinaryOp::Ge,
+        // Typed float comparisons
+        CorePrimOp::FCmpEq => IrBinaryOp::Eq,
+        CorePrimOp::FCmpNe => IrBinaryOp::NotEq,
+        CorePrimOp::FCmpLt => IrBinaryOp::Lt,
+        CorePrimOp::FCmpLe => IrBinaryOp::Le,
+        CorePrimOp::FCmpGt => IrBinaryOp::Gt,
+        CorePrimOp::FCmpGe => IrBinaryOp::Ge,
         CorePrimOp::And => IrBinaryOp::And,
         CorePrimOp::Or => IrBinaryOp::Or,
         _ => unreachable!("not a binary op: {:?}", op),

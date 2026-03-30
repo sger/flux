@@ -221,9 +221,9 @@ impl<'a> super::AstLowerer<'a> {
                 ..
             } => {
                 let obj = self.lower_expr(object);
-                CoreExpr::PrimOp {
-                    op: CorePrimOp::MemberAccess(*member),
-                    args: vec![obj],
+                CoreExpr::MemberAccess {
+                    object: Box::new(obj),
+                    member: *member,
                     span: *span,
                 }
             }
@@ -235,9 +235,9 @@ impl<'a> super::AstLowerer<'a> {
                 ..
             } => {
                 let obj = self.lower_expr(object);
-                CoreExpr::PrimOp {
-                    op: CorePrimOp::TupleField(*index),
-                    args: vec![obj],
+                CoreExpr::TupleField {
+                    object: Box::new(obj),
+                    index: *index,
                     span: *span,
                 }
             }

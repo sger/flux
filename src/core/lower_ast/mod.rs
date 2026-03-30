@@ -626,7 +626,7 @@ mod tests {
     fn collect_ops_in_expr(expr: &CoreExpr, out: &mut Vec<CorePrimOp>) {
         match expr {
             CoreExpr::PrimOp { op, args, .. } => {
-                out.push(op.clone());
+                out.push(*op);
                 for a in args {
                     collect_ops_in_expr(a, out);
                 }
@@ -717,6 +717,9 @@ mod tests {
                 out.push(scrutinee);
                 collect_var_refs(unique_body, out);
                 collect_var_refs(shared_body, out);
+            }
+            CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+                collect_var_refs(object, out);
             }
         }
     }

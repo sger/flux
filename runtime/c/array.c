@@ -37,7 +37,9 @@ static int64_t array_tag(FluxArray *arr) {
 
 static FluxArray *alloc_array(uint32_t capacity) {
     uint32_t size = (uint32_t)(sizeof(FluxArray) + capacity * sizeof(int64_t));
-    FluxArray *arr = (FluxArray *)flux_gc_alloc(size);
+    /* scan_fsize tracks elements for recursive drop (capped at 255). */
+    uint8_t scan = (capacity <= 255) ? (uint8_t)capacity : 255;
+    FluxArray *arr = (FluxArray *)flux_gc_alloc_header(size, scan, FLUX_OBJ_ARRAY);
     arr->obj_tag = FLUX_OBJ_ARRAY;
     arr->len = 0;
     arr->capacity = capacity;

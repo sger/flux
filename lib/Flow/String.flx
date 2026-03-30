@@ -42,6 +42,8 @@ module Flow.String {
         }
     }
 
+    public fn string_len(s) { len(s) }
+
     public fn str_contains(s, needle) {
         let slen = len(s)
         let nlen = len(needle)

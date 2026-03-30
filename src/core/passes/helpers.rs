@@ -193,6 +193,24 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
             field_mask,
             span,
         },
+        CoreExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => CoreExpr::MemberAccess {
+            object: Box::new(subst(*object, var, replacement)),
+            member,
+            span,
+        },
+        CoreExpr::TupleField {
+            object,
+            index,
+            span,
+        } => CoreExpr::TupleField {
+            object: Box::new(subst(*object, var, replacement)),
+            index,
+            span,
+        },
         other => other,
     }
 }
@@ -340,6 +358,24 @@ pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreE
             shared_body: Box::new(f(*shared_body)),
             span,
         },
+        CoreExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => CoreExpr::MemberAccess {
+            object: Box::new(f(*object)),
+            member,
+            span,
+        },
+        CoreExpr::TupleField {
+            object,
+            index,
+            span,
+        } => CoreExpr::TupleField {
+            object: Box::new(f(*object)),
+            index,
+            span,
+        },
         other => other,
     }
 }
@@ -375,7 +411,19 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::IMul
         | CorePrimOp::FAdd
         | CorePrimOp::FSub
-        | CorePrimOp::FMul => true,
+        | CorePrimOp::FMul
+        | CorePrimOp::ICmpEq
+        | CorePrimOp::ICmpNe
+        | CorePrimOp::ICmpLt
+        | CorePrimOp::ICmpLe
+        | CorePrimOp::ICmpGt
+        | CorePrimOp::ICmpGe
+        | CorePrimOp::FCmpEq
+        | CorePrimOp::FCmpNe
+        | CorePrimOp::FCmpLt
+        | CorePrimOp::FCmpLe
+        | CorePrimOp::FCmpGt
+        | CorePrimOp::FCmpGe => true,
         // Boolean/equality — can't fail
         CorePrimOp::And | CorePrimOp::Or | CorePrimOp::Not | CorePrimOp::Eq | CorePrimOp::NEq => {
             true
@@ -394,13 +442,18 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::Mod
         | CorePrimOp::IMod => false,
         // Generic arithmetic — may fail (type mismatch under gradual typing)
-        CorePrimOp::Add | CorePrimOp::Sub | CorePrimOp::Mul => false,
+        CorePrimOp::Add
+        | CorePrimOp::Sub
+        | CorePrimOp::Mul
+        | CorePrimOp::Abs
+        | CorePrimOp::Min
+        | CorePrimOp::Max => false,
         // Comparisons — may fail on incomparable types
         CorePrimOp::Lt | CorePrimOp::Le | CorePrimOp::Gt | CorePrimOp::Ge => false,
         // Negation — may fail (wrong type)
         CorePrimOp::Neg => false,
         // Access ops — may fail (out of bounds, missing key)
-        CorePrimOp::Index | CorePrimOp::MemberAccess(_) | CorePrimOp::TupleField(_) => false,
+        CorePrimOp::Index => false,
         // Promoted primops — most are impure (I/O, side effects) or may fail.
         // Pure type-inspection primops could be true, but conservatively false.
         CorePrimOp::Print
@@ -408,6 +461,7 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::ReadFile
         | CorePrimOp::WriteFile
         | CorePrimOp::ReadStdin
+        | CorePrimOp::ReadLines
         | CorePrimOp::StringLength
         | CorePrimOp::StringConcat
         | CorePrimOp::StringSlice
@@ -429,7 +483,6 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::ArrayPush
         | CorePrimOp::ArrayConcat
         | CorePrimOp::ArraySlice
-        | CorePrimOp::ArraySort
         | CorePrimOp::HamtGet
         | CorePrimOp::HamtSet
         | CorePrimOp::HamtDelete
@@ -450,9 +503,10 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::IsMap
         | CorePrimOp::Panic
         | CorePrimOp::ClockNow
+        | CorePrimOp::Time
         | CorePrimOp::ParseInt
-        | CorePrimOp::Hd
-        | CorePrimOp::Tl
+        | CorePrimOp::ParseInts
+        | CorePrimOp::SplitInts
         | CorePrimOp::ToList
         | CorePrimOp::ToArray
         | CorePrimOp::Len
@@ -460,6 +514,31 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::CmpNe
         | CorePrimOp::Try
         | CorePrimOp::AssertThrows => false,
+        // Collection operations — pure (no I/O, no side effects)
+        CorePrimOp::Reverse
+        | CorePrimOp::Contains
+        | CorePrimOp::Sort
+        | CorePrimOp::SortBy
+        | CorePrimOp::HoMap
+        | CorePrimOp::HoFilter
+        | CorePrimOp::HoAny
+        | CorePrimOp::HoAll
+        | CorePrimOp::HoEach
+        | CorePrimOp::HoFind
+        | CorePrimOp::HoCount
+        | CorePrimOp::Zip
+        | CorePrimOp::Flatten
+        | CorePrimOp::HoFlatMap => true,
+        // Effect handler ops — not higher-order promoted
+        CorePrimOp::EvvGet
+        | CorePrimOp::EvvSet
+        | CorePrimOp::FreshMarker
+        | CorePrimOp::EvvInsert
+        | CorePrimOp::YieldTo
+        | CorePrimOp::YieldExtend
+        | CorePrimOp::YieldPrompt
+        | CorePrimOp::IsYielding
+        | CorePrimOp::PerformDirect => false,
     }
 }
 
@@ -527,6 +606,9 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
                 || appears_free(var, unique_body)
                 || appears_free(var, shared_body)
         }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            appears_free(var, object)
+        }
     }
 }
 
@@ -564,6 +646,9 @@ pub(super) fn expr_size(expr: &CoreExpr) -> usize {
             shared_body,
             ..
         } => 1 + expr_size(unique_body) + expr_size(shared_body),
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            1 + expr_size(object)
+        }
     }
 }
 

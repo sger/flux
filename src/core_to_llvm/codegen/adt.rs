@@ -7,14 +7,14 @@ use crate::{
         LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType, LlvmTypeDef,
         LlvmValueKind,
     },
-    runtime::nanbox::NanTag,
     syntax::{Identifier, interner::Interner},
 };
 
 use super::{
+    CoreToLlvmError,
     closure::{const_i32_operand, flux_closure_symbol, local as local_operand},
-    function::{CoreToLlvmError, display_ident},
-    prelude::{FluxNanboxLayout, has_function, helper_attrs},
+    display_ident,
+    prelude::{has_function, helper_attrs},
 };
 
 pub const FLUX_ADT_TYPE_NAME: &str = "FluxAdt";
@@ -30,6 +30,10 @@ const RIGHT_TAG_ID: i32 = 3;
 const CONS_TAG_ID: i32 = 4;
 const FIRST_USER_TAG_ID: i32 = 5;
 
+// C runtime obj_tag values (must match flux_rt.h)
+const FLUX_OBJ_ADT: i32 = 0xF2;
+const FLUX_OBJ_TUPLE: i32 = 0xF3;
+
 pub const FLUX_ADT_TAG_FIELD: i32 = 0;
 pub const FLUX_ADT_FIELD_COUNT_FIELD: i32 = 1;
 pub const FLUX_ADT_PAYLOAD_FIELD: i32 = 2;
@@ -38,7 +42,7 @@ pub const FLUX_TUPLE_OBJ_TAG_FIELD: i32 = 0;
 pub const FLUX_TUPLE_ARITY_FIELD: i32 = 4;
 pub const FLUX_TUPLE_PAYLOAD_FIELD: i32 = 5;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AdtMetadata {
     user_constructor_tags: HashMap<Identifier, i32>,
     constructor_arities: HashMap<Identifier, usize>,
@@ -122,11 +126,6 @@ pub fn adt_type() -> LlvmType {
 
 pub fn tuple_type() -> LlvmType {
     LlvmType::Named(FLUX_TUPLE_TYPE_NAME.into())
-}
-
-pub fn tagged_empty_list_bits() -> i64 {
-    (FluxNanboxLayout::NANBOX_SENTINEL_U64
-        | ((NanTag::EmptyList as u64) << FluxNanboxLayout::TAG_SHIFT)) as i64
 }
 
 fn collect_items(
@@ -259,8 +258,12 @@ fn emit_make_adt(module: &mut LlvmModule) {
                     tail: false,
                     call_conv: Some(CallConv::Ccc),
                     ret_ty: LlvmType::ptr(),
-                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc")),
-                    args: vec![(LlvmType::i32(), local_operand("alloc.bytes"))],
+                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc_header")),
+                    args: vec![
+                        (LlvmType::i32(), local_operand("alloc.bytes")),
+                        (LlvmType::i32(), local_operand("field_count")), // scan_fsize
+                        (LlvmType::i32(), const_i32_operand(FLUX_OBJ_ADT)),
+                    ],
                     attrs: vec![],
                 },
                 gep_struct_field(
@@ -417,8 +420,12 @@ fn emit_make_tuple(module: &mut LlvmModule) {
                     tail: false,
                     call_conv: Some(CallConv::Ccc),
                     ret_ty: LlvmType::ptr(),
-                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc")),
-                    args: vec![(LlvmType::i32(), local_operand("alloc.bytes"))],
+                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc_header")),
+                    args: vec![
+                        (LlvmType::i32(), local_operand("alloc.bytes")),
+                        (LlvmType::i32(), local_operand("arity")), // scan_fsize
+                        (LlvmType::i32(), const_i32_operand(FLUX_OBJ_TUPLE)),
+                    ],
                     attrs: vec![],
                 },
                 // Store obj_tag = FLUX_OBJ_TUPLE (0xF3)

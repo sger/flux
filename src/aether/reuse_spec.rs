@@ -212,6 +212,24 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 span,
             }
         }
+        CoreExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => CoreExpr::MemberAccess {
+            object: Box::new(specialize_with_env(*object, env)),
+            member,
+            span,
+        },
+        CoreExpr::TupleField {
+            object,
+            index,
+            span,
+        } => CoreExpr::TupleField {
+            object: Box::new(specialize_with_env(*object, env)),
+            index,
+            span,
+        },
         CoreExpr::DropSpecialized {
             scrutinee,
             unique_body,

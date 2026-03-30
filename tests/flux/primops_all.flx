@@ -59,8 +59,8 @@ fn test_array_and_collection_primops() {
     assert_eq(joined[4], Some(50))
 
     let lst = list(1, 2, 3)
-    assert_eq(first(lst), Some(1))
-    assert_eq(last(lst), Some(3))
+    assert_eq(first(lst), 1)
+    assert_eq(last(lst), 3)
     assert_true(contains(lst, 2))
 }
 

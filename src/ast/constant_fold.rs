@@ -1,6 +1,6 @@
 use crate::ast::fold::{self, Folder};
+use crate::core::{CorePrimOp, PrimEffect};
 use crate::diagnostics::position::Span;
-use crate::primop::{PrimEffect, PrimOp, resolve_primop_call};
 use crate::syntax::expression::ExprId;
 use crate::syntax::interner::Interner;
 use crate::syntax::{expression::Expression, program::Program};
@@ -235,13 +235,13 @@ fn try_fold_pure_primop_call(
         return None;
     };
     let call_name = interner.resolve(*name);
-    let op = resolve_primop_call(call_name, arguments.len())?;
+    let op = CorePrimOp::from_name(call_name, arguments.len())?;
     if op.effect_kind() != PrimEffect::Pure {
         return None;
     }
 
     match op {
-        PrimOp::Abs => match arguments.first()? {
+        CorePrimOp::Abs => match arguments.first()? {
             Expression::Integer { value, .. } => Some(Expression::Integer {
                 value: value.abs(),
                 span,
@@ -254,9 +254,9 @@ fn try_fold_pure_primop_call(
             }),
             _ => None,
         },
-        PrimOp::Min => fold_min_max(arguments, span, true, id),
-        PrimOp::Max => fold_min_max(arguments, span, false, id),
-        PrimOp::StringLen => match arguments.first()? {
+        CorePrimOp::Min => fold_min_max(arguments, span, true, id),
+        CorePrimOp::Max => fold_min_max(arguments, span, false, id),
+        CorePrimOp::StringLength => match arguments.first()? {
             Expression::String { value, .. } => Some(Expression::Integer {
                 value: value.len() as i64,
                 span,
@@ -264,7 +264,7 @@ fn try_fold_pure_primop_call(
             }),
             _ => None,
         },
-        PrimOp::StringConcat => match (arguments.first()?, arguments.get(1)?) {
+        CorePrimOp::StringConcat => match (arguments.first()?, arguments.get(1)?) {
             (Expression::String { value: left, .. }, Expression::String { value: right, .. }) => {
                 Some(Expression::String {
                     value: format!("{left}{right}"),

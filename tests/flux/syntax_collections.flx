@@ -89,16 +89,16 @@ fn test_array_concat() {
 fn test_list_reverse() {
     let result = reverse([1, 2, 3])
     assert_eq(len(result), 3)
-    assert_eq(hd(result), 3)
-    assert_eq(hd(tl(result)), 2)
-    assert_eq(hd(tl(tl(result))), 1)
+    assert_eq(first(result), 3)
+    assert_eq(first(rest(result)), 2)
+    assert_eq(first(rest(rest(result))), 1)
 }
 
 fn test_list_rest() {
     let result = rest([1, 2, 3])
     assert_eq(len(result), 2)
-    assert_eq(hd(result), 2)
-    assert_eq(hd(tl(result)), 3)
+    assert_eq(first(result), 2)
+    assert_eq(first(rest(result)), 3)
 }
 
 fn test_array_push() {
@@ -113,21 +113,21 @@ fn test_array_push() {
 
 fn test_list_creation() {
     let xs = list(1, 2, 3)
-    assert_eq(hd(xs), 1)
+    assert_eq(first(xs), 1)
 }
 
 fn test_list_head_tail() {
     let xs = list(10, 20, 30)
-    assert_eq(hd(xs), 10)
-    let tail = tl(xs)
-    assert_eq(hd(tail), 20)
+    assert_eq(first(xs), 10)
+    let tail = rest(xs)
+    assert_eq(first(tail), 20)
 }
 
 fn test_list_cons_prepend() {
     let xs = list(2, 3)
     let ys = [1 | xs]
-    assert_eq(hd(ys), 1)
-    assert_eq(hd(tl(ys)), 2)
+    assert_eq(first(ys), 1)
+    assert_eq(first(rest(ys)), 2)
 }
 
 fn test_list_empty() {
@@ -151,7 +151,7 @@ fn test_list_to_array() {
 fn test_list_to_list() {
     let arr = [|1, 2, 3|]
     let xs = to_list(arr)
-    assert_eq(hd(xs), 1)
+    assert_eq(first(xs), 1)
     let back = to_array(xs)
     assert_eq(len(back), 3)
     assert_eq(back[0], Some(1))

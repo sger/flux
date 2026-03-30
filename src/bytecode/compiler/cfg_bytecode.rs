@@ -1025,11 +1025,11 @@ impl Compiler {
 
                 // Effect checking and PrimOp emission for named tail calls.
                 if let Some(ref name_str) = callee_name_str
-                    && let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len())
+                    && let Some(primop) = crate::core::CorePrimOp::from_name(name_str, args.len())
                 {
                     let required = match primop.effect_kind() {
-                        crate::primop::PrimEffect::Io => Some("IO"),
-                        crate::primop::PrimEffect::Time => Some("Time"),
+                        crate::core::PrimEffect::Io => Some("IO"),
+                        crate::core::PrimEffect::Time => Some("Time"),
                         _ => None,
                     };
                     if let Some(required_name) = required
@@ -1150,11 +1150,11 @@ impl Compiler {
         // effectful base functions (e.g. print, read_file) have the required
         // effect available in the surrounding scope.
         if let Some(ref name_str) = target_name_str
-            && let Some(primop) = crate::primop::resolve_primop_call(name_str, args.len())
+            && let Some(primop) = crate::core::CorePrimOp::from_name(name_str, args.len())
         {
             let required = match primop.effect_kind() {
-                crate::primop::PrimEffect::Io => Some("IO"),
-                crate::primop::PrimEffect::Time => Some("Time"),
+                crate::core::PrimEffect::Io => Some("IO"),
+                crate::core::PrimEffect::Time => Some("Time"),
                 _ => None,
             };
             if let Some(required_name) = required

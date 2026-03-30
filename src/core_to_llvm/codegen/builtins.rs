@@ -224,7 +224,7 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     // Array operations
     BuiltinMapping {
         flux_name: "len",
-        c_name: "flux_array_len",
+        c_name: "flux_rt_len",
         arity: 1,
         returns_value: true,
     },
@@ -304,12 +304,6 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     },
     // Collection helpers
     BuiltinMapping {
-        flux_name: "first",
-        c_name: "flux_first",
-        arity: 1,
-        returns_value: true,
-    },
-    BuiltinMapping {
         flux_name: "keys",
         c_name: "flux_hamt_keys",
         arity: 1,
@@ -346,32 +340,8 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
         returns_value: true,
     },
     BuiltinMapping {
-        flux_name: "last",
-        c_name: "flux_last",
-        arity: 1,
-        returns_value: true,
-    },
-    BuiltinMapping {
-        flux_name: "rest",
-        c_name: "flux_rest",
-        arity: 1,
-        returns_value: true,
-    },
-    BuiltinMapping {
-        flux_name: "tl",
-        c_name: "flux_rest",
-        arity: 1,
-        returns_value: true,
-    },
-    BuiltinMapping {
         flux_name: "values",
         c_name: "flux_hamt_values",
-        arity: 1,
-        returns_value: true,
-    },
-    BuiltinMapping {
-        flux_name: "hd",
-        c_name: "flux_first",
         arity: 1,
         returns_value: true,
     },
@@ -574,6 +544,12 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
         returns_value: true,
     },
     BuiltinMapping {
+        flux_name: "string_len",
+        c_name: "flux_string_length",
+        arity: 1,
+        returns_value: true,
+    },
+    BuiltinMapping {
         flux_name: "substring",
         c_name: "flux_substring",
         arity: 3,
@@ -590,12 +566,6 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
         flux_name: "filter",
         c_name: "flux_ho_filter",
         arity: 2,
-        returns_value: true,
-    },
-    BuiltinMapping {
-        flux_name: "sort",
-        c_name: "flux_sort_default",
-        arity: 1,
         returns_value: true,
     },
     BuiltinMapping {

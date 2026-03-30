@@ -29,9 +29,9 @@ fn test_pipe_list_operations() {
         |> filter(\x -> x > 2)
         |> map(\x -> x * 10)
     assert_eq(len(result), 3)
-    assert_eq(hd(result), 30)
-    assert_eq(hd(tl(result)), 40)
-    assert_eq(hd(tl(tl(result))), 50)
+    assert_eq(first(result), 30)
+    assert_eq(first(rest(result)), 40)
+    assert_eq(first(rest(rest(result))), 50)
 }
 
 // --- map ---
@@ -39,16 +39,16 @@ fn test_pipe_list_operations() {
 fn test_map_basic() {
     let result = map([1, 2, 3], \x -> x * 2)
     assert_eq(len(result), 3)
-    assert_eq(hd(result), 2)
-    assert_eq(hd(tl(result)), 4)
-    assert_eq(hd(tl(tl(result))), 6)
+    assert_eq(first(result), 2)
+    assert_eq(first(rest(result)), 4)
+    assert_eq(first(rest(rest(result))), 6)
 }
 
 fn test_map_strings() {
     let result = map(["a", "b"], \s -> s + "!")
     assert_eq(len(result), 2)
-    assert_eq(hd(result), "a!")
-    assert_eq(hd(tl(result)), "b!")
+    assert_eq(first(result), "a!")
+    assert_eq(first(rest(result)), "b!")
 }
 
 fn test_map_empty() {
@@ -61,8 +61,8 @@ fn test_map_empty() {
 fn test_filter_basic() {
     let result = filter([1, 2, 3, 4, 5], \x -> x > 3)
     assert_eq(len(result), 2)
-    assert_eq(hd(result), 4)
-    assert_eq(hd(tl(result)), 5)
+    assert_eq(first(result), 4)
+    assert_eq(first(rest(result)), 5)
 }
 
 fn test_filter_none_match() {
@@ -73,7 +73,7 @@ fn test_filter_none_match() {
 fn test_filter_all_match() {
     let result = filter([1, 2, 3], \x -> x > 0)
     assert_eq(len(result), 3)
-    assert_eq(hd(result), 1)
+    assert_eq(first(result), 1)
 }
 
 // --- fold ---
@@ -133,8 +133,8 @@ fn test_all_false() {
 fn test_zip_basic() {
     let result = zip([1, 2, 3], ["a", "b", "c"])
     assert_eq(len(result), 3)
-    assert_eq(hd(result), (1, "a"))
-    assert_eq(hd(tl(result)), (2, "b"))
+    assert_eq(first(result), (1, "a"))
+    assert_eq(first(rest(result)), (2, "b"))
 }
 
 fn test_zip_different_lengths() {
@@ -147,15 +147,15 @@ fn test_zip_different_lengths() {
 fn test_flatten_basic() {
     let result = flatten([[1, 2], [3, 4], [5]])
     assert_eq(len(result), 5)
-    assert_eq(hd(result), 1)
+    assert_eq(first(result), 1)
 }
 
 fn test_flatten_with_empty() {
     let result = flatten([[1], [], [2, 3]])
     assert_eq(len(result), 3)
-    assert_eq(hd(result), 1)
-    assert_eq(hd(tl(result)), 2)
-    assert_eq(hd(tl(tl(result))), 3)
+    assert_eq(first(result), 1)
+    assert_eq(first(rest(result)), 2)
+    assert_eq(first(rest(rest(result))), 3)
 }
 
 // --- flat_map ---
@@ -163,10 +163,10 @@ fn test_flatten_with_empty() {
 fn test_flat_map_basic() {
     let result = flat_map([1, 2, 3], \x -> [x, x * 10])
     assert_eq(len(result), 6)
-    assert_eq(hd(result), 1)
-    assert_eq(hd(tl(result)), 10)
-    assert_eq(hd(tl(tl(result))), 2)
-    assert_eq(hd(tl(tl(tl(result)))), 20)
+    assert_eq(first(result), 1)
+    assert_eq(first(rest(result)), 10)
+    assert_eq(first(rest(rest(result))), 2)
+    assert_eq(first(rest(rest(rest(result)))), 20)
 }
 
 // --- count ---
@@ -186,15 +186,15 @@ fn test_count_none() {
 fn test_sort_by_identity() {
     let result = sort_by([3, 1, 2], \x -> x)
     assert_eq(len(result), 3)
-    assert_eq(hd(result), 1)
-    assert_eq(hd(tl(result)), 2)
-    assert_eq(hd(tl(tl(result))), 3)
+    assert_eq(first(result), 1)
+    assert_eq(first(rest(result)), 2)
+    assert_eq(first(rest(rest(result))), 3)
 }
 
 fn test_sort_by_key() {
     let result = sort_by([(1, "c"), (3, "a"), (2, "b")], \t -> t.0)
-    assert_eq(first(result), Some((1, "c")))
-    assert_eq(last(result), Some((3, "a")))
+    assert_eq(first(result), (1, "c"))
+    assert_eq(last(result), (3, "a"))
 }
 
 // --- combined higher-order pipelines ---

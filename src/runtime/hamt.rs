@@ -345,7 +345,8 @@ pub fn hamt_equal(a: &HamtNode, b: &HamtNode) -> bool {
 
 /// Format a HAMT as a string like `{"a": 1, "b": 2}`.
 pub fn format_hamt(root: &HamtNode) -> String {
-    let pairs = hamt_iter(root);
+    let mut pairs = hamt_iter(root);
+    pairs.sort_by(|(a, _), (b, _)| a.to_string().cmp(&b.to_string()));
     let items: Vec<String> = pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
     format!("{{{}}}", items.join(", "))
 }

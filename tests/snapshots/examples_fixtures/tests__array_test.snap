@@ -11,7 +11,7 @@ I can't find a value named `assert_eq`.
 
   examples/tests/array_test.flx:2:5
   |
-2 |     assert_eq(len([]), 0)
+2 |     assert_eq(length([]), 0)
   |     ^^^^^^^^^
 
 Hint:
@@ -24,7 +24,7 @@ I can't find a value named `assert_eq`.
 
   examples/tests/array_test.flx:6:5
   |
-6 |     assert_eq(len([1, 2, 3]), 3)
+6 |     assert_eq(length([1, 2, 3]), 3)
   |     ^^^^^^^^^
 
 Hint:
@@ -128,7 +128,7 @@ I can't find a value named `assert_eq`.
 
   examples/tests/array_test.flx:38:5
    |
-38 |     assert_eq(len(range(1, 5)), 4)
+38 |     assert_eq(length(range(1, 5)), 4)
    |     ^^^^^^^^^
 
 Hint:

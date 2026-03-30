@@ -1,0 +1,16 @@
+---
+source: tests/runtime_error_fixtures_snapshots.rs
+---
+Fixture: examples/runtime_errors/RuntimeErrors/ExposingRuntimeTarget.flx
+== vm ==
+status: 0
+stdout:
+<empty>
+stderr:
+[cfg→vm] Running via CFG → bytecode VM backend...
+== jit ==
+status: 0
+stdout:
+<empty>
+stderr:
+[cfg→vm] Running via CFG → bytecode VM backend...
