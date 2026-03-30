@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `TypeSystem.StrictPublicChecked` doesn't match file path `//?/examples/type_system/TypeSystem/StrictPublicChecked.flx`.
+Module name `TypeSystem.StrictPublicChecked` doesn't match file path `examples/type_system/TypeSystem/StrictPublicChecked.flx`.
 
   examples/type_system/TypeSystem/StrictPublicChecked.flx:1:1
   |

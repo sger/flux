@@ -48,7 +48,7 @@ Found 2 warnings.
 
 
 ── Aether Trace ──
-file: <workspace>\examples\aether/verify_aether.flx
+file: <workspace>/examples/aether/verify_aether.flx
 backend: vm
 pipeline: AST -> Core -> CFG -> bytecode -> VM
 cache: disabled
@@ -167,7 +167,7 @@ Aether Memory Model Report
   Dups: 1  Drops: 7  Reuses: 4  DropSpecs: 1  FBIP: fbip(2)
   FreshAllocs: 2
 
-[lir→vm] Running via LIR → bytecode VM backend...
+[cfg→vm] Running via CFG → bytecode VM backend...
 [2, 4, 6]
 Some(43)
 Node(Black, Leaf, 5, Leaf)

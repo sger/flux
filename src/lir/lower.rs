@@ -9,11 +9,12 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use crate::core::{
-    CoreAlt, CoreBinderId, CoreDef, CoreExpr, CoreLit, CorePat, CorePrimOp, CoreProgram, CoreTag,
-    CoreTopLevelItem,
+    CoreAlt, CoreBinderId, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp,
+    CoreProgram, CoreTag, CoreTopLevelItem,
 };
 use crate::lir::*;
 use crate::syntax::interner::Interner;
+use crate::syntax::Identifier;
 
 // ── Object layout constants (match runtime/c/flux_rt.h) ──────────────────────
 
@@ -784,6 +785,7 @@ impl<'a> FnLower<'a> {
                         args: arg_vars,
                         cont: cont_id,
                         kind: CallKind::Direct { func_id },
+                        yield_cont: None,
                     });
                     self.switch_to_block(cont_idx);
                     return result;
@@ -819,6 +821,7 @@ impl<'a> FnLower<'a> {
                     args: arg_vars,
                     cont: cont_id,
                     kind: call_kind,
+                    yield_cont: None,
                 });
 
                 self.switch_to_block(cont_idx);
@@ -921,15 +924,20 @@ impl<'a> FnLower<'a> {
                 dst
             }
 
-            // ── Effect handlers (Phase 9) ────────────────────────────
-            CoreExpr::Perform { .. } | CoreExpr::Handle { .. } => {
-                let dst = self.fresh_var();
-                self.emit(LirInstr::Const {
-                    dst,
-                    value: LirConst::None,
-                });
-                dst
-            }
+            // ── Effect handlers (Phase 9 — Koka-style yield model) ────
+            CoreExpr::Handle {
+                body,
+                effect,
+                handlers,
+                ..
+            } => self.lower_handle(body, *effect, handlers),
+
+            CoreExpr::Perform {
+                effect,
+                operation,
+                args,
+                ..
+            } => self.lower_perform(*effect, *operation, args),
 
             // ── Aether RC nodes (Phase 5) ─────────────────────────────
             CoreExpr::Dup { var, body, .. } => {
@@ -980,6 +988,257 @@ impl<'a> FnLower<'a> {
             CoreLit::Unit => LirConst::None,
         };
         self.emit(LirInstr::Const { dst, value });
+        dst
+    }
+
+    // ── Effect handler lowering (Proposal 0134) ─────────────────────
+
+    /// Lower `handle body with Effect { op(resume, params) -> handler_body }`.
+    ///
+    /// Emits:
+    ///   1. Save current evidence vector
+    ///   2. Build handler clause closure(s)
+    ///   3. Fresh marker + insert evidence
+    ///   4. Lower body
+    ///   5. Prompt check (yield_prompt)
+    fn lower_handle(
+        &mut self,
+        body: &CoreExpr,
+        effect: Identifier,
+        handlers: &[CoreHandler],
+    ) -> LirVar {
+        use crate::core::CorePrimOp;
+
+        // 1. Save current evidence vector.
+        let saved_evv = self.fresh_var();
+        self.emit(LirInstr::PrimCall {
+            dst: Some(saved_evv),
+            op: CorePrimOp::EvvGet,
+            args: vec![],
+        });
+
+        // 2. Build handler clause closure.
+        //    For single-operation effects (the common case), the handler
+        //    closure IS the clause: fn(resume, param0, ...) -> handler_body.
+        //    For multi-operation effects, we'd need a dispatch closure, but
+        //    for now we support single-operation effects.
+        let handler_closure = if handlers.len() == 1 {
+            self.lower_handler_clause(&handlers[0])
+        } else {
+            // Multi-operation: build the first handler for now.
+            // TODO: dispatch closure for multi-op effects.
+            self.lower_handler_clause(&handlers[0])
+        };
+
+        // 3. Create fresh marker + insert evidence.
+        let marker = self.fresh_var();
+        self.emit(LirInstr::PrimCall {
+            dst: Some(marker),
+            op: CorePrimOp::FreshMarker,
+            args: vec![],
+        });
+
+        // Effect tag: Symbol(u32) → NaN-boxed integer.
+        let htag = self.fresh_var();
+        self.emit(LirInstr::Const {
+            dst: htag,
+            value: LirConst::Tagged(crate::lir::nanbox_tag_int(effect.as_u32() as i64)),
+        });
+
+        let new_evv = self.fresh_var();
+        self.emit(LirInstr::PrimCall {
+            dst: Some(new_evv),
+            op: CorePrimOp::EvvInsert,
+            args: vec![saved_evv, htag, marker, handler_closure],
+        });
+
+        self.emit(LirInstr::PrimCall {
+            dst: None,
+            op: CorePrimOp::EvvSet,
+            args: vec![new_evv],
+        });
+
+        // 4. Lower the body expression.
+        let body_result = self.lower_expr(body);
+
+        // 5. Prompt check: restore evv and check for yields.
+        let result = self.fresh_var();
+        self.emit(LirInstr::PrimCall {
+            dst: Some(result),
+            op: CorePrimOp::YieldPrompt,
+            args: vec![marker, saved_evv, body_result],
+        });
+
+        result
+    }
+
+    /// Lower a single handler arm into a synthetic closure function.
+    ///
+    /// The closure takes (resume, param0, param1, ...) and executes the
+    /// handler body. Free variables from the enclosing scope are captured.
+    fn lower_handler_clause(&mut self, handler: &CoreHandler) -> LirVar {
+        // Collect free variables in the handler body, excluding params and resume.
+        let free = {
+            let mut free = HashSet::new();
+            let mut bound = HashSet::new();
+            bound.insert(handler.resume.id);
+            for p in &handler.params {
+                bound.insert(p.id);
+            }
+            free_vars_rec(&handler.body, &mut bound, &mut free);
+            free
+        };
+
+        let outer_captures: Vec<(CoreBinderId, LirVar)> = free
+            .iter()
+            .filter_map(|id| self.env.get(id).copied().map(|v| (*id, v)))
+            .collect();
+
+        // Temporarily take the program for the inner FnLower.
+        let mut temp_program = std::mem::replace(self.program, LirProgram::new());
+
+        let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
+        let func_name = format!("handler_clause_{}", temp_program.functions.len());
+        let mut inner = FnLower::new(
+            func_name,
+            synthetic_id,
+            format!("handler_{}", synthetic_id.0),
+            &mut temp_program,
+            self.interner,
+            self.globals_map,
+            self.name_binder_map,
+            self.binder_func_id_map,
+        );
+
+        // Map captured variables.
+        for &(binder_id, _outer_var) in &outer_captures {
+            let inner_var = inner.fresh_var();
+            inner.func.capture_vars.push(inner_var);
+            inner.bind(binder_id, inner_var);
+        }
+
+        // Parameters: resume first, then handler params.
+        let resume_var = inner.fresh_var();
+        inner.bind(handler.resume.id, resume_var);
+        inner.func.params.push(resume_var);
+
+        for p in &handler.params {
+            let pv = inner.fresh_var();
+            inner.bind(p.id, pv);
+            inner.func.params.push(pv);
+        }
+
+        // Lower handler body.
+        let result = inner.lower_expr(&handler.body);
+        inner.set_terminator(LirTerminator::Return(result));
+
+        let inner_func = inner.func;
+
+        // Restore program and add the inner function.
+        *self.program = temp_program;
+        self.program.push_function(inner_func);
+
+        // Emit MakeClosure in the outer context.
+        let outer_capture_vars: Vec<LirVar> = outer_captures.iter().map(|&(_, v)| v).collect();
+        let dst = self.fresh_var();
+        self.emit(LirInstr::MakeClosure {
+            dst,
+            func_id: synthetic_id,
+            captures: outer_capture_vars,
+        });
+        dst
+    }
+
+    /// Lower `perform Effect.operation(args)`.
+    ///
+    /// Phase 1 (tail-resumptive fast path): directly calls the handler via
+    /// `flux_perform_direct` with an identity resume closure. No yield flag
+    /// or continuation building needed.
+    ///
+    /// The identity closure, when called with a value, simply returns it.
+    /// This is correct for tail-resumptive handlers where `resume(v)` is
+    /// the last thing the handler does.
+    fn lower_perform(
+        &mut self,
+        effect: Identifier,
+        operation: Identifier,
+        args: &[CoreExpr],
+    ) -> LirVar {
+        use crate::core::CorePrimOp;
+
+        // Lower the argument (currently single-arg effects).
+        let arg = if args.is_empty() {
+            let none = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: none,
+                value: LirConst::None,
+            });
+            none
+        } else {
+            self.lower_expr(&args[0])
+        };
+
+        // Build identity resume closure: fn(v) → v
+        let resume = self.make_identity_closure();
+
+        // Effect tag and operation tag as NaN-boxed integers.
+        let htag = self.fresh_var();
+        self.emit(LirInstr::Const {
+            dst: htag,
+            value: LirConst::Tagged(crate::lir::nanbox_tag_int(effect.as_u32() as i64)),
+        });
+
+        let optag = self.fresh_var();
+        self.emit(LirInstr::Const {
+            dst: optag,
+            value: LirConst::Tagged(crate::lir::nanbox_tag_int(operation.as_u32() as i64)),
+        });
+
+        // Direct perform: calls handler inline with (resume, arg).
+        let result = self.fresh_var();
+        self.emit(LirInstr::PrimCall {
+            dst: Some(result),
+            op: CorePrimOp::PerformDirect,
+            args: vec![htag, optag, arg, resume],
+        });
+
+        result
+    }
+
+    /// Create an identity closure: a function that returns its argument.
+    /// Used as the `resume` parameter for tail-resumptive effect handlers.
+    fn make_identity_closure(&mut self) -> LirVar {
+        let mut temp_program = std::mem::replace(self.program, LirProgram::new());
+
+        let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
+        let func_name = format!("resume_identity_{}", temp_program.functions.len());
+        let mut inner = FnLower::new(
+            func_name,
+            synthetic_id,
+            format!("resume_id_{}", synthetic_id.0),
+            &mut temp_program,
+            self.interner,
+            self.globals_map,
+            self.name_binder_map,
+            self.binder_func_id_map,
+        );
+
+        // Single parameter: the value to return.
+        let param = inner.fresh_var();
+        inner.func.params.push(param);
+        inner.set_terminator(LirTerminator::Return(param));
+
+        let inner_func = inner.func;
+        *self.program = temp_program;
+        self.program.push_function(inner_func);
+
+        // Emit MakeClosure (no captures).
+        let dst = self.fresh_var();
+        self.emit(LirInstr::MakeClosure {
+            dst,
+            func_id: synthetic_id,
+            captures: vec![],
+        });
         dst
     }
 
@@ -2022,6 +2281,7 @@ fn display_terminator(term: &LirTerminator) -> String {
             args,
             cont,
             kind,
+            yield_cont: _,
         } => {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
             let kind_str = match kind {

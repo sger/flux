@@ -16,6 +16,6 @@ Cannot find module `Modules.Data.MyFile` to import.
 
 Hint:
   Check that: 1) The module file exists (e.g., `Modules.Data.MyFile.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Modules.Data.MyFile` under roots: //?/examples/imports, //?/src (imported from //?/examples/imports/alias_import_script.flx).
+  Looked for module `Modules.Data.MyFile` under roots: examples/imports, src (imported from examples/imports/alias_import_script.flx).
 == stdout ==
 <not executed>

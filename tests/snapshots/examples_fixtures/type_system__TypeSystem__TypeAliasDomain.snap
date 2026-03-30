@@ -7,7 +7,7 @@ failed (module)
 == diagnostics ==
 error[E024]: Module Path Mismatch
 
-Module name `TypeSystem.TypeAliasDomain` doesn't match file path `//?/examples/type_system/TypeSystem/TypeAliasDomain.flx`.
+Module name `TypeSystem.TypeAliasDomain` doesn't match file path `examples/type_system/TypeSystem/TypeAliasDomain.flx`.
 
   examples/type_system/TypeSystem/TypeAliasDomain.flx:1:1
   |

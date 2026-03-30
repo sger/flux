@@ -30,6 +30,11 @@ const TAG_NONE: u64 = 0x2;
 const TAG_EMPTY_LIST: u64 = 0x4;
 #[allow(dead_code)]
 const TAG_BOXED_VALUE: u64 = 0x8;
+#[allow(dead_code)]
+const TAG_YIELD: u64 = 0x9;
+/// Yield sentinel value (Proposal 0134).
+#[allow(dead_code)]
+const YIELD_SENTINEL: i64 = (NANBOX_SENTINEL | (TAG_YIELD << TAG_SHIFT)) as i64;
 
 // ADT constructor tag IDs (must match lir/lower.rs and core_to_llvm/codegen/adt.rs)
 const SOME_TAG: i32 = 1;
@@ -1514,6 +1519,7 @@ impl<'a> FnEmitter<'a> {
                 args,
                 cont,
                 kind,
+                yield_cont: _,
             } => {
                 match kind {
                     CallKind::Direct { func_id } => {
@@ -1549,6 +1555,7 @@ impl<'a> FnEmitter<'a> {
                         );
                     }
                 }
+                // TODO(0134): yield check emission when yield_cont is Some
                 LlvmTerminator::Br {
                     target: self.label(*cont),
                 }
@@ -2109,6 +2116,16 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::Zip => return "flux_zip".to_string(),
         CorePrimOp::Flatten => return "flux_flatten".to_string(),
         CorePrimOp::HoFlatMap => return "flux_ho_flat_map".to_string(),
+        // Effect handlers (Koka-style yield model)
+        CorePrimOp::EvvGet => return "flux_evv_get".to_string(),
+        CorePrimOp::EvvSet => return "flux_evv_set".to_string(),
+        CorePrimOp::FreshMarker => return "flux_fresh_marker".to_string(),
+        CorePrimOp::EvvInsert => return "flux_evv_insert".to_string(),
+        CorePrimOp::YieldTo => return "flux_yield_to".to_string(),
+        CorePrimOp::YieldExtend => return "flux_yield_extend".to_string(),
+        CorePrimOp::YieldPrompt => return "flux_yield_prompt".to_string(),
+        CorePrimOp::IsYielding => return "flux_is_yielding".to_string(),
+        CorePrimOp::PerformDirect => return "flux_perform_direct".to_string(),
     };
 
     // Look up in builtins table for the C name.
@@ -2150,6 +2167,33 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         | "flux_ho_flat_map" | "flux_zip" => {
             (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()])
         }
+        // Effect handlers (Koka-style yield model)
+        "flux_evv_get" => (LlvmType::i64(), vec![]),
+        "flux_evv_set" => (LlvmType::Void, vec![LlvmType::i64()]),
+        "flux_fresh_marker" => (LlvmType::i64(), vec![]),
+        "flux_evv_insert" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_yield_to" => (
+            LlvmType::i64(),
+            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
+        ),
+        "flux_yield_extend" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_yield_prompt" => (
+            LlvmType::i64(),
+            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
+        ),
+        "flux_is_yielding" => (LlvmType::i32(), vec![]),
+        "flux_perform_direct" => (
+            LlvmType::i64(),
+            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
+        ),
         _ => return None,
     };
     Some(LlvmDecl {

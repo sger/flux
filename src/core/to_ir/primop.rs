@@ -312,6 +312,20 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                     metadata: meta,
                 });
             }
+            // Effect handler ops — native-only, should never appear in CFG pipeline
+            CorePrimOp::EvvGet
+            | CorePrimOp::EvvSet
+            | CorePrimOp::FreshMarker
+            | CorePrimOp::EvvInsert
+            | CorePrimOp::YieldTo
+            | CorePrimOp::YieldExtend
+            | CorePrimOp::YieldPrompt
+            | CorePrimOp::IsYielding
+            | CorePrimOp::PerformDirect => {
+                // These are emitted only by the LIR lowerer for the native backend.
+                // Emit a no-op constant for the VM path.
+                self.emit(IrInstr::Assign { dest, expr: crate::cfg::IrExpr::None, metadata: meta });
+            }
         }
         dest
     }
