@@ -722,7 +722,7 @@ fn plan_var(
     mut tail_env: AetherEnv,
     demand: ValueDemand,
     scope: &Scope,
-    field_parents: &FieldParents,
+    _field_parents: &FieldParents,
 ) -> AetherPlan {
     let Some(id) = var.binder else {
         return AetherPlan {

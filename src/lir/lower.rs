@@ -53,10 +53,6 @@ fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
     // Strip module prefix (e.g. "Flow.List.first" → "first")
     let short = name.rsplit('.').next().unwrap_or(name);
     match (short, arity) {
-        // Collection access
-        ("first", 1) => Some(CorePrimOp::First),
-        ("last", 1) => Some(CorePrimOp::Last),
-        ("rest", 1) => Some(CorePrimOp::Rest),
         // Higher-order (C runtime calls closures via flux_call_closure_c)
         ("map", 2) => Some(CorePrimOp::HoMap),
         ("filter", 2) => Some(CorePrimOp::HoFilter),

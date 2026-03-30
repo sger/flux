@@ -555,52 +555,6 @@ pub fn execute_core_primop(
         },
 
         // ── Collection helpers (promoted for both VM and native) ──────
-        First => match &args[0] {
-            Value::Array(arr) => Ok(if arr.is_empty() {
-                Value::None
-            } else {
-                arr[0].clone()
-            }),
-            Value::Cons(cell) => Ok(cell.head.clone()),
-            Value::None | Value::EmptyList => Ok(Value::None),
-            other => Err(terr("first", "Array or List", other)),
-        },
-        Last => match &args[0] {
-            Value::Array(arr) => Ok(if arr.is_empty() {
-                Value::None
-            } else {
-                arr[arr.len() - 1].clone()
-            }),
-            Value::Cons(_) => {
-                let mut last_val = Value::None;
-                let mut cur = &args[0];
-                loop {
-                    match cur {
-                        Value::None | Value::EmptyList => break,
-                        Value::Cons(cell) => {
-                            last_val = cell.head.clone();
-                            cur = &cell.tail;
-                        }
-                        _ => break,
-                    }
-                }
-                Ok(last_val)
-            }
-            Value::None | Value::EmptyList => Ok(Value::None),
-            other => Err(terr("last", "Array or List", other)),
-        },
-        Rest => match &args[0] {
-            Value::Array(arr) => {
-                if arr.len() <= 1 {
-                    Ok(Value::Array(Rc::new(Vec::new())))
-                } else {
-                    Ok(Value::Array(Rc::new(arr[1..].to_vec())))
-                }
-            }
-            Value::Cons(cell) => Ok(cell.tail.clone()),
-            Value::None | Value::EmptyList => Ok(Value::EmptyList),
-            other => Err(terr("rest", "Array or List", other)),
-        },
         Reverse => match &args[0] {
             Value::Array(arr) => {
                 let mut v: Vec<Value> = arr.iter().cloned().collect();

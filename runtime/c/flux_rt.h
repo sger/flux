@@ -332,9 +332,6 @@ int64_t flux_to_string(int64_t val);
 
 /* ── Collection helpers ─────────────────────────────────────────────── */
 
-int64_t flux_first(int64_t collection);
-int64_t flux_last(int64_t collection);
-int64_t flux_rest(int64_t collection);
 int64_t flux_rt_len(int64_t collection);
 int64_t flux_to_list(int64_t arr);
 int64_t flux_is_array(int64_t val);

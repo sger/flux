@@ -2099,15 +2099,12 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::Interpolate => return "flux_to_string".to_string(), // simplified: single-arg toString
         CorePrimOp::Index => return "flux_rt_index".to_string(),
         // Collection helpers (promoted for native)
-        CorePrimOp::First => return "flux_first".to_string(),
-        CorePrimOp::Rest => return "flux_rest".to_string(),
         CorePrimOp::Reverse => return "flux_reverse".to_string(),
         CorePrimOp::Contains => return "flux_contains".to_string(),
         CorePrimOp::Sort => return "flux_sort_default".to_string(),
         CorePrimOp::SortBy => return "flux_ho_sort_by".to_string(),
         CorePrimOp::HoMap => return "flux_ho_map".to_string(),
         CorePrimOp::HoFilter => return "flux_ho_filter".to_string(),
-        CorePrimOp::Last => return "flux_last".to_string(),
         CorePrimOp::HoAny => return "flux_ho_any".to_string(),
         CorePrimOp::HoAll => return "flux_ho_all".to_string(),
         CorePrimOp::HoEach => return "flux_ho_each".to_string(),
@@ -2160,8 +2157,9 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_rc_is_unique" => (LlvmType::i1(), vec![LlvmType::i64()]),
         "flux_drop_reuse" => (LlvmType::Ptr, vec![LlvmType::i64(), LlvmType::i32()]),
         // Collection helpers
-        "flux_first" | "flux_rest" | "flux_reverse" | "flux_sort_default" | "flux_last"
-        | "flux_flatten" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_reverse" | "flux_sort_default" | "flux_flatten" => {
+            (LlvmType::i64(), vec![LlvmType::i64()])
+        }
         "flux_contains" | "flux_ho_sort_by" | "flux_ho_map" | "flux_ho_filter" | "flux_ho_any"
         | "flux_ho_all" | "flux_ho_each" | "flux_ho_find" | "flux_ho_count"
         | "flux_ho_flat_map" | "flux_zip" => {
