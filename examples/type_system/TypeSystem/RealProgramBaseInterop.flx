@@ -1,6 +1,8 @@
+import Flow.Array as Array
+
 module TypeSystem.RealProgramBaseInterop {
     public fn sorted_copy(xs: Array<Int>) -> Array<Int> {
-        sort(xs)
+        Array.sort(xs)
     }
 
     public fn has_value(xs: Array<Int>, value: Int) -> Bool {

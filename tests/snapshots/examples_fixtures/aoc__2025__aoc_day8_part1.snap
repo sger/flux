@@ -3,114 +3,19 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day8_part1.flx
 == compile ==
-failed (compile)
+failed (module)
 == diagnostics ==
-error[E004]: Undefined Variable
+error[E018]: Import Not Found
 
-I can't find a value named `map`.
+Cannot find module `Flow.Array` to import.
 
-  examples/aoc/2025/aoc_day8_part1.flx:104:14
-    |
-104 | let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
-    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `range`.
-
-  examples/aoc/2025/aoc_day8_part1.flx:106:12
-    |
-106 | let idxs = range(0, n)
-    |            ^^^^^
+  examples/aoc/2025/aoc_day8_part1.flx:6:1
+  |
+6 | import Flow.Array as Array
+  | ^
 
 Hint:
-  Define it first: let range = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2025/aoc_day8_part1.flx:110:1
-    |
-110 | fold(idxs, [||], /(acc, i) -> {
-    | ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `range`.
-
-  examples/aoc/2025/aoc_day8_part1.flx:118:16
-    |
-118 | let parents0 = range(0, n)
-    |                ^^^^^
-
-Hint:
-  Define it first: let range = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day8_part1.flx:119:14
-    |
-119 | let sizes0 = map(range(0, n), /_ -> 1)
-    |              ^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2025/aoc_day8_part1.flx:121:14
-    |
-121 | let state1 = fold(top_keys, state0, /(st, k) -> union_key(st, k))
-    |              ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day8_part1.flx:125:13
-    |
-125 | let comps = [int_at(sizes1, i) | i <- range(0, len(parents1)), int_at(parents1, i) == i]
-    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `sort`.
-
-  examples/aoc/2025/aoc_day8_part1.flx:126:11
-    |
-126 | let top = sort(comps, "desc")
-    |           ^^^^
-
-Hint:
-  Define it first: let sort = ...;
-
-Help:
-  Did you mean one of: `sorted_keys`, `root`?
-
-Found 8 errors.
+  Check that: 1) The module file exists (e.g., `Flow.Array.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Flow.Array` under roots: examples/aoc/2025, src (imported from examples/aoc/2025/aoc_day8_part1.flx).
 == stdout ==
 <not executed>

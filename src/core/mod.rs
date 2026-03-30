@@ -258,133 +258,400 @@ pub enum CoreTag {
     Cons,
 }
 
+// ── Effect classification ─────────────────────────────────────────────────────
+
+/// Side-effect classification for primitive operations.
+///
+/// Used for optimization/planning decisions where purity matters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrimEffect {
+    /// Deterministic and side-effect free.
+    Pure,
+    /// Performs observable I/O.
+    Io,
+    /// Depends on wall-clock or monotonic time.
+    Time,
+    /// Affects control flow in non-local ways.
+    Control,
+}
+
 // ── Primitive operations ──────────────────────────────────────────────────────
 
-/// All operators and built-in operations lower to `PrimOp`.
+/// All operators and built-in operations lower to `CorePrimOp`.
 ///
 /// Generic variants (`Add`, `Mul`, …) are used when the operand type is not
 /// known at Core IR construction time (e.g. polymorphic or unresolved).
 /// Typed variants (`IAdd`, `FMul`, …) are emitted by `lower_ast` when the
 /// HM-inferred result type is concretely `Int` or `Float`, enabling backends
 /// to skip the runtime type-dispatch path entirely.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Discriminants are stable across compiler versions for bytecode cache
+/// compatibility. New variants must be appended with the next free ID.
+/// Never reuse or renumber existing discriminants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum CorePrimOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Mod,
-    IAdd,
-    ISub,
-    IMul,
-    IDiv,
-    IMod,
-    FAdd,
-    FSub,
-    FMul,
-    FDiv,
-    Neg,
-    Not,
-    Eq,
-    NEq,
-    Lt,
-    Le,
-    Gt,
-    Ge,
-    And,
-    Or,
-    Concat,
-    Interpolate,
-    MakeList,
-    MakeArray,
-    MakeTuple,
-    MakeHash,
-    Index,
-    MemberAccess(Identifier),
-    TupleField(usize),
+    // ── Generic arithmetic (polymorphic, may fail on type mismatch) ───
+    Add = 0,
+    Sub = 1,
+    Mul = 2,
+    Div = 3,
+    Mod = 4,
 
-    // ── Promoted base-function primops (Proposal 0120 Phase 1) ───────────
-    //
-    // True primitives that need hardware access, memory layout knowledge,
-    // or OS syscalls.  Everything else will be rewritten in Flux
-    // (`lib/Flow/*.flx`) using these primops.
+    // ── Typed integer arithmetic ──────────────────────────────────────
+    IAdd = 5,
+    ISub = 6,
+    IMul = 7,
+    IDiv = 8,
+    IMod = 9,
 
-    // I/O
-    Print,
-    Println,
-    ReadFile,
-    WriteFile,
-    ReadStdin,
+    // ── Typed float arithmetic ────────────────────────────────────────
+    FAdd = 10,
+    FSub = 11,
+    FMul = 12,
+    FDiv = 13,
 
-    // String memory operations
-    StringLength,
-    StringConcat,
-    StringSlice,
-    ToString,
-    Split,
-    Join,
-    Trim,
-    Upper,
-    Lower,
-    StartsWith,
-    EndsWith,
-    Replace,
-    Substring,
-    Chars,
-    StrContains,
+    // ── Numeric helpers ───────────────────────────────────────────────
+    Abs = 14,
+    Min = 15,
+    Max = 16,
+    Neg = 17,
 
-    // Array memory operations
-    ArrayLen,
-    ArrayGet,
-    ArraySet,
-    ArrayPush,
-    ArrayConcat,
-    ArraySlice,
-    ArraySort,
+    // ── Logic ─────────────────────────────────────────────────────────
+    Not = 18,
+    And = 19,
+    Or = 20,
 
-    // HAMT operations
-    HamtGet,
-    HamtSet,
-    HamtDelete,
-    HamtKeys,
-    HamtValues,
-    HamtMerge,
-    HamtSize,
-    HamtContains,
+    // ── Generic comparisons (polymorphic) ─────────────────────────────
+    Eq = 21,
+    NEq = 22,
+    Lt = 23,
+    Le = 24,
+    Gt = 25,
+    Ge = 26,
 
-    // Type tag inspection
-    TypeOf,
-    IsInt,
-    IsFloat,
-    IsString,
-    IsBool,
-    IsArray,
-    IsNone,
-    IsSome,
-    IsList,
-    IsMap,
+    // ── Typed integer comparisons ─────────────────────────────────────
+    ICmpEq = 27,
+    ICmpNe = 28,
+    ICmpLt = 29,
+    ICmpLe = 30,
+    ICmpGt = 31,
+    ICmpGe = 32,
 
-    // Deep structural comparison
-    CmpEq,
-    CmpNe,
+    // ── Typed float comparisons ───────────────────────────────────────
+    FCmpEq = 33,
+    FCmpNe = 34,
+    FCmpLt = 35,
+    FCmpLe = 36,
+    FCmpGt = 37,
+    FCmpGe = 38,
 
-    // Control
-    Panic,
-    ClockNow,
-    Try,
-    AssertThrows,
+    // ── Deep structural comparison ────────────────────────────────────
+    CmpEq = 39,
+    CmpNe = 40,
 
-    // Parsing
-    ParseInt,
+    // ── String / collection constructors ──────────────────────────────
+    Concat = 41,
+    Interpolate = 42,
+    MakeList = 43,
+    MakeArray = 44,
+    MakeTuple = 45,
+    MakeHash = 46,
+    Index = 47,
 
-    // List / cons cell operations
-    Hd,
-    Tl,
-    ToList,
-    ToArray,
+    // ── I/O ───────────────────────────────────────────────────────────
+    Print = 48,
+    Println = 49,
+    ReadFile = 50,
+    WriteFile = 51,
+    ReadStdin = 52,
+    ReadLines = 53,
 
-    // Polymorphic length (dispatches on type tag: string/array/list)
-    Len,
+    // ── String operations ─────────────────────────────────────────────
+    StringLength = 54,
+    StringConcat = 55,
+    StringSlice = 56,
+    ToString = 57,
+    Split = 58,
+    Join = 59,
+    Trim = 60,
+    Upper = 61,
+    Lower = 62,
+    StartsWith = 63,
+    EndsWith = 64,
+    Replace = 65,
+    Substring = 66,
+    Chars = 67,
+    StrContains = 68,
+
+    // ── Array operations ──────────────────────────────────────────────
+    ArrayLen = 69,
+    ArrayGet = 70,
+    ArraySet = 71,
+    ArrayPush = 72,
+    ArrayConcat = 73,
+    ArraySlice = 74,
+
+    // ── HAMT operations ───────────────────────────────────────────────
+    HamtGet = 75,
+    HamtSet = 76,
+    HamtDelete = 77,
+    HamtKeys = 78,
+    HamtValues = 79,
+    HamtMerge = 80,
+    HamtSize = 81,
+    HamtContains = 82,
+
+    // ── Type tag inspection ───────────────────────────────────────────
+    TypeOf = 83,
+    IsInt = 84,
+    IsFloat = 85,
+    IsString = 86,
+    IsBool = 87,
+    IsArray = 88,
+    IsNone = 89,
+    IsSome = 90,
+    IsList = 91,
+    IsMap = 92,
+
+    // ── Control ───────────────────────────────────────────────────────
+    Panic = 93,
+    ClockNow = 94,
+    Try = 95,
+    AssertThrows = 96,
+    Time = 97,
+
+    // ── Parsing ───────────────────────────────────────────────────────
+    ParseInt = 98,
+    ParseInts = 99,
+    SplitInts = 100,
+
+    // ── List / cons cell operations ───────────────────────────────────
+    ToList = 101,
+    ToArray = 102,
+
+    // ── Polymorphic length (dispatches on type tag) ───────────────────
+    Len = 103,
+
+    // ── Collection helpers (promoted for native compilation) ─────────
+    // First (104), Rest (105), Last (112) removed — stdlib is source of truth.
+    Reverse = 106,
+    Contains = 107,
+    Sort = 108,
+    SortBy = 109,
+    HoMap = 110,
+    HoFilter = 111,
+    HoAny = 113,
+    HoAll = 114,
+    HoEach = 115,
+    HoFind = 116,
+    HoCount = 117,
+    Zip = 118,
+    Flatten = 119,
+    HoFlatMap = 120,
+
+    // ── Effect handlers (Koka-style yield model, Proposal 0134) ───────
+    EvvGet = 121,
+    EvvSet = 122,
+    FreshMarker = 123,
+    EvvInsert = 124,
+    YieldTo = 125,
+    YieldExtend = 126,
+    YieldPrompt = 127,
+    IsYielding = 128,
+    /// Direct (tail-resumptive) perform: calls handler inline, no yield.
+    PerformDirect = 129,
+    // ── Next free ID: 130 ─────────────────────────────────────────────
+}
+
+impl CorePrimOp {
+    /// Discriminant as a `u8`, for bytecode encoding.
+    pub fn id(self) -> u8 {
+        self as u8
+    }
+
+    /// Reconstruct from a `u8` discriminant.  Returns `None` for invalid IDs.
+    pub fn from_id(id: u8) -> Option<Self> {
+        if id <= 129 {
+            // SAFETY: all discriminants 0..=129 are defined and the enum is
+            // `#[repr(u8)]`, so the transmute is valid for any value in range.
+            Some(unsafe { std::mem::transmute::<u8, CorePrimOp>(id) })
+        } else {
+            None
+        }
+    }
+
+    /// Resolve a function name + arity to a `CorePrimOp`, if it names a
+    /// built-in primitive.  Used by the bytecode compiler to emit `OpPrimOp`.
+    pub fn from_name(name: &str, arity: usize) -> Option<Self> {
+        // Sorted by (name, arity) for binary search.  Includes aliases from
+        // the legacy PrimOp table so all existing Flux code keeps working.
+        static TABLE: &[(&str, usize, CorePrimOp)] = &[
+            ("abs", 1, CorePrimOp::Abs),
+            ("array_get", 2, CorePrimOp::ArrayGet),
+            ("array_len", 1, CorePrimOp::ArrayLen),
+            ("array_set", 3, CorePrimOp::ArraySet),
+            ("assert_throws", 1, CorePrimOp::AssertThrows),
+            ("assert_throws", 2, CorePrimOp::AssertThrows),
+            ("chars", 1, CorePrimOp::Chars),
+            ("clock_now", 0, CorePrimOp::ClockNow),
+            ("cmp_eq", 2, CorePrimOp::CmpEq),
+            ("cmp_ne", 2, CorePrimOp::CmpNe),
+            ("concat", 2, CorePrimOp::ArrayConcat),
+            ("contains", 2, CorePrimOp::Contains),
+            ("delete", 2, CorePrimOp::HamtDelete),
+            ("ends_with", 2, CorePrimOp::EndsWith),
+            ("fadd", 2, CorePrimOp::FAdd),
+            ("fcmp_eq", 2, CorePrimOp::FCmpEq),
+            ("fcmp_ge", 2, CorePrimOp::FCmpGe),
+            ("fcmp_gt", 2, CorePrimOp::FCmpGt),
+            ("fcmp_le", 2, CorePrimOp::FCmpLe),
+            ("fcmp_lt", 2, CorePrimOp::FCmpLt),
+            ("fcmp_ne", 2, CorePrimOp::FCmpNe),
+            ("fdiv", 2, CorePrimOp::FDiv),
+            ("fmul", 2, CorePrimOp::FMul),
+            ("fsub", 2, CorePrimOp::FSub),
+            ("get", 2, CorePrimOp::HamtGet),
+            ("has_key", 2, CorePrimOp::HamtContains),
+            ("iadd", 2, CorePrimOp::IAdd),
+            ("icmp_eq", 2, CorePrimOp::ICmpEq),
+            ("icmp_ge", 2, CorePrimOp::ICmpGe),
+            ("icmp_gt", 2, CorePrimOp::ICmpGt),
+            ("icmp_le", 2, CorePrimOp::ICmpLe),
+            ("icmp_lt", 2, CorePrimOp::ICmpLt),
+            ("icmp_ne", 2, CorePrimOp::ICmpNe),
+            ("idiv", 2, CorePrimOp::IDiv),
+            ("imod", 2, CorePrimOp::IMod),
+            ("imul", 2, CorePrimOp::IMul),
+            ("is_array", 1, CorePrimOp::IsArray),
+            ("is_bool", 1, CorePrimOp::IsBool),
+            ("is_float", 1, CorePrimOp::IsFloat),
+            ("is_hash", 1, CorePrimOp::IsMap),
+            ("is_int", 1, CorePrimOp::IsInt),
+            ("is_list", 1, CorePrimOp::IsList),
+            ("is_map", 1, CorePrimOp::IsMap),
+            ("is_none", 1, CorePrimOp::IsNone),
+            ("is_some", 1, CorePrimOp::IsSome),
+            ("is_string", 1, CorePrimOp::IsString),
+            ("isub", 2, CorePrimOp::ISub),
+            ("join", 2, CorePrimOp::Join),
+            ("keys", 1, CorePrimOp::HamtKeys),
+            ("len", 1, CorePrimOp::Len),
+            ("lower", 1, CorePrimOp::Lower),
+            ("map_get", 2, CorePrimOp::HamtGet),
+            ("map_has", 2, CorePrimOp::HamtContains),
+            ("map_set", 3, CorePrimOp::HamtSet),
+            ("max", 2, CorePrimOp::Max),
+            ("merge", 2, CorePrimOp::HamtMerge),
+            ("min", 2, CorePrimOp::Min),
+            ("now_ms", 0, CorePrimOp::ClockNow),
+            ("panic", 1, CorePrimOp::Panic),
+            ("parse_int", 1, CorePrimOp::ParseInt),
+            ("parse_ints", 1, CorePrimOp::ParseInts),
+            ("print", 1, CorePrimOp::Print),
+            ("println", 1, CorePrimOp::Println),
+            ("push", 2, CorePrimOp::ArrayPush),
+            ("put", 3, CorePrimOp::HamtSet),
+            ("read_file", 1, CorePrimOp::ReadFile),
+            ("read_lines", 1, CorePrimOp::ReadLines),
+            ("read_stdin", 0, CorePrimOp::ReadStdin),
+            ("replace", 3, CorePrimOp::Replace),
+            ("reverse", 1, CorePrimOp::Reverse),
+            ("size", 1, CorePrimOp::HamtSize),
+            ("slice", 3, CorePrimOp::ArraySlice),
+            ("split", 2, CorePrimOp::Split),
+            ("split_ints", 2, CorePrimOp::SplitInts),
+            ("starts_with", 2, CorePrimOp::StartsWith),
+            ("str_contains", 2, CorePrimOp::StrContains),
+            ("string_concat", 2, CorePrimOp::StringConcat),
+            ("string_len", 1, CorePrimOp::StringLength),
+            ("string_length", 1, CorePrimOp::StringLength),
+            ("string_slice", 3, CorePrimOp::StringSlice),
+            ("substring", 3, CorePrimOp::Substring),
+            ("time", 0, CorePrimOp::Time),
+            ("to_array", 1, CorePrimOp::ToArray),
+            ("to_list", 1, CorePrimOp::ToList),
+            ("to_string", 1, CorePrimOp::ToString),
+            ("trim", 1, CorePrimOp::Trim),
+            ("try", 1, CorePrimOp::Try),
+            ("type_of", 1, CorePrimOp::TypeOf),
+            ("upper", 1, CorePrimOp::Upper),
+            ("values", 1, CorePrimOp::HamtValues),
+            ("write_file", 2, CorePrimOp::WriteFile),
+        ];
+        let key = (name, arity);
+        TABLE
+            .binary_search_by(|(n, a, _)| (*n, *a).cmp(&key))
+            .ok()
+            .map(|idx| TABLE[idx].2)
+    }
+
+    /// Number of arguments this primop expects.
+    pub fn arity(self) -> usize {
+        use CorePrimOp::*;
+        match self {
+            ClockNow | ReadStdin | Time => 0,
+            Abs | ArrayLen | Chars | IsArray | IsBool | IsFloat | IsInt | IsList | IsMap
+            | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | ParseInts | Print
+            | Println | ReadFile | ReadLines | StringLength | ToArray | ToList | ToString
+            | Trim | Try | AssertThrows | TypeOf | Upper | HamtKeys | HamtValues | HamtSize
+            | Neg | Not | Reverse | Sort | Flatten => 1,
+            Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
+            | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
+            | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
+            | And | Or | Concat | ArrayGet | ArrayPush | ArrayConcat | HamtGet | HamtContains
+            | HamtDelete | HamtMerge | Index | Join | Max | Min | Split | SplitInts
+            | StartsWith | EndsWith | StringConcat | StrContains | WriteFile | Contains
+            | SortBy | HoMap | HoFilter | HoAny | HoAll | HoEach | HoFind | HoCount | HoFlatMap
+            | Zip => 2,
+            ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
+            // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
+            // are handled separately by the compiler, not via OpPrimOp.
+            MakeList | MakeArray | MakeTuple | MakeHash | Interpolate => 0,
+            // Effect handler ops (native-only, arity used for display only)
+            EvvGet | IsYielding => 0,
+            EvvSet | YieldExtend | FreshMarker => 1,
+            YieldTo => 3,
+            EvvInsert => 4,
+            YieldPrompt => 3,
+            PerformDirect => 4,
+        }
+    }
+
+    /// Side-effect classification. Used by the compiler to check that
+    /// effectful primops have the required ambient effect in scope.
+    pub fn effect_kind(self) -> PrimEffect {
+        match self {
+            Self::Println
+            | Self::ReadFile
+            | Self::WriteFile
+            | Self::ReadStdin
+            | Self::Print
+            | Self::ReadLines => PrimEffect::Io,
+            Self::ClockNow | Self::Time => PrimEffect::Time,
+            Self::Panic => PrimEffect::Control,
+            _ => PrimEffect::Pure,
+        }
+    }
+
+    /// Whether this primop borrows its arguments (no ownership transfer).
+    /// Most primops borrow; only `ArrayPush` and `ArrayConcat` consume args.
+    pub fn borrows_args(self) -> bool {
+        !matches!(self, Self::ArrayPush | Self::ArrayConcat)
+    }
+
+    /// Look up borrow mode for a named function that may be a primop.
+    /// Returns `Some((arity, borrows))` if the name resolves at any arity.
+    /// Used by Aether borrow inference.
+    pub fn resolve_borrow_info(name: &str) -> Option<(usize, bool)> {
+        // Try arities 0..=3 (covers all primops).
+        for arity in 0..=3 {
+            if let Some(op) = Self::from_name(name, arity) {
+                return Some((arity, op.borrows_args()));
+            }
+        }
+        None
+    }
 }
 
 // ── Case alternatives ─────────────────────────────────────────────────────────
@@ -484,6 +751,22 @@ pub enum CoreExpr {
     PrimOp {
         op: CorePrimOp,
         args: Vec<CoreExpr>,
+        span: Span,
+    },
+    /// Module/struct member access, resolved at compile time.
+    /// Moved out of `CorePrimOp` because it carries data (`Identifier`)
+    /// which prevents `#[repr(u8)]` on the primop enum.
+    MemberAccess {
+        object: Box<CoreExpr>,
+        member: Identifier,
+        span: Span,
+    },
+    /// Tuple field access by index.
+    /// Moved out of `CorePrimOp` because it carries data (`usize`)
+    /// which prevents `#[repr(u8)]` on the primop enum.
+    TupleField {
+        object: Box<CoreExpr>,
+        index: usize,
         span: Span,
     },
     Return {
@@ -638,7 +921,9 @@ impl CoreExpr {
             | CoreExpr::Dup { span, .. }
             | CoreExpr::Drop { span, .. }
             | CoreExpr::Reuse { span, .. }
-            | CoreExpr::DropSpecialized { span, .. } => *span,
+            | CoreExpr::DropSpecialized { span, .. }
+            | CoreExpr::MemberAccess { span, .. }
+            | CoreExpr::TupleField { span, .. } => *span,
         }
     }
 

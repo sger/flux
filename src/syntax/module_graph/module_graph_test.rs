@@ -7,8 +7,8 @@ use crate::syntax::{
 };
 
 use crate::diagnostics::{
-    IMPORT_NOT_FOUND, INVALID_MODULE_ALIAS, INVALID_MODULE_NAME, MULTIPLE_MODULES,
-    SCRIPT_NOT_IMPORTABLE,
+    IMPORT_NOT_FOUND, INVALID_MODULE_ALIAS, INVALID_MODULE_NAME, MODULE_PATH_MISMATCH,
+    MULTIPLE_MODULES, SCRIPT_NOT_IMPORTABLE,
     position::{Position, Span},
 };
 
@@ -106,6 +106,58 @@ fn validate_file_kind_script_not_importable() {
 }
 
 #[test]
+fn validate_file_kind_module_path_mismatch_uses_stable_display_path() {
+    let mut interner = Interner::new();
+    let debug_sym = interner.intern("Debug.IceDemo");
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/");
+    let path_str = if let Some(rest) = format!("{cwd}/examples/Debug/IceDemo.flx").strip_prefix('/')
+    {
+        format!("//?/{rest}")
+    } else {
+        format!("//?/{cwd}/examples/Debug/IceDemo.flx")
+    };
+    let path_buf = PathBuf::from(path_str);
+
+    let program = Program {
+        statements: vec![Statement::Module {
+            name: debug_sym,
+            body: Block {
+                statements: vec![],
+                span: Span::default(),
+            },
+            span: span(1, 0),
+        }],
+        span: Span::default(),
+    };
+
+    let roots = vec![
+        PathBuf::from(
+            if let Some(rest) = format!("{cwd}/examples/Debug").strip_prefix('/') {
+                format!("//?/{rest}")
+            } else {
+                format!("//?/{cwd}/examples/Debug")
+            },
+        ),
+        PathBuf::from(if let Some(rest) = format!("{cwd}/src").strip_prefix('/') {
+            format!("//?/{rest}")
+        } else {
+            format!("//?/{cwd}/src")
+        }),
+    ];
+
+    let err = validate_file_kind(&path_buf, &program, false, &roots, &interner).unwrap_err();
+    assert_eq!(err[0].code(), Some(MODULE_PATH_MISMATCH.code));
+    let rendered = err[0].render(None, None);
+
+    assert!(rendered.contains(
+        "Module name `Debug.IceDemo` doesn't match file path `examples/Debug/IceDemo.flx`."
+    ));
+}
+
+#[test]
 fn resolve_imports_invalid_name() {
     let mut interner = Interner::new();
     let foo_sym = interner.intern("foo");
@@ -174,6 +226,46 @@ fn resolve_imports_missing_module() {
 
     let err = resolve_imports(path, &program, &roots, &interner).unwrap_err();
     assert_eq!(err[0].code(), Some(IMPORT_NOT_FOUND.code));
+}
+
+#[test]
+fn resolve_imports_missing_module_hint_uses_stable_display_paths() {
+    let mut interner = Interner::new();
+    let module_sym = interner.intern("Debug.ModuleGraphCycleA");
+
+    let program = Program {
+        statements: vec![Statement::Import {
+            name: module_sym,
+            alias: None,
+            except: vec![],
+            exposing: crate::syntax::statement::ImportExposing::None,
+            span: span(1, 0),
+        }],
+        span: Span::default(),
+    };
+
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/");
+    let make_verbatim = |suffix: &str| {
+        let joined = format!("{cwd}/{suffix}");
+        if let Some(rest) = joined.strip_prefix('/') {
+            PathBuf::from(format!("//?/{rest}"))
+        } else {
+            PathBuf::from(format!("//?/{joined}"))
+        }
+    };
+
+    let source_path = make_verbatim("examples/Debug/module_cycle_error.flx");
+    let roots = vec![make_verbatim("examples/Debug"), make_verbatim("src")];
+
+    let err = resolve_imports(&source_path, &program, &roots, &interner).unwrap_err();
+    let rendered = err[0].render(None, None);
+
+    assert!(rendered.contains(
+        "Looked for module `Debug.ModuleGraphCycleA` under roots: examples/Debug, src (imported from examples/Debug/module_cycle_error.flx)."
+    ));
 }
 
 #[test]

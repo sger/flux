@@ -3,6 +3,8 @@
 // Return X[a] * X[b] for the last successful union edge.
 // Input: examples/io/aoc_day8.txt
 
+import Flow.Array as Array
+
 fn main() with IO, Time {
     fn int_at(arr, idx) {
         match arr[idx] {
@@ -130,7 +132,7 @@ fn run_limit(points, limit) {
         fold(js, acc, \(acc2, j) -> maybe_push_edge(points, i, j, limit, acc2))
     })
 
-    let sorted_keys = sort(keys)
+    let sorted_keys = Array.sort(keys)
     let parents0 = range(0, n)
     let sizes0 = map(range(0, n), \_ -> 1)
     let state0 = dsu_state(parents0, sizes0, n, -1, -1)

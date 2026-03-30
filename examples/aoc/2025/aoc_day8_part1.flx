@@ -3,6 +3,8 @@
 // Performance: prune edges by distance threshold (from the Rust approach).
 // Input: examples/io/aoc_day8.txt
 
+import Flow.Array as Array
+
 fn main() with IO, Time {
     fn int_at(arr, idx) {
         match arr[idx] {
@@ -112,7 +114,7 @@ fold(idxs, [||], \(acc, i) -> {
     fold(js, acc, \(acc2, j) -> maybe_push_edge(points, i, j, max_dist, acc2))
 })
 
-let sorted_keys = sort(all_keys)
+let sorted_keys = Array.sort(all_keys)
 let top_keys = slice(sorted_keys, 0, 1000)
 
 let parents0 = range(0, n)
@@ -123,6 +125,6 @@ let state1 = fold(top_keys, state0, \(st, k) -> union_key(st, k))
 let parents1 = dsu_parents(state1)
 let sizes1 = dsu_sizes(state1)
 let comps = [int_at(sizes1, i) | i <- range(0, len(parents1)), int_at(parents1, i) == i]
-let top = sort(comps, "desc")
+let top = Array.sort_by(comps, \x -> 0 - x)
 print(int_at(top, 0) * int_at(top, 1) * int_at(top, 2))
 }

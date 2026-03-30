@@ -206,6 +206,9 @@ fn count_uses(expr: &CoreExpr, counts: &mut HashMap<CoreBinderId, usize>) {
                 count_uses(f, counts);
             }
         }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            count_uses(object, counts);
+        }
         // DropSpecialized: count scrutinee var + take max of both branches
         // (like Case arms — only one branch executes at runtime).
         CoreExpr::DropSpecialized {
@@ -491,6 +494,9 @@ fn count_owned_inner(
                     .iter()
                     .map(|f| count_owned_inner(var, f, registry))
                     .sum::<usize>()
+        }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            count_owned_inner(var, object, registry)
         }
         // DropSpecialized: scrutinee is borrowed (tested for uniqueness),
         // branches are normal context — take max (only one runs).

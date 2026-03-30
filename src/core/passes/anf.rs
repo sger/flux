@@ -118,6 +118,18 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::Le
         | CorePrimOp::Gt
         | CorePrimOp::Ge
+        | CorePrimOp::ICmpEq
+        | CorePrimOp::ICmpNe
+        | CorePrimOp::ICmpLt
+        | CorePrimOp::ICmpLe
+        | CorePrimOp::ICmpGt
+        | CorePrimOp::ICmpGe
+        | CorePrimOp::FCmpEq
+        | CorePrimOp::FCmpNe
+        | CorePrimOp::FCmpLt
+        | CorePrimOp::FCmpLe
+        | CorePrimOp::FCmpGt
+        | CorePrimOp::FCmpGe
         | CorePrimOp::And
         | CorePrimOp::Or
         | CorePrimOp::Not
@@ -149,7 +161,6 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         // Array/HAMT operations that return collections → BoxedRep
         CorePrimOp::ArrayConcat
         | CorePrimOp::ArraySlice
-        | CorePrimOp::ArraySort
         | CorePrimOp::ArrayPush
         | CorePrimOp::HamtSet
         | CorePrimOp::HamtDelete
@@ -161,7 +172,7 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
 
         // I/O → UnitRep (print/println) or BoxedRep (read)
         CorePrimOp::Print | CorePrimOp::Println | CorePrimOp::WriteFile => FluxRep::UnitRep,
-        CorePrimOp::ReadFile | CorePrimOp::ReadStdin => FluxRep::BoxedRep,
+        CorePrimOp::ReadFile | CorePrimOp::ReadStdin | CorePrimOp::ReadLines => FluxRep::BoxedRep,
 
         // Polymorphic / unknown → TaggedRep
         _ => FluxRep::TaggedRep,
@@ -422,5 +433,39 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
             shared_body: Box::new(anf_expr(*shared_body, next_id)),
             span,
         },
+
+        // MemberAccess — normalize object to atom.
+        CoreExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => {
+            let mut bindings = Vec::new();
+            let object = anf_expr(*object, next_id);
+            let object = anf_atom(object, next_id, &mut bindings);
+            let access = CoreExpr::MemberAccess {
+                object: Box::new(object),
+                member,
+                span,
+            };
+            wrap_lets(bindings, access, span)
+        }
+
+        // TupleField — normalize object to atom.
+        CoreExpr::TupleField {
+            object,
+            index,
+            span,
+        } => {
+            let mut bindings = Vec::new();
+            let object = anf_expr(*object, next_id);
+            let object = anf_atom(object, next_id, &mut bindings);
+            let field = CoreExpr::TupleField {
+                object: Box::new(object),
+                index,
+                span,
+            };
+            wrap_lets(bindings, field, span)
+        }
     }
 }

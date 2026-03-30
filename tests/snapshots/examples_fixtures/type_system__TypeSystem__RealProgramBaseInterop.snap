@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `TypeSystem.RealProgramBaseInterop` doesn't match file path `examples/type_system/TypeSystem/RealProgramBaseInterop.flx`.
 
-  examples/type_system/TypeSystem/RealProgramBaseInterop.flx:1:1
+  examples/type_system/TypeSystem/RealProgramBaseInterop.flx:3:1
   |
-1 | module TypeSystem.RealProgramBaseInterop {
+3 | module TypeSystem.RealProgramBaseInterop {
   | ^
 
 Hint:

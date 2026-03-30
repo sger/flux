@@ -103,9 +103,14 @@ fn strip_ansi(input: &str) -> String {
 pub fn normalize_transcript(text: &str, workspace_root: &Path) -> String {
     let mut normalized = strip_ansi(&text.replace("\r\n", "\n").replace('\\', "/"));
 
+    // Strip Windows verbatim path prefixes: //?/C:/ -> C:/
+    normalized = normalized.replace("//?/", "");
+
     let mut prefixes = vec![workspace_root.to_string_lossy().replace('\\', "/")];
     if let Ok(canonical) = workspace_root.canonicalize() {
-        prefixes.push(canonical.to_string_lossy().replace('\\', "/"));
+        let canon_str = canonical.to_string_lossy().replace('\\', "/");
+        // Strip //?/ from canonical prefix so it matches the already-stripped text
+        prefixes.push(canon_str.replace("//?/", ""));
     }
 
     for prefix in prefixes {

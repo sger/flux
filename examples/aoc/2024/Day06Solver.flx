@@ -55,7 +55,7 @@ module Day06Solver {
     }
 
     fn insert_sorted(m, key, value) {
-        put(m, key, sort(push(map_arr_at(m, key), value)))
+        put(m, key, Array.sort(push(map_arr_at(m, key), value)))
     }
 
     // ── Grid pre-processing ───────────────────────────────────────────

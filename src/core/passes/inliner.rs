@@ -71,7 +71,9 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
         | CoreExpr::Dup { .. }
         | CoreExpr::Drop { .. }
         | CoreExpr::Reuse { .. }
-        | CoreExpr::DropSpecialized { .. } => map_children(expr, inline_lets),
+        | CoreExpr::DropSpecialized { .. }
+        | CoreExpr::MemberAccess { .. }
+        | CoreExpr::TupleField { .. } => map_children(expr, inline_lets),
         other => other,
     }
 }
@@ -187,6 +189,9 @@ fn count_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
             let scrut = if scrutinee.binder == Some(var) { 1 } else { 0 };
             scrut + count_occurrences(var, unique_body) + count_occurrences(var, shared_body)
         }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            count_occurrences(var, object)
+        }
     }
 }
 
@@ -252,6 +257,9 @@ fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
             shared_body,
             ..
         } => occurs_under_lambda(var, unique_body) || occurs_under_lambda(var, shared_body),
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            occurs_under_lambda(var, object)
+        }
     }
 }
 

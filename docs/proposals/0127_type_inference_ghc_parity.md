@@ -556,6 +556,8 @@ Monomorphization (Rust's approach) eliminates runtime overhead but causes code b
 
 - **When to run the solver — after each binding or after the whole program?** GHC runs the solver at generalization points (let-bindings and top-level definitions). Flux should do the same: solve constraints at each let/fn generalization point, carry residuals upward.
 
+- **Polymorphic recursion requires explicit type signatures.** Currently, recursive functions like `List.fold(xs, acc, f)` are inferred monomorphically — the accumulator type gets unified with the list element type during the recursive call, making `fold(int_list, "", string_fn)` a type error. GHC solves this by requiring an explicit signature: `foldl :: forall a b. (b -> a -> b) -> b -> [a] -> b`. Flux needs the same: when a recursive function has a type annotation, use that annotation as the polymorphic type during recursive calls (GHC's `tcPolyCheck` path) instead of the monomorphic unification variables (`tcPolyInfer`). This falls under Phase 5 (generalization) or could be a standalone sub-proposal, since it does not require type classes — only skolemisation and signature-directed checking.
+
 ## Future possibilities
 
 - **Specialization pragma**: `@specialize fn sort<Int>` to monomorphize hot polymorphic functions, eliminating dictionary overhead

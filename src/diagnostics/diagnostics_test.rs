@@ -65,6 +65,24 @@ fn render_display_path_strips_cwd_prefix() {
 }
 
 #[test]
+fn render_display_path_strips_windows_verbatim_prefix() {
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/");
+    let under_cwd = format!("{cwd}/src/main.rs");
+    let verbatim = if let Some(rest) = under_cwd.strip_prefix('/') {
+        format!("//?/{rest}")
+    } else {
+        format!("//?/{under_cwd}")
+    };
+
+    let display = render_display_path(&verbatim);
+
+    assert_eq!(display.as_ref(), "src/main.rs");
+}
+
+#[test]
 fn severity_ordering_is_stable() {
     let error = diagnostic_for(&NOT_A_FUNCTION);
     let warning = Diagnostic::warning("WARN");

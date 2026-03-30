@@ -12,6 +12,7 @@ use crate::diagnostics::{
     INVALID_MODULE_ALIAS, INVALID_MODULE_FILE, INVALID_MODULE_NAME, MODULE_PATH_MISMATCH,
     MULTIPLE_MODULES, SCRIPT_NOT_IMPORTABLE,
     position::{Position, Span},
+    render_display_path,
 };
 
 use super::{
@@ -186,15 +187,15 @@ fn resolve_import_path(
                 name,
                 roots
                     .iter()
-                    .map(|root| root.display().to_string())
+                    .map(|root| render_display_path(&root.display().to_string()).into_owned())
                     .collect::<Vec<_>>()
                     .join(", "),
-                source_path.display()
+                render_display_path(&source_path.display().to_string())
             );
             let diag = Diagnostic::make_error(
                 error_spec,
                 &[name],
-                source_path.display().to_string(),
+                render_display_path(&source_path.display().to_string()).into_owned(),
                 Span::new(position, position),
             )
             .with_hint_text(hint);
@@ -316,20 +317,24 @@ pub(super) fn validate_file_kind(
             diagnostics.push(diag);
         } else if !module_name_matches_path(&module_name, path, roots) {
             let error_spec = &MODULE_PATH_MISMATCH;
+            let display_path = render_display_path(&path.display().to_string()).into_owned();
+            let replacements = [&module_name[..], &display_path[..]];
             let diag = Diagnostic::make_error(
                 error_spec,
-                &[&module_name, &path.display().to_string()],
-                path.display().to_string(),
+                &replacements,
+                display_path.clone(),
                 Span::new(position, position),
             );
             diagnostics.push(diag);
         }
     } else if !is_entry {
         let error_spec = &SCRIPT_NOT_IMPORTABLE;
+        let display_path = render_display_path(&path.display().to_string()).into_owned();
+        let replacements = [&display_path[..]];
         let diag = Diagnostic::make_error(
             error_spec,
-            &[&path.display().to_string()],
-            path.display().to_string(),
+            &replacements,
+            display_path.clone(),
             Span::new(Position::default(), Position::default()),
         );
         diagnostics.push(diag);

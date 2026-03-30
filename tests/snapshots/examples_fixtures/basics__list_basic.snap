@@ -7,41 +7,41 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
-I can't find a value named `reverse`.
+I can't find a value named `rest`.
 
-  examples/basics/list_basic.flx:59:11
+  examples/basics/list_basic.flx:34:11
    |
-59 |     print(reverse(xs))
-   |           ^^^^^^^
+34 |     print(rest(to_list(my_array)));
+   |           ^^^^
 
 Hint:
-  Define it first: let reverse = ...;
+  Define it first: let rest = ...;
 
 
 error[E004]: Undefined Variable
 
-I can't find a value named `contains`.
+I can't find a value named `first`.
 
-  examples/basics/list_basic.flx:62:11
+  examples/basics/list_basic.flx:40:11
    |
-62 |     print(contains(xs, 2))
-   |           ^^^^^^^^
+40 |     print(first(xs))
+   |           ^^^^^
 
 Hint:
-  Define it first: let contains = ...;
+  Define it first: let first = ...;
 
 
 error[E004]: Undefined Variable
 
-I can't find a value named `contains`.
+I can't find a value named `rest`.
 
-  examples/basics/list_basic.flx:63:11
+  examples/basics/list_basic.flx:41:11
    |
-63 |     print(contains(xs, 9))
-   |           ^^^^^^^^
+41 |     print(rest(xs))
+   |           ^^^^
 
 Hint:
-  Define it first: let contains = ...;
+  Define it first: let rest = ...;
 
 Found 3 errors.
 == stdout ==

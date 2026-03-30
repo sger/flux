@@ -297,14 +297,21 @@ impl Compiler {
             "Flow.IO",
             "Flow.Assert",
         ];
+        let skip_flow_auto_expose: Vec<(&str, &str)> = vec![
+            // Preserve existing primop behavior for unqualified calls.
+            ("Flow.List", "concat"),
+            ("Flow.List", "delete"),
+        ];
         // Collect all public members for Flow modules.
         let entries: Vec<(Symbol, Symbol)> = self
             .module_function_visibility
             .iter()
-            .filter(|((mod_name, _), is_public)| {
+            .filter(|((mod_name, member), is_public)| {
                 **is_public && {
-                    let name = self.interner.try_resolve(*mod_name).unwrap_or("");
-                    flow_prefixes.contains(&name)
+                    let module_name = self.interner.try_resolve(*mod_name).unwrap_or("");
+                    let member_name = self.interner.try_resolve(*member).unwrap_or("");
+                    flow_prefixes.contains(&module_name)
+                        && !skip_flow_auto_expose.contains(&(module_name, member_name))
                 }
             })
             .map(|((mod_name, member), _)| (*mod_name, *member))
@@ -903,7 +910,6 @@ impl Compiler {
                 pure(),
                 0,
             ),
-            ("sort", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             ("reverse", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             (
                 "contains",
@@ -932,8 +938,6 @@ impl Compiler {
             ("is_hash", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
             ("is_map", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
             // List ops
-            ("hd", vec![con(TC::Any)], con(TC::Any), pure(), 0),
-            ("tl", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             ("to_list", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             ("to_array", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             // Map ops
@@ -2427,6 +2431,139 @@ impl Compiler {
         } else {
             Ok(ir_text)
         }
+    }
+
+    /// Lower to Core IR, then to LIR, and return a human-readable dump.
+    #[allow(clippy::result_large_err)]
+    pub fn dump_lir(&self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
+        let program_to_lower = if optimize {
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
+            rename(optimized, HashMap::new())
+        } else {
+            program.clone()
+        };
+
+        let mut core =
+            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
+
+        let globals_map = self.build_globals_map();
+        let lir = crate::lir::lower::lower_program_with_interner(
+            &core,
+            Some(&self.interner),
+            Some(&globals_map),
+        );
+        Ok(crate::lir::lower::display_program(&lir))
+    }
+
+    /// Lower program through LIR to an LLVM IR module (Proposal 0132 Phase 7).
+    /// Returns the `LlvmModule` struct so the caller can inject target triple
+    /// and data layout before rendering.
+    #[cfg(feature = "core_to_llvm")]
+    #[allow(clippy::result_large_err)]
+    pub fn lower_to_lir_llvm_module(
+        &self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
+        let program_to_lower = if optimize {
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
+            rename(optimized, HashMap::new())
+        } else {
+            program.clone()
+        };
+
+        let mut core =
+            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
+
+        // Pass None for globals_map so ALL functions are lowered to LIR
+        // functions (no GetGlobal). In native mode there's no VM globals
+        // table, so every function must be compiled into the LLVM module.
+        let lir = crate::lir::lower::lower_program_with_interner(&core, Some(&self.interner), None);
+        Ok(crate::lir::emit_llvm::emit_llvm_module(&lir))
+    }
+
+    /// Dump LIR as LLVM IR text (Proposal 0132 Phase 7).
+    #[cfg(feature = "core_to_llvm")]
+    #[allow(clippy::result_large_err)]
+    pub fn dump_lir_llvm(&self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
+        let module = self.lower_to_lir_llvm_module(program, optimize)?;
+        Ok(crate::core_to_llvm::render_module(&module))
+    }
+
+    fn build_globals_map(&self) -> HashMap<String, usize> {
+        self.build_globals_map_with_aliases(&[])
+    }
+
+    /// Build a string-name → global index map from the compiler's symbol table.
+    /// Maps both qualified ("Flow.List.map") and unqualified ("map") names so
+    /// the LIR lowerer can resolve external variables regardless of naming.
+    /// `extra_aliases` are (alias, module) pairs from the entry module's imports
+    /// that weren't processed via CFG compilation.
+    fn build_globals_map_with_aliases(
+        &self,
+        extra_aliases: &[(String, String)],
+    ) -> HashMap<String, usize> {
+        // Build reverse alias map: "Flow.Array" → ["Array"]
+        let mut module_aliases: HashMap<String, Vec<String>> = HashMap::new();
+        for (alias_sym, target_sym) in &self.import_aliases {
+            let alias = self
+                .interner
+                .resolve(crate::syntax::Identifier::from(*alias_sym))
+                .to_string();
+            let target = self
+                .interner
+                .resolve(crate::syntax::Identifier::from(*target_sym))
+                .to_string();
+            module_aliases.entry(target).or_default().push(alias);
+        }
+        for (alias, target) in extra_aliases {
+            module_aliases
+                .entry(target.clone())
+                .or_default()
+                .push(alias.clone());
+        }
+
+        let mut map = HashMap::new();
+        // Sort by global index so later-compiled modules (higher indices)
+        // shadow earlier ones for unqualified names. This ensures Flow.Array's
+        // `first`/`last`/`contains`/`reverse` shadow Flow.List's versions.
+        let mut globals = self.symbol_table.global_definitions();
+        globals.sort_by_key(|&(_, idx)| idx);
+        for (sym, idx) in globals {
+            let name = self
+                .interner
+                .resolve(crate::syntax::Identifier::from(sym))
+                .to_string();
+            // Add qualified name (e.g. "Flow.Array.sort")
+            map.insert(name.clone(), idx);
+            // Add unqualified name (last segment after last '.').
+            // Always overwrite: later-compiled modules (e.g. Flow.Array)
+            // shadow earlier ones (e.g. Flow.List) for the same unqualified
+            // name, matching the CFG compiler's resolution order.
+            if let Some(short) = name.rsplit('.').next()
+                && short != name
+            {
+                map.insert(short.to_string(), idx);
+            }
+            // Add alias-qualified names (e.g. "Array.sort" for "Flow.Array.sort"
+            // when "import Flow.Array as Array" is in effect).
+            for (module_prefix, aliases) in &module_aliases {
+                if let Some(suffix) = name.strip_prefix(module_prefix)
+                    && let Some(suffix) = suffix.strip_prefix('.')
+                {
+                    for alias in aliases {
+                        map.entry(format!("{alias}.{suffix}")).or_insert(idx);
+                    }
+                }
+            }
+        }
+        map
     }
 
     #[allow(clippy::result_large_err)]

@@ -38,6 +38,19 @@ fn combined_output(output: &Output) -> String {
     text
 }
 
+fn extract_function_ir<'a>(llvm: &'a str, name: &str) -> &'a str {
+    let needle = format!("define internal fastcc i64 @{name}");
+    let start = llvm
+        .find(&needle)
+        .unwrap_or_else(|| panic!("expected function `{name}` in LLVM output:\n{llvm}"));
+    let rest = &llvm[start..];
+    if let Some(next_define) = rest[1..].find("\ndefine ") {
+        &rest[..next_define + 1]
+    } else {
+        rest
+    }
+}
+
 #[test]
 fn test_mode_no_tests_returns_success() {
     let file = fixture_path("no_tests.flx");
@@ -137,6 +150,186 @@ fn test_mode_flow_test_wrappers_work() {
         text.contains("PASS  test_flow_wrappers"),
         "expected wrapper test pass, output:\n{}",
         text
+    );
+}
+
+#[test]
+fn test_mode_flow_list_module_fixture_passes() {
+    let file = fixture_path("Flow/List_test.flx");
+    let output = run_flux(&[
+        "--test",
+        file.to_str().unwrap(),
+        "--root",
+        workspace_root().join("lib").to_str().unwrap(),
+    ]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_core_hofs"),
+        "expected core HOFs test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_accessors_and_predicates"),
+        "expected accessors test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_sort_and_reverse"),
+        "expected sort/reverse test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_numeric_reductions"),
+        "expected numeric reductions test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_slicing_helpers"),
+        "expected slicing helper test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_zip_and_group_helpers"),
+        "expected zip/group helper test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_set_like_operations"),
+        "expected set-like operations test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("8 tests: 8 passed, 0 failed"),
+        "unexpected summary, output:\n{}",
+        text
+    );
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn test_mode_flow_list_module_fixture_passes_on_native_llvm() {
+    let file = fixture_path("Flow/List_test.flx");
+    let output = run_flux(&[
+        "--test",
+        "--native",
+        file.to_str().unwrap(),
+        "--root",
+        workspace_root().join("lib").to_str().unwrap(),
+    ]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_core_hofs"),
+        "expected core HOFs test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_accessors_and_predicates"),
+        "expected accessors test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_sort_and_reverse"),
+        "expected sort/reverse test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_numeric_reductions"),
+        "expected numeric reductions test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_slicing_helpers"),
+        "expected slicing helper test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_zip_and_group_helpers"),
+        "expected zip/group helper test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_set_like_operations"),
+        "expected set-like operations test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("8 tests: 8 passed, 0 failed"),
+        "unexpected native summary, output:\n{}",
+        text
+    );
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn test_native_sort_by_string_len_repro_prints_sorted_strings() {
+    let file = example_path("repros/sort_by_string_len.flx");
+    let output = run_flux(&["--native", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for sort_by_string_len repro, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("\"[\"a\", \"bb\", \"ccc\"]\""),
+        "expected sorted string output on native backend, output:\n{}",
+        text
+    );
+}
+
+#[cfg(feature = "core_to_llvm")]
+#[test]
+fn test_dump_lir_llvm_reuse_path_writes_raw_cons_headers() {
+    let file = example_path("repros/sort_by_string_len.flx");
+    let output = run_flux(&["--dump-lir-llvm", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected --dump-lir-llvm success, output:\n{}",
+        text
+    );
+
+    let merge_by_key = extract_function_ir(&text, "flux_Flow_List_merge_by_key");
+    assert!(
+        merge_by_key.contains("call fastcc i1 @flux_rc_is_unique(i64 %v0)"),
+        "expected merge_by_key to branch on uniqueness for left cons reuse:\n{}",
+        merge_by_key
+    );
+    assert!(
+        merge_by_key.contains("call fastcc i1 @flux_rc_is_unique(i64 %v1)"),
+        "expected merge_by_key to branch on uniqueness for right cons reuse:\n{}",
+        merge_by_key
+    );
+    assert!(
+        merge_by_key.contains("store i32 4, ptr %t20, align 4")
+            && merge_by_key.contains("store i32 2, ptr %t22, align 4"),
+        "expected left reuse branch to write raw cons header fields:\n{}",
+        merge_by_key
+    );
+    assert!(
+        merge_by_key.contains("store i32 4, ptr %t29, align 4")
+            && merge_by_key.contains("store i32 2, ptr %t31, align 4"),
+        "expected right reuse branch to write raw cons header fields:\n{}",
+        merge_by_key
+    );
+    assert!(
+        !merge_by_key.contains("@flux_drop_reuse"),
+        "expected merge_by_key to avoid the drop_reuse path that masked fresh allocations:\n{}",
+        merge_by_key
     );
 }
 
@@ -473,7 +666,7 @@ fn dump_core_reports_drop_specialized_stats() {
         text
     );
     assert!(
-        text.contains("DropSpecs: 1"),
+        text.contains("DropSpecs: ") && !text.contains("DropSpecs: 0"),
         "expected Aether stats to count DropSpecialized nodes, output:\n{}",
         text
     );

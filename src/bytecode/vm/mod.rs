@@ -10,6 +10,7 @@ use crate::{
 
 mod binary_ops;
 mod comparison_ops;
+mod core_dispatch;
 mod dispatch;
 mod function_call;
 mod index_ops;
@@ -535,6 +536,14 @@ impl VM {
     /// After a program completes execution, this returns the final result.
     pub fn last_popped_stack_elem(&self) -> Value {
         slot::from_slot_ref(&self.last_popped)
+    }
+
+    /// Export this VM's constants pool as a `Vec<Value>`.
+    ///
+    /// Used by the LIR execution path to transfer CFG-compiled constants
+    /// (prelude function closures) into the LIR VM.
+    pub fn export_constants(&self) -> Vec<Value> {
+        self.constants.iter().map(slot::from_slot_ref).collect()
     }
 
     /// Swap the VM's globals with an external `Vec<Value>` buffer.
