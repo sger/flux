@@ -68,10 +68,13 @@ fn normalize_transcript(text: &str) -> String {
     for line in text.lines() {
         // Replace absolute workspace path with a stable placeholder so
         // snapshots don't break across machines (local vs CI).
-        let line = line
+        let mut line = line
             .replace(&ws, "<workspace>")
             .replace(&ws_forward, "<workspace>")
             .replace("<workspace>\\", "<workspace>/");
+        if line.contains("<workspace>") {
+            line = line.replace('\\', "/");
+        }
 
         if is_plain_drop_line(&line) {
             pending_drops.push(line);
