@@ -1,6 +1,7 @@
 ---
 source: tests/aether_cli_snapshots.rs
 ---
+• 1 error • examples/aether/fbip_fail_nonfip_call.flx
 error[E999]: FBIP Contract Failed
 
 @fbip on `bounded` analysis result NotProvable:
