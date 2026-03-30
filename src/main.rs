@@ -574,12 +574,13 @@ fn run_file(
             }
 
             // Auto-import Flow library modules (Proposal 0120/0121 Phase 4).
-            // Inject `import Flow.Option exposing (..)` into the program AST
-            // so Option helpers are available without explicit import.
-            // Skip for --dump-aether/--dump-core/--trace-aether to keep
-            // diagnostic output focused on user code.
+            // Dump/analysis surfaces should see the same enriched program that
+            // normal compilation executes, otherwise `--dump-core` and related
+            // commands become semantically inconsistent with real runs.
+            // Only skip the injection for `--trace-aether`, which is intended
+            // to show the direct execution path without extra dump-only noise.
             let mut program = program;
-            if !dump_aether && !trace_aether && matches!(dump_core, CoreDumpMode::None) {
+            if !trace_aether {
                 inject_flow_prelude(&mut program, &mut parser, use_core_to_llvm);
             }
 
