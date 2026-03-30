@@ -8,8 +8,7 @@ use crate::syntax::{
 
 use crate::diagnostics::{
     IMPORT_NOT_FOUND, INVALID_MODULE_ALIAS, INVALID_MODULE_NAME, MODULE_PATH_MISMATCH,
-    MULTIPLE_MODULES,
-    SCRIPT_NOT_IMPORTABLE,
+    MULTIPLE_MODULES, SCRIPT_NOT_IMPORTABLE,
     position::{Position, Span},
 };
 
@@ -110,7 +109,10 @@ fn validate_file_kind_script_not_importable() {
 fn validate_file_kind_module_path_mismatch_uses_stable_display_path() {
     let mut interner = Interner::new();
     let debug_sym = interner.intern("Debug.IceDemo");
-    let cwd = std::env::current_dir().unwrap().to_string_lossy().replace('\\', "/");
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/");
     let path_str = if let Some(rest) = format!("{cwd}/examples/Debug/IceDemo.flx").strip_prefix('/')
     {
         format!("//?/{rest}")
@@ -132,11 +134,13 @@ fn validate_file_kind_module_path_mismatch_uses_stable_display_path() {
     };
 
     let roots = vec![
-        PathBuf::from(if let Some(rest) = format!("{cwd}/examples/Debug").strip_prefix('/') {
-            format!("//?/{rest}")
-        } else {
-            format!("//?/{cwd}/examples/Debug")
-        }),
+        PathBuf::from(
+            if let Some(rest) = format!("{cwd}/examples/Debug").strip_prefix('/') {
+                format!("//?/{rest}")
+            } else {
+                format!("//?/{cwd}/examples/Debug")
+            },
+        ),
         PathBuf::from(if let Some(rest) = format!("{cwd}/src").strip_prefix('/') {
             format!("//?/{rest}")
         } else {
@@ -240,7 +244,10 @@ fn resolve_imports_missing_module_hint_uses_stable_display_paths() {
         span: Span::default(),
     };
 
-    let cwd = std::env::current_dir().unwrap().to_string_lossy().replace('\\', "/");
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/");
     let make_verbatim = |suffix: &str| {
         let joined = format!("{cwd}/{suffix}");
         if let Some(rest) = joined.strip_prefix('/') {
