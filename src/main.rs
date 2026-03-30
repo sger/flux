@@ -19,7 +19,7 @@ use flux::{
     },
     diagnostics::{
         DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticPhase, DiagnosticsAggregator,
-        quality::module_skipped_note, render_diagnostics_json,
+        quality::module_skipped_note, render_diagnostics_json, render_display_path,
     },
     runtime::value::Value,
     syntax::{
@@ -639,9 +639,10 @@ fn run_file(
                     .find(|e| failed.contains(&e.target_path));
                 if let Some(dep) = failed_dep {
                     failed.insert(node.path.clone());
+                    let display = render_display_path(&node.path.to_string_lossy()).into_owned();
                     all_diagnostics.push(module_skipped_note(
-                        node.path.to_string_lossy().to_string(),
-                        node.path.to_string_lossy().to_string(),
+                        display.clone(),
+                        display,
                         dep.name.clone(),
                     ));
                     continue;
