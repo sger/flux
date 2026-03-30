@@ -22,7 +22,7 @@ type Scope = HashMap<CoreBinderId, CoreBinder>;
 /// constructor pattern matching. Used to prevent dropping a scrutinee
 /// while its destructured fields are still live, and to dup fields
 /// from borrowed scrutinees when used in constructors (owned demand).
-type FieldParents = HashMap<CoreBinderId, CoreBinderId>;
+type FieldParents = HashMap<CoreBinderId, (CoreBinderId, Option<CoreTag>)>;
 
 /// Insert Dup/Drop annotations into a Core IR expression.
 pub fn insert_dup_drop(expr: CoreExpr) -> CoreExpr {
@@ -296,8 +296,9 @@ fn plan_expr(
                 // Track field→scrutinee relationships for nested cases.
                 // Pattern binders are fields extracted from the scrutinee.
                 if let Some(sv) = scrutinee_var {
+                    let parent_tag = pat_constructor_tag(&pat);
                     for &bid in &pat_ids {
-                        field_parents.insert(bid, sv.id);
+                        field_parents.insert(bid, (sv.id, parent_tag.clone()));
                     }
                 }
 
@@ -360,20 +361,20 @@ fn plan_expr(
                     rhs = wrap_drop(scrut_binder, rhs, alt_span);
                 }
 
-                branch_plans.push((pat, guard, rhs, alt_span, branch_env, env_without_pats));
+                branch_plans.push((pat, guard, rhs, alt_span, env_without_pats));
             }
 
             let joined = join_branch_envs(
                 &branch_plans
                     .iter()
-                    .map(|(_, _, _, _, _, env_without_pats)| env_without_pats.clone())
+                    .map(|(_, _, _, _, env_without_pats)| env_without_pats.clone())
                     .collect::<Vec<_>>(),
             );
 
             let alts = branch_plans
                 .into_iter()
                 .map(
-                    |(pat, guard, rhs, alt_span, _branch_env, env_without_pats)| {
+                    |(pat, guard, rhs, alt_span, env_without_pats)| {
                         let compensation: Vec<_> = joined
                             .owned
                             .iter()
@@ -381,6 +382,31 @@ fn plan_expr(
                             .filter(|binder_id| {
                                 !env_without_pats.is_live(*binder_id)
                                     && !tail_env.is_live(*binder_id)
+                            })
+                            .filter(|binder_id| {
+                                let Some((parent_id, _)) = field_parents.get(binder_id).cloned()
+                                else {
+                                    return true;
+                                };
+                                !env_without_pats.is_live(parent_id)
+                                    && !expr_uses_binder(&rhs, parent_id)
+                            })
+                            .filter(|binder_id| {
+                                let mut child_tag = None;
+                                let child_used = field_parents.iter().any(
+                                    |(child_id, (parent_id, tag))| {
+                                        let used = *parent_id == *binder_id
+                                            && (env_without_pats.is_live(*child_id)
+                                                || expr_uses_binder(&rhs, *child_id));
+                                        if used && child_tag.is_none() {
+                                            child_tag = tag.clone();
+                                        }
+                                        used
+                                    },
+                                );
+                                !child_used
+                                    || child_tag
+                                        .is_some_and(|tag| rhs_has_compatible_tag(&rhs, &tag))
                             })
                             .filter(|binder_id| !expr_uses_binder(&rhs, *binder_id))
                             .filter(|binder_id| !expr_drops_binder(&rhs, *binder_id))
@@ -823,6 +849,13 @@ fn is_constructor_pat(pat: &crate::core::CorePat) -> bool {
     )
 }
 
+fn pat_constructor_tag(pat: &crate::core::CorePat) -> Option<CoreTag> {
+    match pat {
+        crate::core::CorePat::Con { tag, .. } => Some(tag.clone()),
+        _ => None,
+    }
+}
+
 fn has_compatible_con(pat: &crate::core::CorePat, rhs: &CoreExpr) -> bool {
     let pat_tag = match pat {
         crate::core::CorePat::Con { tag, .. } => Some(tag),
@@ -833,6 +866,10 @@ fn has_compatible_con(pat: &crate::core::CorePat, rhs: &CoreExpr) -> bool {
     };
     find_con_tag_in_spine(rhs, Some(pat_tag))
         .is_some_and(|ref con_tag| tags_shape_compatible(pat_tag, con_tag))
+}
+
+fn rhs_has_compatible_tag(rhs: &CoreExpr, tag: &CoreTag) -> bool {
+    find_con_tag_in_spine(rhs, Some(tag)).is_some_and(|ref con_tag| tags_shape_compatible(tag, con_tag))
 }
 
 fn find_con_tag_in_spine(
