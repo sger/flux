@@ -630,20 +630,36 @@ int64_t flux_hamt_format(int64_t map) {
     pos += snprintf(buf + pos, sizeof(buf) - pos, "{");
     for (uint32_t i = 0; i < ki && pos < (int)sizeof(buf) - 40; i++) {
         if (i > 0) pos += snprintf(buf + pos, sizeof(buf) - pos, ", ");
-        int64_t ks = flux_to_string(keys_arr[i]);
-        const char *kd = flux_string_data(ks);
-        uint32_t kl = flux_string_len(ks);
-        /* Quote string keys. */
-        buf[pos++] = '"';
-        if (pos + kl < sizeof(buf) - 20) { memcpy(buf + pos, kd, kl); pos += kl; }
-        buf[pos++] = '"';
+        int64_t key = keys_arr[i];
+        int is_str_key = flux_is_ptr(key) && flux_obj_tag(flux_untag_ptr(key)) == FLUX_OBJ_STRING;
+        const char *kd;
+        uint32_t kl;
+        if (is_str_key) {
+            kd = flux_string_data(key);
+            kl = flux_string_len(key);
+            buf[pos++] = '"';
+            if (pos + kl < sizeof(buf) - 20) { memcpy(buf + pos, kd, kl); pos += kl; }
+            buf[pos++] = '"';
+        } else {
+            int64_t ks = flux_to_string(key);
+            kd = flux_string_data(ks);
+            kl = flux_string_len(ks);
+            if (pos + kl < sizeof(buf) - 20) { memcpy(buf + pos, kd, kl); pos += kl; }
+        }
         pos += snprintf(buf + pos, sizeof(buf) - pos, ": ");
         int64_t vval = vals_arr[i];
         int is_str_val = flux_is_ptr(vval) && flux_obj_tag(flux_untag_ptr(vval)) == FLUX_OBJ_STRING;
-        if (is_str_val) buf[pos++] = '"';
-        int64_t vs = flux_to_string(vval);
-        const char *vd = flux_string_data(vs);
-        uint32_t vl = flux_string_len(vs);
+        const char *vd;
+        uint32_t vl;
+        if (is_str_val) {
+            vd = flux_string_data(vval);
+            vl = flux_string_len(vval);
+            buf[pos++] = '"';
+        } else {
+            int64_t vs = flux_to_string(vval);
+            vd = flux_string_data(vs);
+            vl = flux_string_len(vs);
+        }
         if (pos + vl < sizeof(buf) - 10) { memcpy(buf + pos, vd, vl); pos += vl; }
         if (is_str_val) buf[pos++] = '"';
     }

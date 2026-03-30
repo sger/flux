@@ -1002,6 +1002,60 @@ int64_t flux_to_string(int64_t val) {
     }
 }
 
+int64_t flux_to_string_value(int64_t val) {
+    uint64_t bits = (uint64_t)val;
+    if ((bits & FLUX_SENTINEL_MASK) != FLUX_NANBOX_SENTINEL) {
+        return flux_float_to_string(val);
+    }
+
+    int tag = flux_nanbox_tag(val);
+    switch (tag) {
+    case FLUX_TAG_INTEGER:
+        return flux_int_to_string(val);
+    case FLUX_TAG_BOOLEAN:
+        return ((uint64_t)val & FLUX_PAYLOAD_MASK)
+            ? flux_string_new("true", 4)
+            : flux_string_new("false", 5);
+    case FLUX_TAG_NONE:
+        return flux_string_new("None", 4);
+    case FLUX_TAG_EMPTY_LIST:
+        return flux_string_new("[]", 2);
+    case FLUX_TAG_BOXED_VALUE: {
+        void *ptr = flux_untag_ptr(val);
+        if (!ptr) return flux_string_new("<value>", 7);
+
+        uint8_t obj = flux_obj_tag(ptr);
+        if (obj == FLUX_OBJ_STRING) {
+            return flux_string_new(flux_string_data(val), flux_string_len(val));
+        }
+        if (obj == FLUX_OBJ_ADT) {
+            int32_t ctor_tag = *(int32_t *)ptr;
+            int32_t field_count = *((int32_t *)ptr + 1);
+            int64_t *fields = (int64_t *)((char *)ptr + 8);
+            char buf[4096];
+            int pos = 0;
+
+            if (ctor_tag == 1 && field_count >= 1) {
+                pos += snprintf(buf + pos, sizeof(buf) - pos, "Some(");
+                int64_t s = flux_to_string_value(fields[0]);
+                const char *sd = flux_string_data(s);
+                uint32_t sl = flux_string_len(s);
+                if (pos + sl < sizeof(buf) - 10) { memcpy(buf + pos, sd, sl); pos += sl; }
+                pos += snprintf(buf + pos, sizeof(buf) - pos, ")");
+                return flux_string_new(buf, (uint32_t)pos);
+            }
+            if (ctor_tag == 0 && field_count == 0) {
+                return flux_string_new("None", 4);
+            }
+        }
+
+        return flux_to_string(val);
+    }
+    default:
+        return flux_string_new("<value>", 7);
+    }
+}
+
 int64_t flux_read_lines(int64_t path) {
     /* Read file, split on newlines, return as Array (matching VM semantics). */
     int64_t content = flux_read_file(path);
