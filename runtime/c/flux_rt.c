@@ -1017,38 +1017,6 @@ int64_t flux_read_lines(int64_t path) {
 
 /* ── Collection helpers ─────────────────────────────────────────────── */
 
-/* first(collection) → Some(first_element) or None.
- * Supports arrays and cons lists. */
-int64_t flux_first(int64_t collection) {
-    /* Check for empty list NaN-box tag first. */
-    if (flux_is_nanbox(collection) && flux_nanbox_tag(collection) == FLUX_TAG_EMPTY_LIST) {
-        return flux_make_none();
-    }
-
-    if (flux_is_ptr(collection)) {
-        void *ptr = flux_untag_ptr(collection);
-        if (!ptr) return flux_make_none();
-        uint8_t obj = flux_obj_tag(ptr);
-
-        if (obj == FLUX_OBJ_ARRAY) {
-            uint32_t len = *(uint32_t *)((char *)ptr + 4);
-            if (len == 0) return flux_make_none();
-            int64_t *elems = (int64_t *)((char *)ptr + 16);
-            return elems[0];  /* raw element — matches VM's arr[0] unwrap */
-        }
-
-        /* Check for cons list: ADT with ctor_tag=4, field_count=2 */
-        int32_t ctor_tag = *(int32_t *)ptr;
-        int32_t field_count = *((int32_t *)ptr + 1);
-        if (ctor_tag == 4 && field_count == 2) {
-            int64_t *fields = (int64_t *)((char *)ptr + 8);
-            return fields[0];  /* raw head element */
-        }
-    }
-
-    return flux_make_none();
-}
-
 /* to_list(arr) → converts array to cons list. */
 int64_t flux_to_list(int64_t arr_val) {
     if (!flux_is_ptr(arr_val)) return flux_make_empty_list();
@@ -1091,59 +1059,6 @@ int64_t flux_is_map(int64_t val) {
     if (!ptr) return flux_make_bool(0);
     /* HAMT nodes have no FluxHeader — identify by structural checks only. */
     return flux_make_bool(flux_is_hamt(ptr));
-}
-
-/* last(collection) → Some(last_element) or None. */
-int64_t flux_last(int64_t collection) {
-    if (flux_is_nanbox(collection) && flux_nanbox_tag(collection) == FLUX_TAG_EMPTY_LIST) {
-        return flux_make_none();
-    }
-    if (!flux_is_ptr(collection)) return flux_make_none();
-    void *ptr = flux_untag_ptr(collection);
-    if (!ptr) return flux_make_none();
-    uint8_t obj = flux_obj_tag(ptr);
-    if (obj == FLUX_OBJ_ARRAY) {
-        uint32_t len = *(uint32_t *)((char *)ptr + 4);
-        if (len == 0) return flux_make_none();
-        int64_t *elems = (int64_t *)((char *)ptr + 16);
-        return elems[len - 1];  /* raw element */
-    }
-    /* Cons list: walk to the end. */
-    int64_t cur = collection;
-    int64_t last_head = flux_make_none();
-    while (flux_is_ptr(cur)) {
-        void *cp = flux_untag_ptr(cur);
-        int32_t ct = *(int32_t *)cp;
-        if (ct != 4) break;
-        int64_t *fields = (int64_t *)((char *)cp + 8);
-        last_head = fields[0];
-        cur = fields[1];
-    }
-    return last_head;  /* raw element or None if empty */
-}
-
-/* rest(collection) → tail of list/array (everything except first). */
-int64_t flux_rest(int64_t collection) {
-    if (flux_is_nanbox(collection) && flux_nanbox_tag(collection) == FLUX_TAG_EMPTY_LIST) {
-        return flux_make_empty_list();
-    }
-    if (!flux_is_ptr(collection)) return flux_make_empty_list();
-    void *ptr = flux_untag_ptr(collection);
-    if (!ptr) return flux_make_empty_list();
-    uint8_t obj = flux_obj_tag(ptr);
-    if (obj == FLUX_OBJ_ARRAY) {
-        uint32_t len = *(uint32_t *)((char *)ptr + 4);
-        if (len <= 1) return flux_array_new(NULL, 0);
-        int64_t *elems = (int64_t *)((char *)ptr + 16);
-        return flux_array_new(elems + 1, (int32_t)(len - 1));
-    }
-    /* Cons list: return tail. */
-    int32_t ct = *(int32_t *)ptr;
-    if (ct == 4) {
-        int64_t *fields = (int64_t *)((char *)ptr + 8);
-        return fields[1]; /* tail */
-    }
-    return flux_make_empty_list();
 }
 
 /* len/length — returns length of array, string, list, tuple, or map. */

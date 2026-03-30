@@ -304,12 +304,6 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     },
     // Collection helpers
     BuiltinMapping {
-        flux_name: "first",
-        c_name: "flux_first",
-        arity: 1,
-        returns_value: true,
-    },
-    BuiltinMapping {
         flux_name: "keys",
         c_name: "flux_hamt_keys",
         arity: 1,
@@ -342,18 +336,6 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     BuiltinMapping {
         flux_name: "is_hash",
         c_name: "flux_is_map",
-        arity: 1,
-        returns_value: true,
-    },
-    BuiltinMapping {
-        flux_name: "last",
-        c_name: "flux_last",
-        arity: 1,
-        returns_value: true,
-    },
-    BuiltinMapping {
-        flux_name: "rest",
-        c_name: "flux_rest",
         arity: 1,
         returns_value: true,
     },
