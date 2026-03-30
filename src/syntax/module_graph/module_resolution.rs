@@ -11,8 +11,8 @@ use crate::diagnostics::{
     DUPLICATE_MODULE, Diagnostic, DiagnosticBuilder, IMPORT_NOT_FOUND, IMPORT_READ_FAILED,
     INVALID_MODULE_ALIAS, INVALID_MODULE_FILE, INVALID_MODULE_NAME, MODULE_PATH_MISMATCH,
     MULTIPLE_MODULES, SCRIPT_NOT_IMPORTABLE,
-    render_display_path,
     position::{Position, Span},
+    render_display_path,
 };
 
 use super::{
