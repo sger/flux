@@ -239,13 +239,19 @@ pub fn lower_program_with_interner(
         0
     };
 
-    // Pre-assign LirFuncIds for all top-level defs (1:1 with CoreBinderId).
+    // Pre-assign LirFuncIds for top-level functions and separately track
+    // top-level pure values for native-mode value resolution.
     let mut binder_func_map: HashMap<CoreBinderId, LirFuncId> = HashMap::new();
+    let mut top_level_value_map: HashMap<CoreBinderId, &CoreExpr> = HashMap::new();
     for (i, def) in program.defs.iter().enumerate() {
         if i == main_idx {
             continue;
         }
-        binder_func_map.insert(def.binder.id, LirFuncId(def.binder.id.0));
+        if matches!(def.expr, CoreExpr::Lam { .. }) {
+            binder_func_map.insert(def.binder.id, LirFuncId(def.binder.id.0));
+        } else {
+            top_level_value_map.insert(def.binder.id, &def.expr);
+        }
     }
 
     // Build name → binder map for MemberAccess resolution in the LLVM path
@@ -271,6 +277,7 @@ pub fn lower_program_with_interner(
             name_binder_map: &name_binder_map,
             interner,
             globals_map,
+            top_level_value_map: &top_level_value_map,
         };
         let func = lower_def(def, ctx);
         lir.push_function(func);
@@ -286,6 +293,7 @@ pub fn lower_program_with_interner(
         name_binder_map: &name_binder_map,
         interner,
         globals_map,
+        top_level_value_map: &top_level_value_map,
     };
     let func = lower_def(main_def, ctx);
     lir.push_function(func);
@@ -322,6 +330,9 @@ struct FnLower<'a> {
     direct_func_vars: HashMap<LirVar, LirFuncId>,
     /// Maps CoreBinderId → LirFuncId for top-level functions.
     binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
+    /// Maps CoreBinderId → top-level non-function rhs so native lowering can
+    /// use the value directly instead of fabricating a closure placeholder.
+    top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
 }
 
 struct FnLowerCtx<'a> {
@@ -330,6 +341,7 @@ struct FnLowerCtx<'a> {
     globals_map: Option<&'a HashMap<String, usize>>,
     name_binder_map: &'a HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
     binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
+    top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
 }
 
 impl<'a> FnLower<'a> {
@@ -359,6 +371,7 @@ impl<'a> FnLower<'a> {
             name_binder_map: ctx.name_binder_map,
             direct_func_vars: HashMap::new(),
             binder_func_id_map: ctx.binder_func_id_map,
+            top_level_value_map: ctx.top_level_value_map,
         }
     }
 
@@ -441,6 +454,13 @@ impl<'a> FnLower<'a> {
                     // Check env first (locals, parameters, letrec bindings).
                     if let Some(&v) = self.env.get(&binder) {
                         return v;
+                    }
+                    // Top-level pure values should lower as values on the
+                    // native path, not as fabricated closure objects.
+                    if let Some(value_expr) = self.top_level_value_map.get(&binder) {
+                        let lowered = self.lower_expr(value_expr);
+                        self.bind(binder, lowered);
+                        return lowered;
                     }
                     // Not in env — check if it's a top-level function.
                     // Create a closure lazily (only when used as a value).
@@ -570,6 +590,7 @@ impl<'a> FnLower<'a> {
                             globals_map: self.globals_map,
                             name_binder_map: self.name_binder_map,
                             binder_func_id_map: self.binder_func_id_map,
+                            top_level_value_map: self.top_level_value_map,
                         },
                     );
 
@@ -661,6 +682,7 @@ impl<'a> FnLower<'a> {
                             globals_map: self.globals_map,
                             name_binder_map: self.name_binder_map,
                             binder_func_id_map: self.binder_func_id_map,
+                            top_level_value_map: self.top_level_value_map,
                         },
                     );
 
@@ -1100,6 +1122,7 @@ impl<'a> FnLower<'a> {
                 globals_map: self.globals_map,
                 name_binder_map: self.name_binder_map,
                 binder_func_id_map: self.binder_func_id_map,
+                top_level_value_map: self.top_level_value_map,
             },
         );
 
@@ -1215,6 +1238,7 @@ impl<'a> FnLower<'a> {
                 globals_map: self.globals_map,
                 name_binder_map: self.name_binder_map,
                 binder_func_id_map: self.binder_func_id_map,
+                top_level_value_map: self.top_level_value_map,
             },
         );
 
@@ -2048,6 +2072,7 @@ struct LowerDefCtx<'a> {
     name_binder_map: &'a HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
     interner: Option<&'a Interner>,
     globals_map: Option<&'a HashMap<String, usize>>,
+    top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
 }
 
 fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
@@ -2068,6 +2093,7 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
             globals_map: ctx.globals_map,
             name_binder_map: ctx.name_binder_map,
             binder_func_id_map: ctx.binder_func_map,
+            top_level_value_map: ctx.top_level_value_map,
         },
     );
 
