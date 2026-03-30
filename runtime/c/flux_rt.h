@@ -50,6 +50,11 @@ extern "C" {
 #define FLUX_TAG_BASE_FUNCTION 0x5
 #define FLUX_TAG_THUNK         0x6
 #define FLUX_TAG_BOXED_VALUE   0x8
+#define FLUX_TAG_YIELD         0x9
+
+/* Yield sentinel: returned by perform / yield_extend to signal unwinding. */
+#define FLUX_YIELD_SENTINEL    ((int64_t)(FLUX_NANBOX_SENTINEL \
+                                | ((uint64_t)FLUX_TAG_YIELD << FLUX_TAG_SHIFT)))
 
 #define FLUX_PTR_SHIFT         3
 
@@ -61,8 +66,9 @@ extern "C" {
 /* BigInt heap tag — defined early so inline helpers can reference it. */
 #define FLUX_OBJ_BIGINT   0xF6
 
-/* Forward declaration for overflow boxing. */
+/* Forward declarations for overflow boxing. */
 void *flux_gc_alloc(uint32_t size);
+void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 
 static inline int64_t flux_tag_int(int64_t raw) {
     if (raw >= FLUX_MIN_INLINE_INT && raw <= FLUX_MAX_INLINE_INT) {
@@ -71,7 +77,7 @@ static inline int64_t flux_tag_int(int64_t raw) {
     }
     /* Overflow: heap-box the full 64-bit integer.
      * Layout: { uint8_t obj_tag=FLUX_OBJ_BIGINT, pad[7], int64_t value } */
-    void *mem = flux_gc_alloc(16);
+    void *mem = flux_gc_alloc_header(16, 0, FLUX_OBJ_BIGINT);
     *(uint8_t *)mem = FLUX_OBJ_BIGINT;
     *(int64_t *)((char *)mem + 8) = raw;
     uint64_t payload = (uint64_t)mem >> FLUX_PTR_SHIFT;
@@ -167,20 +173,39 @@ static inline int64_t flux_make_empty_list(void) {
 #define FLUX_OBJ_ARRAY    0xF4
 #define FLUX_OBJ_CLOSURE  0xF5
 /* FLUX_OBJ_BIGINT (0xF6) defined above near inline helpers */
+#define FLUX_OBJ_EVIDENCE 0xF7
 
 static inline uint8_t flux_obj_tag(void *ptr) {
-    return *(uint8_t *)ptr;
+    /* Read obj_tag from the FluxHeader at ptr - 8.
+     * Layout: { i32 refcount, u8 scan_fsize, u8 obj_tag, u16 reserved }
+     * obj_tag is at offset 5 within the header. */
+    return *((uint8_t *)ptr - 3);
 }
 
-/* ── GC ─────────────────────────────────────────────────────────────── */
+/* ── Allocation & Reference Counting (Aether RC) ──────────────────── */
+/*
+ * Every heap object has an 8-byte FluxHeader at (payload - 8):
+ *   { int32_t refcount, uint8_t scan_fsize, uint8_t obj_tag, uint16_t reserved }
+ *
+ * flux_gc_alloc_header: allocate with explicit scan_fsize and obj_tag
+ * flux_gc_alloc: backward-compatible (scan_fsize=0, obj_tag=0)
+ * flux_dup: increment refcount
+ * flux_drop: decrement refcount, recursively drop scan_fsize children, free at 0
+ */
 
 void  flux_gc_init(size_t heap_size);
 void  flux_gc_shutdown(void);
 void *flux_gc_alloc(uint32_t size);
+void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 void  flux_gc_free(void *ptr);
 void  flux_gc_collect(void);
 void  flux_gc_push_root(int64_t *root);
 void  flux_gc_pop_root(void);
+
+/* Aether RC: dup/drop for NaN-boxed heap values. */
+void flux_dup(int64_t val);
+void flux_drop(int64_t val);
+int  flux_rc_is_unique(int64_t val);
 
 /* Allocation stats (for diagnostics / testing). */
 size_t flux_gc_allocated(void);
@@ -230,6 +255,8 @@ int64_t flux_array_concat(int64_t a, int64_t b);
 int64_t flux_array_slice(int64_t arr, int64_t start, int64_t end);
 int64_t flux_array_reverse(int64_t arr);
 int64_t flux_array_contains(int64_t arr, int64_t value);
+int64_t flux_reverse(int64_t collection);
+int64_t flux_contains(int64_t collection, int64_t value);
 
 /* ── HAMT (persistent hash map) ─────────────────────────────────────── */
 
@@ -302,12 +329,10 @@ int64_t flux_substring(int64_t s, int64_t start, int64_t end);
 int64_t flux_parse_int(int64_t s);
 int64_t flux_parse_ints(int64_t arr);
 int64_t flux_to_string(int64_t val);
+int64_t flux_to_string_value(int64_t val);
 
 /* ── Collection helpers ─────────────────────────────────────────────── */
 
-int64_t flux_first(int64_t collection);
-int64_t flux_last(int64_t collection);
-int64_t flux_rest(int64_t collection);
 int64_t flux_rt_len(int64_t collection);
 int64_t flux_to_list(int64_t arr);
 int64_t flux_is_array(int64_t val);
@@ -327,8 +352,19 @@ int64_t flux_sum(int64_t collection);
 int64_t flux_sort_default(int64_t collection);
 int64_t flux_split_ints(int64_t s, int64_t delim);
 int64_t flux_zip(int64_t a, int64_t b);
+int64_t flux_flatten(int64_t collection);
+int64_t flux_ho_flat_map(int64_t collection, int64_t func);
 int64_t flux_starts_with(int64_t s, int64_t prefix);
 int64_t flux_ends_with(int64_t s, int64_t suffix);
+
+/* ── ADT construction (LIR native backend) ─────────────────────────── */
+int64_t flux_wrap_some(int64_t val);
+int64_t flux_make_left(int64_t val);
+int64_t flux_make_right(int64_t val);
+
+/* ── Globals table (LIR native backend) ─────────────────────────────── */
+int64_t flux_get_global(int64_t idx);
+void flux_set_global(int64_t idx, int64_t val);
 
 /* ── Higher-order functions (closure calling) ──────────────────────── */
 /* flux_call_closure_c is defined in LLVM IR (ccc trampoline). */
@@ -343,12 +379,24 @@ int64_t flux_ho_fold(int64_t collection, int64_t init, int64_t func);
 int64_t flux_ho_each(int64_t collection, int64_t func);
 int64_t flux_ho_find(int64_t collection, int64_t func);
 
-/* ── Effect handlers ────────────────────────────────────────────────── */
+/* ── Effect handlers (Koka-style yield model, Proposal 0134) ───────── */
 
-void    flux_push_handler(int64_t effect_tag, void *handler_fn, void *resume_fn);
-void    flux_pop_handler(void);
-int64_t flux_perform(int64_t effect_tag, int64_t arg);
-int64_t flux_resume(int64_t continuation, int64_t value);
+/* Yield state — accessible from LLVM IR for inline yield checks. */
+extern int32_t flux_yield_yielding;
+
+/* Evidence vector management. */
+int64_t flux_evv_get(void);
+void    flux_evv_set(int64_t evv);
+int64_t flux_fresh_marker(void);
+int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler);
+
+/* Yield operations. */
+int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg);
+int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t resume);
+int64_t flux_yield_extend(int64_t cont);
+int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result);
+int64_t flux_compose_conts(void);
+int32_t flux_is_yielding(void);
 
 #ifdef __cplusplus
 }

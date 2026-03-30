@@ -147,24 +147,23 @@ fn runtime_error_fixtures_snapshot() {
     }
 }
 
+/// The type checker now catches boundary argument mismatches at compile time
+/// (E300) before the VM ever runs, so the original runtime E1004 scenario is
+/// no longer reachable. This test verifies the compile-time check fires.
 #[test]
-#[ignore = "stdlib lib/Flow/*.flx still references base function `len` which is no longer registered"]
-fn runtime_boundary_errors_do_not_double_wrap_e1004_in_vm() {
+fn runtime_boundary_errors_caught_at_compile_time() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let flux_bin = Path::new(env!("CARGO_BIN_EXE_flux"));
-    let (_status, _stdout, vm_stderr) = run_flux_file(
+    let (status, _stdout, vm_stderr) = run_flux_file(
         workspace_root,
         flux_bin,
         "examples/runtime_errors/boundary_arg_string_into_int.flx",
         false,
     );
 
+    assert_ne!(status, 0, "expected non-zero exit for type mismatch");
     assert!(
-        vm_stderr.contains("error[E1004]: Type Error"),
-        "expected VM stderr to render E1004 directly, got:\n{vm_stderr}"
-    );
-    assert!(
-        !vm_stderr.contains("E1009"),
-        "expected VM stderr not to double-wrap E1004, got:\n{vm_stderr}"
+        vm_stderr.contains("E300"),
+        "expected compile-time E300 (Argument Type Mismatch), got:\n{vm_stderr}"
     );
 }

@@ -167,6 +167,7 @@ Aether Memory Model Report
   Dups: 1  Drops: 7  Reuses: 4  DropSpecs: 1  FBIP: fbip(2)
   FreshAllocs: 2
 
+[cfg→vm] Running via CFG → bytecode VM backend...
 [2, 4, 6]
 Some(43)
 Node(Black, Leaf, 5, Leaf)

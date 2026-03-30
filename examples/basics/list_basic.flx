@@ -31,14 +31,14 @@ fn main() with IO {
 
     let my_array = [|1, 2, 3, 4, 5, 6, 7, 8, 9, 10|]
     print(my_array);  // [|1, 2, 3, 4, 5, 6, 7, 8, 9, 10|]
-    print(tl(to_list(my_array))); // [2, 3, 4, 5, 6, 7, 8, 9, 10]
+    print(rest(to_list(my_array))); // [2, 3, 4, 5, 6, 7, 8, 9, 10]
 
     // =============================================================================
     // Head and Tail (O(1) operations)
     // =============================================================================
 
-    print(hd(xs)) // 1
-    print(tl(xs))  // [2, 3]
+    print(first(xs)) // Some(1)
+    print(rest(xs))  // [2, 3]
 
     // Prepend is O(1) — shares tail with original
     let ys = [0 | xs]

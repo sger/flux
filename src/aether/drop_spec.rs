@@ -187,6 +187,24 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             shared_body: Box::new(transform(*shared_body)),
             span,
         },
+        CoreExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => CoreExpr::MemberAccess {
+            object: Box::new(transform(*object)),
+            member,
+            span,
+        },
+        CoreExpr::TupleField {
+            object,
+            index,
+            span,
+        } => CoreExpr::TupleField {
+            object: Box::new(transform(*object)),
+            index,
+            span,
+        },
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
     }
 }
@@ -473,6 +491,9 @@ fn validate_after_drop_body(
         CoreExpr::Return { value, .. } => {
             validate_after_drop_body(value, scrutinee_id, field_binders, acc)
         }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            validate_after_drop_body(object, scrutinee_id, field_binders, acc)
+        }
         CoreExpr::Lam { .. } | CoreExpr::DropSpecialized { .. } => {
             Err(DropSpecFailureReason::EffectfulBoundary)
         }
@@ -594,7 +615,7 @@ fn rewrite_mode(
             span: *span,
         },
         CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
-            op: op.clone(),
+            op: *op,
             args: args
                 .iter()
                 .map(|arg| rewrite_mode(arg, mode, scrutinee_id, duped_fields))
@@ -696,7 +717,9 @@ fn is_safe_wrapper_rhs(expr: &CoreExpr) -> bool {
         | CoreExpr::Case { .. }
         | CoreExpr::Return { .. }
         | CoreExpr::Dup { .. }
-        | CoreExpr::Drop { .. } => true,
+        | CoreExpr::Drop { .. }
+        | CoreExpr::MemberAccess { .. }
+        | CoreExpr::TupleField { .. } => true,
     }
 }
 
@@ -782,6 +805,9 @@ mod tests {
             } => {
                 here + count_matching(unique_body, predicate)
                     + count_matching(shared_body, predicate)
+            }
+            CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+                here + count_matching(object, predicate)
             }
             CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => here,
         }

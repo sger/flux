@@ -202,18 +202,155 @@ module Flow.Array {
         range_go(start, [||])
     }
 
+    public fn sort(arr) {
+        sort_by(arr, \v -> v)
+    }
+
     public fn sort_by(arr, f) {
+        fn insert_tagged(sorted, pair, idx) {
+            if idx >= len(sorted) {
+                push(sorted, pair)
+            } else {
+                match sorted[idx] {
+                    Some(current) -> if pair.0 <= current.0 {
+                        let left = slice(sorted, 0, idx)
+                        let right = slice(sorted, idx, len(sorted))
+                        concat(concat(left, [|pair|]), right)
+                    } else {
+                        insert_tagged(sorted, pair, idx + 1)
+                    },
+                    _ -> push(sorted, pair)
+                }
+            }
+        }
+
         fn sort_by_go(idx, pairs) {
             if idx >= len(arr) { pairs }
             else {
                 match arr[idx] {
-                    Some(v) -> sort_by_go(idx + 1, push(pairs, (f(v), v))),
+                    Some(v) -> sort_by_go(idx + 1, insert_tagged(pairs, (f(v), v), 0)),
                     _ -> sort_by_go(idx + 1, pairs)
                 }
             }
         }
-        let tagged = sort(sort_by_go(0, [||]))
-        map(tagged, \p -> p.1)
+        map(sort_by_go(0, [||]), \p -> p.1)
+    }
+
+    public fn take(arr, n) {
+        slice(arr, 0, if n > len(arr) { len(arr) } else { n })
+    }
+
+    public fn drop(arr, n) {
+        slice(arr, if n > len(arr) { len(arr) } else { n }, len(arr))
+    }
+
+    public fn update(arr, i, val) {
+        let left = slice(arr, 0, i)
+        let right = slice(arr, i + 1, len(arr))
+        concat(concat(left, [|val|]), right)
+    }
+
+    public fn swap(arr, i, j) {
+        match arr[i] {
+            Some(vi) -> match arr[j] {
+                Some(vj) -> update(update(arr, i, vj), j, vi),
+                _ -> arr
+            },
+            _ -> arr
+        }
+    }
+
+    public fn enumerate(arr) {
+        fn enumerate_go(idx, acc) {
+            if idx >= len(arr) { acc }
+            else {
+                match arr[idx] {
+                    Some(v) -> enumerate_go(idx + 1, push(acc, (idx, v))),
+                    _ -> enumerate_go(idx + 1, acc)
+                }
+            }
+        }
+        enumerate_go(0, [||])
+    }
+
+    public fn tabulate(n, f) {
+        fn tabulate_go(i, acc) {
+            if i >= n { acc }
+            else { tabulate_go(i + 1, push(acc, f(i))) }
+        }
+        tabulate_go(0, [||])
+    }
+
+    public fn from_list(xs) {
+        to_array(xs)
+    }
+
+    public fn find_index(arr, pred) {
+        fn find_index_go(idx) {
+            if idx >= len(arr) { None }
+            else {
+                match arr[idx] {
+                    Some(v) -> if pred(v) { Some(idx) } else { find_index_go(idx + 1) },
+                    _ -> find_index_go(idx + 1)
+                }
+            }
+        }
+        find_index_go(0)
+    }
+
+    public fn each_indexed(arr, f) with IO {
+        fn each_indexed_go(idx) {
+            if idx >= len(arr) { () }
+            else {
+                match arr[idx] {
+                    Some(v) -> do {
+                        f(idx, v)
+                        each_indexed_go(idx + 1)
+                    },
+                    _ -> each_indexed_go(idx + 1)
+                }
+            }
+        }
+        each_indexed_go(0)
+    }
+
+    public fn update_many(arr, pairs) {
+        fn update_many_go(a, ps) {
+            match ps {
+                [p | rest] -> update_many_go(update(a, p.0, p.1), rest),
+                _ -> a
+            }
+        }
+        update_many_go(arr, pairs)
+    }
+
+    public fn accum(size, init, pairs, f) {
+        let base = tabulate(size, \_ -> init)
+        fn accum_go(a, ps) {
+            match ps {
+                [p | rest] -> match a[p.0] {
+                    Some(cur) -> accum_go(update(a, p.0, f(cur, p.1)), rest),
+                    _ -> accum_go(a, rest)
+                },
+                _ -> a
+            }
+        }
+        accum_go(base, pairs)
+    }
+
+    // ── Conversion (Phase 3) ────────────────────────────────────────
+
+    public fn to_list(arr) {
+        fn to_list_go(idx) {
+            if idx >= len(arr) { [] }
+            else {
+                match arr[idx] {
+                    Some(v) -> [v | to_list_go(idx + 1)],
+                    _ -> to_list_go(idx + 1)
+                }
+            }
+        }
+        to_list_go(0)
     }
 
 }

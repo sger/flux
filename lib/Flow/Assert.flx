@@ -50,8 +50,15 @@ module Flow.Assert {
         else { panic("assert_lte failed") }
     }
 
+    fn list_length(xs, acc) {
+        match xs {
+            [h | t] -> list_length(t, acc + 1),
+            _ -> acc
+        }
+    }
+
     public fn assert_len(collection, expected) with IO {
-        let actual = len(collection)
+        let actual = if is_list(collection) { list_length(collection, 0) } else { len(collection) }
         if cmp_eq(actual, expected) { () }
         else {
             println("ASSERTION FAILED: assert_len")

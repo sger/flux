@@ -304,6 +304,15 @@ impl<'a> Formatter<'a> {
                 push_indent(out, indent);
                 out.push('}');
             }
+            CoreExpr::MemberAccess { object, member, .. } => {
+                self.write_expr_inline(out, object, indent);
+                out.push('.');
+                out.push_str(&self.resolve_name(*member));
+            }
+            CoreExpr::TupleField { object, index, .. } => {
+                self.write_expr_inline(out, object, indent);
+                write!(out, ".{index}").unwrap();
+            }
         }
     }
 
@@ -500,6 +509,9 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::FSub => out.push_str("FSub"),
         CorePrimOp::FMul => out.push_str("FMul"),
         CorePrimOp::FDiv => out.push_str("FDiv"),
+        CorePrimOp::Abs => out.push_str("Abs"),
+        CorePrimOp::Min => out.push_str("Min"),
+        CorePrimOp::Max => out.push_str("Max"),
         CorePrimOp::Neg => out.push_str("Neg"),
         CorePrimOp::Not => out.push_str("Not"),
         CorePrimOp::Eq => out.push_str("Eq"),
@@ -508,6 +520,18 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::Le => out.push_str("Le"),
         CorePrimOp::Gt => out.push_str("Gt"),
         CorePrimOp::Ge => out.push_str("Ge"),
+        CorePrimOp::ICmpEq => out.push_str("ICmpEq"),
+        CorePrimOp::ICmpNe => out.push_str("ICmpNe"),
+        CorePrimOp::ICmpLt => out.push_str("ICmpLt"),
+        CorePrimOp::ICmpLe => out.push_str("ICmpLe"),
+        CorePrimOp::ICmpGt => out.push_str("ICmpGt"),
+        CorePrimOp::ICmpGe => out.push_str("ICmpGe"),
+        CorePrimOp::FCmpEq => out.push_str("FCmpEq"),
+        CorePrimOp::FCmpNe => out.push_str("FCmpNe"),
+        CorePrimOp::FCmpLt => out.push_str("FCmpLt"),
+        CorePrimOp::FCmpLe => out.push_str("FCmpLe"),
+        CorePrimOp::FCmpGt => out.push_str("FCmpGt"),
+        CorePrimOp::FCmpGe => out.push_str("FCmpGe"),
         CorePrimOp::And => out.push_str("And"),
         CorePrimOp::Or => out.push_str("Or"),
         CorePrimOp::Concat => out.push_str("Concat"),
@@ -517,14 +541,13 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::MakeTuple => out.push_str("MakeTuple"),
         CorePrimOp::MakeHash => out.push_str("MakeHash"),
         CorePrimOp::Index => out.push_str("Index"),
-        CorePrimOp::MemberAccess(name) => write!(out, "MemberAccess({})", name.as_u32()).unwrap(),
-        CorePrimOp::TupleField(index) => write!(out, "TupleField({index})").unwrap(),
         // Promoted primops (Proposal 0120)
         CorePrimOp::Print => out.push_str("Print"),
         CorePrimOp::Println => out.push_str("Println"),
         CorePrimOp::ReadFile => out.push_str("ReadFile"),
         CorePrimOp::WriteFile => out.push_str("WriteFile"),
         CorePrimOp::ReadStdin => out.push_str("ReadStdin"),
+        CorePrimOp::ReadLines => out.push_str("ReadLines"),
         CorePrimOp::StringLength => out.push_str("StringLength"),
         CorePrimOp::StringConcat => out.push_str("StringConcat"),
         CorePrimOp::StringSlice => out.push_str("StringSlice"),
@@ -546,7 +569,6 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::ArrayPush => out.push_str("ArrayPush"),
         CorePrimOp::ArrayConcat => out.push_str("ArrayConcat"),
         CorePrimOp::ArraySlice => out.push_str("ArraySlice"),
-        CorePrimOp::ArraySort => out.push_str("ArraySort"),
         CorePrimOp::HamtGet => out.push_str("HamtGet"),
         CorePrimOp::HamtSet => out.push_str("HamtSet"),
         CorePrimOp::HamtDelete => out.push_str("HamtDelete"),
@@ -567,9 +589,10 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::IsMap => out.push_str("IsMap"),
         CorePrimOp::Panic => out.push_str("Panic"),
         CorePrimOp::ClockNow => out.push_str("ClockNow"),
+        CorePrimOp::Time => out.push_str("Time"),
         CorePrimOp::ParseInt => out.push_str("ParseInt"),
-        CorePrimOp::Hd => out.push_str("Hd"),
-        CorePrimOp::Tl => out.push_str("Tl"),
+        CorePrimOp::ParseInts => out.push_str("ParseInts"),
+        CorePrimOp::SplitInts => out.push_str("SplitInts"),
         CorePrimOp::ToList => out.push_str("ToList"),
         CorePrimOp::ToArray => out.push_str("ToArray"),
         CorePrimOp::Len => out.push_str("Len"),
@@ -577,6 +600,30 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::CmpNe => out.push_str("CmpNe"),
         CorePrimOp::Try => out.push_str("Try"),
         CorePrimOp::AssertThrows => out.push_str("AssertThrows"),
+        CorePrimOp::Reverse => out.push_str("Reverse"),
+        CorePrimOp::Contains => out.push_str("Contains"),
+        CorePrimOp::Sort => out.push_str("Sort"),
+        CorePrimOp::SortBy => out.push_str("SortBy"),
+        CorePrimOp::HoMap => out.push_str("HoMap"),
+        CorePrimOp::HoFilter => out.push_str("HoFilter"),
+        CorePrimOp::HoAny => out.push_str("HoAny"),
+        CorePrimOp::HoAll => out.push_str("HoAll"),
+        CorePrimOp::HoEach => out.push_str("HoEach"),
+        CorePrimOp::HoFind => out.push_str("HoFind"),
+        CorePrimOp::HoCount => out.push_str("HoCount"),
+        CorePrimOp::Zip => out.push_str("Zip"),
+        CorePrimOp::Flatten => out.push_str("Flatten"),
+        CorePrimOp::HoFlatMap => out.push_str("HoFlatMap"),
+        // Effect handlers (Koka-style yield model)
+        CorePrimOp::EvvGet => out.push_str("EvvGet"),
+        CorePrimOp::EvvSet => out.push_str("EvvSet"),
+        CorePrimOp::FreshMarker => out.push_str("FreshMarker"),
+        CorePrimOp::EvvInsert => out.push_str("EvvInsert"),
+        CorePrimOp::YieldTo => out.push_str("YieldTo"),
+        CorePrimOp::YieldExtend => out.push_str("YieldExtend"),
+        CorePrimOp::YieldPrompt => out.push_str("YieldPrompt"),
+        CorePrimOp::IsYielding => out.push_str("IsYielding"),
+        CorePrimOp::PerformDirect => out.push_str("PerformDirect"),
     }
 }
 

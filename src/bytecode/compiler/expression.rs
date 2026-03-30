@@ -19,6 +19,7 @@ use crate::{
         op_code::{OpCode, make},
         symbol_scope::SymbolScope,
     },
+    core::{CorePrimOp, PrimEffect},
     diagnostics::{
         ADT_NON_EXHAUSTIVE_MATCH, CONSTRUCTOR_ARITY_MISMATCH, DUPLICATE_PARAMETER, Diagnostic,
         DiagnosticBuilder, DiagnosticCategory, ICE_SYMBOL_SCOPE_PATTERN,
@@ -37,7 +38,6 @@ use crate::{
         quality::{EffectConstraintOrigin, with_effect_constraint_origin},
         types::ErrorType,
     },
-    primop::{PrimEffect, resolve_primop_call},
     runtime::{
         compiled_function::CompiledFunction, handler_descriptor::HandlerDescriptor,
         perform_descriptor::PerformDescriptor, runtime_type::RuntimeType, value::Value,
@@ -540,20 +540,9 @@ impl Compiler {
             }
             Expression::Identifier { name, span, .. } => {
                 let name = *name;
-                // Exposed bindings from `import M exposing (..)` are checked
-                // first so that `lib/Flow/*.flx` Flux implementations take
-                // priority.
-                if self.exposed_bindings.contains_key(&name) {
-                    let qualified = self.exposed_bindings[&name];
-                    if let Some(symbol) = self.resolve_visible_symbol(qualified) {
-                        self.load_symbol(&symbol);
-                    } else {
-                        let name_str = self.sym(name);
-                        return Err(Self::boxed(
-                            self.make_undefined_variable_error(name_str, *span),
-                        ));
-                    }
-                } else if let Some(symbol) = self.resolve_visible_symbol(name) {
+                // Local/lexically visible bindings must shadow names imported
+                // via `import M exposing (..)`.
+                if let Some(symbol) = self.resolve_visible_symbol(name) {
                     if !self.try_emit_consumed_local(name) {
                         self.load_symbol(&symbol);
                     }
@@ -2919,9 +2908,7 @@ impl Compiler {
             return Ok(true);
         }
 
-        let primop = resolve_primop_call(self.sym(*name), arguments.len());
-
-        let Some(primop) = primop else {
+        let Some(primop) = CorePrimOp::from_name(self.sym(*name), arguments.len()) else {
             return Ok(false);
         };
 

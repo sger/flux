@@ -12,6 +12,9 @@ For the remaining maturity roadmap, see:
 For the reduced formal proof target, see:
 - `docs/internals/aether_formal_semantics.md`
 
+For practical dump-reading and backend-debugging guidance, see:
+- `docs/internals/aether_debugging.md`
+
 ---
 
 ## What Aether is

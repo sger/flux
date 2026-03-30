@@ -7,8 +7,9 @@ status: 1
 stdout:
 <empty>
 stderr:
+[cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/primop_string_len_type.flx
-error[E1004]: primop string_len expected String, got Int
+error[E1004]: primop string_length expected String, got Int
 
   examples/runtime_errors/primop_string_len_type.flx:2:19
   |
@@ -23,8 +24,9 @@ status: 1
 stdout:
 <empty>
 stderr:
+[cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/primop_string_len_type.flx
-error[E1004]: primop string_len expected String, got Int
+error[E1004]: primop string_length expected String, got Int
 
   examples/runtime_errors/primop_string_len_type.flx:2:19
   |

@@ -1,3 +1,5 @@
+import Flow.Array as Array
+
 fn main() with IO {
     // Test: Array base functions
 
@@ -48,22 +50,19 @@ fn main() with IO {
 
     // sort - ascending (default)
     let unsorted = [|3, 1, 4, 1, 5, 9, 2, 6|];
-    print(sort(unsorted));         // [|1, 1, 2, 3, 4, 5, 6, 9|]
-
-    // sort - explicit ascending
-    print(sort(unsorted, "asc"));  // [|1, 1, 2, 3, 4, 5, 6, 9|]
+    print(Array.sort(unsorted));         // [|1, 1, 2, 3, 4, 5, 6, 9|]
 
     // sort - descending
-    print(sort(unsorted, "desc")); // [|9, 6, 5, 4, 3, 2, 1, 1|]
+    print(Array.sort_by(unsorted, \x -> 0 - x)); // [|9, 6, 5, 4, 3, 2, 1, 1|]
 
     // sort with floats
     let floats = [|3.14, 1.41, 2.71|];
-    print(sort(floats));           // [|1.41, 2.71, 3.14|]
-    print(sort(floats, "desc"));   // [|3.14, 2.71, 1.41|]
+    print(Array.sort(floats));           // [|1.41, 2.71, 3.14|]
+    print(reverse(Array.sort(floats)));   // [|3.14, 2.71, 1.41|]
 
     // Practical example: Get top 3 scores
     fn topThree(scores) {
-        let sorted = sort(scores, "desc");
+        let sorted = Array.sort_by(scores, \x -> 0 - x);
         slice(sorted, 0, 3);
     }
 

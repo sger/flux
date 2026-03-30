@@ -17,15 +17,24 @@ use super::constructor_shape_for_tag;
 
 type Scope = HashMap<CoreBinderId, CoreBinder>;
 
+/// Maps pattern binder ID → scrutinee binder ID.
+/// Tracks which variables were extracted from which scrutinee via
+/// constructor pattern matching. Used to prevent dropping a scrutinee
+/// while its destructured fields are still live, and to dup fields
+/// from borrowed scrutinees when used in constructors (owned demand).
+type FieldParents = HashMap<CoreBinderId, (CoreBinderId, Option<CoreTag>)>;
+
 /// Insert Dup/Drop annotations into a Core IR expression.
 pub fn insert_dup_drop(expr: CoreExpr) -> CoreExpr {
     let mut scope = Scope::new();
+    let mut field_parents = FieldParents::new();
     plan_expr(
         expr,
         AetherEnv::default(),
         ValueDemand::Owned,
         None,
         &mut scope,
+        &mut field_parents,
     )
     .expr
 }
@@ -34,12 +43,14 @@ pub fn insert_dup_drop(expr: CoreExpr) -> CoreExpr {
 /// Rc::clone for arguments passed to borrowed parameters.
 pub fn insert_dup_drop_with_registry(expr: CoreExpr, registry: &BorrowRegistry) -> CoreExpr {
     let mut scope = Scope::new();
+    let mut field_parents = FieldParents::new();
     plan_expr(
         expr,
         AetherEnv::default(),
         ValueDemand::Owned,
         Some(registry),
         &mut scope,
+        &mut field_parents,
     )
     .expr
 }
@@ -50,9 +61,10 @@ fn plan_expr(
     demand: ValueDemand,
     registry: Option<&BorrowRegistry>,
     scope: &mut Scope,
+    field_parents: &mut FieldParents,
 ) -> AetherPlan {
     match expr {
-        CoreExpr::Var { var, span } => plan_var(var, span, tail_env, demand, scope),
+        CoreExpr::Var { var, span } => plan_var(var, span, tail_env, demand, scope, field_parents),
         CoreExpr::Lit(_, _) => AetherPlan {
             expr,
             env_before: tail_env,
@@ -64,7 +76,7 @@ fn plan_expr(
             span,
         } => {
             scope.insert(var.id, var);
-            let body_plan = plan_expr(*body, tail_env, demand, registry, scope);
+            let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
             let binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
             if binder_demand == ValueDemand::Ignore {
@@ -73,7 +85,14 @@ fn plan_expr(
 
             let mut rhs_tail = body_plan.env_before.clone();
             rhs_tail.remove(var.id);
-            let rhs_plan = plan_expr(*rhs, rhs_tail, binder_demand, registry, scope);
+            let rhs_plan = plan_expr(
+                *rhs,
+                rhs_tail,
+                binder_demand,
+                registry,
+                scope,
+                field_parents,
+            );
             scope.remove(&var.id);
 
             let mut env_before = rhs_plan.env_before;
@@ -96,7 +115,7 @@ fn plan_expr(
             span,
         } => {
             scope.insert(var.id, var);
-            let body_plan = plan_expr(*body, tail_env, demand, registry, scope);
+            let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
             let binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
             if binder_demand == ValueDemand::Ignore {
@@ -105,7 +124,14 @@ fn plan_expr(
 
             let mut rhs_tail = body_plan.env_before.clone();
             rhs_tail.remove(var.id);
-            let rhs_plan = plan_expr(*rhs, rhs_tail, binder_demand, registry, scope);
+            let rhs_plan = plan_expr(
+                *rhs,
+                rhs_tail,
+                binder_demand,
+                registry,
+                scope,
+                field_parents,
+            );
             scope.remove(&var.id);
 
             let mut env_before = rhs_plan.env_before;
@@ -134,6 +160,7 @@ fn plan_expr(
                 ValueDemand::Owned,
                 registry,
                 scope,
+                field_parents,
             );
             for param in &params {
                 scope.remove(&param.id);
@@ -184,19 +211,21 @@ fn plan_expr(
                     }
                 })
                 .collect();
-            let (args, env_after_args) = plan_expr_list(args, tail_env, registry, scope, |index| {
-                if arg_modes[index] == BorrowMode::Borrowed {
-                    ValueDemand::Borrowed
-                } else {
-                    ValueDemand::Owned
-                }
-            });
+            let (args, env_after_args) =
+                plan_expr_list(args, tail_env, registry, scope, field_parents, |index| {
+                    if arg_modes[index] == BorrowMode::Borrowed {
+                        ValueDemand::Borrowed
+                    } else {
+                        ValueDemand::Owned
+                    }
+                });
             let func_plan = plan_expr(
                 *func,
                 env_after_args,
                 ValueDemand::Borrowed,
                 registry,
                 scope,
+                field_parents,
             );
             AetherPlan {
                 expr: CoreExpr::AetherCall {
@@ -214,18 +243,20 @@ fn plan_expr(
             arg_modes,
             span,
         } => {
-            let (args, env_after_args) = plan_expr_list(args, tail_env, registry, scope, |index| {
-                match arg_modes[index] {
-                    BorrowMode::Borrowed => ValueDemand::Borrowed,
-                    BorrowMode::Owned => ValueDemand::Owned,
-                }
-            });
+            let (args, env_after_args) =
+                plan_expr_list(args, tail_env, registry, scope, field_parents, |index| {
+                    match arg_modes[index] {
+                        BorrowMode::Borrowed => ValueDemand::Borrowed,
+                        BorrowMode::Owned => ValueDemand::Owned,
+                    }
+                });
             let func_plan = plan_expr(
                 *func,
                 env_after_args,
                 ValueDemand::Borrowed,
                 registry,
                 scope,
+                field_parents,
             );
             AetherPlan {
                 expr: CoreExpr::AetherCall {
@@ -262,7 +293,23 @@ fn plan_expr(
                     }
                 }
 
-                let rhs_plan = plan_expr(rhs, tail_env.clone(), demand, registry, scope);
+                // Track field→scrutinee relationships for nested cases.
+                // Pattern binders are fields extracted from the scrutinee.
+                if let Some(sv) = scrutinee_var {
+                    let parent_tag = pat_constructor_tag(&pat);
+                    for &bid in &pat_ids {
+                        field_parents.insert(bid, (sv.id, parent_tag.clone()));
+                    }
+                }
+
+                let rhs_plan = plan_expr(
+                    rhs,
+                    tail_env.clone(),
+                    demand,
+                    registry,
+                    scope,
+                    field_parents,
+                );
                 let (guard, branch_env) = if let Some(guard) = guard {
                     let guard_plan = plan_expr(
                         guard,
@@ -270,6 +317,7 @@ fn plan_expr(
                         ValueDemand::Borrowed,
                         registry,
                         scope,
+                        field_parents,
                     );
                     (Some(guard_plan.expr), guard_plan.env_before)
                 } else {
@@ -278,12 +326,23 @@ fn plan_expr(
 
                 for binder_id in &pat_ids {
                     scope.remove(binder_id);
+                    field_parents.remove(binder_id);
                 }
 
                 let mut rhs = rhs_plan.expr;
+
+                // Check if the scrutinee is still live in the RHS.
+                // If so, destructured pattern binders are borrowed views
+                // into the scrutinee — dropping them would free memory
+                // the scrutinee still references (use-after-free).
+                let scrutinee_live_in_rhs = scrutinee_var.is_some_and(|sv| {
+                    rhs_plan.env_before.is_live(sv.id) || expr_uses_binder(&rhs, sv.id)
+                });
+
                 for binder_id in pat_ids.iter().rev().copied() {
                     if !rhs_plan.env_before.is_live(binder_id)
                         && !expr_uses_binder(&rhs, binder_id)
+                        && !scrutinee_live_in_rhs
                         && let Some(binder) = find_binder_in_pat(&pat, binder_id)
                     {
                         rhs = wrap_drop(binder, rhs, alt_span);
@@ -302,49 +361,74 @@ fn plan_expr(
                     rhs = wrap_drop(scrut_binder, rhs, alt_span);
                 }
 
-                branch_plans.push((pat, guard, rhs, alt_span, branch_env, env_without_pats));
+                branch_plans.push((pat, guard, rhs, alt_span, env_without_pats));
             }
 
             let joined = join_branch_envs(
                 &branch_plans
                     .iter()
-                    .map(|(_, _, _, _, _, env_without_pats)| env_without_pats.clone())
+                    .map(|(_, _, _, _, env_without_pats)| env_without_pats.clone())
                     .collect::<Vec<_>>(),
             );
 
             let alts = branch_plans
                 .into_iter()
-                .map(
-                    |(pat, guard, rhs, alt_span, _branch_env, env_without_pats)| {
-                        let compensation: Vec<_> = joined
-                            .owned
-                            .iter()
-                            .copied()
-                            .filter(|binder_id| {
-                                !env_without_pats.is_live(*binder_id)
-                                    && !tail_env.is_live(*binder_id)
-                            })
-                            .filter(|binder_id| !expr_uses_binder(&rhs, *binder_id))
-                            .filter(|binder_id| !expr_drops_binder(&rhs, *binder_id))
-                            .filter_map(|binder_id| scope.get(&binder_id).copied())
-                            .collect();
-                        let rhs = compensation
-                            .into_iter()
-                            .rev()
-                            .fold(rhs, |body, binder| wrap_drop(binder, body, alt_span));
+                .map(|(pat, guard, rhs, alt_span, env_without_pats)| {
+                    let compensation: Vec<_> = joined
+                        .owned
+                        .iter()
+                        .copied()
+                        .filter(|binder_id| {
+                            !env_without_pats.is_live(*binder_id) && !tail_env.is_live(*binder_id)
+                        })
+                        .filter(|binder_id| {
+                            let Some((parent_id, _)) = field_parents.get(binder_id).cloned() else {
+                                return true;
+                            };
+                            !env_without_pats.is_live(parent_id)
+                                && !expr_uses_binder(&rhs, parent_id)
+                        })
+                        .filter(|binder_id| {
+                            let mut child_tag = None;
+                            let child_used =
+                                field_parents.iter().any(|(child_id, (parent_id, tag))| {
+                                    let used = *parent_id == *binder_id
+                                        && (env_without_pats.is_live(*child_id)
+                                            || expr_uses_binder(&rhs, *child_id));
+                                    if used && child_tag.is_none() {
+                                        child_tag = tag.clone();
+                                    }
+                                    used
+                                });
+                            !child_used
+                                || child_tag.is_some_and(|tag| rhs_has_compatible_tag(&rhs, &tag))
+                        })
+                        .filter(|binder_id| !expr_uses_binder(&rhs, *binder_id))
+                        .filter(|binder_id| !expr_drops_binder(&rhs, *binder_id))
+                        .filter_map(|binder_id| scope.get(&binder_id).copied())
+                        .collect();
+                    let rhs = compensation
+                        .into_iter()
+                        .rev()
+                        .fold(rhs, |body, binder| wrap_drop(binder, body, alt_span));
 
-                        CoreAlt {
-                            pat,
-                            guard,
-                            rhs,
-                            span: alt_span,
-                        }
-                    },
-                )
+                    CoreAlt {
+                        pat,
+                        guard,
+                        rhs,
+                        span: alt_span,
+                    }
+                })
                 .collect();
 
-            let scrutinee_plan =
-                plan_expr(*scrutinee, joined, ValueDemand::Borrowed, registry, scope);
+            let scrutinee_plan = plan_expr(
+                *scrutinee,
+                joined,
+                ValueDemand::Borrowed,
+                registry,
+                scope,
+                field_parents,
+            );
 
             AetherPlan {
                 expr: CoreExpr::Case {
@@ -357,7 +441,9 @@ fn plan_expr(
         }
         CoreExpr::Con { tag, fields, span } => {
             let (fields, env_before) =
-                plan_expr_list(fields, tail_env, registry, scope, |_| ValueDemand::Owned);
+                plan_expr_list(fields, tail_env, registry, scope, field_parents, |_| {
+                    ValueDemand::Owned
+                });
             AetherPlan {
                 expr: CoreExpr::Con { tag, fields, span },
                 env_before,
@@ -365,14 +451,23 @@ fn plan_expr(
         }
         CoreExpr::PrimOp { op, args, span } => {
             let (args, env_before) =
-                plan_expr_list(args, tail_env, registry, scope, |_| ValueDemand::Borrowed);
+                plan_expr_list(args, tail_env, registry, scope, field_parents, |_| {
+                    ValueDemand::Borrowed
+                });
             AetherPlan {
                 expr: CoreExpr::PrimOp { op, args, span },
                 env_before,
             }
         }
         CoreExpr::Return { value, span } => {
-            let value_plan = plan_expr(*value, tail_env, ValueDemand::Owned, registry, scope);
+            let value_plan = plan_expr(
+                *value,
+                tail_env,
+                ValueDemand::Owned,
+                registry,
+                scope,
+                field_parents,
+            );
             AetherPlan {
                 expr: CoreExpr::Return {
                     value: Box::new(value_plan.expr),
@@ -388,7 +483,9 @@ fn plan_expr(
             span,
         } => {
             let (args, mut env_before) =
-                plan_expr_list(args, tail_env, registry, scope, |_| ValueDemand::Owned);
+                plan_expr_list(args, tail_env, registry, scope, field_parents, |_| {
+                    ValueDemand::Owned
+                });
             for binder in env_before.live.clone() {
                 env_before.mark_owned(binder);
             }
@@ -408,7 +505,14 @@ fn plan_expr(
             handlers,
             span,
         } => {
-            let body_plan = plan_expr(*body, tail_env.clone(), demand, registry, scope);
+            let body_plan = plan_expr(
+                *body,
+                tail_env.clone(),
+                demand,
+                registry,
+                scope,
+                field_parents,
+            );
             let mut incoming_envs = vec![body_plan.env_before.clone()];
             let mut planned_handlers = Vec::with_capacity(handlers.len());
 
@@ -420,8 +524,14 @@ fn plan_expr(
                     shadow_ids.push(param.id);
                 }
 
-                let handler_plan =
-                    plan_expr(handler.body, tail_env.clone(), demand, registry, scope);
+                let handler_plan = plan_expr(
+                    handler.body,
+                    tail_env.clone(),
+                    demand,
+                    registry,
+                    scope,
+                    field_parents,
+                );
                 for shadow in &shadow_ids {
                     scope.remove(shadow);
                 }
@@ -452,7 +562,7 @@ fn plan_expr(
             }
         }
         CoreExpr::Dup { var, body, span } => {
-            let body_plan = plan_expr(*body, tail_env, demand, registry, scope);
+            let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
             AetherPlan {
                 expr: CoreExpr::Dup {
                     var,
@@ -463,7 +573,7 @@ fn plan_expr(
             }
         }
         CoreExpr::Drop { var, body, span } => {
-            let body_plan = plan_expr(*body, tail_env, demand, registry, scope);
+            let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
             AetherPlan {
                 expr: CoreExpr::Drop {
                     var,
@@ -481,7 +591,9 @@ fn plan_expr(
             span,
         } => {
             let (fields, mut env_before) =
-                plan_expr_list(fields, tail_env, registry, scope, |_| ValueDemand::Owned);
+                plan_expr_list(fields, tail_env, registry, scope, field_parents, |_| {
+                    ValueDemand::Owned
+                });
             if let Some(token_id) = token.binder {
                 env_before.mark_owned(token_id);
             }
@@ -496,14 +608,72 @@ fn plan_expr(
                 env_before,
             }
         }
+        CoreExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => {
+            let object_plan = plan_expr(
+                *object,
+                tail_env,
+                ValueDemand::Borrowed,
+                registry,
+                scope,
+                field_parents,
+            );
+            AetherPlan {
+                expr: CoreExpr::MemberAccess {
+                    object: Box::new(object_plan.expr),
+                    member,
+                    span,
+                },
+                env_before: object_plan.env_before,
+            }
+        }
+        CoreExpr::TupleField {
+            object,
+            index,
+            span,
+        } => {
+            let object_plan = plan_expr(
+                *object,
+                tail_env,
+                ValueDemand::Borrowed,
+                registry,
+                scope,
+                field_parents,
+            );
+            AetherPlan {
+                expr: CoreExpr::TupleField {
+                    object: Box::new(object_plan.expr),
+                    index,
+                    span,
+                },
+                env_before: object_plan.env_before,
+            }
+        }
         CoreExpr::DropSpecialized {
             scrutinee,
             unique_body,
             shared_body,
             span,
         } => {
-            let unique_plan = plan_expr(*unique_body, tail_env.clone(), demand, registry, scope);
-            let shared_plan = plan_expr(*shared_body, tail_env.clone(), demand, registry, scope);
+            let unique_plan = plan_expr(
+                *unique_body,
+                tail_env.clone(),
+                demand,
+                registry,
+                scope,
+                field_parents,
+            );
+            let shared_plan = plan_expr(
+                *shared_body,
+                tail_env.clone(),
+                demand,
+                registry,
+                scope,
+                field_parents,
+            );
             let joined = join_branch_envs(&[
                 unique_plan.env_before.clone(),
                 shared_plan.env_before.clone(),
@@ -517,6 +687,7 @@ fn plan_expr(
                 ValueDemand::Borrowed,
                 registry,
                 scope,
+                field_parents,
             );
 
             let CoreExpr::Var { var: scrutinee, .. } = scrutinee_plan.expr else {
@@ -541,6 +712,7 @@ fn plan_expr_list<F>(
     tail_env: AetherEnv,
     registry: Option<&BorrowRegistry>,
     scope: &mut Scope,
+    field_parents: &mut FieldParents,
     demand_for_index: F,
 ) -> (Vec<CoreExpr>, AetherEnv)
 where
@@ -549,7 +721,14 @@ where
     let mut env = tail_env;
     let mut planned = Vec::with_capacity(exprs.len());
     for (index, expr) in exprs.into_iter().enumerate().rev() {
-        let plan = plan_expr(expr, env, demand_for_index(index), registry, scope);
+        let plan = plan_expr(
+            expr,
+            env,
+            demand_for_index(index),
+            registry,
+            scope,
+            field_parents,
+        );
         env = plan.env_before;
         planned.push(plan.expr);
     }
@@ -563,6 +742,7 @@ fn plan_var(
     mut tail_env: AetherEnv,
     demand: ValueDemand,
     scope: &Scope,
+    _field_parents: &FieldParents,
 ) -> AetherPlan {
     let Some(id) = var.binder else {
         return AetherPlan {
@@ -663,6 +843,13 @@ fn is_constructor_pat(pat: &crate::core::CorePat) -> bool {
     )
 }
 
+fn pat_constructor_tag(pat: &crate::core::CorePat) -> Option<CoreTag> {
+    match pat {
+        crate::core::CorePat::Con { tag, .. } => Some(tag.clone()),
+        _ => None,
+    }
+}
+
 fn has_compatible_con(pat: &crate::core::CorePat, rhs: &CoreExpr) -> bool {
     let pat_tag = match pat {
         crate::core::CorePat::Con { tag, .. } => Some(tag),
@@ -673,6 +860,11 @@ fn has_compatible_con(pat: &crate::core::CorePat, rhs: &CoreExpr) -> bool {
     };
     find_con_tag_in_spine(rhs, Some(pat_tag))
         .is_some_and(|ref con_tag| tags_shape_compatible(pat_tag, con_tag))
+}
+
+fn rhs_has_compatible_tag(rhs: &CoreExpr, tag: &CoreTag) -> bool {
+    find_con_tag_in_spine(rhs, Some(tag))
+        .is_some_and(|ref con_tag| tags_shape_compatible(tag, con_tag))
 }
 
 fn find_con_tag_in_spine(
@@ -751,6 +943,9 @@ fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
             shared_body,
             ..
         } => expr_drops_binder(unique_body, binder) || expr_drops_binder(shared_body, binder),
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            expr_drops_binder(object, binder)
+        }
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => false,
     }
 }
@@ -833,6 +1028,9 @@ mod tests {
             } => {
                 count_binder_nodes(unique_body, binder, predicate)
                     + count_binder_nodes(shared_body, binder, predicate)
+            }
+            CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+                count_binder_nodes(object, binder, predicate)
             }
             CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => 0,
         };

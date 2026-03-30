@@ -181,6 +181,24 @@ fn fuse(expr: CoreExpr) -> CoreExpr {
             shared_body: Box::new(fuse(*shared_body)),
             span,
         },
+        CoreExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => CoreExpr::MemberAccess {
+            object: Box::new(fuse(*object)),
+            member,
+            span,
+        },
+        CoreExpr::TupleField {
+            object,
+            index,
+            span,
+        } => CoreExpr::TupleField {
+            object: Box::new(fuse(*object)),
+            index,
+            span,
+        },
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
     }
 }
@@ -333,7 +351,9 @@ fn is_safe_fusion_wrapper_rhs(expr: &CoreExpr) -> bool {
         | CoreExpr::Case { .. }
         | CoreExpr::Return { .. }
         | CoreExpr::Dup { .. }
-        | CoreExpr::Drop { .. } => true,
+        | CoreExpr::Drop { .. }
+        | CoreExpr::MemberAccess { .. }
+        | CoreExpr::TupleField { .. } => true,
     }
 }
 
@@ -432,6 +452,9 @@ mod tests {
             } => {
                 here + count_matching(unique_body, predicate)
                     + count_matching(shared_body, predicate)
+            }
+            CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+                here + count_matching(object, predicate)
             }
             CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => here,
         }

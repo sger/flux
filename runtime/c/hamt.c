@@ -13,6 +13,10 @@
 
 #include "flux_rt.h"
 #include <stdlib.h>
+#if defined(_MSC_VER)
+#include <intrin.h>
+#define __builtin_popcount __popcnt
+#endif
 #include <string.h>
 #include <stdio.h>
 
@@ -561,6 +565,14 @@ int64_t flux_hamt_keys(int64_t map) {
  */
 int flux_is_hamt(void *ptr) {
     if (!ptr) return 0;
+    /* All objects (including HAMT nodes) are allocated via flux_gc_alloc
+     * which calls flux_gc_alloc_header(size, 0, 0).  So FluxHeader is
+     * always valid.  HAMT nodes have obj_tag=0; known types have 0xF1-0xF6. */
+    uint8_t obj = flux_obj_tag(ptr);
+    if (obj == FLUX_OBJ_ADT || obj == FLUX_OBJ_TUPLE || obj == FLUX_OBJ_STRING
+        || obj == FLUX_OBJ_ARRAY || obj == FLUX_OBJ_CLOSURE || obj == FLUX_OBJ_BIGINT) {
+        return 0;
+    }
     int32_t kind = *(int32_t *)ptr;
     if (kind < 0 || kind > HAMT_COLLISION) return 0;
     if (kind == HAMT_EMPTY) {
@@ -593,23 +605,63 @@ int64_t flux_hamt_format(int64_t map) {
     hamt_collect_keys(root, keys_arr, &ki);
     hamt_collect_values(root, vals_arr, &vi);
 
+    /* Sort key-value pairs by key string for deterministic output. */
+    for (uint32_t i = 1; i < ki; i++) {
+        for (uint32_t j = i; j > 0; j--) {
+            int64_t ks_a = flux_to_string(keys_arr[j - 1]);
+            int64_t ks_b = flux_to_string(keys_arr[j]);
+            const char *sa = flux_string_data(ks_a);
+            uint32_t la = flux_string_len(ks_a);
+            const char *sb = flux_string_data(ks_b);
+            uint32_t lb = flux_string_len(ks_b);
+            uint32_t ml = la < lb ? la : lb;
+            int cmp = memcmp(sa, sb, ml);
+            if (cmp > 0 || (cmp == 0 && la > lb)) {
+                int64_t tk = keys_arr[j - 1]; keys_arr[j - 1] = keys_arr[j]; keys_arr[j] = tk;
+                int64_t tv = vals_arr[j - 1]; vals_arr[j - 1] = vals_arr[j]; vals_arr[j] = tv;
+            } else {
+                break;
+            }
+        }
+    }
+
     char buf[4096];
     int pos = 0;
     pos += snprintf(buf + pos, sizeof(buf) - pos, "{");
     for (uint32_t i = 0; i < ki && pos < (int)sizeof(buf) - 40; i++) {
         if (i > 0) pos += snprintf(buf + pos, sizeof(buf) - pos, ", ");
-        int64_t ks = flux_to_string(keys_arr[i]);
-        const char *kd = flux_string_data(ks);
-        uint32_t kl = flux_string_len(ks);
-        /* Quote string keys. */
-        buf[pos++] = '"';
-        if (pos + kl < sizeof(buf) - 20) { memcpy(buf + pos, kd, kl); pos += kl; }
-        buf[pos++] = '"';
+        int64_t key = keys_arr[i];
+        int is_str_key = flux_is_ptr(key) && flux_obj_tag(flux_untag_ptr(key)) == FLUX_OBJ_STRING;
+        const char *kd;
+        uint32_t kl;
+        if (is_str_key) {
+            kd = flux_string_data(key);
+            kl = flux_string_len(key);
+            buf[pos++] = '"';
+            if (pos + kl < sizeof(buf) - 20) { memcpy(buf + pos, kd, kl); pos += kl; }
+            buf[pos++] = '"';
+        } else {
+            int64_t ks = flux_to_string(key);
+            kd = flux_string_data(ks);
+            kl = flux_string_len(ks);
+            if (pos + kl < sizeof(buf) - 20) { memcpy(buf + pos, kd, kl); pos += kl; }
+        }
         pos += snprintf(buf + pos, sizeof(buf) - pos, ": ");
-        int64_t vs = flux_to_string(vals_arr[i]);
-        const char *vd = flux_string_data(vs);
-        uint32_t vl = flux_string_len(vs);
+        int64_t vval = vals_arr[i];
+        int is_str_val = flux_is_ptr(vval) && flux_obj_tag(flux_untag_ptr(vval)) == FLUX_OBJ_STRING;
+        const char *vd;
+        uint32_t vl;
+        if (is_str_val) {
+            vd = flux_string_data(vval);
+            vl = flux_string_len(vval);
+            buf[pos++] = '"';
+        } else {
+            int64_t vs = flux_to_string(vval);
+            vd = flux_string_data(vs);
+            vl = flux_string_len(vs);
+        }
         if (pos + vl < sizeof(buf) - 10) { memcpy(buf + pos, vd, vl); pos += vl; }
+        if (is_str_val) buf[pos++] = '"';
     }
     pos += snprintf(buf + pos, sizeof(buf) - pos, "}");
 

@@ -21,7 +21,7 @@ fn test_flow_helpers() with IO {
 
     Test.with_fixture(
         \() -> [10, 20, 30],
-        \xs -> Test.eq(len(xs), 3)
+        \xs -> Test.eq(length(xs), 3)
     )
 
     Test.describe("basic helpers", [

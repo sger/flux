@@ -226,7 +226,7 @@ fn register_explicit_named_fallbacks(
     for (name, arity) in unresolved_callees {
         if let Some(interner) = interner
             && let Some((primop_arity, borrows)) =
-                crate::primop::resolve_primop_borrow_info(interner.resolve(name))
+                crate::core::CorePrimOp::resolve_borrow_info(interner.resolve(name))
         {
             let mode = if borrows {
                 BorrowMode::Borrowed
@@ -389,6 +389,9 @@ fn collect_local_callees(
         }
         CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
             collect_local_callees(body, def_ids, out)
+        }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            collect_local_callees(object, def_ids, out)
         }
         CoreExpr::Reuse { fields, .. } => {
             for field in fields {
@@ -589,6 +592,9 @@ fn collect_param_constraints(
         CoreExpr::Drop { body, .. } => {
             collect_param_constraints(target, body, registry, group_set, constraint);
         }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            collect_param_constraints(target, object, registry, group_set, constraint);
+        }
         CoreExpr::DropSpecialized {
             unique_body,
             shared_body,
@@ -720,6 +726,9 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
         }
         CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
             collect_unresolved_callees(body, unresolved)
+        }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            collect_unresolved_callees(object, unresolved)
         }
         CoreExpr::Reuse { fields, .. } => {
             for field in fields {

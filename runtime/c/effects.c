@@ -1,166 +1,334 @@
 /*
- * effects.c — Algebraic effect handler stack and continuations.
+ * effects.c — Koka-style yield-based algebraic effect handlers (Proposal 0134).
  *
- * Uses setjmp/longjmp for one-shot continuations.  This matches the
- * semantics of Flux's algebraic effects where each continuation is
- * resumed at most once (one-shot / linear).
+ * Replaces the previous setjmp/longjmp implementation with a yield-based
+ * continuation composition model inspired by Koka's Perceus runtime.
  *
- * Handler stack layout:
- *   Each handler is pushed before entering a `handle` block and popped
- *   on exit.  When `perform` is called, the handler stack is searched
- *   top-down for a matching effect tag.  The handler function is invoked
- *   with the performed argument and a continuation value.
+ * Algorithm overview:
+ *   1. `handle` installs an evidence entry (handler) into the evidence vector
+ *      and enters a prompt loop.
+ *   2. `perform` sets a global yield flag and returns a sentinel value.
+ *      Every function, as it returns, checks the yield flag and adds itself
+ *      to a continuation array (via flux_yield_extend).
+ *   3. The prompt loop detects the yield, composes the accumulated
+ *      continuations into a single closure, and calls the handler clause
+ *      with (resume_closure, performed_arg).
+ *   4. `resume` calls the composed continuation with the resume value.
  *
- * Continuation representation:
- *   A continuation captures a setjmp point.  When resumed, longjmp
- *   restores the stack frame and passes the resume value.  Since
- *   continuations are one-shot, resuming invalidates the continuation.
+ * Both the VM (Rust) and native (C) backends implement the same algorithm,
+ * eliminating parity bugs from algorithmic differences.
  */
 
 #include "flux_rt.h"
-#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* ── Handler stack ──────────────────────────────────────────────────── */
+/* ── Yield state (global, single-threaded) ─────────────────────────── */
 
-#define MAX_HANDLERS 256
+int32_t  flux_yield_yielding    = 0;   /* 0=no, 1=yielding, 2=final */
+int32_t  flux_yield_marker      = 0;   /* target handler's marker */
+int64_t  flux_yield_clause      = 0;   /* operation clause closure */
+int64_t  flux_yield_op_arg      = 0;   /* performed argument */
+int64_t  flux_yield_conts[8];          /* accumulated continuation closures */
+int32_t  flux_yield_conts_count = 0;
 
-typedef struct {
-    int64_t  effect_tag;   /* NaN-boxed tag identifying the effect */
-    void    *handler_fn;   /* handler function pointer */
-    void    *resume_fn;    /* resume wrapper pointer */
-    jmp_buf  env;          /* setjmp state for this handler frame */
-    int      active;       /* 1 = installed, 0 = consumed/popped */
-} HandlerFrame;
-
-static HandlerFrame handler_stack[MAX_HANDLERS];
-static int handler_top = 0;
-
-/* ── Continuation ───────────────────────────────────────────────────── */
+/* ── Evidence vector ───────────────────────────────────────────────── */
 
 /*
- * Continuation object (GC-allocated).
- * Contains everything needed to resume at the perform site.
- */
-typedef struct {
-    jmp_buf  env;       /* perform-site setjmp state */
-    int64_t  result;    /* value passed by resume() */
-    int      resumed;   /* 0 = pending, 1 = resumed */
-} Continuation;
-
-/*
- * Thread-local state for the currently active perform/resume exchange.
- * This avoids passing data through longjmp (which only passes an int).
- */
-static int64_t  perform_arg       = 0;
-static int64_t  perform_effect    = 0;
-static Continuation *active_cont  = NULL;
-
-/* ── Public API ─────────────────────────────────────────────────────── */
-
-void flux_push_handler(int64_t effect_tag, void *handler_fn, void *resume_fn) {
-    if (handler_top >= MAX_HANDLERS) {
-        fprintf(stderr, "flux_push_handler: handler stack overflow\n");
-        abort();
-    }
-    HandlerFrame *frame = &handler_stack[handler_top];
-    frame->effect_tag = effect_tag;
-    frame->handler_fn = handler_fn;
-    frame->resume_fn  = resume_fn;
-    frame->active     = 1;
-    handler_top++;
-}
-
-void flux_pop_handler(void) {
-    if (handler_top > 0) {
-        handler_top--;
-        handler_stack[handler_top].active = 0;
-    }
-}
-
-/*
- * Perform an effect: search the handler stack for a matching handler,
- * capture the current continuation, and invoke the handler.
+ * Evidence vector: a heap-allocated array of evidence entries.
+ * Each entry is 4 NaN-boxed words (32 bytes):
+ *   [0] htag       — effect tag (NaN-boxed int)
+ *   [1] marker     — handler instance id (NaN-boxed int)
+ *   [2] handler    — handler clause closure (NaN-boxed closure)
+ *   [3] parent_evv — saved evidence vector
  *
- * Returns the value that the handler passes to resume().
+ * The vector itself is stored as a FluxArray (obj_tag FLUX_OBJ_EVIDENCE)
+ * with length = number of entries * 4 words.
  */
-int64_t flux_perform(int64_t effect_tag, int64_t arg) {
-    /* Find the nearest matching handler. */
-    int found = -1;
-    for (int i = handler_top - 1; i >= 0; i--) {
-        if (handler_stack[i].active && handler_stack[i].effect_tag == effect_tag) {
-            found = i;
-            break;
+
+#define EVV_ENTRY_WORDS  4
+#define EVV_HTAG_OFF     0
+#define EVV_MARKER_OFF   1
+#define EVV_HANDLER_OFF  2
+#define EVV_PARENT_OFF   3
+
+/* Layout: { int32_t count; int64_t entries[]; } where entries are packed. */
+typedef struct {
+    int32_t count;  /* number of evidence entries */
+    int64_t data[]; /* count * EVV_ENTRY_WORDS words */
+} EvvArray;
+
+static int64_t current_evv = 0;  /* NaN-boxed ptr to EvvArray (0 = empty) */
+static int32_t marker_counter = 0;
+
+/* ── Helpers ───────────────────────────────────────────────────────── */
+
+static EvvArray *evv_unbox(int64_t evv) {
+    if (evv == 0 || !flux_is_ptr(evv)) return NULL;
+    return (EvvArray *)flux_untag_ptr(evv);
+}
+
+static int64_t evv_box(EvvArray *arr) {
+    if (!arr) return 0;
+    return flux_tag_ptr(arr);
+}
+
+static EvvArray *evv_alloc(int32_t count) {
+    uint32_t size = (uint32_t)(sizeof(int32_t) + (size_t)count * EVV_ENTRY_WORDS * sizeof(int64_t));
+    /* Use scan_fsize=0 since evidence entries are managed explicitly. */
+    EvvArray *arr = (EvvArray *)flux_gc_alloc_header(size, 0, FLUX_OBJ_EVIDENCE);
+    arr->count = count;
+    return arr;
+}
+
+/* ── Public API ────────────────────────────────────────────────────── */
+
+int64_t flux_evv_get(void) {
+    return current_evv;
+}
+
+void flux_evv_set(int64_t evv) {
+    current_evv = evv;
+}
+
+int64_t flux_fresh_marker(void) {
+    marker_counter++;
+    return flux_tag_int((int64_t)marker_counter);
+}
+
+/*
+ * Insert an evidence entry into the evidence vector.
+ * Returns a new evidence vector with the entry added.
+ * Entries are appended (not sorted) for simplicity — linear lookup by htag.
+ */
+int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler) {
+    EvvArray *old = evv_unbox(evv);
+    int32_t old_count = old ? old->count : 0;
+    int32_t new_count = old_count + 1;
+
+    EvvArray *arr = evv_alloc(new_count);
+
+    /* Copy existing entries. */
+    if (old && old_count > 0) {
+        memcpy(arr->data, old->data,
+               (size_t)old_count * EVV_ENTRY_WORDS * sizeof(int64_t));
+    }
+
+    /* Append new entry at the end (most recent = highest priority). */
+    int64_t *entry = &arr->data[old_count * EVV_ENTRY_WORDS];
+    entry[EVV_HTAG_OFF]    = htag;
+    entry[EVV_MARKER_OFF]  = marker;
+    entry[EVV_HANDLER_OFF] = handler;
+    entry[EVV_PARENT_OFF]  = evv;  /* save parent evv for restoration */
+
+    return evv_box(arr);
+}
+
+/*
+ * Look up evidence by effect tag (htag).
+ * Searches from the end (most recently installed handler first).
+ * Returns the entry index or -1 if not found.
+ */
+static int evv_lookup(EvvArray *arr, int64_t htag) {
+    if (!arr) return -1;
+    for (int i = arr->count - 1; i >= 0; i--) {
+        if (arr->data[i * EVV_ENTRY_WORDS + EVV_HTAG_OFF] == htag) {
+            return i;
         }
     }
-
-    if (found < 0) {
-        fprintf(stderr, "flux_perform: unhandled effect (tag=0x%llx)\n",
-                (unsigned long long)(uint64_t)effect_tag);
-        abort();
-    }
-
-    /* Allocate a continuation object. */
-    Continuation *cont = (Continuation *)flux_gc_alloc((uint32_t)sizeof(Continuation));
-    cont->result  = 0;
-    cont->resumed = 0;
-
-    /* Save the perform site so resume() can return here. */
-    if (setjmp(cont->env) != 0) {
-        /* We get here when resume() calls longjmp. */
-        return cont->result;
-    }
-
-    /* Store state for the handler. */
-    perform_arg    = arg;
-    perform_effect = effect_tag;
-    active_cont    = cont;
-
-    /*
-     * Call the handler function.
-     * Handler signature: int64_t handler(int64_t arg, int64_t continuation)
-     * The continuation is passed as a NaN-boxed pointer to the Continuation.
-     */
-    typedef int64_t (*HandlerFn)(int64_t, int64_t);
-    HandlerFn handler = (HandlerFn)handler_stack[found].handler_fn;
-
-    int64_t cont_val = flux_tag_ptr(cont);
-
-    /* Deactivate this handler frame (handlers don't recurse into themselves). */
-    handler_stack[found].active = 0;
-
-    int64_t handler_result = handler(arg, cont_val);
-
-    /* If the handler returns without resuming, the continuation is abandoned. */
-    /* Reactivate the handler frame for future perform calls. */
-    handler_stack[found].active = 1;
-
-    return handler_result;
+    return -1;
 }
 
 /*
- * Resume a captured continuation with a value.
- * This returns control to the perform site.
+ * Perform an effect: set yield state and return sentinel.
+ *
+ * htag:  effect tag (NaN-boxed int)
+ * optag: operation tag (NaN-boxed int) — currently unused for single-op dispatch
+ * arg:   the performed argument (NaN-boxed)
+ *
+ * The caller must check flux_yield_yielding after every call and propagate
+ * the sentinel + extend continuations as needed.
  */
-int64_t flux_resume(int64_t continuation, int64_t value) {
-    Continuation *cont = (Continuation *)flux_untag_ptr(continuation);
-    if (!cont) {
-        fprintf(stderr, "flux_resume: null continuation\n");
+int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg) {
+    (void)optag;  /* reserved for multi-op dispatch */
+
+    EvvArray *arr = evv_unbox(current_evv);
+    int idx = evv_lookup(arr, htag);
+
+    if (idx < 0) {
+        fprintf(stderr, "flux_yield_to: unhandled effect (htag=0x%llx)\n",
+                (unsigned long long)(uint64_t)htag);
         abort();
     }
-    if (cont->resumed) {
-        fprintf(stderr, "flux_resume: continuation already resumed (one-shot violation)\n");
+
+    int64_t *entry = &arr->data[idx * EVV_ENTRY_WORDS];
+    int32_t m = (int32_t)flux_untag_int(entry[EVV_MARKER_OFF]);
+    int64_t clause = entry[EVV_HANDLER_OFF];
+
+    flux_yield_yielding    = 1;
+    flux_yield_marker      = m;
+    flux_yield_clause      = clause;
+    flux_yield_op_arg      = arg;
+    flux_yield_conts_count = 0;
+
+    return FLUX_YIELD_SENTINEL;
+}
+
+/*
+ * Perform an effect using the direct (tail-resumptive) fast path.
+ *
+ * Instead of setting the yield flag and unwinding, this directly calls the
+ * handler clause with (resume_closure, arg). The resume_closure is provided
+ * by the caller (typically an identity function for tail-resumptive handlers).
+ *
+ * This is correct when the handler always calls resume in tail position.
+ * For the general case (non-tail-resumptive), use flux_yield_to + yield checks.
+ */
+int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t resume) {
+    (void)optag;  /* reserved for multi-op dispatch */
+
+    EvvArray *arr = evv_unbox(current_evv);
+    int idx = evv_lookup(arr, htag);
+
+    if (idx < 0) {
+        fprintf(stderr, "flux_perform_direct: unhandled effect (htag=0x%llx)\n",
+                (unsigned long long)(uint64_t)htag);
         abort();
     }
 
-    cont->resumed = 1;
-    cont->result  = value;
+    int64_t *entry = &arr->data[idx * EVV_ENTRY_WORDS];
+    int64_t clause = entry[EVV_HANDLER_OFF];
 
-    /* Jump back to the perform site. */
-    longjmp(cont->env, 1);
+    /* Direct call: clause(resume, arg) */
+    int64_t args[2] = { resume, arg };
+    return flux_call_closure_c(clause, args, 2);
+}
 
-    /* Unreachable. */
-    return flux_make_none();
+/*
+ * Extend the continuation chain during yield propagation.
+ * Called by each function as it unwinds after detecting yield.
+ *
+ * cont: a closure representing "the rest of this function's computation"
+ */
+int64_t flux_yield_extend(int64_t cont) {
+    if (flux_yield_conts_count >= 8) {
+        /* Overflow: compose existing conts into one, then add the new one. */
+        int64_t composed = flux_compose_conts();
+        flux_yield_conts[0] = composed;
+        flux_yield_conts_count = 1;
+    }
+    flux_yield_conts[flux_yield_conts_count++] = cont;
+    return FLUX_YIELD_SENTINEL;
+}
+
+/*
+ * Compose accumulated continuations into a single closure.
+ *
+ * Given conts[0..n], builds a closure that when called with a value v,
+ * computes: cont_n(...(cont_1(cont_0(v))))
+ *
+ * i.e., cont_0 is the innermost (closest to perform), cont_n is outermost.
+ *
+ * For a single continuation, returns it directly.
+ * For zero continuations, returns None (identity).
+ */
+int64_t flux_compose_conts(void) {
+    if (flux_yield_conts_count == 0) {
+        return flux_make_none();
+    }
+    if (flux_yield_conts_count == 1) {
+        int64_t result = flux_yield_conts[0];
+        flux_yield_conts_count = 0;
+        return result;
+    }
+
+    /*
+     * Compose multiple continuations by chaining:
+     * Start with cont_0, wrap it so calling the result calls cont_0 first,
+     * then passes the result to cont_1, etc.
+     *
+     * We do this by creating a "chain" — for now, just fold:
+     * composed(v) = cont_n(cont_{n-1}(...(cont_0(v))...))
+     *
+     * Implementation: store all conts into an array, create a trampoline
+     * closure that iterates through them. For simplicity in Phase 1,
+     * we build a chain by wrapping pairs.
+     *
+     * Phase 1 approach: return an array of continuations and have
+     * flux_yield_prompt iterate through them. This avoids needing to
+     * build composed closures in C.
+     */
+
+    /* Package continuations into an array for flux_yield_prompt to iterate. */
+    int64_t *elems = flux_yield_conts;
+    int32_t count = flux_yield_conts_count;
+    int64_t arr = flux_array_new(elems, count);
+    flux_yield_conts_count = 0;
+    return arr;
+}
+
+/*
+ * Check if currently yielding.
+ * Returns the yielding flag (0, 1, or 2) for LLVM to branch on.
+ */
+int32_t flux_is_yielding(void) {
+    return flux_yield_yielding;
+}
+
+/*
+ * Prompt loop: check if a yield is targeted at this handler.
+ *
+ * marker:      this handler's marker (NaN-boxed int)
+ * saved_evv:   the evidence vector before this handler was installed
+ * body_result: the result of the handled body expression
+ *
+ * Returns:
+ *   - body_result if not yielding (pure path)
+ *   - the handler clause result if this marker matches
+ *   - FLUX_YIELD_SENTINEL if yielding but marker doesn't match (propagate)
+ */
+int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result) {
+    /* Restore evidence vector. */
+    current_evv = saved_evv;
+
+    if (flux_yield_yielding == 0) {
+        /* Pure path: body completed without performing. */
+        return body_result;
+    }
+
+    int32_t m = (int32_t)flux_untag_int(marker);
+
+    if (flux_yield_marker != m) {
+        /* Not our yield — propagate upward. */
+        return FLUX_YIELD_SENTINEL;
+    }
+
+    /* This yield is for us. Compose continuations into a resume closure. */
+    int64_t clause = flux_yield_clause;
+    int64_t op_arg = flux_yield_op_arg;
+
+    /* Build the resume closure from accumulated continuations. */
+    int64_t resume_cont = flux_compose_conts();
+
+    /* Clear yield state. */
+    flux_yield_yielding    = 0;
+    flux_yield_marker      = 0;
+    flux_yield_clause      = 0;
+    flux_yield_op_arg      = 0;
+    flux_yield_conts_count = 0;
+
+    /*
+     * Call the handler clause: clause(resume_cont, op_arg)
+     *
+     * The clause is a closure with signature (resume, arg) -> result.
+     * `resume_cont` is either:
+     *   - A single continuation closure (call it with a value to resume)
+     *   - An array of continuations (flux_yield_prompt iterates them)
+     *   - None (no continuation — perform was the last expression)
+     */
+    int64_t args[2] = { resume_cont, op_arg };
+    int64_t result = flux_call_closure_c(clause, args, 2);
+
+    return result;
 }

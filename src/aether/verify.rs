@@ -247,6 +247,9 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
             check_contract(unique_body, errors);
             check_contract(shared_body, errors);
         }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            check_contract(object, errors);
+        }
     }
 }
 
@@ -337,6 +340,9 @@ fn check_diagnostics(expr: &CoreExpr, diags: &mut Vec<AetherDiagnostic>) {
         } => {
             check_diagnostics(unique_body, diags);
             check_diagnostics(shared_body, diags);
+        }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            check_diagnostics(object, diags);
         }
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
     }
@@ -429,6 +435,9 @@ fn invalid_drop_specialized_uses(
                         invalid_drop_specialized_uses(field, scrutinee_id, count_reuse_token)
                     })
                     .sum::<usize>()
+        }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            invalid_drop_specialized_uses(object, scrutinee_id, count_reuse_token)
         }
         CoreExpr::DropSpecialized {
             scrutinee,

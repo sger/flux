@@ -1,7 +1,4 @@
-use std::collections::HashSet;
-
 use crate::{
-    core::{CoreBinder, CoreBinderId, CoreExpr},
     core_to_llvm::{
         CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl,
         LlvmFunction, LlvmFunctionSig, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand,
@@ -19,7 +16,7 @@ pub const FLUX_CLOSURE_FN_FIELD: u32 = 0;
 pub const FLUX_CLOSURE_REMAINING_ARITY_FIELD: u32 = 1;
 pub const FLUX_CLOSURE_CAPTURE_COUNT_FIELD: u32 = 2;
 pub const FLUX_CLOSURE_APPLIED_COUNT_FIELD: u32 = 3;
-pub const FLUX_CLOSURE_PAYLOAD_FIELD: u32 = 4;
+pub const FLUX_CLOSURE_PAYLOAD_FIELD: u32 = 5;
 
 pub fn flux_closure_symbol(name: &str) -> GlobalId {
     GlobalId(name.to_string())
@@ -55,35 +52,6 @@ pub fn boxed_nanbox_tag_bits() -> i64 {
         | ((NanTag::BoxedValue as u64) << FluxNanboxLayout::TAG_SHIFT)) as i64
 }
 
-pub fn analyze_lambda_captures(
-    expr: &CoreExpr,
-    body: &CoreExpr,
-    params: &[CoreBinder],
-    recursive_binder: Option<CoreBinderId>,
-    available: &HashSet<CoreBinderId>,
-) -> Vec<CoreBinderId> {
-    let free = crate::core::to_ir::collect_free_vars_core(expr);
-    let mut captures = free
-        .into_iter()
-        .filter(|binder| Some(*binder) != recursive_binder)
-        .filter(|binder| !params.iter().any(|param| param.id == *binder))
-        .filter(|binder| available.contains(binder))
-        .collect::<Vec<_>>();
-
-    // Keep only binders that are used somewhere in the lambda body. This matches
-    // the existing Core→IR closure lowering behavior and avoids capturing values
-    // that are only free in nested binders excluded by lexical scope.
-    let used = collect_used_outer_binders(
-        body,
-        &params.iter().map(|param| param.id).collect::<HashSet<_>>(),
-        recursive_binder,
-        &captures.iter().copied().collect(),
-    );
-    captures.retain(|binder| used.contains(binder));
-    captures.sort_by_key(|binder| binder.0);
-    captures
-}
-
 fn emit_closure_type(module: &mut LlvmModule) {
     if module
         .type_defs
@@ -97,11 +65,13 @@ fn emit_closure_type(module: &mut LlvmModule) {
         ty: LlvmType::Struct {
             packed: false,
             fields: vec![
-                LlvmType::ptr(),
-                LlvmType::i32(),
-                LlvmType::i32(),
-                LlvmType::i32(),
+                LlvmType::ptr(), // fn_ptr (offset 0, 8 bytes)
+                LlvmType::i32(), // remaining_arity (offset 8)
+                LlvmType::i32(), // capture_count (offset 12)
+                LlvmType::i32(), // applied_count (offset 16)
+                LlvmType::i32(), // padding to align payload to 8 bytes (offset 20)
                 LlvmType::Array {
+                    // payload[] (offset 24)
                     len: 0,
                     element: Box::new(LlvmType::i64()),
                 },
@@ -591,7 +561,10 @@ fn emit_call_closure(module: &mut LlvmModule) {
                 instrs: vec![LlvmInstr::Call {
                     dst: Some(LlvmLocal("exact.result".into())),
                     tail: false,
-                    call_conv: Some(CallConv::Fastcc),
+                    // Use ccc for indirect call — target functions are ccc
+                    // in the LIR→LLVM path.  Must match the function
+                    // definition's calling convention.
+                    call_conv: Some(CallConv::Ccc),
                     ret_ty: LlvmType::i64(),
                     callee: local("fn_ptr"),
                     args: vec![
@@ -697,7 +670,8 @@ fn emit_call_closure(module: &mut LlvmModule) {
                     LlvmInstr::Call {
                         dst: Some(LlvmLocal("over.first".into())),
                         tail: false,
-                        call_conv: Some(CallConv::Fastcc),
+                        // Use ccc for indirect call — matches ccc function defs.
+                        call_conv: Some(CallConv::Ccc),
                         ret_ty: LlvmType::i64(),
                         callee: local("fn_ptr"),
                         args: vec![
@@ -925,147 +899,6 @@ pub(super) fn const_i64_operand(value: i64) -> LlvmOperand {
     })
 }
 
-fn collect_used_outer_binders(
-    expr: &CoreExpr,
-    params: &HashSet<CoreBinderId>,
-    recursive_binder: Option<CoreBinderId>,
-    candidates: &HashSet<CoreBinderId>,
-) -> HashSet<CoreBinderId> {
-    let mut bound = params.clone();
-    if let Some(binder) = recursive_binder {
-        bound.insert(binder);
-    }
-    let mut used = HashSet::new();
-    collect_used_candidate_binders(expr, &mut bound, candidates, &mut used);
-    used
-}
-
-fn collect_used_candidate_binders(
-    expr: &CoreExpr,
-    bound: &mut HashSet<CoreBinderId>,
-    candidates: &HashSet<CoreBinderId>,
-    used: &mut HashSet<CoreBinderId>,
-) {
-    match expr {
-        CoreExpr::Var { var, .. } => {
-            if let Some(binder) = var.binder
-                && candidates.contains(&binder)
-                && !bound.contains(&binder)
-            {
-                used.insert(binder);
-            }
-        }
-        CoreExpr::Lit(_, _) => {}
-        CoreExpr::Lam { params, body, .. } => {
-            let new_params = params
-                .iter()
-                .filter(|param| bound.insert(param.id))
-                .map(|param| param.id)
-                .collect::<Vec<_>>();
-            collect_used_candidate_binders(body, bound, candidates, used);
-            for param in new_params {
-                bound.remove(&param);
-            }
-        }
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
-            collect_used_candidate_binders(func, bound, candidates, used);
-            for arg in args {
-                collect_used_candidate_binders(arg, bound, candidates, used);
-            }
-        }
-        CoreExpr::Let { var, rhs, body, .. } => {
-            collect_used_candidate_binders(rhs, bound, candidates, used);
-            let inserted = bound.insert(var.id);
-            collect_used_candidate_binders(body, bound, candidates, used);
-            if inserted {
-                bound.remove(&var.id);
-            }
-        }
-        CoreExpr::LetRec { var, rhs, body, .. } => {
-            let inserted = bound.insert(var.id);
-            collect_used_candidate_binders(rhs, bound, candidates, used);
-            collect_used_candidate_binders(body, bound, candidates, used);
-            if inserted {
-                bound.remove(&var.id);
-            }
-        }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
-            collect_used_candidate_binders(scrutinee, bound, candidates, used);
-            for alt in alts {
-                collect_used_candidate_binders(&alt.rhs, bound, candidates, used);
-            }
-        }
-        CoreExpr::Con { fields, .. } => {
-            for field in fields {
-                collect_used_candidate_binders(field, bound, candidates, used);
-            }
-        }
-        CoreExpr::PrimOp { args, .. } | CoreExpr::Perform { args, .. } => {
-            for arg in args {
-                collect_used_candidate_binders(arg, bound, candidates, used);
-            }
-        }
-        CoreExpr::Return { value, .. } => {
-            collect_used_candidate_binders(value, bound, candidates, used);
-        }
-        CoreExpr::Handle { body, handlers, .. } => {
-            collect_used_candidate_binders(body, bound, candidates, used);
-            for handler in handlers {
-                let mut inserted = Vec::new();
-                if bound.insert(handler.resume.id) {
-                    inserted.push(handler.resume.id);
-                }
-                for param in &handler.params {
-                    if bound.insert(param.id) {
-                        inserted.push(param.id);
-                    }
-                }
-                collect_used_candidate_binders(&handler.body, bound, candidates, used);
-                for binder in inserted {
-                    bound.remove(&binder);
-                }
-            }
-        }
-        CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
-            if let Some(binder) = var.binder
-                && candidates.contains(&binder)
-                && !bound.contains(&binder)
-            {
-                used.insert(binder);
-            }
-            collect_used_candidate_binders(body, bound, candidates, used);
-        }
-        CoreExpr::Reuse { token, fields, .. } => {
-            if let Some(binder) = token.binder
-                && candidates.contains(&binder)
-                && !bound.contains(&binder)
-            {
-                used.insert(binder);
-            }
-            for field in fields {
-                collect_used_candidate_binders(field, bound, candidates, used);
-            }
-        }
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
-            if let Some(binder) = scrutinee.binder
-                && candidates.contains(&binder)
-                && !bound.contains(&binder)
-            {
-                used.insert(binder);
-            }
-            collect_used_candidate_binders(unique_body, bound, candidates, used);
-            collect_used_candidate_binders(shared_body, bound, candidates, used);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::core_to_llvm::{LlvmModule, render_module};
@@ -1078,7 +911,7 @@ mod tests {
         emit_closure_support(&mut module);
         let rendered = render_module(&module);
 
-        assert!(rendered.contains("%FluxClosure = type {ptr, i32, i32, i32, [0 x i64]}"));
+        assert!(rendered.contains("%FluxClosure = type {ptr, i32, i32, i32, i32, [0 x i64]}"));
         assert!(rendered.contains("declare ccc ptr @flux_gc_alloc(i32)"));
         assert!(rendered.contains("define internal fastcc i64 @flux_tag_boxed_ptr(ptr %ptr)"));
         assert!(rendered.contains("lshr i64 %addr, 3"));
@@ -1097,7 +930,7 @@ mod tests {
         assert!(rendered.contains("call fastcc void @flux_copy_i64s("));
         assert!(rendered.contains("define internal fastcc i64 @flux_call_closure(i64 %closure_value, ptr %args, i32 %nargs)"));
         assert!(
-            rendered.contains("call fastcc i64 %fn_ptr(i64 %closure_value, ptr %args, i32 %nargs)")
+            rendered.contains("call ccc i64 %fn_ptr(i64 %closure_value, ptr %args, i32 %nargs)")
         );
         assert!(rendered.contains("call fastcc i64 @flux_call_closure(i64 %over.first, ptr %leftover.args, i32 %leftover.count)"));
     }
