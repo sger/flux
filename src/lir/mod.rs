@@ -93,6 +93,12 @@ pub enum LirInstr {
         offset: i32,
         val: LirVar,
     },
+    /// Store a raw 32-bit integer to `ptr + offset`.
+    StoreI32 {
+        ptr: LirVar,
+        offset: i32,
+        value: i32,
+    },
     /// Allocate `size` bytes of heap memory.  Returns a raw pointer
     /// (not yet NaN-boxed).  The caller must `TagPtr` before storing.
     Alloc {
