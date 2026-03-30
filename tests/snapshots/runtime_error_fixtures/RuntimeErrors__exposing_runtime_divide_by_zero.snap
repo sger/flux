@@ -7,7 +7,7 @@ status: 1
 stdout:
 <empty>
 stderr:
-[lir→vm] Running via LIR → bytecode VM backend...
+[cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/RuntimeErrors/ExposingRuntimeTarget.flx
 error[E1008]: Division By Zero
 
@@ -30,7 +30,7 @@ status: 1
 stdout:
 <empty>
 stderr:
-[lir→vm] Running via LIR → bytecode VM backend...
+[cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/RuntimeErrors/ExposingRuntimeTarget.flx
 error[E1008]: Division By Zero
 
