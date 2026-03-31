@@ -82,11 +82,11 @@ fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
 fn collect_module_paths(
     item: &CoreTopLevelItem,
     prefix: &[String],
-    out: &mut Vec<(crate::syntax::Identifier, String)>,
+    out: &mut Vec<(crate::syntax::Identifier, String, crate::diagnostics::position::Span)>,
     interner: Option<&Interner>,
 ) {
     match item {
-        CoreTopLevelItem::Function { name, .. } => {
+        CoreTopLevelItem::Function { name, span, .. } => {
             let func_name = interner
                 .map(|i| i.resolve(*name).to_string())
                 .unwrap_or_else(|| format!("sym_{}", name.as_u32()));
@@ -99,7 +99,7 @@ fn collect_module_paths(
             };
             // Sanitize for LLVM symbol names: replace '.' with '_'
             let sanitized = qualified.replace('.', "_");
-            out.push((*name, sanitized));
+            out.push((*name, sanitized, *span));
         }
         CoreTopLevelItem::Module { name, body, .. } => {
             let mod_name = interner
@@ -126,19 +126,34 @@ fn build_qualified_names(
     program: &CoreProgram,
     interner: Option<&Interner>,
 ) -> HashMap<CoreBinderId, String> {
-    // Step 1: Collect (bare_name, qualified_name) pairs from the module tree.
-    let mut name_qualified_pairs: Vec<(crate::syntax::Identifier, String)> = Vec::new();
+    // Step 1: Collect (bare_name, qualified_name, span) triples from the module tree.
+    let mut name_qualified_pairs: Vec<(
+        crate::syntax::Identifier,
+        String,
+        crate::diagnostics::position::Span,
+    )> = Vec::new();
     for item in &program.top_level_items {
         collect_module_paths(item, &[], &mut name_qualified_pairs, interner);
     }
 
     // Step 2: Match CoreDef entries to qualified names.
-    // For each (bare_name, qualified_name) pair, find the first def with that
-    // bare name that hasn't been claimed yet.
+    // Prefer exact (name, span) matches so duplicate module members like
+    // Flow.Array.sort and Flow.List.sort cannot be crossed by encounter order.
     let mut result = HashMap::new();
     let mut claimed: HashSet<CoreBinderId> = HashSet::new();
 
-    for (bare_name, qualified_name) in &name_qualified_pairs {
+    for (bare_name, qualified_name, span) in &name_qualified_pairs {
+        for def in &program.defs {
+            if def.name == *bare_name && def.span == *span && !claimed.contains(&def.binder.id) {
+                result.insert(def.binder.id, qualified_name.clone());
+                claimed.insert(def.binder.id);
+                break;
+            }
+        }
+    }
+
+    // Fallback for any top-level functions that didn't get an exact span match.
+    for (bare_name, qualified_name, _span) in &name_qualified_pairs {
         for def in &program.defs {
             if def.name == *bare_name && !claimed.contains(&def.binder.id) {
                 result.insert(def.binder.id, qualified_name.clone());
@@ -330,6 +345,8 @@ struct FnLower<'a> {
     direct_func_vars: HashMap<LirVar, LirFuncId>,
     /// Maps CoreBinderId → LirFuncId for top-level functions.
     binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
+    /// Maps CoreBinderId → module-qualified name.
+    qualified_names: &'a HashMap<CoreBinderId, String>,
     /// Maps CoreBinderId → top-level non-function rhs so native lowering can
     /// use the value directly instead of fabricating a closure placeholder.
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
@@ -341,6 +358,7 @@ struct FnLowerCtx<'a> {
     globals_map: Option<&'a HashMap<String, usize>>,
     name_binder_map: &'a HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
     binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
+    qualified_names: &'a HashMap<CoreBinderId, String>,
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
 }
 
@@ -371,6 +389,7 @@ impl<'a> FnLower<'a> {
             name_binder_map: ctx.name_binder_map,
             direct_func_vars: HashMap::new(),
             binder_func_id_map: ctx.binder_func_id_map,
+            qualified_names: ctx.qualified_names,
             top_level_value_map: ctx.top_level_value_map,
         }
     }
@@ -383,6 +402,34 @@ impl<'a> FnLower<'a> {
         } else {
             format!("ctor_{}", name)
         }
+    }
+
+    /// In merged native mode, duplicate bare names from different modules can
+    /// carry the wrong binder. Prefer a sibling function from the current
+    /// module when the qualified name matches exactly.
+    fn prefer_same_module_binder(
+        &self,
+        binder: CoreBinderId,
+        name: crate::syntax::Identifier,
+    ) -> CoreBinderId {
+        if self.globals_map.is_some() {
+            return binder;
+        }
+        let Some(candidates) = self.name_binder_map.get(&name) else {
+            return binder;
+        };
+        if candidates.len() <= 1 {
+            return binder;
+        }
+        let Some((module_prefix, _)) = self.func.qualified_name.rsplit_once('_') else {
+            return binder;
+        };
+        let target = format!("{}_{}", module_prefix, self.resolve_name(name));
+        candidates
+            .iter()
+            .find(|bid| self.qualified_names.get(bid).is_some_and(|q| q == &target))
+            .copied()
+            .unwrap_or(binder)
     }
 
     /// Allocate a fresh LIR variable.
@@ -450,7 +497,8 @@ impl<'a> FnLower<'a> {
             CoreExpr::Lit(lit, _span) => self.lower_lit(lit),
 
             CoreExpr::Var { var, .. } => {
-                if let Some(binder) = var.binder {
+                if let Some(raw_binder) = var.binder {
+                    let binder = self.prefer_same_module_binder(raw_binder, var.name);
                     // Check env first (locals, parameters, letrec bindings).
                     if let Some(&v) = self.env.get(&binder) {
                         return v;
@@ -564,7 +612,7 @@ impl<'a> FnLower<'a> {
                     let mut temp_program = std::mem::take(&mut *self.program);
 
                     // Assign a synthetic LirFuncId for this letrec function.
-                    let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
+                    let synthetic_id = temp_program.alloc_synthetic_func_id();
 
                     // Pre-assign function slot so self-recursion works.
                     let func_idx = temp_program.functions.len();
@@ -590,6 +638,7 @@ impl<'a> FnLower<'a> {
                             globals_map: self.globals_map,
                             name_binder_map: self.name_binder_map,
                             binder_func_id_map: self.binder_func_id_map,
+                            qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
                         },
                     );
@@ -670,7 +719,7 @@ impl<'a> FnLower<'a> {
                     // (Rust can't have two &mut borrows of self.program).
                     let mut temp_program = std::mem::take(&mut *self.program);
 
-                    let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
+                    let synthetic_id = temp_program.alloc_synthetic_func_id();
                     let func_name = format!("closure_{}", temp_program.functions.len());
                     let mut inner = FnLower::new(
                         func_name,
@@ -682,6 +731,7 @@ impl<'a> FnLower<'a> {
                             globals_map: self.globals_map,
                             name_binder_map: self.name_binder_map,
                             binder_func_id_map: self.binder_func_id_map,
+                            qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
                         },
                     );
@@ -770,9 +820,10 @@ impl<'a> FnLower<'a> {
                 // If func is a Var with a binder in binder_func_id_map,
                 // emit a Direct call without creating a closure.
                 let direct_func_id = match func.as_ref() {
-                    CoreExpr::Var { var, .. } if var.binder.is_some() => var
-                        .binder
-                        .and_then(|bid| self.binder_func_id_map.get(&bid).copied()),
+                    CoreExpr::Var { var, .. } if var.binder.is_some() => var.binder.and_then(|bid| {
+                        let preferred = self.prefer_same_module_binder(bid, var.name);
+                        self.binder_func_id_map.get(&preferred).copied()
+                    }),
                     _ => None,
                 };
 
@@ -898,9 +949,32 @@ impl<'a> FnLower<'a> {
                 }
 
                 // No globals_map (LLVM native path): resolve via binder env
-                // or binder_func_id_map (lazy closure creation).
+                // or binder_func_id_map (lazy closure creation). If the object
+                // is a module alias like `Array`, prefer a binder whose
+                // qualified name ends with `Array_sort` over unrelated bare-name
+                // collisions like `Flow_List_sort`.
                 if let Some(binders) = self.name_binder_map.get(member) {
-                    for &bid in binders {
+                    let member_str = self.resolve_name(*member);
+                    let preferred_suffix = if let CoreExpr::Var { var, .. } = object.as_ref() {
+                        let obj_name = self.resolve_name(var.name);
+                        Some(format!("{obj_name}_{member_str}"))
+                    } else {
+                        None
+                    };
+
+                    let mut ordered_binders = binders.clone();
+                    if let Some(ref suffix) = preferred_suffix
+                        && let Some(pos) = ordered_binders.iter().position(|bid| {
+                            self.qualified_names
+                                .get(bid)
+                                .is_some_and(|q| q.ends_with(suffix))
+                        })
+                    {
+                        let preferred = ordered_binders.remove(pos);
+                        ordered_binders.insert(0, preferred);
+                    }
+
+                    for bid in ordered_binders {
                         if let Some(&lir_var) = self.env.get(&bid) {
                             return lir_var;
                         }
@@ -1110,7 +1184,7 @@ impl<'a> FnLower<'a> {
         // Temporarily take the program for the inner FnLower.
         let mut temp_program = std::mem::take(self.program);
 
-        let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
+        let synthetic_id = temp_program.alloc_synthetic_func_id();
         let func_name = format!("handler_clause_{}", temp_program.functions.len());
         let mut inner = FnLower::new(
             func_name,
@@ -1122,6 +1196,7 @@ impl<'a> FnLower<'a> {
                 globals_map: self.globals_map,
                 name_binder_map: self.name_binder_map,
                 binder_func_id_map: self.binder_func_id_map,
+                qualified_names: self.qualified_names,
                 top_level_value_map: self.top_level_value_map,
             },
         );
@@ -1226,7 +1301,7 @@ impl<'a> FnLower<'a> {
     fn make_identity_closure(&mut self) -> LirVar {
         let mut temp_program = std::mem::take(self.program);
 
-        let synthetic_id = LirFuncId(u32::MAX - temp_program.functions.len() as u32);
+        let synthetic_id = temp_program.alloc_synthetic_func_id();
         let func_name = format!("resume_identity_{}", temp_program.functions.len());
         let mut inner = FnLower::new(
             func_name,
@@ -1238,6 +1313,7 @@ impl<'a> FnLower<'a> {
                 globals_map: self.globals_map,
                 name_binder_map: self.name_binder_map,
                 binder_func_id_map: self.binder_func_id_map,
+                qualified_names: self.qualified_names,
                 top_level_value_map: self.top_level_value_map,
             },
         );
@@ -2072,6 +2148,7 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
             globals_map: ctx.globals_map,
             name_binder_map: ctx.name_binder_map,
             binder_func_id_map: ctx.binder_func_map,
+            qualified_names: ctx.qualified_names,
             top_level_value_map: ctx.top_level_value_map,
         },
     );

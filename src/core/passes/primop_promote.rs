@@ -14,7 +14,7 @@
 /// these primops.
 use std::collections::HashMap;
 
-use crate::core::{CoreExpr, CorePrimOp, CoreProgram};
+use crate::core::{CoreBinderId, CoreExpr, CorePrimOp, CoreProgram, CoreTopLevelItem};
 use crate::syntax::interner::Interner;
 
 /// Map from (function name, arity) → CorePrimOp variant.
@@ -122,11 +122,69 @@ pub fn promote_builtins(program: &mut CoreProgram, interner: &Interner) {
             }
         })
         .collect();
+    let binder_qualified_names = build_qualified_names(program, interner);
     let sentinel = CoreExpr::Lit(crate::core::CoreLit::Unit, Default::default());
     for def in &mut program.defs {
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
-        def.expr = promote_expr(e, &table, interner, &def_arities);
+        def.expr = promote_expr(e, &table, interner, &def_arities, &binder_qualified_names);
     }
+}
+
+fn collect_module_paths(
+    item: &CoreTopLevelItem,
+    prefix: &[String],
+    out: &mut Vec<(crate::syntax::Identifier, String)>,
+    interner: &Interner,
+) {
+    match item {
+        CoreTopLevelItem::Function { name, .. } => {
+            let func_name = interner.resolve(*name).to_string();
+            let qualified = if prefix.is_empty() {
+                func_name
+            } else {
+                let mut parts = prefix.to_vec();
+                parts.push(func_name);
+                parts.join("_")
+            };
+            out.push((*name, qualified.replace('.', "_")));
+        }
+        CoreTopLevelItem::Module { name, body, .. } => {
+            let mut new_prefix = prefix.to_vec();
+            new_prefix.push(interner.resolve(*name).replace('.', "_"));
+            for child in body {
+                collect_module_paths(child, &new_prefix, out, interner);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn build_qualified_names(
+    program: &CoreProgram,
+    interner: &Interner,
+) -> HashMap<CoreBinderId, String> {
+    let mut name_qualified_pairs = Vec::new();
+    for item in &program.top_level_items {
+        collect_module_paths(item, &[], &mut name_qualified_pairs, interner);
+    }
+
+    let mut result = HashMap::new();
+    let mut claimed = std::collections::HashSet::new();
+    for (bare_name, qualified_name) in name_qualified_pairs {
+        if let Some(def) = program
+            .defs
+            .iter()
+            .find(|def| def.name == bare_name && !claimed.contains(&def.binder.id))
+        {
+            claimed.insert(def.binder.id);
+            result.insert(def.binder.id, qualified_name);
+        }
+    }
+    result
+}
+
+fn is_conflicting_prelude_binding(name: &str, arity: usize, qualified_name: Option<&str>) -> bool {
+    matches!((name, arity, qualified_name), ("delete", 2, Some("Flow_List_delete")))
 }
 
 /// Recursively walk a `CoreExpr`, promoting eligible `App` nodes.
@@ -135,14 +193,14 @@ fn promote_expr(
     table: &HashMap<(&str, usize), CorePrimOp>,
     interner: &Interner,
     def_arities: &HashMap<crate::core::CoreBinderId, usize>,
+    binder_qualified_names: &HashMap<CoreBinderId, String>,
 ) -> CoreExpr {
     match expr {
         CoreExpr::App { func, args, span } => {
             if let CoreExpr::Var { var, .. } = func.as_ref() {
-                let name_matches_primop = interner
-                    .try_resolve(var.name)
-                    .and_then(|name_str| table.get(&(name_str, args.len())))
-                    .is_some();
+                let name_str = interner.try_resolve(var.name);
+                let name_matches_primop =
+                    name_str.and_then(|resolved| table.get(&(resolved, args.len()))).is_some();
                 // Promote if:
                 // 1. No binder (truly unbound — classic case), OR
                 // 2. Binder exists but points to a top-level def with a
@@ -151,19 +209,30 @@ fn promote_expr(
                 //    unqualified access but binder resolution still assigns
                 //    the module function's binder. E.g., `concat(a, b)`
                 //    with arity 2 gets binder for `Flow.List.concat` (arity 1).
+                // 3. Binder exists but is a known conflicting prelude symbol.
+                //    `delete/2` is the current same-arity case: merged native
+                //    programs may bind bare `delete` to `Flow.List.delete`,
+                //    but the surface builtin should still promote to HamtDelete.
                 let is_promotable = name_matches_primop
                     && (var.binder.is_none()
                         || var.binder.is_some_and(|bid| {
                             def_arities
                                 .get(&bid)
                                 .is_some_and(|&def_arity| def_arity != args.len())
+                                || is_conflicting_prelude_binding(
+                                    name_str.unwrap_or_default(),
+                                    args.len(),
+                                    binder_qualified_names.get(&bid).map(String::as_str),
+                                )
                         }));
                 if is_promotable {
                     let name_str = interner.resolve(var.name);
                     let op = table[&(name_str, args.len())];
                     let promoted_args: Vec<CoreExpr> = args
                         .into_iter()
-                        .map(|a| promote_expr(a, table, interner, def_arities))
+                        .map(|a| {
+                            promote_expr(a, table, interner, def_arities, binder_qualified_names)
+                        })
                         .collect();
                     return CoreExpr::PrimOp {
                         op,
@@ -173,17 +242,31 @@ fn promote_expr(
                 }
             }
             CoreExpr::App {
-                func: Box::new(promote_expr(*func, table, interner, def_arities)),
+                func: Box::new(promote_expr(
+                    *func,
+                    table,
+                    interner,
+                    def_arities,
+                    binder_qualified_names,
+                )),
                 args: args
                     .into_iter()
-                    .map(|a| promote_expr(a, table, interner, def_arities))
+                    .map(|a| {
+                        promote_expr(a, table, interner, def_arities, binder_qualified_names)
+                    })
                     .collect(),
                 span,
             }
         }
         CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
             params,
-            body: Box::new(promote_expr(*body, table, interner, def_arities)),
+            body: Box::new(promote_expr(
+                *body,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
             span,
         },
         CoreExpr::Let {
@@ -193,8 +276,20 @@ fn promote_expr(
             span,
         } => CoreExpr::Let {
             var,
-            rhs: Box::new(promote_expr(*rhs, table, interner, def_arities)),
-            body: Box::new(promote_expr(*body, table, interner, def_arities)),
+            rhs: Box::new(promote_expr(
+                *rhs,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
+            body: Box::new(promote_expr(
+                *body,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
             span,
         },
         CoreExpr::LetRec {
@@ -204,8 +299,20 @@ fn promote_expr(
             span,
         } => CoreExpr::LetRec {
             var,
-            rhs: Box::new(promote_expr(*rhs, table, interner, def_arities)),
-            body: Box::new(promote_expr(*body, table, interner, def_arities)),
+            rhs: Box::new(promote_expr(
+                *rhs,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
+            body: Box::new(promote_expr(
+                *body,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
             span,
         },
         CoreExpr::Case {
@@ -213,14 +320,28 @@ fn promote_expr(
             alts,
             span,
         } => CoreExpr::Case {
-            scrutinee: Box::new(promote_expr(*scrutinee, table, interner, def_arities)),
+            scrutinee: Box::new(promote_expr(
+                *scrutinee,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
             alts: alts
                 .into_iter()
                 .map(|alt| crate::core::CoreAlt {
-                    rhs: promote_expr(alt.rhs, table, interner, def_arities),
+                    rhs: promote_expr(
+                        alt.rhs,
+                        table,
+                        interner,
+                        def_arities,
+                        binder_qualified_names,
+                    ),
                     guard: alt
                         .guard
-                        .map(|g| promote_expr(g, table, interner, def_arities)),
+                        .map(|g| {
+                            promote_expr(g, table, interner, def_arities, binder_qualified_names)
+                        }),
                     ..alt
                 })
                 .collect(),
@@ -230,7 +351,7 @@ fn promote_expr(
             tag,
             fields: fields
                 .into_iter()
-                .map(|f| promote_expr(f, table, interner, def_arities))
+                .map(|f| promote_expr(f, table, interner, def_arities, binder_qualified_names))
                 .collect(),
             span,
         },
@@ -238,12 +359,18 @@ fn promote_expr(
             op,
             args: args
                 .into_iter()
-                .map(|a| promote_expr(a, table, interner, def_arities))
+                .map(|a| promote_expr(a, table, interner, def_arities, binder_qualified_names))
                 .collect(),
             span,
         },
         CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(promote_expr(*value, table, interner, def_arities)),
+            value: Box::new(promote_expr(
+                *value,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
             span,
         },
         CoreExpr::Perform {
@@ -256,7 +383,7 @@ fn promote_expr(
             operation,
             args: args
                 .into_iter()
-                .map(|a| promote_expr(a, table, interner, def_arities))
+                .map(|a| promote_expr(a, table, interner, def_arities, binder_qualified_names))
                 .collect(),
             span,
         },
@@ -266,12 +393,24 @@ fn promote_expr(
             handlers,
             span,
         } => CoreExpr::Handle {
-            body: Box::new(promote_expr(*body, table, interner, def_arities)),
+            body: Box::new(promote_expr(
+                *body,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
             effect,
             handlers: handlers
                 .into_iter()
                 .map(|h| crate::core::CoreHandler {
-                    body: promote_expr(h.body, table, interner, def_arities),
+                    body: promote_expr(
+                        h.body,
+                        table,
+                        interner,
+                        def_arities,
+                        binder_qualified_names,
+                    ),
                     ..h
                 })
                 .collect(),
@@ -286,22 +425,42 @@ fn promote_expr(
             arg_modes,
             span,
         } => CoreExpr::AetherCall {
-            func: Box::new(promote_expr(*func, table, interner, def_arities)),
+            func: Box::new(promote_expr(
+                *func,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
             args: args
                 .into_iter()
-                .map(|a| promote_expr(a, table, interner, def_arities))
+                .map(|a| {
+                    promote_expr(a, table, interner, def_arities, binder_qualified_names)
+                })
                 .collect(),
             arg_modes,
             span,
         },
         CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
             var,
-            body: Box::new(promote_expr(*body, table, interner, def_arities)),
+            body: Box::new(promote_expr(
+                *body,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
             span,
         },
         CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
             var,
-            body: Box::new(promote_expr(*body, table, interner, def_arities)),
+            body: Box::new(promote_expr(
+                *body,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
             span,
         },
         CoreExpr::Reuse {
@@ -315,7 +474,9 @@ fn promote_expr(
             tag,
             fields: fields
                 .into_iter()
-                .map(|f| promote_expr(f, table, interner, def_arities))
+                .map(|f| {
+                    promote_expr(f, table, interner, def_arities, binder_qualified_names)
+                })
                 .collect(),
             field_mask,
             span,
@@ -327,8 +488,20 @@ fn promote_expr(
             span,
         } => CoreExpr::DropSpecialized {
             scrutinee,
-            unique_body: Box::new(promote_expr(*unique_body, table, interner, def_arities)),
-            shared_body: Box::new(promote_expr(*shared_body, table, interner, def_arities)),
+            unique_body: Box::new(promote_expr(
+                *unique_body,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
+            shared_body: Box::new(promote_expr(
+                *shared_body,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
             span,
         },
         CoreExpr::MemberAccess {
@@ -336,7 +509,13 @@ fn promote_expr(
             member,
             span,
         } => CoreExpr::MemberAccess {
-            object: Box::new(promote_expr(*object, table, interner, def_arities)),
+            object: Box::new(promote_expr(
+                *object,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
             member,
             span,
         },
@@ -345,7 +524,13 @@ fn promote_expr(
             index,
             span,
         } => CoreExpr::TupleField {
-            object: Box::new(promote_expr(*object, table, interner, def_arities)),
+            object: Box::new(promote_expr(
+                *object,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
             index,
             span,
         },

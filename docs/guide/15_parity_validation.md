@@ -44,7 +44,37 @@ Mismatch: 3
 Skip:     0
 ```
 
-### 3. Check a single file
+### 3. Check an example directory
+
+```bash
+cargo run -- parity-check examples/basics
+```
+
+```
+PASS examples/basics/arithmetic.flx
+MISMATCH examples/basics/array_builtins.flx
+  stdout differs:
+    --- vm
+    +++ llvm
+     5
+     0
+     1
+     5
+     [|2, 3, 4, 5|]
+     [|1, 2, 3, 4, 5, 6|]
+     None
+     None
+     [||]
+     [|1, 2, 3, 4, 5, 6|]
+     [|5, 4, 3, 2, 1|]
+     true
+    ... (8 more lines)
+PASS examples/basics/array_hash_combo.flx
+PASS examples/basics/array_iteration.flx
+...
+```
+
+### 4. Check a single file
 
 ```bash
 cargo run -- parity-check examples/basics/fibonacci.flx

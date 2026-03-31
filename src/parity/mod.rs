@@ -2,6 +2,32 @@
 //!
 //! Runs the same Flux fixture under multiple execution "ways" (vm, llvm, etc.)
 //! and compares normalized results to detect backend, cache, and mode drift.
+//!
+//! # Setup (one-time)
+//!
+//! ```bash
+//! CARGO_TARGET_DIR=target/parity_vm cargo build
+//! CARGO_TARGET_DIR=target/parity_native cargo build --features core_to_llvm
+//! ```
+//!
+//! # Usage
+//!
+//! ```bash
+//! cargo run -- parity-check tests/parity
+//! cargo run -- parity-check examples/basics
+//! cargo run -- parity-check examples/basics/fibonacci.flx
+//! cargo run -- parity-check tests/parity --ways vm,llvm
+//! cargo run -- parity-check tests/parity --ways vm,vm_cached
+//! cargo run -- parity-check tests/parity --ways vm,vm_strict
+//! cargo run -- parity-check tests/parity --ways llvm,llvm_strict
+//! cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,llvm_cached,vm_strict,llvm_strict
+//! cargo run -- parity-check tests/parity --capture-core
+//! cargo run -- parity-check tests/parity --capture-aether
+//! cargo run -- parity-check tests/parity --capture-core --capture-aether
+//! cargo run -- parity-check examples/advanced --root lib --root examples
+//! scripts/check_parity.sh tests/parity examples/basics
+//! scripts/check_parity.sh --extended
+//! ```
 
 pub mod cli;
 pub mod fixture;
