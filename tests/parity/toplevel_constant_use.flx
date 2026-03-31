@@ -1,0 +1,15 @@
+// parity: vm, llvm
+// expect: success
+// bug: top-level numeric constant referenced in function body may produce
+//       undefined %v0 in LLVM IR when the binding is not lowered before use.
+
+let answer = 40 + 2
+
+fn double(x) {
+    x * 2
+}
+
+fn main() with IO {
+    print(answer);
+    print(double(answer));
+}

@@ -7,6 +7,7 @@ pub mod core;
 pub mod core_to_llvm;
 pub mod diagnostics;
 pub mod lir;
+pub mod parity;
 pub mod runtime;
 pub mod shared_ir;
 pub mod syntax;

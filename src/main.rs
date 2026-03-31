@@ -420,6 +420,10 @@ fn main() {
             }
             analyze_tail_calls(&args[2], max_errors, diagnostics_format);
         }
+        "parity-check" => {
+            let parity_args: Vec<String> = args[2..].to_vec();
+            flux::parity::cli::run_parity_check(&parity_args);
+        }
         _ => {
             eprintln!(
                 "Error: unknown command or invalid input `{}`. Pass a `.flx` file or a valid subcommand.",
@@ -446,6 +450,7 @@ Usage:
   flux interface-info <file.flxi>
   flux analyze-free-vars <file.flx>
   flux analyze-tail-calls <file.flx>
+  flux parity-check <file-or-dir> [--ways vm,llvm] [--root <path> ...]
   flux <file.flx> --root <path> [--root <path> ...]
   flux run <file.flx> --root <path> [--root <path> ...]
 

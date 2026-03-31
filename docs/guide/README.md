@@ -18,6 +18,7 @@ A practical manual for learning Flux, organized from basics to advanced topics. 
 12. [Modules, Public API, and Strict Mode](12_modules_public_api_and_strict.md) — `public fn` boundary and strict diagnostics
 13. [Match Exhaustiveness and ADTs](13_match_exhaustiveness_and_adts.md) — `type ... = ... | ...` sugar, `E015`/`E083`
 14. [Real-World Pipeline Walkthrough](14_real_world_pipeline_walkthrough.md) — End-to-end modules + effects + typed flow
+15. [Parity Validation](15_parity_validation.md) — VM vs LLVM backend validation, ways, debugging workflow
 
 ## Type System + Effects Track (09-14)
 
