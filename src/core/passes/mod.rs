@@ -52,7 +52,13 @@ use crate::syntax::interner::Interner;
 /// reduction exposing a known constructor for COKC).
 #[allow(clippy::result_large_err)]
 pub fn run_core_passes(program: &mut CoreProgram) -> Result<(), Diagnostic> {
-    run_core_passes_with_optional_interner(program, None, false).map(|_| ())
+    run_core_passes_with_optional_interner(
+        program,
+        None,
+        false,
+        crate::aether::borrow_infer::BorrowRegistry::default(),
+    )
+    .map(|_| ())
 }
 
 #[allow(clippy::result_large_err)]
@@ -65,12 +71,28 @@ pub fn run_core_passes_with_interner(
 }
 
 #[allow(clippy::result_large_err)]
+pub fn run_core_passes_with_interner_and_registry(
+    program: &mut CoreProgram,
+    interner: &Interner,
+    optimize: bool,
+    preloaded_registry: crate::aether::borrow_infer::BorrowRegistry,
+) -> Result<(), Diagnostic> {
+    run_core_passes_with_optional_interner(program, Some(interner), optimize, preloaded_registry)
+        .map(|_| ())
+}
+
+#[allow(clippy::result_large_err)]
 pub fn run_core_passes_with_interner_and_warnings(
     program: &mut CoreProgram,
     interner: &Interner,
     optimize: bool,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
-    run_core_passes_with_optional_interner(program, Some(interner), optimize)
+    run_core_passes_with_optional_interner(
+        program,
+        Some(interner),
+        optimize,
+        crate::aether::borrow_infer::BorrowRegistry::default(),
+    )
 }
 
 /// Maximum number of simplification rounds when `-O` is enabled.
@@ -81,6 +103,7 @@ fn run_core_passes_with_optional_interner(
     program: &mut CoreProgram,
     interner: Option<&Interner>,
     optimize: bool,
+    preloaded_registry: crate::aether::borrow_infer::BorrowRegistry,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
     let mut warnings = Vec::new();
     // Find the maximum binder ID so passes can allocate fresh IDs above it.
@@ -152,7 +175,11 @@ fn run_core_passes_with_optional_interner(
 
     // Infer cross-function borrow modes from the ANF-normalized program,
     // then run the Aether pass with the registry.
-    let borrow_registry = crate::aether::borrow_infer::infer_borrow_modes(program, interner);
+    let borrow_registry = crate::aether::borrow_infer::infer_borrow_modes_with_preloaded(
+        program,
+        interner,
+        preloaded_registry,
+    );
     for def in &mut program.defs {
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
         let e = crate::aether::run_aether_pass_with_registry(e, &borrow_registry);

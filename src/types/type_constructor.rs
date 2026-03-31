@@ -2,10 +2,12 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 use crate::syntax::symbol::Symbol;
 
 /// Concrete type constructors (0-argument types or type formers).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TypeConstructor {
     /// Primitive 64-bit signed integer.
     Int,
