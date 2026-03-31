@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- (none yet)
+
+---
+
+## [v0.0.4] - 2026-03-31
+
+
 ### Added
 - `scripts/changelog/check_changelog_fragment.sh` to enforce changelog fragments in PR CI.
 - `scripts/changelog/changelog_from_fragments.sh` to rebuild `CHANGELOG.md` `[Unreleased]` from `changes/*.md`.
@@ -397,7 +405,8 @@ Initial release.
 - **`--verbose` flag**: show cache hit/miss/store status
 - **Builtins**: `print`, `to_string`, `len`, `push`, `concat`, `reverse`, `contains`, `slice`, `sort`, `split`, `join`, `trim`, `upper`, `lower`, `abs`, `min`, `max`, `type_of`, `is_int`, `is_float`, `is_string`, `is_bool`, `is_array`, `is_hash`, `is_none`, `is_some`
 
-[Unreleased]: https://github.com/sger/flux/compare/v0.0.3...HEAD
+[Unreleased]: https://github.com/sger/flux/compare/v0.0.4...HEAD
 [v0.0.3]: https://github.com/sger/flux/compare/v0.0.2...v0.0.3
 [v0.0.2]: https://github.com/sger/flux/compare/v0.0.1...v0.0.2
 [v0.0.1]: https://github.com/sger/flux/releases/tag/v0.0.1
+[v0.0.4]: https://github.com/sger/flux/compare/v0.0.3...v0.0.4
