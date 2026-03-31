@@ -16,7 +16,10 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use super::fixture::parse_fixture_meta;
-use super::report::{print_result, print_summary, DisplayFilter};
+use super::report::{
+    cargo_run_for_way, diagnose_mismatch, print_debug_first_failure, print_result,
+    print_summary, DisplayFilter,
+};
 use super::runner::{
     capture_dump_aether, capture_dump_core, is_native_skip, run_way, DEFAULT_TIMEOUT_SECS,
 };
@@ -37,7 +40,7 @@ pub fn run_parity_check(args: &[String]) {
         }
     };
 
-    ensure_parity_binaries(&config);
+    let binary_statuses = ensure_parity_binaries(&config);
 
     // Validate binaries exist
     if !config.vm_binary.exists() {
@@ -57,6 +60,8 @@ pub fn run_parity_check(args: &[String]) {
         std::process::exit(1);
     }
 
+    print_run_context(&config, &binary_statuses);
+
     // Collect .flx files
     let files = collect_fixtures(&config.path);
     if files.is_empty() {
@@ -70,6 +75,7 @@ pub fn run_parity_check(args: &[String]) {
     // Run parity checks
     let default_ways = vec![Way::Vm, Way::Llvm];
     let mut results = Vec::new();
+    let mut saved_first_failure = false;
 
     for file in &files {
         // Use CLI-specified ways, or fall back to per-fixture metadata
@@ -97,6 +103,28 @@ pub fn run_parity_check(args: &[String]) {
             },
         );
         print_result(&parity_result, config.display_filter);
+        let is_non_pass = !matches!(parity_result.verdict, Verdict::Pass);
+        if is_non_pass
+            && !saved_first_failure
+            && let Some(dir) = &config.save_debug_dir
+        {
+            if let Err(err) = save_debug_bundle(dir, &parity_result) {
+                eprintln!("[parity] failed to save debug bundle: {err}");
+            } else {
+                eprintln!(
+                    "[parity] saved first failure bundle to {}",
+                    dir.display()
+                );
+            }
+            saved_first_failure = true;
+        }
+        let should_stop = config.debug_first_failure
+            && is_non_pass;
+        if should_stop {
+            print_debug_first_failure(&parity_result);
+            results.push(parity_result);
+            break;
+        }
         results.push(parity_result);
     }
 
@@ -148,111 +176,16 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         }
     }
 
-    // Optionally capture debug artifacts (Core IR and/or Aether)
-    let artifacts: Vec<(Way, DebugArtifacts)> =
-        if opts.capture_core || opts.capture_aether {
-            opts.ways
-                .iter()
-                .map(|&way| {
-                    let mut arts = DebugArtifacts::default();
-                    if opts.capture_core {
-                        let core = capture_dump_core(
-                            opts.vm_binary, opts.llvm_binary, file, way,
-                            opts.extra_args, opts.timeout,
-                        );
-                        arts.dump_core = core.dump_core;
-                        arts.normalized_dump_core = core.normalized_dump_core;
-                    }
-                    if opts.capture_aether {
-                        let aether = capture_dump_aether(
-                            opts.vm_binary, opts.llvm_binary, file, way,
-                            opts.extra_args, opts.timeout,
-                        );
-                        arts.dump_aether = aether.dump_aether;
-                        arts.normalized_dump_aether = aether.normalized_dump_aether;
-                    }
-                (way, arts)
-            })
-            .collect()
-    } else {
-        vec![]
-    };
+    let mut artifacts = capture_artifacts(file, opts, false);
+    let mut details = collect_mismatch_details(&run_results, &artifacts);
 
-    // Compare all ways pairwise against the first
-    let mut details = Vec::new();
-
-    // Core IR comparison (if captured) — checked first for classification
-    if artifacts.len() >= 2 {
-        let (base_way, ref base_arts) = artifacts[0];
-        for &(other_way, ref other_arts) in &artifacts[1..] {
-            let pair = (
-                &base_arts.normalized_dump_core,
-                &other_arts.normalized_dump_core,
-            );
-            if let (Some(base_core), Some(other_core)) = pair
-                && base_core != other_core
-            {
-                details.push(MismatchDetail::CoreMismatch {
-                    left_way: base_way,
-                    left: base_core.clone(),
-                    right_way: other_way,
-                    right: other_core.clone(),
-                });
-            }
-
-            // Aether comparison — checked after Core
-            let aether_pair = (
-                &base_arts.normalized_dump_aether,
-                &other_arts.normalized_dump_aether,
-            );
-            if let (Some(base_aether), Some(other_aether)) = aether_pair
-                && base_aether != other_aether
-            {
-                details.push(MismatchDetail::AetherMismatch {
-                    left_way: base_way,
-                    left: base_aether.clone(),
-                    right_way: other_way,
-                    right: other_aether.clone(),
-                });
-            }
-        }
-    }
-
-    if run_results.len() >= 2 {
-        let base = &run_results[0];
-        for other in &run_results[1..] {
-            // Compare exit kind
-            if base.exit_kind != other.exit_kind {
-                details.push(MismatchDetail::ExitKind {
-                    left_way: base.way,
-                    left: base.exit_kind,
-                    right_way: other.way,
-                    right: other.exit_kind,
-                });
-            }
-
-            // Compare normalized stdout
-            if base.normalized_stdout != other.normalized_stdout {
-                details.push(MismatchDetail::Stdout {
-                    left_way: base.way,
-                    left: base.normalized_stdout.clone(),
-                    right_way: other.way,
-                    right: other.normalized_stdout.clone(),
-                });
-            }
-
-            // Compare normalized stderr (only if both had errors)
-            if (base.exit_kind != ExitKind::Success || other.exit_kind != ExitKind::Success)
-                && base.normalized_stderr != other.normalized_stderr
-            {
-                details.push(MismatchDetail::Stderr {
-                    left_way: base.way,
-                    left: base.normalized_stderr.clone(),
-                    right_way: other.way,
-                    right: other.normalized_stderr.clone(),
-                });
-            }
-        }
+    if !opts.capture_core
+        && !details.is_empty()
+        && run_results.len() >= 2
+        && artifacts.is_empty()
+    {
+        artifacts = capture_artifacts(file, opts, true);
+        details = collect_mismatch_details(&run_results, &artifacts);
     }
 
     // Cache parity: compare each cached way against its fresh counterpart
@@ -345,6 +278,118 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
     }
 }
 
+fn capture_artifacts(
+    file: &Path,
+    opts: &CheckOpts<'_>,
+    force_core_on_mismatch: bool,
+) -> Vec<(Way, DebugArtifacts)> {
+    let capture_core = opts.capture_core || force_core_on_mismatch;
+    let capture_aether = opts.capture_aether;
+    if !capture_core && !capture_aether {
+        return vec![];
+    }
+
+    opts.ways
+        .iter()
+        .map(|&way| {
+            let mut arts = DebugArtifacts::default();
+            if capture_core {
+                let core = capture_dump_core(
+                    opts.vm_binary, opts.llvm_binary, file, way, opts.extra_args, opts.timeout,
+                );
+                arts.dump_core = core.dump_core;
+                arts.normalized_dump_core = core.normalized_dump_core;
+            }
+            if capture_aether {
+                let aether = capture_dump_aether(
+                    opts.vm_binary, opts.llvm_binary, file, way, opts.extra_args, opts.timeout,
+                );
+                arts.dump_aether = aether.dump_aether;
+                arts.normalized_dump_aether = aether.normalized_dump_aether;
+            }
+            (way, arts)
+        })
+        .collect()
+}
+
+fn collect_mismatch_details(
+    run_results: &[super::RunResult],
+    artifacts: &[(Way, DebugArtifacts)],
+) -> Vec<MismatchDetail> {
+    let mut details = Vec::new();
+
+    if artifacts.len() >= 2 {
+        let (base_way, ref base_arts) = artifacts[0];
+        for &(other_way, ref other_arts) in &artifacts[1..] {
+            let pair = (
+                &base_arts.normalized_dump_core,
+                &other_arts.normalized_dump_core,
+            );
+            if let (Some(base_core), Some(other_core)) = pair
+                && base_core != other_core
+            {
+                details.push(MismatchDetail::CoreMismatch {
+                    left_way: base_way,
+                    left: base_core.clone(),
+                    right_way: other_way,
+                    right: other_core.clone(),
+                });
+            }
+
+            let aether_pair = (
+                &base_arts.normalized_dump_aether,
+                &other_arts.normalized_dump_aether,
+            );
+            if let (Some(base_aether), Some(other_aether)) = aether_pair
+                && base_aether != other_aether
+            {
+                details.push(MismatchDetail::AetherMismatch {
+                    left_way: base_way,
+                    left: base_aether.clone(),
+                    right_way: other_way,
+                    right: other_aether.clone(),
+                });
+            }
+        }
+    }
+
+    if run_results.len() >= 2 {
+        let base = &run_results[0];
+        for other in &run_results[1..] {
+            if base.exit_kind != other.exit_kind {
+                details.push(MismatchDetail::ExitKind {
+                    left_way: base.way,
+                    left: base.exit_kind,
+                    right_way: other.way,
+                    right: other.exit_kind,
+                });
+            }
+
+            if base.normalized_stdout != other.normalized_stdout {
+                details.push(MismatchDetail::Stdout {
+                    left_way: base.way,
+                    left: base.normalized_stdout.clone(),
+                    right_way: other.way,
+                    right: other.normalized_stdout.clone(),
+                });
+            }
+
+            if (base.exit_kind != ExitKind::Success || other.exit_kind != ExitKind::Success)
+                && base.normalized_stderr != other.normalized_stderr
+            {
+                details.push(MismatchDetail::Stderr {
+                    left_way: base.way,
+                    left: base.normalized_stderr.clone(),
+                    right_way: other.way,
+                    right: other.normalized_stderr.clone(),
+                });
+            }
+        }
+    }
+
+    details
+}
+
 // ── Fixture collection ─────────────────────────────────────────────────────
 
 fn collect_fixtures(path: &Path) -> Vec<PathBuf> {
@@ -389,6 +434,15 @@ struct Config {
     display_filter: DisplayFilter,
     /// When true, rebuild parity binaries before running checks.
     rebuild: bool,
+    debug_first_failure: bool,
+    save_debug_dir: Option<PathBuf>,
+}
+
+#[derive(Debug)]
+struct BinaryStatus {
+    kind: &'static str,
+    path: PathBuf,
+    status: &'static str,
 }
 
 fn parse_args(args: &[String]) -> Result<Config, String> {
@@ -402,6 +456,8 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut capture_aether = false;
     let mut display_filter = DisplayFilter::All;
     let mut rebuild = false;
+    let mut debug_first_failure = false;
+    let mut save_debug_dir: Option<PathBuf> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -449,6 +505,16 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
             "--rebuild" => {
                 rebuild = true;
             }
+            "--debug-first-failure" => {
+                debug_first_failure = true;
+            }
+            "--save-debug-dir" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("--save-debug-dir requires a path".to_string());
+                }
+                save_debug_dir = Some(PathBuf::from(&args[i]));
+            }
             "--show" => {
                 i += 1;
                 if i >= args.len() {
@@ -495,6 +561,8 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         capture_aether,
         display_filter,
         rebuild,
+        debug_first_failure,
+        save_debug_dir,
     })
 }
 
@@ -511,6 +579,8 @@ Options:
   --capture-core         Capture --dump-core per way and compare Core IR
   --capture-aether       Capture --dump-aether=debug per way and compare ownership
   --rebuild              Force rebuild of parity VM/native binaries before running checks
+  --debug-first-failure  Stop after the first non-pass result and print extra debug detail
+  --save-debug-dir <p>   Save the first non-pass result's artifacts under <p>
   --vm-binary <path>     Path to VM binary (default: {DEFAULT_VM_BINARY})
   --llvm-binary <path>   Path to native binary (default: {DEFAULT_LLVM_BINARY})
   --timeout <secs>       Timeout per file per way (default: {DEFAULT_TIMEOUT_SECS})
@@ -522,33 +592,82 @@ Use --rebuild to force a refresh:
     );
 }
 
-fn ensure_parity_binaries(config: &Config) {
+fn ensure_parity_binaries(config: &Config) -> Vec<BinaryStatus> {
     let newest_source = newest_parity_source_mtime().unwrap_or(SystemTime::UNIX_EPOCH);
     let need_vm = config.rebuild || binary_is_stale(&config.vm_binary, newest_source);
     let need_llvm = config.rebuild || binary_is_stale(&config.llvm_binary, newest_source);
+    let mut statuses = Vec::new();
 
     if !need_vm && !need_llvm {
-        return;
+        statuses.push(BinaryStatus {
+            kind: "vm",
+            path: config.vm_binary.clone(),
+            status: "fresh",
+        });
+        statuses.push(BinaryStatus {
+            kind: "llvm",
+            path: config.llvm_binary.clone(),
+            status: "fresh",
+        });
+        return statuses;
     }
 
     let vm_target_dir = parity_target_dir(&config.vm_binary, "target/parity_vm");
     let llvm_target_dir = parity_target_dir(&config.llvm_binary, "target/parity_native");
 
     if need_vm {
+        let reason = if config.rebuild {
+            "forced rebuild"
+        } else if config.vm_binary.exists() {
+            "stale -> rebuilt"
+        } else {
+            "missing -> rebuilt"
+        };
         eprintln!(
             "[parity] rebuilding VM binary in {}",
             vm_target_dir.display()
         );
         run_cargo_build(&vm_target_dir, false);
+        statuses.push(BinaryStatus {
+            kind: "vm",
+            path: config.vm_binary.clone(),
+            status: reason,
+        });
+    } else {
+        statuses.push(BinaryStatus {
+            kind: "vm",
+            path: config.vm_binary.clone(),
+            status: "fresh",
+        });
     }
 
     if need_llvm {
+        let reason = if config.rebuild {
+            "forced rebuild"
+        } else if config.llvm_binary.exists() {
+            "stale -> rebuilt"
+        } else {
+            "missing -> rebuilt"
+        };
         eprintln!(
             "[parity] rebuilding native binary in {}",
             llvm_target_dir.display()
         );
         run_cargo_build(&llvm_target_dir, true);
+        statuses.push(BinaryStatus {
+            kind: "llvm",
+            path: config.llvm_binary.clone(),
+            status: reason,
+        });
+    } else {
+        statuses.push(BinaryStatus {
+            kind: "llvm",
+            path: config.llvm_binary.clone(),
+            status: "fresh",
+        });
     }
+
+    statuses
 }
 
 fn parity_target_dir(binary: &Path, fallback: &str) -> PathBuf {
@@ -624,4 +743,303 @@ fn max_system_time(a: Option<SystemTime>, b: Option<SystemTime>) -> Option<Syste
         (None, Some(y)) => Some(y),
         (None, None) => None,
     }
+}
+
+fn print_run_context(config: &Config, statuses: &[BinaryStatus]) {
+    eprintln!("[parity] target: {}", config.path.display());
+    match &config.ways {
+        Some(ways) => {
+            let way_list = ways
+                .iter()
+                .map(|w| w.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            eprintln!("[parity] ways: {way_list}");
+        }
+        None => eprintln!("[parity] ways: fixture metadata/default"),
+    }
+    if config.capture_core || config.capture_aether {
+        let mut captures = Vec::new();
+        if config.capture_core {
+            captures.push("core");
+        }
+        if config.capture_aether {
+            captures.push("aether");
+        }
+        eprintln!("[parity] capture: {}", captures.join(","));
+    }
+    for status in statuses {
+        eprintln!(
+            "[parity] binary {}: {} ({})",
+            status.kind,
+            status.path.display(),
+            status.status
+        );
+    }
+}
+
+fn save_debug_bundle(dir: &Path, result: &ParityResult) -> Result<(), String> {
+    fs::create_dir_all(dir).map_err(|e| format!("create dir {}: {e}", dir.display()))?;
+
+    let fixture_dir = dir.join(sanitize_path_for_fs(&result.file));
+    fs::create_dir_all(&fixture_dir)
+        .map_err(|e| format!("create fixture dir {}: {e}", fixture_dir.display()))?;
+
+    fs::write(fixture_dir.join("metadata.json"), build_metadata_json(result))
+        .map_err(|e| format!("write metadata.json: {e}"))?;
+    fs::write(fixture_dir.join("commands.txt"), build_commands_txt(result))
+        .map_err(|e| format!("write commands.txt: {e}"))?;
+    fs::write(fixture_dir.join("diagnosis.txt"), build_diagnosis_txt(result))
+        .map_err(|e| format!("write diagnosis.txt: {e}"))?;
+
+    let mut summary = String::new();
+    summary.push_str(&format!("file: {}\n", result.file.display()));
+    summary.push_str(&format!("verdict: {:?}\n", result.verdict));
+    for run in &result.results {
+        summary.push_str(&format!(
+            "way: {} exit={} code={}\n",
+            run.way, run.exit_kind, run.exit_code
+        ));
+    }
+    fs::write(fixture_dir.join("summary.txt"), summary)
+        .map_err(|e| format!("write summary: {e}"))?;
+
+    for run in &result.results {
+        let prefix = run.way.to_string();
+        fs::write(fixture_dir.join(format!("{prefix}.stdout.txt")), &run.stdout)
+            .map_err(|e| format!("write stdout for {prefix}: {e}"))?;
+        fs::write(fixture_dir.join(format!("{prefix}.stderr.txt")), &run.stderr)
+            .map_err(|e| format!("write stderr for {prefix}: {e}"))?;
+        fs::write(
+            fixture_dir.join(format!("{prefix}.stdout.normalized.txt")),
+            &run.normalized_stdout,
+        )
+        .map_err(|e| format!("write normalized stdout for {prefix}: {e}"))?;
+        fs::write(
+            fixture_dir.join(format!("{prefix}.stderr.normalized.txt")),
+            &run.normalized_stderr,
+        )
+        .map_err(|e| format!("write normalized stderr for {prefix}: {e}"))?;
+    }
+
+    for (way, arts) in &result.artifacts {
+        let prefix = way.to_string();
+        if let Some(core) = &arts.dump_core {
+            fs::write(fixture_dir.join(format!("{prefix}.core.txt")), core)
+                .map_err(|e| format!("write core dump for {prefix}: {e}"))?;
+        }
+        if let Some(core) = &arts.normalized_dump_core {
+            fs::write(fixture_dir.join(format!("{prefix}.core.normalized.txt")), core)
+                .map_err(|e| format!("write normalized core dump for {prefix}: {e}"))?;
+        }
+        if let Some(aether) = &arts.dump_aether {
+            fs::write(fixture_dir.join(format!("{prefix}.aether.txt")), aether)
+                .map_err(|e| format!("write aether dump for {prefix}: {e}"))?;
+        }
+        if let Some(aether) = &arts.normalized_dump_aether {
+            fs::write(
+                fixture_dir.join(format!("{prefix}.aether.normalized.txt")),
+                aether,
+            )
+            .map_err(|e| format!("write normalized aether dump for {prefix}: {e}"))?;
+        }
+    }
+
+    Ok(())
+}
+
+fn sanitize_path_for_fs(path: &Path) -> String {
+    path.to_string_lossy()
+        .chars()
+        .map(|ch| match ch {
+            '/' | '\\' | ':' | ' ' => '_',
+            other => other,
+        })
+        .collect()
+}
+
+fn build_commands_txt(result: &ParityResult) -> String {
+    let file = result.file.to_string_lossy();
+    let mut out = String::new();
+    for run in &result.results {
+        out.push_str(&format!(
+            "{}: {}\n",
+            run.way,
+            cargo_run_for_way(run.way, &file)
+        ));
+    }
+    out
+}
+
+fn build_diagnosis_txt(result: &ParityResult) -> String {
+    let mut out = String::new();
+    match &result.verdict {
+        Verdict::Pass => out.push_str("pass\n"),
+        Verdict::Skip { reason } => {
+            out.push_str("skip\n");
+            out.push_str(&format!("reason: {reason}\n"));
+        }
+        Verdict::Mismatch { details } => {
+            out.push_str("mismatch\n");
+            if let Some(summary) = diagnose_mismatch(details) {
+                out.push_str(&format!("diagnosis: {summary}\n"));
+            }
+            out.push_str(&format!("detail_count: {}\n", details.len()));
+            for detail in details {
+                out.push_str(&format!("- {}\n", mismatch_detail_label(detail)));
+            }
+        }
+    }
+    out
+}
+
+fn build_metadata_json(result: &ParityResult) -> String {
+    let mut out = String::new();
+    out.push_str("{\n");
+    out.push_str(&format!(
+        "  \"file\": \"{}\",\n",
+        json_escape(&result.file.display().to_string())
+    ));
+    out.push_str(&format!(
+        "  \"verdict\": \"{}\",\n",
+        verdict_label(&result.verdict)
+    ));
+    match &result.verdict {
+        Verdict::Mismatch { details } => {
+            match diagnose_mismatch(details) {
+                Some(summary) => out.push_str(&format!(
+                    "  \"diagnosis\": \"{}\",\n",
+                    json_escape(summary)
+                )),
+                None => out.push_str("  \"diagnosis\": null,\n"),
+            }
+            out.push_str("  \"mismatch_details\": [\n");
+            for (idx, detail) in details.iter().enumerate() {
+                out.push_str(&format!(
+                    "    \"{}\"",
+                    json_escape(&mismatch_detail_label(detail))
+                ));
+                if idx + 1 != details.len() {
+                    out.push(',');
+                }
+                out.push('\n');
+            }
+            out.push_str("  ],\n");
+        }
+        _ => out.push_str("  \"diagnosis\": null,\n"),
+    }
+    out.push_str("  \"results\": [\n");
+    for (idx, run) in result.results.iter().enumerate() {
+        let artifact = result
+            .artifacts
+            .iter()
+            .find(|(way, _)| *way == run.way)
+            .map(|(_, arts)| arts);
+        out.push_str("    {\n");
+        out.push_str(&format!("      \"way\": \"{}\",\n", run.way));
+        out.push_str(&format!("      \"exit_kind\": \"{}\",\n", run.exit_kind));
+        out.push_str(&format!("      \"exit_code\": {},\n", run.exit_code));
+        out.push_str(&format!(
+            "      \"command\": \"{}\",\n",
+            json_escape(&cargo_run_for_way(run.way, &result.file.to_string_lossy()))
+        ));
+        out.push_str(&format!("      \"stdout_bytes\": {},\n", run.stdout.len()));
+        out.push_str(&format!("      \"stderr_bytes\": {},\n", run.stderr.len()));
+        out.push_str(&format!(
+            "      \"normalized_stdout_bytes\": {},\n",
+            run.normalized_stdout.len()
+        ));
+        out.push_str(&format!(
+            "      \"normalized_stderr_bytes\": {},\n",
+            run.normalized_stderr.len()
+        ));
+        out.push_str("      \"artifacts\": {\n");
+        out.push_str(&format!(
+            "        \"core\": {},\n",
+            artifact
+                .and_then(|arts| arts.normalized_dump_core.as_ref())
+                .is_some()
+        ));
+        out.push_str(&format!(
+            "        \"aether\": {}\n",
+            artifact
+                .and_then(|arts| arts.normalized_dump_aether.as_ref())
+                .is_some()
+        ));
+        out.push_str("      }\n");
+        out.push_str("    }");
+        if idx + 1 != result.results.len() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    out.push_str("  ]\n");
+    out.push_str("}\n");
+    out
+}
+
+fn verdict_label(verdict: &Verdict) -> &'static str {
+    match verdict {
+        Verdict::Pass => "pass",
+        Verdict::Mismatch { .. } => "mismatch",
+        Verdict::Skip { .. } => "skip",
+    }
+}
+
+fn mismatch_detail_label(detail: &MismatchDetail) -> String {
+    match detail {
+        MismatchDetail::ExitKind {
+            left_way,
+            right_way,
+            ..
+        } => format!("exit_kind: {left_way} vs {right_way}"),
+        MismatchDetail::Stdout {
+            left_way,
+            right_way,
+            ..
+        } => format!("stdout: {left_way} vs {right_way}"),
+        MismatchDetail::Stderr {
+            left_way,
+            right_way,
+            ..
+        } => format!("stderr: {left_way} vs {right_way}"),
+        MismatchDetail::CoreMismatch {
+            left_way,
+            right_way,
+            ..
+        } => format!("core: {left_way} vs {right_way}"),
+        MismatchDetail::AetherMismatch {
+            left_way,
+            right_way,
+            ..
+        } => format!("aether: {left_way} vs {right_way}"),
+        MismatchDetail::CacheMismatch {
+            fresh_way,
+            cached_way,
+            field,
+            ..
+        } => format!("cache {field}: {fresh_way} vs {cached_way}"),
+        MismatchDetail::StrictModeMismatch {
+            normal_way,
+            strict_way,
+            field,
+            ..
+        } => format!("strict {field}: {normal_way} vs {strict_way}"),
+    }
+}
+
+fn json_escape(input: &str) -> String {
+    let mut escaped = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            c if c.is_control() => escaped.push_str(&format!("\\u{:04x}", c as u32)),
+            c => escaped.push(c),
+        }
+    }
+    escaped
 }
