@@ -7,6 +7,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     syntax::Identifier,
     types::{
@@ -28,7 +30,7 @@ use crate::{
 /// During inference:
 /// - `generalize` computes a scheme from an inferred monotype
 /// - `instantiate` creates a fresh monotype each time the scheme is used
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Scheme {
     /// Universally quantified type variables (the `∀` binders).
     pub forall: Vec<TypeVarId>,

@@ -262,7 +262,7 @@ fn main() with IO {
 
 | Backend | Flag | Speed | Use case |
 |---------|------|-------|----------|
-| **Bytecode VM** | (default) | Interpreted | Development, REPL, fast startup |
+| **Bytecode VM** | (default) | Interpreted | Development, debugging, fast startup |
 | **Cranelift JIT** | `--jit` | Native (fast compile) | Interactive development with speed |
 | **LLVM** | `--llvm` | Native (optimized) | Release builds, AOT compilation |
 

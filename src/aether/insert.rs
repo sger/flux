@@ -197,6 +197,12 @@ fn plan_expr(
         CoreExpr::App { func, args, span } => {
             let resolved_callee = registry.and_then(|reg| match func.as_ref() {
                 CoreExpr::Var { var, .. } => Some(reg.classify_var_ref(var).borrow_callee),
+                CoreExpr::MemberAccess { object, member, .. } => match object.as_ref() {
+                    CoreExpr::Var { var, .. } => {
+                        Some(reg.resolve_member_access_callee(var.name, *member))
+                    }
+                    _ => None,
+                },
                 _ => None,
             });
             let arg_modes: Vec<_> = (0..args.len())

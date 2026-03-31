@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     syntax::{Identifier, effect_expr::EffectExpr},
     types::{TypeVarId, type_subst::TypeSubst},
@@ -21,7 +23,7 @@ pub struct MultipleRowVarError {
 /// An effect row is represented as:
 /// - a concrete set of effect names, and
 /// - an optional tail row variable for open rows.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InferEffectRow {
     concrete: HashSet<Identifier>,
     tail: Option<TypeVarId>,

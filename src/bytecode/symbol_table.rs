@@ -157,6 +157,33 @@ impl SymbolTable {
             .collect()
     }
 
+    pub fn global_bindings(&self) -> Vec<Binding> {
+        let mut bindings: Vec<_> = self
+            .store
+            .values()
+            .filter(|binding| binding.symbol_scope == SymbolScope::Global)
+            .cloned()
+            .collect();
+        bindings.sort_by_key(|binding| binding.index);
+        bindings
+    }
+
+    pub fn define_global_with_index(
+        &mut self,
+        name: Symbol,
+        index: usize,
+        span: Span,
+        is_assigned: bool,
+    ) -> Binding {
+        let mut binding = Binding::new(name, SymbolScope::Global, index, span);
+        if is_assigned {
+            binding.mark_assigned();
+        }
+        self.store.insert(name, binding.clone());
+        self.num_definitions = self.num_definitions.max(index + 1);
+        binding
+    }
+
     pub fn define_free(&mut self, original: Binding) -> Binding {
         self.free_symbols.push(original.clone());
         let symbol = Binding::new(

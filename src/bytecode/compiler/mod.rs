@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::aether::borrow_infer::{BorrowRegistry, BorrowSignature};
 use crate::ast::type_infer::InferProgramConfig;
 use crate::bytecode::compiler::effect_rows::EffectRow;
 use crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult;
@@ -12,12 +13,14 @@ use crate::{
     bytecode::{
         binding::Binding,
         bytecode::Bytecode,
+        bytecode_cache::module_cache::{CachedModuleBinding, CachedModuleBytecode},
         compilation_scope::CompilationScope,
         compiler::{
             adt_registry::AdtRegistry,
             contracts::{ContractKey, FnContract, ModuleContractTable, to_runtime_contract},
         },
         debug_info::{EffectSummary, FunctionDebugInfo, InstructionLocation},
+        emitted_instruction::EmittedInstruction,
         op_code::{Instructions, OpCode, make},
         symbol_table::SymbolTable,
     },
@@ -64,6 +67,232 @@ fn tag_diagnostics(diags: &mut [Diagnostic], phase: DiagnosticPhase) {
         if diag.phase().is_none() {
             diag.phase = Some(phase);
         }
+    }
+}
+
+fn merge_effect_summary(current: EffectSummary, observed: EffectSummary) -> EffectSummary {
+    match (current, observed) {
+        (EffectSummary::HasEffects, _) | (_, EffectSummary::HasEffects) => {
+            EffectSummary::HasEffects
+        }
+        (EffectSummary::Unknown, _) | (_, EffectSummary::Unknown) => EffectSummary::Unknown,
+        _ => EffectSummary::Pure,
+    }
+}
+
+#[derive(Default)]
+struct AetherDebugDetails {
+    call_sites: Vec<String>,
+    dups: Vec<String>,
+    drops: Vec<String>,
+    reuses: Vec<String>,
+}
+
+fn collect_aether_debug_details(
+    expr: &crate::core::CoreExpr,
+    interner: &Interner,
+) -> AetherDebugDetails {
+    fn walk(expr: &crate::core::CoreExpr, interner: &Interner, details: &mut AetherDebugDetails) {
+        use crate::core::CoreExpr;
+
+        match expr {
+            CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
+            CoreExpr::Lam { body, .. } | CoreExpr::Return { value: body, .. } => {
+                walk(body, interner, details);
+            }
+            CoreExpr::App { func, args, .. } => {
+                walk(func, interner, details);
+                for arg in args {
+                    walk(arg, interner, details);
+                }
+            }
+            CoreExpr::AetherCall {
+                func,
+                args,
+                arg_modes,
+                span,
+            } => {
+                details.call_sites.push(format!(
+                    "line {}: {} [{}]",
+                    span.start.line,
+                    single_line_expr(func, interner),
+                    arg_modes
+                        .iter()
+                        .map(format_borrow_mode)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                walk(func, interner, details);
+                for arg in args {
+                    walk(arg, interner, details);
+                }
+            }
+            CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+                walk(rhs, interner, details);
+                walk(body, interner, details);
+            }
+            CoreExpr::Case {
+                scrutinee, alts, ..
+            } => {
+                walk(scrutinee, interner, details);
+                for alt in alts {
+                    if let Some(guard) = &alt.guard {
+                        walk(guard, interner, details);
+                    }
+                    walk(&alt.rhs, interner, details);
+                }
+            }
+            CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
+                for field in fields {
+                    walk(field, interner, details);
+                }
+            }
+            CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+                walk(object, interner, details);
+            }
+            CoreExpr::Perform { args, .. } => {
+                for arg in args {
+                    walk(arg, interner, details);
+                }
+            }
+            CoreExpr::Handle { body, handlers, .. } => {
+                walk(body, interner, details);
+                for handler in handlers {
+                    walk(&handler.body, interner, details);
+                }
+            }
+            CoreExpr::Dup { var, body, span } => {
+                details.dups.push(format!(
+                    "line {}: dup {}",
+                    span.start.line,
+                    format_var_ref(var, interner)
+                ));
+                walk(body, interner, details);
+            }
+            CoreExpr::Drop { var, body, span } => {
+                details.drops.push(format!(
+                    "line {}: drop {}",
+                    span.start.line,
+                    format_var_ref(var, interner)
+                ));
+                walk(body, interner, details);
+            }
+            CoreExpr::Reuse {
+                token,
+                tag,
+                fields,
+                field_mask,
+                span,
+            } => {
+                details.reuses.push(format!(
+                    "line {}: reuse {} as {}{}",
+                    span.start.line,
+                    format_var_ref(token, interner),
+                    tag_label(tag, interner),
+                    field_mask
+                        .map(|mask| format!(" mask=0x{mask:x}"))
+                        .unwrap_or_default()
+                ));
+                for field in fields {
+                    walk(field, interner, details);
+                }
+            }
+            CoreExpr::DropSpecialized {
+                scrutinee,
+                unique_body,
+                shared_body,
+                span,
+            } => {
+                details.reuses.push(format!(
+                    "line {}: drop-specialized {}",
+                    span.start.line,
+                    format_var_ref(scrutinee, interner)
+                ));
+                walk(unique_body, interner, details);
+                walk(shared_body, interner, details);
+            }
+        }
+    }
+
+    let mut details = AetherDebugDetails::default();
+    walk(expr, interner, &mut details);
+    details
+}
+
+fn render_debug_lines(label: &str, lines: &[String]) -> String {
+    let mut out = String::new();
+    if lines.is_empty() {
+        out.push_str(&format!("  {}: none\n", label));
+    } else {
+        out.push_str(&format!("  {}:\n", label));
+        for line in lines {
+            out.push_str(&format!("    - {}\n", line));
+        }
+    }
+    out
+}
+
+fn single_line_expr(expr: &crate::core::CoreExpr, interner: &Interner) -> String {
+    crate::core::display::display_expr_readable(expr, interner)
+        .replace('\n', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn format_var_ref(var: &crate::core::CoreVarRef, interner: &Interner) -> String {
+    let name = interner
+        .try_resolve(var.name)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("<sym:{}>", var.name.as_u32()));
+    match var.binder {
+        Some(binder) => format!("{name}#{}", binder.0),
+        None => name,
+    }
+}
+
+fn tag_label(tag: &crate::core::CoreTag, interner: &Interner) -> String {
+    match tag {
+        crate::core::CoreTag::Nil => "Nil".to_string(),
+        crate::core::CoreTag::Cons => "Cons".to_string(),
+        crate::core::CoreTag::None => "None".to_string(),
+        crate::core::CoreTag::Some => "Some".to_string(),
+        crate::core::CoreTag::Left => "Left".to_string(),
+        crate::core::CoreTag::Right => "Right".to_string(),
+        crate::core::CoreTag::Named(name) => interner
+            .try_resolve(*name)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("<sym:{}>", name.as_u32())),
+    }
+}
+
+fn format_borrow_mode(mode: &crate::aether::borrow_infer::BorrowMode) -> &'static str {
+    match mode {
+        crate::aether::borrow_infer::BorrowMode::Owned => "Owned",
+        crate::aether::borrow_infer::BorrowMode::Borrowed => "Borrowed",
+    }
+}
+
+fn format_borrow_signature(
+    signature: Option<&crate::aether::borrow_infer::BorrowSignature>,
+) -> String {
+    match signature {
+        Some(signature) => format!(
+            "[{}] ({})",
+            signature
+                .params
+                .iter()
+                .map(format_borrow_mode)
+                .collect::<Vec<_>>()
+                .join(", "),
+            match signature.provenance {
+                crate::aether::borrow_infer::BorrowProvenance::Inferred => "Inferred",
+                crate::aether::borrow_infer::BorrowProvenance::BaseRuntime => "BaseRuntime",
+                crate::aether::borrow_infer::BorrowProvenance::Imported => "Imported",
+                crate::aether::borrow_infer::BorrowProvenance::Unknown => "Unknown",
+            }
+        ),
+        None => "<none>".to_string(),
     }
 }
 
@@ -160,6 +389,7 @@ pub struct Compiler {
     /// can use type schemes from previously-compiled modules. Keyed by
     /// `(module_name, member_name)`.
     pub(super) cached_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
+    pub(super) cached_member_borrow_signatures: HashMap<(Symbol, Symbol), BorrowSignature>,
     /// True when HM type inference produced diagnostics. Used to block CFG path
     /// for functions in files with type errors (the Core IR may be degenerate).
     pub(super) has_hm_diagnostics: bool,
@@ -170,6 +400,13 @@ pub struct Compiler {
     /// When true, run two-phase inference with type-informed optimization
     /// between Phase 1 and Phase 2 (proposal 0077).
     type_optimize: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ModuleCacheSnapshot {
+    constants_len: usize,
+    instructions_len: usize,
+    global_definitions_len: usize,
 }
 
 #[cfg(test)]
@@ -228,6 +465,7 @@ impl Compiler {
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
             cached_member_schemes: HashMap::new(),
+            cached_member_borrow_signatures: HashMap::new(),
             has_hm_diagnostics: false,
             ir_function_symbols: HashMap::new(),
             inferred_function_effects: HashMap::new(),
@@ -249,8 +487,8 @@ impl Compiler {
         compiler
     }
 
-    /// Consumes the compiler and returns persistent state for REPL reuse.
-    /// Pairs with `new_with_state()` to bootstrap the next REPL iteration.
+    /// Consumes the compiler and returns persistent state for incremental reuse.
+    /// Pairs with `new_with_state()` to bootstrap the next compile iteration.
     pub fn take_state(self) -> (SymbolTable, Vec<Value>, Interner) {
         (self.symbol_table, self.constants, self.interner)
     }
@@ -372,6 +610,79 @@ impl Compiler {
 
     pub fn take_warnings(&mut self) -> Vec<Diagnostic> {
         std::mem::take(&mut self.warnings)
+    }
+
+    pub fn cached_member_schemes(&self) -> &HashMap<(Symbol, Symbol), Scheme> {
+        &self.cached_member_schemes
+    }
+
+    pub fn preload_module_interface(
+        &mut self,
+        interface: &crate::types::module_interface::ModuleInterface,
+    ) {
+        let module_name = self.interner.intern(&interface.module_name);
+        for (member_name, scheme) in &interface.schemes {
+            let member = self.interner.intern(member_name);
+            self.cached_member_schemes
+                .insert((module_name, member), scheme.clone());
+        }
+        for (member_name, signature) in &interface.borrow_signatures {
+            let member = self.interner.intern(member_name);
+            self.cached_member_borrow_signatures
+                .insert((module_name, member), signature.clone());
+        }
+    }
+
+    pub fn build_preloaded_borrow_registry(&self, program: &Program) -> BorrowRegistry {
+        use crate::syntax::statement::ImportExposing;
+
+        let import_bindings = self.collect_import_module_bindings(program);
+        let mut registry = BorrowRegistry::default();
+
+        for (binding, target_module) in import_bindings {
+            for ((mod_name, member), signature) in &self.cached_member_borrow_signatures {
+                if *mod_name != target_module {
+                    continue;
+                }
+                registry
+                    .by_member_access
+                    .insert((binding, *member), signature.clone());
+            }
+        }
+
+        for stmt in &program.statements {
+            let Statement::Import {
+                name: module_name,
+                exposing,
+                ..
+            } = stmt
+            else {
+                continue;
+            };
+
+            match exposing {
+                ImportExposing::None => {}
+                ImportExposing::All => {
+                    for ((mod_name, member), signature) in &self.cached_member_borrow_signatures {
+                        if *mod_name == *module_name {
+                            registry.by_name.insert(*member, signature.clone());
+                        }
+                    }
+                }
+                ImportExposing::Names(names) => {
+                    for member in names {
+                        if let Some(signature) = self
+                            .cached_member_borrow_signatures
+                            .get(&(*module_name, *member))
+                        {
+                            registry.by_name.insert(*member, signature.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        registry
     }
 
     pub(super) fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
@@ -619,13 +930,6 @@ impl Compiler {
                 if *mod_name != target_module {
                     continue;
                 }
-                if self
-                    .module_function_visibility
-                    .get(&(target_module, *member))
-                    != Some(&true)
-                {
-                    continue;
-                }
                 preloaded.insert((binding, *member), scheme.clone());
             }
             // Then supplement with contract-based schemes (for annotated functions).
@@ -685,13 +989,13 @@ impl Compiler {
 
             for member in members_to_expose {
                 // Only expose if public
-                if self.module_function_visibility.get(&(*module_name, member)) != Some(&true) {
-                    continue;
-                }
-
                 // First try cached HM-inferred schemes (direct, no roundtrip).
                 if let Some(scheme) = self.cached_member_schemes.get(&(*module_name, member)) {
                     exposed.insert(member, scheme.clone());
+                    continue;
+                }
+
+                if self.module_function_visibility.get(&(*module_name, member)) != Some(&true) {
                     continue;
                 }
 
@@ -2404,7 +2708,13 @@ impl Compiler {
 
         let mut core =
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
-        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
+        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
+        crate::core::passes::run_core_passes_with_interner_and_registry(
+            &mut core,
+            &self.interner,
+            optimize,
+            preloaded_registry,
+        )?;
 
         // Collect Aether stats across all definitions
         let mut total_stats = crate::aether::AetherStats::default();
@@ -2447,7 +2757,13 @@ impl Compiler {
 
         let mut core =
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
-        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
+        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
+        crate::core::passes::run_core_passes_with_interner_and_registry(
+            &mut core,
+            &self.interner,
+            optimize,
+            preloaded_registry,
+        )?;
 
         let globals_map = self.build_globals_map();
         let lir = crate::lir::lower::lower_program_with_interner(
@@ -2479,7 +2795,13 @@ impl Compiler {
 
         let mut core =
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
-        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
+        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
+        crate::core::passes::run_core_passes_with_interner_and_registry(
+            &mut core,
+            &self.interner,
+            optimize,
+            preloaded_registry,
+        )?;
 
         // Pass None for globals_map so ALL functions are lowered to LIR
         // functions (no GetGlobal). In native mode there's no VM globals
@@ -2583,7 +2905,13 @@ impl Compiler {
 
         let mut core =
             crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
-        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
+        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
+        crate::core::passes::run_core_passes_with_interner_and_registry(
+            &mut core,
+            &self.interner,
+            optimize,
+            preloaded_registry,
+        )?;
         Ok(core)
     }
 
@@ -2593,6 +2921,7 @@ impl Compiler {
         &self,
         program: &Program,
         optimize: bool,
+        debug: bool,
     ) -> Result<String, Diagnostic> {
         let core = self.lower_aether_report_program(program, optimize)?;
         let fbip_diags = crate::aether::check_fbip::check_fbip(&core, &self.interner);
@@ -2670,6 +2999,19 @@ impl Compiler {
                 }
             }
 
+            if debug {
+                out.push_str(&format!(
+                    "  borrow signature: {}\n",
+                    format_borrow_signature(def.borrow_signature.as_ref())
+                ));
+
+                let debug_details = collect_aether_debug_details(&def.expr, &self.interner);
+                out.push_str(&render_debug_lines("call sites", &debug_details.call_sites));
+                out.push_str(&render_debug_lines("dups", &debug_details.dups));
+                out.push_str(&render_debug_lines("drops", &debug_details.drops));
+                out.push_str(&render_debug_lines("reuse", &debug_details.reuses));
+            }
+
             let displayed = crate::core::display::display_expr_readable(&def.expr, &self.interner);
             out.push_str(&displayed);
             out.push('\n');
@@ -2694,8 +3036,9 @@ impl Compiler {
         &self,
         program: &Program,
         optimize: bool,
+        debug: bool,
     ) -> Result<String, Diagnostic> {
-        self.render_aether_report(program, optimize)
+        self.render_aether_report(program, optimize, debug)
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
@@ -2883,6 +3226,103 @@ impl Compiler {
         }
     }
 
+    pub fn module_cache_snapshot(&self) -> ModuleCacheSnapshot {
+        ModuleCacheSnapshot {
+            constants_len: self.constants.len(),
+            instructions_len: self.scopes[self.scope_index].instructions.len(),
+            global_definitions_len: self.symbol_table.global_bindings().len(),
+        }
+    }
+
+    pub fn build_cached_module_bytecode(
+        &self,
+        snapshot: ModuleCacheSnapshot,
+    ) -> CachedModuleBytecode {
+        let scope = &self.scopes[self.scope_index];
+        let globals = self
+            .symbol_table
+            .global_bindings()
+            .into_iter()
+            .skip(snapshot.global_definitions_len)
+            .map(|binding| CachedModuleBinding {
+                name: self.sym(binding.name).to_string(),
+                index: binding.index,
+                span: binding.span,
+                is_assigned: binding.is_assigned,
+            })
+            .collect();
+
+        let relative_locations = scope
+            .locations
+            .iter()
+            .filter(|location| location.offset >= snapshot.instructions_len)
+            .map(|location| InstructionLocation {
+                offset: location.offset - snapshot.instructions_len,
+                location: location.location.clone(),
+            })
+            .collect();
+
+        CachedModuleBytecode {
+            globals,
+            constants: self.constants[snapshot.constants_len..].to_vec(),
+            instructions: scope.instructions[snapshot.instructions_len..].to_vec(),
+            debug_info: FunctionDebugInfo::new(None, scope.files.clone(), relative_locations)
+                .with_effect_summary(scope.effect_summary),
+        }
+    }
+
+    pub fn hydrate_cached_module_bytecode(&mut self, cached: &CachedModuleBytecode) {
+        for binding in &cached.globals {
+            let symbol = self.interner.intern(&binding.name);
+            self.symbol_table.define_global_with_index(
+                symbol,
+                binding.index,
+                binding.span,
+                binding.is_assigned,
+            );
+            self.file_scope_symbols.insert(symbol);
+        }
+
+        self.constants.extend(cached.constants.iter().cloned());
+
+        let base_offset = self.scopes[self.scope_index].instructions.len();
+        self.scopes[self.scope_index]
+            .instructions
+            .extend_from_slice(&cached.instructions);
+
+        let mut file_id_map = HashMap::new();
+        for (source_id, file) in cached.debug_info.files.iter().enumerate() {
+            let target_id = self.ensure_scope_file(file) as u32;
+            file_id_map.insert(source_id as u32, target_id);
+        }
+
+        for location in &cached.debug_info.locations {
+            let remapped =
+                location
+                    .location
+                    .as_ref()
+                    .map(|entry| crate::bytecode::debug_info::Location {
+                        file_id: file_id_map
+                            .get(&entry.file_id)
+                            .copied()
+                            .unwrap_or(entry.file_id),
+                        span: entry.span,
+                    });
+            self.scopes[self.scope_index]
+                .locations
+                .push(InstructionLocation {
+                    offset: base_offset + location.offset,
+                    location: remapped,
+                });
+        }
+
+        self.scopes[self.scope_index].effect_summary = merge_effect_summary(
+            self.scopes[self.scope_index].effect_summary,
+            cached.debug_info.effect_summary,
+        );
+        self.recompute_last_instructions();
+    }
+
     pub fn imported_files(&self) -> Vec<String> {
         let mut files: Vec<String> = self.imported_files.iter().cloned().collect();
         files.sort();
@@ -2891,6 +3331,42 @@ impl Compiler {
 
     pub(super) fn current_instructions(&self) -> &Instructions {
         &self.scopes[self.scope_index].instructions
+    }
+
+    fn ensure_scope_file(&mut self, file: &str) -> usize {
+        let files = &mut self.scopes[self.scope_index].files;
+        if let Some((index, _)) = files
+            .iter()
+            .enumerate()
+            .find(|(_, existing)| existing == &file)
+        {
+            index
+        } else {
+            files.push(file.to_string());
+            files.len() - 1
+        }
+    }
+
+    fn recompute_last_instructions(&mut self) {
+        let instructions = &self.scopes[self.scope_index].instructions;
+        let mut previous = EmittedInstruction::default();
+        let mut last = EmittedInstruction::default();
+        let mut ip = 0;
+
+        while ip < instructions.len() {
+            previous = last.clone();
+            let op = OpCode::from(instructions[ip]);
+            last = EmittedInstruction {
+                opcode: Some(op),
+                position: ip,
+            };
+            ip += 1 + crate::bytecode::op_code::operand_widths(op)
+                .iter()
+                .sum::<usize>();
+        }
+
+        self.scopes[self.scope_index].previous_instruction = previous;
+        self.scopes[self.scope_index].last_instruction = last;
     }
 
     pub(super) fn replace_last_pop_with_return(&mut self) {
