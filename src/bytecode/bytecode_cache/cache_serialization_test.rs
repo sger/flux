@@ -7,7 +7,7 @@ use std::{
 use crate::{
     bytecode::debug_info::{EffectSummary, FunctionDebugInfo, InstructionLocation, Location},
     diagnostics::position::{Position, Span},
-    runtime::{compiled_function::CompiledFunction, value::Value},
+    runtime::{compiled_function::CompiledFunction, cons_cell::ConsCell, value::Value},
 };
 
 use super::cache_serialization::{
@@ -81,7 +81,17 @@ fn object_roundtrip_includes_function_debug_info() {
     let objects = vec![
         Value::Integer(7),
         Value::Float(3.5),
+        Value::Boolean(true),
         Value::String("ok".to_string().into()),
+        Value::None,
+        Value::EmptyList,
+        Value::Some(std::rc::Rc::new(Value::Integer(9))),
+        Value::Array(std::rc::Rc::new(vec![Value::Integer(1), Value::Integer(2)])),
+        Value::Tuple(std::rc::Rc::new(vec![
+            Value::Integer(3),
+            Value::Boolean(false),
+        ])),
+        ConsCell::cons(Value::Integer(1), Value::EmptyList),
         Value::Function(std::rc::Rc::new(function)),
     ];
 

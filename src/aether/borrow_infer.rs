@@ -9,6 +9,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use serde::{Deserialize, Serialize};
+
 use crate::core::{CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreProgram, CoreVarRef};
 use crate::syntax::Identifier;
 use crate::syntax::interner::Interner;
@@ -16,7 +18,7 @@ use crate::syntax::interner::Interner;
 use super::callee::{AetherCalleeClassification, classify_direct_var_ref};
 
 /// How a function parameter is used — does it need ownership or just a reference?
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BorrowMode {
     /// Parameter is consumed (stored in ADT, returned, captured by closure).
     Owned,
@@ -26,7 +28,7 @@ pub enum BorrowMode {
 }
 
 /// Where a borrow signature came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BorrowProvenance {
     Inferred,
     BaseRuntime,
@@ -35,7 +37,7 @@ pub enum BorrowProvenance {
 }
 
 /// Ordered parameter borrow metadata for a callee.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BorrowSignature {
     pub params: Vec<BorrowMode>,
     pub provenance: BorrowProvenance,
@@ -65,6 +67,10 @@ pub enum BorrowCallee {
     Global(Identifier),
     BaseRuntime(Identifier),
     Imported(Identifier),
+    ImportedMember {
+        module_binding: Identifier,
+        member: Identifier,
+    },
     Unknown,
 }
 
@@ -73,6 +79,7 @@ pub enum BorrowCallee {
 pub struct BorrowRegistry {
     pub by_binder: HashMap<CoreBinderId, BorrowSignature>,
     pub by_name: HashMap<Identifier, BorrowSignature>,
+    pub by_member_access: HashMap<(Identifier, Identifier), BorrowSignature>,
     pub unknown_callee_signature: BorrowSignature,
 }
 
@@ -81,6 +88,7 @@ impl Default for BorrowRegistry {
         Self {
             by_binder: HashMap::new(),
             by_name: HashMap::new(),
+            by_member_access: HashMap::new(),
             unknown_callee_signature: BorrowSignature::new(Vec::new(), BorrowProvenance::Unknown),
         }
     }
@@ -95,6 +103,14 @@ impl BorrowRegistry {
         self.by_name.get(&name)
     }
 
+    pub fn lookup_member_access(
+        &self,
+        module_binding: Identifier,
+        member: Identifier,
+    ) -> Option<&BorrowSignature> {
+        self.by_member_access.get(&(module_binding, member))
+    }
+
     pub fn signature_for_callee(&self, callee: BorrowCallee) -> &BorrowSignature {
         match callee {
             BorrowCallee::Local(binder) => self
@@ -104,6 +120,12 @@ impl BorrowRegistry {
             | BorrowCallee::BaseRuntime(name)
             | BorrowCallee::Imported(name) => self
                 .lookup_name(name)
+                .unwrap_or(&self.unknown_callee_signature),
+            BorrowCallee::ImportedMember {
+                module_binding,
+                member,
+            } => self
+                .lookup_member_access(module_binding, member)
                 .unwrap_or(&self.unknown_callee_signature),
             BorrowCallee::Unknown => &self.unknown_callee_signature,
         }
@@ -115,6 +137,21 @@ impl BorrowRegistry {
 
     pub fn resolve_var_ref(&self, var: &CoreVarRef) -> BorrowCallee {
         self.classify_var_ref(var).borrow_callee
+    }
+
+    pub fn resolve_member_access_callee(
+        &self,
+        module_binding: Identifier,
+        member: Identifier,
+    ) -> BorrowCallee {
+        if self.lookup_member_access(module_binding, member).is_some() {
+            BorrowCallee::ImportedMember {
+                module_binding,
+                member,
+            }
+        } else {
+            BorrowCallee::Unknown
+        }
     }
 
     pub fn classify_var_ref(&self, var: &CoreVarRef) -> AetherCalleeClassification {
@@ -143,7 +180,14 @@ pub fn infer_borrow_modes(
     program: &mut CoreProgram,
     interner: Option<&Interner>,
 ) -> BorrowRegistry {
-    let mut registry = BorrowRegistry::default();
+    infer_borrow_modes_with_preloaded(program, interner, BorrowRegistry::default())
+}
+
+pub fn infer_borrow_modes_with_preloaded(
+    program: &mut CoreProgram,
+    interner: Option<&Interner>,
+    mut registry: BorrowRegistry,
+) -> BorrowRegistry {
     register_explicit_named_fallbacks(program, &mut registry, interner);
 
     for def in &program.defs {
@@ -637,6 +681,15 @@ fn collect_call_param_constraints(
         } = func
         {
             registry.is_borrowed(registry.resolve_var_ref(callee_var), index)
+        } else if let CoreExpr::MemberAccess { object, member, .. } = func {
+            if let CoreExpr::Var { var, .. } = object.as_ref() {
+                registry.is_borrowed(
+                    registry.resolve_member_access_callee(var.name, *member),
+                    index,
+                )
+            } else {
+                false
+            }
         } else {
             false
         };
@@ -748,7 +801,10 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
 
 #[cfg(test)]
 mod tests {
-    use super::{BorrowCallee, BorrowMode, BorrowProvenance, BorrowRegistry, infer_borrow_modes};
+    use super::{
+        BorrowCallee, BorrowMode, BorrowProvenance, BorrowRegistry, BorrowSignature,
+        infer_borrow_modes, infer_borrow_modes_with_preloaded,
+    };
     use crate::core::{CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreProgram, CoreVarRef};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
@@ -1319,5 +1375,50 @@ mod tests {
         let classified = registry.classify_var_ref(&CoreVarRef::unresolved(unknown_name));
         assert_eq!(classified.provenance, BorrowProvenance::Unknown);
         assert_eq!(classified.borrow_callee, BorrowCallee::Unknown);
+    }
+
+    #[test]
+    fn preloaded_member_access_signature_marks_param_borrowed() {
+        let mut interner = Interner::new();
+        let module = interner.intern("Math");
+        let member = interner.intern("double");
+        let fn_binder = binder(0, interner.intern("f"));
+        let x = binder(1, interner.intern("x"));
+
+        let mut program = CoreProgram {
+            defs: vec![CoreDef::new(
+                fn_binder,
+                CoreExpr::Lam {
+                    params: vec![x],
+                    body: Box::new(CoreExpr::App {
+                        func: Box::new(CoreExpr::MemberAccess {
+                            object: Box::new(CoreExpr::Var {
+                                var: CoreVarRef::unresolved(module),
+                                span: span(),
+                            }),
+                            member,
+                            span: span(),
+                        }),
+                        args: vec![var_ref(x)],
+                        span: span(),
+                    }),
+                    span: span(),
+                },
+                false,
+                span(),
+            )],
+            top_level_items: Vec::new(),
+        };
+        let mut preloaded = BorrowRegistry::default();
+        preloaded.by_member_access.insert(
+            (module, member),
+            BorrowSignature::new(vec![BorrowMode::Borrowed], BorrowProvenance::Imported),
+        );
+
+        let registry = infer_borrow_modes_with_preloaded(&mut program, Some(&interner), preloaded);
+        assert_eq!(
+            registry.lookup_binder(fn_binder.id).unwrap().params,
+            vec![BorrowMode::Borrowed]
+        );
     }
 }
