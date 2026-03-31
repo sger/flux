@@ -1,0 +1,30 @@
+// parity: vm, llvm
+// expect: success
+// bug: pattern matching on cons lists [h|t] may produce different results
+//       when the native backend mishandles the cons cell tag check.
+
+fn sum(xs) {
+    match xs {
+        [h | t] -> h + sum(t),
+        [] -> 0,
+        _ -> 0,
+    }
+}
+
+fn length(xs) {
+    match xs {
+        [_ | t] -> 1 + length(t),
+        [] -> 0,
+        _ -> 0,
+    }
+}
+
+fn main() with IO {
+    let xs = list(1, 2, 3, 4, 5);
+    print(sum(xs));
+    print(length(xs));
+
+    let empty = list();
+    print(sum(empty));
+    print(length(empty));
+}
