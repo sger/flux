@@ -5,6 +5,8 @@ use std::{
     fmt,
 };
 
+use serde::{Deserialize, Serialize};
+
 use crate::types::{
     TypeVarId, infer_effect_row::InferEffectRow, type_constructor::TypeConstructor,
     type_subst::TypeSubst,
@@ -14,7 +16,7 @@ use crate::types::{
 ///
 /// This is distinct from `RuntimeType` (used for VM boundary checks) and
 /// `TypeExpr` (the surface-syntax annotation AST).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InferType {
     /// Unification variable. Resolved via `Subst`.
     Var(TypeVarId),
