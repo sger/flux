@@ -388,6 +388,8 @@ pub struct LirProgram {
     /// Built-in constructors (Some=1, Left=2, Right=3, Cons=4) are implicit.
     /// User constructors start at 5 and are assigned sequentially.
     pub constructor_tags: HashMap<String, i32>,
+    /// Monotonic allocator for synthetic nested-function IDs.
+    next_synthetic_func_id: u32,
 }
 
 // ── Display ──────────────────────────────────────────────────────────────────
@@ -440,6 +442,7 @@ impl LirProgram {
             string_pool: Vec::new(),
             func_index: HashMap::new(),
             constructor_tags: HashMap::new(),
+            next_synthetic_func_id: u32::MAX,
         }
     }
 
@@ -459,6 +462,13 @@ impl LirProgram {
     /// Get the position index for a `LirFuncId`.
     pub fn func_idx(&self, id: LirFuncId) -> Option<usize> {
         self.func_index.get(&id).copied()
+    }
+
+    /// Allocate a unique synthetic function id for nested lambdas/handlers.
+    pub fn alloc_synthetic_func_id(&mut self) -> LirFuncId {
+        let id = self.next_synthetic_func_id;
+        self.next_synthetic_func_id = self.next_synthetic_func_id.saturating_sub(1);
+        LirFuncId(id)
     }
 
     /// Intern a string constant, returning its index.
