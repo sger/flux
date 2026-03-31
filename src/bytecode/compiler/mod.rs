@@ -487,8 +487,8 @@ impl Compiler {
         compiler
     }
 
-    /// Consumes the compiler and returns persistent state for REPL reuse.
-    /// Pairs with `new_with_state()` to bootstrap the next REPL iteration.
+    /// Consumes the compiler and returns persistent state for incremental reuse.
+    /// Pairs with `new_with_state()` to bootstrap the next compile iteration.
     pub fn take_state(self) -> (SymbolTable, Vec<Value>, Interner) {
         (self.symbol_table, self.constants, self.interner)
     }
