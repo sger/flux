@@ -1,0 +1,221 @@
+//! Structured parity mismatch reporting with optional color output.
+
+use super::{MismatchDetail, ParityResult, Verdict};
+
+/// Whether to use ANSI color codes in output.
+fn use_color() -> bool {
+    std::env::var("NO_COLOR").is_err()
+}
+
+// ── ANSI helpers ───────────────────────────────────────────────────────────
+
+fn green(s: &str) -> String {
+    if use_color() {
+        format!("\x1b[0;32m{s}\x1b[0m")
+    } else {
+        s.to_string()
+    }
+}
+
+fn red(s: &str) -> String {
+    if use_color() {
+        format!("\x1b[0;31m{s}\x1b[0m")
+    } else {
+        s.to_string()
+    }
+}
+
+fn yellow(s: &str) -> String {
+    if use_color() {
+        format!("\x1b[0;33m{s}\x1b[0m")
+    } else {
+        s.to_string()
+    }
+}
+
+fn cyan(s: &str) -> String {
+    if use_color() {
+        format!("\x1b[0;36m{s}\x1b[0m")
+    } else {
+        s.to_string()
+    }
+}
+
+// ── Per-file reporting ─────────────────────────────────────────────────────
+
+/// Print the result for a single fixture.
+pub fn print_result(result: &ParityResult) {
+    let name = result.file.display();
+
+    match &result.verdict {
+        Verdict::Pass => {
+            println!("{} {name}", green("PASS"));
+        }
+        Verdict::Skip { reason } => {
+            println!("{} {name} ({reason})", yellow("SKIP"));
+        }
+        Verdict::Mismatch { details } => {
+            println!("{} {name}", red("MISMATCH"));
+            for detail in details {
+                print_mismatch_detail(detail);
+            }
+        }
+    }
+}
+
+fn print_mismatch_detail(detail: &MismatchDetail) {
+    match detail {
+        MismatchDetail::ExitKind {
+            left_way,
+            left,
+            right_way,
+            right,
+        } => {
+            println!(
+                "  {} {left_way}={left}, {right_way}={right}",
+                cyan("exit_kind:")
+            );
+        }
+        MismatchDetail::Stdout {
+            left_way,
+            left,
+            right_way,
+            right,
+        } => {
+            println!("  {}", cyan("stdout differs:"));
+            print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
+        }
+        MismatchDetail::Stderr {
+            left_way,
+            left,
+            right_way,
+            right,
+        } => {
+            println!("  {}", cyan("stderr differs:"));
+            print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
+        }
+        MismatchDetail::CoreMismatch {
+            left_way,
+            left,
+            right_way,
+            right,
+        } => {
+            println!(
+                "  {} Core IR differs (semantic IR divergence)",
+                cyan("core_mismatch:")
+            );
+            print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
+        }
+        MismatchDetail::AetherMismatch {
+            left_way,
+            left,
+            right_way,
+            right,
+        } => {
+            println!(
+                "  {} Aether ownership differs (dup/drop/reuse divergence)",
+                cyan("aether_mismatch:")
+            );
+            print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
+        }
+        MismatchDetail::CacheMismatch {
+            fresh_way,
+            cached_way,
+            field,
+            fresh,
+            cached,
+        } => {
+            println!(
+                "  {} fresh {} vs cached {} differ on {field}",
+                cyan("cache_mismatch:"),
+                fresh_way,
+                cached_way
+            );
+            print_inline_diff(
+                format!("{fresh_way} (fresh)"),
+                fresh,
+                format!("{cached_way} (cached)"),
+                cached,
+            );
+        }
+        MismatchDetail::StrictModeMismatch {
+            normal_way,
+            strict_way,
+            field,
+            normal,
+            strict,
+        } => {
+            println!(
+                "  {} {normal_way} vs {strict_way} differ on {field}",
+                cyan("strict_mode_mismatch:")
+            );
+            print_inline_diff(
+                format!("{normal_way}"),
+                normal,
+                format!("{strict_way} (strict)"),
+                strict,
+            );
+        }
+    }
+}
+
+fn print_inline_diff(left_label: String, left: &str, right_label: String, right: &str) {
+    let left_lines: Vec<&str> = left.lines().collect();
+    let right_lines: Vec<&str> = right.lines().collect();
+
+    println!("    --- {left_label}");
+    println!("    +++ {right_label}");
+
+    let max_lines = left_lines.len().max(right_lines.len()).min(12);
+
+    for i in 0..max_lines {
+        let l = left_lines.get(i).copied().unwrap_or("");
+        let r = right_lines.get(i).copied().unwrap_or("");
+        if l != r {
+            if !l.is_empty() {
+                println!("    {}", red(&format!("-{l}")));
+            }
+            if !r.is_empty() {
+                println!("    {}", green(&format!("+{r}")));
+            }
+        } else {
+            println!("     {l}");
+        }
+    }
+
+    let total = left_lines.len().max(right_lines.len());
+    if total > max_lines {
+        println!("    ... ({} more lines)", total - max_lines);
+    }
+}
+
+// ── Summary ────────────────────────────────────────────────────────────────
+
+/// Print the aggregate summary across all fixtures.
+pub fn print_summary(results: &[ParityResult]) {
+    let total = results.len();
+    let pass = results
+        .iter()
+        .filter(|r| matches!(r.verdict, Verdict::Pass))
+        .count();
+    let mismatch = results
+        .iter()
+        .filter(|r| matches!(r.verdict, Verdict::Mismatch { .. }))
+        .count();
+    let skip = results
+        .iter()
+        .filter(|r| matches!(r.verdict, Verdict::Skip { .. }))
+        .count();
+
+    println!();
+    println!("=== Parity Results ===");
+    println!("Total:    {total}");
+    println!("Pass:     {}", green(&pass.to_string()));
+    println!("Mismatch: {}", red(&mismatch.to_string()));
+    println!("Skip:     {}", yellow(&skip.to_string()));
+
+    if mismatch == 0 && pass > 0 {
+        println!();
+        println!("{}", green("All compiled examples match!"));
+    }
+}

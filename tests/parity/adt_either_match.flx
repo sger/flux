@@ -1,0 +1,24 @@
+// parity: vm, llvm
+// expect: success
+// bug: nested ADT pattern matching on Either/Option may evaluate arms
+//       differently when the native backend mishandles tag dispatch.
+
+fn main() with IO {
+    let x = Right(42);
+    let y = Left("error");
+
+    let a = match x {
+        Right(v) -> v * 2,
+        Left(_) -> 0,
+        _ -> -1,
+    };
+
+    let b = match y {
+        Right(_) -> 0,
+        Left(msg) -> len(msg),
+        _ -> -1,
+    };
+
+    print(a);
+    print(b);
+}

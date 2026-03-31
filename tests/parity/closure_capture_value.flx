@@ -1,0 +1,16 @@
+// parity: vm, llvm
+// expect: success
+// bug: closure capturing an outer variable may see stale or missing values
+//       when the native backend closure environment is built incorrectly.
+
+fn main() with IO {
+    let x = 10;
+    let add_x = \y -> x + y;
+
+    print(add_x(5));
+    print(add_x(20));
+
+    let name = "flux";
+    let greet = \prefix -> prefix ++ " " ++ name;
+    print(greet("hello"));
+}

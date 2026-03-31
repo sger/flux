@@ -50,3 +50,24 @@ jobs:
 
       - name: Tests
         run: cargo test --all --all-features
+
+  parity:
+    name: Parity (vm vs llvm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@1.93.0
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install LLVM 18
+        run: sudo apt-get update && sudo apt-get install -y llvm-18 lld-18
+
+      - name: Parity check (tests/parity + examples/basics)
+        run: scripts/check_parity.sh tests/parity examples/basics

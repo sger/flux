@@ -1,0 +1,17 @@
+// parity: vm, llvm
+// expect: success
+// bug: string interpolation with computed sub-expressions may evaluate
+//       in the wrong order or produce different string representations
+//       across backends.
+
+fn main() with IO {
+    let x = 42;
+    print("value is #{x}");
+
+    let a = 3;
+    let b = 4;
+    print("#{a} + #{b} = #{a + b}");
+
+    print("nested: #{if true { "yes" } else { "no" }}");
+    print("len: #{len("hello")}");
+}

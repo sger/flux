@@ -1,0 +1,16 @@
+// parity: vm, llvm
+// expect: success
+// bug: match on Bool with exhaustive {true, false} arms may cause
+//       duplicate function definition in LLVM IR.
+
+fn check(b) {
+    match b {
+        true -> "yes",
+        false -> "no",
+    }
+}
+
+fn main() with IO {
+    print(check(true));
+    print(check(false));
+}
