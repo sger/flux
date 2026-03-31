@@ -1,6 +1,6 @@
 use std::{
     collections::HashSet,
-    env, fs, io,
+    env, fs,
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -25,8 +25,8 @@ use flux::{
     },
     runtime::value::Value,
     syntax::{
-        formatter::format_source, interner::Interner, lexer::Lexer, linter::Linter,
-        module_graph::ModuleGraph, parser::Parser,
+        formatter::format_source, lexer::Lexer, linter::Linter, module_graph::ModuleGraph,
+        parser::Parser,
     },
 };
 
@@ -420,9 +420,6 @@ fn main() {
             }
             analyze_tail_calls(&args[2], max_errors, diagnostics_format);
         }
-        "repl" => {
-            repl(trace);
-        }
         _ => {
             eprintln!(
                 "Error: unknown command or invalid input `{}`. Pass a `.flx` file or a valid subcommand.",
@@ -449,7 +446,6 @@ Usage:
   flux interface-info <file.flxi>
   flux analyze-free-vars <file.flx>
   flux analyze-tail-calls <file.flx>
-  flux repl
   flux <file.flx> --root <path> [--root <path> ...]
   flux run <file.flx> --root <path> [--root <path> ...]
 
@@ -2572,180 +2568,4 @@ fn hex_string(bytes: &[u8; 32]) -> String {
         out.push_str(&format!("{:02x}", b));
     }
     out
-}
-
-fn repl(trace: bool) {
-    use io::Write;
-
-    println!(
-        "Flux REPL v{} (type :help for help, :quit to exit)",
-        env!("CARGO_PKG_VERSION")
-    );
-
-    let stdin = io::stdin();
-    let mut reader = stdin.lock();
-
-    // Bootstrap compiler to register Flow functions in the symbol table.
-    let bootstrap = Compiler::new_with_interner("<repl>", Interner::new());
-    let (mut symbol_table, mut constants, mut interner) = bootstrap.take_state();
-    let mut globals: Vec<Value> = vec![Value::None; 65536];
-    loop {
-        print!("flux> ");
-        io::stdout().flush().unwrap();
-
-        let input = match read_repl_input(&mut reader) {
-            Some(input) => input,
-            None => break, // EOF
-        };
-
-        let trimmed = input.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        match trimmed {
-            ":quit" | ":q" => break,
-            ":help" | ":h" => {
-                print_repl_help();
-                continue;
-            }
-            _ => {}
-        }
-
-        // --- Parse ---
-        let lexer = Lexer::new_with_interner(&input, interner);
-        let mut parser = Parser::new(lexer);
-        let program = parser.parse_program();
-        let mut warnings = parser.take_warnings();
-        for diag in &mut warnings {
-            if diag.file().is_none() {
-                diag.set_file("<repl>");
-            }
-        }
-
-        if !parser.errors.is_empty() {
-            let report = DiagnosticsAggregator::new(&parser.errors)
-                .with_default_source("<repl>", &input)
-                .with_file_headers(false)
-                .report();
-            eprintln!("{}", report.rendered);
-            interner = parser.take_interner();
-            continue;
-        }
-
-        if !warnings.is_empty() {
-            let report = DiagnosticsAggregator::new(&warnings)
-                .with_default_source("<repl>", &input)
-                .with_file_headers(false)
-                .report();
-            eprintln!("{}", report.rendered);
-        }
-
-        interner = parser.take_interner();
-
-        // --- Compile ---
-        let mut compiler = Compiler::new_with_state(symbol_table, constants, interner);
-        compiler.set_file_path("<repl>");
-
-        let compile_result = compiler.compile(&program);
-        let warnings = compiler.take_warnings();
-        if !warnings.is_empty() {
-            let report = DiagnosticsAggregator::new(&warnings)
-                .with_default_source("<repl>", &input)
-                .with_file_headers(false)
-                .report();
-            eprintln!("{}", report.rendered);
-        }
-
-        if let Err(errs) = compile_result {
-            let report = DiagnosticsAggregator::new(&errs)
-                .with_default_source("<repl>", &input)
-                .with_file_headers(false)
-                .report();
-            eprintln!("{}", report.rendered);
-            let state = compiler.take_state();
-            symbol_table = state.0;
-            constants = state.1;
-            interner = state.2;
-            continue;
-        }
-
-        let bytecode = compiler.bytecode();
-        let state = compiler.take_state();
-        symbol_table = state.0;
-        constants = state.1;
-        interner = state.2;
-
-        // --- Execute ---
-        let mut vm = VM::new(bytecode);
-        vm.set_trace(trace);
-        vm.swap_globals_values(&mut globals);
-
-        match vm.run() {
-            Ok(()) => {
-                let result = vm.last_popped_stack_elem();
-                if !matches!(result, Value::None) {
-                    println!("{}", result);
-                }
-            }
-            Err(err) => {
-                eprintln!("{}", err);
-            }
-        }
-
-        // Persist VM state for next iteration
-        vm.swap_globals_values(&mut globals);
-    }
-
-    println!("Goodbye!");
-}
-
-fn read_repl_input(reader: &mut impl io::BufRead) -> Option<String> {
-    use io::Write;
-
-    let mut input = String::new();
-    let mut depth: i32 = 0;
-
-    loop {
-        let mut line = String::new();
-        match reader.read_line(&mut line) {
-            Ok(0) => {
-                if input.is_empty() {
-                    return None;
-                }
-                return Some(input);
-            }
-            Ok(_) => {
-                for ch in line.chars() {
-                    match ch {
-                        '{' | '(' | '[' => depth += 1,
-                        '}' | ')' | ']' => depth -= 1,
-                        _ => {}
-                    }
-                }
-                input.push_str(&line);
-
-                if depth <= 0 {
-                    return Some(input);
-                }
-
-                print!("  ... ");
-                io::stdout().flush().unwrap();
-            }
-            Err(_) => return None,
-        }
-    }
-}
-
-fn print_repl_help() {
-    println!(
-        "\
-Commands:
-  :quit, :q    Exit the REPL
-  :help, :h    Show this help message
-
-Enter Flux expressions or statements.
-Multi-line input: unmatched braces trigger continuation prompt.
-Expression results are printed automatically."
-    );
 }

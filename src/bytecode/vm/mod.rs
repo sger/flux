@@ -548,7 +548,7 @@ impl VM {
 
     /// Swap the VM's globals with an external `Vec<Value>` buffer.
     ///
-    /// Used by the REPL to persist globals across iterations without exposing
+    /// Used by incremental VM-driven workflows to persist globals across iterations without exposing
     /// the internal `Slot` type.
     pub fn swap_globals_values(&mut self, external: &mut [Value]) {
         // Convert VM slots -> Values into external, and external Values -> slots into VM.
