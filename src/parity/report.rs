@@ -1,6 +1,14 @@
 //! Structured parity mismatch reporting with optional color output.
 
-use super::{MismatchDetail, ParityResult, Verdict};
+use super::{MismatchDetail, ParityResult, Verdict, Way};
+
+/// Filter which results to display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisplayFilter {
+    All,
+    PassOnly,
+    FailOnly,
+}
 
 /// Whether to use ANSI color codes in output.
 fn use_color() -> bool {
@@ -43,9 +51,26 @@ fn cyan(s: &str) -> String {
 
 // ── Per-file reporting ─────────────────────────────────────────────────────
 
-/// Print the result for a single fixture.
-pub fn print_result(result: &ParityResult) {
+/// Print the result for a single fixture, respecting the display filter.
+pub fn print_result(result: &ParityResult, filter: DisplayFilter) {
+    let dominated = matches!(
+        (&result.verdict, filter),
+        (Verdict::Pass, DisplayFilter::FailOnly)
+            | (Verdict::Mismatch { .. }, DisplayFilter::PassOnly)
+            | (Verdict::Skip { .. }, DisplayFilter::PassOnly)
+    );
+    if dominated {
+        return;
+    }
+
     let name = result.file.display();
+
+    // Print copy-pasteable cargo run commands for each way
+    for run in &result.results {
+        let label = cyan(&format!("{}:", run.way));
+        let cmd = cargo_run_for_way(run.way, &result.file.to_string_lossy());
+        println!("{label:>14} {cmd}");
+    }
 
     match &result.verdict {
         Verdict::Pass => {
@@ -59,6 +84,23 @@ pub fn print_result(result: &ParityResult) {
             for detail in details {
                 print_mismatch_detail(detail);
             }
+        }
+    }
+    println!();
+}
+
+/// Build a copy-pasteable `cargo run` command for a given way.
+fn cargo_run_for_way(way: Way, file: &str) -> String {
+    match way {
+        Way::Vm => format!("cargo run -- {file} --no-cache"),
+        Way::Llvm => {
+            format!("cargo run --features core_to_llvm -- {file} --native --no-cache")
+        }
+        Way::VmCached => format!("cargo run -- {file}"),
+        Way::LlvmCached => format!("cargo run --features core_to_llvm -- {file} --native"),
+        Way::VmStrict => format!("cargo run -- {file} --strict --no-cache"),
+        Way::LlvmStrict => {
+            format!("cargo run --features core_to_llvm -- {file} --native --strict --no-cache")
         }
     }
 }

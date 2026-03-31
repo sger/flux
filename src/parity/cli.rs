@@ -10,11 +10,13 @@
 //!   --timeout <secs>       Timeout per file per way (default: 15)
 //!   --root <path>          Module root (forwarded to flux)
 
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::process::Command;
+use std::time::{Duration, SystemTime};
 
 use super::fixture::parse_fixture_meta;
-use super::report::{print_result, print_summary};
+use super::report::{print_result, print_summary, DisplayFilter};
 use super::runner::{
     capture_dump_aether, capture_dump_core, is_native_skip, run_way, DEFAULT_TIMEOUT_SECS,
 };
@@ -34,6 +36,8 @@ pub fn run_parity_check(args: &[String]) {
             std::process::exit(1);
         }
     };
+
+    ensure_parity_binaries(&config);
 
     // Validate binaries exist
     if !config.vm_binary.exists() {
@@ -92,7 +96,7 @@ pub fn run_parity_check(args: &[String]) {
                 capture_aether: config.capture_aether,
             },
         );
-        print_result(&parity_result);
+        print_result(&parity_result, config.display_filter);
         results.push(parity_result);
     }
 
@@ -381,6 +385,10 @@ struct Config {
     capture_core: bool,
     /// When true, capture `--dump-aether=debug` per way and compare ownership.
     capture_aether: bool,
+    /// Filter which results to display.
+    display_filter: DisplayFilter,
+    /// When true, rebuild parity binaries before running checks.
+    rebuild: bool,
 }
 
 fn parse_args(args: &[String]) -> Result<Config, String> {
@@ -392,6 +400,8 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut extra_args = Vec::new();
     let mut capture_core = false;
     let mut capture_aether = false;
+    let mut display_filter = DisplayFilter::All;
+    let mut rebuild = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -436,6 +446,21 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
             "--capture-aether" => {
                 capture_aether = true;
             }
+            "--rebuild" => {
+                rebuild = true;
+            }
+            "--show" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("--show requires a value (pass, fail, all)".to_string());
+                }
+                display_filter = match args[i].as_str() {
+                    "pass" => DisplayFilter::PassOnly,
+                    "fail" | "failed" => DisplayFilter::FailOnly,
+                    "all" => DisplayFilter::All,
+                    other => return Err(format!("unknown --show value: {other} (use pass, fail, or all)")),
+                };
+            }
             "--root" => {
                 extra_args.push("--root".to_string());
                 i += 1;
@@ -468,6 +493,8 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         extra_args,
         capture_core,
         capture_aether,
+        display_filter,
+        rebuild,
     })
 }
 
@@ -480,15 +507,121 @@ Usage:
 Options:
   --ways <w1,w2,...>     Ways to compare (default: vm,llvm)
                          Available: vm, llvm, vm_cached, llvm_cached, vm_strict, llvm_strict
+  --show <filter>        Show only: pass, fail, or all (default: all)
   --capture-core         Capture --dump-core per way and compare Core IR
   --capture-aether       Capture --dump-aether=debug per way and compare ownership
+  --rebuild              Force rebuild of parity VM/native binaries before running checks
   --vm-binary <path>     Path to VM binary (default: {DEFAULT_VM_BINARY})
   --llvm-binary <path>   Path to native binary (default: {DEFAULT_LLVM_BINARY})
   --timeout <secs>       Timeout per file per way (default: {DEFAULT_TIMEOUT_SECS})
   --root <path>          Module root (forwarded to flux, can repeat)
 
-Build the required binaries first:
-  CARGO_TARGET_DIR=target/parity_vm cargo build
-  CARGO_TARGET_DIR=target/parity_native cargo build --features core_to_llvm"
+Binaries are rebuilt automatically when missing or stale.
+Use --rebuild to force a refresh:
+  cargo run -- parity-check <file-or-dir> --rebuild"
     );
+}
+
+fn ensure_parity_binaries(config: &Config) {
+    let newest_source = newest_parity_source_mtime().unwrap_or(SystemTime::UNIX_EPOCH);
+    let need_vm = config.rebuild || binary_is_stale(&config.vm_binary, newest_source);
+    let need_llvm = config.rebuild || binary_is_stale(&config.llvm_binary, newest_source);
+
+    if !need_vm && !need_llvm {
+        return;
+    }
+
+    let vm_target_dir = parity_target_dir(&config.vm_binary, "target/parity_vm");
+    let llvm_target_dir = parity_target_dir(&config.llvm_binary, "target/parity_native");
+
+    if need_vm {
+        eprintln!(
+            "[parity] rebuilding VM binary in {}",
+            vm_target_dir.display()
+        );
+        run_cargo_build(&vm_target_dir, false);
+    }
+
+    if need_llvm {
+        eprintln!(
+            "[parity] rebuilding native binary in {}",
+            llvm_target_dir.display()
+        );
+        run_cargo_build(&llvm_target_dir, true);
+    }
+}
+
+fn parity_target_dir(binary: &Path, fallback: &str) -> PathBuf {
+    binary
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from(fallback))
+}
+
+fn run_cargo_build(target_dir: &Path, enable_llvm: bool) {
+    let mut cmd = Command::new("cargo");
+    cmd.arg("build");
+    if enable_llvm {
+        cmd.args(["--features", "core_to_llvm"]);
+    }
+    cmd.env("CARGO_TARGET_DIR", target_dir);
+
+    let status = cmd
+        .status()
+        .unwrap_or_else(|err| panic!("failed to spawn cargo build for parity binaries: {err}"));
+    if !status.success() {
+        panic!("parity binary rebuild failed with exit status {status}");
+    }
+}
+
+fn binary_is_stale(binary: &Path, newest_source: SystemTime) -> bool {
+    let Ok(meta) = fs::metadata(binary) else {
+        return true;
+    };
+    let Ok(modified) = meta.modified() else {
+        return true;
+    };
+    modified < newest_source
+}
+
+fn newest_parity_source_mtime() -> Option<SystemTime> {
+    let mut newest = None;
+    for root in [
+        Path::new("Cargo.toml"),
+        Path::new("Cargo.lock"),
+        Path::new("build.rs"),
+        Path::new("src"),
+        Path::new("runtime/c"),
+        Path::new("lib"),
+    ] {
+        newest = max_system_time(newest, newest_path_mtime(root));
+    }
+    newest
+}
+
+fn newest_path_mtime(path: &Path) -> Option<SystemTime> {
+    let meta = fs::metadata(path).ok()?;
+    if meta.is_file() {
+        return meta.modified().ok();
+    }
+    if !meta.is_dir() {
+        return None;
+    }
+
+    let mut newest = meta.modified().ok();
+    let entries = fs::read_dir(path).ok()?;
+    for entry in entries.flatten() {
+        newest = max_system_time(newest, newest_path_mtime(&entry.path()));
+    }
+    newest
+}
+
+fn max_system_time(a: Option<SystemTime>, b: Option<SystemTime>) -> Option<SystemTime> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(std::cmp::max(x, y)),
+        (Some(x), None) => Some(x),
+        (None, Some(y)) => Some(y),
+        (None, None) => None,
+    }
 }

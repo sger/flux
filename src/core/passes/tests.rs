@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     core::{
         CoreAlt, CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat,
-        CorePrimOp, CoreProgram, CoreTag,
+        CorePrimOp, CoreProgram, CoreTag, CoreTopLevelItem, CoreVarRef,
     },
     diagnostics::position::Span,
     syntax::interner::Interner,
@@ -268,6 +268,104 @@ fn run_core_passes_reports_aether_contract_stage() {
         "expected stage label in contract error, got: {}",
         message
     );
+}
+
+#[test]
+fn primop_promote_prefers_map_delete_over_flow_list_delete_binding() {
+    let mut interner = Interner::new();
+    let flow = interner.intern("Flow");
+    let list = interner.intern("List");
+    let delete = interner.intern("delete");
+    let main = interner.intern("main");
+    let xs = interner.intern("xs");
+    let x = interner.intern("x");
+
+    let delete_binder = binder(0, delete);
+    let xs_binder = binder(1, xs);
+    let x_binder = binder(2, x);
+    let main_binder = binder(3, main);
+
+    let delete_def = CoreDef {
+        name: delete,
+        binder: delete_binder,
+        expr: CoreExpr::Lam {
+            params: vec![xs_binder, x_binder],
+            body: Box::new(CoreExpr::Lit(CoreLit::Unit, s())),
+            span: s(),
+        },
+        borrow_signature: None,
+        result_ty: None,
+        is_anonymous: false,
+        is_recursive: false,
+        fip: None,
+        span: s(),
+    };
+
+    let main_def = CoreDef {
+        name: main,
+        binder: main_binder,
+        expr: CoreExpr::App {
+            func: Box::new(CoreExpr::Var {
+                var: CoreVarRef {
+                    name: delete,
+                    binder: Some(delete_binder.id),
+                },
+                span: s(),
+            }),
+            args: vec![
+                CoreExpr::Lit(CoreLit::Int(1), s()),
+                CoreExpr::Lit(CoreLit::Int(2), s()),
+            ],
+            span: s(),
+        },
+        borrow_signature: None,
+        result_ty: None,
+        is_anonymous: false,
+        is_recursive: false,
+        fip: None,
+        span: s(),
+    };
+
+    let mut program = CoreProgram {
+        defs: vec![delete_def, main_def],
+        top_level_items: vec![
+            CoreTopLevelItem::Module {
+                name: flow,
+                body: vec![CoreTopLevelItem::Module {
+                    name: list,
+                    body: vec![CoreTopLevelItem::Function {
+                        is_public: true,
+                        name: delete,
+                        type_params: Vec::new(),
+                        parameters: vec![xs, x],
+                        parameter_types: Vec::new(),
+                        return_type: None,
+                        effects: Vec::new(),
+                        span: s(),
+                    }],
+                    span: s(),
+                }],
+                span: s(),
+            },
+            CoreTopLevelItem::Function {
+                is_public: true,
+                name: main,
+                type_params: Vec::new(),
+                parameters: Vec::new(),
+                parameter_types: Vec::new(),
+                return_type: None,
+                effects: Vec::new(),
+                span: s(),
+            },
+        ],
+    };
+
+    promote_builtins(&mut program, &interner);
+
+    match &program.defs[1].expr {
+        CoreExpr::PrimOp { op, .. } => assert_eq!(*op, CorePrimOp::HamtDelete),
+        other => panic!("expected HamtDelete promotion, got {other:?}"),
+    }
 }
 
 #[test]
