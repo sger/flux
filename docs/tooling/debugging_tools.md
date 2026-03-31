@@ -130,17 +130,16 @@ VM invariant violated:
 
 Fail fast > corrupt silently.
 
-## 4) REPL-powered debugging (Flux superpower)
+## 4) CLI-powered debugging
 
-Your REPL is already a debugger — exploit that.
+Use the VM and compiler dump surfaces as the first debugging tools.
 
-Step execution:
+Start with:
 
-```
-flux> :step
-flux> :next
-flux> :stack
-flux> :locals
+```bash
+flux --trace program.flx
+flux --dump-core program.flx
+flux --dump-aether=debug program.flx
 ```
 
 This gives you:

@@ -317,7 +317,7 @@ The `llvm-sys` backend has all the downsides of `core_to_llvm` (needs LLVM) plus
 
 ### Why not remove the VM too and go LLVM-only?
 
-The VM provides instant startup, zero external dependencies, and a simple debugging experience. GHCi exists for the same reason — not everything needs to be compiled. The VM also enables the REPL, test runner, and `--trace` debugging.
+The VM provides instant startup, zero external dependencies, and a simple debugging experience. GHCi exists for the same reason — not everything needs to be compiled. The VM also enables the test runner and `--trace` debugging.
 
 ### Why not use Cranelift as the native backend instead of LLVM?
 
@@ -349,7 +349,7 @@ Zig maintains two backends: a self-hosted x86-64 backend for fast debug compilat
 
 - **Naming**: Should `--core-to-llvm` be renamed to `--native`, `--compile`, `--release`, or `--llvm`? The `--native` flag is concise and clear; `--llvm` would conflict with the old flag during the transition period.
 
-- **REPL**: The REPL currently uses the VM. Should `core_to_llvm` ever support incremental compilation for a compiled REPL? This is a future possibility, not a blocker.
+- **Interactive tooling**: Should `core_to_llvm` ever support incremental compilation for debugger-driven or editor-driven workflows? This is a future possibility, not a blocker.
 
 - **Timing**: Should removal happen before or after Proposal 0117 (primop expansion + prelude) achieves full parity? Recommended: after parity, to avoid breaking users who depend on `--jit`/`--llvm` for programs that `core_to_llvm` can't yet compile.
 

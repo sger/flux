@@ -4,10 +4,30 @@ use crate::{
     diagnostics::render_diagnostics,
     runtime::value::Value,
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},
+    types::{
+        infer_type::InferType, module_interface::ModuleInterface, scheme::Scheme,
+        type_constructor::TypeConstructor,
+    },
 };
 
 fn parse_program(source: &str) -> (crate::syntax::program::Program, Interner) {
     let lexer = Lexer::new(source);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let interner = parser.take_interner();
+    (program, interner)
+}
+
+fn parse_program_with_interner(
+    source: &str,
+    interner: Interner,
+) -> (crate::syntax::program::Program, Interner) {
+    let lexer = Lexer::new_with_interner(source, interner);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
     assert!(
@@ -230,6 +250,118 @@ fn main() {
 }
 
 #[test]
+fn preload_module_interface_inserts_cached_public_schemes() {
+    let mut compiler = Compiler::new();
+    let interface = ModuleInterface {
+        module_name: "Example.Math".to_string(),
+        source_hash: "hash".to_string(),
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        schemes: std::collections::HashMap::from([(
+            "double".to_string(),
+            Scheme::mono(InferType::Con(TypeConstructor::Int)),
+        )]),
+        borrow_signatures: std::collections::HashMap::new(),
+    };
+
+    compiler.preload_module_interface(&interface);
+
+    let module = compiler.interner.intern("Example.Math");
+    let member = compiler.interner.intern("double");
+    assert_eq!(
+        compiler.cached_member_schemes().get(&(module, member)),
+        Some(&Scheme::mono(InferType::Con(TypeConstructor::Int)))
+    );
+}
+
+#[test]
+fn preload_module_interface_inserts_cached_borrow_signatures() {
+    let (program, interner) = parse_program("import Example.Math as Math\nlet x = Math.double(1)");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let signature = crate::aether::borrow_infer::BorrowSignature::new(
+        vec![crate::aether::borrow_infer::BorrowMode::Borrowed],
+        crate::aether::borrow_infer::BorrowProvenance::Imported,
+    );
+    let interface = ModuleInterface {
+        module_name: "Example.Math".to_string(),
+        source_hash: "hash".to_string(),
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        schemes: std::collections::HashMap::new(),
+        borrow_signatures: std::collections::HashMap::from([(
+            "double".to_string(),
+            signature.clone(),
+        )]),
+    };
+
+    compiler.preload_module_interface(&interface);
+
+    let registry = compiler.build_preloaded_borrow_registry(&program);
+    let module_binding = compiler.interner.intern("Math");
+    let member = compiler.interner.intern("double");
+    assert_eq!(
+        registry.lookup_member_access(module_binding, member),
+        Some(&signature)
+    );
+}
+
+#[test]
+fn hydrate_cached_module_bytecode_restores_globals_and_bytecode() {
+    let (module_program, interner) = parse_program("fn helper() { 41 }");
+    let mut artifact_compiler = Compiler::new_with_interner("<module>", interner);
+    let snapshot = artifact_compiler.module_cache_snapshot();
+    artifact_compiler
+        .compile(&module_program)
+        .expect("module compilation should succeed");
+    let cached_module = artifact_compiler.build_cached_module_bytecode(snapshot);
+
+    let (baseline_module, baseline_interner) = parse_program("fn helper() { 41 }");
+    let mut baseline = Compiler::new_with_interner("<baseline-module>", baseline_interner);
+    baseline
+        .compile(&baseline_module)
+        .expect("baseline module compilation should succeed");
+    let (baseline_entry, baseline_interner) =
+        parse_program_with_interner("fn main() { helper() }", baseline.interner);
+    baseline.interner = baseline_interner;
+    baseline.set_file_path("<baseline-entry>");
+    baseline
+        .compile(&baseline_entry)
+        .expect("baseline entry compilation should succeed");
+    let baseline_bytecode = baseline.bytecode();
+
+    let mut cached = Compiler::new();
+    cached.hydrate_cached_module_bytecode(&cached_module);
+    let (entry_program, entry_interner) =
+        parse_program_with_interner("fn main() { helper() }", cached.interner);
+    cached.interner = entry_interner;
+    cached.set_file_path("<entry>");
+    cached
+        .compile(&entry_program)
+        .expect("entry compilation with cached module should succeed");
+    let cached_bytecode = cached.bytecode();
+
+    assert_eq!(cached_bytecode.instructions, baseline_bytecode.instructions);
+    let cached_helper =
+        find_compiled_function(&cached_bytecode.constants, "helper").expect("cached helper fn");
+    let baseline_helper =
+        find_compiled_function(&baseline_bytecode.constants, "helper").expect("baseline helper fn");
+    assert_eq!(cached_helper.instructions, baseline_helper.instructions);
+    assert_eq!(cached_helper.num_locals, baseline_helper.num_locals);
+
+    let cached_main =
+        find_compiled_function(&cached_bytecode.constants, "main").expect("cached main fn");
+    let baseline_main =
+        find_compiled_function(&baseline_bytecode.constants, "main").expect("baseline main fn");
+    assert_eq!(cached_main.instructions, baseline_main.instructions);
+    assert_eq!(cached_main.num_locals, baseline_main.num_locals);
+
+    let helper = cached.interner.intern("helper");
+    let binding = cached
+        .symbol_table
+        .resolve(helper)
+        .expect("cached helper binding should resolve");
+    assert_eq!(binding.index, 0);
+}
+
+#[test]
 fn local_let_can_shadow_flow_name() {
     let (program, interner) = parse_program(
         r#"
@@ -357,6 +489,30 @@ fn main() -> Unit {
         "unexpected diagnostics:\n{}",
         rendered
     );
+}
+
+#[test]
+fn render_aether_report_debug_includes_borrow_and_callsite_sections() {
+    let (program, interner) = parse_program(
+        r#"
+fn first(x, y) { x }
+fn main() { first(1, 2) }
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("program should compile");
+
+    let report = compiler
+        .render_aether_report(&program, false, true)
+        .expect("debug aether report should render");
+
+    assert!(report.contains("borrow signature:"));
+    assert!(report.contains("call sites:"));
+    assert!(report.contains("dups:"));
+    assert!(report.contains("drops:"));
+    assert!(report.contains("reuse:"));
+    assert!(report.contains("first"));
+    assert!(report.contains("line"));
 }
 
 #[test]

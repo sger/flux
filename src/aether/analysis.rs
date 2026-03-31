@@ -367,6 +367,12 @@ fn count_owned_inner(
                 CoreExpr::Var {
                     var: callee_var, ..
                 } => Some(reg.classify_var_ref(callee_var).borrow_callee),
+                CoreExpr::MemberAccess { object, member, .. } => match object.as_ref() {
+                    CoreExpr::Var { var, .. } => {
+                        Some(reg.resolve_member_access_callee(var.name, *member))
+                    }
+                    _ => None,
+                },
                 _ => None,
             });
 

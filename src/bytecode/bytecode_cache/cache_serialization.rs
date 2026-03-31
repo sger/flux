@@ -6,7 +6,11 @@ use std::{
 use crate::{
     bytecode::debug_info::{EffectSummary, FunctionDebugInfo, InstructionLocation, Location},
     diagnostics::position::{Position, Span},
-    runtime::{compiled_function::CompiledFunction, value::Value},
+    runtime::{
+        compiled_function::CompiledFunction,
+        cons_cell::ConsCell,
+        value::{AdtFields, AdtValue, Value},
+    },
 };
 
 pub(super) fn write_u16(writer: &mut File, value: u16) -> std::io::Result<()> {
@@ -84,6 +88,62 @@ pub(super) fn write_object(writer: &mut File, obj: &Value) -> std::io::Result<()
             writer.write_all(&func.instructions)?;
             write_function_debug_info(writer, func.debug_info.as_ref())
         }
+        Value::Boolean(value) => {
+            writer.write_all(&[4])?;
+            writer.write_all(&[u8::from(*value)])
+        }
+        Value::None => writer.write_all(&[5]),
+        Value::EmptyList => writer.write_all(&[6]),
+        Value::Some(value) => {
+            writer.write_all(&[7])?;
+            write_object(writer, value)
+        }
+        Value::Left(value) => {
+            writer.write_all(&[8])?;
+            write_object(writer, value)
+        }
+        Value::Right(value) => {
+            writer.write_all(&[9])?;
+            write_object(writer, value)
+        }
+        Value::BaseFunction(index) => {
+            writer.write_all(&[10])?;
+            writer.write_all(&[*index])
+        }
+        Value::Array(values) => {
+            writer.write_all(&[11])?;
+            write_u32(writer, values.len() as u32)?;
+            for value in values.iter() {
+                write_object(writer, value)?;
+            }
+            Ok(())
+        }
+        Value::Tuple(values) => {
+            writer.write_all(&[12])?;
+            write_u32(writer, values.len() as u32)?;
+            for value in values.iter() {
+                write_object(writer, value)?;
+            }
+            Ok(())
+        }
+        Value::AdtUnit(name) => {
+            writer.write_all(&[13])?;
+            write_string(writer, name)
+        }
+        Value::Cons(cell) => {
+            writer.write_all(&[14])?;
+            write_object(writer, &cell.head)?;
+            write_object(writer, &cell.tail)
+        }
+        Value::Adt(adt) => {
+            writer.write_all(&[15])?;
+            write_string(writer, &adt.constructor)?;
+            write_u32(writer, adt.fields.len() as u32)?;
+            for field in adt.fields.iter() {
+                write_object(writer, field)?;
+            }
+            Ok(())
+        }
         _ => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!("unsupported constant type: {}", obj.type_name()),
@@ -111,6 +171,55 @@ pub(super) fn read_object(reader: &mut File) -> Option<Value> {
                 num_parameters,
                 debug_info,
             ))))
+        }
+        4 => {
+            let mut value = [0u8; 1];
+            reader.read_exact(&mut value).ok()?;
+            Some(Value::Boolean(value[0] != 0))
+        }
+        5 => Some(Value::None),
+        6 => Some(Value::EmptyList),
+        7 => Some(Value::Some(std::rc::Rc::new(read_object(reader)?))),
+        8 => Some(Value::Left(std::rc::Rc::new(read_object(reader)?))),
+        9 => Some(Value::Right(std::rc::Rc::new(read_object(reader)?))),
+        10 => {
+            let mut value = [0u8; 1];
+            reader.read_exact(&mut value).ok()?;
+            Some(Value::BaseFunction(value[0]))
+        }
+        11 => {
+            let len = read_u32(reader)? as usize;
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(read_object(reader)?);
+            }
+            Some(Value::Array(std::rc::Rc::new(values)))
+        }
+        12 => {
+            let len = read_u32(reader)? as usize;
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(read_object(reader)?);
+            }
+            Some(Value::Tuple(std::rc::Rc::new(values)))
+        }
+        13 => Some(Value::AdtUnit(std::rc::Rc::new(read_string(reader)?))),
+        14 => {
+            let head = read_object(reader)?;
+            let tail = read_object(reader)?;
+            Some(ConsCell::cons(head, tail))
+        }
+        15 => {
+            let constructor = std::rc::Rc::new(read_string(reader)?);
+            let len = read_u32(reader)? as usize;
+            let mut fields = Vec::with_capacity(len);
+            for _ in 0..len {
+                fields.push(read_object(reader)?);
+            }
+            Some(Value::Adt(std::rc::Rc::new(AdtValue {
+                constructor,
+                fields: AdtFields::from_vec(fields),
+            })))
         }
         _ => None,
     }

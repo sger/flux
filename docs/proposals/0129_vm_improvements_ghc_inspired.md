@@ -30,7 +30,7 @@ However, compared to GHCi, several opportunities for improvement exist:
 
 1. **Flow.Array module** added 20 new functions — each call through the VM dispatch loop; dispatch overhead matters
 2. **AoC benchmarks** show VM is 5-20x slower than native — closing the gap improves the development experience
-3. **Future REPL** (discussed in proposals) needs breakpoint support
+3. **Interactive debugging tooling** needs breakpoint support
 4. **Type classes** (Proposal 0123) will add dictionary-passing overhead — the VM must be fast enough to absorb it
 
 ---
@@ -482,6 +482,6 @@ Simpler than bytecode but 5-50x slower. Not viable for real programs. The VM is 
 
 - **Adaptive specialization**: Like CPython 3.11's quickening — replace generic opcodes with type-specialized variants after observing runtime types (e.g., `OpAdd` → `OpAddInt` after seeing `Int + Int` N times)
 - **Register-based VM**: Convert from stack-based to register-based (like Lua). Reduces stack traffic. Major rewrite but 10-30% faster.
-- **REPL**: Phase 3 (breakpoints) is the foundation for a `flux repl` command with `:step`, `:break`, `:type`, `:load` commands
+- **Interactive debugger**: Phase 3 (breakpoints) is the foundation for richer step/debug tooling without requiring a dedicated REPL command
 - **Hot code reloading**: Combine native bridge (Phase 5) with file watching to reload changed modules without restarting
 - **Wasm target for VM**: Compile the Flux VM itself to WebAssembly, enabling browser-based Flux execution

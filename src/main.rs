@@ -1,6 +1,6 @@
 use std::{
     collections::HashSet,
-    env, fs, io,
+    env, fs,
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -13,7 +13,9 @@ use flux::{
         test_runner::{collect_test_functions, print_test_report, run_tests},
     },
     bytecode::{
-        bytecode_cache::{BytecodeCache, hash_bytes, hash_cache_key, hash_file},
+        bytecode_cache::{
+            BytecodeCache, hash_bytes, hash_cache_key, hash_file, module_cache::ModuleBytecodeCache,
+        },
         compiler::Compiler,
         op_code::disassemble,
     },
@@ -23,8 +25,8 @@ use flux::{
     },
     runtime::value::Value,
     syntax::{
-        formatter::format_source, interner::Interner, lexer::Lexer, linter::Linter,
-        module_graph::ModuleGraph, parser::Parser,
+        formatter::format_source, lexer::Lexer, linter::Linter, module_graph::ModuleGraph,
+        parser::Parser,
     },
 };
 
@@ -39,6 +41,13 @@ enum DiagnosticOutputFormat {
 enum CoreDumpMode {
     None,
     Readable,
+    Debug,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AetherDumpMode {
+    None,
+    Summary,
     Debug,
 }
 
@@ -62,7 +71,13 @@ fn main() {
     let test_mode = args.iter().any(|arg| arg == "--test");
     let strict_mode = args.iter().any(|arg| arg == "--strict");
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
-    let dump_aether = args.iter().any(|arg| arg == "--dump-aether");
+    let dump_aether = if args.iter().any(|arg| arg == "--dump-aether=debug") {
+        AetherDumpMode::Debug
+    } else if args.iter().any(|arg| arg == "--dump-aether") {
+        AetherDumpMode::Summary
+    } else {
+        AetherDumpMode::None
+    };
     let dump_lir = args.iter().any(|arg| arg == "--dump-lir");
     #[cfg(feature = "core_to_llvm")]
     let dump_lir_llvm = args.iter().any(|arg| arg == "--dump-lir-llvm");
@@ -114,8 +129,8 @@ fn main() {
     if all_errors {
         args.retain(|arg| arg != "--all-errors");
     }
-    if dump_aether {
-        args.retain(|arg| arg != "--dump-aether");
+    if dump_aether != AetherDumpMode::None {
+        args.retain(|arg| arg != "--dump-aether" && arg != "--dump-aether=debug");
     }
     if dump_lir {
         args.retain(|arg| arg != "--dump-lir");
@@ -153,7 +168,11 @@ fn main() {
         return;
     }
 
-    if trace_aether && (!matches!(dump_core, CoreDumpMode::None) || dump_aether || test_mode) {
+    if trace_aether
+        && (!matches!(dump_core, CoreDumpMode::None)
+            || dump_aether != AetherDumpMode::None
+            || test_mode)
+    {
         eprintln!(
             "Error: --trace-aether only supports normal program execution. Use --dump-aether for report-only output."
         );
@@ -359,6 +378,20 @@ fn main() {
             }
             show_cache_info_file(&args[2]);
         }
+        "interface-info" => {
+            if args.len() < 3 {
+                eprintln!("Usage: flux interface-info <file.flxi>");
+                return;
+            }
+            if !args[2].ends_with(".flxi") {
+                eprintln!(
+                    "Error: expected a `.flxi` file, got `{}`. Pass a Flux interface file like `path/to/module.flxi`.",
+                    args[2]
+                );
+                return;
+            }
+            show_interface_info_file(&args[2]);
+        }
         "analyze-free-vars" | "free-vars" => {
             if args.len() < 3 {
                 eprintln!("Usage: flux analyze-free-vars <file.flx>");
@@ -387,9 +420,6 @@ fn main() {
             }
             analyze_tail_calls(&args[2], max_errors, diagnostics_format);
         }
-        "repl" => {
-            repl(trace);
-        }
         _ => {
             eprintln!(
                 "Error: unknown command or invalid input `{}`. Pass a `.flx` file or a valid subcommand.",
@@ -413,9 +443,9 @@ Usage:
   flux fmt [--check] <file.flx>
   flux cache-info <file.flx>
   flux cache-info-file <file.fxc>
+  flux interface-info <file.flxi>
   flux analyze-free-vars <file.flx>
   flux analyze-tail-calls <file.flx>
-  flux repl
   flux <file.flx> --root <path> [--root <path> ...]
   flux run <file.flx> --root <path> [--root <path> ...]
 
@@ -439,6 +469,8 @@ Flags:
   --dump-core        Lower to Flux Core IR, print a readable dump, and exit
   --dump-core=debug  Lower to Flux Core IR, print a raw debug dump, and exit
   --dump-aether      Show Aether memory model report (per-function reuse/drop stats)
+  --dump-aether=debug
+                    Show detailed Aether debug report (borrow signatures, call modes, dup/drop, reuse)
   --native           Compile via Core IR → LLVM text IR → native binary (requires LLVM tools)
   --core-to-llvm     Alias for --native
   --emit-llvm        Emit LLVM IR text (.ll) to stdout (with --native)
@@ -472,7 +504,7 @@ fn run_file(
     diagnostics_format: DiagnosticOutputFormat,
     all_errors: bool,
     dump_core: CoreDumpMode,
-    dump_aether: bool,
+    dump_aether: AetherDumpMode,
     dump_lir: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] dump_lir_llvm: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] use_core_to_llvm: bool,
@@ -499,7 +531,7 @@ fn run_file(
                 && !emit_llvm
                 && !emit_binary
                 && matches!(dump_core, CoreDumpMode::None)
-                && !dump_aether
+                && dump_aether == AetherDumpMode::None
                 && !dump_lir
                 && !dump_lir_llvm
                 && !trace_aether
@@ -541,7 +573,10 @@ fn run_file(
                     return;
                 }
                 if verbose {
-                    eprintln!("cache: miss (compiling)");
+                    let reason = cache
+                        .load_failure_reason(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
+                        .unwrap_or("cache file not found");
+                    eprintln!("cache: miss (compiling: {reason})");
                 }
             }
 
@@ -611,6 +646,16 @@ fn run_file(
             let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
             compiler.set_strict_mode(strict_mode);
             let entry_canonical = std::fs::canonicalize(entry_path).ok();
+            let mut preloaded_interfaces: HashSet<PathBuf> = HashSet::new();
+            let module_cache = ModuleBytecodeCache::new(Path::new("target").join("flux"));
+            let allow_cached_module_bytecode = !use_core_to_llvm
+                && !emit_llvm
+                && !emit_binary
+                && matches!(dump_core, CoreDumpMode::None)
+                && dump_aether == AetherDumpMode::None
+                && !dump_lir
+                && !dump_lir_llvm
+                && !trace_aether;
 
             // Sort topo_order to compile Flow library modules first.
             // This ensures all modules can access Flow functions (map, filter, etc.)
@@ -648,17 +693,74 @@ fn run_file(
                     continue;
                 }
 
+                if !no_cache {
+                    for dep in &node.imports {
+                        if !preloaded_interfaces.insert(dep.target_path.clone()) {
+                            continue;
+                        }
+                        let Ok(dep_source) = std::fs::read_to_string(&dep.target_path) else {
+                            continue;
+                        };
+                        let Some(interface) =
+                            flux::bytecode::compiler::module_interface::load_valid_interface(
+                                &dep.target_path,
+                                &dep_source,
+                            )
+                        else {
+                            continue;
+                        };
+                        compiler.preload_module_interface(&interface);
+                        if verbose {
+                            eprintln!(
+                                "interface: loaded {} from {}",
+                                interface.module_name,
+                                dep.target_path.display()
+                            );
+                        }
+                    }
+                }
+
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
-
                 let is_flow_library = node.path.to_string_lossy().contains("lib/Flow/")
                     || node.path.to_string_lossy().contains("lib\\Flow\\");
+                let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
+                let module_source_hash = hash_bytes(module_source.as_bytes());
+                let module_strict_hash = if is_flow_library {
+                    hash_bytes(b"strict=0")
+                } else {
+                    strict_hash
+                };
+                let module_cache_key = hash_cache_key(&module_source_hash, &module_strict_hash);
+                let module_deps: Vec<(String, [u8; 32])> = node
+                    .imports
+                    .iter()
+                    .filter_map(|dep| {
+                        hash_file(&dep.target_path)
+                            .ok()
+                            .map(|hash| (dep.target_path.to_string_lossy().to_string(), hash))
+                    })
+                    .collect();
+
+                if !no_cache
+                    && allow_cached_module_bytecode
+                    && !is_entry_module
+                    && let Some(cached) =
+                        module_cache.load(&node.path, &module_cache_key, env!("CARGO_PKG_VERSION"))
+                {
+                    compiler.hydrate_cached_module_bytecode(&cached);
+                    if verbose {
+                        eprintln!("module-cache: hit ({})", node.path.display());
+                    }
+                    continue;
+                }
                 compiler.set_strict_require_main(is_entry_module);
                 // Disable strict mode for Flow library modules — they use
                 // polymorphic signatures that strict mode can't validate yet.
                 if is_flow_library {
                     compiler.set_strict_mode(false);
                 }
+                let module_snapshot = compiler.module_cache_snapshot();
                 let compile_result =
                     compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
                 if is_flow_library {
@@ -684,34 +786,68 @@ fn run_file(
                     continue;
                 }
 
-                // Save module interface (.flxi) for non-entry modules.
-                // Entry module doesn't need an interface — it's the consumer.
-                if !is_entry_module
-                    && let Some((module_name, module_sym)) =
-                        extract_module_name_and_sym(&node.program, &compiler.interner)
-                {
-                    let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
-                    let source_hash =
-                        flux::bytecode::bytecode_cache::hash_bytes(module_source.as_bytes());
-                    let interface = flux::bytecode::compiler::module_interface::build_interface(
-                        &module_name,
-                        module_sym,
-                        &source_hash,
-                        &compiler.module_contracts,
-                        &compiler.module_function_visibility,
-                        &compiler.interner,
-                    );
-                    let iface_path =
-                        flux::bytecode::compiler::module_interface::interface_path(&node.path);
-                    if let Err(e) = flux::bytecode::compiler::module_interface::save_interface(
-                        &iface_path,
-                        &interface,
+                if !no_cache && allow_cached_module_bytecode && !is_entry_module {
+                    let cached_module = compiler.build_cached_module_bytecode(module_snapshot);
+                    if let Err(e) = module_cache.store(
+                        &node.path,
+                        &module_cache_key,
+                        env!("CARGO_PKG_VERSION"),
+                        &cached_module,
+                        &module_deps,
                     ) && verbose
                     {
                         eprintln!(
-                            "warning: could not write interface file {}: {e}",
-                            iface_path.display()
+                            "warning: could not write module cache file for {}: {e}",
+                            node.path.display()
                         );
+                    }
+                }
+
+                // Save module interface (.flxi) for non-entry modules.
+                // Entry module doesn't need an interface — it's the consumer.
+                if !no_cache
+                    && !is_entry_module
+                    && let Some((module_name, module_sym)) =
+                        extract_module_name_and_sym(&node.program, &compiler.interner)
+                {
+                    match compiler.lower_aether_report_program(&node.program, enable_optimize) {
+                        Ok(core) => {
+                            let interface =
+                                flux::bytecode::compiler::module_interface::build_interface(
+                                    &module_name,
+                                    module_sym,
+                                    &module_source_hash,
+                                    &core,
+                                    compiler.cached_member_schemes(),
+                                    &compiler.module_function_visibility,
+                                    &compiler.interner,
+                                );
+                            compiler.preload_module_interface(&interface);
+                            let iface_path =
+                                flux::bytecode::compiler::module_interface::interface_path(
+                                    &node.path,
+                                );
+                            if let Err(e) =
+                                flux::bytecode::compiler::module_interface::save_interface(
+                                    &iface_path,
+                                    &interface,
+                                )
+                                && verbose
+                            {
+                                eprintln!(
+                                    "warning: could not write interface file {}: {e}",
+                                    iface_path.display()
+                                );
+                            }
+                        }
+                        Err(e) if verbose => {
+                            eprintln!(
+                                "warning: could not build interface for {}: {}",
+                                node.path.display(),
+                                e.message().unwrap_or("unknown Core lowering error")
+                            );
+                        }
+                        Err(_) => {}
                     }
                 }
             }
@@ -752,7 +888,7 @@ fn run_file(
             // Build merged program from all modules for dump/analysis surfaces that
             // need whole-program visibility.
             let merged_program = if is_multimodule
-                && (dump_aether
+                && (dump_aether != AetherDumpMode::None
                     || !matches!(dump_core, CoreDumpMode::None)
                     || dump_lir
                     || dump_lir_llvm)
@@ -766,8 +902,12 @@ fn run_file(
                 program.clone()
             };
 
-            if dump_aether {
-                match compiler.dump_aether_report(&merged_program, enable_optimize) {
+            if dump_aether != AetherDumpMode::None {
+                match compiler.dump_aether_report(
+                    &merged_program,
+                    enable_optimize,
+                    dump_aether == AetherDumpMode::Debug,
+                ) {
                     Ok(report) => println!("{report}"),
                     Err(diag) => {
                         emit_diagnostics(
@@ -988,7 +1128,7 @@ fn run_file(
             let functions_count = count_bytecode_functions(&bytecode.constants);
             let instruction_bytes = bytecode.instructions.len();
             if trace_aether {
-                match compiler.render_aether_report(&program, enable_optimize) {
+                match compiler.render_aether_report(&program, enable_optimize, false) {
                     Ok(report) => print_aether_trace(
                         path,
                         TraceBackend::Vm,
@@ -2269,7 +2409,9 @@ fn show_cache_info(path: &str, extra_roots: &[PathBuf]) {
     let entry_path = Path::new(path);
     let roots = collect_roots(entry_path, extra_roots, false);
     let roots_hash = roots_cache_hash(&roots);
-    let cache_key = hash_cache_key(&source_hash, &roots_hash);
+    let base_cache_key = hash_cache_key(&source_hash, &roots_hash);
+    let strict_hash = hash_bytes(b"strict=0");
+    let cache_key = hash_cache_key(&base_cache_key, &strict_hash);
     let info = cache.inspect(Path::new(path), &cache_key);
     match info {
         Some(info) => {
@@ -2339,186 +2481,91 @@ fn show_cache_info_file(path: &str) {
     }
 }
 
+fn show_interface_info_file(path: &str) {
+    let Some(interface) =
+        flux::bytecode::compiler::module_interface::load_interface(Path::new(path))
+    else {
+        println!("interface: not found or invalid");
+        return;
+    };
+
+    println!("interface file: {}", path);
+    println!("module: {}", interface.module_name);
+    println!("compiler version: {}", interface.compiler_version);
+    println!("source hash: {}", interface.source_hash);
+    println!("schemes: {}", interface.schemes.len());
+    println!("borrow signatures: {}", interface.borrow_signatures.len());
+
+    let mut members: Vec<_> = interface
+        .schemes
+        .keys()
+        .chain(interface.borrow_signatures.keys())
+        .cloned()
+        .collect();
+    members.sort();
+    members.dedup();
+
+    if members.is_empty() {
+        println!("exports: none");
+        return;
+    }
+
+    println!("exports:");
+    for member in members {
+        println!(
+            "  - {}: {}",
+            member,
+            interface
+                .schemes
+                .get(&member)
+                .map(format_scheme_for_cli)
+                .unwrap_or_else(|| "<no scheme>".to_string())
+        );
+        if let Some(signature) = interface.borrow_signatures.get(&member) {
+            println!(
+                "    borrow: [{}] ({})",
+                signature
+                    .params
+                    .iter()
+                    .map(format_borrow_mode)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                format_borrow_provenance(signature.provenance)
+            );
+        }
+    }
+}
+
+fn format_scheme_for_cli(scheme: &flux::types::scheme::Scheme) -> String {
+    if scheme.forall.is_empty() {
+        scheme.infer_type.to_string()
+    } else {
+        format!("forall {:?}. {}", scheme.forall, scheme.infer_type)
+    }
+}
+
+fn format_borrow_mode(mode: &flux::aether::borrow_infer::BorrowMode) -> &'static str {
+    match mode {
+        flux::aether::borrow_infer::BorrowMode::Owned => "Owned",
+        flux::aether::borrow_infer::BorrowMode::Borrowed => "Borrowed",
+    }
+}
+
+fn format_borrow_provenance(
+    provenance: flux::aether::borrow_infer::BorrowProvenance,
+) -> &'static str {
+    match provenance {
+        flux::aether::borrow_infer::BorrowProvenance::Inferred => "Inferred",
+        flux::aether::borrow_infer::BorrowProvenance::BaseRuntime => "BaseRuntime",
+        flux::aether::borrow_infer::BorrowProvenance::Imported => "Imported",
+        flux::aether::borrow_infer::BorrowProvenance::Unknown => "Unknown",
+    }
+}
+
 fn hex_string(bytes: &[u8; 32]) -> String {
     let mut out = String::with_capacity(64);
     for b in bytes {
         out.push_str(&format!("{:02x}", b));
     }
     out
-}
-
-fn repl(trace: bool) {
-    use io::Write;
-
-    println!(
-        "Flux REPL v{} (type :help for help, :quit to exit)",
-        env!("CARGO_PKG_VERSION")
-    );
-
-    let stdin = io::stdin();
-    let mut reader = stdin.lock();
-
-    // Bootstrap compiler to register Flow functions in the symbol table.
-    let bootstrap = Compiler::new_with_interner("<repl>", Interner::new());
-    let (mut symbol_table, mut constants, mut interner) = bootstrap.take_state();
-    let mut globals: Vec<Value> = vec![Value::None; 65536];
-    loop {
-        print!("flux> ");
-        io::stdout().flush().unwrap();
-
-        let input = match read_repl_input(&mut reader) {
-            Some(input) => input,
-            None => break, // EOF
-        };
-
-        let trimmed = input.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        match trimmed {
-            ":quit" | ":q" => break,
-            ":help" | ":h" => {
-                print_repl_help();
-                continue;
-            }
-            _ => {}
-        }
-
-        // --- Parse ---
-        let lexer = Lexer::new_with_interner(&input, interner);
-        let mut parser = Parser::new(lexer);
-        let program = parser.parse_program();
-        let mut warnings = parser.take_warnings();
-        for diag in &mut warnings {
-            if diag.file().is_none() {
-                diag.set_file("<repl>");
-            }
-        }
-
-        if !parser.errors.is_empty() {
-            let report = DiagnosticsAggregator::new(&parser.errors)
-                .with_default_source("<repl>", &input)
-                .with_file_headers(false)
-                .report();
-            eprintln!("{}", report.rendered);
-            interner = parser.take_interner();
-            continue;
-        }
-
-        if !warnings.is_empty() {
-            let report = DiagnosticsAggregator::new(&warnings)
-                .with_default_source("<repl>", &input)
-                .with_file_headers(false)
-                .report();
-            eprintln!("{}", report.rendered);
-        }
-
-        interner = parser.take_interner();
-
-        // --- Compile ---
-        let mut compiler = Compiler::new_with_state(symbol_table, constants, interner);
-        compiler.set_file_path("<repl>");
-
-        let compile_result = compiler.compile(&program);
-        let warnings = compiler.take_warnings();
-        if !warnings.is_empty() {
-            let report = DiagnosticsAggregator::new(&warnings)
-                .with_default_source("<repl>", &input)
-                .with_file_headers(false)
-                .report();
-            eprintln!("{}", report.rendered);
-        }
-
-        if let Err(errs) = compile_result {
-            let report = DiagnosticsAggregator::new(&errs)
-                .with_default_source("<repl>", &input)
-                .with_file_headers(false)
-                .report();
-            eprintln!("{}", report.rendered);
-            let state = compiler.take_state();
-            symbol_table = state.0;
-            constants = state.1;
-            interner = state.2;
-            continue;
-        }
-
-        let bytecode = compiler.bytecode();
-        let state = compiler.take_state();
-        symbol_table = state.0;
-        constants = state.1;
-        interner = state.2;
-
-        // --- Execute ---
-        let mut vm = VM::new(bytecode);
-        vm.set_trace(trace);
-        vm.swap_globals_values(&mut globals);
-
-        match vm.run() {
-            Ok(()) => {
-                let result = vm.last_popped_stack_elem();
-                if !matches!(result, Value::None) {
-                    println!("{}", result);
-                }
-            }
-            Err(err) => {
-                eprintln!("{}", err);
-            }
-        }
-
-        // Persist VM state for next iteration
-        vm.swap_globals_values(&mut globals);
-    }
-
-    println!("Goodbye!");
-}
-
-fn read_repl_input(reader: &mut impl io::BufRead) -> Option<String> {
-    use io::Write;
-
-    let mut input = String::new();
-    let mut depth: i32 = 0;
-
-    loop {
-        let mut line = String::new();
-        match reader.read_line(&mut line) {
-            Ok(0) => {
-                if input.is_empty() {
-                    return None;
-                }
-                return Some(input);
-            }
-            Ok(_) => {
-                for ch in line.chars() {
-                    match ch {
-                        '{' | '(' | '[' => depth += 1,
-                        '}' | ')' | ']' => depth -= 1,
-                        _ => {}
-                    }
-                }
-                input.push_str(&line);
-
-                if depth <= 0 {
-                    return Some(input);
-                }
-
-                print!("  ... ");
-                io::stdout().flush().unwrap();
-            }
-            Err(_) => return None,
-        }
-    }
-}
-
-fn print_repl_help() {
-    println!(
-        "\
-Commands:
-  :quit, :q    Exit the REPL
-  :help, :h    Show this help message
-
-Enter Flux expressions or statements.
-Multi-line input: unmatched braces trigger continuation prompt.
-Expression results are printed automatically."
-    );
 }
