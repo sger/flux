@@ -6,8 +6,9 @@ use std::{
 
 use crate::bytecode::bytecode::Bytecode;
 
-mod cache_serialization;
-mod cache_validation;
+pub(crate) mod cache_serialization;
+pub(crate) mod cache_validation;
+pub mod module_cache;
 
 use cache_serialization::{
     read_object, read_string, read_u32, write_function_debug_info, write_object, write_string,
@@ -19,8 +20,8 @@ use cache_validation::{
 };
 
 const MAGIC: &[u8; 4] = b"FXBC";
-// Bumped for CorePrimOp #[repr(u8)] discriminants (Proposal 0133 Step 3).
-const FORMAT_VERSION: u16 = 9;
+// Bumped for recursive constant serialization used by module bytecode caches.
+const FORMAT_VERSION: u16 = 10;
 
 pub struct BytecodeCache {
     dir: PathBuf,
@@ -79,6 +80,61 @@ impl BytecodeCache {
             constants,
             debug_info,
         })
+    }
+
+    pub fn load_failure_reason(
+        &self,
+        source_path: &Path,
+        cache_key: &[u8; 32],
+        compiler_version: &str,
+    ) -> Option<&'static str> {
+        let path = self.cache_path(source_path, cache_key);
+        let mut file = File::open(path).ok()?;
+
+        if validate_magic(&mut file, MAGIC).is_none() {
+            return Some("bad magic");
+        }
+        if validate_format_version(&mut file, FORMAT_VERSION).is_none() {
+            return Some("format version mismatch");
+        }
+
+        let Some(cached_compiler_version) = read_string(&mut file) else {
+            return Some("could not read compiler version");
+        };
+        if cached_compiler_version != compiler_version {
+            return Some("compiler version mismatch");
+        }
+
+        if validate_cache_key(&mut file, cache_key).is_none() {
+            return Some("cache key mismatch");
+        }
+
+        let Some(deps_count) = read_u32(&mut file) else {
+            return Some("could not read dependency count");
+        };
+        if read_deps_and_validate(&mut file, deps_count as usize).is_none() {
+            return Some("dependency hash mismatch");
+        }
+
+        let Some(constants_count) = read_u32(&mut file) else {
+            return Some("could not read constants count");
+        };
+        for _ in 0..constants_count {
+            if read_object(&mut file).is_none() {
+                return Some("could not deserialize constants");
+            }
+        }
+
+        let Some(instructions_len) = read_u32(&mut file) else {
+            return Some("could not read instruction length");
+        };
+        let mut instructions = vec![0u8; instructions_len as usize];
+        if file.read_exact(&mut instructions).is_err() {
+            return Some("could not read instructions");
+        }
+
+        let _ = cache_serialization::read_function_debug_info(&mut file);
+        None
     }
 
     pub fn inspect(&self, source_path: &Path, cache_key: &[u8; 32]) -> Option<CacheInfo> {

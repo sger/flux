@@ -1,10 +1,12 @@
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// A unique identifier for an interned string.
 ///
 /// Symbols are created by the `Interner` and should not be constructed manually.
 /// They are cheap to copy and compare, making them ideal for compiler data structures.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
 pub struct Symbol(u32);
 
 impl fmt::Display for Symbol {
