@@ -39,6 +39,50 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - parse explicit effect row tails and document parse_effect_expr
 - support row variables in effect expressions and document effect-row completeness
 - add row-constraint solver coverage and deterministic diagnostics
+- FluxRep on Core IR, typed LLVM codegen, and worker/wrapper split (Proposal 0119 Phases 1-3)
+- delete src/runtime/base/, primops as single source of truth (Proposal 0120 Phase 4)
+- Flux standard library and primop promotion (Proposal 0120 Phases 1-3)
+- auto-import Base.Option prelude for all Flux programs (Proposal 0120 POC)
+- module interface files and per-module type inference for native backend (Proposal 0121 Phases 2-3)
+- `exposing` import syntax, native stack traces, and division-by-zero fix (Proposal 0121 Phase 1)
+- CPS continuation stack for non-tail recursion (Proposal 0122 Phase 3)
+- trampoline-based mutual tail call optimization (Proposal 0122 Phase 2)
+- guaranteed self-tail-call optimization (Proposal 0122 Phase 1)
+- AoC 2024 Days 1-5 native, SSA fix, Proposal 0122
+- add MemberAccess resolution for module-qualified calls
+- higher-order closure calls, 50+ C runtime builtins (Phase 9d)
+- add 30+ C runtime builtins and fix remaining parity (Phase 9d)
+- add to core to llvm primop expansion and flux base
+- add pipeline, CLI integration, builtins, and proposals (Phase 8+)
+- add Aether RC integration (Phase 7)
+- add ADT lowering and pattern matching
+- add closure lowering and higher-order calls
+- lower top-level core functions and control flow
+- add prelude and arithmetic helper emission
+- add LLVM text IR AST and pretty-printer
+- CFG covers all well-typed functions — Handle, MakeHash, pre-validation
+- CFG primary compilation path — fix MakeList, enable Prefix/LoadName
+- FBIP annotations, CFG binary op coverage, typed-let pre-validation
+- spine-based dup/drop fusion, rt_index list/string support, deterministic bench output
+- CFG bytecode expansion with pre-codegen validation and JIT empty list
+- --dump-aether flag, CFG bytecode handlers, pre-codegen validation
+- Aether non-linear control flow safety
+- Aether cross-function borrowed parameters
+- Aether drop-reuse specialization
+- Aether drop specialization — IsUnique across all three backends
+- Aether alignment  reuse specialization, VM opcodes, drop specialization
+- Aether scrutinee-drop enable reuse in practice
+- Aether reuse — operational runtime integration
+- make Aether operational across all three backends
+- Aether Phase 7 — reuse token analysis in Core IR
+- Aether Phase 6 — borrowing analysis for dup/drop elision
+- Aether Phase 5 — compile-time dup/drop insertion
+- Aether Phase 5 — remove GcHeap and complete memory model migration
+- Aether Phase 4 — remove Value::Gc and legacy GC allocation paths
+- Aether Phase 3 — migrate HAMT maps from GcHeap to Rc
+- Aether Phase 2 — eliminate Value::GcAdt, unify all ADTs under Rc
+- Aether Phase 1 — migrate cons lists from GcHeap to Rc<ConsCell>
+- implement Aether Phase 0 — Rc reuse fast paths for base functions and VM opcodes
 
 ### Changed
 - CI now runs changelog fragment validation on pull requests.
@@ -144,6 +188,76 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - rename nary→core, replace ir/ with backend_ir facade, restructure IR pipeline
 - fix examples for vm and jit output
 - Fix JIT runtime error rendering for arithmetic ops to match VM diagnostics
+- add test framework assertions and comprehensive syntax test suite
+- add changelog from commits
+- add TBAA metadata to LLVM backend loads/stores
+- add inlinehint to small frequently-called runtime helpers
+- enable LLVM tailcallelim for self-recursive tail calls
+- add LLVM function attributes to rt_* helper declarations
+- extract shared backend metadata collection to backend_ir/metadata.rs
+- add proper purity analysis for Core IR optimizer
+- extend runtime error checks to comparisons and prefix ops in JIT/LLVM
+- fix type-directed arithmetic: require proven operand types for IAdd/FAdd
+- add  tail call optimization for llvm
+- update snapshots tests
+- refactor LLVM compiler into focused submodules
+- LLVM backend: fix parity issues and add runtime error reporting
+- fix runtime contract
+- remove synthetic stack traces from jit and llvm
+- add runtime extraction the LLVM backend is now fully independent from the cranelift JIT
+- fix parity issues between llvm and jit
+- implement LLVM backend phase 6: AOT object file emission
+- implement LLVM backend phase 4: effect handlers and Perform expression
+- implement LLVM backend phase 3: ADTs, pattern matching, and collections
+- complete LLVM backend phase 2: prefix ops, interpolation, and all binary ops
+- fix string constants, closures with captures and engine cleanup crash
+- add HandleScope compilation (ops array, closures, push_handler call)
+- add compilation support for print
+- add scaffold llvm module and install dependencies
+- migrate backend_ir to cfg module
+- move VM executor from runtime/ to bytecode/ for backend symmetry
+- extract compile() into explicit phase pipeline (proposal 0044 M1)
+- Add Flow.Array module (Proposal 0125 Phase 2) and fix LLVM module name collisions
+- fix advanced examples
+- add new proposal and update parity script to show cargo run commands
+- Add builtin mappings to flux_rt_eq/flux_rt_neq which already existed in the C runtime with deep structural comparison.
+- fix snapshot tests
+- format code
+- move base files to flow stdlib
+- update proposals
+- Improve LLVM lowering for unboxed values and int coercions
+- cleanup src/runtime/base/
+- fix linking issues on linux
+- auto build libflux
+- update gitignore
+- remove Cranelift JIT and llvm-sys backends (Proposal 0118)
+- add c runtime
+- fix issues phase 5
+- fix issues phase 4 and 5
+- improve phase 1 and 2
+- Add iterative Core simplifier gated behind -O flag (Proposal 0112 Phase 1)
+- Fix nested if-else bytecode jump target overrun and add VM IP guard
+- Split JIT compiler into submodules and fix CI regressions
+- Refine Aether reuse/fusion analysis and document proof scaffold
+- fix snapshots
+- Bounded FBIP forms, deferred until after N-U
+- close the remaining reuse gap on transparent-wrapper and forwarding-child style patterns
+- add cli command for aether report
+- fix vm bug regarding spans
+- make Aether maturity measurable on a broader workload
+- strengthen interprocedural ownership and FBIP summaries so more direct/internal/imported cases compose precisely.
+- increase `DropSpecialized` coverage on structurally safe cases that still stay conservative today.
+- recover more profitable `Reuse` sites that are still being missed in realistic transformed Core.
+- reduce conservative outcomes that still appear in recursive and higher-order functions.
+- fix parser issue with fbip
+- broaden the set of realistic transformed Core shapes that trigger profitable reuse and drop specialization.
+- improve borrow/liveness precision toward Koka-style behavior across recursive, higher-order, and imported/base-call cases.
+- fix unit and snapshot tests
+- complete pipeline and strict effect enforcement
+- switch dup/drop insertion to environment-based planning
+- update proposal
+- remove repl
+- Implement proposal 0137 modular interface and VM cache pipeline
 
 ### Fixed
 - Hardened strict type/effect diagnostics for unresolved `perform` argument paths (locked with new failing fixture `192_perform_arg_unresolved_strict_e425.flx`).
@@ -162,6 +276,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - local variables shadow base functions in call resolution
 - unify call ABI, fix 5 parity gaps, add effect handler tests
 - close 16 JIT coverage gaps and add automated VM/JIT parity test
+- BigInt equality, parse_ints builtin, and --dump-core for multimodule programs
+- write all fields in Aether reuse to fix list [0,0,0] bug
+- bigint overflow, MemberAccess, malloc GC, AoC Day 6 (Phase 9e)
+- HAMT, comparisons, indexing, to_string — zero mismatches (Phase 9c)
+- runtime arithmetic dispatch, string concat, tuple tags (Phase 9b)
+- fix closure SSA, string names, ADT printing, cache bypass (Phase 9a)
 
 ### Docs
 - Added `changes/README.md` and `changes/_template.md` for contributor guidance.
