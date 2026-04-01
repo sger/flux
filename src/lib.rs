@@ -1,6 +1,7 @@
 pub mod aether;
 pub mod ast;
 pub mod bytecode;
+pub mod cache_paths;
 pub mod cfg;
 pub mod core;
 #[cfg(feature = "native")]

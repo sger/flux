@@ -141,8 +141,7 @@ fn sort_consecutive_drops(lines: Vec<String>) -> Vec<String> {
 /// Check if a line is a drop statement in either Core IR or Aether format.
 fn is_drop_line(line: &str) -> bool {
     let trimmed = line.trim_start();
-    trimmed.starts_with("drop ")
-        || (trimmed.starts_with("- ") && trimmed.contains("drop "))
+    trimmed.starts_with("drop ") || (trimmed.starts_with("- ") && trimmed.contains("drop "))
 }
 
 /// Replace absolute file paths with a placeholder for stable comparison.
@@ -324,10 +323,7 @@ mod tests {
     #[test]
     fn core_dump_normalizes_file_paths() {
         let input = "-- source: /home/user/Code/project/test.flx\nlet x = 1\n";
-        assert_eq!(
-            normalize_core_dump(input),
-            "-- source: <FILE>\nlet x = 1"
-        );
+        assert_eq!(normalize_core_dump(input), "-- source: <FILE>\nlet x = 1");
     }
 
     #[test]
@@ -341,7 +337,8 @@ mod tests {
 
     #[test]
     fn aether_strips_title() {
-        let input = "Aether Memory Model Report\n==========================\n── fn foo ──\n  Dups: 0\n";
+        let input =
+            "Aether Memory Model Report\n==========================\n── fn foo ──\n  Dups: 0\n";
         let result = normalize_aether_dump(input);
         assert!(result.starts_with("── fn foo ──"));
         assert!(!result.contains("Aether Memory Model Report"));

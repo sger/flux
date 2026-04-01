@@ -184,7 +184,10 @@ fn build_qualified_names(
 }
 
 fn is_conflicting_prelude_binding(name: &str, arity: usize, qualified_name: Option<&str>) -> bool {
-    matches!((name, arity, qualified_name), ("delete", 2, Some("Flow_List_delete")))
+    matches!(
+        (name, arity, qualified_name),
+        ("delete", 2, Some("Flow_List_delete"))
+    )
 }
 
 /// Recursively walk a `CoreExpr`, promoting eligible `App` nodes.
@@ -199,8 +202,9 @@ fn promote_expr(
         CoreExpr::App { func, args, span } => {
             if let CoreExpr::Var { var, .. } = func.as_ref() {
                 let name_str = interner.try_resolve(var.name);
-                let name_matches_primop =
-                    name_str.and_then(|resolved| table.get(&(resolved, args.len()))).is_some();
+                let name_matches_primop = name_str
+                    .and_then(|resolved| table.get(&(resolved, args.len())))
+                    .is_some();
                 // Promote if:
                 // 1. No binder (truly unbound — classic case), OR
                 // 2. Binder exists but points to a top-level def with a
@@ -251,9 +255,7 @@ fn promote_expr(
                 )),
                 args: args
                     .into_iter()
-                    .map(|a| {
-                        promote_expr(a, table, interner, def_arities, binder_qualified_names)
-                    })
+                    .map(|a| promote_expr(a, table, interner, def_arities, binder_qualified_names))
                     .collect(),
                 span,
             }
@@ -337,11 +339,9 @@ fn promote_expr(
                         def_arities,
                         binder_qualified_names,
                     ),
-                    guard: alt
-                        .guard
-                        .map(|g| {
-                            promote_expr(g, table, interner, def_arities, binder_qualified_names)
-                        }),
+                    guard: alt.guard.map(|g| {
+                        promote_expr(g, table, interner, def_arities, binder_qualified_names)
+                    }),
                     ..alt
                 })
                 .collect(),
@@ -434,9 +434,7 @@ fn promote_expr(
             )),
             args: args
                 .into_iter()
-                .map(|a| {
-                    promote_expr(a, table, interner, def_arities, binder_qualified_names)
-                })
+                .map(|a| promote_expr(a, table, interner, def_arities, binder_qualified_names))
                 .collect(),
             arg_modes,
             span,
@@ -474,9 +472,7 @@ fn promote_expr(
             tag,
             fields: fields
                 .into_iter()
-                .map(|f| {
-                    promote_expr(f, table, interner, def_arities, binder_qualified_names)
-                })
+                .map(|f| promote_expr(f, table, interner, def_arities, binder_qualified_names))
                 .collect(),
             field_mask,
             span,

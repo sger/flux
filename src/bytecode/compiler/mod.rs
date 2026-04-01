@@ -375,6 +375,7 @@ pub struct Compiler {
     pub module_contracts: ModuleContractTable,
     pub module_function_visibility: HashMap<(Symbol, Symbol), bool>,
     pub(super) module_adt_constructors: HashMap<(Symbol, Symbol), Symbol>,
+    pub(crate) preloaded_imported_globals: HashSet<Symbol>,
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
     pub(super) effect_alias_scopes: Vec<HashMap<Symbol, Symbol>>,
     pub(super) adt_registry: AdtRegistry,
@@ -457,6 +458,7 @@ impl Compiler {
             module_contracts: HashMap::new(),
             module_function_visibility: HashMap::new(),
             module_adt_constructors: HashMap::new(),
+            preloaded_imported_globals: HashSet::new(),
             static_type_scopes: vec![HashMap::new()],
             effect_alias_scopes: vec![HashMap::new()],
             adt_registry: AdtRegistry::new(),
@@ -608,6 +610,48 @@ impl Compiler {
         self.hm_expr_types.clone()
     }
 
+    pub fn infer_expr_types_for_module_with_preloaded(
+        &mut self,
+        program: &Program,
+    ) -> HashMap<ExprId, InferType> {
+        let preloaded_contracts = self.module_contracts.clone();
+        let preloaded_visibility = self.module_function_visibility.clone();
+        let preloaded_adt_ctors = self.module_adt_constructors.clone();
+        let preloaded_effect_ops = self.effect_ops_registry.clone();
+        let preloaded_effect_sigs = self.effect_op_signatures.clone();
+
+        self.file_scope_symbols.clear();
+        self.imported_modules.clear();
+        self.import_aliases.clear();
+        self.imported_module_exclusions.clear();
+        self.exposed_bindings.clear();
+        self.current_module_prefix = None;
+        self.current_span = None;
+        self.static_type_scopes.clear();
+        self.static_type_scopes.push(HashMap::new());
+        self.effect_alias_scopes.clear();
+        self.effect_alias_scopes.push(HashMap::new());
+        self.module_contracts = preloaded_contracts;
+        self.module_function_visibility = preloaded_visibility;
+        self.module_adt_constructors = preloaded_adt_ctors;
+        self.type_env = TypeEnv::new();
+        self.hm_expr_types.clear();
+        self.effect_ops_registry = preloaded_effect_ops;
+        self.effect_op_signatures = preloaded_effect_sigs;
+
+        self.collect_module_function_visibility(program);
+        self.collect_module_adt_constructors(program);
+        self.collect_module_contracts(program);
+        self.collect_effect_declarations(program);
+        self.auto_expose_flow_modules();
+
+        let hm_config = self.build_infer_config(program);
+        let hm = infer_program(program, &self.interner, hm_config);
+        self.type_env = hm.type_env;
+        self.hm_expr_types = hm.expr_types;
+        self.hm_expr_types.clone()
+    }
+
     pub fn take_warnings(&mut self) -> Vec<Diagnostic> {
         std::mem::take(&mut self.warnings)
     }
@@ -623,14 +667,118 @@ impl Compiler {
         let module_name = self.interner.intern(&interface.module_name);
         for (member_name, scheme) in &interface.schemes {
             let member = self.interner.intern(member_name);
+            let qualified = self.interner.intern_join(module_name, member);
+            if !self.symbol_table.exists_in_current_scope(qualified) {
+                self.symbol_table.define(qualified, Span::default());
+            }
+            self.preloaded_imported_globals.insert(qualified);
+            self.module_function_visibility
+                .insert((module_name, member), true);
             self.cached_member_schemes
                 .insert((module_name, member), scheme.clone());
         }
         for (member_name, signature) in &interface.borrow_signatures {
             let member = self.interner.intern(member_name);
+            let qualified = self.interner.intern_join(module_name, member);
+            if !self.symbol_table.exists_in_current_scope(qualified) {
+                self.symbol_table.define(qualified, Span::default());
+            }
+            self.preloaded_imported_globals.insert(qualified);
+            self.module_function_visibility
+                .insert((module_name, member), true);
             self.cached_member_borrow_signatures
                 .insert((module_name, member), signature.clone());
         }
+    }
+
+    pub fn preload_dependency_program(&mut self, program: &Program) {
+        self.collect_module_function_visibility(program);
+        self.collect_module_adt_constructors(program);
+        self.collect_module_contracts(program);
+        self.collect_effect_declarations(program);
+    }
+
+    pub fn build_native_extern_symbols(
+        &self,
+        program: &Program,
+    ) -> HashMap<String, crate::lir::lower::ImportedNativeSymbol> {
+        use crate::syntax::statement::{ImportExposing, Statement};
+
+        let import_bindings = self.collect_import_module_bindings(program);
+        let mut symbols = HashMap::new();
+
+        for (binding, target_module) in import_bindings {
+            let binding_name = self.sym(binding);
+            let target_name = self.sym(target_module);
+            for ((module_name, member_name), scheme) in &self.cached_member_schemes {
+                if *module_name != target_module {
+                    continue;
+                }
+                let member = self.sym(*member_name);
+                symbols.insert(
+                    format!("{binding_name}.{member}"),
+                    crate::lir::lower::ImportedNativeSymbol {
+                        symbol: format!("flux_{}_{}", target_name.replace('.', "_"), member),
+                        arity: Self::native_function_arity(scheme),
+                    },
+                );
+            }
+        }
+
+        for statement in &program.statements {
+            let Statement::Import {
+                name: module_name,
+                exposing,
+                ..
+            } = statement
+            else {
+                continue;
+            };
+
+            match exposing {
+                ImportExposing::None => {}
+                ImportExposing::All => {
+                    for ((mod_name, member_name), scheme) in &self.cached_member_schemes {
+                        if *mod_name == *module_name {
+                            let member = self.sym(*member_name);
+                            symbols.insert(
+                                member.to_string(),
+                                crate::lir::lower::ImportedNativeSymbol {
+                                    symbol: format!(
+                                        "flux_{}_{}",
+                                        self.sym(*module_name).replace('.', "_"),
+                                        member
+                                    ),
+                                    arity: Self::native_function_arity(scheme),
+                                },
+                            );
+                        }
+                    }
+                }
+                ImportExposing::Names(names) => {
+                    for member_name in names {
+                        let member = self.sym(*member_name);
+                        if let Some(scheme) =
+                            self.cached_member_schemes.get(&(*module_name, *member_name))
+                        {
+                            symbols.insert(
+                                member.to_string(),
+                                crate::lir::lower::ImportedNativeSymbol {
+                                    symbol: format!(
+                                        "flux_{}_{}",
+                                        self.sym(*module_name).replace('.', "_"),
+                                        member
+                                    ),
+                                    arity: Self::native_function_arity(scheme),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        symbols
     }
 
     pub fn build_preloaded_borrow_registry(&self, program: &Program) -> BorrowRegistry {
@@ -912,6 +1060,13 @@ impl Compiler {
         forall.sort_unstable();
         forall.dedup();
         Some(Scheme { forall, infer_type })
+    }
+
+    fn native_function_arity(scheme: &Scheme) -> usize {
+        match &scheme.infer_type {
+            InferType::Fun(params, _, _) => params.len(),
+            _ => 0,
+        }
     }
 
     fn build_preloaded_hm_member_schemes(
@@ -2810,6 +2965,55 @@ impl Compiler {
         Ok(crate::lir::emit_llvm::emit_llvm_module(&lir))
     }
 
+    /// Lower a single module through LIR to an LLVM IR module while resolving
+    /// imported public functions as external symbols rather than merged-program
+    /// local binders.
+    #[cfg(feature = "core_to_llvm")]
+    #[allow(clippy::result_large_err)]
+    pub fn lower_to_lir_llvm_module_per_module(
+        &self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
+        let program_to_lower = if optimize {
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
+            rename(optimized, HashMap::new())
+        } else {
+            program.clone()
+        };
+
+        let mut core =
+            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
+        crate::core::passes::run_core_passes_with_interner_and_registry(
+            &mut core,
+            &self.interner,
+            optimize,
+            preloaded_registry,
+        )?;
+
+        let extern_symbols = self.build_native_extern_symbols(&program_to_lower);
+        let emit_main = program_to_lower.statements.iter().any(|statement| {
+            matches!(
+                statement,
+                Statement::Function { name, .. } if self.sym(*name) == "main"
+            )
+        });
+        let lir = crate::lir::lower::lower_program_with_interner_and_externs(
+            &core,
+            Some(&self.interner),
+            None,
+            Some(&extern_symbols),
+            emit_main,
+        );
+        Ok(crate::lir::emit_llvm::emit_llvm_module_with_options(
+            &lir,
+            false,
+        ))
+    }
+
     /// Dump LIR as LLVM IR text (Proposal 0132 Phase 7).
     #[cfg(feature = "core_to_llvm")]
     #[allow(clippy::result_large_err)]
@@ -3249,6 +3453,11 @@ impl Compiler {
                 index: binding.index,
                 span: binding.span,
                 is_assigned: binding.is_assigned,
+                kind: if self.preloaded_imported_globals.contains(&binding.name) {
+                    crate::bytecode::bytecode_cache::module_cache::CachedModuleBindingKind::Imported
+                } else {
+                    crate::bytecode::bytecode_cache::module_cache::CachedModuleBindingKind::Defined
+                },
             })
             .collect();
 
@@ -3271,6 +3480,34 @@ impl Compiler {
         }
     }
 
+    pub fn build_relocatable_module_bytecode(&self) -> CachedModuleBytecode {
+        let scope = &self.scopes[self.scope_index];
+        let globals = self
+            .symbol_table
+            .global_bindings()
+            .into_iter()
+            .map(|binding| CachedModuleBinding {
+                name: self.sym(binding.name).to_string(),
+                index: binding.index,
+                span: binding.span,
+                is_assigned: binding.is_assigned,
+                kind: if self.preloaded_imported_globals.contains(&binding.name) {
+                    crate::bytecode::bytecode_cache::module_cache::CachedModuleBindingKind::Imported
+                } else {
+                    crate::bytecode::bytecode_cache::module_cache::CachedModuleBindingKind::Defined
+                },
+            })
+            .collect();
+
+        CachedModuleBytecode {
+            globals,
+            constants: self.constants.clone(),
+            instructions: scope.instructions.clone(),
+            debug_info: FunctionDebugInfo::new(None, scope.files.clone(), scope.locations.clone())
+                .with_effect_summary(scope.effect_summary),
+        }
+    }
+
     pub fn hydrate_cached_module_bytecode(&mut self, cached: &CachedModuleBytecode) {
         for binding in &cached.globals {
             let symbol = self.interner.intern(&binding.name);
@@ -3280,6 +3517,12 @@ impl Compiler {
                 binding.span,
                 binding.is_assigned,
             );
+            if matches!(
+                binding.kind,
+                crate::bytecode::bytecode_cache::module_cache::CachedModuleBindingKind::Imported
+            ) {
+                self.preloaded_imported_globals.insert(symbol);
+            }
             self.file_scope_symbols.insert(symbol);
         }
 

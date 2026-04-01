@@ -256,11 +256,15 @@ fn preload_module_interface_inserts_cached_public_schemes() {
         module_name: "Example.Math".to_string(),
         source_hash: "hash".to_string(),
         compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
         schemes: std::collections::HashMap::from([(
             "double".to_string(),
             Scheme::mono(InferType::Con(TypeConstructor::Int)),
         )]),
         borrow_signatures: std::collections::HashMap::new(),
+        dependency_fingerprints: Vec::new(),
     };
 
     compiler.preload_module_interface(&interface);
@@ -285,11 +289,15 @@ fn preload_module_interface_inserts_cached_borrow_signatures() {
         module_name: "Example.Math".to_string(),
         source_hash: "hash".to_string(),
         compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
         schemes: std::collections::HashMap::new(),
         borrow_signatures: std::collections::HashMap::from([(
             "double".to_string(),
             signature.clone(),
         )]),
+        dependency_fingerprints: Vec::new(),
     };
 
     compiler.preload_module_interface(&interface);
