@@ -7,6 +7,11 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+use crate::bytecode::bytecode_cache::{
+    BytecodeCache, hash_bytes, hash_cache_key,
+};
+use crate::cache_paths;
+
 use super::normalize::{normalize, normalize_aether_dump, normalize_core_dump};
 use super::{
     CacheFileKind, CacheFileState, CacheObservation, DebugArtifacts, ExitKind, RunResult, Way,
@@ -47,7 +52,7 @@ pub fn run_way(
     }
 
     // Clear stale bytecode cache
-    clear_cache_files(file);
+    clear_cache_files(file, extra_args);
 
     execute_and_collect(binary, &args, way, timeout)
 }
@@ -69,7 +74,7 @@ fn run_cached_way(
     }
 
     // Step 1: Clear all cache files
-    clear_cache_files(file);
+    clear_cache_files(file, extra_args);
 
     // Step 2: Warming run (with cache enabled, so it writes cache files)
     warm_args.push(file.to_string_lossy().into_owned());
@@ -77,7 +82,7 @@ fn run_cached_way(
     let _ = spawn_with_timeout(binary, &warm_args, timeout);
 
     // Step 3: Observe cache files created by the warming run
-    let cache_after_warm = observe_cache_files(file);
+    let cache_after_warm = observe_cache_files(file, extra_args);
 
     // Step 4: Cached run (with cache enabled, so it reads cache files)
     let (_, mut cached_args) = build_way_args(vm_binary, llvm_binary, base_way);
@@ -87,7 +92,7 @@ fn run_cached_way(
     let mut result = execute_and_collect(binary, &cached_args, way, timeout);
 
     // Step 5: Observe cache files after the cached run
-    let cache_after_cached = observe_cache_files(file);
+    let cache_after_cached = observe_cache_files(file, extra_args);
 
     // Merge observations: warming creates, cached run should find them
     let mut observations = Vec::new();
@@ -109,7 +114,7 @@ fn run_cached_way(
     result.cache_observations = observations;
 
     // Step 6: Clean up cache files
-    clear_cache_files(file);
+    clear_cache_files(file, extra_args);
 
     result
 }
@@ -193,20 +198,34 @@ fn execute_and_collect(binary: &Path, args: &[String], way: Way, timeout: Durati
 // ── Cache file management ──────────────────────────────────────────────────
 
 /// Clear all known cache files for a fixture.
-fn clear_cache_files(file: &Path) {
-    for ext in &["fxc", "flxi"] {
-        let cache = file.with_extension(ext);
-        if cache.exists() {
-            let _ = std::fs::remove_file(&cache);
+fn clear_cache_files(file: &Path, extra_args: &[String]) {
+    let layout = cache_paths::resolve_cache_layout(file, None);
+    for dir in [layout.interfaces_dir(), layout.vm_dir(), layout.native_dir()] {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
         }
+    }
+    let (bytecode_key, _, _) = cache_keys_for_fixture(file, extra_args);
+    let bytecode_cache = BytecodeCache::new(layout.root());
+    let bytecode_path = bytecode_cache.cache_path(file, &bytecode_key);
+    if bytecode_path.exists() {
+        let _ = std::fs::remove_file(bytecode_path);
     }
 }
 
 /// Observe which cache files exist for a fixture.
-fn observe_cache_files(file: &Path) -> Vec<CacheObservation> {
+fn observe_cache_files(file: &Path, extra_args: &[String]) -> Vec<CacheObservation> {
     let mut obs = Vec::new();
+    let (bytecode_key, _, _) = cache_keys_for_fixture(file, extra_args);
+    let layout = cache_paths::resolve_cache_layout(file, None);
+    let bytecode_cache = BytecodeCache::new(layout.root());
 
-    let fxc = file.with_extension("fxc");
+    let fxc = bytecode_cache.cache_path(file, &bytecode_key);
     if fxc.exists() {
         obs.push(CacheObservation {
             path: fxc,
@@ -215,16 +234,84 @@ fn observe_cache_files(file: &Path) -> Vec<CacheObservation> {
         });
     }
 
-    let flxi = file.with_extension("flxi");
-    if flxi.exists() {
-        obs.push(CacheObservation {
-            path: flxi,
-            kind: CacheFileKind::Interface,
-            state: CacheFileState::Existed,
-        });
+    for dir in [layout.interfaces_dir(), layout.vm_dir(), layout.native_dir()] {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let Some(kind) = classify_cache_observation(&path) else {
+                    continue;
+                };
+                obs.push(CacheObservation {
+                    path,
+                    kind,
+                    state: CacheFileState::Existed,
+                });
+            }
+        }
     }
 
+    obs.sort_by(|left, right| left.path.cmp(&right.path));
     obs
+}
+
+fn cache_keys_for_fixture(file: &Path, extra_args: &[String]) -> ([u8; 32], [u8; 32], [u8; 32]) {
+    let source = std::fs::read(file).unwrap_or_default();
+    let source_hash = hash_bytes(&source);
+    let roots_hash = hash_bytes(roots_marker(file, extra_args).as_bytes());
+    let strict_hash = hash_bytes(b"strict=0");
+    let bytecode_key = hash_cache_key(&hash_cache_key(&source_hash, &roots_hash), &strict_hash);
+    let module_key = hash_cache_key(&source_hash, &strict_hash);
+    let native_key = hash_cache_key(&source_hash, &strict_hash);
+    (bytecode_key, module_key, native_key)
+}
+
+fn roots_marker(file: &Path, extra_args: &[String]) -> String {
+    let mut roots = Vec::new();
+    if let Some(parent) = file.parent() {
+        roots.push(parent.to_path_buf());
+    }
+
+    for default_root in ["src", "lib"] {
+        let path = Path::new(default_root);
+        if path.exists() {
+            roots.push(path.to_path_buf());
+        }
+    }
+
+    let mut i = 0;
+    while i < extra_args.len() {
+        let arg = &extra_args[i];
+        if arg == "--root" {
+            if let Some(value) = extra_args.get(i + 1) {
+                roots.push(Path::new(value).to_path_buf());
+                i += 2;
+                continue;
+            }
+        } else if let Some(value) = arg.strip_prefix("--root=") {
+            roots.push(Path::new(value).to_path_buf());
+        }
+        i += 1;
+    }
+
+    roots
+        .into_iter()
+        .map(|root| root.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn classify_cache_observation(path: &Path) -> Option<CacheFileKind> {
+    let file_name = path.file_name()?.to_string_lossy();
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("flxi") => Some(CacheFileKind::Interface),
+        Some("fxm") => Some(CacheFileKind::Module),
+        Some("fno") => Some(CacheFileKind::NativeMetadata),
+        Some("o") | Some("obj") if file_name.starts_with("flux_support_") => {
+            Some(CacheFileKind::NativeSupport)
+        }
+        Some("o") | Some("obj") => Some(CacheFileKind::NativeObject),
+        _ => None,
+    }
 }
 
 /// Check if native compilation was unsupported (should be treated as skip).

@@ -4,6 +4,7 @@
 //! self-contained binaries that link against `libflux_rt.a` (the C runtime
 //! from `runtime/c/`).
 
+use std::fs;
 use std::fmt;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -117,15 +118,50 @@ fn run_llc(bc_path: &Path, obj_path: &Path) -> Result<(), PipelineError> {
     check_output("llc", &output)
 }
 
+/// Compile one LLVM IR file to an object file.
+pub fn compile_ir_to_object(
+    ll_text: &str,
+    obj_path: &Path,
+    opt_level: u32,
+) -> Result<(), PipelineError> {
+    if let Some(parent) = obj_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let work_dir = obj_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(std::env::temp_dir);
+    let stem = obj_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("module");
+    let ll_path = work_dir.join(format!("{stem}.ll"));
+    let bc_path = work_dir.join(format!("{stem}.bc"));
+
+    emit_llvm_ir(ll_text, &ll_path)?;
+    if opt_level > 0 {
+        run_opt(&ll_path, &bc_path, opt_level)?;
+        run_llc(&bc_path, obj_path)?;
+    } else {
+        run_llc(&ll_path, obj_path)?;
+    }
+    let _ = fs::remove_file(&ll_path);
+    let _ = fs::remove_file(&bc_path);
+    Ok(())
+}
+
 /// Link `.o`/`.obj` + runtime library → executable.
 ///
 /// On Unix: uses `cc` (system linker).
 /// On Windows: tries `clang` first, then falls back to MSVC `link.exe`.
 fn run_linker(
-    obj_path: &Path,
+    obj_paths: &[PathBuf],
     exe_path: &Path,
     runtime_lib_dir: Option<&Path>,
 ) -> Result<(), PipelineError> {
+    if let Some(parent) = exe_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     let toolchain = detect_c_toolchain()?;
 
     match &toolchain {
@@ -138,7 +174,7 @@ fn run_linker(
             let mut cmd = Command::new("link");
             cmd.args(["/nologo", "/subsystem:console"])
                 .arg(format!("/OUT:{}", exe_path_with_ext.display()))
-                .arg(obj_path);
+                .args(obj_paths);
             // Set large stack size for deeply recursive programs.
             cmd.arg("/STACK:67108864"); // 64 MB stack
             if let Some(dir) = runtime_lib_dir {
@@ -157,7 +193,7 @@ fn run_linker(
                 exe_path.to_path_buf()
             };
             let mut cmd = Command::new(cc);
-            cmd.arg(obj_path).arg("-o").arg(&exe_path_final);
+            cmd.args(obj_paths).arg("-o").arg(&exe_path_final);
             if let Some(dir) = runtime_lib_dir {
                 cmd.arg(format!("-L{}", dir.display()));
                 cmd.arg("-lflux_rt");
@@ -176,6 +212,14 @@ fn run_linker(
             check_output("cc", &output)
         }
     }
+}
+
+pub fn link_objects(
+    object_paths: &[PathBuf],
+    output_path: &Path,
+    runtime_lib_dir: Option<&Path>,
+) -> Result<(), PipelineError> {
+    run_linker(object_paths, output_path, runtime_lib_dir)
 }
 
 /// Compile LLVM IR to a native binary.
@@ -217,7 +261,7 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
         .clone()
         .unwrap_or_else(|| dir.join("program"));
 
-    run_linker(&obj_path, &exe_path, config.runtime_lib_dir.as_deref())?;
+    run_linker(std::slice::from_ref(&obj_path), &exe_path, config.runtime_lib_dir.as_deref())?;
 
     // Clean up intermediates (keep the output binary).
     let _ = std::fs::remove_file(&ll_path);

@@ -7,6 +7,7 @@ pub mod compiler;
 pub mod debug_info;
 pub mod emitted_instruction;
 pub mod module_constants;
+pub mod module_linker;
 pub mod op_code;
 pub mod symbol_scope;
 pub mod symbol_table;

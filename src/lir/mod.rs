@@ -184,6 +184,14 @@ pub enum LirInstr {
         func_id: LirFuncId,
         captures: Vec<LirVar>,
     },
+    /// Create a closure from an externally linked top-level function symbol.
+    /// Used by the native backend when an imported public function is referenced
+    /// as a first-class value across module boundaries.
+    MakeExternClosure {
+        dst: LirVar,
+        symbol: String,
+        arity: usize,
+    },
 
     // ── Collection construction ────────────────────────────────────
     /// Build an array from elements on the stack.
@@ -338,6 +346,8 @@ pub enum CtorTag {
 pub enum CallKind {
     /// Known top-level function — emit direct call with individual i64 params.
     Direct { func_id: LirFuncId },
+    /// Known imported top-level function — emit direct call to an external symbol.
+    DirectExtern { symbol: String },
     /// Unknown closure or higher-order value — dispatch via `flux_call_closure`.
     Indirect,
 }

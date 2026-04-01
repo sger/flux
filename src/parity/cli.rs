@@ -17,11 +17,11 @@ use std::time::{Duration, SystemTime};
 
 use super::fixture::parse_fixture_meta;
 use super::report::{
-    cargo_run_for_way, diagnose_mismatch, print_debug_first_failure, print_result,
-    print_summary, DisplayFilter,
+    DisplayFilter, cargo_run_for_way, diagnose_mismatch, print_debug_first_failure, print_result,
+    print_summary,
 };
 use super::runner::{
-    capture_dump_aether, capture_dump_core, is_native_skip, run_way, DEFAULT_TIMEOUT_SECS,
+    DEFAULT_TIMEOUT_SECS, capture_dump_aether, capture_dump_core, is_native_skip, run_way,
 };
 use super::{DebugArtifacts, ExitKind, MismatchDetail, ParityResult, Verdict, Way};
 
@@ -65,10 +65,7 @@ pub fn run_parity_check(args: &[String]) {
     // Collect .flx files
     let files = collect_fixtures(&config.path);
     if files.is_empty() {
-        eprintln!(
-            "Error: no .flx files found in {}",
-            config.path.display()
-        );
+        eprintln!("Error: no .flx files found in {}", config.path.display());
         std::process::exit(1);
     }
 
@@ -111,15 +108,11 @@ pub fn run_parity_check(args: &[String]) {
             if let Err(err) = save_debug_bundle(dir, &parity_result) {
                 eprintln!("[parity] failed to save debug bundle: {err}");
             } else {
-                eprintln!(
-                    "[parity] saved first failure bundle to {}",
-                    dir.display()
-                );
+                eprintln!("[parity] saved first failure bundle to {}", dir.display());
             }
             saved_first_failure = true;
         }
-        let should_stop = config.debug_first_failure
-            && is_non_pass;
+        let should_stop = config.debug_first_failure && is_non_pass;
         if should_stop {
             print_debug_first_failure(&parity_result);
             results.push(parity_result);
@@ -134,9 +127,7 @@ pub fn run_parity_check(args: &[String]) {
     let has_mismatch = results
         .iter()
         .any(|r| matches!(r.verdict, Verdict::Mismatch { .. }));
-    let has_pass = results
-        .iter()
-        .any(|r| matches!(r.verdict, Verdict::Pass));
+    let has_pass = results.iter().any(|r| matches!(r.verdict, Verdict::Pass));
 
     if has_mismatch || !has_pass {
         std::process::exit(1);
@@ -159,7 +150,12 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
 
     for &way in opts.ways {
         let result = run_way(
-            opts.vm_binary, opts.llvm_binary, file, way, opts.extra_args, opts.timeout,
+            opts.vm_binary,
+            opts.llvm_binary,
+            file,
+            way,
+            opts.extra_args,
+            opts.timeout,
         );
         run_results.push(result);
     }
@@ -179,11 +175,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
     let mut artifacts = capture_artifacts(file, opts, false);
     let mut details = collect_mismatch_details(&run_results, &artifacts);
 
-    if !opts.capture_core
-        && !details.is_empty()
-        && run_results.len() >= 2
-        && artifacts.is_empty()
-    {
+    if !opts.capture_core && !details.is_empty() && run_results.len() >= 2 && artifacts.is_empty() {
         artifacts = capture_artifacts(file, opts, true);
         details = collect_mismatch_details(&run_results, &artifacts);
     }
@@ -295,14 +287,24 @@ fn capture_artifacts(
             let mut arts = DebugArtifacts::default();
             if capture_core {
                 let core = capture_dump_core(
-                    opts.vm_binary, opts.llvm_binary, file, way, opts.extra_args, opts.timeout,
+                    opts.vm_binary,
+                    opts.llvm_binary,
+                    file,
+                    way,
+                    opts.extra_args,
+                    opts.timeout,
                 );
                 arts.dump_core = core.dump_core;
                 arts.normalized_dump_core = core.normalized_dump_core;
             }
             if capture_aether {
                 let aether = capture_dump_aether(
-                    opts.vm_binary, opts.llvm_binary, file, way, opts.extra_args, opts.timeout,
+                    opts.vm_binary,
+                    opts.llvm_binary,
+                    file,
+                    way,
+                    opts.extra_args,
+                    opts.timeout,
                 );
                 arts.dump_aether = aether.dump_aether;
                 arts.normalized_dump_aether = aether.normalized_dump_aether;
@@ -524,7 +526,11 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
                     "pass" => DisplayFilter::PassOnly,
                     "fail" | "failed" => DisplayFilter::FailOnly,
                     "all" => DisplayFilter::All,
-                    other => return Err(format!("unknown --show value: {other} (use pass, fail, or all)")),
+                    other => {
+                        return Err(format!(
+                            "unknown --show value: {other} (use pass, fail, or all)"
+                        ));
+                    }
                 };
             }
             "--root" => {
@@ -785,12 +791,18 @@ fn save_debug_bundle(dir: &Path, result: &ParityResult) -> Result<(), String> {
     fs::create_dir_all(&fixture_dir)
         .map_err(|e| format!("create fixture dir {}: {e}", fixture_dir.display()))?;
 
-    fs::write(fixture_dir.join("metadata.json"), build_metadata_json(result))
-        .map_err(|e| format!("write metadata.json: {e}"))?;
+    fs::write(
+        fixture_dir.join("metadata.json"),
+        build_metadata_json(result),
+    )
+    .map_err(|e| format!("write metadata.json: {e}"))?;
     fs::write(fixture_dir.join("commands.txt"), build_commands_txt(result))
         .map_err(|e| format!("write commands.txt: {e}"))?;
-    fs::write(fixture_dir.join("diagnosis.txt"), build_diagnosis_txt(result))
-        .map_err(|e| format!("write diagnosis.txt: {e}"))?;
+    fs::write(
+        fixture_dir.join("diagnosis.txt"),
+        build_diagnosis_txt(result),
+    )
+    .map_err(|e| format!("write diagnosis.txt: {e}"))?;
 
     let mut summary = String::new();
     summary.push_str(&format!("file: {}\n", result.file.display()));
@@ -806,10 +818,16 @@ fn save_debug_bundle(dir: &Path, result: &ParityResult) -> Result<(), String> {
 
     for run in &result.results {
         let prefix = run.way.to_string();
-        fs::write(fixture_dir.join(format!("{prefix}.stdout.txt")), &run.stdout)
-            .map_err(|e| format!("write stdout for {prefix}: {e}"))?;
-        fs::write(fixture_dir.join(format!("{prefix}.stderr.txt")), &run.stderr)
-            .map_err(|e| format!("write stderr for {prefix}: {e}"))?;
+        fs::write(
+            fixture_dir.join(format!("{prefix}.stdout.txt")),
+            &run.stdout,
+        )
+        .map_err(|e| format!("write stdout for {prefix}: {e}"))?;
+        fs::write(
+            fixture_dir.join(format!("{prefix}.stderr.txt")),
+            &run.stderr,
+        )
+        .map_err(|e| format!("write stderr for {prefix}: {e}"))?;
         fs::write(
             fixture_dir.join(format!("{prefix}.stdout.normalized.txt")),
             &run.normalized_stdout,
@@ -820,6 +838,24 @@ fn save_debug_bundle(dir: &Path, result: &ParityResult) -> Result<(), String> {
             &run.normalized_stderr,
         )
         .map_err(|e| format!("write normalized stderr for {prefix}: {e}"))?;
+        let mut cache_txt = String::new();
+        if run.cache_observations.is_empty() {
+            cache_txt.push_str("cache artifacts: none\n");
+        } else {
+            for obs in &run.cache_observations {
+                cache_txt.push_str(&format!(
+                    "{} [{}] {}\n",
+                    obs.kind,
+                    match obs.state {
+                        super::CacheFileState::Created => "created",
+                        super::CacheFileState::Existed => "reused",
+                    },
+                    obs.path.display()
+                ));
+            }
+        }
+        fs::write(fixture_dir.join(format!("{prefix}.cache.txt")), cache_txt)
+            .map_err(|e| format!("write cache state for {prefix}: {e}"))?;
     }
 
     for (way, arts) in &result.artifacts {
@@ -829,8 +865,11 @@ fn save_debug_bundle(dir: &Path, result: &ParityResult) -> Result<(), String> {
                 .map_err(|e| format!("write core dump for {prefix}: {e}"))?;
         }
         if let Some(core) = &arts.normalized_dump_core {
-            fs::write(fixture_dir.join(format!("{prefix}.core.normalized.txt")), core)
-                .map_err(|e| format!("write normalized core dump for {prefix}: {e}"))?;
+            fs::write(
+                fixture_dir.join(format!("{prefix}.core.normalized.txt")),
+                core,
+            )
+            .map_err(|e| format!("write normalized core dump for {prefix}: {e}"))?;
         }
         if let Some(aether) = &arts.dump_aether {
             fs::write(fixture_dir.join(format!("{prefix}.aether.txt")), aether)
@@ -907,10 +946,9 @@ fn build_metadata_json(result: &ParityResult) -> String {
     match &result.verdict {
         Verdict::Mismatch { details } => {
             match diagnose_mismatch(details) {
-                Some(summary) => out.push_str(&format!(
-                    "  \"diagnosis\": \"{}\",\n",
-                    json_escape(summary)
-                )),
+                Some(summary) => {
+                    out.push_str(&format!("  \"diagnosis\": \"{}\",\n", json_escape(summary)))
+                }
                 None => out.push_str("  \"diagnosis\": null,\n"),
             }
             out.push_str("  \"mismatch_details\": [\n");
@@ -953,6 +991,10 @@ fn build_metadata_json(result: &ParityResult) -> String {
             "      \"normalized_stderr_bytes\": {},\n",
             run.normalized_stderr.len()
         ));
+        out.push_str(&format!(
+            "      \"cache_observations\": {},\n",
+            run.cache_observations.len()
+        ));
         out.push_str("      \"artifacts\": {\n");
         out.push_str(&format!(
             "        \"core\": {},\n",
@@ -966,7 +1008,24 @@ fn build_metadata_json(result: &ParityResult) -> String {
                 .and_then(|arts| arts.normalized_dump_aether.as_ref())
                 .is_some()
         ));
-        out.push_str("      }\n");
+        out.push_str("      },\n");
+        out.push_str("      \"cache_observations_detail\": [\n");
+        for (cache_idx, obs) in run.cache_observations.iter().enumerate() {
+            out.push_str(&format!(
+                "        {{\"kind\":\"{}\",\"state\":\"{}\",\"path\":\"{}\"}}",
+                obs.kind,
+                match obs.state {
+                    super::CacheFileState::Created => "created",
+                    super::CacheFileState::Existed => "reused",
+                },
+                json_escape(&obs.path.display().to_string())
+            ));
+            if cache_idx + 1 != run.cache_observations.len() {
+                out.push(',');
+            }
+            out.push('\n');
+        }
+        out.push_str("      ]\n");
         out.push_str("    }");
         if idx + 1 != result.results.len() {
             out.push(',');
