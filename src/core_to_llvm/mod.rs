@@ -1,5 +1,6 @@
 pub mod codegen;
 pub mod ir;
+pub mod module_cache;
 pub mod pipeline;
 pub mod target;
 

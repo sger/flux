@@ -75,9 +75,11 @@ pub fn print_result(result: &ParityResult, filter: DisplayFilter) {
     match &result.verdict {
         Verdict::Pass => {
             println!("{} {name}", green("PASS"));
+            print_cache_summary(result);
         }
         Verdict::Skip { reason } => {
             println!("{} {name} ({reason})", yellow("SKIP"));
+            print_cache_summary(result);
         }
         Verdict::Mismatch { details } => {
             println!("{} {name}", red("MISMATCH"));
@@ -87,6 +89,7 @@ pub fn print_result(result: &ParityResult, filter: DisplayFilter) {
             for detail in details {
                 print_mismatch_detail(detail);
             }
+            print_cache_summary(result);
         }
     }
     println!();
@@ -161,8 +164,12 @@ pub fn print_debug_first_failure(result: &ParityResult) {
 }
 
 pub fn diagnose_mismatch(details: &[MismatchDetail]) -> Option<&'static str> {
-    let has_core = details.iter().any(|d| matches!(d, MismatchDetail::CoreMismatch { .. }));
-    let has_aether = details.iter().any(|d| matches!(d, MismatchDetail::AetherMismatch { .. }));
+    let has_core = details
+        .iter()
+        .any(|d| matches!(d, MismatchDetail::CoreMismatch { .. }));
+    let has_aether = details
+        .iter()
+        .any(|d| matches!(d, MismatchDetail::AetherMismatch { .. }));
     let has_backend_surface = details.iter().any(|d| {
         matches!(
             d,
@@ -179,6 +186,21 @@ pub fn diagnose_mismatch(details: &[MismatchDetail]) -> Option<&'static str> {
         .any(|d| matches!(d, MismatchDetail::StrictModeMismatch { .. }));
 
     if has_cache {
+        if details.iter().any(|d| {
+            matches!(d, MismatchDetail::CacheMismatch { field, .. } if field.contains(".flxi"))
+        }) {
+            return Some("semantic interface drift between fresh and cached ways");
+        }
+        if details.iter().any(|d| {
+            matches!(d, MismatchDetail::CacheMismatch { field, .. } if field.contains(".fxm"))
+        }) {
+            return Some("VM artifact hydration or module cache drift between fresh and cached ways");
+        }
+        if details.iter().any(|d| {
+            matches!(d, MismatchDetail::CacheMismatch { field, .. } if field.contains("native"))
+        }) {
+            return Some("native module artifact or link behavior diverged between fresh and cached ways");
+        }
         return Some("cache behavior diverged between fresh and cached ways");
     }
     if has_strict {
@@ -197,6 +219,44 @@ pub fn diagnose_mismatch(details: &[MismatchDetail]) -> Option<&'static str> {
         return Some("likely backend/runtime divergence; capture Core to confirm frontend parity");
     }
     None
+}
+
+fn print_cache_summary(result: &ParityResult) {
+    for run in &result.results {
+        if run.cache_observations.is_empty() {
+            continue;
+        }
+        println!("  {} {}", cyan("cache:"), run.way);
+        let created = run
+            .cache_observations
+            .iter()
+            .filter(|obs| obs.state == super::CacheFileState::Created)
+            .count();
+        let existed = run
+            .cache_observations
+            .iter()
+            .filter(|obs| obs.state == super::CacheFileState::Existed)
+            .count();
+        println!(
+            "    created={created} reused={existed} artifacts={}",
+            run.cache_observations.len()
+        );
+        for obs in &run.cache_observations {
+            println!("    - {} [{}] {}", obs.kind, state_label(obs.state), obs.path.display());
+        }
+        if run.way == Way::LlvmCached && created > 0 && existed > 0 {
+            println!("    note: native artifact boundary working; cached output matched with artifact reuse observed");
+        } else if run.way == Way::LlvmCached && existed > 0 {
+            println!("    note: native cached way matched output; full module skipping is not required in this phase");
+        }
+    }
+}
+
+fn state_label(state: super::CacheFileState) -> &'static str {
+    match state {
+        super::CacheFileState::Created => "created",
+        super::CacheFileState::Existed => "reused",
+    }
 }
 
 /// Build a copy-pasteable `cargo run` command for a given way.

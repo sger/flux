@@ -104,7 +104,7 @@ fn emit_copy_helper(module: &mut LlvmModule) {
         return;
     }
     module.functions.push(LlvmFunction {
-        linkage: Linkage::Internal,
+        linkage: Linkage::External,
         name: flux_closure_symbol(name),
         sig: LlvmFunctionSig {
             ret: LlvmType::Void,

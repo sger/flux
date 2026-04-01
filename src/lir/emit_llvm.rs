@@ -47,6 +47,15 @@ const CONS_TAG: i32 = 4;
 /// Emit an `LlvmModule` from a `LirProgram`.
 /// The caller can inject target triple / data layout before rendering.
 pub fn emit_llvm_module(program: &LirProgram) -> LlvmModule {
+    emit_llvm_module_with_options(program, true)
+}
+
+/// Emit an `LlvmModule` from a `LirProgram` with configurable export of the
+/// runtime-facing closure trampoline.
+pub fn emit_llvm_module_with_options(
+    program: &LirProgram,
+    export_runtime_trampoline: bool,
+) -> LlvmModule {
     let mut module = LlvmModule {
         source_filename: Some("flux_lir".to_string()),
         target_triple: None,
@@ -63,22 +72,26 @@ pub fn emit_llvm_module(program: &LirProgram) -> LlvmModule {
     let empty_metadata = crate::core_to_llvm::codegen::AdtMetadata::default();
     crate::core_to_llvm::codegen::emit_adt_support(&mut module, &empty_metadata);
     crate::core_to_llvm::codegen::emit_closure_support(&mut module);
+    let support_function_count = module.functions.len();
 
     // Track which C runtime functions need external declarations.
     let mut needed_decls: HashSet<String> = HashSet::new();
+    let mut needed_user_fastcc_decls: HashSet<(String, usize)> = HashSet::new();
+    let mut needed_closure_entry_decls: HashSet<String> = HashSet::new();
     let mut string_globals: Vec<(GlobalId, String)> = Vec::new();
 
     // Emit each LIR function.
-    let num_funcs = program.functions.len();
     let mut closure_wrappers_needed: HashSet<LirFuncId> = HashSet::new();
-    for (i, func) in program.functions.iter().enumerate() {
-        let is_main = i == num_funcs - 1;
+    for func in &program.functions {
+        let is_main = func.qualified_name == "main";
         let mut emitter = FnEmitter {
             program,
             func,
             is_main,
             next_tmp: 0,
             needed_decls: &mut needed_decls,
+            needed_user_fastcc_decls: &mut needed_user_fastcc_decls,
+            needed_closure_entry_decls: &mut needed_closure_entry_decls,
             string_globals: &mut string_globals,
             current_instrs: Vec::new(),
             extra_blocks: Vec::new(),
@@ -90,9 +103,17 @@ pub fn emit_llvm_module(program: &LirProgram) -> LlvmModule {
 
     // Emit closure entry wrappers for direct functions used as higher-order values.
     // These thin wrappers convert (i64 closure_raw, ptr args, i32 nargs) → direct call.
+    for func in &program.functions {
+        if func.capture_vars.is_empty() && func.qualified_name != "main" {
+            let wrapper = emit_closure_wrapper(func, Linkage::External);
+            module.functions.push(wrapper);
+        }
+    }
     for &func_id in &closure_wrappers_needed {
-        if let Some(target) = program.func_by_id(func_id) {
-            let wrapper = emit_closure_wrapper(target);
+        if let Some(target) = program.func_by_id(func_id)
+            && !target.capture_vars.is_empty()
+        {
+            let wrapper = emit_closure_wrapper(target, Linkage::Internal);
             module.functions.push(wrapper);
         }
     }
@@ -155,6 +176,50 @@ pub fn emit_llvm_module(program: &LirProgram) -> LlvmModule {
         });
     }
 
+    for (name, arity) in &needed_user_fastcc_decls {
+        if module.declarations.iter().any(|d| d.name.0 == *name)
+            || module.functions.iter().any(|f| f.name.0 == *name)
+        {
+            continue;
+        }
+        module.declarations.push(LlvmDecl {
+            linkage: Linkage::External,
+            name: GlobalId(name.clone()),
+            sig: LlvmFunctionSig {
+                ret: LlvmType::i64(),
+                params: (0..*arity).map(|_| LlvmType::i64()).collect(),
+                varargs: false,
+                call_conv: CallConv::Fastcc,
+            },
+            attrs: vec!["nounwind".to_string()],
+        });
+    }
+
+    for name in &needed_closure_entry_decls {
+        if module.declarations.iter().any(|d| d.name.0 == *name)
+            || module.functions.iter().any(|f| f.name.0 == *name)
+        {
+            continue;
+        }
+        module.declarations.push(LlvmDecl {
+            linkage: Linkage::External,
+            name: GlobalId(name.clone()),
+            sig: LlvmFunctionSig {
+                ret: LlvmType::i64(),
+                params: vec![LlvmType::i64(), LlvmType::Ptr, LlvmType::i32()],
+                varargs: false,
+                call_conv: CallConv::Ccc,
+            },
+            attrs: vec!["nounwind".to_string()],
+        });
+    }
+
+    if !export_runtime_trampoline {
+        for func in module.functions.iter_mut().take(support_function_count) {
+            func.linkage = Linkage::Internal;
+        }
+    }
+
     module
 }
 
@@ -166,7 +231,7 @@ pub fn emit_llvm_ir(program: &LirProgram) -> String {
 /// Emit a thin closure-convention wrapper for a direct-convention function.
 /// The wrapper has signature `(i64, ptr, i32) → i64` and unpacks args from
 /// the args array, then calls the direct function with individual params.
-fn emit_closure_wrapper(func: &LirFunction) -> LlvmFunction {
+fn emit_closure_wrapper(func: &LirFunction, linkage: Linkage) -> LlvmFunction {
     let direct_name = format!("flux_{}", func.qualified_name);
     let wrapper_name = format!("flux_{}.closure_entry", func.qualified_name);
 
@@ -216,7 +281,7 @@ fn emit_closure_wrapper(func: &LirFunction) -> LlvmFunction {
     });
 
     LlvmFunction {
-        linkage: Linkage::Internal,
+        linkage,
         name: GlobalId(wrapper_name),
         sig: LlvmFunctionSig {
             ret: LlvmType::i64(),
@@ -245,6 +310,8 @@ struct FnEmitter<'a> {
     is_main: bool,
     next_tmp: u32,
     needed_decls: &'a mut HashSet<String>,
+    needed_user_fastcc_decls: &'a mut HashSet<(String, usize)>,
+    needed_closure_entry_decls: &'a mut HashSet<String>,
     string_globals: &'a mut Vec<(GlobalId, String)>,
     current_instrs: Vec<LlvmInstr>,
     /// Extra blocks emitted by MatchCtor for field extraction.
@@ -336,6 +403,30 @@ impl<'a> FnEmitter<'a> {
         args: Vec<(LlvmType, LlvmOperand)>,
         ret: LlvmType,
     ) {
+        if !is_fastcc_prelude_helper(name) {
+            self.needed_user_fastcc_decls
+                .insert((name.to_string(), args.len()));
+        }
+        self.emit(LlvmInstr::Call {
+            dst,
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: ret,
+            callee: LlvmOperand::Global(GlobalId(name.to_string())),
+            args,
+            attrs: Vec::new(),
+        });
+    }
+
+    fn call_extern_fastcc_user(
+        &mut self,
+        dst: Option<LlvmLocal>,
+        name: &str,
+        args: Vec<(LlvmType, LlvmOperand)>,
+        ret: LlvmType,
+    ) {
+        self.needed_user_fastcc_decls
+            .insert((name.to_string(), args.len()));
         self.emit(LlvmInstr::Call {
             dst,
             tail: false,
@@ -443,7 +534,7 @@ impl<'a> FnEmitter<'a> {
                 self.func.params.iter().map(|_| LlvmType::i64()).collect();
 
             LlvmFunction {
-                linkage: Linkage::Internal,
+                linkage: Linkage::External,
                 name: self.func_name(),
                 sig: LlvmFunctionSig {
                     ret: LlvmType::i64(),
@@ -964,6 +1055,9 @@ impl<'a> FnEmitter<'a> {
             } => {
                 self.emit_make_closure(*dst, *func_id, captures);
             }
+            LirInstr::MakeExternClosure { dst, symbol, arity } => {
+                self.emit_make_extern_closure(*dst, symbol, *arity);
+            }
 
             // ── Collections ─────────────────────────────────────────
             LirInstr::MakeArray { dst, elements } => {
@@ -1184,6 +1278,25 @@ impl<'a> FnEmitter<'a> {
                 LlvmType::i64(),
             );
         }
+    }
+
+    fn emit_make_extern_closure(&mut self, dst: LirVar, symbol: &str, arity: usize) {
+        let wrapper_name = format!("{symbol}.closure_entry");
+        self.needed_closure_entry_decls
+            .insert(wrapper_name.clone());
+        self.call_fastcc(
+            Some(self.var_local(dst)),
+            "flux_make_closure",
+            vec![
+                (LlvmType::Ptr, LlvmOperand::Global(GlobalId(wrapper_name))),
+                (LlvmType::i32(), self.i32_const(arity as i32)),
+                (LlvmType::Ptr, LlvmOperand::Const(LlvmConst::Null)),
+                (LlvmType::i32(), self.i32_const(0)),
+                (LlvmType::Ptr, LlvmOperand::Const(LlvmConst::Null)),
+                (LlvmType::i32(), self.i32_const(0)),
+            ],
+            LlvmType::i64(),
+        );
     }
 
     fn emit_make_collection_fastcc(&mut self, dst: LirVar, elements: &[LirVar], func: &str) {
@@ -1577,6 +1690,18 @@ impl<'a> FnEmitter<'a> {
                             LlvmType::i64(),
                         );
                     }
+                    CallKind::DirectExtern { symbol } => {
+                        let call_args: Vec<(LlvmType, LlvmOperand)> = args
+                            .iter()
+                            .map(|a| (LlvmType::i64(), self.var(*a)))
+                            .collect();
+                        self.call_extern_fastcc_user(
+                            Some(self.var_local(*dst)),
+                            symbol,
+                            call_args,
+                            LlvmType::i64(),
+                        );
+                    }
                     CallKind::Indirect => {
                         // Closure dispatch: flux_call_closure(closure, args_array, nargs)
                         let llvm_args = self.build_call_args(args);
@@ -1614,6 +1739,18 @@ impl<'a> FnEmitter<'a> {
                         self.call_fastcc(
                             Some(result.clone()),
                             &target_name,
+                            call_args,
+                            LlvmType::i64(),
+                        );
+                    }
+                    CallKind::DirectExtern { symbol } => {
+                        let call_args: Vec<(LlvmType, LlvmOperand)> = args
+                            .iter()
+                            .map(|a| (LlvmType::i64(), self.var(*a)))
+                            .collect();
+                        self.call_extern_fastcc_user(
+                            Some(result.clone()),
+                            symbol,
                             call_args,
                             LlvmType::i64(),
                         );

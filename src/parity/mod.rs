@@ -160,6 +160,14 @@ pub enum CacheFileKind {
     Bytecode,
     /// `.flxi` — semantic interface cache
     Interface,
+    /// `.fxm` — module bytecode cache
+    Module,
+    /// Native module object artifact
+    NativeObject,
+    /// Native metadata sidecar
+    NativeMetadata,
+    /// Shared native support object
+    NativeSupport,
 }
 
 impl fmt::Display for CacheFileKind {
@@ -167,6 +175,10 @@ impl fmt::Display for CacheFileKind {
         match self {
             Self::Bytecode => write!(f, ".fxc"),
             Self::Interface => write!(f, ".flxi"),
+            Self::Module => write!(f, ".fxm"),
+            Self::NativeObject => write!(f, "native-object"),
+            Self::NativeMetadata => write!(f, "native-metadata"),
+            Self::NativeSupport => write!(f, "native-support"),
         }
     }
 }

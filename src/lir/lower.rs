@@ -16,6 +16,12 @@ use crate::lir::*;
 use crate::syntax::Identifier;
 use crate::syntax::interner::Interner;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportedNativeSymbol {
+    pub symbol: String,
+    pub arity: usize,
+}
+
 // ── Object layout constants (match runtime/c/flux_rt.h) ──────────────────────
 
 /// ADT header: {i32 ctor_tag, i32 field_count}, then i64 fields[].
@@ -82,7 +88,11 @@ fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
 fn collect_module_paths(
     item: &CoreTopLevelItem,
     prefix: &[String],
-    out: &mut Vec<(crate::syntax::Identifier, String, crate::diagnostics::position::Span)>,
+    out: &mut Vec<(
+        crate::syntax::Identifier,
+        String,
+        crate::diagnostics::position::Span,
+    )>,
     interner: Option<&Interner>,
 ) {
     match item {
@@ -231,6 +241,18 @@ pub fn lower_program_with_interner(
     interner: Option<&Interner>,
     globals_map: Option<&HashMap<String, usize>>,
 ) -> LirProgram {
+    lower_program_with_interner_and_externs(program, interner, globals_map, None, true)
+}
+
+/// Lower a `CoreProgram` to `LirProgram` with optional native external symbol
+/// resolution for imported public functions.
+pub fn lower_program_with_interner_and_externs(
+    program: &CoreProgram,
+    interner: Option<&Interner>,
+    globals_map: Option<&HashMap<String, usize>>,
+    extern_symbols: Option<&HashMap<String, ImportedNativeSymbol>>,
+    emit_main: bool,
+) -> LirProgram {
     let mut lir = LirProgram::new();
 
     // Build module-qualified names from the CoreTopLevelItem tree.
@@ -244,14 +266,23 @@ pub fn lower_program_with_interner(
     );
 
     // Find the main def — it could be at any position in defs[].
-    let main_idx = if let Some(interner) = interner {
+    let main_idx = if emit_main {
+        if let Some(interner) = interner {
+            program
+                .defs
+                .iter()
+                .position(|d| interner.resolve(d.name) == "main")
+                .or(Some(0))
+        } else {
+            Some(0)
+        }
+    } else if let Some(interner) = interner {
         program
             .defs
             .iter()
             .position(|d| interner.resolve(d.name) == "main")
-            .unwrap_or(0)
     } else {
-        0
+        None
     };
 
     // Pre-assign LirFuncIds for top-level functions and separately track
@@ -259,7 +290,7 @@ pub fn lower_program_with_interner(
     let mut binder_func_map: HashMap<CoreBinderId, LirFuncId> = HashMap::new();
     let mut top_level_value_map: HashMap<CoreBinderId, &CoreExpr> = HashMap::new();
     for (i, def) in program.defs.iter().enumerate() {
-        if i == main_idx {
+        if main_idx.is_some_and(|idx| i == idx) {
             continue;
         }
         if matches!(def.expr, CoreExpr::Lam { .. }) {
@@ -282,7 +313,7 @@ pub fn lower_program_with_interner(
 
     // Phase 1: Lower all non-main defs.
     for (i, def) in program.defs.iter().enumerate() {
-        if i == main_idx {
+        if main_idx.is_some_and(|idx| i == idx) {
             continue;
         }
         let ctx = LowerDefCtx {
@@ -292,6 +323,7 @@ pub fn lower_program_with_interner(
             name_binder_map: &name_binder_map,
             interner,
             globals_map,
+            extern_symbols,
             top_level_value_map: &top_level_value_map,
         };
         let func = lower_def(def, ctx);
@@ -300,18 +332,21 @@ pub fn lower_program_with_interner(
 
     // Phase 2: Lower main with knowledge of all sibling functions.
     // Main is always last in LIR (emit_program expects this).
-    let main_def = &program.defs[main_idx];
-    let ctx = LowerDefCtx {
-        program: &mut lir,
-        binder_func_map: &binder_func_map,
-        qualified_names: &qualified_names,
-        name_binder_map: &name_binder_map,
-        interner,
-        globals_map,
-        top_level_value_map: &top_level_value_map,
-    };
-    let func = lower_def(main_def, ctx);
-    lir.push_function(func);
+    if let Some(main_idx) = main_idx {
+        let main_def = &program.defs[main_idx];
+        let ctx = LowerDefCtx {
+            program: &mut lir,
+            binder_func_map: &binder_func_map,
+            qualified_names: &qualified_names,
+            name_binder_map: &name_binder_map,
+            interner,
+            globals_map,
+            extern_symbols,
+            top_level_value_map: &top_level_value_map,
+        };
+        let func = lower_def(main_def, ctx);
+        lir.push_function(func);
+    }
 
     lir
 }
@@ -332,6 +367,9 @@ struct FnLower<'a> {
     interner: Option<&'a Interner>,
     /// Optional mapping from function name → VM global index for imported functions.
     globals_map: Option<&'a HashMap<String, usize>>,
+    /// Optional mapping from imported source-level name to the linked native
+    /// symbol to use for cross-module calls/closures.
+    extern_symbols: Option<&'a HashMap<String, ImportedNativeSymbol>>,
     /// Tracks LIR variables that were produced by GetGlobal, mapping to their
     /// function name.  Used by the App handler to intercept closure calls to
     /// known library functions and emit PrimCall instead.
@@ -356,6 +394,7 @@ struct FnLowerCtx<'a> {
     program: &'a mut LirProgram,
     interner: Option<&'a Interner>,
     globals_map: Option<&'a HashMap<String, usize>>,
+    extern_symbols: Option<&'a HashMap<String, ImportedNativeSymbol>>,
     name_binder_map: &'a HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
     binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
     qualified_names: &'a HashMap<CoreBinderId, String>,
@@ -386,6 +425,7 @@ impl<'a> FnLower<'a> {
             interner: ctx.interner,
             global_var_names: HashMap::new(),
             globals_map: ctx.globals_map,
+            extern_symbols: ctx.extern_symbols,
             name_binder_map: ctx.name_binder_map,
             direct_func_vars: HashMap::new(),
             binder_func_id_map: ctx.binder_func_id_map,
@@ -402,6 +442,11 @@ impl<'a> FnLower<'a> {
         } else {
             format!("ctor_{}", name)
         }
+    }
+
+    fn resolve_external_symbol(&self, source_name: &str) -> Option<ImportedNativeSymbol> {
+        self.extern_symbols
+            .and_then(|symbols| symbols.get(source_name).cloned())
     }
 
     /// In merged native mode, duplicate bare names from different modules can
@@ -574,6 +619,14 @@ impl<'a> FnLower<'a> {
                             value: LirConst::None,
                         });
                         dst
+                    } else if let Some(extern_fn) = self.resolve_external_symbol(&name) {
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::MakeExternClosure {
+                            dst,
+                            symbol: extern_fn.symbol,
+                            arity: extern_fn.arity,
+                        });
+                        dst
                     } else {
                         let dst = self.fresh_var();
                         self.emit(LirInstr::Const {
@@ -636,6 +689,7 @@ impl<'a> FnLower<'a> {
                             program: &mut temp_program,
                             interner: self.interner,
                             globals_map: self.globals_map,
+                            extern_symbols: self.extern_symbols,
                             name_binder_map: self.name_binder_map,
                             binder_func_id_map: self.binder_func_id_map,
                             qualified_names: self.qualified_names,
@@ -729,6 +783,7 @@ impl<'a> FnLower<'a> {
                             program: &mut temp_program,
                             interner: self.interner,
                             globals_map: self.globals_map,
+                            extern_symbols: self.extern_symbols,
                             name_binder_map: self.name_binder_map,
                             binder_func_id_map: self.binder_func_id_map,
                             qualified_names: self.qualified_names,
@@ -820,11 +875,35 @@ impl<'a> FnLower<'a> {
                 // If func is a Var with a binder in binder_func_id_map,
                 // emit a Direct call without creating a closure.
                 let direct_func_id = match func.as_ref() {
-                    CoreExpr::Var { var, .. } if var.binder.is_some() => var.binder.and_then(|bid| {
-                        let preferred = self.prefer_same_module_binder(bid, var.name);
-                        self.binder_func_id_map.get(&preferred).copied()
-                    }),
+                    CoreExpr::Var { var, .. } if var.binder.is_some() => {
+                        var.binder.and_then(|bid| {
+                            let preferred = self.prefer_same_module_binder(bid, var.name);
+                            self.binder_func_id_map.get(&preferred).copied()
+                        })
+                    }
                     _ => None,
+                };
+                let direct_external_symbol = if direct_func_id.is_none() {
+                    match func.as_ref() {
+                        CoreExpr::Var { var, .. } if var.binder.is_none() => {
+                            self.resolve_external_symbol(&self.resolve_name(var.name))
+                        }
+                        CoreExpr::MemberAccess { object, member, .. } => {
+                            let member_name = self.resolve_name(*member);
+                            let qualified = if let CoreExpr::Var { var, .. } = object.as_ref() {
+                                Some(format!("{}.{}", self.resolve_name(var.name), member_name))
+                            } else {
+                                None
+                            };
+                            qualified
+                                .as_ref()
+                                .and_then(|name| self.resolve_external_symbol(name))
+                                .or_else(|| self.resolve_external_symbol(&member_name))
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
                 };
 
                 let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
@@ -849,6 +928,32 @@ impl<'a> FnLower<'a> {
                         args: arg_vars,
                         cont: cont_id,
                         kind: CallKind::Direct { func_id },
+                        yield_cont: None,
+                    });
+                    self.switch_to_block(cont_idx);
+                    return result;
+                }
+
+                if let Some(extern_fn) = direct_external_symbol {
+                    let cont_idx = self.new_block();
+                    let cont_id = BlockId(cont_idx as u32);
+                    let result = self.fresh_var();
+                    self.func.blocks[cont_idx].params.push(result);
+
+                    let dummy = self.fresh_var();
+                    self.emit(LirInstr::Const {
+                        dst: dummy,
+                        value: LirConst::None,
+                    });
+
+                    self.set_terminator(LirTerminator::Call {
+                        dst: result,
+                        func: dummy,
+                        args: arg_vars,
+                        cont: cont_id,
+                        kind: CallKind::DirectExtern {
+                            symbol: extern_fn.symbol,
+                        },
                         yield_cont: None,
                     });
                     self.switch_to_block(cont_idx);
@@ -991,6 +1096,31 @@ impl<'a> FnLower<'a> {
                             return var;
                         }
                     }
+                }
+
+                if let CoreExpr::Var { var, .. } = object.as_ref() {
+                    let object_name = self.resolve_name(var.name);
+                    let member_name = self.resolve_name(*member);
+                    let qualified = format!("{object_name}.{member_name}");
+                    if let Some(extern_fn) = self.resolve_external_symbol(&qualified) {
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::MakeExternClosure {
+                            dst,
+                            symbol: extern_fn.symbol,
+                            arity: extern_fn.arity,
+                        });
+                        return dst;
+                    }
+                }
+                let member_name = self.resolve_name(*member);
+                if let Some(extern_fn) = self.resolve_external_symbol(&member_name) {
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::MakeExternClosure {
+                        dst,
+                        symbol: extern_fn.symbol,
+                        arity: extern_fn.arity,
+                    });
+                    return dst;
                 }
 
                 // Fallback: lower the object and ignore the member.
@@ -1194,6 +1324,7 @@ impl<'a> FnLower<'a> {
                 program: &mut temp_program,
                 interner: self.interner,
                 globals_map: self.globals_map,
+                extern_symbols: self.extern_symbols,
                 name_binder_map: self.name_binder_map,
                 binder_func_id_map: self.binder_func_id_map,
                 qualified_names: self.qualified_names,
@@ -1311,6 +1442,7 @@ impl<'a> FnLower<'a> {
                 program: &mut temp_program,
                 interner: self.interner,
                 globals_map: self.globals_map,
+                extern_symbols: self.extern_symbols,
                 name_binder_map: self.name_binder_map,
                 binder_func_id_map: self.binder_func_id_map,
                 qualified_names: self.qualified_names,
@@ -2127,6 +2259,7 @@ struct LowerDefCtx<'a> {
     name_binder_map: &'a HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
     interner: Option<&'a Interner>,
     globals_map: Option<&'a HashMap<String, usize>>,
+    extern_symbols: Option<&'a HashMap<String, ImportedNativeSymbol>>,
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
 }
 
@@ -2146,6 +2279,7 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
             program: ctx.program,
             interner: ctx.interner,
             globals_map: ctx.globals_map,
+            extern_symbols: ctx.extern_symbols,
             name_binder_map: ctx.name_binder_map,
             binder_func_id_map: ctx.binder_func_map,
             qualified_names: ctx.qualified_names,
@@ -2285,6 +2419,9 @@ fn display_instr(instr: &LirInstr) -> String {
             let caps: Vec<String> = captures.iter().map(|v| format!("{v}")).collect();
             format!("{dst} = make_closure({func_id}, [{}])", caps.join(", "))
         }
+        LirInstr::MakeExternClosure { dst, symbol, arity } => {
+            format!("{dst} = make_extern_closure({symbol}, arity={arity})")
+        }
         LirInstr::MakeArray { dst, elements } => {
             let es: Vec<String> = elements.iter().map(|v| format!("{v}")).collect();
             format!("{dst} = make_array([{}])", es.join(", "))
@@ -2354,6 +2491,7 @@ fn display_terminator(term: &LirTerminator) -> String {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
             let kind_str = match kind {
                 CallKind::Direct { func_id } => format!(" [direct {}]", func_id),
+                CallKind::DirectExtern { symbol } => format!(" [extern {}]", symbol),
                 CallKind::Indirect => String::new(),
             };
             format!("tailcall {func}({}){kind_str}", args_str.join(", "))
@@ -2369,6 +2507,7 @@ fn display_terminator(term: &LirTerminator) -> String {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
             let kind_str = match kind {
                 CallKind::Direct { func_id } => format!(" [direct {}]", func_id),
+                CallKind::DirectExtern { symbol } => format!(" [extern {}]", symbol),
                 CallKind::Indirect => String::new(),
             };
             format!(
