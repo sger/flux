@@ -3,19 +3,98 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day8_part1.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+error[E004]: Undefined Variable
 
-Cannot find module `Flow.Array` to import.
+I can't find a value named `map`.
 
-  examples/aoc/2025/aoc_day8_part1.flx:6:1
-  |
-6 | import Flow.Array as Array
-  | ^
+  examples/aoc/2025/aoc_day8_part1.flx:106:14
+    |
+106 | let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
-  Check that: 1) The module file exists (e.g., `Flow.Array.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Flow.Array` under roots: examples/aoc/2025, src (imported from examples/aoc/2025/aoc_day8_part1.flx).
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `range`.
+
+  examples/aoc/2025/aoc_day8_part1.flx:108:12
+    |
+108 | let idxs = range(0, n)
+    |            ^^^^^
+
+Hint:
+  Define it first: let range = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day8_part1.flx:112:1
+    |
+112 | fold(idxs, [||], /(acc, i) -> {
+    | ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `range`.
+
+  examples/aoc/2025/aoc_day8_part1.flx:120:16
+    |
+120 | let parents0 = range(0, n)
+    |                ^^^^^
+
+Hint:
+  Define it first: let range = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day8_part1.flx:121:14
+    |
+121 | let sizes0 = map(range(0, n), /_ -> 1)
+    |              ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day8_part1.flx:123:14
+    |
+123 | let state1 = fold(top_keys, state0, /(st, k) -> union_key(st, k))
+    |              ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day8_part1.flx:127:13
+    |
+127 | let comps = [int_at(sizes1, i) | i <- range(0, len(parents1)), int_at(parents1, i) == i]
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let map = ...;
+
+Found 7 errors.
 == stdout ==
 <not executed>

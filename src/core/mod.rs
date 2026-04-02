@@ -441,6 +441,7 @@ pub enum CorePrimOp {
     SortBy = 109,
     HoMap = 110,
     HoFilter = 111,
+    HoFold = 112,
     HoAny = 113,
     HoAll = 114,
     HoEach = 115,
@@ -602,8 +603,9 @@ impl CorePrimOp {
             | And | Or | Concat | ArrayGet | ArrayPush | ArrayConcat | HamtGet | HamtContains
             | HamtDelete | HamtMerge | Index | Join | Max | Min | Split | SplitInts
             | StartsWith | EndsWith | StringConcat | StrContains | WriteFile | Contains
-            | SortBy | HoMap | HoFilter | HoAny | HoAll | HoEach | HoFind | HoCount | HoFlatMap
-            | Zip => 2,
+            | SortBy | HoMap | HoFilter | HoAny | HoAll | HoEach | HoFind | HoCount
+            | HoFlatMap | Zip => 2,
+            HoFold => 3,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.

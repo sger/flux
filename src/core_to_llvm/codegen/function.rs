@@ -14,39 +14,7 @@ use crate::{
     syntax::{Identifier, interner::Interner},
 };
 
-use super::{adt::AdtMetadata, closure::common_closure_load_instrs, expr::FunctionLowering};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CoreToLlvmError {
-    Unsupported {
-        feature: &'static str,
-        context: String,
-    },
-    Malformed {
-        message: String,
-    },
-    MissingSymbol {
-        message: String,
-    },
-}
-
-impl fmt::Display for CoreToLlvmError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CoreToLlvmError::Unsupported { feature, context } => {
-                write!(f, "unsupported CoreToLlvm feature `{feature}`: {context}")
-            }
-            CoreToLlvmError::Malformed { message } => {
-                write!(f, "malformed Core lowering: {message}")
-            }
-            CoreToLlvmError::MissingSymbol { message } => {
-                write!(f, "missing CoreToLlvm symbol: {message}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for CoreToLlvmError {}
+use super::{CoreToLlvmError, adt::AdtMetadata, closure::common_closure_load_instrs, expr::FunctionLowering};
 
 #[derive(Debug, Clone)]
 pub(super) struct TopLevelFunctionInfo {

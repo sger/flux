@@ -1823,6 +1823,13 @@ let %t376 = (let %t377 = (let %t378 = MakeList(1, 2, 3)
 
 ── Aether stats ──
 Dups: 19  Drops: 64  Reuses: 18  DropSpecs: 4  FBIP: fbip(32)
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+[7 of 7] Compiling  verify_aether
 • 2 warnings • examples/aether/verify_aether.flx
 Warning: FBIP Contract Not Proven
 

@@ -1068,6 +1068,14 @@ Aether Memory Model Report
   Dups: 18  Drops: 59  Reuses: 14  DropSpecs: 3  FBIP: fbip(22)
   FreshAllocs: 22
 
+[1 of 8] Compiling  Assert
+[2 of 8] Compiling  IO
+[3 of 8] Compiling  List
+[4 of 8] Compiling  Numeric
+[5 of 8] Compiling  Option
+[6 of 8] Compiling  String
+[7 of 8] Compiling  FbipImportedSupport
+[8 of 8] Compiling  fbip_failure_cases
 • 3 warnings • examples/aether/fbip_failure_cases.flx
 Warning: FBIP Contract Not Proven
 

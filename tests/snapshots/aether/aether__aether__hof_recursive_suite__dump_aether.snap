@@ -1080,6 +1080,13 @@ Aether Memory Model Report
   Dups: 18  Drops: 59  Reuses: 16  DropSpecs: 3  FBIP: fbip(22)
   FreshAllocs: 22
 
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+[7 of 7] Compiling  hof_recursive_suite
 • 2 warnings • examples/aether/hof_recursive_suite.flx
 Warning: FBIP Contract Not Proven
 

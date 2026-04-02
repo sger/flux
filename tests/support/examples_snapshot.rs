@@ -146,6 +146,10 @@ pub fn build_transcript(
         if let Some(parent) = fixture.parent() {
             roots.push(parent.to_path_buf());
         }
+        let lib_root = workspace_root.join("lib");
+        if lib_root.exists() {
+            roots.push(lib_root);
+        }
         let src_root = workspace_root.join("src");
         if src_root.exists() {
             roots.push(src_root);

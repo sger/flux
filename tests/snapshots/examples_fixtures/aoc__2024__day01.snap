@@ -46,28 +46,28 @@ Hint:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `sort_by`.
+I can't find a value named `map`.
 
-  examples/aoc/2024/day01.flx:36:52
+  examples/aoc/2024/day01.flx:36:34
    |
 36 |     where left  = day_pairs_a |> map(/p -> p.0) |> sort_by(/x -> x)
-   |                                                    ^^^^^^^
+   |                                  ^^^
 
 Hint:
-  Define it first: let sort_by = ...;
+  Define it first: let map = ...;
 
 
 error[E004]: Undefined Variable
 
-I can't find a value named `sort_by`.
+I can't find a value named `map`.
 
-  examples/aoc/2024/day01.flx:37:52
+  examples/aoc/2024/day01.flx:37:34
    |
 37 |     where right = day_pairs_a |> map(/p -> p.1) |> sort_by(/x -> x)
-   |                                                    ^^^^^^^
+   |                                  ^^^
 
 Hint:
-  Define it first: let sort_by = ...;
+  Define it first: let map = ...;
 
 
 error[E004]: Undefined Variable

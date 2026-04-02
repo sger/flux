@@ -521,6 +521,7 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::SortBy
         | CorePrimOp::HoMap
         | CorePrimOp::HoFilter
+        | CorePrimOp::HoFold
         | CorePrimOp::HoAny
         | CorePrimOp::HoAll
         | CorePrimOp::HoEach

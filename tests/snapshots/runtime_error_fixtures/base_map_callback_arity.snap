@@ -7,6 +7,12 @@ status: 1
 stdout:
 <empty>
 stderr:
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
 • 1 error • examples/runtime_errors/base_map_callback_arity.flx
 error[E004]: Undefined Variable
 
@@ -24,6 +30,12 @@ status: 1
 stdout:
 <empty>
 stderr:
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
 • 1 error • examples/runtime_errors/base_map_callback_arity.flx
 error[E004]: Undefined Variable
 

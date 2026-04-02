@@ -137,45 +137,6 @@ Hint:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `sort_by`.
-
-  examples/basics/higher_order_builtins.flx:45:11
-   |
-45 |     print(sort_by(words, /w -> len(w)))
-   |           ^^^^^^^
-
-Hint:
-  Define it first: let sort_by = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `sort_by`.
-
-  examples/basics/higher_order_builtins.flx:48:11
-   |
-48 |     print(sort_by(nums, /x -> 0 - x))
-   |           ^^^^^^^
-
-Hint:
-  Define it first: let sort_by = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `sort_by`.
-
-  examples/basics/higher_order_builtins.flx:52:18
-   |
-52 |     let by_age = sort_by(people, /p -> p.1)
-   |                  ^^^^^^^
-
-Hint:
-  Define it first: let sort_by = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `map`.
 
   examples/basics/higher_order_builtins.flx:53:11
@@ -368,6 +329,6 @@ I can't find a value named `filter`.
 Hint:
   Define it first: let filter = ...;
 
-Found 28 errors.
+Found 25 errors.
 == stdout ==
 <not executed>

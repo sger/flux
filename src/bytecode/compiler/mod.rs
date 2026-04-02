@@ -541,6 +541,8 @@ impl Compiler {
             // Preserve existing primop behavior for unqualified calls.
             ("Flow.List", "concat"),
             ("Flow.List", "delete"),
+            ("Flow.List", "sort"),
+            ("Flow.List", "sort_by"),
         ];
         // Collect all public members for Flow modules.
         let entries: Vec<(Symbol, Symbol)> = self
@@ -706,6 +708,34 @@ impl Compiler {
 
         let import_bindings = self.collect_import_module_bindings(program);
         let mut symbols = HashMap::new();
+        let flow_prefixes = [
+            "Flow.Option",
+            "Flow.List",
+            "Flow.String",
+            "Flow.Numeric",
+            "Flow.IO",
+            "Flow.Assert",
+        ];
+        let skip_flow_auto_expose = [
+            ("Flow.List", "concat"),
+            ("Flow.List", "delete"),
+        ];
+
+        for ((module_name, member_name), scheme) in &self.cached_member_schemes {
+            let module = self.sym(*module_name);
+            let member = self.sym(*member_name);
+            if !flow_prefixes.contains(&module)
+                || skip_flow_auto_expose.contains(&(module, member))
+            {
+                continue;
+            }
+            symbols.entry(member.to_string()).or_insert_with(|| {
+                crate::lir::lower::ImportedNativeSymbol {
+                    symbol: format!("flux_{}_{}", module.replace('.', "_"), member),
+                    arity: Self::native_function_arity(scheme),
+                }
+            });
+        }
 
         for (binding, target_module) in import_bindings {
             let binding_name = self.sym(binding);
@@ -728,12 +758,34 @@ impl Compiler {
         for statement in &program.statements {
             let Statement::Import {
                 name: module_name,
+                except,
                 exposing,
                 ..
             } = statement
             else {
                 continue;
             };
+
+            if !except.is_empty() {
+                for ((mod_name, member_name), scheme) in &self.cached_member_schemes {
+                    if *mod_name != *module_name || except.contains(member_name) {
+                        continue;
+                    }
+                    let member = self.sym(*member_name);
+                    symbols.insert(
+                        member.to_string(),
+                        crate::lir::lower::ImportedNativeSymbol {
+                            symbol: format!(
+                                "flux_{}_{}",
+                                self.sym(*module_name).replace('.', "_"),
+                                member
+                            ),
+                            arity: Self::native_function_arity(scheme),
+                        },
+                    );
+                }
+                continue;
+            }
 
             match exposing {
                 ImportExposing::None => {}
@@ -801,12 +853,22 @@ impl Compiler {
         for stmt in &program.statements {
             let Statement::Import {
                 name: module_name,
+                except,
                 exposing,
                 ..
             } = stmt
             else {
                 continue;
             };
+
+            if !except.is_empty() {
+                for ((mod_name, member), signature) in &self.cached_member_borrow_signatures {
+                    if *mod_name == *module_name && !except.contains(member) {
+                        registry.by_name.insert(*member, signature.clone());
+                    }
+                }
+                continue;
+            }
 
             match exposing {
                 ImportExposing::None => {}
@@ -1124,6 +1186,7 @@ impl Compiler {
         for stmt in &program.statements {
             let Statement::Import {
                 name: module_name,
+                except,
                 exposing,
                 ..
             } = stmt
@@ -1131,15 +1194,25 @@ impl Compiler {
                 continue;
             };
 
-            let members_to_expose: Vec<Symbol> = match exposing {
-                ImportExposing::None => continue,
-                ImportExposing::All => self
-                    .module_function_visibility
+            let members_to_expose: Vec<Symbol> = if !except.is_empty() {
+                self.module_function_visibility
                     .iter()
-                    .filter(|((mod_name, _), is_public)| *mod_name == *module_name && **is_public)
+                    .filter(|((mod_name, member), is_public)| {
+                        *mod_name == *module_name && **is_public && !except.contains(member)
+                    })
                     .map(|((_, member), _)| *member)
-                    .collect(),
-                ImportExposing::Names(names) => names.clone(),
+                    .collect()
+            } else {
+                match exposing {
+                    ImportExposing::None => continue,
+                    ImportExposing::All => self
+                        .module_function_visibility
+                        .iter()
+                        .filter(|((mod_name, _), is_public)| *mod_name == *module_name && **is_public)
+                        .map(|((_, member), _)| *member)
+                        .collect(),
+                    ImportExposing::Names(names) => names.clone(),
+                }
             };
 
             for member in members_to_expose {
@@ -4019,6 +4092,14 @@ impl Compiler {
 
     pub(super) fn resolve_visible_symbol(&mut self, name: Symbol) -> Option<Binding> {
         self.symbol_table.resolve(name)
+    }
+
+    pub(super) fn resolve_library_primop(name: &str, arity: usize) -> Option<crate::core::CorePrimOp> {
+        match (name.rsplit('.').next().unwrap_or(name), arity) {
+            ("sort", 1) => Some(crate::core::CorePrimOp::Sort),
+            ("sort_by", 2) => Some(crate::core::CorePrimOp::SortBy),
+            _ => None,
+        }
     }
 }
 
