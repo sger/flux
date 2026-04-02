@@ -37,6 +37,22 @@ fn compile_to_llvm_ir(src: &str) -> String {
     emit_llvm_ir(&lir)
 }
 
+fn compile_per_module_llvm_ir(src: &str, export_user_ctor_name_helper: bool) -> String {
+    let mut parser = Parser::new(Lexer::new(src));
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let interner = parser.take_interner();
+    let compiler = Compiler::new_with_interner("<test>", interner);
+    let llvm = compiler
+        .lower_to_lir_llvm_module_per_module(&program, false, export_user_ctor_name_helper)
+        .expect("per-module lowering should succeed");
+    flux::core_to_llvm::render_module(&llvm)
+}
+
 #[test]
 fn lowers_option_and_either_constructor_patterns() {
     let rendered = compile_to_llvm_ir(
@@ -166,6 +182,30 @@ fn main() {
     assert!(
         rendered.contains("switch i32"),
         "expected switch instruction for multi-constructor match"
+    );
+}
+
+#[test]
+fn per_module_adt_owner_emits_ctor_name_helper_without_main() {
+    let rendered = compile_per_module_llvm_ir(
+        r#"
+module Colors {
+    data Color {
+        Red,
+        Blue,
+    }
+
+    public fn pick() {
+        Red
+    }
+}
+"#,
+        true,
+    );
+
+    assert!(
+        rendered.contains("@flux_user_ctor_name"),
+        "expected ctor-name helper in per-module LLVM output"
     );
 }
 
