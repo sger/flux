@@ -16,7 +16,7 @@ use flux::{
     },
     bytecode::{
         bytecode_cache::{
-            BytecodeCache, hash_bytes, hash_cache_key, hash_file, module_cache::ModuleBytecodeCache,
+            hash_bytes, hash_cache_key, module_cache::ModuleBytecodeCache,
         },
         compiler::Compiler,
         module_linker::{LinkedVmProgram, VmAssemblyContext},
@@ -1370,13 +1370,6 @@ fn main() {
             }
             show_native_cache_info(&args[2], &roots, cache_dir.as_deref());
         }
-        "cache-info-file" => {
-            if args.len() < 3 {
-                eprintln!("Usage: flux cache-info-file <file.fxc>");
-                return;
-            }
-            show_cache_info_file(&args[2]);
-        }
         "clean" => {
             let entry = if args.len() >= 3 && is_flx_file(&args[2]) {
                 Path::new(&args[2])
@@ -1465,7 +1458,6 @@ Usage:
   flux cache-info <file.flx>
   flux module-cache-info <file.flx>
   flux native-cache-info <file.flx>
-  flux cache-info-file <file.fxc>
   flux interface-info <file.flxi>
   flux clean [<file.flx>]
   flux analyze-free-vars <file.flx>
@@ -1541,75 +1533,13 @@ fn run_file(
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
-            let source_hash = hash_bytes(source.as_bytes());
             let entry_path = Path::new(path);
             let cache_layout = cache_paths::resolve_cache_layout(entry_path, cache_dir);
-            let roots = collect_roots(entry_path, extra_roots, roots_only);
-            let roots_hash = roots_cache_hash(&roots);
-            let base_cache_key = hash_cache_key(&source_hash, &roots_hash);
             let strict_hash = hash_bytes(if strict_mode {
                 b"strict=1"
             } else {
                 b"strict=0"
             });
-            let cache_key = hash_cache_key(&base_cache_key, &strict_hash);
-            let cache = BytecodeCache::new(cache_layout.root());
-            if !no_cache
-                && !use_core_to_llvm
-                && !emit_llvm
-                && !emit_binary
-                && matches!(dump_core, CoreDumpMode::None)
-                && dump_aether == AetherDumpMode::None
-                && !dump_lir
-                && !dump_lir_llvm
-                && !trace_aether
-            {
-                if let Some(bytecode) =
-                    cache.load(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
-                {
-                    eprintln!("[cfg→vm] Cached (whole-program bytecode)");
-                    if verbose {
-                        eprintln!("  cache: hit (bytecode loaded)");
-                    }
-                    let functions_count = count_bytecode_functions(&bytecode.constants);
-                    let instruction_bytes = bytecode.instructions.len();
-                    let mut vm = VM::new(bytecode);
-                    vm.set_trace(trace);
-                    let exec_start = Instant::now();
-                    if let Err(err) = vm.run() {
-                        eprintln!("{}", err);
-                        std::process::exit(1);
-                    }
-                    let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
-                    if leak_detector {
-                        print_leak_stats();
-                    }
-                    if show_stats {
-                        print_stats(&RunStats {
-                            parse_ms: None,
-                            compile_ms: None,
-                            compile_backend: Some("bytecode"),
-                            execute_ms,
-                            execute_backend: "vm",
-                            cached: true,
-                            module_count: None,
-                            cached_module_count: None,
-                            compiled_module_count: None,
-                            source_lines: source.lines().count(),
-                            globals_count: None,
-                            functions_count: Some(functions_count),
-                            instruction_bytes: Some(instruction_bytes),
-                        });
-                    }
-                    return;
-                }
-                if verbose {
-                    let reason = cache
-                        .load_failure_reason(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
-                        .unwrap_or("cache file not found");
-                    eprintln!("cache: miss (compiling: {reason})");
-                }
-            }
 
             let parse_start = Instant::now();
             let lexer = Lexer::new(&source);
@@ -1750,27 +1680,6 @@ fn run_file(
                 let globals_count = build.symbol_table.num_definitions;
                 let functions_count = count_bytecode_functions(&bytecode.constants);
                 let instruction_bytes = bytecode.instructions.len();
-
-                let mut deps = Vec::new();
-                for dep in graph.imported_files() {
-                    if let Ok(hash) = hash_file(Path::new(&dep)) {
-                        deps.push((dep, hash));
-                    }
-                }
-                if !no_cache {
-                    let stored = cache
-                        .store(
-                            Path::new(path),
-                            &cache_key,
-                            env!("CARGO_PKG_VERSION"),
-                            &bytecode,
-                            &deps,
-                        )
-                        .is_ok();
-                    if verbose && stored {
-                        eprintln!("cache: stored");
-                    }
-                }
 
                 eprintln!("[cfg→vm] Running via CFG → bytecode VM backend...");
                 let mut vm = VM::new(bytecode);
@@ -2615,27 +2524,6 @@ fn run_file(
                         );
                         std::process::exit(1);
                     }
-                }
-            }
-
-            let mut deps = Vec::new();
-            for dep in graph.imported_files() {
-                if let Ok(hash) = hash_file(Path::new(&dep)) {
-                    deps.push((dep, hash));
-                }
-            }
-            if !no_cache {
-                let stored = cache
-                    .store(
-                        Path::new(path),
-                        &cache_key,
-                        env!("CARGO_PKG_VERSION"),
-                        &bytecode,
-                        &deps,
-                    )
-                    .is_ok();
-                if verbose && stored {
-                    eprintln!("cache: stored");
                 }
             }
 
@@ -3519,27 +3407,6 @@ fn collect_roots(entry_path: &Path, extra_roots: &[PathBuf], roots_only: bool) -
     roots
 }
 
-fn normalize_roots_for_cache(roots: &[PathBuf]) -> Vec<PathBuf> {
-    let mut normalized = Vec::new();
-    for root in roots {
-        let canonical = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
-        if !normalized.iter().any(|p| p == &canonical) {
-            normalized.push(canonical);
-        }
-    }
-    normalized
-}
-
-fn roots_cache_hash(roots: &[PathBuf]) -> [u8; 32] {
-    let normalized = normalize_roots_for_cache(roots);
-    let mut joined = String::new();
-    for root in normalized {
-        joined.push_str(&root.to_string_lossy());
-        joined.push('\n');
-    }
-    hash_bytes(joined.as_bytes())
-}
-
 fn is_flx_file(path: &str) -> bool {
     Path::new(path).extension().and_then(|ext| ext.to_str()) == Some("flx")
 }
@@ -3894,38 +3761,15 @@ fn analyze_tail_calls(path: &str, max_errors: usize, diagnostics_format: Diagnos
 }
 
 fn show_cache_info(path: &str, extra_roots: &[PathBuf], cache_dir: Option<&Path>) {
-    let source = match fs::read_to_string(path) {
-        Ok(src) => src,
-        Err(e) => {
-            eprintln!("Error reading {}: {}", path, e);
-            return;
-        }
-    };
-    let source_hash = hash_bytes(source.as_bytes());
+    if !Path::new(path).exists() {
+        eprintln!("Error: file not found: {}", path);
+        return;
+    }
     let entry_path = Path::new(path);
     let cache_layout = cache_paths::resolve_cache_layout(entry_path, cache_dir);
-    let roots = collect_roots(entry_path, extra_roots, false);
-    let roots_hash = roots_cache_hash(&roots);
-    let base_cache_key = hash_cache_key(&source_hash, &roots_hash);
-    let strict_hash = hash_bytes(b"strict=0");
-    let bytecode_cache_key = hash_cache_key(&base_cache_key, &strict_hash);
 
     println!("cache root: {}", cache_layout.root().display());
     println!("entry: {}", entry_path.display());
-
-    let cache = BytecodeCache::new(cache_layout.root());
-    match cache.inspect(Path::new(path), &bytecode_cache_key) {
-        Some(info) => {
-            println!("bytecode cache: valid");
-            println!("  path: {}", info.cache_path.display());
-            println!("  compiler version: {}", info.compiler_version);
-            println!("  format version: {}", info.format_version);
-            println!("  cache key: {}", hex_string(&info.source_hash));
-            println!("  constants: {}", info.constants_count);
-            println!("  instructions: {} bytes", info.instructions_len);
-        }
-        None => println!("bytecode cache: missing or invalid"),
-    }
 
     match load_module_graph_for_cache_info(path, extra_roots) {
         Ok(graph) => {
@@ -4007,50 +3851,6 @@ fn show_native_cache_info(path: &str, extra_roots: &[PathBuf], cache_dir: Option
             println!("cache root: {}", cache_layout.root().display());
             println!("module graph: unavailable ({err})");
             print_native_cache_summary(entry_path, &cache_layout, true, false);
-        }
-    }
-}
-
-fn show_cache_info_file(path: &str) {
-    let cache_dir = Path::new(path)
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."));
-    let cache = BytecodeCache::new(cache_dir);
-    let info = cache.inspect_file(Path::new(path));
-    match info {
-        Some(info) => {
-            println!("cache file: {}", info.cache_path.display());
-            println!("format version: {}", info.format_version);
-            println!("compiler version: {}", info.compiler_version);
-            println!("cache key: {}", hex_string(&info.source_hash));
-            println!("constants: {}", info.constants_count);
-            println!("instructions: {} bytes", info.instructions_len);
-            if info.deps.is_empty() {
-                println!("deps: none");
-            } else {
-                println!("deps:");
-                for (path, hash, valid) in info.deps {
-                    println!(
-                        "  - {} {} ({})",
-                        path,
-                        hex_string(&hash),
-                        if valid { "ok" } else { "stale" }
-                    );
-                }
-            }
-
-            if let Some(bytecode) = cache.load_file(Path::new(path)) {
-                println!("\nConstants:");
-                for (i, c) in bytecode.constants.iter().enumerate() {
-                    println!("  {}: {}", i, c);
-                }
-                println!("\nInstructions:");
-                print!("{}", disassemble(&bytecode.instructions));
-            }
-        }
-        None => {
-            println!("cache: not found or invalid");
         }
     }
 }
@@ -4414,10 +4214,3 @@ fn format_borrow_provenance(
     }
 }
 
-fn hex_string(bytes: &[u8; 32]) -> String {
-    let mut out = String::with_capacity(64);
-    for b in bytes {
-        out.push_str(&format!("{:02x}", b));
-    }
-    out
-}
