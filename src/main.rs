@@ -77,6 +77,8 @@ struct ModuleBuildState {
 struct ParallelVmBuild {
     bytecode: flux::bytecode::bytecode::Bytecode,
     symbol_table: flux::bytecode::symbol_table::SymbolTable,
+    cached_count: usize,
+    compiled_count: usize,
 }
 
 #[derive(Debug)]
@@ -88,7 +90,6 @@ struct ParallelModuleResult {
     new_interface_fingerprint: Option<String>,
     interface_changed: bool,
     skipped: bool,
-    module_cache_reason: Option<String>,
     interface_hit: Option<flux::types::module_interface::ModuleInterface>,
     cache_key: [u8; 32],
 }
@@ -184,7 +185,6 @@ fn compile_parallel_module(
     strict_mode: bool,
     enable_optimize: bool,
     enable_analyze: bool,
-    verbose: bool,
     base_interner: &flux::syntax::interner::Interner,
 ) -> ParallelModuleResult {
     let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
@@ -248,7 +248,6 @@ fn compile_parallel_module(
             new_interface_fingerprint: Some(interface.interface_fingerprint.clone()),
             interface_changed: false,
             skipped: true,
-            module_cache_reason: None,
             interface_hit: Some(interface.clone()),
             cache_key,
         };
@@ -276,12 +275,6 @@ fn compile_parallel_module(
             new_interface_fingerprint: None,
             interface_changed: true,
             skipped: false,
-            module_cache_reason: module_cache.load_failure_reason(
-                &node.path,
-                &cache_key,
-                env!("CARGO_PKG_VERSION"),
-                cache_layout.root(),
-            ),
             interface_hit: None,
             cache_key,
         };
@@ -363,17 +356,6 @@ fn compile_parallel_module(
         _ => true,
     };
 
-    let module_cache_reason = if verbose && !no_cache {
-        module_cache.load_failure_reason(
-            &node.path,
-            &cache_key,
-            env!("CARGO_PKG_VERSION"),
-            cache_layout.root(),
-        )
-    } else {
-        None
-    };
-
     ParallelModuleResult {
         path: node.path.clone(),
         needs_serial_warning_replay: warning_count > 0,
@@ -384,7 +366,6 @@ fn compile_parallel_module(
         new_interface_fingerprint,
         interface_changed,
         skipped: false,
-        module_cache_reason,
         interface_hit: interface,
         cache_key,
     }
@@ -413,8 +394,11 @@ fn compile_vm_modules_parallel(
 
     let mut linker = VmAssemblyContext::new(graph_interner.clone());
     let module_cache = ModuleBytecodeCache::new(cache_layout.vm_dir());
+    let total_modules = graph.topo_order().len();
+    let mut completed_modules = 0usize;
+    let mut cached_count = 0usize;
 
-    for (level_index, level) in graph.topo_levels().into_iter().enumerate() {
+    for level in graph.topo_levels().into_iter() {
         let mut ready = Vec::new();
         for node in level {
             if node
@@ -443,9 +427,6 @@ fn compile_vm_modules_parallel(
         if ready.is_empty() {
             continue;
         }
-        if verbose {
-            eprintln!("module-level: {} parallel={}", level_index, ready.len());
-        }
 
         let (entry_nodes, non_entry_nodes): (Vec<_>, Vec<_>) = ready
             .into_iter()
@@ -473,7 +454,6 @@ fn compile_vm_modules_parallel(
                     strict_mode,
                     enable_optimize,
                     enable_analyze,
-                    verbose,
                     graph_interner,
                 )
             })
@@ -501,7 +481,6 @@ fn compile_vm_modules_parallel(
                     strict_mode,
                     enable_optimize,
                     enable_analyze,
-                    verbose,
                     graph_interner,
                 );
                 parallel_results.push(result);
@@ -545,32 +524,30 @@ fn compile_vm_modules_parallel(
             }
 
             if let Some(interface) = result.interface_hit.clone() {
-                if verbose {
-                    if let Some(reason) = result.module_cache_reason.as_ref()
-                        && !result.skipped
-                    {
-                        eprintln!("module-cache: miss (reason: {reason})");
-                    }
-                    if result.skipped {
-                        eprintln!(
-                            "interface: hit {} [abi:{}]",
-                            interface.module_name,
-                            short_hash(&interface.interface_fingerprint)
-                        );
-                        eprintln!("module-cache: hit ({})", result.path.display());
-                        eprintln!("module: skipped ({})", result.path.display());
-                    } else {
-                        eprintln!("module: compiled ({})", result.path.display());
-                        eprintln!(
-                            "interface: stored {} [abi:{}]",
-                            interface.module_name,
-                            short_hash(&interface.interface_fingerprint)
-                        );
-                    }
+                let name = interface.module_name.clone();
+                if result.skipped {
+                    cached_count += 1;
+                }
+                completed_modules += 1;
+                if result.skipped {
+                    eprintln!(
+                        "{}",
+                        progress_line(completed_modules, total_modules, "Cached", &name)
+                    );
+                } else {
+                    eprintln!(
+                        "{}",
+                        progress_line(completed_modules, total_modules, "Compiling", &name)
+                    );
                 }
                 loaded_interfaces.insert(result.path.clone(), interface);
-            } else if verbose {
-                eprintln!("module: compiled ({})", result.path.display());
+            } else {
+                completed_modules += 1;
+                let name = module_display_name(&result.path);
+                eprintln!(
+                    "{}",
+                    progress_line(completed_modules, total_modules, "Compiling", &name)
+                );
             }
 
             module_states.insert(
@@ -598,9 +575,6 @@ fn compile_vm_modules_parallel(
                     )
                 })?;
             linker.assemble_module(&artifact)?;
-            if verbose {
-                eprintln!("module: assembled ({})", result.path.display());
-            }
         }
 
         for node in entry_nodes {
@@ -623,17 +597,18 @@ fn compile_vm_modules_parallel(
                 all_diagnostics.append(&mut diagnostics);
                 continue;
             }
-            if verbose {
-                eprintln!("module: compiled ({})", node.path.display());
-            }
+            completed_modules += 1;
+            let name = module_display_name(&node.path);
+            eprintln!(
+                "{}",
+                progress_line(completed_modules, total_modules, "Compiling", &name)
+            );
             let artifact = compiler.build_relocatable_module_bytecode();
             linker.assemble_module(&artifact)?;
-            if verbose {
-                eprintln!("module: assembled ({})", node.path.display());
-            }
         }
     }
 
+    let compiled_count = total_modules - cached_count;
     let LinkedVmProgram {
         bytecode,
         symbol_table,
@@ -641,6 +616,8 @@ fn compile_vm_modules_parallel(
     Ok(ParallelVmBuild {
         bytecode,
         symbol_table,
+        cached_count,
+        compiled_count,
     })
 }
 
@@ -908,7 +885,6 @@ fn compile_native_modules_parallel(
     strict_mode: bool,
     enable_optimize: bool,
     enable_analyze: bool,
-    verbose: bool,
     base_interner: &flux::syntax::interner::Interner,
     all_diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<Vec<PathBuf>, String> {
@@ -936,11 +912,10 @@ fn compile_native_modules_parallel(
     // Track which modules had interface changes so dependents can be forced
     // to rebuild even if their own source didn't change.
     let mut interface_changed_modules: HashSet<PathBuf> = HashSet::new();
+    let total_native_modules = graph.topo_order().len();
+    let mut completed_native = 0usize;
 
-    for (level_index, level) in graph.topo_levels().into_iter().enumerate() {
-        if verbose {
-            eprintln!("module-level: {} parallel={}", level_index, level.len());
-        }
+    for level in graph.topo_levels().into_iter() {
         let mut results: Vec<_> = level
             .par_iter()
             .map(|node| {
@@ -999,12 +974,23 @@ fn compile_native_modules_parallel(
                         .filter(|diag| diag.severity() != flux::diagnostics::Severity::Error),
                 );
             }
-            if verbose {
+            completed_native += 1;
+            {
+                let name = result
+                    .interface
+                    .as_ref()
+                    .map(|i| i.module_name.clone())
+                    .unwrap_or_else(|| module_display_name(&result.path));
                 if result.skipped {
-                    eprintln!("native-artifact: hit ({})", result.object_path.display());
+                    eprintln!(
+                        "{}",
+                        progress_line(completed_native, total_native_modules, "Cached", &name)
+                    );
                 } else {
-                    eprintln!("module: compiled ({})", result.path.display());
-                    eprintln!("native-artifact: stored ({})", result.object_path.display());
+                    eprintln!(
+                        "{}",
+                        progress_line(completed_native, total_native_modules, "Linking", &name)
+                    );
                 }
             }
             if result.interface_changed {
@@ -1581,8 +1567,9 @@ fn run_file(
                 if let Some(bytecode) =
                     cache.load(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
                 {
+                    eprintln!("[cfg→vm] Cached (whole-program bytecode)");
                     if verbose {
-                        eprintln!("cache: hit (bytecode loaded)");
+                        eprintln!("  cache: hit (bytecode loaded)");
                     }
                     let functions_count = count_bytecode_functions(&bytecode.constants);
                     let instruction_bytes = bytecode.instructions.len();
@@ -1606,6 +1593,8 @@ fn run_file(
                             execute_backend: "vm",
                             cached: true,
                             module_count: None,
+                            cached_module_count: None,
+                            compiled_module_count: None,
                             source_lines: source.lines().count(),
                             globals_count: None,
                             functions_count: Some(functions_count),
@@ -1804,6 +1793,8 @@ fn run_file(
                         execute_backend: "vm",
                         cached: false,
                         module_count: Some(module_count),
+                        cached_module_count: Some(build.cached_count),
+                        compiled_module_count: Some(build.compiled_count),
                         source_lines: source.lines().count(),
                         globals_count: Some(globals_count),
                         functions_count: Some(functions_count),
@@ -1822,6 +1813,9 @@ fn run_file(
                     || node.path.to_string_lossy().contains("lib\\Flow\\");
                 if is_flow { 0 } else { 1 }
             });
+
+            let seq_total = ordered_nodes.len();
+            let mut seq_completed = 0usize;
 
             for node in ordered_nodes {
                 // Skip entry if it had parse errors (it is in topo_order but
@@ -2005,14 +1999,16 @@ fn run_file(
                             compiler.hydrate_cached_module_bytecode(&cached);
                         }
                     }
-                    if verbose {
-                        eprintln!(
-                            "interface: hit {} [abi:{}]",
-                            interface.module_name,
-                            short_hash(&interface.interface_fingerprint)
-                        );
-                        eprintln!("module: skipped ({})", node.path.display());
-                    }
+                    seq_completed += 1;
+                    eprintln!(
+                        "{}",
+                        progress_line(
+                            seq_completed,
+                            seq_total,
+                            "Cached",
+                            &interface.module_name,
+                        )
+                    );
                     module_states.insert(
                         node.path.clone(),
                         ModuleBuildState {
@@ -2086,8 +2082,13 @@ fn run_file(
                     continue;
                 }
 
-                if verbose {
-                    eprintln!("module: compiled ({})", node.path.display());
+                {
+                    seq_completed += 1;
+                    let name = module_display_name(&node.path);
+                    eprintln!(
+                        "{}",
+                        progress_line(seq_completed, seq_total, "Compiling", &name)
+                    );
                 }
 
                 let module_deps: Vec<(String, String)> = node
@@ -2463,7 +2464,6 @@ fn run_file(
                     strict_mode,
                     enable_optimize,
                     enable_analyze,
-                    verbose,
                     &compiler.interner,
                     &mut all_diagnostics,
                 ) {
@@ -2563,6 +2563,8 @@ fn run_file(
                                 execute_backend: "native",
                                 cached: false,
                                 module_count: Some(module_count),
+                                cached_module_count: None,
+                                compiled_module_count: None,
                                 source_lines: source.lines().count(),
                                 globals_count: None,
                                 functions_count: None,
@@ -2658,6 +2660,8 @@ fn run_file(
                     execute_backend: "vm",
                     cached: false,
                     module_count: Some(module_count),
+                    cached_module_count: None,
+                    compiled_module_count: None,
                     source_lines: source.lines().count(),
                     globals_count: Some(globals_count),
                     functions_count: Some(functions_count),
@@ -2983,6 +2987,8 @@ struct RunStats {
     execute_backend: &'static str,
     cached: bool,
     module_count: Option<usize>,
+    cached_module_count: Option<usize>,
+    compiled_module_count: Option<usize>,
     source_lines: usize,
     globals_count: Option<usize>,
     functions_count: Option<usize>,
@@ -3062,7 +3068,15 @@ fn print_stats(stats: &RunStats) {
     eprintln!();
 
     if let Some(n) = stats.module_count {
-        eprintln!("  {:<20} {:>8}", "modules", n);
+        match (stats.cached_module_count, stats.compiled_module_count) {
+            (Some(cached), Some(compiled)) if cached > 0 => {
+                eprintln!(
+                    "  {:<20} {:>8}  ({} cached, {} compiled)",
+                    "modules", n, cached, compiled
+                );
+            }
+            _ => eprintln!("  {:<20} {:>8}", "modules", n),
+        }
     }
     eprintln!("  {:<20} {:>8}", "source lines", stats.source_lines);
     if let Some(n) = stats.globals_count {
@@ -4320,6 +4334,22 @@ fn print_native_cache_summary(
 fn short_hash(hash: &str) -> &str {
     let len = hash.len().min(12);
     &hash[..len]
+}
+
+/// Extract a human-readable module name from a file path.
+/// Prefers `interface.module_name` when available (e.g. "Flow.Array").
+/// Falls back to file stem (e.g. "Day06Solver" from path).
+fn module_display_name(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+/// Format a GHC-style progress line: `[n of m] Action  ModuleName`
+fn progress_line(n: usize, total: usize, action: &str, name: &str) -> String {
+    let width = total.to_string().len();
+    format!("[{:>width$} of {}] {:<10} {}", n, total, action, name)
 }
 
 /// Log the diff between an old and new module interface.

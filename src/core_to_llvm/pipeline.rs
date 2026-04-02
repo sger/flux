@@ -150,10 +150,23 @@ pub fn compile_ir_to_object(
     Ok(())
 }
 
+/// Check if `lld` is available for the current toolchain.
+fn has_lld() -> bool {
+    // On Unix: check for ld.lld (used via -fuse-ld=lld)
+    // On Windows: check for lld-link
+    if cfg!(windows) {
+        which("lld-link").is_some()
+    } else {
+        which("ld.lld").is_some()
+            || which("ld.lld-18").is_some()
+            || which("ld.lld-17").is_some()
+    }
+}
+
 /// Link `.o`/`.obj` + runtime library → executable.
 ///
-/// On Unix: uses `cc` (system linker).
-/// On Windows: tries `clang` first, then falls back to MSVC `link.exe`.
+/// Prefers `lld` (LLVM's linker) when available for faster linking.
+/// Falls back to system linker (`cc`/`link.exe`) if `lld` is not found.
 fn run_linker(
     obj_paths: &[PathBuf],
     exe_path: &Path,
@@ -163,6 +176,7 @@ fn run_linker(
         fs::create_dir_all(parent)?;
     }
     let toolchain = detect_c_toolchain()?;
+    let use_lld = has_lld();
 
     match &toolchain {
         CToolchain::Msvc { .. } => {
@@ -171,7 +185,9 @@ fn run_linker(
             } else {
                 exe_path.to_path_buf()
             };
-            let mut cmd = Command::new("link");
+            // Prefer lld-link over MSVC link.exe when available.
+            let linker = if use_lld { "lld-link" } else { "link" };
+            let mut cmd = Command::new(linker);
             cmd.args(["/nologo", "/subsystem:console"])
                 .arg(format!("/OUT:{}", exe_path_with_ext.display()))
                 .args(obj_paths);
@@ -184,7 +200,7 @@ fn run_linker(
             // Link the C runtime and kernel libraries.
             cmd.args(["libcmt.lib", "kernel32.lib"]);
             let output = cmd.output()?;
-            check_output("link", &output)
+            check_output(if use_lld { "lld-link" } else { "link" }, &output)
         }
         CToolchain::Gcc { cc, .. } => {
             let exe_path_final = if cfg!(windows) && exe_path.extension().is_none() {
@@ -194,6 +210,10 @@ fn run_linker(
             };
             let mut cmd = Command::new(cc);
             cmd.args(obj_paths).arg("-o").arg(&exe_path_final);
+            // Use lld for faster linking when available.
+            if use_lld {
+                cmd.arg("-fuse-ld=lld");
+            }
             if let Some(dir) = runtime_lib_dir {
                 cmd.arg(format!("-L{}", dir.display()));
                 cmd.arg("-lflux_rt");
