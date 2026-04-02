@@ -3047,6 +3047,7 @@ impl Compiler {
         &self,
         program: &Program,
         optimize: bool,
+        export_user_ctor_name_helper: bool,
     ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
         let program_to_lower = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
@@ -3084,6 +3085,7 @@ impl Compiler {
         Ok(crate::lir::emit_llvm::emit_llvm_module_with_options(
             &lir,
             false,
+            export_user_ctor_name_helper,
         ))
     }
 

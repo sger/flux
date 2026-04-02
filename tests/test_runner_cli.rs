@@ -812,6 +812,49 @@ fn test_native_aether_bench_reuse_blocked_prints_head_value() {
     );
 }
 
+#[cfg(feature = "native")]
+#[test]
+fn test_native_day06_multimodule_adt_program_links_and_runs() {
+    let file = example_path("aoc/2024/day06.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for day06 example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("Part A:"),
+        "expected Part A output from native day06 example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("Part B:"),
+        "expected Part B output from native day06 example, output:\n{}",
+        text
+    );
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn test_native_using_modules_program_links_without_user_adts() {
+    let file = example_path("advanced/using_modules.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for using_modules example, output:\n{}",
+        text
+    );
+    assert!(
+        !text.contains("undefined symbol: flux_user_ctor_name"),
+        "expected runtime stub to satisfy ctor-name symbol, output:\n{}",
+        text
+    );
+}
+
 #[test]
 fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
     let file = example_path("type_system/failing/210_stage_all_errors_flag.flx");
