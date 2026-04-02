@@ -246,9 +246,34 @@ fn plan_expr(
         CoreExpr::AetherCall {
             func,
             args,
-            arg_modes,
+            arg_modes: existing_arg_modes,
             span,
         } => {
+            let resolved_callee = registry.and_then(|reg| match func.as_ref() {
+                CoreExpr::Var { var, .. } => Some(reg.classify_var_ref(var).borrow_callee),
+                CoreExpr::MemberAccess { object, member, .. } => match object.as_ref() {
+                    CoreExpr::Var { var, .. } => {
+                        Some(reg.resolve_member_access_callee(var.name, *member))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            });
+            let arg_modes: Vec<_> = if let Some(reg) = registry {
+                (0..args.len())
+                    .map(|index| {
+                        let borrowed = resolved_callee
+                            .is_some_and(|callee| reg.is_borrowed(callee, index));
+                        if borrowed {
+                            BorrowMode::Borrowed
+                        } else {
+                            BorrowMode::Owned
+                        }
+                    })
+                    .collect()
+            } else {
+                existing_arg_modes.clone()
+            };
             let (args, env_after_args) =
                 plan_expr_list(args, tail_env, registry, scope, field_parents, |index| {
                     match arg_modes[index] {

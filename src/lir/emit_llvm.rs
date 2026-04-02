@@ -142,6 +142,10 @@ pub fn emit_llvm_module_with_options(
         });
     }
 
+    if program.functions.iter().any(|func| func.qualified_name == "main") {
+        emit_user_ctor_name_helper(&mut module, program);
+    }
+
     // Add external declarations for C runtime functions.
     for name in &needed_decls {
         if module.declarations.iter().any(|d| d.name.0 == *name)
@@ -221,6 +225,131 @@ pub fn emit_llvm_module_with_options(
     }
 
     module
+}
+
+fn emit_user_ctor_name_helper(module: &mut LlvmModule, program: &LirProgram) {
+    let mut ctor_entries: Vec<(i32, String)> = program
+        .constructor_tags
+        .iter()
+        .filter_map(|(name, &tag)| (tag > CONS_TAG).then_some((tag, name.clone())))
+        .collect();
+    ctor_entries.sort_by_key(|(tag, _)| *tag);
+
+    if ctor_entries.is_empty() {
+        return;
+    }
+
+    let helper_name = GlobalId("flux_user_ctor_name".to_string());
+    if module.functions.iter().any(|func| func.name == helper_name) {
+        return;
+    }
+
+    let tag_param = LlvmLocal("ctor_tag".to_string());
+    let default_label = LabelId("ctor_name.default".to_string());
+    let mut cases: Vec<(LlvmConst, LabelId)> = Vec::new();
+    let mut blocks: Vec<LlvmBlock> = Vec::new();
+
+    for (index, (tag, name)) in ctor_entries.iter().enumerate() {
+        let bytes = {
+            let mut raw = name.clone().into_bytes();
+            raw.push(0);
+            raw
+        };
+        let global = GlobalId(format!("flux_ctor_name.{index}"));
+        module.globals.push(LlvmGlobal {
+            linkage: Linkage::Private,
+            name: global.clone(),
+            ty: LlvmType::Array {
+                len: bytes.len() as u64,
+                element: Box::new(LlvmType::i8()),
+            },
+            is_constant: true,
+            value: LlvmConst::Array {
+                element_ty: LlvmType::i8(),
+                elements: bytes
+                    .into_iter()
+                    .map(|byte| LlvmConst::Int {
+                        bits: 8,
+                        value: byte as i128,
+                    })
+                    .collect(),
+            },
+            attrs: Vec::new(),
+        });
+
+        let case_label = LabelId(format!("ctor_name.case.{index}"));
+        let ptr_local = LlvmLocal(format!("ctor_name.ptr.{index}"));
+        blocks.push(LlvmBlock {
+            label: case_label.clone(),
+            instrs: vec![LlvmInstr::GetElementPtr {
+                dst: ptr_local.clone(),
+                inbounds: true,
+                element_ty: LlvmType::Array {
+                    len: (name.len() + 1) as u64,
+                    element: Box::new(LlvmType::i8()),
+                },
+                base: LlvmOperand::Global(global),
+                indices: vec![
+                    (
+                        LlvmType::i32(),
+                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+                    ),
+                    (
+                        LlvmType::i32(),
+                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+                    ),
+                ],
+            }],
+            term: LlvmTerminator::Ret {
+                ty: LlvmType::Ptr,
+                value: LlvmOperand::Local(ptr_local),
+            },
+        });
+        cases.push((
+            LlvmConst::Int {
+                bits: 32,
+                value: *tag as i128,
+            },
+            case_label,
+        ));
+    }
+
+    let entry_label = LabelId("ctor_name.entry".to_string());
+    blocks.insert(
+        0,
+        LlvmBlock {
+            label: entry_label,
+            instrs: Vec::new(),
+            term: LlvmTerminator::Switch {
+                ty: LlvmType::i32(),
+                scrutinee: LlvmOperand::Local(tag_param.clone()),
+                default: default_label.clone(),
+                cases,
+            },
+        },
+    );
+    blocks.push(LlvmBlock {
+        label: default_label,
+        instrs: Vec::new(),
+        term: LlvmTerminator::Ret {
+            ty: LlvmType::Ptr,
+            value: LlvmOperand::Const(LlvmConst::Null),
+        },
+    });
+
+    module.functions.push(LlvmFunction {
+        linkage: Linkage::External,
+        name: helper_name,
+        sig: LlvmFunctionSig {
+            ret: LlvmType::Ptr,
+            params: vec![LlvmType::i32()],
+            varargs: false,
+            call_conv: CallConv::Ccc,
+        },
+        params: vec![tag_param],
+        attrs: vec!["nounwind".to_string()],
+        blocks,
+    });
 }
 
 /// Emit LLVM IR text from a `LirProgram`.
