@@ -278,7 +278,7 @@ fn test_mode_flow_list_module_fixture_passes_on_native_llvm() {
 #[test]
 fn test_native_sort_by_string_len_repro_prints_sorted_strings() {
     let file = example_path("repros/sort_by_string_len.flx");
-    let output = run_flux(&["--native", file.to_str().unwrap()]);
+    let output = run_flux(&[file.to_str().unwrap(), "--native"]);
     let text = combined_output(&output);
 
     assert!(
@@ -297,7 +297,7 @@ fn test_native_sort_by_string_len_repro_prints_sorted_strings() {
 #[test]
 fn test_native_list_map_filter_example_preserves_list_zip_output() {
     let file = example_path("advanced/list_map_filter.flx");
-    let output = run_flux(&["--native", file.to_str().unwrap(), "--no-cache"]);
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
     let text = combined_output(&output);
 
     assert!(
@@ -713,6 +713,101 @@ fn dump_core_reports_drop_specialized_stats() {
     assert!(
         text.contains("DropSpecs: ") && !text.contains("DropSpecs: 0"),
         "expected Aether stats to count DropSpecialized nodes, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_native_aether_queue_workload_matches_vm_totals() {
+    let file = example_path("aether/queue_workload.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for queue_workload example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("\"rotated total = 3502500\""),
+        "expected native rotated total to match VM, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("\"drained total = 2001000\""),
+        "expected native drained total to match VM, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_aether_bench_reuse_enabled_prints_head_value() {
+    let file = example_path("aether/bench_reuse_enabled.flx");
+    let output = run_flux(&["--no-cache", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected VM success for bench_reuse_enabled example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("\"enabled: result head = 101\""),
+        "expected mapped head output on VM backend, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_native_aether_bench_reuse_enabled_prints_head_value() {
+    let file = example_path("aether/bench_reuse_enabled.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for bench_reuse_enabled example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("\"enabled: result head = 101\""),
+        "expected mapped head output on native backend, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_aether_bench_reuse_blocked_prints_head_value() {
+    let file = example_path("aether/bench_reuse_blocked.flx");
+    let output = run_flux(&["--no-cache", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected VM success for bench_reuse_blocked example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("\"blocked: result head = 101\""),
+        "expected mapped head output on VM backend, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_native_aether_bench_reuse_blocked_prints_head_value() {
+    let file = example_path("aether/bench_reuse_blocked.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for bench_reuse_blocked example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("\"blocked: result head = 101\""),
+        "expected mapped head output on native backend, output:\n{}",
         text
     );
 }

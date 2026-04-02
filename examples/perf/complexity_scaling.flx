@@ -9,7 +9,7 @@ fn main() with IO, Time {
         if reps <= 0 {
             acc
         } else {
-            bench_list_head(lst, reps - 1, acc + unwrap(first(lst)))
+            bench_list_head(lst, reps - 1, acc + first(lst))
         }
     }
 
@@ -17,7 +17,7 @@ fn main() with IO, Time {
         if reps <= 0 {
             acc
         } else {
-            bench_array_first(arr, reps - 1, acc + unwrap(first(arr)))
+            bench_array_first(arr, reps - 1, acc + first(arr))
         }
     }
 

@@ -39,5 +39,5 @@ fn main() with IO {
     let iterations = 100
     let xs = build_list(size)
     let mapped = bench_map(xs, iterations)
-    print("blocked: result head = #{unwrap(first(mapped))}")
+    print("blocked: result head = #{first(mapped)}")
 }

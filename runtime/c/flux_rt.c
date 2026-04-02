@@ -24,6 +24,7 @@
 extern const char *flux_string_data(int64_t s);
 extern uint32_t    flux_string_len(int64_t s);
 extern int64_t     flux_string_new(const char *data, uint32_t len);
+extern const char *flux_user_ctor_name(int32_t ctor_tag) __attribute__((weak));
 
 /* ── Runtime lifecycle ──────────────────────────────────────────────── */
 
@@ -43,6 +44,13 @@ void flux_rt_shutdown(void) {
  * Print a NaN-boxed value to stdout (no trailing newline).
  * Dispatches on the NaN-box tag to determine the type.
  */
+static const char *flux_lookup_user_ctor_name(int32_t ctor_tag) {
+    if (!flux_user_ctor_name) {
+        return NULL;
+    }
+    return flux_user_ctor_name(ctor_tag);
+}
+
 /* Internal: print a value without trailing newline. */
 static void flux_print_value(int64_t val) {
     uint64_t bits = (uint64_t)val;
@@ -170,10 +178,19 @@ static void flux_print_value(int64_t val) {
                 printf("]");
                 break;
             default:
+                const char *ctor_name = flux_lookup_user_ctor_name(ctor_tag);
                 if (field_count == 0) {
-                    printf("<adt tag=%d>", ctor_tag);
+                    if (ctor_name) {
+                        printf("%s", ctor_name);
+                    } else {
+                        printf("<adt tag=%d>", ctor_tag);
+                    }
                 } else {
-                    printf("<adt tag=%d>(", ctor_tag);
+                    if (ctor_name) {
+                        printf("%s(", ctor_name);
+                    } else {
+                        printf("<adt tag=%d>(", ctor_tag);
+                    }
                     for (int32_t i = 0; i < field_count; i++) {
                         if (i > 0) printf(", ");
                         flux_print_value(fields[i]);
@@ -924,6 +941,7 @@ int64_t flux_to_string(int64_t val) {
             if (obj == FLUX_OBJ_ADT) {
                 int32_t ctor_tag = *(int32_t *)ptr;
                 int32_t field_count = *((int32_t *)ptr + 1);
+                const char *ctor_name = flux_lookup_user_ctor_name(ctor_tag);
                 /* Some/Left/Right/None */
                 if (ctor_tag == 1 && field_count >= 1) {
                     int64_t *fields = (int64_t *)((char *)ptr + 8);
@@ -957,6 +975,27 @@ int64_t flux_to_string(int64_t val) {
                 }
                 if (ctor_tag == 0 && field_count == 0) {
                     return flux_string_new("None", 4);
+                }
+                if (ctor_name) {
+                    int64_t *fields = (int64_t *)((char *)ptr + 8);
+                    char buf[4096];
+                    int pos = 0;
+                    pos += snprintf(buf + pos, sizeof(buf) - pos, "%s", ctor_name);
+                    if (field_count > 0) {
+                        pos += snprintf(buf + pos, sizeof(buf) - pos, "(");
+                        for (int32_t i = 0; i < field_count && pos < (int)sizeof(buf) - 20; i++) {
+                            if (i > 0) pos += snprintf(buf + pos, sizeof(buf) - pos, ", ");
+                            int64_t s = flux_to_string(fields[i]);
+                            const char *sd = flux_string_data(s);
+                            uint32_t sl = flux_string_len(s);
+                            if (pos + sl < sizeof(buf) - 10) {
+                                memcpy(buf + pos, sd, sl);
+                                pos += sl;
+                            }
+                        }
+                        pos += snprintf(buf + pos, sizeof(buf) - pos, ")");
+                    }
+                    return flux_string_new(buf, (uint32_t)pos);
                 }
                 /* Cons list: ctor_tag=4, field_count=2 — fall through below */
             } else if (flux_is_hamt(ptr)) {

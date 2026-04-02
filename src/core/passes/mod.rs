@@ -173,17 +173,37 @@ fn run_core_passes_with_optional_interner(
         def.expr = e;
     }
 
+    // Preserve the ANF-normalized Core so a refined borrow-signature pass can
+    // rerun Aether from a clean baseline rather than stacking Dup/Drop nodes on
+    // top of already-Aetherized Core.
+    let anf_snapshot: Vec<_> = program.defs.iter().map(|def| def.expr.clone()).collect();
+
     // Infer cross-function borrow modes from the ANF-normalized program,
     // then run the Aether pass with the registry.
     let borrow_registry = crate::aether::borrow_infer::infer_borrow_modes_with_preloaded(
         program,
         interner,
-        preloaded_registry,
+        preloaded_registry.clone(),
     );
     for def in &mut program.defs {
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
         let e = crate::aether::run_aether_pass_with_registry(e, &borrow_registry);
         verify_aether_contract_stage(def, &e, "run_aether_pass")?;
+        def.expr = e;
+    }
+
+    // Re-infer after reuse/drop-specialization, since those transforms can
+    // change parameter ownership requirements (for example by introducing
+    // `Reuse` on a parameter that previously looked borrowed).
+    let refined_borrow_registry = crate::aether::borrow_infer::infer_borrow_modes_with_preloaded(
+        program,
+        interner,
+        preloaded_registry,
+    );
+    for (def, anf_expr) in program.defs.iter_mut().zip(anf_snapshot.into_iter()) {
+        let e = anf_expr;
+        let e = crate::aether::run_aether_pass_with_registry(e, &refined_borrow_registry);
+        verify_aether_contract_stage(def, &e, "run_aether_pass_refined")?;
         def.expr = e;
     }
 

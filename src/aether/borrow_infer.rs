@@ -589,9 +589,15 @@ fn collect_param_constraints(
                 constraint,
             );
         }
-        CoreExpr::Con { fields, .. }
-        | CoreExpr::Reuse { fields, .. }
-        | CoreExpr::Perform { args: fields, .. } => {
+        CoreExpr::Con { fields, .. } | CoreExpr::Perform { args: fields, .. } => {
+            for field in fields {
+                collect_param_constraints(target, field, registry, group_set, constraint);
+            }
+        }
+        CoreExpr::Reuse { token, fields, .. } => {
+            if token.binder == Some(target) {
+                constraint.force_owned = true;
+            }
             for field in fields {
                 collect_param_constraints(target, field, registry, group_set, constraint);
             }
@@ -1263,6 +1269,64 @@ mod tests {
                 .expect("make signature")
                 .params,
             vec![BorrowMode::Owned]
+        );
+    }
+
+    #[test]
+    fn reuse_token_forces_parameter_owned() {
+        let mut interner = Interner::new();
+        let push_binder = binder(1, interner.intern("push"));
+        let q = binder(2, interner.intern("q"));
+        let front = binder(3, interner.intern("front"));
+        let back = binder(4, interner.intern("back"));
+        let value = binder(5, interner.intern("value"));
+
+        let push_def = def(
+            push_binder,
+            vec![q, value],
+            CoreExpr::Case {
+                scrutinee: Box::new(var_ref(q)),
+                alts: vec![crate::core::CoreAlt {
+                    pat: crate::core::CorePat::Con {
+                        tag: crate::core::CoreTag::Named(interner.intern("Queue")),
+                        fields: vec![
+                            crate::core::CorePat::Var(front),
+                            crate::core::CorePat::Var(back),
+                        ],
+                    },
+                    guard: None,
+                    rhs: CoreExpr::Reuse {
+                        token: CoreVarRef::resolved(q),
+                        tag: crate::core::CoreTag::Named(interner.intern("Queue")),
+                        fields: vec![
+                            var_ref(front),
+                            CoreExpr::Con {
+                                tag: crate::core::CoreTag::Cons,
+                                fields: vec![var_ref(value), var_ref(back)],
+                                span: span(),
+                            },
+                        ],
+                        field_mask: None,
+                        span: span(),
+                    },
+                    span: span(),
+                }],
+                span: span(),
+            },
+            false,
+        );
+
+        let mut program = CoreProgram {
+            defs: vec![push_def],
+            top_level_items: Vec::new(),
+        };
+        let registry = infer_borrow_modes(&mut program, Some(&interner));
+        assert_eq!(
+            registry
+                .lookup_binder(push_binder.id)
+                .expect("push signature")
+                .params,
+            vec![BorrowMode::Owned, BorrowMode::Owned]
         );
     }
 
