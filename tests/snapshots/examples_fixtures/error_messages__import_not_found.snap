@@ -16,6 +16,6 @@ Cannot find module `NonExistent` to import.
 
 Hint:
   Check that: 1) The module file exists (e.g., `NonExistent.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `NonExistent` under roots: examples/error_messages, src (imported from examples/error_messages/import_not_found.flx).
+  Looked for module `NonExistent` under roots: examples/error_messages, lib, src (imported from examples/error_messages/import_not_found.flx).
 == stdout ==
 <not executed>

@@ -2288,6 +2288,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::SortBy => return "flux_ho_sort_by".to_string(),
         CorePrimOp::HoMap => return "flux_ho_map".to_string(),
         CorePrimOp::HoFilter => return "flux_ho_filter".to_string(),
+        CorePrimOp::HoFold => return "flux_ho_fold".to_string(),
         CorePrimOp::HoAny => return "flux_ho_any".to_string(),
         CorePrimOp::HoAll => return "flux_ho_all".to_string(),
         CorePrimOp::HoEach => return "flux_ho_each".to_string(),

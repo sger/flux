@@ -418,7 +418,7 @@ entry:
   ret ptr %field.ptr
 }
 
-define internal fastcc void @flux_copy_i64s(ptr %dst, ptr %src, i32 %count) {
+define fastcc void @flux_copy_i64s(ptr %dst, ptr %src, i32 %count) {
 entry:
   %empty = icmp eq i32 %count, 0
   br i1 %empty, label %done, label %loop
@@ -518,7 +518,7 @@ entry:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_fold(i64 %v0) nounwind {
+define fastcc i64 @flux_fold(i64 %v0) nounwind {
 bb0:
   %t0 = lshr i64 %v0, 46
   %t1 = and i64 %t0, 15
@@ -621,4 +621,12 @@ bb4:
   br label %bb2
 bb5:
   unreachable
+}
+
+define ccc i64 @flux_fold.closure_entry(i64 %closure_raw, ptr %args_ptr, i32 %nargs) nounwind {
+entry:
+  %arg.0.ptr = getelementptr inbounds i64, ptr %args_ptr, i32 0
+  %arg.0 = load i64, ptr %arg.0.ptr, align 8
+  %result = call fastcc i64 @flux_fold(i64 %arg.0)
+  ret i64 %result
 }

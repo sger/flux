@@ -3,19 +3,85 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day8_part2.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+error[E004]: Undefined Variable
 
-Cannot find module `Flow.Array` to import.
+I can't find a value named `range`.
 
-  examples/aoc/2025/aoc_day8_part2.flx:6:1
-  |
-6 | import Flow.Array as Array
-  | ^
+  examples/aoc/2025/aoc_day8_part2.flx:128:16
+    |
+128 |     let idxs = range(0, n)
+    |                ^^^^^
 
 Hint:
-  Check that: 1) The module file exists (e.g., `Flow.Array.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Flow.Array` under roots: examples/aoc/2025, src (imported from examples/aoc/2025/aoc_day8_part2.flx).
+  Define it first: let range = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:130:5
+    |
+130 |     fold(idxs, [||], /(acc, i) -> {
+    |     ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `range`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:136:20
+    |
+136 |     let parents0 = range(0, n)
+    |                    ^^^^^
+
+Hint:
+  Define it first: let range = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:137:18
+    |
+137 |     let sizes0 = map(range(0, n), /_ -> 1)
+    |                  ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:139:5
+    |
+139 |     fold(sorted_keys, state0, /(st, k) -> union_key(st, k))
+    |     ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:158:14
+    |
+158 | let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let map = ...;
+
+Found 6 errors.
 == stdout ==
 <not executed>

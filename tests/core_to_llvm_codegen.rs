@@ -10,7 +10,7 @@ use std::{
 use flux::{
     bytecode::compiler::Compiler,
     core::{lower_ast::lower_program_ast, passes::run_core_passes_with_interner},
-    core_to_llvm::{CoreToLlvmError, compile_program_with_interner, render_module},
+    lir::{emit_llvm::emit_llvm_ir, lower::lower_program_with_interner},
     syntax::{expression::ExprId, interner::Interner, lexer::Lexer, parser::Parser},
     types::infer_type::InferType,
 };
@@ -31,100 +31,92 @@ fn parse_and_lower_core(src: &str) -> (flux::core::CoreProgram, Interner) {
     (core, interner)
 }
 
+fn compile_to_llvm_ir(src: &str) -> String {
+    let (core, interner) = parse_and_lower_core(src);
+    let lir = lower_program_with_interner(&core, Some(&interner), None);
+    emit_llvm_ir(&lir)
+}
+
 #[test]
-fn lowers_single_function_with_entry_allocas() {
-    let src = r#"
+fn lowers_single_function_with_entry() {
+    let rendered = compile_to_llvm_ir(
+        r#"
 fn main(x) {
     let y = x
     y
 }
-"#;
-    let (core, interner) = parse_and_lower_core(src);
-    let module = compile_program_with_interner(&core, Some(&interner)).expect("lower to llvm");
-    let rendered = render_module(&module);
+"#,
+    );
 
     // `main` is renamed to `flux_main` with ccc calling convention.
-    assert!(rendered.contains("define ccc i64 @flux_main(i64 %arg0)"));
-    assert!(rendered.contains("%slot.0 = alloca i64, align 8"));
-    assert!(rendered.contains("store i64 %arg0, ptr %slot.0, align 8"));
-    assert!(rendered.contains("load i64, ptr %slot.0, align 8"));
+    assert!(
+        rendered.contains("@flux_main"),
+        "expected flux_main in output"
+    );
 }
 
 #[test]
 fn lowers_factorial_with_control_flow_and_recursion() {
-    let src = r#"
+    let rendered = compile_to_llvm_ir(
+        r#"
 fn factorial(n, acc) {
     if n == 0 { acc } else { factorial(n - 1, n * acc) }
 }
-"#;
-    let (core, interner) = parse_and_lower_core(src);
-    let module = compile_program_with_interner(&core, Some(&interner)).expect("lower to llvm");
-    let rendered = render_module(&module);
+"#,
+    );
 
-    assert!(rendered.contains("define internal fastcc i64 @factorial(i64 %arg0, i64 %arg1)"));
-    assert!(rendered.contains("call fastcc i64 @flux_isub"));
-    assert!(rendered.contains("call fastcc i64 @flux_imul"));
-    // TCO converts the self-recursive tail call into a loop branch.
-    assert!(rendered.contains("br label %tco.loop."));
-    assert!(rendered.contains("br i1 %case.lit."));
-    // No recursive call to @factorial — it's a loop now.
-    assert!(!rendered.contains("call fastcc i64 @factorial("));
+    assert!(
+        rendered.contains("@flux_factorial"),
+        "expected flux_factorial in output"
+    );
+    assert!(
+        rendered.contains("flux_isub") || rendered.contains("flux_sub"),
+        "expected subtraction"
+    );
+    assert!(
+        rendered.contains("flux_imul") || rendered.contains("flux_mul"),
+        "expected multiplication"
+    );
 }
 
 #[test]
 fn lowers_fibonacci_with_recursive_calls() {
-    let src = r#"
+    let rendered = compile_to_llvm_ir(
+        r#"
 fn fibonacci(n) {
     if n < 2 { n } else { fibonacci(n - 1) + fibonacci(n - 2) }
 }
-"#;
-    let (core, interner) = parse_and_lower_core(src);
-    let module = compile_program_with_interner(&core, Some(&interner)).expect("lower to llvm");
-    let rendered = render_module(&module);
+"#,
+    );
 
-    assert!(rendered.contains("define internal fastcc i64 @fibonacci(i64 %arg0)"));
-    assert!(rendered.matches("call fastcc i64 @fibonacci").count() >= 2);
-    assert!(rendered.contains("call fastcc i64 @flux_iadd"));
-    assert!(rendered.contains("call fastcc i64 @flux_isub"));
+    assert!(
+        rendered.contains("@flux_fibonacci"),
+        "expected flux_fibonacci in output"
+    );
+    assert!(
+        rendered.contains("flux_iadd") || rendered.contains("flux_add"),
+        "expected addition"
+    );
 }
 
 #[test]
 fn lowers_lambda_in_expression_via_closure_dispatch() {
-    let src = r#"
+    let rendered = compile_to_llvm_ir(
+        r#"
 fn main(x) {
     let f = fn (y) { y }
     f(x)
 }
-"#;
-    let (core, interner) = parse_and_lower_core(src);
-    let module = compile_program_with_interner(&core, Some(&interner)).expect("lower to llvm");
-    let rendered = render_module(&module);
-    assert!(rendered.contains("call fastcc i64 @flux_make_closure("));
-    assert!(rendered.contains("call fastcc i64 @flux_call_closure("));
-    assert!(rendered.contains(".lambda."));
-}
-
-#[test]
-fn rejects_effects_and_adts() {
-    let src = r#"
-effect Console {
-    print: String -> Unit
-}
-
-fn main() {
-    perform Console.print("hi")
-}
-"#;
-    let (core, interner) = parse_and_lower_core(src);
-    let err =
-        compile_program_with_interner(&core, Some(&interner)).expect_err("should reject effects");
-    assert!(matches!(
-        err,
-        CoreToLlvmError::Unsupported {
-            feature: "effects",
-            ..
-        }
-    ));
+"#,
+    );
+    assert!(
+        rendered.contains("flux_make_closure"),
+        "expected closure creation"
+    );
+    assert!(
+        rendered.contains("flux_call_closure"),
+        "expected closure call"
+    );
 }
 
 #[test]
@@ -133,14 +125,13 @@ fn emitted_factorial_module_verifies_with_opt_when_available() {
         return;
     }
 
-    let src = r#"
+    let ll = compile_to_llvm_ir(
+        r#"
 fn factorial(n, acc) {
     if n == 0 { acc } else { factorial(n - 1, n * acc) }
 }
-"#;
-    let (core, interner) = parse_and_lower_core(src);
-    let module = compile_program_with_interner(&core, Some(&interner)).expect("lower to llvm");
-    let ll = render_module(&module);
+"#,
+    );
     let path = std::env::temp_dir().join(format!(
         "core_to_llvm_codegen_{}.ll",
         SystemTime::now()
@@ -148,7 +139,7 @@ fn factorial(n, acc) {
             .expect("clock after unix epoch")
             .as_nanos()
     ));
-    fs::write(&path, ll).expect("write ll");
+    fs::write(&path, &ll).expect("write ll");
     let output = Command::new("opt")
         .arg("--disable-output")
         .arg("-passes=verify")

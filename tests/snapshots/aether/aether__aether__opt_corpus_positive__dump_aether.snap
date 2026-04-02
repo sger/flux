@@ -1107,3 +1107,11 @@ Aether Memory Model Report
 ── Total ──
   Dups: 19  Drops: 63  Reuses: 19  DropSpecs: 4  FBIP: fbip(22)
   FreshAllocs: 22
+
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+[7 of 7] Compiling  opt_corpus_positive

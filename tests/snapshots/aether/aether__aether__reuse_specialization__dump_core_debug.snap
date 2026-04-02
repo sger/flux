@@ -1764,3 +1764,10 @@ letrec main : Any =
 
 ── Aether stats ──
 Dups: 18  Drops: 62  Reuses: 17  DropSpecs: 3  FBIP: fbip(31)
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+[7 of 7] Compiling  reuse_specialization

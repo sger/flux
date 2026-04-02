@@ -2908,7 +2908,9 @@ impl Compiler {
             return Ok(true);
         }
 
-        let Some(primop) = CorePrimOp::from_name(self.sym(*name), arguments.len()) else {
+        let Some(primop) = Self::resolve_library_primop(self.sym(*name), arguments.len())
+            .or_else(|| CorePrimOp::from_name(self.sym(*name), arguments.len()))
+        else {
             return Ok(false);
         };
 
