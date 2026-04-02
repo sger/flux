@@ -1,5 +1,6 @@
 - Feature Name: Incremental Compilation
 - Start Date: 2026-03-26
+- Status: Superseded by Proposal 0139 (Incremental Module Caching)
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0121 (Separate Module Compilation)
