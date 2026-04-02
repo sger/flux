@@ -47,14 +47,15 @@ const CONS_TAG: i32 = 4;
 /// Emit an `LlvmModule` from a `LirProgram`.
 /// The caller can inject target triple / data layout before rendering.
 pub fn emit_llvm_module(program: &LirProgram) -> LlvmModule {
-    emit_llvm_module_with_options(program, true)
+    emit_llvm_module_with_options(program, true, true)
 }
 
 /// Emit an `LlvmModule` from a `LirProgram` with configurable export of the
-/// runtime-facing closure trampoline.
+/// runtime-facing closure trampoline and user constructor-name helper.
 pub fn emit_llvm_module_with_options(
     program: &LirProgram,
     export_runtime_trampoline: bool,
+    export_user_ctor_name_helper: bool,
 ) -> LlvmModule {
     let mut module = LlvmModule {
         source_filename: Some("flux_lir".to_string()),
@@ -142,7 +143,7 @@ pub fn emit_llvm_module_with_options(
         });
     }
 
-    if program.functions.iter().any(|func| func.qualified_name == "main") {
+    if export_user_ctor_name_helper {
         emit_user_ctor_name_helper(&mut module, program);
     }
 

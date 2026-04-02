@@ -24,7 +24,15 @@
 extern const char *flux_string_data(int64_t s);
 extern uint32_t    flux_string_len(int64_t s);
 extern int64_t     flux_string_new(const char *data, uint32_t len);
-extern const char *flux_user_ctor_name(int32_t ctor_tag) __attribute__((weak));
+
+/* Default constructor-name hook for native builds.
+ * Programs with user ADTs provide a strong definition from generated LLVM.
+ * Programs without user ADTs still need one linkable definition on Mach-O. */
+const char *flux_user_ctor_name(int32_t ctor_tag) __attribute__((weak));
+const char *flux_user_ctor_name(int32_t ctor_tag) {
+    (void)ctor_tag;
+    return NULL;
+}
 
 /* ── Runtime lifecycle ──────────────────────────────────────────────── */
 
@@ -45,9 +53,6 @@ void flux_rt_shutdown(void) {
  * Dispatches on the NaN-box tag to determine the type.
  */
 static const char *flux_lookup_user_ctor_name(int32_t ctor_tag) {
-    if (!flux_user_ctor_name) {
-        return NULL;
-    }
     return flux_user_ctor_name(ctor_tag);
 }
 

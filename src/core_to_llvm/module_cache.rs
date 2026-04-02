@@ -10,7 +10,7 @@ use crate::{
     types::module_interface::DependencyFingerprint,
 };
 
-pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = 1;
+pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeModuleArtifactMetadata {
@@ -19,6 +19,7 @@ pub struct NativeModuleArtifactMetadata {
     pub cache_key: String,
     pub dependency_fingerprints: Vec<DependencyFingerprint>,
     pub optimize: bool,
+    pub exports_user_ctor_name_helper: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +94,7 @@ impl NativeModuleCache {
         cache_key: &[u8; 32],
         dependency_fingerprints: Vec<DependencyFingerprint>,
         optimize: bool,
+        exports_user_ctor_name_helper: bool,
     ) -> std::io::Result<PathBuf> {
         fs::create_dir_all(&self.cache_dir)?;
         let metadata = NativeModuleArtifactMetadata {
@@ -101,6 +103,7 @@ impl NativeModuleCache {
             cache_key: hex::encode(cache_key),
             dependency_fingerprints,
             optimize,
+            exports_user_ctor_name_helper,
         };
         let metadata_path = self.metadata_path(source_path, cache_key);
         fs::write(
@@ -115,6 +118,7 @@ impl NativeModuleCache {
         source_path: &Path,
         cache_key: &[u8; 32],
         cache_root: &Path,
+        exports_user_ctor_name_helper: bool,
     ) -> Result<PathBuf, NativeModuleCacheLoadError> {
         let metadata_path = self.metadata_path(source_path, cache_key);
         let object_path = self.object_path(source_path, cache_key);
@@ -132,6 +136,9 @@ impl NativeModuleCache {
             return Err(NativeModuleCacheLoadError::FormatVersionMismatch);
         }
         if metadata.cache_key != hex::encode(cache_key) {
+            return Err(NativeModuleCacheLoadError::CacheKeyMismatch);
+        }
+        if metadata.exports_user_ctor_name_helper != exports_user_ctor_name_helper {
             return Err(NativeModuleCacheLoadError::CacheKeyMismatch);
         }
         let dependency_statuses = self.inspect_dependency_statuses(&metadata, cache_root);
@@ -271,12 +278,13 @@ mod tests {
                     interface_fingerprint: dep_interface.interface_fingerprint.clone(),
                 }],
                 false,
+                false,
             )
             .expect("store metadata");
         fs::write(&object_path, []).expect("write object");
 
         let validated = cache
-            .validate(source, &cache_key, &cache_root)
+            .validate(source, &cache_key, &cache_root, false)
             .expect("validate artifact");
         assert_eq!(validated, object_path);
     }
@@ -308,6 +316,7 @@ mod tests {
                     source_path: dep_path.to_string_lossy().to_string(),
                     interface_fingerprint: "expected".to_string(),
                 }],
+                false,
                 false,
             )
             .expect("store metadata");

@@ -34,6 +34,7 @@ use flux::{
         linter::Linter,
         module_graph::{ModuleGraph, ModuleNode},
         parser::Parser,
+        statement::Statement,
     },
 };
 
@@ -109,6 +110,28 @@ struct NativeParallelModuleResult {
 fn is_flow_library_path(path: &Path) -> bool {
     let text = path.to_string_lossy();
     text.contains("lib/Flow/") || text.contains("lib\\Flow\\")
+}
+
+fn program_has_user_adt_declarations(program: &Program) -> bool {
+    fn block_has_user_adt_declarations(block: &flux::syntax::block::Block) -> bool {
+        block
+            .statements
+            .iter()
+            .any(statement_has_user_adt_declarations)
+    }
+
+    fn statement_has_user_adt_declarations(statement: &Statement) -> bool {
+        match statement {
+            Statement::Data { .. } => true,
+            Statement::Module { body, .. } => block_has_user_adt_declarations(body),
+            _ => false,
+        }
+    }
+
+    program
+        .statements
+        .iter()
+        .any(statement_has_user_adt_declarations)
 }
 
 fn tag_module_diagnostics(diags: &mut Vec<Diagnostic>, phase: DiagnosticPhase, path: &Path) {
@@ -661,7 +684,7 @@ fn compile_native_support_object(
     };
 
     let lir = flux::lir::LirProgram::new();
-    let mut llvm_module = flux::lir::emit_llvm::emit_llvm_module_with_options(&lir, true);
+    let mut llvm_module = flux::lir::emit_llvm::emit_llvm_module_with_options(&lir, true, false);
     llvm_module.target_triple = Some(flux::core_to_llvm::target::host_triple());
     llvm_module.data_layout = flux::core_to_llvm::target::host_data_layout();
     let ll_text = flux::core_to_llvm::render_module(&llvm_module);
@@ -687,6 +710,7 @@ fn compile_parallel_native_module(
     enable_optimize: bool,
     enable_analyze: bool,
     base_interner: &flux::syntax::interner::Interner,
+    export_user_ctor_name_helper: bool,
 ) -> NativeParallelModuleResult {
     let is_flow_library = is_flow_library_path(&node.path);
     let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
@@ -703,7 +727,12 @@ fn compile_parallel_native_module(
         let native_cache =
             flux::core_to_llvm::module_cache::NativeModuleCache::new(cache_layout.native_dir());
         if let Ok(object_path) =
-            native_cache.validate(&node.path, &cache_key, cache_layout.root())
+            native_cache.validate(
+                &node.path,
+                &cache_key,
+                cache_layout.root(),
+                export_user_ctor_name_helper,
+            )
         {
             // Also check that a valid interface exists.
             if let Ok(interface) = flux::bytecode::compiler::module_interface::load_cached_interface(
@@ -753,8 +782,11 @@ fn compile_parallel_native_module(
         };
     }
 
-    let llvm_module = match compiler.lower_to_lir_llvm_module_per_module(&node.program, enable_optimize)
-    {
+    let llvm_module = match compiler.lower_to_lir_llvm_module_per_module(
+        &node.program,
+        enable_optimize,
+        export_user_ctor_name_helper,
+    ) {
         Ok(module) => module,
         Err(mut diag) => {
             diag.set_file(node.path.to_string_lossy().to_string());
@@ -808,6 +840,7 @@ fn compile_parallel_native_module(
             &cache_key,
             dependency_fingerprints.clone(),
             enable_optimize,
+            export_user_ctor_name_helper,
         ) {
             Ok(path) => path,
             Err(_) => cache_layout.native_dir().join(cache_paths::cache_key_filename(
@@ -894,6 +927,11 @@ fn compile_native_modules_parallel(
     for node in graph.topo_order() {
         nodes_by_path.insert(node.path.clone(), node.clone());
     }
+    let user_ctor_helper_owner = graph
+        .topo_order()
+        .into_iter()
+        .find(|node| program_has_user_adt_declarations(&node.program))
+        .map(|node| node.path.clone());
     // Pre-load valid interfaces from cache so dependency fingerprints are
     // available for the first level's cache validation.
     if !no_cache {
@@ -934,6 +972,9 @@ fn compile_native_modules_parallel(
                     enable_optimize,
                     enable_analyze,
                     base_interner,
+                    user_ctor_helper_owner
+                        .as_ref()
+                        .is_some_and(|owner| owner == &node.path),
                 )
             })
             .collect();
@@ -4213,4 +4254,3 @@ fn format_borrow_provenance(
         flux::aether::borrow_infer::BorrowProvenance::Unknown => "Unknown",
     }
 }
-
