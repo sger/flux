@@ -3,19 +3,137 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day8_haskell_style.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+error[E004]: Undefined Variable
 
-Cannot find module `Flow.Array` to import.
+I can't find a value named `range`.
 
-  examples/aoc/2025/aoc_day8_haskell_style.flx:6:1
-  |
-6 | import Flow.Array as Array
-  | ^
+  examples/aoc/2025/aoc_day8_haskell_style.flx:164:16
+    |
+164 |     let idxs = range(0, n)
+    |                ^^^^^
 
 Hint:
-  Check that: 1) The module file exists (e.g., `Flow.Array.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Flow.Array` under roots: examples/aoc/2025, src (imported from examples/aoc/2025/aoc_day8_haskell_style.flx).
+  Define it first: let range = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day8_haskell_style.flx:166:5
+    |
+166 |     fold(idxs, [||], /(acc, i) -> {
+    |     ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `range`.
+
+  examples/aoc/2025/aoc_day8_haskell_style.flx:172:20
+    |
+172 |     let parents0 = range(0, n)
+    |                    ^^^^^
+
+Hint:
+  Define it first: let range = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day8_haskell_style.flx:173:18
+    |
+173 |     let sizes0 = map(range(0, n), /_ -> 1)
+    |                  ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day8_haskell_style.flx:175:18
+    |
+175 |     let state1 = fold(sorted_keys, state0, /(st, k) -> union_key(st, k))
+    |                  ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `range`.
+
+  examples/aoc/2025/aoc_day8_haskell_style.flx:183:16
+    |
+183 |     let idxs = range(0, n)
+    |                ^^^^^
+
+Hint:
+  Define it first: let range = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day8_haskell_style.flx:185:5
+    |
+185 |     fold(idxs, [||], /(acc, i) -> {
+    |     ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `range`.
+
+  examples/aoc/2025/aoc_day8_haskell_style.flx:193:20
+    |
+193 |     let parents0 = range(0, n)
+    |                    ^^^^^
+
+Hint:
+  Define it first: let range = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day8_haskell_style.flx:194:18
+    |
+194 |     let sizes0 = map(range(0, n), /_ -> 1)
+    |                  ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2025/aoc_day8_haskell_style.flx:196:18
+    |
+196 |     let state1 = fold(top_keys, state0, /(st, k) -> union_key(st, k))
+    |                  ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+Found 10 errors.
 == stdout ==
 <not executed>

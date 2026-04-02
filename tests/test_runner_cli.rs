@@ -39,9 +39,12 @@ fn combined_output(output: &Output) -> String {
 }
 
 fn extract_function_ir<'a>(llvm: &'a str, name: &str) -> &'a str {
-    let needle = format!("define internal fastcc i64 @{name}");
+    // Try both internal (single-module) and non-internal (per-module) linkage.
+    let needle_internal = format!("define internal fastcc i64 @{name}");
+    let needle_public = format!("define fastcc i64 @{name}");
     let start = llvm
-        .find(&needle)
+        .find(&needle_internal)
+        .or_else(|| llvm.find(&needle_public))
         .unwrap_or_else(|| panic!("expected function `{name}` in LLVM output:\n{llvm}"));
     let rest = &llvm[start..];
     if let Some(next_define) = rest[1..].find("\ndefine ") {
@@ -286,6 +289,48 @@ fn test_native_sort_by_string_len_repro_prints_sorted_strings() {
     assert!(
         text.contains("\"[\"a\", \"bb\", \"ccc\"]\""),
         "expected sorted string output on native backend, output:\n{}",
+        text
+    );
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn test_native_list_map_filter_example_preserves_list_zip_output() {
+    let file = example_path("advanced/list_map_filter.flx");
+    let output = run_flux(&["--native", file.to_str().unwrap(), "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for list_map_filter example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("[(1, 1), (2, 2), (3, 3)]"),
+        "expected list zip output on native backend, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_vm_higher_order_builtins_example_sorts_arrays() {
+    let file = example_path("basics/higher_order_builtins.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected VM success for higher_order_builtins example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("[|\"fig\", \"kiwi\", \"apple\", \"banana\"|]"),
+        "expected string sort_by output on VM backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("[|5, 4, 3, 2, 1|]"),
+        "expected descending numeric sort_by output on VM backend, output:\n{}",
         text
     );
 }

@@ -1098,6 +1098,7 @@ impl Compiler {
                     }
                     if self.is_flow_module_symbol(name) {
                         self.compile_import_statement(name, *alias, except)?;
+                        self.register_exposed_bindings(name, exposing, *span)?;
                         return Ok(());
                     }
                     let name_str = self.sym(name).to_string();

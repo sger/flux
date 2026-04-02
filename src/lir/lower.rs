@@ -59,19 +59,8 @@ fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
     // Strip module prefix (e.g. "Flow.List.first" → "first")
     let short = name.rsplit('.').next().unwrap_or(name);
     match (short, arity) {
-        // Higher-order (C runtime calls closures via flux_call_closure_c)
-        ("map", 2) => Some(CorePrimOp::HoMap),
-        ("filter", 2) => Some(CorePrimOp::HoFilter),
         ("sort", 1) => Some(CorePrimOp::Sort),
         ("sort_by", 2) => Some(CorePrimOp::SortBy),
-        ("any", 2) => Some(CorePrimOp::HoAny),
-        ("all", 2) => Some(CorePrimOp::HoAll),
-        ("each", 2) => Some(CorePrimOp::HoEach),
-        ("find", 2) => Some(CorePrimOp::HoFind),
-        ("count", 2) => Some(CorePrimOp::HoCount),
-        ("flat_map", 2) => Some(CorePrimOp::HoFlatMap),
-        ("zip", 2) => Some(CorePrimOp::Zip),
-        ("flatten", 1) => Some(CorePrimOp::Flatten),
         _ => None,
     }
 }
@@ -612,6 +601,17 @@ impl<'a> FnLower<'a> {
                             if let Some(&lir_var) = self.env.get(&bid) {
                                 return lir_var;
                             }
+                            if let Some(&func_id) = self.binder_func_id_map.get(&bid) {
+                                let var = self.fresh_var();
+                                self.emit(LirInstr::MakeClosure {
+                                    dst: var,
+                                    func_id,
+                                    captures: Vec::new(),
+                                });
+                                self.bind(bid, var);
+                                self.direct_func_vars.insert(var, func_id);
+                                return var;
+                            }
                         }
                         let dst = self.fresh_var();
                         self.emit(LirInstr::Const {
@@ -666,13 +666,14 @@ impl<'a> FnLower<'a> {
 
                     // Assign a synthetic LirFuncId for this letrec function.
                     let synthetic_id = temp_program.alloc_synthetic_func_id();
+                    let letrec_qname = format!("{}_letrec_{}", self.func.qualified_name, synthetic_id.0);
 
                     // Pre-assign function slot so self-recursion works.
                     let func_idx = temp_program.functions.len();
                     temp_program.functions.push(LirFunction {
                         name: format!("letrec_{}_placeholder", func_idx),
                         id: synthetic_id,
-                        qualified_name: format!("letrec_{}", synthetic_id.0),
+                        qualified_name: letrec_qname.clone(),
                         params: Vec::new(),
                         blocks: Vec::new(),
                         next_var: 0,
@@ -684,7 +685,7 @@ impl<'a> FnLower<'a> {
                     let mut inner = FnLower::new(
                         func_name,
                         synthetic_id,
-                        format!("letrec_{}", synthetic_id.0),
+                        letrec_qname,
                         FnLowerCtx {
                             program: &mut temp_program,
                             interner: self.interner,
@@ -774,11 +775,12 @@ impl<'a> FnLower<'a> {
                     let mut temp_program = std::mem::take(&mut *self.program);
 
                     let synthetic_id = temp_program.alloc_synthetic_func_id();
+                    let lambda_qname = format!("{}_lambda_{}", self.func.qualified_name, synthetic_id.0);
                     let func_name = format!("closure_{}", temp_program.functions.len());
                     let mut inner = FnLower::new(
                         func_name,
                         synthetic_id,
-                        format!("lambda_{}", synthetic_id.0),
+                        lambda_qname,
                         FnLowerCtx {
                             program: &mut temp_program,
                             interner: self.interner,

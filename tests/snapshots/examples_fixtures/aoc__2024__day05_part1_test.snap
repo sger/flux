@@ -3,19 +3,85 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/day05_part1_test.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+error[E004]: Undefined Variable
 
-Cannot find module `Flow.FTest` to import.
+I can't find a value named `any`.
 
-  examples/aoc/2024/day05_part1_test.flx:1:1
-  |
-1 | import Flow.FTest as Test
-  | ^
+  examples/aoc/2024/Day05Solver.flx:75:9
+   |
+75 |         any(xs, /x -> x == target)
+   |         ^^^
 
 Hint:
-  Check that: 1) The module file exists (e.g., `Flow.FTest.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Flow.FTest` under roots: examples/aoc/2024, src (imported from examples/aoc/2024/day05_part1_test.flx).
+  Define it first: let any = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `filter`.
+
+  examples/aoc/2024/Day05Solver.flx:97:9
+   |
+97 |         filter(rules, /r -> contains_int(xs, r.0) && contains_int(xs, r.1))
+   |         ^^^^^^
+
+Hint:
+  Define it first: let filter = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2024/Day05Solver.flx:101:9
+    |
+101 |         fold(
+    |         ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `filter`.
+
+  examples/aoc/2024/Day05Solver.flx:126:9
+    |
+126 |         filter(xs, /x -> x != target)
+    |         ^^^^^^
+
+Hint:
+  Define it first: let filter = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2024/Day05Solver.flx:153:24
+    |
+153 |                     |> fold(0, /(acc, x) -> acc + x),
+    |                        ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2024/Day05Solver.flx:172:24
+    |
+172 |                     |> fold(0, /(acc, x) -> acc + x),
+    |                        ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+Found 6 errors.
 == stdout ==
 <not executed>

@@ -606,6 +606,7 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::SortBy => out.push_str("SortBy"),
         CorePrimOp::HoMap => out.push_str("HoMap"),
         CorePrimOp::HoFilter => out.push_str("HoFilter"),
+        CorePrimOp::HoFold => out.push_str("HoFold"),
         CorePrimOp::HoAny => out.push_str("HoAny"),
         CorePrimOp::HoAll => out.push_str("HoAll"),
         CorePrimOp::HoEach => out.push_str("HoEach"),

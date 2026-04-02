@@ -7,6 +7,13 @@ status: 1
 stdout:
 <empty>
 stderr:
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+[7 of 7] Compiling  base_flat_map_return_shape
 [cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • lib/Flow/List.flx
 error[E1004]: primop concat expected Array, got Int
@@ -26,6 +33,13 @@ status: 1
 stdout:
 <empty>
 stderr:
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+[7 of 7] Compiling  base_flat_map_return_shape
 [cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • lib/Flow/List.flx
 error[E1004]: primop concat expected Array, got Int

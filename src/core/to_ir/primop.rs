@@ -79,6 +79,7 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::SortBy => "sort_by",
         CorePrimOp::HoMap => "map",
         CorePrimOp::HoFilter => "filter",
+        CorePrimOp::HoFold => "fold",
         CorePrimOp::HoAny => "any",
         CorePrimOp::HoAll => "all",
         CorePrimOp::HoEach => "each",
@@ -287,6 +288,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::SortBy
             | CorePrimOp::HoMap
             | CorePrimOp::HoFilter
+            | CorePrimOp::HoFold
             | CorePrimOp::HoAny
             | CorePrimOp::HoAll
             | CorePrimOp::HoEach

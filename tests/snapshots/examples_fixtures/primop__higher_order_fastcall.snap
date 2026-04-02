@@ -114,22 +114,6 @@ I can't find a value named `count`.
 Hint:
   Define it first: let count = ...;
 
-
-error[E004]: Undefined Variable
-
-I can't find a value named `sort_by`.
-
-  examples/primop/higher_order_fastcall.flx:22:18
-   |
-22 |     let sorted = sort_by([|5, 2, 4, 1, 3|], fn(x) { x });
-   |                  ^^^^^^^
-
-Hint:
-  Define it first: let sort_by = ...;
-
-Help:
-  Did you mean `sorted`?
-
-Found 9 errors.
+Found 8 errors.
 == stdout ==
 <not executed>

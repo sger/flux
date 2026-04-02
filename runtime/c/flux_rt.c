@@ -1661,22 +1661,62 @@ int64_t flux_ho_count(int64_t collection, int64_t func) {
 /* sort_by(collection, key_fn) — sort by key function result. */
 int64_t flux_ho_sort_by(int64_t collection, int64_t func) {
     int64_t *elems; uint32_t len;
-    if (!flux_get_array_elems(collection, &elems, &len)) return collection;
-    if (len <= 1) return collection;
+    if (flux_get_array_elems(collection, &elems, &len)) {
+        if (len <= 1) return collection;
 
-    /* Compute keys, then sort by keys. */
-    int64_t *sorted = (int64_t *)malloc(len * sizeof(int64_t));
-    int64_t *keys_arr = (int64_t *)malloc(len * sizeof(int64_t));
-    memcpy(sorted, elems, len * sizeof(int64_t));
-    for (uint32_t i = 0; i < len; i++) {
-        keys_arr[i] = call1(func, sorted[i]);
+        /* Compute keys, then sort by keys. */
+        int64_t *sorted = (int64_t *)malloc(len * sizeof(int64_t));
+        int64_t *keys_arr = (int64_t *)malloc(len * sizeof(int64_t));
+        memcpy(sorted, elems, len * sizeof(int64_t));
+        for (uint32_t i = 0; i < len; i++) {
+            keys_arr[i] = call1(func, sorted[i]);
+        }
+
+        /* Insertion sort by key. */
+        for (uint32_t i = 1; i < len; i++) {
+            int64_t key = keys_arr[i];
+            int64_t val = sorted[i];
+            int32_t j = (int32_t)i - 1;
+            while (j >= 0 && flux_rt_gt(keys_arr[j], key) == flux_make_bool(1)) {
+                keys_arr[j + 1] = keys_arr[j];
+                sorted[j + 1] = sorted[j];
+                j--;
+            }
+            keys_arr[j + 1] = key;
+            sorted[j + 1] = val;
+        }
+        int64_t result = flux_array_new(sorted, (int32_t)len);
+        free(sorted);
+        free(keys_arr);
+        return result;
     }
 
-    /* Insertion sort by key. */
-    for (uint32_t i = 1; i < len; i++) {
+    /* Cons list: collect, sort stably by computed keys, rebuild list. */
+    int64_t count = 0;
+    int64_t cur = collection;
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        if (*(int32_t *)cp != 4) break;
+        count++;
+        cur = ((int64_t *)((char *)cp + 8))[1];
+    }
+    if (count <= 1) return collection;
+
+    int64_t *sorted = (int64_t *)malloc(count * sizeof(int64_t));
+    int64_t *keys_arr = (int64_t *)malloc(count * sizeof(int64_t));
+    cur = collection;
+    for (int64_t i = 0; i < count; i++) {
+        void *cp = flux_untag_ptr(cur);
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        sorted[i] = fields[0];
+        keys_arr[i] = call1(func, sorted[i]);
+        cur = fields[1];
+    }
+
+    for (int64_t i = 1; i < count; i++) {
         int64_t key = keys_arr[i];
         int64_t val = sorted[i];
-        int32_t j = (int32_t)i - 1;
+        int64_t j = i - 1;
         while (j >= 0 && flux_rt_gt(keys_arr[j], key) == flux_make_bool(1)) {
             keys_arr[j + 1] = keys_arr[j];
             sorted[j + 1] = sorted[j];
@@ -1685,7 +1725,17 @@ int64_t flux_ho_sort_by(int64_t collection, int64_t func) {
         keys_arr[j + 1] = key;
         sorted[j + 1] = val;
     }
-    int64_t result = flux_array_new(sorted, (int32_t)len);
+
+    int64_t result = flux_make_empty_list();
+    for (int64_t i = count - 1; i >= 0; i--) {
+        void *mem = flux_gc_alloc_header(8 + 2 * 8, 2, FLUX_OBJ_ADT);
+        *(int32_t *)mem = 4; /* CONS tag */
+        *((int32_t *)mem + 1) = 2;
+        int64_t *fields = (int64_t *)((char *)mem + 8);
+        fields[0] = sorted[i];
+        fields[1] = result;
+        result = flux_tag_ptr(mem);
+    }
     free(sorted);
     free(keys_arr);
     return result;
@@ -1715,16 +1765,51 @@ int64_t flux_zip(int64_t a, int64_t b) {
 
 int64_t flux_sort_default(int64_t collection) {
     int64_t *elems; uint32_t len;
-    if (!flux_get_array_elems(collection, &elems, &len)) return collection;
-    if (len <= 1) return collection;
+    if (flux_get_array_elems(collection, &elems, &len)) {
+        if (len <= 1) return collection;
 
-    int64_t *sorted = (int64_t *)malloc(len * sizeof(int64_t));
-    memcpy(sorted, elems, len * sizeof(int64_t));
+        int64_t *sorted = (int64_t *)malloc(len * sizeof(int64_t));
+        memcpy(sorted, elems, len * sizeof(int64_t));
 
-    /* Insertion sort by NaN-boxed int comparison. */
-    for (uint32_t i = 1; i < len; i++) {
+        /* Insertion sort by runtime comparison. */
+        for (uint32_t i = 1; i < len; i++) {
+            int64_t key = sorted[i];
+            int32_t j = (int32_t)i - 1;
+            while (j >= 0) {
+                int64_t cmp = flux_rt_gt(sorted[j], key);
+                if (cmp != flux_make_bool(1)) break;
+                sorted[j + 1] = sorted[j];
+                j--;
+            }
+            sorted[j + 1] = key;
+        }
+        int64_t result = flux_array_new(sorted, (int32_t)len);
+        free(sorted);
+        return result;
+    }
+
+    int64_t count = 0;
+    int64_t cur = collection;
+    while (flux_is_ptr(cur)) {
+        void *cp = flux_untag_ptr(cur);
+        if (*(int32_t *)cp != 4) break;
+        count++;
+        cur = ((int64_t *)((char *)cp + 8))[1];
+    }
+    if (count <= 1) return collection;
+
+    int64_t *sorted = (int64_t *)malloc(count * sizeof(int64_t));
+    cur = collection;
+    for (int64_t i = 0; i < count; i++) {
+        void *cp = flux_untag_ptr(cur);
+        int64_t *fields = (int64_t *)((char *)cp + 8);
+        sorted[i] = fields[0];
+        cur = fields[1];
+    }
+
+    for (int64_t i = 1; i < count; i++) {
         int64_t key = sorted[i];
-        int32_t j = (int32_t)i - 1;
+        int64_t j = i - 1;
         while (j >= 0) {
             int64_t cmp = flux_rt_gt(sorted[j], key);
             if (cmp != flux_make_bool(1)) break;
@@ -1733,7 +1818,17 @@ int64_t flux_sort_default(int64_t collection) {
         }
         sorted[j + 1] = key;
     }
-    int64_t result = flux_array_new(sorted, (int32_t)len);
+
+    int64_t result = flux_make_empty_list();
+    for (int64_t i = count - 1; i >= 0; i--) {
+        void *mem = flux_gc_alloc_header(8 + 2 * 8, 2, FLUX_OBJ_ADT);
+        *(int32_t *)mem = 4; /* CONS tag */
+        *((int32_t *)mem + 1) = 2;
+        int64_t *fields = (int64_t *)((char *)mem + 8);
+        fields[0] = sorted[i];
+        fields[1] = result;
+        result = flux_tag_ptr(mem);
+    }
     free(sorted);
     return result;
 }

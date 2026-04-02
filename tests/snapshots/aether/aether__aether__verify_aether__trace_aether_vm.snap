@@ -1,6 +1,7 @@
 ---
 source: tests/aether_cli_snapshots.rs
 ---
+[1 of 1] Compiling  verify_aether
 Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:

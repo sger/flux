@@ -11,6 +11,10 @@ impl Compiler {
         self.collect_module_function_visibility(program);
         self.collect_module_adt_constructors(program);
         self.collect_module_contracts(program);
+        // Re-apply Flow stdlib auto-exposure after refreshing module visibility
+        // for the current compilation unit. This keeps VM/import resolution in
+        // sync with the latest collected Flow members.
+        self.auto_expose_flow_modules();
         self.infer_unannotated_function_effects(program);
         self.collect_adt_definitions(program);
         self.collect_effect_declarations(program);
