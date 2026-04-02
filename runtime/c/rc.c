@@ -1,5 +1,5 @@
 /*
- * gc.c — Flux Aether RC: Perceus-inspired reference counting.
+ * rc.c — Flux Aether RC: Perceus-inspired reference counting.
  *
  * Inspired by Koka's kklib runtime (Perceus RC). Every heap-allocated
  * object has an 8-byte FluxHeader at ptr - 8 containing:
