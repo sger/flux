@@ -261,7 +261,7 @@ fn emit_is_ptr(module: &mut LlvmModule) {
 }
 
 /// Declare `flux_dup(i64) -> void` as an external C function.
-/// The implementation lives in `runtime/c/gc.c` (Aether RC).
+/// The implementation lives in `runtime/c/rc.c` (Aether RC).
 fn emit_dup(module: &mut LlvmModule) {
     let name = "flux_dup";
     if has_function(module, name) || module.declarations.iter().any(|d| d.name.0 == name) {
@@ -281,7 +281,7 @@ fn emit_dup(module: &mut LlvmModule) {
 }
 
 /// Declare `flux_drop(i64) -> void` as an external C function.
-/// The implementation lives in `runtime/c/gc.c` (Aether RC).
+/// The implementation lives in `runtime/c/rc.c` (Aether RC).
 fn emit_drop(module: &mut LlvmModule) {
     let name = "flux_drop";
     if has_function(module, name) || module.declarations.iter().any(|d| d.name.0 == name) {
@@ -889,9 +889,9 @@ mod tests {
         assert!(rendered.contains("define internal fastcc i1 @flux_is_ptr(i64 %val) alwaysinline"));
         assert!(rendered.contains("%tag = and i64 %tag_bits, 15"));
         assert!(rendered.contains("%result = select i1 %is_boxed, i1 %is_boxed_value, i1 0"));
-        // flux_dup: external C declaration (Aether RC in gc.c)
+        // flux_dup: external C declaration (Aether RC in rc.c)
         assert!(rendered.contains("declare ccc void @flux_dup(i64) nounwind"));
-        // flux_drop: external C declaration (Aether RC in gc.c)
+        // flux_drop: external C declaration (Aether RC in rc.c)
         assert!(rendered.contains("declare ccc void @flux_drop(i64) nounwind"));
         // flux_drop_reuse: returns ptr for reuse if unique, else allocs fresh
         assert!(rendered.contains(

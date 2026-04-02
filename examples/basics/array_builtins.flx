@@ -10,21 +10,21 @@ fn main() with IO {
     print(len([||]));       // 0
 
     // first - get first element
-    print(first(arr));    // 1
+    print(Array.first(arr));    // 1
 
     // last - get last element
-    print(last(arr));     // 5
+    print(Array.last(arr));     // 5
 
-    // rest - get all but first
-    print(rest(arr));     // [|2, 3, 4, 5|]
+    // rest - get all but first (via slice)
+    print(slice(arr, 1, len(arr)));     // [|2, 3, 4, 5|]
 
     // push - add element (returns new array)
     print(push(arr, 6));  // [|1, 2, 3, 4, 5, 6|]
 
     // Edge cases with empty array
-    print(first([||]));     // None
-    print(last([||]));      // None
-    print(rest([||]));      // None
+    print(Array.first([||]));     // None
+    print(Array.last([||]));      // None
+    print(slice([||], 1, len([||])));      // [||]
 
     // =============================================================================
     // New Array Base Functions (Milestone 5.1)
