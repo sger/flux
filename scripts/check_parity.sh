@@ -31,7 +31,7 @@ done
 
 # Default corpus
 if [ ${#DIRS[@]} -eq 0 ]; then
-    DIRS=("tests/parity" "examples/basics")
+    DIRS=("tests/parity" "examples/basics" "examples/aether")
 fi
 
 # ── Build ───────────────────────────────────────────────────────────────────
