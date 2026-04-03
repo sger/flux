@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cache_paths,
-    types::module_interface::DependencyFingerprint,
+    types::module_interface::{DependencyFingerprint, DependencyMissReason},
 };
 
 pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = 2;
@@ -29,7 +29,11 @@ pub enum NativeModuleCacheLoadError {
     CompilerVersionMismatch,
     FormatVersionMismatch,
     CacheKeyMismatch,
-    DependencyFingerprintMismatch,
+    DependencyFingerprintMismatch {
+        module_name: String,
+        source_path: String,
+        reason: DependencyMissReason,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,14 +61,23 @@ pub enum DependencyStatus {
 }
 
 impl NativeModuleCacheLoadError {
-    pub fn message(&self) -> &'static str {
+    pub fn message(&self) -> String {
         match self {
-            Self::NotFound => "not found",
-            Self::InvalidMetadata => "invalid metadata",
-            Self::CompilerVersionMismatch => "compiler version mismatch",
-            Self::FormatVersionMismatch => "format version mismatch",
-            Self::CacheKeyMismatch => "cache key mismatch",
-            Self::DependencyFingerprintMismatch => "dependency fingerprint mismatch",
+            Self::NotFound => "not found".into(),
+            Self::InvalidMetadata => "invalid metadata".into(),
+            Self::CompilerVersionMismatch => "compiler version mismatch".into(),
+            Self::FormatVersionMismatch => "format version mismatch".into(),
+            Self::CacheKeyMismatch => "cache key mismatch".into(),
+            Self::DependencyFingerprintMismatch {
+                module_name,
+                source_path,
+                reason,
+            } => {
+                format!(
+                    "dependency mismatch ({module_name} @ {source_path}): {}",
+                    reason.label()
+                )
+            }
         }
     }
 }
@@ -142,11 +155,20 @@ impl NativeModuleCache {
             return Err(NativeModuleCacheLoadError::CacheKeyMismatch);
         }
         let dependency_statuses = self.inspect_dependency_statuses(&metadata, cache_root);
-        if dependency_statuses
+        if let Some(bad) = dependency_statuses
             .iter()
-            .any(|status| status.status != DependencyStatus::Ok)
+            .find(|s| s.status != DependencyStatus::Ok)
         {
-            return Err(NativeModuleCacheLoadError::DependencyFingerprintMismatch);
+            let reason = match bad.status {
+                DependencyStatus::Ok => unreachable!(),
+                DependencyStatus::Missing => DependencyMissReason::InterfaceMissing,
+                DependencyStatus::Stale => DependencyMissReason::InterfaceFingerprintChanged,
+            };
+            return Err(NativeModuleCacheLoadError::DependencyFingerprintMismatch {
+                module_name: bad.module_name.clone(),
+                source_path: bad.source_path.clone(),
+                reason,
+            });
         }
         Ok(object_path)
     }
