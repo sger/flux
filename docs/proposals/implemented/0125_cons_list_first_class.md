@@ -1,5 +1,6 @@
 - Feature Name: Cons Lists as First-Class Default Collection
 - Start Date: 2026-03-26
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0120 (Flow Standard Library)
