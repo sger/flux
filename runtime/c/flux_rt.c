@@ -17,6 +17,8 @@
 #include <time.h>
 #if defined(_MSC_VER) || defined(_WIN32)
 #include <windows.h>
+#include <io.h>
+#include <fcntl.h>
 #endif
 
 /* ── Forward declarations for string helpers (string.c) ─────────────── */
@@ -37,6 +39,9 @@ const char *flux_user_ctor_name(int32_t ctor_tag) {
 /* ── Runtime lifecycle ──────────────────────────────────────────────── */
 
 void flux_rt_init(void) {
+#if defined(_MSC_VER) || defined(_WIN32)
+    _setmode(_fileno(stdout), _O_BINARY);
+#endif
     flux_gc_init(0);
 }
 
