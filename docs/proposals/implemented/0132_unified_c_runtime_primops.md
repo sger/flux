@@ -1,5 +1,6 @@
 - Feature Name: Unified C Runtime — Aether RC
 - Start Date: 2026-03-27
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 - Depends on: None

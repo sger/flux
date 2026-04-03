@@ -1,6 +1,6 @@
 - Feature Name: Separate Module Compilation and Base Prelude
 - Start Date: 2026-03-24
-- Status: Partially Implemented (Phases 1 & 4 complete; Phases 2, 3, 5 in progress)
+- Status: Implemented (Phases 1-5 complete; Phases 2, 3, 5 completed by Proposals 0137 and 0139)
 - Proposal PR:
 - Flux Issue:
 
