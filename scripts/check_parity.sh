@@ -62,7 +62,7 @@ done
 # ── Extended pre-release gate ───────────────────────────────────────────────
 
 if [ "$EXTENDED" = true ]; then
-    EXTENDED_WAYS="vm_cached,vm_strict,llvm_strict"
+    EXTENDED_WAYS="vm_cached,llvm_cached,vm_strict,llvm_strict"
 
     for dir in "${DIRS[@]}"; do
         echo ""

@@ -498,12 +498,12 @@ Implemented:
 
 *Integrates with Proposal 0138 (Flux Parity Ways and Differential Validation).*
 
-- ✅ **Parity observation of artifacts**: `src/parity/runner.rs` supports `VmCached` and `LlvmCached` ways that warm caches, re-run, and compare fresh vs cached output. `scripts/check_parity.sh --extended` runs `vm_cached`, `vm_strict`, `llvm_strict` ways.
+- ✅ **Parity observation of artifacts**: `src/parity/runner.rs` supports `VmCached` and `LlvmCached` ways that warm caches, re-run, and compare fresh vs cached output. `scripts/check_parity.sh --extended` runs `vm_cached`, `llvm_cached`, `vm_strict`, `llvm_strict` ways.
 - ✅ **Cache inspection commands**: `flux cache-info`, `flux module-cache-info`, `flux native-cache-info`, `flux cache-info-file`, `flux interface-info` all implemented in `src/main.rs:1266-1327`. Verbose mode shows compiler version, format version, dependency fingerprint statuses.
-- ⚠️ **Explicit cache mismatch classification**: Cache miss reasons are reported (`DependencyFingerprintMismatch(path)`) but don't break down into specific sub-reasons (source hash vs config hash vs compiler version). Enhance to show exactly which field of which dependency changed.
+- ✅ **Explicit cache mismatch classification**: All three cache systems (interface, bytecode module, native module) now report the specific sub-reason via `DependencyMissReason` (`InterfaceMissing`, `CompilerVersionChanged`, `FormatVersionChanged`, `InterfaceFingerprintChanged`). Verbose output shows e.g. `dependency mismatch (Base.List @ lib/Base/List.flx): interface fingerprint changed`.
 - ✅ **Regression coverage for private/public invalidation**: `tests/cache_invalidation_tests.rs` — 6 tests covering: private body change preserves fingerprint, new public export changes fingerprint, removed public export changes fingerprint, private-to-public visibility change, comment-only change preserves fingerprint, private helper addition preserves fingerprint.
 - ✅ **`flux clean` command**: `flux clean [<file.flx>]` resolves the cache root and removes it. Uses `resolve_cache_layout` so `--cache-dir` is respected.
-- ⚠️ **VM == LLVM parity with caching**: Infrastructure ready (`src/parity/cli.rs:183-218` compares cached vs fresh), but extended parity suite not yet running in CI.
+- ✅ **VM == LLVM parity with caching**: Extended parity suite (`vm_cached`, `llvm_cached`, `vm_strict`, `llvm_strict`) now runs on every PR/push in CI (`.github/workflows/ci.yml`). `llvm_cached` added to the extended ways in `scripts/check_parity.sh`.
 
 ## Drawbacks
 

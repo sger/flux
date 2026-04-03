@@ -18,7 +18,8 @@ use crate::{
     syntax::{Identifier, interner::Interner},
     types::{
         module_interface::{
-            DependencyFingerprint, MODULE_INTERFACE_FORMAT_VERSION, ModuleInterface,
+            DependencyFingerprint, DependencyMissReason, MODULE_INTERFACE_FORMAT_VERSION,
+            ModuleInterface,
         },
         scheme::Scheme,
     },
@@ -35,6 +36,7 @@ pub enum InterfaceLoadError {
     DependencyFingerprintMismatch {
         module_name: String,
         source_path: String,
+        reason: DependencyMissReason,
     },
 }
 
@@ -50,8 +52,12 @@ impl InterfaceLoadError {
             Self::DependencyFingerprintMismatch {
                 module_name,
                 source_path,
+                reason,
             } => {
-                format!("dependency fingerprint mismatch ({module_name} @ {source_path})")
+                format!(
+                    "dependency mismatch ({module_name} @ {source_path}): {}",
+                    reason.label()
+                )
             }
         }
     }
@@ -216,15 +222,28 @@ pub fn load_valid_interface(
             return Err(InterfaceLoadError::DependencyFingerprintMismatch {
                 module_name: dependency.module_name.clone(),
                 source_path: dependency.source_path.clone(),
+                reason: DependencyMissReason::InterfaceMissing,
             });
         };
-        if current.compiler_version != env!("CARGO_PKG_VERSION")
-            || current.cache_format_version != MODULE_INTERFACE_FORMAT_VERSION
-            || current.interface_fingerprint != dependency.interface_fingerprint
-        {
+        if current.compiler_version != env!("CARGO_PKG_VERSION") {
             return Err(InterfaceLoadError::DependencyFingerprintMismatch {
                 module_name: dependency.module_name.clone(),
                 source_path: dependency.source_path.clone(),
+                reason: DependencyMissReason::CompilerVersionChanged,
+            });
+        }
+        if current.cache_format_version != MODULE_INTERFACE_FORMAT_VERSION {
+            return Err(InterfaceLoadError::DependencyFingerprintMismatch {
+                module_name: dependency.module_name.clone(),
+                source_path: dependency.source_path.clone(),
+                reason: DependencyMissReason::FormatVersionChanged,
+            });
+        }
+        if current.interface_fingerprint != dependency.interface_fingerprint {
+            return Err(InterfaceLoadError::DependencyFingerprintMismatch {
+                module_name: dependency.module_name.clone(),
+                source_path: dependency.source_path.clone(),
+                reason: DependencyMissReason::InterfaceFingerprintChanged,
             });
         }
     }
