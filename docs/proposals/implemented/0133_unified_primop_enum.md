@@ -1,5 +1,6 @@
 - Feature Name: Unified PrimOp — VM uses CorePrimOp
 - Start Date: 2026-03-27
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0131 (Aether RC in C runtime)

@@ -1,5 +1,6 @@
 - Feature Name: Shared Low-Level IR — Deprecate CFG
 - Start Date: 2026-03-27
+- Status: Implemented (Phases 1-5, 7, 8a; CFG retained for VM by design; Phase 9 handled by Proposal 0134)
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0131 (Aether RC), Proposal 0133 (Unified CorePrimOp)

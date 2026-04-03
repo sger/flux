@@ -1,5 +1,6 @@
 - Feature Name: Backend Parity Harness
 - Start Date: 2026-03-30
+- Status: Superseded by Proposal 0138 (Flux Parity Ways)
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0104 (Flux Core IR), Proposal 0105 (LLVM Backend), Proposal 0118 (Backend Consolidation)
