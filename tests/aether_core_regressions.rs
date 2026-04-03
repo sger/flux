@@ -834,7 +834,7 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
                         expr,
                         CoreExpr::AetherCall { arg_modes, .. }
                             if arg_modes == &[
-                                flux::aether::borrow_infer::BorrowMode::Borrowed,
+                                flux::aether::borrow_infer::BorrowMode::Owned,
                                 flux::aether::borrow_infer::BorrowMode::Borrowed,
                             ]
                     )
@@ -846,7 +846,7 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
             expr,
             CoreExpr::AetherCall { arg_modes, .. }
                 if arg_modes == &[
-                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                    flux::aether::borrow_infer::BorrowMode::Owned,
                     flux::aether::borrow_infer::BorrowMode::Borrowed,
                 ]
         )
@@ -870,7 +870,7 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
         });
     assert!(
         borrowed_self_call,
-        "bench_reuse my_map should preserve borrowed recursive traversal"
+        "bench_reuse my_map should preserve the current owned/borrowed recursive traversal shape"
     );
     assert!(
         has_reuse,
@@ -936,7 +936,7 @@ fn main() { map_like([1, 2, 3], \x -> x + 1) }
             expr,
             CoreExpr::AetherCall { arg_modes, .. }
                 if arg_modes == &[
-                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                    flux::aether::borrow_infer::BorrowMode::Owned,
                     flux::aether::borrow_infer::BorrowMode::Borrowed,
                 ]
         )
@@ -947,7 +947,7 @@ fn main() { map_like([1, 2, 3], \x -> x + 1) }
     );
     assert!(
         borrowed_self_call,
-        "higher-order recursive rebuild should preserve borrowed recursive tail traversal"
+        "higher-order recursive rebuild should preserve the current owned/borrowed recursive tail traversal"
     );
 }
 
@@ -1196,7 +1196,7 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
                     expr,
                     CoreExpr::AetherCall { arg_modes, .. }
                         if arg_modes == &[
-                            flux::aether::borrow_infer::BorrowMode::Borrowed,
+                            flux::aether::borrow_infer::BorrowMode::Owned,
                             flux::aether::borrow_infer::BorrowMode::Borrowed,
                         ]
                 )
@@ -1208,7 +1208,7 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
             expr,
             CoreExpr::AetherCall { arg_modes, .. }
                 if arg_modes == &[
-                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                    flux::aether::borrow_infer::BorrowMode::Owned,
                     flux::aether::borrow_infer::BorrowMode::Borrowed,
                 ]
         )
@@ -1234,7 +1234,7 @@ fn hof_recursive_suite_fixture_claims_match_current_core_shape() {
                         expr,
                         CoreExpr::AetherCall { arg_modes, .. }
                             if arg_modes == &[
-                                flux::aether::borrow_infer::BorrowMode::Borrowed,
+                                flux::aether::borrow_infer::BorrowMode::Owned,
                                 flux::aether::borrow_infer::BorrowMode::Borrowed,
                             ]
                     )

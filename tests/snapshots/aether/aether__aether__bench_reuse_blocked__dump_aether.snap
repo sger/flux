@@ -157,7 +157,7 @@ Aether Memory Model Report
       case xs of
         ::(h, t) →
           let %t10 = aether_call[owned] f(h)
-          let %t11 = aether_call[borrowed, borrowed] map(t, f)
+          let %t11 = aether_call[owned, borrowed] map(t, f)
           reuse xs ::(%t10, %t11)
         _ →
           []
@@ -201,20 +201,20 @@ Aether Memory Model Report
             unique -> let %t11 = aether_call[owned] pred(h)
               case %t11 of
                 true →
-                  let %t12 = aether_call[borrowed, borrowed] filter(t, pred)
+                  let %t12 = aether_call[owned, borrowed] filter(t, pred)
                   reuse xs ::(h, %t12) @mask=0b10
                 _ →
                   drop h
-                  aether_call[borrowed, borrowed] filter(t, pred)
+                  aether_call[owned, borrowed] filter(t, pred)
             shared -> let %t11 = aether_call[owned] pred(dup h
               h)
               case %t11 of
                 true →
-                  let %t12 = aether_call[borrowed, borrowed] filter(t, pred)
+                  let %t12 = aether_call[owned, borrowed] filter(t, pred)
                   ::(h, %t12)
                 _ →
                   drop h
-                  aether_call[borrowed, borrowed] filter(t, pred)
+                  aether_call[owned, borrowed] filter(t, pred)
           }
         _ →
           []
@@ -319,7 +319,7 @@ Aether Memory Model Report
       case xs of
         ::(h, t) →
           let %t2 = (let %t3 = Sub(n, 1)
-          aether_call[borrowed, borrowed] take(t, %t3))
+          aether_call[owned, borrowed] take(t, %t3))
           reuse xs ::(h, %t2) @mask=0b10
         _ →
           []
@@ -341,7 +341,7 @@ Aether Memory Model Report
         _ →
           []
 ── fn take_while ──
-  Dups: 1  Drops: 2  Reuses: 1  DropSpecs: 1  FBIP: fbip(1)
+  Dups: 1  Drops: 4  Reuses: 1  DropSpecs: 1  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 λxs, pred.
@@ -351,19 +351,21 @@ Aether Memory Model Report
         unique -> let %t1 = aether_call[owned] pred(h)
           case %t1 of
             true →
-              let %t2 = aether_call[borrowed, borrowed] take_while(t, pred)
+              let %t2 = aether_call[owned, borrowed] take_while(t, pred)
               reuse xs ::(h, %t2) @mask=0b10
             _ →
               drop h
+              drop t
               []
         shared -> let %t1 = aether_call[owned] pred(dup h
           h)
           case %t1 of
             true →
-              let %t2 = aether_call[borrowed, borrowed] take_while(t, pred)
+              let %t2 = aether_call[owned, borrowed] take_while(t, pred)
               ::(h, %t2)
             _ →
               drop h
+              drop t
               []
       }
     _ →
@@ -528,7 +530,7 @@ Aether Memory Model Report
         acc)
   aether_call[owned, owned] length_go(xs, 0)
 ── fn init ──
-  Dups: 0  Drops: 2  Reuses: 1  DropSpecs: 0  FBIP: fip
+  Dups: 0  Drops: 3  Reuses: 1  DropSpecs: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 λxs.
@@ -536,10 +538,11 @@ Aether Memory Model Report
     ::(h, t) →
       case t of
         ::(h2, t2) →
-          let %t1 = aether_call[borrowed] init(t)
+          let %t1 = aether_call[owned] init(t)
           reuse xs ::(h, %t1) @mask=0b10
         _ →
           drop h
+          drop t
           drop xs
           []
     _ →
@@ -633,8 +636,8 @@ Aether Memory Model Report
         true →
           drop h
           let %t2 = aether_call[owned] reverse(acc)
-          let %t3 = aether_call[borrowed] clone_list(t)
-          aether_call[borrowed, owned] append(%t2, %t3)
+          let %t3 = aether_call[owned] clone_list(t)
+          aether_call[owned, owned] append(%t2, %t3)
         _ →
           let %t4 = ::(h, acc)
           aether_call[borrowed, borrowed, owned] delete_go_acc(t, x, %t4)
@@ -647,7 +650,7 @@ Aether Memory Model Report
 λxs.
   case xs of
     ::(h, t) →
-      let %t1 = aether_call[borrowed] clone_list(t)
+      let %t1 = aether_call[owned] clone_list(t)
       reuse xs ::(h, %t1) @mask=0b10
     _ →
       []
@@ -658,7 +661,7 @@ Aether Memory Model Report
 λxs, sep.
   case xs of
     ::(h, t) →
-      let %t1 = aether_call[borrowed, owned] intersperse_rest(t, sep)
+      let %t1 = aether_call[owned, owned] intersperse_rest(t, sep)
       reuse xs ::(h, %t1) @mask=0b10
     _ →
       drop sep
@@ -723,7 +726,7 @@ Aether Memory Model Report
 λxs, ys.
   case xs of
     ::(h, t) →
-      let %t1 = aether_call[borrowed, owned] append(t, ys)
+      let %t1 = aether_call[owned, owned] append(t, ys)
       reuse xs ::(h, %t1) @mask=0b10
     _ →
       ys
@@ -736,7 +739,7 @@ Aether Memory Model Report
     ::(h, t) →
       let %t1 = MakeTuple(i, h)
       let %t2 = (let %t3 = Add(i, 1)
-      aether_call[borrowed, borrowed] enumerate_go(t, %t3))
+      aether_call[owned, borrowed] enumerate_go(t, %t3))
       reuse xs ::(%t1, %t2)
     _ →
       []
@@ -747,10 +750,23 @@ Aether Memory Model Report
 λxs, sep.
   case xs of
     ::(h, t) →
-      let %t1 = (let %t2 = aether_call[borrowed, owned] intersperse_rest(t, dup sep
+      let %t1 = (let %t2 = aether_call[owned, owned] intersperse_rest(t, dup sep
       sep)
       ::(h, %t2))
       reuse xs ::(sep, %t1)
+    _ →
+      drop sep
+      []
+── fn intercalate_rest ──
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λxss, sep.
+  case xss of
+    ::(h, t) →
+      let %t1 = (let %t2 = aether_call[borrowed, borrowed] intercalate_rest(t, sep)
+      aether_call[owned, owned] append(h, %t2))
+      aether_call[owned, owned] append(sep, %t1)
     _ →
       drop sep
       []
@@ -1067,7 +1083,7 @@ Aether Memory Model Report
       []
 
 ── Total ──
-  Dups: 18  Drops: 59  Reuses: 14  DropSpecs: 3  FBIP: fbip(23)
+  Dups: 18  Drops: 63  Reuses: 14  DropSpecs: 3  FBIP: fbip(23)
   FreshAllocs: 23
 
 [1 of 7] Compiling  Assert
