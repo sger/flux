@@ -25,8 +25,19 @@ use super::runner::{
 };
 use super::{DebugArtifacts, ExitKind, MismatchDetail, ParityResult, Verdict, Way};
 
-const DEFAULT_VM_BINARY: &str = "target/parity_vm/debug/flux";
-const DEFAULT_LLVM_BINARY: &str = "target/parity_native/debug/flux";
+fn default_vm_binary() -> PathBuf {
+    default_parity_binary("target/parity_vm/debug")
+}
+
+fn default_llvm_binary() -> PathBuf {
+    default_parity_binary("target/parity_native/debug")
+}
+
+fn default_parity_binary(debug_dir: &str) -> PathBuf {
+    let mut path = PathBuf::from(debug_dir);
+    path.push(format!("flux{}", std::env::consts::EXE_SUFFIX));
+    path
+}
 
 /// Entry point called from `main.rs`.
 pub fn run_parity_check(args: &[String]) {
@@ -450,8 +461,8 @@ struct BinaryStatus {
 fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut path: Option<PathBuf> = None;
     let mut ways: Option<Vec<Way>> = None;
-    let mut vm_binary = PathBuf::from(DEFAULT_VM_BINARY);
-    let mut llvm_binary = PathBuf::from(DEFAULT_LLVM_BINARY);
+    let mut vm_binary = default_vm_binary();
+    let mut llvm_binary = default_llvm_binary();
     let mut timeout_secs = DEFAULT_TIMEOUT_SECS;
     let mut extra_args = Vec::new();
     let mut capture_core = false;
@@ -587,14 +598,16 @@ Options:
   --rebuild              Force rebuild of parity VM/native binaries before running checks
   --debug-first-failure  Stop after the first non-pass result and print extra debug detail
   --save-debug-dir <p>   Save the first non-pass result's artifacts under <p>
-  --vm-binary <path>     Path to VM binary (default: {DEFAULT_VM_BINARY})
-  --llvm-binary <path>   Path to native binary (default: {DEFAULT_LLVM_BINARY})
+  --vm-binary <path>     Path to VM binary (default: {})
+  --llvm-binary <path>   Path to native binary (default: {})
   --timeout <secs>       Timeout per file per way (default: {DEFAULT_TIMEOUT_SECS})
   --root <path>          Module root (forwarded to flux, can repeat)
 
 Binaries are rebuilt automatically when missing or stale.
 Use --rebuild to force a refresh:
-  cargo run -- parity-check <file-or-dir> --rebuild"
+  cargo run -- parity-check <file-or-dir> --rebuild",
+        default_vm_binary().display(),
+        default_llvm_binary().display()
     );
 }
 
