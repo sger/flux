@@ -72,7 +72,7 @@ Aether Memory Model Report
   case xs of
     ::(h, t) →
       let %t1 = aether_call[owned] f(h)
-      let %t2 = aether_call[borrowed, borrowed] my_map(t, f)
+      let %t2 = aether_call[owned, borrowed] my_map(t, f)
       reuse xs ::(%t1, %t2)
     _ →
       []
@@ -111,20 +111,20 @@ Aether Memory Model Report
         unique -> let %t1 = aether_call[owned] f(h)
           case %t1 of
             true →
-              let %t2 = aether_call[borrowed, borrowed] my_filter(t, f)
+              let %t2 = aether_call[owned, borrowed] my_filter(t, f)
               reuse xs ::(h, %t2) @mask=0b10
             _ →
               drop h
-              aether_call[borrowed, borrowed] my_filter(t, f)
+              aether_call[owned, borrowed] my_filter(t, f)
         shared -> let %t1 = aether_call[owned] f(dup h
           h)
           case %t1 of
             true →
-              let %t2 = aether_call[borrowed, borrowed] my_filter(t, f)
+              let %t2 = aether_call[owned, borrowed] my_filter(t, f)
               ::(h, %t2)
             _ →
               drop h
-              aether_call[borrowed, borrowed] my_filter(t, f)
+              aether_call[owned, borrowed] my_filter(t, f)
       }
     _ →
       []
@@ -136,13 +136,13 @@ Aether Memory Model Report
   let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
   let %t4 = (λx.
     Mul(x, 2))
-  aether_call[borrowed, borrowed] my_map(%t3, %t4))
+  aether_call[owned, borrowed] my_map(%t3, %t4))
   Print(%t2))
   drop %t1
   let %t5 = (let %t6 = (let %t7 = Some(42)
   let %t8 = (λx.
     Add(x, 1))
-  aether_call[borrowed, borrowed] option_map(%t7, %t8))
+  aether_call[owned, borrowed] option_map(%t7, %t8))
   Print(%t6))
   drop %t5
   let %t9 = (let %t10 = (let %t11 = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
@@ -157,7 +157,7 @@ Aether Memory Model Report
   let %t18 = (λx.
     let %t19 = Mod(x, 2)
     Eq(%t19, 0))
-  aether_call[borrowed, borrowed] my_filter(%t17, %t18))
+  aether_call[owned, borrowed] my_filter(%t17, %t18))
   Print(%t16))
   drop %t15
   let %t20 = (let %t21 = MakeList(1, 2, 3, 4, 5)

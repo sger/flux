@@ -7,28 +7,28 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
-I can't find a value named `unwrap`.
+I can't find a value named `first`.
 
   examples/perf/complexity_scaling.flx:12:50
    |
-12 |             bench_list_head(lst, reps - 1, acc + unwrap(first(lst)))
-   |                                                  ^^^^^^
+12 |             bench_list_head(lst, reps - 1, acc + first(lst))
+   |                                                  ^^^^^
 
 Hint:
-  Define it first: let unwrap = ...;
+  Define it first: let first = ...;
 
 
 error[E004]: Undefined Variable
 
-I can't find a value named `unwrap`.
+I can't find a value named `first`.
 
   examples/perf/complexity_scaling.flx:20:52
    |
-20 |             bench_array_first(arr, reps - 1, acc + unwrap(first(arr)))
-   |                                                    ^^^^^^
+20 |             bench_array_first(arr, reps - 1, acc + first(arr))
+   |                                                    ^^^^^
 
 Hint:
-  Define it first: let unwrap = ...;
+  Define it first: let first = ...;
 
 
 error[E004]: Undefined Variable
