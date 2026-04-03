@@ -7,14 +7,14 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
-I can't find a value named `unwrap`.
+I can't find a value named `first`.
 
   examples/aether/bench_reuse.flx:83:33
    |
-83 |     print("map: result head = #{unwrap(first(mapped))}")
-   |                                 ^^^^^^
+83 |     print("map: result head = #{first(mapped)}")
+   |                                 ^^^^^
 
 Hint:
-  Define it first: let unwrap = ...;
+  Define it first: let first = ...;
 == stdout ==
 <not executed>

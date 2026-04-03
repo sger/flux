@@ -34,7 +34,6 @@ use flux::{
         linter::Linter,
         module_graph::{ModuleGraph, ModuleNode},
         parser::Parser,
-        statement::Statement,
     },
 };
 
@@ -112,6 +111,7 @@ fn is_flow_library_path(path: &Path) -> bool {
     text.contains("lib/Flow/") || text.contains("lib\\Flow\\")
 }
 
+#[cfg(feature = "core_to_llvm")]
 fn program_has_user_adt_declarations(program: &Program) -> bool {
     fn block_has_user_adt_declarations(block: &flux::syntax::block::Block) -> bool {
         block
@@ -120,10 +120,12 @@ fn program_has_user_adt_declarations(program: &Program) -> bool {
             .any(statement_has_user_adt_declarations)
     }
 
-    fn statement_has_user_adt_declarations(statement: &Statement) -> bool {
+    fn statement_has_user_adt_declarations(statement: &flux::syntax::statement::Statement) -> bool {
         match statement {
-            Statement::Data { .. } => true,
-            Statement::Module { body, .. } => block_has_user_adt_declarations(body),
+            flux::syntax::statement::Statement::Data { .. } => true,
+            flux::syntax::statement::Statement::Module { body, .. } => {
+                block_has_user_adt_declarations(body)
+            }
             _ => false,
         }
     }
@@ -683,6 +685,12 @@ fn compile_native_support_object(
         })
     };
 
+    // The support object is deterministic (empty LirProgram + runtime stubs),
+    // so reuse the cached .o if it already exists.
+    if !no_cache && object_path.exists() {
+        return Ok(object_path);
+    }
+
     let lir = flux::lir::LirProgram::new();
     let mut llvm_module = flux::lir::emit_llvm::emit_llvm_module_with_options(&lir, true, false);
     llvm_module.target_triple = Some(flux::core_to_llvm::target::host_triple());
@@ -734,17 +742,22 @@ fn compile_parallel_native_module(
                 export_user_ctor_name_helper,
             )
         {
-            // Also check that a valid interface exists.
-            if let Ok(interface) = flux::bytecode::compiler::module_interface::load_cached_interface(
+            // Try to load a cached interface. Entry modules (containing main)
+            // may not have one, but their .o can still be cached.
+            let interface = flux::bytecode::compiler::module_interface::load_cached_interface(
                 cache_layout.root(),
                 &node.path,
-            ) {
+            )
+            .ok();
+            // Library modules require a valid interface to be cached;
+            // entry modules (non-library) can be cached without one.
+            if interface.is_some() || !is_flow_library_path(&node.path) {
                 return NativeParallelModuleResult {
                     path: node.path.clone(),
                     object_path,
                     compile_failed: false,
                     error_message: None,
-                    interface: Some(interface),
+                    interface,
                     skipped: true,
                     interface_changed: false,
                 };
@@ -920,7 +933,7 @@ fn compile_native_modules_parallel(
     enable_analyze: bool,
     base_interner: &flux::syntax::interner::Interner,
     all_diagnostics: &mut Vec<Diagnostic>,
-) -> Result<Vec<PathBuf>, String> {
+) -> Result<(Vec<PathBuf>, bool), String> {
     let mut loaded_interfaces: HashMap<PathBuf, flux::types::module_interface::ModuleInterface> =
         HashMap::new();
     let mut nodes_by_path: HashMap<PathBuf, ModuleNode> = HashMap::new();
@@ -947,6 +960,7 @@ fn compile_native_modules_parallel(
         }
     }
     let mut object_paths = Vec::new();
+    let mut any_module_recompiled = false;
     // Track which modules had interface changes so dependents can be forced
     // to rebuild even if their own source didn't change.
     let mut interface_changed_modules: HashSet<PathBuf> = HashSet::new();
@@ -1028,6 +1042,7 @@ fn compile_native_modules_parallel(
                         progress_line(completed_native, total_native_modules, "Cached", &name)
                     );
                 } else {
+                    any_module_recompiled = true;
                     eprintln!(
                         "{}",
                         progress_line(completed_native, total_native_modules, "Linking", &name)
@@ -1058,7 +1073,7 @@ fn compile_native_modules_parallel(
     }
 
     object_paths.sort();
-    Ok(object_paths)
+    Ok((object_paths, any_module_recompiled))
 }
 
 fn main() {
@@ -1642,6 +1657,12 @@ fn run_file(
             let module_count = graph_result.graph.module_count();
             let is_multimodule = module_count > 1;
             let graph = graph_result.graph;
+
+            // Warm the toolchain info cache before compile timing starts.
+            #[cfg(feature = "core_to_llvm")]
+            if verbose && (use_core_to_llvm || emit_binary) {
+                let _ = flux::core_to_llvm::pipeline::toolchain_info();
+            }
 
             // --- Compile valid modules, suppress cascade ---
             let compile_start = Instant::now();
@@ -2405,9 +2426,17 @@ fn run_file(
                     return;
                 }
 
+                let frontend_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
                 let runtime_lib_dir = locate_runtime_lib_dir();
+                if verbose {
+                    eprintln!(
+                        "[lir→llvm] toolchain: {}",
+                        flux::core_to_llvm::pipeline::toolchain_info()
+                    );
+                }
                 eprintln!("[lir→llvm] Compiling via per-module LLVM native backend...");
-                let mut object_paths = match compile_native_modules_parallel(
+                let native_modules_start = Instant::now();
+                let (mut object_paths, any_native_recompiled) = match compile_native_modules_parallel(
                     &graph,
                     &cache_layout,
                     no_cache,
@@ -2433,6 +2462,8 @@ fn run_file(
                         std::process::exit(1);
                     }
                 };
+                let native_modules_ms = native_modules_start.elapsed().as_secs_f64() * 1000.0;
+                let support_start = Instant::now();
                 match compile_native_support_object(&cache_layout, no_cache, enable_optimize) {
                     Ok(support_object) => {
                         object_paths.insert(0, support_object);
@@ -2442,6 +2473,81 @@ fn run_file(
                         std::process::exit(1);
                     }
                 }
+                let support_ms = support_start.elapsed().as_secs_f64() * 1000.0;
+
+                // Pre-link Flow.* standard library .o files into libflux_std.a
+                // so the linker processes fewer inputs (GHC-style).
+                let archive_start = Instant::now();
+                // Build a set of object paths that belong to Flow.* library modules
+                // by matching source paths from the module graph.
+                let flow_object_paths: HashSet<PathBuf> = graph
+                    .topo_order()
+                    .iter()
+                    .filter(|node| is_flow_library_path(&node.path))
+                    .filter_map(|node| {
+                        // Find the corresponding .o in object_paths by matching the module name
+                        // embedded in the object filename (e.g., "Array-a732...o" for Flow.Array).
+                        let module_stem = node.path.file_stem()?.to_str()?;
+                        object_paths.iter().find(|obj| {
+                            obj.file_name()
+                                .and_then(|f| f.to_str())
+                                .is_some_and(|f| f.starts_with(&format!("{module_stem}-")))
+                        }).cloned()
+                    })
+                    .collect();
+                let std_lib_objects: Vec<PathBuf> = object_paths
+                    .iter()
+                    .filter(|p| flow_object_paths.contains(*p))
+                    .cloned()
+                    .collect();
+
+                let link_paths = if std_lib_objects.len() >= 2 && !no_cache {
+                    let archive_name = if enable_optimize {
+                        "libflux_std_O2.a"
+                    } else {
+                        "libflux_std_O0.a"
+                    };
+                    let archive_path = cache_layout.native_dir().join(archive_name);
+                    let need_rebuild = !flux::core_to_llvm::pipeline::archive_is_up_to_date(
+                        &std_lib_objects,
+                        &archive_path,
+                    );
+                    if need_rebuild {
+                        if let Err(err) = flux::core_to_llvm::pipeline::create_archive(
+                            &std_lib_objects,
+                            &archive_path,
+                        ) {
+                            eprintln!("warning: failed to create libflux_std.a: {err}, falling back to individual .o files");
+                            object_paths.clone()
+                        } else {
+                            // Replace individual Flow.* .o files with the archive.
+                            let std_set: HashSet<PathBuf> =
+                                std_lib_objects.iter().cloned().collect();
+                            let mut paths: Vec<PathBuf> = object_paths
+                                .iter()
+                                .filter(|p| !std_set.contains(*p))
+                                .cloned()
+                                .collect();
+                            paths.push(archive_path);
+                            paths
+                        }
+                    } else {
+                        // Archive is up to date, use it directly.
+                        let std_set: HashSet<PathBuf> =
+                            std_lib_objects.iter().cloned().collect();
+                        let mut paths: Vec<PathBuf> = object_paths
+                            .iter()
+                            .filter(|p| !std_set.contains(*p))
+                            .cloned()
+                            .collect();
+                        paths.push(archive_path);
+                        paths
+                    }
+                } else {
+                    object_paths.clone()
+                };
+                let archive_ms = archive_start.elapsed().as_secs_f64() * 1000.0;
+
                 if !all_diagnostics.is_empty() {
                     let report = DiagnosticsAggregator::new(&all_diagnostics)
                         .with_default_source(path, source.as_str())
@@ -2479,17 +2585,44 @@ fn run_file(
                     .unwrap_or_else(|| {
                         if emit_binary {
                             std::path::PathBuf::from(path.strip_suffix(".flx").unwrap_or(path))
+                        } else if !no_cache {
+                            // Cache the binary so we can skip relinking on re-runs.
+                            let bin_name = std::path::Path::new(path)
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("program");
+                            cache_layout.native_dir().join(format!("{bin_name}.bin"))
                         } else {
                             native_temp_dir().join("program")
                         }
                     });
-                if let Err(e) = flux::core_to_llvm::pipeline::link_objects(
-                    &object_paths,
-                    &out,
-                    runtime_lib_dir.as_deref(),
-                ) {
-                    eprintln!("core_to_llvm linker failed: {e}");
-                    std::process::exit(1);
+
+                // Skip relinking if no module was recompiled and the cached binary exists.
+                let link_start = Instant::now();
+                let binary_up_to_date = !no_cache
+                    && !emit_binary
+                    && !any_native_recompiled
+                    && out.exists();
+
+                if binary_up_to_date {
+                    if verbose {
+                        eprintln!("[lir→llvm] binary up-to-date, skipping link");
+                    }
+                } else {
+                    if let Err(e) = flux::core_to_llvm::pipeline::link_objects(
+                        &link_paths,
+                        &out,
+                        runtime_lib_dir.as_deref(),
+                    ) {
+                        eprintln!("core_to_llvm linker failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                let link_ms = link_start.elapsed().as_secs_f64() * 1000.0;
+                if verbose {
+                    eprintln!(
+                        "[lir→llvm] frontend: {frontend_ms:.1}ms, modules: {native_modules_ms:.1}ms, support: {support_ms:.1}ms, archive: {archive_ms:.1}ms, link: {link_ms:.1}ms"
+                    );
                 }
 
                 if emit_binary {
@@ -2505,6 +2638,15 @@ fn run_file(
                         if show_stats {
                             let compile_ms =
                                 compile_start.elapsed().as_secs_f64() * 1000.0 - execute_ms;
+                            let total_source_lines: usize = graph
+                                .topo_order()
+                                .iter()
+                                .map(|node| {
+                                    std::fs::read_to_string(&node.path)
+                                        .map(|s| s.lines().count())
+                                        .unwrap_or(0)
+                                })
+                                .sum();
                             print_stats(&RunStats {
                                 parse_ms: Some(parse_ms),
                                 compile_ms: Some(compile_ms),
@@ -2515,13 +2657,16 @@ fn run_file(
                                 module_count: Some(module_count),
                                 cached_module_count: None,
                                 compiled_module_count: None,
-                                source_lines: source.lines().count(),
+                                source_lines: total_source_lines,
                                 globals_count: None,
                                 functions_count: None,
                                 instruction_bytes: None,
                             });
                         }
-                        let _ = std::fs::remove_file(&out);
+                        // Only clean up temp binaries; keep cached ones for relink skip.
+                        if no_cache || emit_binary {
+                            let _ = std::fs::remove_file(&out);
+                        }
                         if exit_code != 0 {
                             std::process::exit(exit_code);
                         }

@@ -38,6 +38,7 @@ fn combined_output(output: &Output) -> String {
     text
 }
 
+#[allow(dead_code)]
 fn extract_function_ir<'a>(llvm: &'a str, name: &str) -> &'a str {
     // Try both internal (single-module) and non-internal (per-module) linkage.
     let needle_internal = format!("define internal fastcc i64 @{name}");
