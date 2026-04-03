@@ -19,6 +19,7 @@ use crate::{
     cache_paths,
     diagnostics::position::Span,
     runtime::value::Value,
+    types::module_interface::DependencyMissReason,
 };
 
 const MAGIC: &[u8; 4] = b"FXMC";
@@ -31,7 +32,10 @@ pub enum ModuleCacheLoadError {
     FormatVersionMismatch,
     CompilerVersionMismatch,
     CacheKeyMismatch,
-    DependencyFingerprintMismatch(String),
+    DependencyFingerprintMismatch {
+        path: String,
+        reason: DependencyMissReason,
+    },
     CorruptPayload,
 }
 
@@ -67,8 +71,8 @@ impl ModuleCacheLoadError {
             Self::FormatVersionMismatch => "format version mismatch".to_string(),
             Self::CompilerVersionMismatch => "compiler version mismatch".to_string(),
             Self::CacheKeyMismatch => "cache key mismatch".to_string(),
-            Self::DependencyFingerprintMismatch(path) => {
-                format!("dependency fingerprint mismatch ({path})")
+            Self::DependencyFingerprintMismatch { path, reason } => {
+                format!("dependency mismatch ({path}): {}", reason.label())
             }
             Self::CorruptPayload => "corrupt payload".to_string(),
         }
@@ -307,11 +311,15 @@ fn read_interface_deps_and_validate(
             read_string(reader).ok_or(ModuleCacheLoadError::CorruptPayload)?;
         let dep_source_path = Path::new(&dep_path);
         let interface = module_interface::load_cached_interface(cache_root, dep_source_path)
-            .map_err(|_| ModuleCacheLoadError::DependencyFingerprintMismatch(dep_path.clone()))?;
+            .map_err(|_| ModuleCacheLoadError::DependencyFingerprintMismatch {
+                path: dep_path.clone(),
+                reason: DependencyMissReason::InterfaceMissing,
+            })?;
         if interface.interface_fingerprint != expected_fingerprint {
-            return Err(ModuleCacheLoadError::DependencyFingerprintMismatch(
-                dep_path,
-            ));
+            return Err(ModuleCacheLoadError::DependencyFingerprintMismatch {
+                path: dep_path,
+                reason: DependencyMissReason::InterfaceFingerprintChanged,
+            });
         }
     }
     Ok(())
@@ -560,7 +568,10 @@ mod tests {
         let reason = cache
             .load_failure_reason(&source_path, &cache_key, env!("CARGO_PKG_VERSION"), &dir)
             .expect("expected cache miss reason");
-        assert!(reason.contains("dependency fingerprint mismatch"));
+        assert!(
+            reason.contains("dependency mismatch"),
+            "expected dependency mismatch reason, got: {reason}"
+        );
 
         std::fs::remove_dir_all(dir).ok();
     }

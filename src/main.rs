@@ -92,6 +92,9 @@ struct ParallelModuleResult {
     skipped: bool,
     interface_hit: Option<flux::types::module_interface::ModuleInterface>,
     cache_key: [u8; 32],
+    /// Human-readable reason why the module was recompiled (populated when
+    /// the cache miss path is taken).
+    miss_reason: Option<String>,
 }
 
 #[cfg(feature = "core_to_llvm")]
@@ -104,6 +107,8 @@ struct NativeParallelModuleResult {
     interface: Option<flux::types::module_interface::ModuleInterface>,
     skipped: bool,
     interface_changed: bool,
+    /// Human-readable reason why the module was recompiled.
+    miss_reason: Option<String>,
 }
 
 fn is_flow_library_path(path: &Path) -> bool {
@@ -210,6 +215,7 @@ fn compile_parallel_module(
     strict_mode: bool,
     enable_optimize: bool,
     enable_analyze: bool,
+    is_entry: bool,
     base_interner: &flux::syntax::interner::Interner,
 ) -> ParallelModuleResult {
     let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
@@ -239,23 +245,23 @@ fn compile_parallel_module(
     } else {
         None
     };
-    let current_interface = if !no_cache {
+    let (current_interface, interface_miss_reason) = if !no_cache {
         match flux::bytecode::compiler::module_interface::load_valid_interface(
             cache_layout.root(),
             &node.path,
             &module_source,
             &semantic_config_hash,
         ) {
-            Ok(interface) => Some(interface),
-            Err(_) => None,
+            Ok(interface) => (Some(interface), None),
+            Err(err) => (None, Some(err.message())),
         }
     } else {
-        None
+        (None, None)
     };
 
     if !no_cache
         && !force_rebuild
-        && let Some(interface) = current_interface.as_ref()
+        && (current_interface.is_some() || is_entry)
         && module_cache
             .load(
                 &node.path,
@@ -269,14 +275,35 @@ fn compile_parallel_module(
             path: node.path.clone(),
             needs_serial_warning_replay: false,
             compile_failed: false,
-            old_interface_fingerprint: Some(interface.interface_fingerprint.clone()),
-            new_interface_fingerprint: Some(interface.interface_fingerprint.clone()),
+            old_interface_fingerprint: current_interface
+                .as_ref()
+                .map(|i| i.interface_fingerprint.clone()),
+            new_interface_fingerprint: current_interface
+                .as_ref()
+                .map(|i| i.interface_fingerprint.clone()),
             interface_changed: false,
             skipped: true,
-            interface_hit: Some(interface.clone()),
+            interface_hit: current_interface.clone(),
             cache_key,
+            miss_reason: None,
         };
     }
+
+    // Determine the miss reason: interface failure takes priority, then
+    // check whether the bytecode artifact itself is stale.
+    let miss_reason = if force_rebuild {
+        Some("dependency interface changed".to_string())
+    } else if let Some(reason) = interface_miss_reason {
+        Some(reason)
+    } else {
+        module_cache
+            .load_failure_reason(
+                &node.path,
+                &cache_key,
+                env!("CARGO_PKG_VERSION"),
+                cache_layout.root(),
+            )
+    };
 
     let mut compiler = build_module_compiler(
         node,
@@ -284,7 +311,7 @@ fn compile_parallel_module(
         loaded_interfaces,
         base_interner,
         strict_mode,
-        false,
+        is_entry,
     );
     let compile_result = compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
     let warning_count = compiler.take_warnings().len();
@@ -302,6 +329,7 @@ fn compile_parallel_module(
             skipped: false,
             interface_hit: None,
             cache_key,
+            miss_reason,
         };
     }
 
@@ -378,6 +406,7 @@ fn compile_parallel_module(
         (Some(old), Some(new)) => {
             flux::bytecode::compiler::module_interface::module_interface_changed(old, new)
         }
+        (None, None) => false,
         _ => true,
     };
 
@@ -393,6 +422,7 @@ fn compile_parallel_module(
         skipped: false,
         interface_hit: interface,
         cache_key,
+        miss_reason,
     }
 }
 
@@ -453,10 +483,6 @@ fn compile_vm_modules_parallel(
             continue;
         }
 
-        let (entry_nodes, non_entry_nodes): (Vec<_>, Vec<_>) = ready
-            .into_iter()
-            .partition(|node| entry_canonical.is_some_and(|entry| entry == &node.path));
-
         let dependency_changed = |node: &ModuleNode| {
             node.imports.iter().any(|dep| {
                 module_states
@@ -465,10 +491,11 @@ fn compile_vm_modules_parallel(
             })
         };
 
-        let parallel_results: Vec<ParallelModuleResult> = non_entry_nodes
+        let parallel_results: Vec<ParallelModuleResult> = ready
             .par_iter()
             .filter(|node| !dependency_changed(node))
             .map(|node| {
+                let is_entry = entry_canonical.is_some_and(|entry| entry == &node.path);
                 compile_parallel_module(
                     node,
                     &nodes_by_path,
@@ -479,6 +506,7 @@ fn compile_vm_modules_parallel(
                     strict_mode,
                     enable_optimize,
                     enable_analyze,
+                    is_entry,
                     graph_interner,
                 )
             })
@@ -491,11 +519,9 @@ fn compile_vm_modules_parallel(
             .iter()
             .map(|result| result.path.clone())
             .collect();
-        for node in &non_entry_nodes {
+        for node in &ready {
             if dependency_changed(node) && !skipped_paths.contains(&node.path) {
-                if verbose {
-                    eprintln!("module-cache: miss (reason: dependency interface changed)");
-                }
+                let is_entry = entry_canonical.is_some_and(|entry| entry == &node.path);
                 let result = compile_parallel_module(
                     node,
                     &nodes_by_path,
@@ -506,6 +532,7 @@ fn compile_vm_modules_parallel(
                     strict_mode,
                     enable_optimize,
                     enable_analyze,
+                    is_entry,
                     graph_interner,
                 );
                 parallel_results.push(result);
@@ -560,6 +587,11 @@ fn compile_vm_modules_parallel(
                         progress_line(completed_modules, total_modules, "Cached", &name)
                     );
                 } else {
+                    if verbose {
+                        if let Some(reason) = &result.miss_reason {
+                            eprintln!("  cache miss ({name}): {reason}");
+                        }
+                    }
                     eprintln!(
                         "{}",
                         progress_line(completed_modules, total_modules, "Compiling", &name)
@@ -567,12 +599,27 @@ fn compile_vm_modules_parallel(
                 }
                 loaded_interfaces.insert(result.path.clone(), interface);
             } else {
+                if result.skipped {
+                    cached_count += 1;
+                }
                 completed_modules += 1;
                 let name = module_display_name(&result.path);
-                eprintln!(
-                    "{}",
-                    progress_line(completed_modules, total_modules, "Compiling", &name)
-                );
+                if result.skipped {
+                    eprintln!(
+                        "{}",
+                        progress_line(completed_modules, total_modules, "Cached", &name)
+                    );
+                } else {
+                    if verbose {
+                        if let Some(reason) = &result.miss_reason {
+                            eprintln!("  cache miss ({name}): {reason}");
+                        }
+                    }
+                    eprintln!(
+                        "{}",
+                        progress_line(completed_modules, total_modules, "Compiling", &name)
+                    );
+                }
             }
 
             module_states.insert(
@@ -602,35 +649,6 @@ fn compile_vm_modules_parallel(
             linker.assemble_module(&artifact)?;
         }
 
-        for node in entry_nodes {
-            let mut compiler = build_module_compiler(
-                &node,
-                &nodes_by_path,
-                &loaded_interfaces,
-                graph_interner,
-                strict_mode,
-                true,
-            );
-            let compile_result =
-                compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
-            let mut warnings = compiler.take_warnings();
-            tag_module_diagnostics(&mut warnings, DiagnosticPhase::Validation, &node.path);
-            all_diagnostics.append(&mut warnings);
-            if let Err(mut diagnostics) = compile_result {
-                tag_module_diagnostics(&mut diagnostics, DiagnosticPhase::TypeCheck, &node.path);
-                failed.insert(node.path.clone());
-                all_diagnostics.append(&mut diagnostics);
-                continue;
-            }
-            completed_modules += 1;
-            let name = module_display_name(&node.path);
-            eprintln!(
-                "{}",
-                progress_line(completed_modules, total_modules, "Compiling", &name)
-            );
-            let artifact = compiler.build_relocatable_module_bytecode();
-            linker.assemble_module(&artifact)?;
-        }
     }
 
     let compiled_count = total_modules - cached_count;
@@ -731,39 +749,46 @@ fn compile_parallel_native_module(
     let cache_key = hash_cache_key(&source_hash, &semantic_config_hash);
 
     // Check native artifact cache before doing any compilation.
-    if !no_cache && !force_rebuild {
+    let native_miss_reason = if !no_cache && !force_rebuild {
         let native_cache =
             flux::core_to_llvm::module_cache::NativeModuleCache::new(cache_layout.native_dir());
-        if let Ok(object_path) =
-            native_cache.validate(
-                &node.path,
-                &cache_key,
-                cache_layout.root(),
-                export_user_ctor_name_helper,
-            )
-        {
-            // Try to load a cached interface. Entry modules (containing main)
-            // may not have one, but their .o can still be cached.
-            let interface = flux::bytecode::compiler::module_interface::load_cached_interface(
-                cache_layout.root(),
-                &node.path,
-            )
-            .ok();
-            // Library modules require a valid interface to be cached;
-            // entry modules (non-library) can be cached without one.
-            if interface.is_some() || !is_flow_library_path(&node.path) {
-                return NativeParallelModuleResult {
-                    path: node.path.clone(),
-                    object_path,
-                    compile_failed: false,
-                    error_message: None,
-                    interface,
-                    skipped: true,
-                    interface_changed: false,
-                };
+        match native_cache.validate(
+            &node.path,
+            &cache_key,
+            cache_layout.root(),
+            export_user_ctor_name_helper,
+        ) {
+            Ok(object_path) => {
+                // Try to load a cached interface. Entry modules (containing main)
+                // may not have one, but their .o can still be cached.
+                let interface = flux::bytecode::compiler::module_interface::load_cached_interface(
+                    cache_layout.root(),
+                    &node.path,
+                )
+                .ok();
+                // Library modules require a valid interface to be cached;
+                // entry modules (non-library) can be cached without one.
+                if interface.is_some() || !is_flow_library_path(&node.path) {
+                    return NativeParallelModuleResult {
+                        path: node.path.clone(),
+                        object_path,
+                        compile_failed: false,
+                        error_message: None,
+                        interface,
+                        skipped: true,
+                        interface_changed: false,
+                        miss_reason: None,
+                    };
+                }
+                Some("interface missing for library module".to_string())
             }
+            Err(err) => Some(err.message()),
         }
-    }
+    } else if force_rebuild {
+        Some("dependency interface changed".to_string())
+    } else {
+        None
+    };
 
     let mut compiler = build_module_compiler(
         node,
@@ -792,6 +817,7 @@ fn compile_parallel_native_module(
             interface: None,
             skipped: false,
             interface_changed: true,
+            miss_reason: native_miss_reason,
         };
     }
 
@@ -815,6 +841,7 @@ fn compile_parallel_native_module(
                 interface: None,
                 skipped: false,
                 interface_changed: true,
+                miss_reason: native_miss_reason,
             };
         }
     };
@@ -880,6 +907,7 @@ fn compile_parallel_native_module(
             interface: None,
             skipped: false,
             interface_changed: true,
+            miss_reason: native_miss_reason,
         };
     }
 
@@ -919,6 +947,7 @@ fn compile_parallel_native_module(
         interface,
         skipped: false,
         interface_changed,
+        miss_reason: native_miss_reason,
     }
 }
 
@@ -931,6 +960,7 @@ fn compile_native_modules_parallel(
     strict_mode: bool,
     enable_optimize: bool,
     enable_analyze: bool,
+    verbose: bool,
     base_interner: &flux::syntax::interner::Interner,
     all_diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<(Vec<PathBuf>, bool), String> {
@@ -1043,6 +1073,11 @@ fn compile_native_modules_parallel(
                     );
                 } else {
                     any_module_recompiled = true;
+                    if verbose {
+                        if let Some(reason) = &result.miss_reason {
+                            eprintln!("  cache miss ({name}): {reason}");
+                        }
+                    }
                     eprintln!(
                         "{}",
                         progress_line(completed_native, total_native_modules, "Linking", &name)
@@ -1893,7 +1928,7 @@ fn run_file(
                     strict_hash
                 };
                 let module_cache_key = hash_cache_key(&module_source_hash, &module_strict_hash);
-                let old_interface = if !no_cache && !is_entry_module {
+                let old_interface = if !no_cache {
                     flux::bytecode::compiler::module_interface::load_cached_interface(
                         cache_layout.root(),
                         &node.path,
@@ -1907,7 +1942,7 @@ fn run_file(
                         .get(&dep.target_path)
                         .is_some_and(|state| state.interface_changed)
                 });
-                let current_interface = if !no_cache && !is_entry_module {
+                let current_interface = if !no_cache {
                     match flux::bytecode::compiler::module_interface::load_valid_interface(
                         cache_layout.root(),
                         &node.path,
@@ -1916,7 +1951,10 @@ fn run_file(
                     ) {
                         Ok(interface) => Some(interface),
                         Err(err) => {
-                            if verbose {
+                            // Entry modules have no `module` declaration so
+                            // they never produce an interface — don't log
+                            // the expected "not found" miss.
+                            if verbose && !is_entry_module {
                                 eprintln!(
                                     "interface: miss {} (reason: {})",
                                     node.path.display(),
@@ -1935,7 +1973,6 @@ fn run_file(
                 // bytecode cache. For LLVM, the interface alone is sufficient
                 // since native artifacts are cached separately.
                 let can_skip_semantic = !no_cache
-                    && !is_entry_module
                     && !must_rebuild_due_to_dependency
                     && current_interface.is_some();
 
@@ -1950,16 +1987,44 @@ fn run_file(
                         )
                         .is_some();
 
+                // Entry modules have no interface, but can still skip via
+                // bytecode-only cache when the source hash hasn't changed.
+                let has_vm_cache_entry = !no_cache
+                    && is_entry_module
+                    && !must_rebuild_due_to_dependency
+                    && allow_cached_module_bytecode
+                    && module_cache
+                        .load(
+                            &node.path,
+                            &module_cache_key,
+                            env!("CARGO_PKG_VERSION"),
+                            cache_layout.root(),
+                        )
+                        .is_some();
+
                 // LLVM path: skip if interface is valid (native artifacts
                 // are validated separately in compile_native_modules_parallel).
                 let skip_for_llvm = can_skip_semantic && use_core_to_llvm;
 
-                if has_vm_cache || skip_for_llvm {
-                    let interface = current_interface.as_ref().unwrap();
-                    compiler.preload_module_interface(interface);
-                    loaded_interfaces.insert(node.path.clone(), interface.clone());
-                    preloaded_interfaces.insert(node.path.clone());
-                    if has_vm_cache {
+                // LLVM entry modules have no interface but can still skip
+                // semantic compilation when their bytecode marker file exists.
+                // The native backend validates dependencies and recompiles the
+                // .o file independently — we only need to confirm the source
+                // was compiled before (same cache key = same source hash).
+                let skip_llvm_entry = use_core_to_llvm
+                    && is_entry_module
+                    && !no_cache
+                    && module_cache
+                        .cache_path(&node.path, &module_cache_key)
+                        .exists();
+
+                if has_vm_cache || skip_for_llvm || has_vm_cache_entry || skip_llvm_entry {
+                    if let Some(interface) = current_interface.as_ref() {
+                        compiler.preload_module_interface(interface);
+                        loaded_interfaces.insert(node.path.clone(), interface.clone());
+                        preloaded_interfaces.insert(node.path.clone());
+                    }
+                    if has_vm_cache || has_vm_cache_entry {
                         // Re-load for hydration (load() was consumed above for the check).
                         if let Some(cached) = module_cache.load(
                             &node.path,
@@ -1970,6 +2035,10 @@ fn run_file(
                             compiler.hydrate_cached_module_bytecode(&cached);
                         }
                     }
+                    let display_name = current_interface
+                        .as_ref()
+                        .map(|i| i.module_name.clone())
+                        .unwrap_or_else(|| module_display_name(&node.path));
                     seq_completed += 1;
                     eprintln!(
                         "{}",
@@ -1977,18 +2046,18 @@ fn run_file(
                             seq_completed,
                             seq_total,
                             "Cached",
-                            &interface.module_name,
+                            &display_name,
                         )
                     );
                     module_states.insert(
                         node.path.clone(),
                         ModuleBuildState {
-                            old_interface_fingerprint: Some(
-                                interface.interface_fingerprint.clone(),
-                            ),
-                            new_interface_fingerprint: Some(
-                                interface.interface_fingerprint.clone(),
-                            ),
+                            old_interface_fingerprint: current_interface
+                                .as_ref()
+                                .map(|i| i.interface_fingerprint.clone()),
+                            new_interface_fingerprint: current_interface
+                                .as_ref()
+                                .map(|i| i.interface_fingerprint.clone()),
                             interface_changed: false,
                             rebuild_required: false,
                             skipped: true,
@@ -1996,7 +2065,6 @@ fn run_file(
                     );
                     continue;
                 } else if !no_cache
-                    && !is_entry_module
                     && !must_rebuild_due_to_dependency
                     && verbose
                 {
@@ -2010,11 +2078,10 @@ fn run_file(
                             )
                             .unwrap_or_else(|| "not eligible".to_string());
                         eprintln!("module-cache: miss (reason: {reason})");
-                    } else if current_interface.is_none() && verbose {
+                    } else if current_interface.is_none() && verbose && !is_entry_module {
                         eprintln!("interface: miss {} (no valid interface)", node.path.display());
                     }
                 } else if !no_cache
-                    && !is_entry_module
                     && must_rebuild_due_to_dependency
                     && verbose
                 {
@@ -2075,7 +2142,9 @@ fn run_file(
                     })
                     .collect();
 
-                if !no_cache && allow_cached_module_bytecode && !is_entry_module {
+                // Store bytecode cache for VM runs, and also for LLVM entry
+                // modules (serves as a "compilation succeeded" marker).
+                if !no_cache && (allow_cached_module_bytecode || (use_core_to_llvm && is_entry_module)) {
                     let cached_module = compiler.build_cached_module_bytecode(module_snapshot);
                     if let Err(e) = module_cache.store(
                         &node.path,
@@ -2092,10 +2161,11 @@ fn run_file(
                     }
                 }
 
-                // Save module interface (.flxi) for non-entry modules.
-                // Entry module doesn't need an interface — it's the consumer.
+                // Save module interface (.flxi) when available.
+                // Entry modules have no `module` declaration, so
+                // `extract_module_name_and_sym` returns None — the block
+                // naturally won't execute for them.
                 if !no_cache
-                    && !is_entry_module
                     && let Some((module_name, module_sym)) =
                         extract_module_name_and_sym(&node.program, &compiler.interner)
                 {
@@ -2443,6 +2513,7 @@ fn run_file(
                     strict_mode,
                     enable_optimize,
                     enable_analyze,
+                    verbose,
                     &compiler.interner,
                     &mut all_diagnostics,
                 ) {

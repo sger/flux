@@ -36,6 +36,35 @@ pub struct ModuleInterface {
     pub dependency_fingerprints: Vec<DependencyFingerprint>,
 }
 
+/// Sub-reason for a dependency fingerprint cache miss.
+///
+/// When a cached module is invalidated because one of its dependencies
+/// changed, this enum tells you *which field* of that dependency was
+/// the mismatch trigger.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DependencyMissReason {
+    /// The dependency's cached interface could not be loaded at all.
+    InterfaceMissing,
+    /// The dependency was compiled with a different compiler version.
+    CompilerVersionChanged,
+    /// The dependency's cache format version doesn't match the current one.
+    FormatVersionChanged,
+    /// The dependency's exported interface fingerprint changed (i.e. its
+    /// public API or borrow signatures differ from what was recorded).
+    InterfaceFingerprintChanged,
+}
+
+impl DependencyMissReason {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::InterfaceMissing => "interface missing",
+            Self::CompilerVersionChanged => "compiler version changed",
+            Self::FormatVersionChanged => "format version changed",
+            Self::InterfaceFingerprintChanged => "interface fingerprint changed",
+        }
+    }
+}
+
 impl ModuleInterface {
     pub fn new(
         module_name: impl Into<String>,
