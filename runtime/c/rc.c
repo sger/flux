@@ -4,7 +4,7 @@
  * Inspired by Koka's kklib runtime (Perceus RC). Every heap-allocated
  * object has an 8-byte FluxHeader at ptr - 8 containing:
  *   - int32_t refcount    (1 = unique, >1 = shared)
- *   - uint8_t scan_fsize  (number of child NaN-boxed fields to scan on drop)
+ *   - uint8_t scan_fsize  (number of child tagged fields to scan on drop)
  *   - uint8_t obj_tag     (FLUX_OBJ_STRING, FLUX_OBJ_ARRAY, etc.)
  *   - uint16_t reserved
  *
@@ -38,7 +38,7 @@
 
 typedef struct {
     int32_t  refcount;     /* 1 = unique, >1 = shared, 0 = ready to free */
-    uint8_t  scan_fsize;   /* number of child NaN-boxed fields to scan */
+    uint8_t  scan_fsize;   /* number of child tagged fields to scan */
     uint8_t  obj_tag;      /* FLUX_OBJ_STRING, FLUX_OBJ_ARRAY, etc. */
     uint16_t _reserved;
 } FluxHeader;
@@ -181,10 +181,10 @@ void flux_gc_free(void *ptr) {
 /* ── Reference Counting ────────────────────────────────────────────── */
 
 /*
- * Word offset where scannable NaN-boxed fields start, per object type.
+ * Word offset where scannable tagged fields start, per object type.
  *
  * Each object type has a fixed-size prefix (metadata) before the
- * NaN-boxed fields that flux_drop should recursively scan.
+ * tagged fields that flux_drop should recursively scan.
  *
  * FluxString: { uint8_t tag, pad[3], uint32_t len, char data[] }
  *   → 0 scannable fields (data is raw bytes, scan_fsize should be 0)
@@ -199,7 +199,7 @@ void flux_gc_free(void *ptr) {
  *   → prefix = 8 bytes = 1 word, fields at offset 1
  *
  * BigInt:     { uint8_t tag, pad[7], int64_t value }
- *   → 0 scannable fields (value is raw int, not NaN-boxed)
+ *   → 0 scannable fields (value is raw int, not a tagged pointer)
  */
 static int flux_scan_offset(uint8_t obj_tag) {
     switch (obj_tag) {
@@ -225,7 +225,7 @@ void flux_drop(int64_t val) {
     FluxHeader *hdr = header_of(ptr);
     if (--hdr->refcount > 0) return;
 
-    /* Recursively drop child NaN-boxed fields before freeing. */
+    /* Recursively drop child tagged fields before freeing. */
     if (hdr->scan_fsize > 0) {
         int offset = flux_scan_offset(hdr->obj_tag);
         int64_t *fields = (int64_t *)((char *)ptr + offset * 8);
