@@ -85,7 +85,7 @@ letrec list_length =
     case xs#27 of
       ::(h#29, t#30) →
         drop h#29
-        let %t12 = Add(acc#28, 1)
+        let %t12:Int = IAdd(acc#28, 1)
         aether_call[borrowed, owned] list_length#26(t#30, #4000618[synthetic]#618)
       _ →
         acc#28
@@ -193,7 +193,7 @@ letrec parse_ints =
               aether_call[owned, owned] push#576(result#62, #4000637[synthetic]#637))
               aether_call[owned, owned] pi_go#60(#4000635[synthetic]#635, #4000638[synthetic]#638)
             _ →
-              let %t36 = Add(i#61, 1)
+              let %t36:Int = IAdd(i#61, 1)
               aether_call[owned, owned] pi_go#60(#4000639[synthetic]#639, result#62))
     let %t37:Box = MakeArray()
     aether_call[owned, owned] pi_go#60(0, #4000640[synthetic]#640)
@@ -263,7 +263,7 @@ letrec filter =
                       let %t57 = Add(i#81, 1)
                       aether_call[owned, owned] filter_arr#80(#4000660[synthetic]#660, acc#82)
                 _ →
-                  let %t58 = Add(i#81, 1)
+                  let %t58:Int = IAdd(i#81, 1)
                   aether_call[owned, owned] filter_arr#80(#4000661[synthetic]#661, acc#82))
         let %t59:Box = MakeArray()
         aether_call[owned, owned] filter_arr#80(0, #4000662[synthetic]#662)
@@ -1549,7 +1549,7 @@ letrec min_list =
               let %t322 = Add(i#515, 1)
               aether_call[owned, owned] minl_go#514(#4000923[synthetic]#923, best#516))
     let %t323:Bool = (let %t324 = Len(arr#512)
-    Eq(#4000924[synthetic]#924, 0))
+    ICmpEq(#4000924[synthetic]#924, 0))
     case #4000925[synthetic]#925 of
       true →
         0
@@ -1675,7 +1675,7 @@ letrec join =
               let %t351 = Index(arr#552, i#556)
               case #4000952[synthetic]#952 of
                 Some(v#558) →
-                  let %t352 = Add(i#556, 1)
+                  let %t352:Int = IAdd(i#556, 1)
                   let %t353 = (let %t354 = Add(result#557, sep#553)
                   Add(#4000954[synthetic]#954, v#558))
                   aether_call[owned, owned] join_go#555(#4000953[synthetic]#953, #4000955[synthetic]#955)
@@ -1723,7 +1723,7 @@ letrec str_contains =
                   aether_call[owned] sc_go#564(#4000969[synthetic]#969))
         aether_call[owned] sc_go#564(0)
 
-letrec rev_append : List<Any> =
+letrec rev_append : List<Int> =
 λxs#569, acc#570.
     case xs#569 of
       ::(h#571, t#572) →
@@ -1763,7 +1763,7 @@ letrec pop : Pop =
 letrec build_queue : Queue =
 λn#587.
     letrec go#588 = (λi#589, q#590.
-      let %t376:Bool = Le(i#589, 0)
+      let %t376:Bool = ICmpLe(i#589, 0)
       case #4000977[synthetic]#977 of
         true →
           drop i#589
@@ -1779,7 +1779,7 @@ letrec build_queue : Queue =
 
 letrec rotate_sum : Int =
 λq#592, rounds#593, total#594.
-    let %t382:Bool = Le(rounds#593, 0)
+    let %t382:Bool = ICmpLe(rounds#593, 0)
     case #4000983[synthetic]#983 of
       true →
         drop q#592

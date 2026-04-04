@@ -129,7 +129,7 @@ letrec print_all =
             _ →
               Print(""))
           drop %t19
-          let %t21 = Add(i, 1)
+          let %t21 = IAdd(i, 1)
           aether_call[owned] pa_go(%t21)
         _ →
           MakeTuple())
@@ -1510,7 +1510,7 @@ letrec max_list =
               let %t312 = Add(i, 1)
               aether_call[owned, owned] maxl_go(%t312, best))
     let %t313 = (let %t314 = Len(arr)
-    Eq(%t314, 0))
+    ICmpEq(%t314, 0))
     case %t313 of
       true →
         0
@@ -1735,7 +1735,7 @@ letrec len_twice =
 letrec borrow_then_return =
 λxs, y.
     let %t371 = (let %t372 = Len(xs)
-    Gt(%t372, 0))
+    ICmpGt(%t372, 0))
     case %t371 of
       true →
         y

@@ -187,7 +187,7 @@ letrec parse_ints =
           let %t31 = Index(arr, i)
           case %t31 of
             Some(s) →
-              let %t32 = Add(i, 1)
+              let %t32 = IAdd(i, 1)
               let %t33 = (let %t34 = (let %t35 = ParseInt(s)
               aether_call[owned, owned] safe_int(%t35, 0))
               ArrayPush(result, %t34))
@@ -298,7 +298,7 @@ letrec fold =
       true →
         letrec fold_arr = (λi, a.
           let %t63 = (let %t64 = Len(xs)
-          Ge(i, %t64))
+          ICmpGe(i, %t64))
           case %t63 of
             true →
               a
@@ -1497,7 +1497,7 @@ letrec max_list =
           case %t308 of
             Some(v) →
               let %t309 = Add(i, 1)
-              let %t310 = (let %t311 = Gt(v, best)
+              let %t310 = (let %t311 = ICmpGt(v, best)
               case %t311 of
                 true →
                   drop best
@@ -1545,7 +1545,7 @@ letrec min_list =
                   best)
               aether_call[owned, owned] minl_go(%t319, %t320)
             _ →
-              let %t322 = Add(i, 1)
+              let %t322 = IAdd(i, 1)
               aether_call[owned, owned] minl_go(%t322, best))
     let %t323 = (let %t324 = Len(arr)
     Eq(%t324, 0))
@@ -1621,7 +1621,7 @@ letrec starts_with =
       _ →
         let %t330 = (let %t331 = Len(prefix)
         Substring(s, 0, %t331))
-        Eq(%t330, prefix)
+        ICmpEq(%t330, prefix)
 
 letrec ends_with =
 λs, suffix.
@@ -1637,7 +1637,7 @@ letrec ends_with =
         Sub(%t337, %t338))
         let %t339 = Len(s)
         Substring(s, %t336, %t339))
-        Eq(%t335, suffix)
+        ICmpEq(%t335, suffix)
 
 letrec chars =
 λs.
@@ -1659,7 +1659,7 @@ letrec chars =
 letrec join =
 λarr, sep.
     let %t347 = (let %t348 = Len(arr)
-    Eq(%t348, 0))
+    ICmpEq(%t348, 0))
     case %t347 of
       true →
         ""
@@ -1754,7 +1754,7 @@ letrec my_len =
     case xs of
       ::(_, t) →
         let %t372 = aether_call[borrowed] my_len(t)
-        Add(1, %t372)
+        IAdd(1, %t372)
       _ →
         0
 
@@ -1796,13 +1796,13 @@ letrec my_sum =
 def main =
 let %t376 = (let %t377 = (let %t378 = MakeList(1, 2, 3)
   let %t379 = (λx.
-    Mul(x, 2))
+    IMul(x, 2))
   aether_call[owned, borrowed] my_map(%t378, %t379))
   Print(%t377))
   drop %t376
   let %t380 = (let %t381 = (let %t382 = Some(42)
   let %t383 = (λx.
-    Add(x, 1))
+    IAdd(x, 1))
   aether_call[owned, borrowed] option_map(%t382, %t383))
   Print(%t381))
   drop %t380
@@ -1816,8 +1816,8 @@ let %t376 = (let %t377 = (let %t378 = MakeList(1, 2, 3)
   drop %t387
   let %t390 = (let %t391 = (let %t392 = MakeList(1, 2, 3, 4, 5, 6)
   let %t393 = (λx.
-    let %t394 = Mod(x, 2)
-    Eq(%t394, 0))
+    let %t394 = IMod(x, 2)
+    ICmpEq(%t394, 0))
   aether_call[owned, borrowed] my_filter(%t392, %t393))
   Print(%t391))
   drop %t390

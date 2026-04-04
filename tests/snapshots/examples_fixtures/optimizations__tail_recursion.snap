@@ -5,6 +5,27 @@ Fixture: examples/optimizations/tail_recursion.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/optimizations/tail_recursion.flx:41:5
+   |
+41 |     fibonacci_non_tail(n - 1) + fibonacci_non_tail(n - 2);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     ----------------------------------------------------- this expression has type `Unit and Unit`
+
+   |     ----------------------------------------------------- operator operands are known at compile time
+
+Note:
+  expected type: matching '+' operands (Int+Int, Float+Float, or String+String)
+  found type: Unit and Unit
+
+Help:
+  These two types are not compatible.
+  adjust operand types or add explicit conversion
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `print`.
@@ -30,6 +51,6 @@ I can't find a value named `print`.
 Hint:
   Define it first: let print = ...;
 
-Found 2 errors.
+Found 3 errors.
 == stdout ==
 <not executed>

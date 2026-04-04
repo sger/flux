@@ -549,7 +549,7 @@ bb1:
   %v1 = phi i64 [ %v4, %bb2 ], [ %v7, %bb5 ]
   ret i64 %v1
 bb2:
-  %v4 = call fastcc i64 @flux_tag_int(i64 0)
+  %v4 = add i64 9222246136947933184, 0
   br label %bb1
 bb3:
   %v6 = add i64 9222386874436288512, 0
@@ -564,8 +564,8 @@ bb5:
 
 define ccc i64 @flux_main() nounwind {
 bb0:
-  %v0 = call fastcc i64 @flux_tag_int(i64 1)
-  %v1 = call fastcc i64 @flux_tag_int(i64 2)
+  %v0 = add i64 9222246136947933185, 0
+  %v1 = add i64 9222246136947933186, 0
   %t0 = call fastcc i64 @flux_make_cons(i64 %v1, i64 9222527611924643840)
   %t1 = call fastcc i64 @flux_make_cons(i64 %v0, i64 %t0)
   %v2 = add i64 %t1, 0
@@ -573,7 +573,7 @@ bb0:
   %v3 = call fastcc i64 @flux_fold(i64 %v2)
   br label %bb1
 bb1:
-  %v5 = call fastcc i64 @flux_tag_int(i64 3)
+  %v5 = add i64 9222246136947933187, 0
   call ccc void @flux_dup(i64 %v5)
   %t2 = alloca [1 x i64], align 8
   %t3 = getelementptr inbounds i64, ptr %t2, i32 0
@@ -639,7 +639,7 @@ bb7:
   %v22 = load i64, ptr %t22, align 8
   %t23 = call fastcc ptr @flux_tuple_field_ptr(i64 %v7, i32 1)
   %v23 = load i64, ptr %t23, align 8
-  %v24 = call fastcc i64 @flux_tag_int(i64 0)
+  %v24 = add i64 9222246136947933184, 0
   br label %bb2
 bb8:
   unreachable

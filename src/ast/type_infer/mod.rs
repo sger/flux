@@ -334,10 +334,20 @@ pub fn infer_program(
         })
         .collect();
 
+    // Apply the final substitution to expression types so type variables
+    // are resolved to their concrete types.  Without this, recursive call
+    // sites keep stale type variables (e.g. Var(5) instead of Int) which
+    // prevents typed primop specialization (IAdd vs Add) downstream.
+    let resolved_expr_types: HashMap<ExprId, InferType> = ctx
+        .expr_types
+        .into_iter()
+        .map(|(id, ty)| (id, ty.apply_type_subst(&ctx.subst)))
+        .collect();
+
     InferProgramResult {
         type_env: ctx.env,
         diagnostics: ctx.errors,
-        expr_types: ctx.expr_types,
+        expr_types: resolved_expr_types,
         module_member_schemes: resolved_schemes,
         constraint_count,
     }
