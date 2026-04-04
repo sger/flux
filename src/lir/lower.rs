@@ -738,6 +738,14 @@ impl<'a> FnLower<'a> {
                     });
                     inner.bind(var.id, self_var);
 
+                    // Phase 8: For zero-capture LetRec functions, enable
+                    // direct self-calls to bypass flux_call_closure overhead.
+                    // Functions with captures use closure calling convention,
+                    // so CallKind::Direct would be a convention mismatch.
+                    if outer_captures.is_empty() {
+                        inner.direct_func_vars.insert(self_var, synthetic_id);
+                    }
+
                     // Register parameters.
                     for param in params {
                         let pv = inner.fresh_var();
@@ -1315,6 +1323,34 @@ impl<'a> FnLower<'a> {
                 args: arg_vars,
             });
             return dst;
+        }
+
+        // Phase 8: If func_var is a known zero-capture function reference
+        // (populated in direct_func_vars when MakeClosure wraps a known
+        // function with no captures), emit a direct call instead of going
+        // through flux_call_closure.
+        if let Some(&func_id) = self.direct_func_vars.get(&func_var) {
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::Direct { func_id },
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            return result;
         }
 
         let cont_idx = self.new_block();
