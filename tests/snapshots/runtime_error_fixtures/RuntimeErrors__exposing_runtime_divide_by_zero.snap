@@ -7,6 +7,14 @@ status: 1
 stdout:
 <empty>
 stderr:
+[1 of 8] Compiling  Assert
+[2 of 8] Compiling  IO
+[3 of 8] Compiling  List
+[4 of 8] Compiling  Numeric
+[5 of 8] Compiling  Option
+[6 of 8] Compiling  String
+[7 of 8] Compiling  ExposingRuntimeTarget
+[8 of 8] Compiling  exposing_runtime_divide_by_zero
 [cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/RuntimeErrors/ExposingRuntimeTarget.flx
 error[E1008]: Division By Zero
@@ -30,6 +38,14 @@ status: 1
 stdout:
 <empty>
 stderr:
+[1 of 8] Compiling  Assert
+[2 of 8] Compiling  IO
+[3 of 8] Compiling  List
+[4 of 8] Compiling  Numeric
+[5 of 8] Compiling  Option
+[6 of 8] Compiling  String
+[7 of 8] Compiling  ExposingRuntimeTarget
+[8 of 8] Compiling  exposing_runtime_divide_by_zero
 [cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/RuntimeErrors/ExposingRuntimeTarget.flx
 error[E1008]: Division By Zero

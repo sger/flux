@@ -6,7 +6,7 @@
  *
  * Arrays are persistent (immutable from the Flux perspective).
  * Mutation operations return new arrays (copy-on-write).
- * All values are NaN-boxed i64.
+ * All values are pointer-tagged i64.
  */
 
 #include "flux_rt.h"

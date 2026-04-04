@@ -499,15 +499,11 @@ impl Default for LirProgram {
     }
 }
 
-// ── NaN-box helpers for LIR constants ───────────────────────────────────────
+// ── Pointer-tag helpers for LIR constants ───────────────────────────────────
 
-/// NaN-box layout constants (must match `runtime/c/flux_rt.h`).
-const NANBOX_SENTINEL: u64 = 0x7FFC_0000_0000_0000;
-const PAYLOAD_MASK: u64 = (1u64 << 46) - 1;
-
-/// Produce a pre-tagged NaN-boxed integer literal (inline, no overflow boxing).
+/// Produce a pre-tagged pointer-tagged integer literal (inline).
+/// Encoding: `(raw << 1) | 1` — LSB=1 marks an integer.
 /// Used for effect tags and other small compile-time constants.
 pub fn nanbox_tag_int(raw: i64) -> i64 {
-    let payload = (raw as u64) & PAYLOAD_MASK;
-    (payload | NANBOX_SENTINEL) as i64
+    (raw << 1) | 1
 }

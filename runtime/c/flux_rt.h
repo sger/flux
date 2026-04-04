@@ -7,21 +7,19 @@
  * are emitted as inline LLVM IR by the codegen and are NOT part of this
  * runtime.
  *
- * NaN-box layout (must match src/runtime/nanbox.rs exactly):
- *   bits [63:50] = 0x7FFC (sentinel)
- *   bits [49:46] = 4-bit tag
- *   bits [45:0]  = 46-bit payload
+ * Pointer-tagged value encoding (Phase 9, Proposal 0124):
+ *   bit 0 = 1  →  tagged integer: 63-bit signed (val >> 1)
+ *   bit 0 = 0  →  heap pointer (8-byte aligned) or sentinel
  *
- * Tags:
- *   0x0 = Integer   (46-bit signed, two's complement)
- *   0x1 = Boolean   (payload: 0=false, 1=true)
- *   0x2 = None
- *   0x3 = Uninit
- *   0x4 = EmptyList
- *   0x5 = BaseFunction
- *   0x8 = BoxedValue (heap ptr >> 3 in payload)
+ * Sentinel values (even, < FLUX_MIN_PTR):
+ *   0  = None
+ *   2  = false
+ *   4  = true
+ *   6  = EmptyList
+ *   8  = Uninit
+ *   10 = YieldSentinel
  *
- * Floats are stored as raw IEEE 754 bits (no sentinel).
+ * Floats are heap-boxed: pointer to { FluxHeader, double }.
  */
 
 #ifndef FLUX_RT_H
@@ -29,134 +27,75 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* ── NaN-box constants ──────────────────────────────────────────────── */
+/* ── Pointer-tag sentinel values ───────────────────────────────────── */
 
-#define FLUX_NANBOX_SENTINEL   ((uint64_t)0x7FFC000000000000ULL)
-#define FLUX_SENTINEL_MASK     ((uint64_t)0xFFFC000000000000ULL)
-#define FLUX_TAG_SHIFT         46
-#define FLUX_TAG_MASK          ((uint64_t)0xF)
-#define FLUX_PAYLOAD_MASK      ((uint64_t)((1ULL << 46) - 1))
+#define FLUX_NONE              ((int64_t)0)
+#define FLUX_FALSE             ((int64_t)2)
+#define FLUX_TRUE              ((int64_t)4)
+#define FLUX_EMPTY_LIST        ((int64_t)6)
+#define FLUX_UNINIT            ((int64_t)8)
+#define FLUX_YIELD_SENTINEL    ((int64_t)10)
+#define FLUX_MIN_PTR           ((uint64_t)12)
 
-#define FLUX_TAG_INTEGER       0x0
-#define FLUX_TAG_BOOLEAN       0x1
-#define FLUX_TAG_NONE          0x2
-#define FLUX_TAG_UNINIT        0x3
-#define FLUX_TAG_EMPTY_LIST    0x4
-#define FLUX_TAG_BASE_FUNCTION 0x5
-#define FLUX_TAG_THUNK         0x6
-#define FLUX_TAG_BOXED_VALUE   0x8
-#define FLUX_TAG_YIELD         0x9
+/* ── Inline pointer-tag helpers ────────────────────────────────────── */
 
-/* Yield sentinel: returned by perform / yield_extend to signal unwinding. */
-#define FLUX_YIELD_SENTINEL    ((int64_t)(FLUX_NANBOX_SENTINEL \
-                                | ((uint64_t)FLUX_TAG_YIELD << FLUX_TAG_SHIFT)))
+/* 63-bit signed integer range (±4.6 quintillion). */
+#define FLUX_MAX_INLINE_INT  ((int64_t)((1LL << 62) - 1))
+#define FLUX_MIN_INLINE_INT  ((int64_t)(-(1LL << 62)))
 
-#define FLUX_PTR_SHIFT         3
-
-/* ── Inline NaN-box helpers ─────────────────────────────────────────── */
-
-#define FLUX_MAX_INLINE_INT  ((int64_t)((1LL << 45) - 1))   /*  35_184_372_088_831 */
-#define FLUX_MIN_INLINE_INT  ((int64_t)(-(1LL << 45)))      /* -35_184_372_088_832 */
-
-/* BigInt heap tag — defined early so inline helpers can reference it. */
-#define FLUX_OBJ_BIGINT   0xF6
-
-/* Forward declarations for overflow boxing. */
-void *flux_gc_alloc(uint32_t size);
-void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
-
-static inline int64_t flux_tag_int(int64_t raw) {
-    if (raw >= FLUX_MIN_INLINE_INT && raw <= FLUX_MAX_INLINE_INT) {
-        uint64_t payload = (uint64_t)raw & FLUX_PAYLOAD_MASK;
-        return (int64_t)(payload | FLUX_NANBOX_SENTINEL);
-    }
-    /* Overflow: heap-box the full 64-bit integer.
-     * Layout: { uint8_t obj_tag=FLUX_OBJ_BIGINT, pad[7], int64_t value } */
-    void *mem = flux_gc_alloc_header(16, 0, FLUX_OBJ_BIGINT);
-    *(uint8_t *)mem = FLUX_OBJ_BIGINT;
-    *(int64_t *)((char *)mem + 8) = raw;
-    uint64_t payload = (uint64_t)mem >> FLUX_PTR_SHIFT;
-    return (int64_t)(FLUX_NANBOX_SENTINEL
-                     | ((uint64_t)FLUX_TAG_BOXED_VALUE << FLUX_TAG_SHIFT)
-                     | payload);
-}
-
-static inline int64_t flux_untag_int(int64_t val) {
-    /* Check for heap-boxed big integer. */
-    if (((uint64_t)val & FLUX_SENTINEL_MASK) == FLUX_NANBOX_SENTINEL
-        && ((((uint64_t)val >> FLUX_TAG_SHIFT) & FLUX_TAG_MASK) == FLUX_TAG_BOXED_VALUE)) {
-        uint64_t p = (uint64_t)val & FLUX_PAYLOAD_MASK;
-        void *ptr = (void *)(p << FLUX_PTR_SHIFT);
-        if (ptr && *(uint8_t *)ptr == FLUX_OBJ_BIGINT) {
-            return *(int64_t *)((char *)ptr + 8);
-        }
-    }
-    uint64_t payload = (uint64_t)val & FLUX_PAYLOAD_MASK;
-    /* Sign-extend from 46 bits. */
-    return (int64_t)(payload << 18) >> 18;
-}
-
-static inline int flux_is_nanbox(int64_t val) {
-    return ((uint64_t)val & FLUX_SENTINEL_MASK) == FLUX_NANBOX_SENTINEL;
-}
-
-static inline int flux_nanbox_tag(int64_t val) {
-    return (int)(((uint64_t)val >> FLUX_TAG_SHIFT) & FLUX_TAG_MASK);
+static inline int flux_is_int(int64_t val) {
+    return (int)(val & 1);
 }
 
 static inline int flux_is_ptr(int64_t val) {
-    if (!flux_is_nanbox(val)) return 0;
-    return flux_nanbox_tag(val) == FLUX_TAG_BOXED_VALUE;
+    return !(val & 1) && (uint64_t)val >= FLUX_MIN_PTR;
+}
+
+static inline int64_t flux_tag_int(int64_t raw) {
+    return (raw << 1) | 1;
+}
+
+static inline int64_t flux_untag_int(int64_t val) {
+    return val >> 1;  /* arithmetic right shift — sign-extends */
+}
+
+/* Pointer tagging is zero-cost: heap pointers are naturally even. */
+static inline int64_t flux_tag_ptr(void *ptr) {
+    return (int64_t)(uintptr_t)ptr;
 }
 
 static inline void *flux_untag_ptr(int64_t val) {
-    uint64_t payload = (uint64_t)val & FLUX_PAYLOAD_MASK;
-    return (void *)(payload << FLUX_PTR_SHIFT);
+    return (void *)(uintptr_t)val;
 }
 
-static inline int64_t flux_tag_ptr(void *ptr) {
-    uint64_t payload = (uint64_t)ptr >> FLUX_PTR_SHIFT;
-    return (int64_t)(FLUX_NANBOX_SENTINEL
-                     | ((uint64_t)FLUX_TAG_BOXED_VALUE << FLUX_TAG_SHIFT)
-                     | payload);
-}
-
-static inline int flux_is_thunk(int64_t val) {
-    if (!flux_is_nanbox(val)) return 0;
-    return flux_nanbox_tag(val) == FLUX_TAG_THUNK;
-}
-
-static inline void *flux_untag_thunk(int64_t val) {
-    uint64_t payload = (uint64_t)val & FLUX_PAYLOAD_MASK;
-    return (void *)(payload << FLUX_PTR_SHIFT);
-}
-
-static inline int64_t flux_tag_thunk(void *ptr) {
-    uint64_t payload = (uint64_t)ptr >> FLUX_PTR_SHIFT;
-    return (int64_t)(FLUX_NANBOX_SENTINEL
-                     | ((uint64_t)FLUX_TAG_THUNK << FLUX_TAG_SHIFT)
-                     | payload);
-}
-
-static inline int64_t flux_make_none(void) {
-    return (int64_t)(FLUX_NANBOX_SENTINEL
-                     | ((uint64_t)FLUX_TAG_NONE << FLUX_TAG_SHIFT));
-}
-
+/* Booleans */
 static inline int64_t flux_make_bool(int b) {
-    return (int64_t)(FLUX_NANBOX_SENTINEL
-                     | ((uint64_t)FLUX_TAG_BOOLEAN << FLUX_TAG_SHIFT)
-                     | (uint64_t)(b ? 1 : 0));
+    return b ? FLUX_TRUE : FLUX_FALSE;
 }
 
-static inline int64_t flux_make_empty_list(void) {
-    return (int64_t)(FLUX_NANBOX_SENTINEL
-                     | ((uint64_t)FLUX_TAG_EMPTY_LIST << FLUX_TAG_SHIFT));
+/* None / EmptyList */
+static inline int64_t flux_make_none(void) { return FLUX_NONE; }
+static inline int64_t flux_make_empty_list(void) { return FLUX_EMPTY_LIST; }
+
+/* Float boxing — floats are heap-allocated { FluxHeader, double }. */
+void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
+
+static inline int64_t flux_box_float(double f) {
+    void *mem = flux_gc_alloc_header(sizeof(double), 0, 0xF8 /* FLUX_OBJ_FLOAT */);
+    memcpy(mem, &f, sizeof(double));
+    return flux_tag_ptr(mem);
+}
+
+static inline double flux_unbox_float(int64_t val) {
+    double f;
+    memcpy(&f, flux_untag_ptr(val), sizeof(double));
+    return f;
 }
 
 /* ── Heap object type tags ──────────────────────────────────────────── */
@@ -172,14 +111,30 @@ static inline int64_t flux_make_empty_list(void) {
 #define FLUX_OBJ_TUPLE    0xF3
 #define FLUX_OBJ_ARRAY    0xF4
 #define FLUX_OBJ_CLOSURE  0xF5
-/* FLUX_OBJ_BIGINT (0xF6) defined above near inline helpers */
+#define FLUX_OBJ_BIGINT   0xF6
 #define FLUX_OBJ_EVIDENCE 0xF7
+#define FLUX_OBJ_FLOAT    0xF8
+#define FLUX_OBJ_THUNK    0xF9
 
 static inline uint8_t flux_obj_tag(void *ptr) {
     /* Read obj_tag from the FluxHeader at ptr - 8.
      * Layout: { i32 refcount, u8 scan_fsize, u8 obj_tag, u16 reserved }
      * obj_tag is at offset 5 within the header. */
     return *((uint8_t *)ptr - 3);
+}
+
+/* Thunk detection — thunks are heap pointers with FLUX_OBJ_THUNK tag. */
+static inline int flux_is_thunk(int64_t val) {
+    return flux_is_ptr(val) && flux_obj_tag(flux_untag_ptr(val)) == FLUX_OBJ_THUNK;
+}
+
+/* Thunk tag/untag are the same as pointer tag/untag. */
+static inline int64_t flux_tag_thunk(void *ptr) { return flux_tag_ptr(ptr); }
+static inline void *flux_untag_thunk(int64_t val) { return flux_untag_ptr(val); }
+
+/* Float detection — floats are heap-boxed pointers with FLUX_OBJ_FLOAT tag. */
+static inline int flux_val_is_float(int64_t val) {
+    return flux_is_ptr(val) && flux_obj_tag(flux_untag_ptr(val)) == FLUX_OBJ_FLOAT;
 }
 
 /* ── Allocation & Reference Counting (Aether RC) ──────────────────── */
@@ -207,7 +162,7 @@ void  flux_gc_pop_root(void);
 extern char *flux_arena_hp;
 extern char *flux_arena_limit;
 
-/* Aether RC: dup/drop for NaN-boxed heap values. */
+/* Aether RC: dup/drop for pointer-tagged heap values. */
 void flux_dup(int64_t val);
 void flux_drop(int64_t val);
 int  flux_rc_is_unique(int64_t val);
@@ -232,8 +187,8 @@ void flux_rt_shutdown(void);
 /* ── Strings ────────────────────────────────────────────────────────── */
 
 /*
- * FluxString layout (heap-allocated, pointed to by BoxedValue tag):
- *   struct { uint32_t len; char data[]; }
+ * FluxString layout (heap-allocated, pointer-tagged):
+ *   struct { uint8_t obj_tag, pad[3], uint32_t len, char data[] }
  */
 
 int64_t flux_string_new(const char *data, uint32_t len);
@@ -306,11 +261,15 @@ int64_t flux_rt_index(int64_t collection, int64_t key);
 /* ── Type inspection ────────────────────────────────────────────────── */
 
 int64_t flux_type_of(int64_t val);
-int64_t flux_is_int(int64_t val);
-int64_t flux_is_float(int64_t val);
-int64_t flux_is_string(int64_t val);
-int64_t flux_is_bool(int64_t val);
-int64_t flux_is_none(int64_t val);
+/* Note: the runtime-callable type inspectors are named flux_rt_is_*
+ * to avoid collision with the static inline helpers (flux_is_int, etc.)
+ * in this header.  The LLVM emitter maps IsInt → "flux_is_int" but
+ * see the builtins table which should remap to these names. */
+int64_t flux_is_int_val(int64_t val);
+int64_t flux_is_float_val(int64_t val);
+int64_t flux_is_string_val(int64_t val);
+int64_t flux_is_bool_val(int64_t val);
+int64_t flux_is_none_val(int64_t val);
 
 /* ── Control ────────────────────────────────────────────────────────── */
 

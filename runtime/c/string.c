@@ -5,15 +5,14 @@
  *   struct { uint32_t len; char data[]; }
  *
  * Strings are immutable.  All operations return new string values.
- * The NaN-boxed i64 representation uses the BoxedValue tag with the
- * pointer to the FluxString struct payload.
+ * The pointer-tagged i64 representation uses the heap pointer directly
+ * (LSB=0, value >= 12) to the FluxString struct payload.
  */
 
 #include "flux_rt.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <math.h>
 
 /* ── FluxString layout ──────────────────────────────────────────────── */
 
@@ -106,9 +105,7 @@ int64_t flux_int_to_string(int64_t n) {
 }
 
 int64_t flux_float_to_string(int64_t f) {
-    double d;
-    uint64_t bits = (uint64_t)f;
-    memcpy(&d, &bits, sizeof(d));
+    double d = flux_unbox_float(f);
     char buf[64];
     int len = snprintf(buf, sizeof(buf), "%.15g", d);
     if (len < 0) len = 0;
