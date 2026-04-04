@@ -256,9 +256,9 @@ fn emit_make_adt(module: &mut LlvmModule) {
                 LlvmInstr::Call {
                     dst: Some(LlvmLocal("mem".into())),
                     tail: false,
-                    call_conv: Some(CallConv::Ccc),
+                    call_conv: Some(CallConv::Fastcc),
                     ret_ty: LlvmType::ptr(),
-                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc_header")),
+                    callee: LlvmOperand::Global(GlobalId("flux_bump_alloc_inline".into())),
                     args: vec![
                         (LlvmType::i32(), local_operand("alloc.bytes")),
                         (LlvmType::i32(), local_operand("field_count")), // scan_fsize
@@ -418,9 +418,9 @@ fn emit_make_tuple(module: &mut LlvmModule) {
                 LlvmInstr::Call {
                     dst: Some(LlvmLocal("mem".into())),
                     tail: false,
-                    call_conv: Some(CallConv::Ccc),
+                    call_conv: Some(CallConv::Fastcc),
                     ret_ty: LlvmType::ptr(),
-                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc_header")),
+                    callee: LlvmOperand::Global(GlobalId("flux_bump_alloc_inline".into())),
                     args: vec![
                         (LlvmType::i32(), local_operand("alloc.bytes")),
                         (LlvmType::i32(), local_operand("arity")), // scan_fsize
