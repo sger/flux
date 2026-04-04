@@ -318,7 +318,7 @@ time ./target/release/binarytrees_hs 8  # Haskell
 
 ## Architectural optimizations (future phases)
 
-These address the remaining 50ms → 3ms gap to GHC. Each is a significant project and would warrant its own proposal. Documented here as the roadmap based on GHC source analysis (`/Users/s.gerokostas/Downloads/Github/ghc`).
+These address the remaining 50ms → 3ms gap to GHC. Each is a significant project and would warrant its own proposal. Documented here as the roadmap based on GHC source analysis.
 
 ### Phase 7: Bump allocator (GHC's nursery model)
 
