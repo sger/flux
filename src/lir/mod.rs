@@ -383,6 +383,11 @@ pub struct LirFunction {
     /// LirVars in this function that are free (captured from the enclosing scope).
     /// The bytecode emitter maps these to `OpGetFree(index)` instead of `OpGetLocal`.
     pub capture_vars: Vec<LirVar>,
+    /// Per-parameter runtime representation (from CoreBinder::rep via HM inference).
+    /// Used by the LLVM emitter for worker/wrapper unboxing (Phase 10).
+    pub param_reps: Vec<crate::core::FluxRep>,
+    /// Return type representation (from CoreDef::result_ty).
+    pub result_rep: crate::core::FluxRep,
 }
 
 /// A complete LIR program — a collection of functions.

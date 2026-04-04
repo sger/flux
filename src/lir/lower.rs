@@ -426,6 +426,8 @@ impl<'a> FnLower<'a> {
                 blocks: vec![entry_block],
                 next_var: 0,
                 capture_vars: Vec::new(),
+                param_reps: Vec::new(),
+                result_rep: crate::core::FluxRep::TaggedRep,
             },
             current_block: 0,
             program: ctx.program,
@@ -698,6 +700,8 @@ impl<'a> FnLower<'a> {
                         blocks: Vec::new(),
                         next_var: 0,
                         capture_vars: Vec::new(),
+                        param_reps: Vec::new(),
+                        result_rep: crate::core::FluxRep::TaggedRep,
                     });
                     temp_program.func_index.insert(synthetic_id, func_idx);
 
@@ -751,6 +755,7 @@ impl<'a> FnLower<'a> {
                         let pv = inner.fresh_var();
                         inner.bind(param.id, pv);
                         inner.func.params.push(pv);
+                        inner.func.param_reps.push(param.rep);
                     }
 
                     // Lower the body.
@@ -836,6 +841,7 @@ impl<'a> FnLower<'a> {
                         let pv = inner.fresh_var();
                         inner.bind(param.id, pv);
                         inner.func.params.push(pv);
+                        inner.func.param_reps.push(param.rep);
                     }
 
                     // Lower the body in the inner context.
@@ -2602,6 +2608,13 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
     // This follows GHC's approach: known calls are free, closures are only
     // created when functions escape as values.
 
+    // Set result representation from HM-inferred return type.
+    ctx.func.result_rep = def
+        .result_ty
+        .as_ref()
+        .map(crate::core::FluxRep::from_core_type)
+        .unwrap_or(crate::core::FluxRep::TaggedRep);
+
     // If the def is a lambda, register its parameters.
     let body = match &def.expr {
         CoreExpr::Lam { params, body, .. } => {
@@ -2609,6 +2622,7 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
                 let pv = ctx.fresh_var();
                 ctx.bind(param.id, pv);
                 ctx.func.params.push(pv);
+                ctx.func.param_reps.push(param.rep);
             }
             body.as_ref()
         }
