@@ -181,7 +181,15 @@ mod tests {
     fn resolves_non_cargo_cache_root_to_local_flux_cache() {
         let entry = PathBuf::from("/tmp/flux-standalone/example.flx");
         let root = resolve_cache_root(&entry, None);
-        assert_eq!(root, PathBuf::from("/tmp/flux-standalone/.flux/cache"));
+        // On Windows, /tmp resolves to the current drive (e.g. E:/tmp).
+        // Check the suffix instead of the full path.
+        let suffix = Path::new("flux-standalone").join(".flux").join("cache");
+        assert!(
+            root.ends_with(&suffix),
+            "expected root to end with {}, got {}",
+            suffix.display(),
+            root.display()
+        );
     }
 
     #[test]

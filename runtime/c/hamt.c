@@ -4,7 +4,7 @@
  * Matches the semantics of src/runtime/hamt.rs: 5-bit-per-level trie
  * with bitmap compression and hash collision nodes.
  *
- * All keys and values are NaN-boxed i64.  Keys are hashed via a simple
+ * All keys and values are pointer-tagged i64.  Keys are hashed via a simple
  * FNV-1a variant.  The HAMT is immutable (persistent): set/delete
  * return new nodes, sharing unchanged subtrees.
  *
@@ -408,7 +408,7 @@ static uint32_t hamt_size_impl(HamtNode *node) {
     return 0;
 }
 
-/* ── Public API (NaN-boxed) ─────────────────────────────────────────── */
+/* ── Public API (pointer-tagged) ───────────────────────────────────── */
 
 int64_t flux_hamt_empty(void) {
     HamtNode *root = make_empty();
