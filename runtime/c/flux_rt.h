@@ -197,10 +197,15 @@ void  flux_gc_init(size_t heap_size);
 void  flux_gc_shutdown(void);
 void *flux_gc_alloc(uint32_t size);
 void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
+void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 void  flux_gc_free(void *ptr);
 void  flux_gc_collect(void);
 void  flux_gc_push_root(int64_t *root);
 void  flux_gc_pop_root(void);
+
+/* Bump arena pointers (exported for Phase 7b inline LLVM allocation). */
+extern char *flux_arena_hp;
+extern char *flux_arena_limit;
 
 /* Aether RC: dup/drop for NaN-boxed heap values. */
 void flux_dup(int64_t val);

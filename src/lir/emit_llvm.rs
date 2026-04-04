@@ -129,7 +129,7 @@ pub fn emit_llvm_module_with_options(
                 element: Box::new(LlvmType::i8()),
             },
             is_constant: true,
-            value: LlvmConst::Array {
+            value: Some(LlvmConst::Array {
                 element_ty: LlvmType::i8(),
                 elements: s
                     .bytes()
@@ -138,7 +138,7 @@ pub fn emit_llvm_module_with_options(
                         value: b as i128,
                     })
                     .collect(),
-            },
+            }),
             attrs: Vec::new(),
         });
     }
@@ -265,7 +265,7 @@ fn emit_user_ctor_name_helper(module: &mut LlvmModule, program: &LirProgram) {
                 element: Box::new(LlvmType::i8()),
             },
             is_constant: true,
-            value: LlvmConst::Array {
+            value: Some(LlvmConst::Array {
                 element_ty: LlvmType::i8(),
                 elements: bytes
                     .into_iter()
@@ -274,7 +274,7 @@ fn emit_user_ctor_name_helper(module: &mut LlvmModule, program: &LirProgram) {
                         value: byte as i128,
                     })
                     .collect(),
-            },
+            }),
             attrs: Vec::new(),
         });
 
@@ -1099,9 +1099,9 @@ impl<'a> FnEmitter<'a> {
             }
             LirInstr::Alloc { dst, size, .. } => {
                 let ptr_tmp = self.tmp();
-                self.call_c(
+                self.call_fastcc(
                     Some(ptr_tmp.clone()),
-                    "flux_gc_alloc_header",
+                    "flux_bump_alloc_inline",
                     vec![
                         (LlvmType::i32(), self.i32_const(*size as i32)),
                         (
@@ -2291,6 +2291,8 @@ fn is_fastcc_prelude_helper(name: &str) -> bool {
         | "flux_not" | "flux_and" | "flux_or"
         // RC helpers
         | "flux_drop_reuse" | "flux_rc_is_unique"
+        // Bump allocator
+        | "flux_bump_alloc_inline"
         // ADT/Tuple/Closure construction
         | "flux_make_adt" | "flux_make_cons" | "flux_make_tuple"
         | "flux_adt_tag" | "flux_adt_field_ptr"
