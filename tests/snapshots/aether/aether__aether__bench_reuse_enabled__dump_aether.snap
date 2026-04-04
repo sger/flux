@@ -1045,7 +1045,7 @@ Aether Memory Model Report
   verifier: ok
 λn.
   letrec build_go = (λi, acc.
-    let %t1 = Le(i, 0)
+    let %t1 = ICmpLe(i, 0)
     case %t1 of
       true →
         drop i

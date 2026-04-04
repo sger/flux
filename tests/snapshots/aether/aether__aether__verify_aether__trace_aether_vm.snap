@@ -135,13 +135,13 @@ Aether Memory Model Report
 λ.
   let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
   let %t4 = (λx.
-    Mul(x, 2))
+    IMul(x, 2))
   aether_call[owned, borrowed] my_map(%t3, %t4))
   Print(%t2))
   drop %t1
   let %t5 = (let %t6 = (let %t7 = Some(42)
   let %t8 = (λx.
-    Add(x, 1))
+    IAdd(x, 1))
   aether_call[owned, borrowed] option_map(%t7, %t8))
   Print(%t6))
   drop %t5
@@ -155,8 +155,8 @@ Aether Memory Model Report
   drop %t12
   let %t15 = (let %t16 = (let %t17 = MakeList(1, 2, 3, 4, 5, 6)
   let %t18 = (λx.
-    let %t19 = Mod(x, 2)
-    Eq(%t19, 0))
+    let %t19 = IMod(x, 2)
+    ICmpEq(%t19, 0))
   aether_call[owned, borrowed] my_filter(%t17, %t18))
   Print(%t16))
   drop %t15

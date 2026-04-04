@@ -190,7 +190,7 @@ Aether Memory Model Report
                     let %t8 = Add(i, 1)
                     aether_call[owned, owned] filter_arr(%t8, acc)
               _ →
-                let %t9 = Add(i, 1)
+                let %t9 = IAdd(i, 1)
                 aether_call[owned, owned] filter_arr(%t9, acc))
       let %t10 = MakeArray()
       aether_call[owned, owned] filter_arr(0, %t10)
@@ -984,7 +984,7 @@ Aether Memory Model Report
 λarr.
   letrec minl_go = (λi, best.
     let %t1 = (let %t2 = Len(arr)
-    Ge(i, %t2))
+    ICmpGe(i, %t2))
     case %t1 of
       true →
         best
@@ -993,7 +993,7 @@ Aether Memory Model Report
         case %t3 of
           Some(v) →
             let %t4 = Add(i, 1)
-            let %t5 = (let %t6 = Lt(v, best)
+            let %t5 = (let %t6 = ICmpLt(v, best)
             case %t6 of
               true →
                 drop best
@@ -1006,7 +1006,7 @@ Aether Memory Model Report
             let %t7 = Add(i, 1)
             aether_call[owned, owned] minl_go(%t7, best))
   let %t8 = (let %t9 = Len(arr)
-  Eq(%t9, 0))
+  ICmpEq(%t9, 0))
   case %t8 of
     true →
       0
@@ -1045,7 +1045,7 @@ Aether Memory Model Report
   verifier: ok
 λn.
   letrec build_go = (λi, acc.
-    let %t1 = Le(i, 0)
+    let %t1 = ICmpLe(i, 0)
     case %t1 of
       true →
         drop i

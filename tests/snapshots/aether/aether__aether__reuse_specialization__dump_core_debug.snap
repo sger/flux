@@ -1741,7 +1741,7 @@ letrec keep_right_only : Tree =
       _ →
         t#574
 
-letrec option_map : Option<Any> =
+letrec option_map : Option<Int> =
 λopt#580, f#581.
     case opt#580 of
       Some(x#582) →
@@ -1762,7 +1762,7 @@ letrec main : Any =
     drop #2000009[synthetic]#585
     let %t376 = (let %t377:Box = Some(41)
     let %t378:Box = (λx#584.
-      Add(x#584, 1))
+      IAdd(x#584, 1))
     aether_call[owned, borrowed] option_map#579(#4000951[synthetic]#951, #4000952[synthetic]#952))
     Print(#4000953[synthetic]#953)
 

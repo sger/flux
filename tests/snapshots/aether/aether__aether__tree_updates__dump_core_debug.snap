@@ -1775,7 +1775,7 @@ letrec keep_or_dup_left : Tree =
 letrec churn_tree : Tree =
 λt#590, iterations#591.
     letrec go#592 = (λi#593, current#594.
-      let %t369:Bool = Le(i#593, 0)
+      let %t369:Bool = ICmpLe(i#593, 0)
       case #4000967[synthetic]#967 of
         true →
           current#594

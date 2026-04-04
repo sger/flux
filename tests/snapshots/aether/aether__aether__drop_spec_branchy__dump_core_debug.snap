@@ -1637,7 +1637,7 @@ letrec ends_with =
         Sub(#4000907[synthetic]#907, #4000908[synthetic]#908))
         let %t339 = Len(s#542)
         Substring(s#542, #4000909[synthetic]#909, #4000910[synthetic]#910))
-        Eq(#4000911[synthetic]#911, suffix#543)
+        ICmpEq(#4000911[synthetic]#911, suffix#543)
 
 letrec chars =
 λs#547.
@@ -1722,7 +1722,7 @@ letrec str_contains =
                   aether_call[owned] sc_go#564(#4000940[synthetic]#940))
         aether_call[owned] sc_go#564(0)
 
-letrec copy_or_keep_head : List<Any> =
+letrec copy_or_keep_head : List<Int> =
 λxs#569, copy#570.
     case xs#569 of
       ::(h#571, t#572) →
