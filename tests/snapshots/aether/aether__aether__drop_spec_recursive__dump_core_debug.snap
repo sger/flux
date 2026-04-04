@@ -1722,7 +1722,7 @@ letrec str_contains =
                   aether_call[owned] sc_go#564(#4000932[synthetic]#932))
         aether_call[owned] sc_go#564(0)
 
-letrec rec_copy_or_keep : List<Any> =
+letrec rec_copy_or_keep : List<Int> =
 λxs#569, choose#570.
     case xs#569 of
       ::(h#571, t#572) →

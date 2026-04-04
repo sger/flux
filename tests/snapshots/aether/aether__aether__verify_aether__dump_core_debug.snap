@@ -187,7 +187,7 @@ letrec parse_ints =
           let %t31 = Index(arr#59, i#61)
           case #4000634[synthetic]#634 of
             Some(s#63) →
-              let %t32 = Add(i#61, 1)
+              let %t32:Int = IAdd(i#61, 1)
               let %t33:Box = (let %t34 = (let %t35 = ParseInt(s#63)
               aether_call[owned, owned] safe_int#54(#4000636[synthetic]#636, 0))
               ArrayPush(result#62, #4000637[synthetic]#637))
@@ -298,7 +298,7 @@ letrec fold =
       true →
         letrec fold_arr#90 = (λi#91, a#92.
           let %t63:Bool = (let %t64 = Len(xs#87)
-          Ge(i#91, #4000666[synthetic]#666))
+          ICmpGe(i#91, #4000666[synthetic]#666))
           case #4000667[synthetic]#667 of
             true →
               a#92
@@ -1497,7 +1497,7 @@ letrec max_list =
           case #4000909[synthetic]#909 of
             Some(v#510) →
               let %t309 = Add(i#508, 1)
-              let %t310 = (let %t311:Bool = Gt(v#510, best#509)
+              let %t310 = (let %t311:Bool = ICmpGt(v#510, best#509)
               case #4000911[synthetic]#911 of
                 true →
                   drop best#509
@@ -1545,7 +1545,7 @@ letrec min_list =
                   best#516)
               aether_call[owned, owned] minl_go#514(#4000920[synthetic]#920, #4000922[synthetic]#922)
             _ →
-              let %t322 = Add(i#515, 1)
+              let %t322:Int = IAdd(i#515, 1)
               aether_call[owned, owned] minl_go#514(#4000923[synthetic]#923, best#516))
     let %t323:Bool = (let %t324 = Len(arr#512)
     Eq(#4000924[synthetic]#924, 0))
@@ -1621,7 +1621,7 @@ letrec starts_with =
       _ →
         let %t330:Box = (let %t331 = Len(prefix#539)
         Substring(s#538, 0, #4000931[synthetic]#931))
-        Eq(#4000932[synthetic]#932, prefix#539)
+        ICmpEq(#4000932[synthetic]#932, prefix#539)
 
 letrec ends_with =
 λs#542, suffix#543.
@@ -1637,7 +1637,7 @@ letrec ends_with =
         Sub(#4000936[synthetic]#936, #4000937[synthetic]#937))
         let %t339 = Len(s#542)
         Substring(s#542, #4000938[synthetic]#938, #4000939[synthetic]#939))
-        Eq(#4000940[synthetic]#940, suffix#543)
+        ICmpEq(#4000940[synthetic]#940, suffix#543)
 
 letrec chars =
 λs#547.
@@ -1659,7 +1659,7 @@ letrec chars =
 letrec join =
 λarr#552, sep#553.
     let %t347:Bool = (let %t348 = Len(arr#552)
-    Eq(#4000948[synthetic]#948, 0))
+    ICmpEq(#4000948[synthetic]#948, 0))
     case #4000949[synthetic]#949 of
       true →
         ""
@@ -1722,7 +1722,7 @@ letrec str_contains =
                   aether_call[owned] sc_go#564(#4000969[synthetic]#969))
         aether_call[owned] sc_go#564(0)
 
-letrec my_map : List<Any> =
+letrec my_map : List<Int> =
 λxs#569, f#570.
     case xs#569 of
       ::(h#571, t#572) →
@@ -1732,7 +1732,7 @@ letrec my_map : List<Any> =
       _ →
         []
 
-letrec option_map : Option<Any> =
+letrec option_map : Option<Int> =
 λopt#574, f#575.
     case opt#574 of
       Some(x#576) →
@@ -1754,11 +1754,11 @@ letrec my_len : Int =
     case xs#583 of
       ::(_, t#584) →
         let %t372 = aether_call[borrowed] my_len#582(t#584)
-        Add(1, #4000973[synthetic]#973)
+        IAdd(1, #4000973[synthetic]#973)
       _ →
         0
 
-letrec my_filter : List<Any> =
+letrec my_filter : List<Int> =
 λxs#586, f#587.
     case xs#586 of
       ::(h#588, t#589) →
@@ -1797,13 +1797,13 @@ letrec main : Any =
 λ.
     let %t376 = (let %t377 = (let %t378:Box = MakeList(1, 2, 3)
     let %t379:Box = (λx#610.
-      Mul(x#610, 2))
+      IMul(x#610, 2))
     aether_call[owned, borrowed] my_map#568(#4000977[synthetic]#977, #4000978[synthetic]#978))
     Print(#4000979[synthetic]#979))
     drop #2000013[synthetic]#608
     let %t380 = (let %t381 = (let %t382:Box = Some(42)
     let %t383:Box = (λx#607.
-      Add(x#607, 1))
+      IAdd(x#607, 1))
     aether_call[owned, borrowed] option_map#573(#4000980[synthetic]#980, #4000981[synthetic]#981))
     Print(#4000982[synthetic]#982))
     drop #2000012[synthetic]#605
@@ -1817,8 +1817,8 @@ letrec main : Any =
     drop #2000010[synthetic]#599
     let %t390 = (let %t391 = (let %t392:Box = MakeList(1, 2, 3, 4, 5, 6)
     let %t393:Box = (λx#598.
-      let %t394 = Mod(x#598, 2)
-      Eq(#4000988[synthetic]#988, 0))
+      let %t394:Int = IMod(x#598, 2)
+      ICmpEq(#4000988[synthetic]#988, 0))
     aether_call[owned, borrowed] my_filter#585(#4000987[synthetic]#987, #4000989[synthetic]#989))
     Print(#4000990[synthetic]#990))
     drop #2000009[synthetic]#596

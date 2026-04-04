@@ -2934,8 +2934,11 @@ impl Compiler {
             program.clone()
         };
 
-        let mut core =
-            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
+            &program_to_lower,
+            &self.hm_expr_types,
+            Some(&self.interner),
+        );
         let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
         crate::core::passes::run_core_passes_with_interner_and_registry(
             &mut core,
@@ -2983,8 +2986,11 @@ impl Compiler {
             program.clone()
         };
 
-        let mut core =
-            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
+            &program_to_lower,
+            &self.hm_expr_types,
+            Some(&self.interner),
+        );
         let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
         crate::core::passes::run_core_passes_with_interner_and_registry(
             &mut core,
@@ -3021,8 +3027,11 @@ impl Compiler {
             program.clone()
         };
 
-        let mut core =
-            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
+            &program_to_lower,
+            &self.hm_expr_types,
+            Some(&self.interner),
+        );
         let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
         crate::core::passes::run_core_passes_with_interner_and_registry(
             &mut core,
@@ -3058,8 +3067,11 @@ impl Compiler {
             program.clone()
         };
 
-        let mut core =
-            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
+            &program_to_lower,
+            &self.hm_expr_types,
+            Some(&self.interner),
+        );
         let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
         crate::core::passes::run_core_passes_with_interner_and_registry(
             &mut core,
@@ -3182,8 +3194,11 @@ impl Compiler {
             program.clone()
         };
 
-        let mut core =
-            crate::core::lower_ast::lower_program_ast(&program_to_lower, &self.hm_expr_types);
+        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
+            &program_to_lower,
+            &self.hm_expr_types,
+            Some(&self.interner),
+        );
         let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
         crate::core::passes::run_core_passes_with_interner_and_registry(
             &mut core,

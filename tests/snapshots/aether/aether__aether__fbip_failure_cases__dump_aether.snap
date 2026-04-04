@@ -1070,7 +1070,7 @@ Aether Memory Model Report
   verifier: ok
 λ.
   let %t1 = (let %t2 = (let %t3 = (λy.
-    Add(y, 1))
+    IAdd(y, 1))
   aether_call[borrowed, owned] fail_indirect(%t3, 1))
   Print(%t2))
   drop %t1

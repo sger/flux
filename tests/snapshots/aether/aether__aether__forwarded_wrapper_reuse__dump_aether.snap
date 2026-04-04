@@ -966,7 +966,7 @@ Aether Memory Model Report
             let %t7 = Add(i, 1)
             aether_call[owned, owned] maxl_go(%t7, best))
   let %t8 = (let %t9 = Len(arr)
-  Eq(%t9, 0))
+  ICmpEq(%t9, 0))
   case %t8 of
     true →
       0
