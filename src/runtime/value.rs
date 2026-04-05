@@ -286,8 +286,6 @@ pub enum Value {
     Function(Rc<CompiledFunction>),
     /// Runtime closure object.
     Closure(Rc<Closure>),
-    /// Base function handle (index into base function table).
-    BaseFunction(u8),
     /// Ordered collection of values.
     Array(Rc<Vec<Value>>),
     /// Fixed-size heterogeneous ordered collection.
@@ -330,7 +328,6 @@ impl fmt::Display for Value {
             Value::ReturnValue(v) => write!(f, "{}", v),
             Value::Function(_) => write!(f, "<function>"),
             Value::Closure(_) => write!(f, "<closure>"),
-            Value::BaseFunction(_) => write!(f, "<base-fn>"),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 write!(f, "[|{}|]", items.join(", "))
@@ -399,7 +396,6 @@ impl Value {
             Value::ReturnValue(_) => "ReturnValue",
             Value::Function(_) => "Function",
             Value::Closure(_) => "Closure",
-            Value::BaseFunction(_) => "BaseFunction",
             Value::Array(_) => "Array",
             Value::Tuple(_) => "Tuple",
             Value::Cons(_) => "List",
@@ -417,7 +413,7 @@ impl Value {
     pub fn is_callable(&self) -> bool {
         matches!(
             self,
-            Value::Function(_) | Value::Closure(_) | Value::BaseFunction(_)
+            Value::Function(_) | Value::Closure(_)
         )
     }
 
@@ -464,7 +460,6 @@ impl Value {
             Value::ReturnValue(v) => v.to_string_value(),
             Value::Function(_) => "<function>".to_string(),
             Value::Closure(_) => "<closure>".to_string(),
-            Value::BaseFunction(_) => "<base-fn>".to_string(),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 format!("[|{}|]", items.join(", "))

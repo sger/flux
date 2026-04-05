@@ -104,8 +104,7 @@ mod inner {
         Uninit = 0x3,
         /// `Value::EmptyList`.
         EmptyList = 0x4,
-        /// `Value::BaseFunction(u8)`: payload holds the index.
-        BaseFunction = 0x5,
+        // 0x5 was BaseFunction (removed). Tag value reserved.
         /// Trampoline thunk for mutual tail-call optimization (core_to_llvm only).
         /// Payload holds a heap pointer (>> 3) to `{i8 fn_index, i8[3] _pad, i32 nargs, i64 args[]}`.
         Thunk = 0x6,
@@ -124,7 +123,7 @@ mod inner {
                 0x2 => NanTag::None,
                 0x3 => NanTag::Uninit,
                 0x4 => NanTag::EmptyList,
-                0x5 => NanTag::BaseFunction,
+                0x5 => NanTag::BoxedValue, // was BaseFunction (removed)
                 0x6 => NanTag::Thunk,
                 0x7 | 0x8 => NanTag::BoxedValue,
                 _ => NanTag::BoxedValue, // reserved tags fall back to boxed
@@ -260,12 +259,6 @@ mod inner {
             NanBox::from_tag_payload(NanTag::EmptyList, 0)
         }
 
-        /// Encode a base-function index.
-        #[inline(always)]
-        pub fn from_base_fn(idx: u8) -> Self {
-            NanBox::from_tag_payload(NanTag::BaseFunction, idx as u64)
-        }
-
         /// Box any [`Value`] behind an `Rc<Value>` and encode the pointer.
         ///
         /// This is the fallback path for all heap-allocated Value variants
@@ -314,18 +307,13 @@ mod inner {
 
         /// Decode as a base-function index.
         #[inline(always)]
-        pub fn as_base_fn(&self) -> u8 {
-            debug_assert_eq!(self.tag(), NanTag::BaseFunction);
-            self.payload() as u8
-        }
-
         // ── Value conversion ──────────────────────────────────────────────────
 
         /// Encode a [`Value`] as a [`NanBox`].
         ///
         /// All Value variants are handled. Immediate types (Int, Float, Bool,
-        /// None, Uninit, EmptyList, BaseFunction, GcHandle) are encoded
-        /// inline. All other variants are heap-boxed via [`NanBox::box_value`].
+        /// None, Uninit, EmptyList, GcHandle) are encoded inline. All other
+        /// variants are heap-boxed via [`NanBox::box_value`].
         pub fn from_value(v: Value) -> Self {
             match v {
                 Value::Float(f) => NanBox::from_float(f),
@@ -334,7 +322,6 @@ mod inner {
                 Value::None => NanBox::from_none(),
                 Value::Uninit => NanBox::from_uninit(),
                 Value::EmptyList => NanBox::from_empty_list(),
-                Value::BaseFunction(idx) => NanBox::from_base_fn(idx),
                 // Everything else goes through the boxed path.
                 other => NanBox::box_value(other),
             }
@@ -369,7 +356,6 @@ mod inner {
                 NanTag::None => Value::None,
                 NanTag::Uninit => Value::Uninit,
                 NanTag::EmptyList => Value::EmptyList,
-                NanTag::BaseFunction => Value::BaseFunction(self.as_base_fn()),
                 NanTag::Thunk => {
                     // Thunks are core_to_llvm-only trampoline values. They should
                     // never appear in the VM. Treat as None if encountered.
@@ -524,12 +510,6 @@ mod inner {
             assert_eq!(roundtrip(Value::None), Value::None);
             assert_eq!(roundtrip(Value::Uninit), Value::Uninit);
             assert_eq!(roundtrip(Value::EmptyList), Value::EmptyList);
-            assert_eq!(roundtrip(Value::BaseFunction(0)), Value::BaseFunction(0));
-            assert_eq!(roundtrip(Value::BaseFunction(42)), Value::BaseFunction(42));
-            assert_eq!(
-                roundtrip(Value::BaseFunction(255)),
-                Value::BaseFunction(255)
-            );
         }
 
         #[test]
