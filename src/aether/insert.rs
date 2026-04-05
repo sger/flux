@@ -76,6 +76,18 @@ fn plan_expr(
             span,
         } => {
             scope.insert(var.id, var);
+
+            // Track field→parent for TupleField access (e.g. `let total = st.2`).
+            // This prevents the parent from being dropped while the field
+            // binder is still live (use-after-free on borrowed field).
+            if let CoreExpr::TupleField { object, .. } = rhs.as_ref() {
+                if let CoreExpr::Var { var: obj_var, .. } = object.as_ref() {
+                    if let Some(parent_id) = obj_var.binder {
+                        field_parents.insert(var.id, (parent_id, None));
+                    }
+                }
+            }
+
             let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
             let binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
@@ -94,6 +106,7 @@ fn plan_expr(
                 field_parents,
             );
             scope.remove(&var.id);
+            field_parents.remove(&var.id);
 
             let mut env_before = rhs_plan.env_before;
             env_before.remove(var.id);
