@@ -169,6 +169,98 @@ static void test_hamt_multiple(void) {
     ASSERT(flux_untag_int(flux_hamt_size(map)) == 20, "original unchanged after delete");
 }
 
+/* ── Stackless drop tests ──────────────────────────────────────────── */
+
+/*
+ * Helper: build a Cons list of N elements (each element is a tagged int).
+ * Cons layout: ADT { ctor_tag=4, field_count=2, fields=[head, tail] }
+ * scan_fsize=2, obj_tag=FLUX_OBJ_ADT
+ */
+static int64_t make_cons(int64_t head, int64_t tail) {
+    void *mem = flux_gc_alloc_header(8 + 2 * 8, 2, FLUX_OBJ_ADT);
+    int32_t *hdr = (int32_t *)mem;
+    hdr[0] = 4;  /* ctor_tag = Cons */
+    hdr[1] = 2;  /* field_count */
+    int64_t *fields = (int64_t *)((char *)mem + 8);
+    fields[0] = head;
+    fields[1] = tail;
+    return flux_tag_ptr(mem);
+}
+
+static int64_t make_list(int n) {
+    int64_t list = FLUX_EMPTY_LIST;
+    for (int i = n - 1; i >= 0; i--) {
+        list = make_cons(flux_tag_int(i), list);
+    }
+    return list;
+}
+
+static void test_stackless_drop_deep_list(void) {
+    /* Build a list of 200K elements — would stack overflow with recursive drop. */
+    int64_t list = make_list(200000);
+    ASSERT(flux_is_ptr(list), "deep list is ptr");
+
+    /* Drop the entire list — stackless drop should handle this. */
+    flux_drop(list);
+    ASSERT(1, "stackless drop of 200K list did not crash");
+}
+
+static void test_stackless_drop_shared_list(void) {
+    /* Build a list, dup it, drop once — should not free. */
+    int64_t list = make_list(100);
+    flux_dup(list);
+    flux_drop(list);
+    /* List should still be alive (rc=1). Verify by reading head. */
+    void *ptr = flux_untag_ptr(list);
+    int64_t *fields = (int64_t *)((char *)ptr + 8);
+    ASSERT(flux_untag_int(fields[0]) == 0, "shared list head after drop");
+    /* Final drop to clean up. */
+    flux_drop(list);
+    ASSERT(1, "shared list final drop OK");
+}
+
+/*
+ * Helper: build a binary tree of depth d.
+ * Node layout: ADT { ctor_tag=5, field_count=2, fields=[left, right] }
+ */
+static int64_t make_tree(int depth) {
+    if (depth <= 0) return FLUX_NONE;
+    int64_t left = make_tree(depth - 1);
+    int64_t right = make_tree(depth - 1);
+    void *mem = flux_gc_alloc_header(8 + 2 * 8, 2, FLUX_OBJ_ADT);
+    int32_t *hdr = (int32_t *)mem;
+    hdr[0] = 5;  /* ctor_tag = Node */
+    hdr[1] = 2;  /* field_count */
+    int64_t *fields = (int64_t *)((char *)mem + 8);
+    fields[0] = left;
+    fields[1] = right;
+    return flux_tag_ptr(mem);
+}
+
+static void test_stackless_drop_tree(void) {
+    /* Depth 18 = 262143 nodes — exercises multi-child stackless traversal. */
+    int64_t tree = make_tree(18);
+    ASSERT(flux_is_ptr(tree), "tree is ptr");
+    flux_drop(tree);
+    ASSERT(1, "stackless drop of depth-18 tree did not crash");
+}
+
+static void test_stackless_drop_single_field(void) {
+    /* Chain of single-field ADTs (like nested Some(Some(Some(...)))). */
+    int64_t val = flux_tag_int(42);
+    for (int i = 0; i < 200000; i++) {
+        void *mem = flux_gc_alloc_header(8 + 1 * 8, 1, FLUX_OBJ_ADT);
+        int32_t *hdr = (int32_t *)mem;
+        hdr[0] = 1;  /* ctor_tag = Some */
+        hdr[1] = 1;  /* field_count */
+        int64_t *fields = (int64_t *)((char *)mem + 8);
+        fields[0] = val;
+        val = flux_tag_ptr(mem);
+    }
+    flux_drop(val);
+    ASSERT(1, "stackless drop of 200K nested Some did not crash");
+}
+
 /* ── Main ───────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -186,6 +278,10 @@ int main(void) {
     test_string_eq();
     test_hamt_basic();
     test_hamt_multiple();
+    test_stackless_drop_deep_list();
+    test_stackless_drop_shared_list();
+    test_stackless_drop_tree();
+    test_stackless_drop_single_field();
 
     flux_rt_shutdown();
 
