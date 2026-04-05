@@ -1,7 +1,7 @@
 use crate::core_to_llvm::{
-    CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl,
-    LlvmFunction, LlvmFunctionSig, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator,
-    LlvmType, LlvmValueKind,
+    CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl, LlvmFunction,
+    LlvmFunctionSig, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType,
+    LlvmValueKind,
 };
 
 use super::prelude::{
@@ -586,8 +586,7 @@ fn emit_bool_binary_helper(module: &mut LlvmModule, name: &str, is_and: bool) {
 /// are declared as external C functions.
 fn emit_float_box_decls(module: &mut LlvmModule) {
     let box_name = "flux_box_float_rt";
-    if !module.declarations.iter().any(|d| d.name.0 == box_name)
-        && !has_function(module, box_name)
+    if !module.declarations.iter().any(|d| d.name.0 == box_name) && !has_function(module, box_name)
     {
         module.declarations.push(LlvmDecl {
             linkage: Linkage::External,

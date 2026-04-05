@@ -31,10 +31,7 @@ const PTRTAG_CONSTANTS: [(&str, i64); 6] = [
     ("flux.ptrtag.none", FluxPtrTagLayout::FLUX_NONE),
     ("flux.ptrtag.false", FluxPtrTagLayout::FLUX_FALSE),
     ("flux.ptrtag.true", FluxPtrTagLayout::FLUX_TRUE),
-    (
-        "flux.ptrtag.empty_list",
-        FluxPtrTagLayout::FLUX_EMPTY_LIST,
-    ),
+    ("flux.ptrtag.empty_list", FluxPtrTagLayout::FLUX_EMPTY_LIST),
     ("flux.ptrtag.uninit", FluxPtrTagLayout::FLUX_UNINIT),
     (
         "flux.ptrtag.yield_sentinel",
@@ -356,24 +353,16 @@ fn emit_drop_reuse(module: &mut LlvmModule) {
                         tail: false,
                         call_conv: Some(CallConv::Fastcc),
                         ret_ty: LlvmType::ptr(),
-                        callee: LlvmOperand::Global(GlobalId(
-                            "flux_bump_alloc_inline".into(),
-                        )),
+                        callee: LlvmOperand::Global(GlobalId("flux_bump_alloc_inline".into())),
                         args: vec![
                             (LlvmType::i32(), local("size")),
                             (
                                 LlvmType::i32(),
-                                LlvmOperand::Const(LlvmConst::Int {
-                                    bits: 32,
-                                    value: 0,
-                                }),
+                                LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
                             ),
                             (
                                 LlvmType::i32(),
-                                LlvmOperand::Const(LlvmConst::Int {
-                                    bits: 32,
-                                    value: 0,
-                                }),
+                                LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
                             ),
                         ],
                         attrs: vec![],
@@ -660,10 +649,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
                         op: LlvmValueKind::Add,
                         ty: i32_ty.clone(),
                         lhs: local("size"),
-                        rhs: LlvmOperand::Const(LlvmConst::Int {
-                            bits: 32,
-                            value: 7,
-                        }),
+                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 7 }),
                     },
                     // %masked = and i32 %aligned, -8
                     LlvmInstr::Binary {
@@ -747,10 +733,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
                     // store i32 1, ptr %hp  (refcount = 1)
                     LlvmInstr::Store {
                         ty: i32_ty.clone(),
-                        value: LlvmOperand::Const(LlvmConst::Int {
-                            bits: 32,
-                            value: 1,
-                        }),
+                        value: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 1 }),
                         ptr: local("hp"),
                         align: Some(4),
                     },
@@ -811,10 +794,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
                     // store i16 0, ptr %res_ptr  (reserved = 0)
                     LlvmInstr::Store {
                         ty: i16_ty.clone(),
-                        value: LlvmOperand::Const(LlvmConst::Int {
-                            bits: 16,
-                            value: 0,
-                        }),
+                        value: LlvmOperand::Const(LlvmConst::Int { bits: 16, value: 0 }),
                         ptr: local("res_ptr"),
                         align: Some(2),
                     },
@@ -824,10 +804,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
                         inbounds: false,
                         element_ty: i8_ty.clone(),
                         base: local("hp"),
-                        indices: vec![(
-                            i64_ty.clone(),
-                            const_i64_operand(FLUX_HEADER_SIZE),
-                        )],
+                        indices: vec![(i64_ty.clone(), const_i64_operand(FLUX_HEADER_SIZE))],
                     },
                     // %aligned64 = zext i32 %masked to i64
                     LlvmInstr::Cast {
@@ -848,18 +825,12 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
                             (ptr_ty.clone(), local("payload")),
                             (
                                 i8_ty.clone(),
-                                LlvmOperand::Const(LlvmConst::Int {
-                                    bits: 8,
-                                    value: 0,
-                                }),
+                                LlvmOperand::Const(LlvmConst::Int { bits: 8, value: 0 }),
                             ),
                             (i64_ty.clone(), local("aligned64")),
                             (
                                 i1_ty.clone(),
-                                LlvmOperand::Const(LlvmConst::Int {
-                                    bits: 1,
-                                    value: 0,
-                                }),
+                                LlvmOperand::Const(LlvmConst::Int { bits: 1, value: 0 }),
                             ),
                         ],
                         attrs: vec![],
@@ -1155,9 +1126,7 @@ mod tests {
         let mut module = LlvmModule::new();
         emit_prelude(&mut module);
         let rendered = render_module(&module);
-        assert!(
-            rendered.contains("@flux.ptrtag.none = private constant i64 0")
-        );
+        assert!(rendered.contains("@flux.ptrtag.none = private constant i64 0"));
         assert!(
             rendered.contains("define internal fastcc i64 @flux_tag_int(i64 %raw) alwaysinline")
         );

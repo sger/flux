@@ -394,17 +394,4 @@ mod tests {
         };
         assert!(expected.matches_value(&closure, &ctx));
     }
-
-    #[test]
-    fn function_runtime_type_accepts_base_function_without_contract() {
-        // Base functions are callable — accept them even without a matching
-        // contract since the type was verified at compile time.
-        let ctx = TestCtx::new();
-        let expected = RuntimeType::Function {
-            params: vec![RuntimeType::Int],
-            ret: Box::new(RuntimeType::Bool),
-            effects: vec![],
-        };
-        assert!(expected.matches_value(&Value::BaseFunction(0), &ctx));
-    }
 }

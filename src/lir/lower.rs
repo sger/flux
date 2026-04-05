@@ -688,7 +688,8 @@ impl<'a> FnLower<'a> {
 
                     // Assign a synthetic LirFuncId for this letrec function.
                     let synthetic_id = temp_program.alloc_synthetic_func_id();
-                    let letrec_qname = format!("{}_letrec_{}", self.func.qualified_name, synthetic_id.0);
+                    let letrec_qname =
+                        format!("{}_letrec_{}", self.func.qualified_name, synthetic_id.0);
 
                     // Pre-assign function slot so self-recursion works.
                     let func_idx = temp_program.functions.len();
@@ -809,7 +810,8 @@ impl<'a> FnLower<'a> {
                     let mut temp_program = std::mem::take(&mut *self.program);
 
                     let synthetic_id = temp_program.alloc_synthetic_func_id();
-                    let lambda_qname = format!("{}_lambda_{}", self.func.qualified_name, synthetic_id.0);
+                    let lambda_qname =
+                        format!("{}_lambda_{}", self.func.qualified_name, synthetic_id.0);
                     let func_name = format!("closure_{}", temp_program.functions.len());
                     let mut inner = FnLower::new(
                         func_name,
@@ -1076,9 +1078,7 @@ impl<'a> FnLower<'a> {
         let value = match lit {
             CoreLit::Int(n) => {
                 let n = *n;
-                if n >= crate::runtime::nanbox::MIN_INLINE_INT
-                    && n <= crate::runtime::nanbox::MAX_INLINE_INT
-                {
+                if (crate::runtime::nanbox::MIN_INLINE_INT..=crate::runtime::nanbox::MAX_INLINE_INT).contains(&n) {
                     LirConst::Tagged(crate::lir::nanbox_tag_int(n))
                 } else {
                     LirConst::Int(n)
@@ -1279,10 +1279,10 @@ impl<'a> FnLower<'a> {
             });
             self.switch_to_block(cont_idx);
             // Mark result as integer if the callee is known to return Int.
-            if let Some(bid) = callee_binder {
-                if self.int_return_binders.contains(&bid) {
-                    self.int_vars.insert(result);
-                }
+            if let Some(bid) = callee_binder
+                && self.int_return_binders.contains(&bid)
+            {
+                self.int_vars.insert(result);
             }
             return result;
         }
@@ -1310,10 +1310,10 @@ impl<'a> FnLower<'a> {
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
-            if let Some(bid) = callee_binder {
-                if self.int_return_binders.contains(&bid) {
-                    self.int_vars.insert(result);
-                }
+            if let Some(bid) = callee_binder
+                && self.int_return_binders.contains(&bid)
+            {
+                self.int_vars.insert(result);
             }
             return result;
         }
@@ -1927,7 +1927,10 @@ impl<'a> FnLower<'a> {
                         // scrutinee directly instead of comparing with a boxed
                         // `true` literal via `flux_rt_eq`.
                         let raw = self.fresh_var();
-                        self.emit(LirInstr::UntagBool { dst: raw, val: scrut });
+                        self.emit(LirInstr::UntagBool {
+                            dst: raw,
+                            val: scrut,
+                        });
                         raw
                     } else {
                         let lit_var = self.lower_lit(lit);
@@ -2094,16 +2097,11 @@ impl<'a> FnLower<'a> {
     }
 
     fn lower_case_con_chain(&mut self, scrut: LirVar, alts: &[CoreAlt], join_block: BlockId) {
-        for (index, alt) in alts.iter().enumerate() {
+        for alt in alts {
             let success_idx = self.new_block();
             let success_id = BlockId(success_idx as u32);
-            let fail_id = if index + 1 == alts.len() {
-                let fail_idx = self.new_block();
-                BlockId(fail_idx as u32)
-            } else {
-                let fail_idx = self.new_block();
-                BlockId(fail_idx as u32)
-            };
+            let fail_idx = self.new_block();
+            let fail_id = BlockId(fail_idx as u32);
 
             self.emit_pattern_check(scrut, &alt.pat, success_id, fail_id);
 
@@ -2233,7 +2231,8 @@ impl<'a> FnLower<'a> {
             return;
         }
 
-        for (index, (field_var, field_pat)) in field_vars.iter().zip(field_pats.iter()).enumerate() {
+        for (index, (field_var, field_pat)) in field_vars.iter().zip(field_pats.iter()).enumerate()
+        {
             let next_block = if index + 1 == field_vars.len() {
                 success
             } else {

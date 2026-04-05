@@ -5,7 +5,7 @@
 //! fingerprint changed).
 
 use flux::{
-    bytecode::compiler::{module_interface, Compiler},
+    bytecode::compiler::{Compiler, module_interface},
     syntax::{lexer::Lexer, parser::Parser},
     types::module_interface::ModuleInterface,
 };
@@ -63,7 +63,9 @@ fn private_body_change_preserves_interface_fingerprint() {
         iface1.interface_fingerprint, iface2.interface_fingerprint,
         "private body change should not change interface fingerprint"
     );
-    assert!(!module_interface::module_interface_changed(&iface1, &iface2));
+    assert!(!module_interface::module_interface_changed(
+        &iface1, &iface2
+    ));
 }
 
 #[test]
