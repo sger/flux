@@ -1,6 +1,6 @@
 use crate::{
     bytecode::compiler::Compiler,
-    bytecode::op_code::OpCode,
+    bytecode::op_code::{OpCode, disassemble},
     diagnostics::render_diagnostics,
     runtime::value::Value,
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},
@@ -55,6 +55,18 @@ fn find_compiled_function(
         }
         _ => None,
     })
+}
+
+fn compile_function_asm(source: &str, name: &str) -> String {
+    let (program, interner) = parse_program(source);
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(source), None)));
+
+    let function = find_compiled_function(&compiler.bytecode().constants, name)
+        .unwrap_or_else(|| panic!("expected compiled function constant for {name}"));
+    disassemble(&function.instructions)
 }
 
 #[test]
@@ -203,6 +215,68 @@ fn compile_with_opts_skips_tail_call_analysis_without_optimization() {
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile_with_opts(&program, false, false).unwrap();
     assert!(compiler.tail_calls.is_empty());
+}
+
+#[test]
+fn compile_function_fuses_add_locals() {
+    let asm = compile_function_asm("fn f(a, b) { a + b }", "f");
+    assert!(asm.contains("OpAddLocals 0 1"), "expected fused add:\n{asm}");
+}
+
+#[test]
+fn compile_function_fuses_sub_locals() {
+    let asm = compile_function_asm("fn f(a, b) { a - b }", "f");
+    assert!(asm.contains("OpSubLocals 0 1"), "expected fused sub:\n{asm}");
+}
+
+#[test]
+fn compile_function_fuses_get_local_index() {
+    let asm = compile_function_asm("fn f(arr, i) { arr[i] }", "f");
+    assert!(
+        asm.contains("OpGetLocalIndex"),
+        "expected fused local index:\n{asm}"
+    );
+}
+
+#[test]
+fn compile_function_fuses_get_local_call1() {
+    let asm = compile_function_asm("fn f(x) { let g = fn(n) { n }; g(x) }", "f");
+    assert!(
+        asm.contains("OpGetLocalCall1"),
+        "expected fused local call1:\n{asm}"
+    );
+}
+
+#[test]
+fn compile_function_fuses_get_local_get_local() {
+    let asm = compile_function_asm("fn f(a, b) { let c = 0; let d = 1; (c, d) }", "f");
+    assert!(
+        asm.contains("OpGetLocalGetLocal"),
+        "expected fused local pair:\n{asm}"
+    );
+}
+
+#[test]
+fn compile_function_fuses_call_arities() {
+    let source = r#"
+fn zero() { 0 }
+fn one(x) { x }
+fn two(a, b) { a + b }
+fn main() { zero(); one(1); two(1, 2) }
+"#;
+    let asm = compile_function_asm(source, "main");
+    assert!(asm.contains("OpCall0"), "expected OpCall0:\n{asm}");
+    assert!(asm.contains("OpCall1"), "expected OpCall1:\n{asm}");
+    assert!(asm.contains("OpCall2"), "expected OpCall2:\n{asm}");
+}
+
+#[test]
+fn compile_function_fuses_tail_call1() {
+    let asm = compile_function_asm(
+        "fn f(n) { if n == 0 { 0 } else { return f(n - 1); } }",
+        "f",
+    );
+    assert!(asm.contains("OpTailCall1"), "expected OpTailCall1:\n{asm}");
 }
 
 // Base function registry tests removed — Proposal 0120 replaced

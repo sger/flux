@@ -180,6 +180,30 @@ pub enum OpCode {
     /// Operand: `[local_idx: u8]`.
     /// Immediate `Int`/`Float`/`Bool` locals are left unchanged.
     OpAetherDropLocal = 91,
+    /// Superinstruction: `GetLocal(a) + GetLocal(b) + Add`.
+    OpAddLocals = 92,
+    /// Superinstruction: `GetLocal(a) + GetLocal(b) + Sub`.
+    OpSubLocals = 93,
+    /// Superinstruction: `GetLocal(n) + Call(1)`.
+    OpGetLocalCall1 = 94,
+    /// Superinstruction: `Constant(idx) + Add`.
+    OpConstantAdd = 95,
+    /// Superinstruction: `GetLocal(n) + Index`.
+    OpGetLocalIndex = 96,
+    /// Superinstruction: `GetLocal(n) + IsAdt(tag)`.
+    OpGetLocalIsAdt = 97,
+    /// Superinstruction: `SetLocal(n) + Pop`.
+    OpSetLocalPop = 98,
+    /// Superinstruction: `GetLocal(a) + GetLocal(b)`.
+    OpGetLocalGetLocal = 99,
+    /// Superinstruction: `Call(0)`.
+    OpCall0 = 100,
+    /// Superinstruction: `Call(1)`.
+    OpCall1 = 101,
+    /// Superinstruction: `Call(2)`.
+    OpCall2 = 102,
+    /// Superinstruction: `TailCall(1)`.
+    OpTailCall1 = 103,
 }
 
 impl From<u8> for OpCode {
@@ -277,6 +301,18 @@ impl From<u8> for OpCode {
             89 => OpCode::OpReuseRight,
             90 => OpCode::OpIsUnique,
             91 => OpCode::OpAetherDropLocal,
+            92 => OpCode::OpAddLocals,
+            93 => OpCode::OpSubLocals,
+            94 => OpCode::OpGetLocalCall1,
+            95 => OpCode::OpConstantAdd,
+            96 => OpCode::OpGetLocalIndex,
+            97 => OpCode::OpGetLocalIsAdt,
+            98 => OpCode::OpSetLocalPop,
+            99 => OpCode::OpGetLocalGetLocal,
+            100 => OpCode::OpCall0,
+            101 => OpCode::OpCall1,
+            102 => OpCode::OpCall2,
+            103 => OpCode::OpTailCall1,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -317,7 +353,13 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpGetBase
         | OpCode::OpReturnLocal
         | OpCode::OpTupleIndex
-        | OpCode::OpAetherDropLocal => vec![1],
+        | OpCode::OpAetherDropLocal
+        | OpCode::OpGetLocalCall1
+        | OpCode::OpGetLocalIndex
+        | OpCode::OpSetLocalPop => vec![1],
+        OpCode::OpAddLocals | OpCode::OpSubLocals | OpCode::OpGetLocalGetLocal => vec![1, 1],
+        OpCode::OpConstantAdd => vec![2],
+        OpCode::OpGetLocalIsAdt => vec![1, 2],
         OpCode::OpPrimOp | OpCode::OpCallBase => vec![1, 1],
         OpCode::OpClosure => vec![2, 1],
         OpCode::OpClosureLong => vec![4, 1],
@@ -340,6 +382,7 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpReuseAdt => vec![2, 1, 1], // const_idx: u16, arity: u8, field_mask: u8
         OpCode::OpReuseSome | OpCode::OpReuseLeft | OpCode::OpReuseRight => vec![],
         OpCode::OpIsUnique => vec![],
+        OpCode::OpCall0 | OpCode::OpCall1 | OpCode::OpCall2 | OpCode::OpTailCall1 => vec![],
         _ => vec![],
     }
 }
