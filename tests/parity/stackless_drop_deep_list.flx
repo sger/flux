@@ -1,0 +1,22 @@
+// parity: vm, llvm
+// expect: success
+// bug: recursive flux_drop stack-overflows on deep lists (100K+ Cons cells).
+//      stackless drop traversal uses parent chain in header._reserved field.
+
+fn build_list(n, acc) {
+    if n <= 0 { acc }
+    else { build_list(n - 1, [n | acc]) }
+}
+
+fn main() with IO {
+    // Build a list of 150K elements — would stack overflow with recursive drop.
+    let big = build_list(150000, [])
+    // Sum first and last to prove it's alive.
+    let first = match big {
+        [h | _] -> h,
+        _ -> -1,
+    }
+    print(first)
+    // Drop happens implicitly when big goes out of scope.
+    print("ok")
+}

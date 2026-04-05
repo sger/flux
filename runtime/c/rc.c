@@ -218,6 +218,101 @@ void flux_dup(int64_t val) {
     hdr->refcount++;
 }
 
+/*
+ * Decrement refcount of a child field.  If the child becomes unique
+ * (refcount drops to 0), return it for further processing; otherwise
+ * return NULL.
+ */
+static inline void *flux_field_should_free(void *ptr, int field_idx) {
+    int64_t *fields = (int64_t *)ptr;
+    int64_t val = fields[field_idx];
+    if (!flux_is_ptr(val)) return NULL;
+    void *child = flux_untag_ptr(val);
+    if (!child) return NULL;
+    FluxHeader *hdr = header_of(child);
+    if (--hdr->refcount > 0) return NULL;
+    return child;
+}
+
+static inline void flux_block_free(void *ptr) {
+    FluxHeader *hdr = header_of(ptr);
+    if (!is_bump_allocated(hdr)) {
+        free(hdr);
+    }
+}
+
+/*
+ * Stackless recursive drop.
+ *
+ * Uses the _reserved field in FluxHeader to store the current field
+ * index during traversal, and overwrites field[0] with the parent
+ * pointer to maintain an explicit parent chain — no call stack needed.
+ *
+ * This prevents stack overflow when freeing deep structures like long
+ * lists (100K+ Cons cells).
+ */
+static void flux_drop_free_recx(void *ptr) {
+    void *parent = NULL;
+    uint16_t scan_fsize;
+    uint16_t i;
+
+    int offset;
+    int64_t *fields;
+
+move_down:
+    scan_fsize = header_of(ptr)->scan_fsize;
+    offset = flux_scan_offset(header_of(ptr)->obj_tag);
+    fields = (int64_t *)((char *)ptr + offset * 8);
+
+    if (scan_fsize == 0) {
+        /* Leaf node: free directly. */
+        flux_block_free(ptr);
+    }
+    else if (scan_fsize == 1) {
+        /* Single child: free block and tail-call into child. */
+        void *child = flux_field_should_free(fields, 0);
+        flux_block_free(ptr);
+        if (child) { ptr = child; goto move_down; }
+    }
+    else {
+        /* Multiple children: iterate fields, saving progress in header. */
+        i = 0;
+
+    scan_fields:
+        do {
+            void *child = flux_field_should_free(fields, i);
+            i++;
+            if (child) {
+                if (i < scan_fsize) {
+                    /* Save progress: parent pointer in field[0],
+                     * current index in _reserved. */
+                    fields[0] = (int64_t)parent;
+                    header_of(ptr)->_reserved = i;
+                    parent = ptr;
+                }
+                else {
+                    /* Last field: free block, continue with child. */
+                    flux_block_free(ptr);
+                }
+                ptr = child;
+                goto move_down;
+            }
+        } while (i < scan_fsize);
+        flux_block_free(ptr);
+    }
+
+    /* Move up along the parent chain. */
+    if (parent) {
+        ptr = parent;
+        offset = flux_scan_offset(header_of(ptr)->obj_tag);
+        fields = (int64_t *)((char *)ptr + offset * 8);
+        parent = (void *)fields[0];
+        scan_fsize = header_of(ptr)->scan_fsize;
+        i = (uint16_t)header_of(ptr)->_reserved;
+        goto scan_fields;
+    }
+}
+
 void flux_drop(int64_t val) {
     if (!flux_is_ptr(val)) return;
     void *ptr = flux_untag_ptr(val);
@@ -225,20 +320,11 @@ void flux_drop(int64_t val) {
     FluxHeader *hdr = header_of(ptr);
     if (--hdr->refcount > 0) return;
 
-    /* Recursively drop child tagged fields before freeing. */
     if (hdr->scan_fsize > 0) {
-        int offset = flux_scan_offset(hdr->obj_tag);
-        int64_t *fields = (int64_t *)((char *)ptr + offset * 8);
-        for (int i = 0; i < (int)hdr->scan_fsize; i++) {
-            flux_drop(fields[i]);
-        }
+        flux_drop_free_recx(ptr);
+    } else {
+        flux_block_free(ptr);
     }
-
-    if (!is_bump_allocated(hdr)) {
-        free(hdr);
-    }
-    /* Bump-allocated objects: memory stays in the arena.
-     * Phase 7c will add free-list recycling. */
 }
 
 int flux_rc_is_unique(int64_t val) {
