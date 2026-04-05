@@ -63,12 +63,12 @@ fn parse_entry(line) {
     let c = find_char_from(line, ":", 0);
     let name = trim(substring(line, 0, c));
     let outs = split(trim(substring(line, c + 1, len(line))), " ");
-    [|name, outs|]
+    (name, outs)
 }
 
 fn parse_graph(lines) {
     let entries = [parse_entry(trim(line)) | line <- lines, trim(line) != "", find_char_from(trim(line), ":", 0) >= 0]
-    fold(entries, {}, \(g, e) -> put(g, str_at(e, 0), arr_at(e, 1)))
+    fold(entries, {}, \(g, e) -> put(g, e.0, e.1))
 }
 
 fn sum_children(outs, i, graph, memo, acc) {
@@ -114,7 +114,7 @@ fn dfs_count(node, graph, memo) {
 }
 }
 
-let lines = read_lines("examples/aoc/2025/aoc_day11.txt")
+let lines = to_list(read_lines("examples/aoc/2025/aoc_day11.txt"))
 let graph = parse_graph(lines)
 let ans = dfs_count("you", graph, {})
 print(result_count(ans))

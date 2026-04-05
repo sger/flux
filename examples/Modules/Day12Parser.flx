@@ -123,11 +123,11 @@ module Modules.Day12Parser {
         }
     }
 
-    fn parse_block_sizes(lines) {
+    public fn parse_block_sizes(lines) {
         parse_block_sizes_walk(lines, 0, false, 0, [||])
     }
 
-    fn parse_areas(lines) {
+    public fn parse_areas(lines) {
         parse_areas_walk(lines, 0, [||])
     }
 }

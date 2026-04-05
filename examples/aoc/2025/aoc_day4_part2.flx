@@ -2,14 +2,6 @@
 // Input: examples/aoc/2025/aoc_day4.txt
 
 fn main() with IO, Time {
-    fn first2(arr) {
-        first(arr)
-    }
-
-    fn second2(arr) {
-        last(arr)
-    }
-
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -44,7 +36,7 @@ fn adjacent_rolls(lines, rows, cols, r, c) {
 
 fn build_row_after_round(lines, rows, cols, r, c, acc_line, removed) {
     if c >= cols {
-        [|acc_line, removed|]
+        (acc_line, removed)
     } else {
     let line = line_at(lines, r)
     let ch = char_at(line, c)
@@ -63,19 +55,19 @@ build_row_after_round(lines, rows, cols, r, c + 1, acc_line + ch, removed)
 
 fn step_round(lines, rows, cols, r, next_lines, removed_total) {
     if r >= rows {
-        [|next_lines, removed_total|]
+        (next_lines, removed_total)
     } else {
     let row_result = build_row_after_round(lines, rows, cols, r, 0, "", 0)
-    let next_line = first2(row_result)
-    let removed_row = second2(row_result)
+    let next_line = row_result.0
+    let removed_row = row_result.1
     step_round(lines, rows, cols, r + 1, push(next_lines, next_line), removed_total + removed_row)
 }
 }
 
 fn remove_until_stable(lines, rows, cols, removed_acc) {
     let step = step_round(lines, rows, cols, 0, [||], 0)
-    let next_lines = first2(step)
-    let removed_now = second2(step)
+    let next_lines = step.0
+    let removed_now = step.1
     if removed_now == 0 {
         removed_acc
     } else {

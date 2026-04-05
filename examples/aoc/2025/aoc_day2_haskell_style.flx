@@ -123,7 +123,7 @@ let ranges = parse_ranges("examples/aoc/2025/aoc_day2.txt")
 let day02a = day02([2], ranges)
 
 // day02b: repetitions [2..11]
-let day02b = day02(to_list(range(2, 12)), ranges)
+let day02b = day02(range(2, 12), ranges)
 
 print(day02a)
 print(day02b)
