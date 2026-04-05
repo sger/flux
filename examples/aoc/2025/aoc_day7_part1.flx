@@ -41,7 +41,7 @@ fn max_width(lines, idx, cur) {
 }
 
 fn zeros(width) {
-    map(range(0, width), \_ -> 0)
+    to_array(map(range(0, width), \_ -> 0))
 }
 
 fn set1(mask, col) {

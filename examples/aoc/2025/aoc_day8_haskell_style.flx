@@ -169,8 +169,8 @@ fn run_limit(points, limit) {
     })
 
     let sorted_keys = Array.sort(keys)
-    let parents0 = range(0, n)
-    let sizes0 = map(range(0, n), \_ -> 1)
+    let parents0 = to_array(range(0, n))
+    let sizes0 = to_array(map(range(0, n), \_ -> 1))
     let state0 = dsu_state(parents0, sizes0, n, -1, -1)
     let state1 = fold(sorted_keys, state0, \(st, k) -> union_key(st, k))
 
@@ -190,8 +190,8 @@ fn run_day08a(points, max_dist) {
     let sorted_keys = Array.sort(keys)
     let top_keys = slice(sorted_keys, 0, 1000)
 
-    let parents0 = range(0, n)
-    let sizes0 = map(range(0, n), \_ -> 1)
+    let parents0 = to_array(range(0, n))
+    let sizes0 = to_array(map(range(0, n), \_ -> 1))
     let state0 = dsu_state(parents0, sizes0, n, -1, -1)
     let state1 = fold(top_keys, state0, \(st, k) -> union_key(st, k))
 
