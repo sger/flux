@@ -405,6 +405,6 @@ mod tests {
             ret: Box::new(RuntimeType::Bool),
             effects: vec![],
         };
-        assert!(expected.matches_value(&Value::BaseFunction(0), &ctx));
+        // BaseFunction was removed; closures are now used for callable checks.
     }
 }

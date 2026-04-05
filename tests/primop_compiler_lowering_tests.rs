@@ -47,11 +47,6 @@ fn assert_not_contains_primop(input: &str) {
     );
 }
 
-fn assert_contains_call_base(input: &str) {
-    let asm = compile_disassembly(input);
-    assert!(asm.contains("OpCallBase"), "expected OpCallBase:\n{}", asm);
-}
-
 fn assert_contains_get_base(input: &str) {
     let asm = compile_disassembly(input);
     assert!(asm.contains("OpGetBase"), "expected OpGetBase:\n{}", asm);
@@ -93,11 +88,6 @@ fn main() -> Unit with IO {
         "did not expect OpPrimOp for multi-arg print:\n{}",
         asm
     );
-    assert!(
-        !asm.contains("OpCallBase"),
-        "did not expect OpCallBase for multi-arg print:\n{}",
-        asm
-    );
     assert_contains_get_base(
         r#"
 fn main() -> Unit with IO {
@@ -108,50 +98,8 @@ fn main() -> Unit with IO {
 }
 
 #[test]
-#[ignore = "uses base functions not in standalone compiler"]
-fn compiler_emits_op_call_base_for_previous_mirrored_base_mappings() {
-    let programs = [
-        "first(#[1, 2]);",
-        "last(#[1, 2]);",
-        "rest(#[1, 2]);",
-        "contains(#[1, 2], 1);",
-        "slice(#[1, 2, 3], 0, 2);",
-        r#"trim("  hi  ");"#,
-        r#"upper("hi");"#,
-        r#"lower("HI");"#,
-        r#"starts_with("hello", "he");"#,
-        r#"ends_with("hello", "lo");"#,
-        r#"replace("banana", "na", "X");"#,
-        r#"chars("ab");"#,
-        "keys({});",
-        "values({});",
-        r#"delete({}, "k");"#,
-        "merge({}, {});",
-        "is_map({});",
-        r#"parse_int("1");"#,
-        r#"parse_ints(#["1", "2"]);"#,
-        r#"split_ints("1,2", ",");"#,
-        r#"len("abc");"#,
-        r#"type_of(1);"#,
-        r#"is_int(1);"#,
-        r#"to_string(1);"#,
-    ];
-
-    for program in programs {
-        assert_not_contains_primop(program);
-        assert_contains_call_base(program);
-    }
-}
-
-#[test]
 fn compiler_emits_op_primop_for_concat_array() {
     assert_contains_primop("concat(#[1], #[2]);");
-    let asm = compile_disassembly("concat(#[1], #[2]);");
-    assert!(
-        !asm.contains("OpCallBase"),
-        "unexpected OpCallBase:\n{}",
-        asm
-    );
 }
 
 #[test]
