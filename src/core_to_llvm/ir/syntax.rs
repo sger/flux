@@ -75,7 +75,8 @@ pub struct LlvmGlobal {
     pub name: GlobalId,
     pub ty: LlvmType,
     pub is_constant: bool,
-    pub value: LlvmConst,
+    /// `None` for external global declarations (no initializer).
+    pub value: Option<LlvmConst>,
     pub attrs: Vec<String>,
 }
 
@@ -140,6 +141,7 @@ pub enum LlvmCmpOp {
     Sge,
     Slt,
     Sle,
+    Ule,
     Oeq,
     One,
     Ogt,

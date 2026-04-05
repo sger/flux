@@ -37,10 +37,10 @@ int32_t  flux_yield_conts_count = 0;
 
 /*
  * Evidence vector: a heap-allocated array of evidence entries.
- * Each entry is 4 NaN-boxed words (32 bytes):
- *   [0] htag       — effect tag (NaN-boxed int)
- *   [1] marker     — handler instance id (NaN-boxed int)
- *   [2] handler    — handler clause closure (NaN-boxed closure)
+ * Each entry is 4 pointer-tagged words (32 bytes):
+ *   [0] htag       — effect tag (tagged int)
+ *   [1] marker     — handler instance id (tagged int)
+ *   [2] handler    — handler clause closure (tagged pointer)
  *   [3] parent_evv — saved evidence vector
  *
  * The vector itself is stored as a FluxArray (obj_tag FLUX_OBJ_EVIDENCE)
@@ -59,7 +59,7 @@ typedef struct {
     int64_t data[]; /* count * EVV_ENTRY_WORDS words */
 } EvvArray;
 
-static int64_t current_evv = 0;  /* NaN-boxed ptr to EvvArray (0 = empty) */
+static int64_t current_evv = 0;  /* tagged ptr to EvvArray (0 = empty/FLUX_NONE) */
 static int32_t marker_counter = 0;
 
 /* ── Helpers ───────────────────────────────────────────────────────── */
@@ -143,9 +143,9 @@ static int evv_lookup(EvvArray *arr, int64_t htag) {
 /*
  * Perform an effect: set yield state and return sentinel.
  *
- * htag:  effect tag (NaN-boxed int)
- * optag: operation tag (NaN-boxed int) — currently unused for single-op dispatch
- * arg:   the performed argument (NaN-boxed)
+ * htag:  effect tag (tagged int)
+ * optag: operation tag (tagged int) — currently unused for single-op dispatch
+ * arg:   the performed argument (tagged value)
  *
  * The caller must check flux_yield_yielding after every call and propagate
  * the sentinel + extend continuations as needed.
@@ -279,7 +279,7 @@ int32_t flux_is_yielding(void) {
 /*
  * Prompt loop: check if a yield is targeted at this handler.
  *
- * marker:      this handler's marker (NaN-boxed int)
+ * marker:      this handler's marker (tagged int)
  * saved_evv:   the evidence vector before this handler was installed
  * body_result: the result of the handled body expression
  *

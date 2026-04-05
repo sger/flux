@@ -374,6 +374,11 @@ impl<'a> super::AstLowerer<'a> {
         let is_float = matches!(result_ty, Some(InferType::Con(TypeConstructor::Float)))
             && matches!(left_ty, Some(InferType::Con(TypeConstructor::Float)))
             && matches!(right_ty, Some(InferType::Con(TypeConstructor::Float)));
+        // For comparisons the result is Bool, so only check operand types.
+        let operands_int = matches!(left_ty, Some(InferType::Con(TypeConstructor::Int)))
+            && matches!(right_ty, Some(InferType::Con(TypeConstructor::Int)));
+        let operands_float = matches!(left_ty, Some(InferType::Con(TypeConstructor::Float)))
+            && matches!(right_ty, Some(InferType::Con(TypeConstructor::Float)));
 
         let op = match operator {
             // Arithmetic — specialized by result type when known.
@@ -391,12 +396,24 @@ impl<'a> super::AstLowerer<'a> {
             "/" => CorePrimOp::Div,
             "%" if is_int => CorePrimOp::IMod,
             "%" => CorePrimOp::Mod,
-            // Comparisons and logical — always generic (result is Bool).
+            // Comparisons — specialized when both operands are provably Int or Float.
+            "==" if operands_int => CorePrimOp::ICmpEq,
+            "==" if operands_float => CorePrimOp::FCmpEq,
             "==" => CorePrimOp::Eq,
+            "!=" if operands_int => CorePrimOp::ICmpNe,
+            "!=" if operands_float => CorePrimOp::FCmpNe,
             "!=" => CorePrimOp::NEq,
+            "<" if operands_int => CorePrimOp::ICmpLt,
+            "<" if operands_float => CorePrimOp::FCmpLt,
             "<" => CorePrimOp::Lt,
+            "<=" if operands_int => CorePrimOp::ICmpLe,
+            "<=" if operands_float => CorePrimOp::FCmpLe,
             "<=" => CorePrimOp::Le,
+            ">" if operands_int => CorePrimOp::ICmpGt,
+            ">" if operands_float => CorePrimOp::FCmpGt,
             ">" => CorePrimOp::Gt,
+            ">=" if operands_int => CorePrimOp::ICmpGe,
+            ">=" if operands_float => CorePrimOp::FCmpGe,
             ">=" => CorePrimOp::Ge,
             "&&" => CorePrimOp::And,
             "||" => CorePrimOp::Or,

@@ -51,19 +51,19 @@ Aether Memory Model Report
   FreshAllocs: 0
   verifier: ok
 λcollection, expected.
-  let %t1 = (let %t2 = (let %t3 = IsList(collection)
-  case %t3 of
+  let actual = (let %t1 = IsList(collection)
+  case %t1 of
     true →
       aether_call[borrowed, owned] list_length(collection, 0)
     _ →
       Len(collection))
-  CmpEq(%t2, expected))
-  case %t1 of
+  let %t2 = CmpEq(actual, expected)
+  case %t2 of
     true →
       MakeTuple()
     _ →
-      let %t4 = Println("ASSERTION FAILED: assert_len")
-      drop %t4
+      let %t3 = Println("ASSERTION FAILED: assert_len")
+      drop %t3
       Panic("assert_len failed")
 ── fn print_all ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
@@ -109,23 +109,6 @@ Aether Memory Model Report
       _ →
         MakeTuple())
   aether_call[owned] pla_go(0)
-── fn safe_int ──
-  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
-  FreshAllocs: 0
-  verifier: ok
-λval, fallback.
-  let %t1 = IsInt(val)
-  case %t1 of
-    true →
-      drop fallback
-      val
-    _ →
-      case val of
-        Some(n) →
-          drop fallback
-          n
-        _ →
-          fallback
 ── fn map ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
   FreshAllocs: 0
@@ -831,30 +814,28 @@ Aether Memory Model Report
       let %t1 = MakeList(acc)
       MakeTuple(%t1, acc)
 ── fn scanr_finish ──
-  Dups: 2  Drops: 0  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+  Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 λrest, next_acc, h, f.
-  let %t1 = (let %t2 = aether_call[owned, owned] f(dup h
-  h, dup next_acc
-  next_acc)
-  ::(%t2, rest))
-  let %t3 = aether_call[owned, owned] f(h, next_acc)
-  MakeTuple(%t1, %t3)
+  let current = aether_call[owned, owned] f(h, next_acc)
+  let %t1 = ::(dup current
+  current, rest)
+  MakeTuple(%t1, current)
 ── fn merge_sort_do ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
   verifier: ok
 λxs, key_fn.
-  let %t1 = (let %t2 = (let %t3 = aether_call[owned] length(dup xs
+  let mid = (let %t1 = aether_call[owned] length(dup xs
   xs)
-  Div(%t3, 2))
-  aether_call[borrowed, borrowed] split_at(xs, %t2))
-  case %t1 of
+  Div(%t1, 2))
+  let %t2 = aether_call[borrowed, borrowed] split_at(xs, mid)
+  case %t2 of
     (left, right) →
-      let %t4 = aether_call[owned, borrowed] merge_sort_by(left, key_fn)
-      let %t5 = aether_call[owned, borrowed] merge_sort_by(right, key_fn)
-      aether_call[owned, owned, borrowed] merge_by_key(%t4, %t5, key_fn)
+      let %t3 = aether_call[owned, borrowed] merge_sort_by(left, key_fn)
+      let %t4 = aether_call[owned, borrowed] merge_sort_by(right, key_fn)
+      aether_call[owned, owned, borrowed] merge_by_key(%t3, %t4, key_fn)
     _ →
       []
 ── fn merge_by_key ──
@@ -993,7 +974,7 @@ Aether Memory Model Report
         case %t3 of
           Some(v) →
             let %t4 = Add(i, 1)
-            let %t5 = (let %t6 = Lt(v, best)
+            let %t5 = (let %t6 = ICmpLt(v, best)
             case %t6 of
               true →
                 drop best
@@ -1095,33 +1076,33 @@ Aether Memory Model Report
     _ →
       aether_call[owned, owned] Pair2(xs, acc)
 ── fn main ──
-  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0
+  Dups: 1  Drops: 4  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
   verifier: ok
 λ.
+  let tree = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
   let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
   aether_call[owned] list_rebuild(%t3))
   Print(%t2))
   drop %t1
-  let %t4 = (let %t5 = (let %t6 = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
-  aether_call[owned] set_black(%t6))
+  let %t4 = (let %t5 = aether_call[owned] set_black(dup tree
+  tree)
   Print(%t5))
   drop %t4
-  let %t7 = (let %t8 = (let %t9 = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
-  aether_call[owned, borrowed] keep_or_dup_left(%t9, false))
-  Print(%t8))
-  drop %t7
-  let %t10 = (let %t11 = (let %t12 = MakeList(1, 2, 3)
-  let %t13 = MakeList(10, 20)
-  aether_call[owned, owned] forwarded_child(%t12, %t13))
-  Print(%t11))
-  drop %t10
-  let %t14 = (let %t15 = MakeList(1, 2, 3)
-  aether_call[borrowed, borrowed] sum_by(%t15, inc))
-  Print(%t14)
+  let %t6 = (let %t7 = aether_call[owned, borrowed] keep_or_dup_left(tree, false)
+  Print(%t7))
+  drop %t6
+  let %t8 = (let %t9 = (let %t10 = MakeList(1, 2, 3)
+  let %t11 = MakeList(10, 20)
+  aether_call[owned, owned] forwarded_child(%t10, %t11))
+  Print(%t9))
+  drop %t8
+  let %t12 = (let %t13 = MakeList(1, 2, 3)
+  aether_call[borrowed, borrowed] sum_by(%t13, inc))
+  Print(%t12)
 
 ── Total ──
-  Dups: 19  Drops: 67  Reuses: 19  DropSpecs: 4  FBIP: fbip(22)
+  Dups: 19  Drops: 65  Reuses: 19  DropSpecs: 4  FBIP: fbip(22)
   FreshAllocs: 22
 
 [1 of 7] Compiling  Assert

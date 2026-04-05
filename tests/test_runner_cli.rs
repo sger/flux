@@ -360,16 +360,19 @@ fn test_dump_lir_llvm_reuse_path_writes_raw_cons_headers() {
         "expected merge_by_key to branch on uniqueness for right cons reuse:\n{}",
         merge_by_key
     );
+    // The reuse path stores ctor_tag=4 and field_count=2 as raw i32s.
+    // Check that at least two pairs exist (one for left, one for right
+    // reuse) without relying on exact temp variable names.
+    let ctor_tag_stores = merge_by_key.matches("store i32 4, ptr %t").count();
+    let field_count_stores = merge_by_key.matches("store i32 2, ptr %t").count();
     assert!(
-        merge_by_key.contains("store i32 4, ptr %t20, align 4")
-            && merge_by_key.contains("store i32 2, ptr %t22, align 4"),
-        "expected left reuse branch to write raw cons header fields:\n{}",
+        ctor_tag_stores >= 2,
+        "expected at least 2 raw ctor_tag=4 stores (left+right reuse), found {ctor_tag_stores}:\n{}",
         merge_by_key
     );
     assert!(
-        merge_by_key.contains("store i32 4, ptr %t29, align 4")
-            && merge_by_key.contains("store i32 2, ptr %t31, align 4"),
-        "expected right reuse branch to write raw cons header fields:\n{}",
+        field_count_stores >= 2,
+        "expected at least 2 raw field_count=2 stores (left+right reuse), found {field_count_stores}:\n{}",
         merge_by_key
     );
     assert!(
@@ -707,7 +710,7 @@ fn dump_core_reports_drop_specialized_stats() {
         text
     );
     assert!(
-        text.contains("drop_spec xs#18"),
+        text.contains("drop_spec xs#"),
         "expected debug Core dump to include DropSpecialized, output:\n{}",
         text
     );

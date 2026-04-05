@@ -42,12 +42,13 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
                     body: Box::new(body),
                     span,
                 }
-            } else if count == 1 && !occurs_under_lambda(var.id, &body) {
-                // Used exactly once, not under a lambda — safe to inline
-                // regardless of size (no code duplication, no work duplication).
+            } else if count == 1 && !occurs_under_lambda(var.id, &body) && is_pure(&rhs) {
+                // Used exactly once, not under a lambda, and pure — safe to
+                // inline regardless of size (no code duplication, no work
+                // duplication, no effect reordering).
                 inline_lets(subst(body, var.id, &rhs))
-            } else if expr_size(&rhs) <= INLINE_THRESHOLD {
-                // Small RHS — inline even if used multiple times.
+            } else if expr_size(&rhs) <= INLINE_THRESHOLD && is_pure(&rhs) {
+                // Small pure RHS — inline even if used multiple times.
                 inline_lets(subst(body, var.id, &rhs))
             } else {
                 CoreExpr::Let {
