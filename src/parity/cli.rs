@@ -421,12 +421,20 @@ fn collect_fixtures(path: &Path) -> Vec<PathBuf> {
             .filter_map(|e| e.ok())
             .map(|e| e.path())
             .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("flx"))
+            .filter(|p| !should_skip_fixture(p))
             .collect();
         files.sort();
         return files;
     }
 
     vec![]
+}
+
+/// Skip benchmark files — they produce non-deterministic timing output.
+fn should_skip_fixture(path: &Path) -> bool {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .is_some_and(|stem| stem.contains("_bench"))
 }
 
 // ── Argument parsing ───────────────────────────────────────────────────────
