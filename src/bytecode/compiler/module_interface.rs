@@ -171,7 +171,15 @@ pub fn load_cached_interface(
 ) -> Result<ModuleInterface, InterfaceLoadError> {
     let primary_path = interface_path(cache_root, source_path);
     if primary_path.exists() {
-        return load_interface(&primary_path).ok_or(InterfaceLoadError::InvalidJson);
+        let interface =
+            load_interface(&primary_path).ok_or(InterfaceLoadError::InvalidJson)?;
+        if interface.compiler_version != env!("CARGO_PKG_VERSION") {
+            return Err(InterfaceLoadError::CompilerVersionMismatch);
+        }
+        if interface.cache_format_version != MODULE_INTERFACE_FORMAT_VERSION {
+            return Err(InterfaceLoadError::FormatVersionMismatch);
+        }
+        return Ok(interface);
     }
 
     Err(InterfaceLoadError::NotFound)

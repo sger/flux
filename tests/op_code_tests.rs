@@ -210,4 +210,23 @@ mod tests {
         assert_eq!(operand_widths(OpCode::OpIsAdtJumpLocal), vec![1, 2, 2]);
         assert_eq!(operand_widths(OpCode::OpAdd), Vec::<usize>::new());
     }
+
+    #[test]
+    fn max_opcode_matches_last_variant() {
+        // Ensure MAX_OPCODE stays in sync when new opcodes are added.
+        assert_eq!(
+            flux::bytecode::op_code::MAX_OPCODE,
+            OpCode::OpTailCall1 as u8,
+            "MAX_OPCODE must equal the last OpCode variant"
+        );
+    }
+
+    #[test]
+    fn from_u8_roundtrips_all_opcodes() {
+        // Verify transmute-based From<u8> produces correct values for all opcodes.
+        for byte in 0..=flux::bytecode::op_code::MAX_OPCODE {
+            let op = OpCode::from(byte);
+            assert_eq!(op as u8, byte, "OpCode::from({byte}) roundtrip failed");
+        }
+    }
 }

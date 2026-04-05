@@ -206,6 +206,9 @@ pub enum OpCode {
     OpTailCall1 = 103,
 }
 
+/// Maximum valid opcode value (inclusive). Must be updated when adding new opcodes.
+pub const MAX_OPCODE: u8 = OpCode::OpTailCall1 as u8;
+
 impl From<u8> for OpCode {
     fn from(byte: u8) -> Self {
         match byte {
