@@ -83,8 +83,7 @@ fn run_named_module(module_file_name: &str, module_source: &str, entry_source: &
     for node in graph_result.graph.topo_order() {
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         if let Err(diags) = compiler.compile(&node.program) {
-            let source =
-                std::fs::read_to_string(&node.path).unwrap_or_else(|_| full_entry.clone());
+            let source = std::fs::read_to_string(&node.path).unwrap_or_else(|_| full_entry.clone());
             panic!(
                 "compile error in {}:\n{}",
                 node.path.display(),
@@ -112,16 +111,8 @@ fn run_two_modules(
     let temp_dir = workspace_root.join(format!("target/tmp/module_linking_tests/{id}"));
     std::fs::create_dir_all(&temp_dir).unwrap();
 
-    std::fs::write(
-        temp_dir.join(format!("{mod_a_name}.flx")),
-        mod_a_source,
-    )
-    .unwrap();
-    std::fs::write(
-        temp_dir.join(format!("{mod_b_name}.flx")),
-        mod_b_source,
-    )
-    .unwrap();
+    std::fs::write(temp_dir.join(format!("{mod_a_name}.flx")), mod_a_source).unwrap();
+    std::fs::write(temp_dir.join(format!("{mod_b_name}.flx")), mod_b_source).unwrap();
 
     let full_entry = format!(
         "{}\nimport {mod_a_name} exposing (..)\nimport {mod_b_name} exposing (..)\n\n{entry_source}",
@@ -160,8 +151,7 @@ fn run_two_modules(
     for node in graph_result.graph.topo_order() {
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         if let Err(diags) = compiler.compile(&node.program) {
-            let source =
-                std::fs::read_to_string(&node.path).unwrap_or_else(|_| full_entry.clone());
+            let source = std::fs::read_to_string(&node.path).unwrap_or_else(|_| full_entry.clone());
             panic!(
                 "compile error in {}:\n{}",
                 node.path.display(),

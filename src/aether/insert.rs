@@ -262,8 +262,8 @@ fn plan_expr(
             let arg_modes: Vec<_> = if let Some(reg) = registry {
                 (0..args.len())
                     .map(|index| {
-                        let borrowed = resolved_callee
-                            .is_some_and(|callee| reg.is_borrowed(callee, index));
+                        let borrowed =
+                            resolved_callee.is_some_and(|callee| reg.is_borrowed(callee, index));
                         if borrowed {
                             BorrowMode::Borrowed
                         } else {

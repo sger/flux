@@ -411,10 +411,7 @@ impl Value {
     ///
     /// Only `Boolean(false)` and `None` are falsy; all other values are truthy.
     pub fn is_callable(&self) -> bool {
-        matches!(
-            self,
-            Value::Function(_) | Value::Closure(_)
-        )
+        matches!(self, Value::Function(_) | Value::Closure(_))
     }
 
     pub fn is_truthy(&self) -> bool {
