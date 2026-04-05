@@ -14,7 +14,8 @@ use sha2::{Digest, Sha256};
 /// rejects entries written with a different value.
 ///
 /// Epoch 1: initial unified epoch (replaces FXBC=11, FXMC=2, flxi=3, native=2).
-pub const CACHE_EPOCH: u16 = 1;
+/// Epoch 2: fix parse_int HM signature (String -> Int, was String -> Option<Int>).
+pub const CACHE_EPOCH: u16 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
