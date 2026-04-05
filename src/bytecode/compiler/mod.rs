@@ -1421,7 +1421,7 @@ impl Compiler {
             (
                 "parse_int",
                 vec![con(TC::String)],
-                app(TC::Option, vec![con(TC::Int)]),
+                con(TC::Int),
                 pure(),
                 0,
             ),
