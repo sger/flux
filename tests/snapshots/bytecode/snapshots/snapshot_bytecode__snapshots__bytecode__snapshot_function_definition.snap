@@ -13,5 +13,5 @@ Instructions:
 0007 OpGetGlobal 0
 0010 OpConstant 1
 0013 OpConstant 2
-0016 OpCall 2
-0018 OpPop
+0016 OpCall2 
+0017 OpPop

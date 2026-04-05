@@ -20,8 +20,8 @@ use cache_validation::{
 };
 
 const MAGIC: &[u8; 4] = b"FXBC";
-// Bumped for recursive constant serialization used by module bytecode caches.
-const FORMAT_VERSION: u16 = 10;
+// Bumped for superinstruction constant patching in module linker (OpConstantAdd, OpGetLocalIsAdt).
+const FORMAT_VERSION: u16 = 11;
 
 pub struct BytecodeCache {
     dir: PathBuf,
