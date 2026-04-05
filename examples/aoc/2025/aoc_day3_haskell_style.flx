@@ -74,7 +74,7 @@ fn sum_values(lines, n, acc) {
     }
 }
 
-fn day03(n, path) {
+fn day03(n, path) with IO {
     match sum_values(to_list(read_lines(path)), n, 0) {
         Some(total) -> total,
         _ -> 0

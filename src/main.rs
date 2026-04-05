@@ -626,10 +626,9 @@ fn compile_vm_modules_parallel(
                             progress_line(completed_modules, total_modules, "Cached", &name)
                         );
                     } else {
-                        if verbose
-                            && let Some(reason) = &result.miss_reason {
-                                eprintln!("  cache miss ({name}): {reason}");
-                            }
+                        if verbose && let Some(reason) = &result.miss_reason {
+                            eprintln!("  cache miss ({name}): {reason}");
+                        }
                         eprintln!(
                             "{}",
                             progress_line(completed_modules, total_modules, "Compiling", &name)
@@ -648,10 +647,9 @@ fn compile_vm_modules_parallel(
                             progress_line(completed_modules, total_modules, "Cached", &name)
                         );
                     } else {
-                        if verbose
-                            && let Some(reason) = &result.miss_reason {
-                                eprintln!("  cache miss ({name}): {reason}");
-                            }
+                        if verbose && let Some(reason) = &result.miss_reason {
+                            eprintln!("  cache miss ({name}): {reason}");
+                        }
                         eprintln!(
                             "{}",
                             progress_line(completed_modules, total_modules, "Compiling", &name)
@@ -1139,10 +1137,9 @@ fn compile_native_modules_parallel(
                         );
                     } else {
                         any_module_recompiled = true;
-                        if verbose
-                            && let Some(reason) = &result.miss_reason {
-                                eprintln!("  cache miss ({name}): {reason}");
-                            }
+                        if verbose && let Some(reason) = &result.miss_reason {
+                            eprintln!("  cache miss ({name}): {reason}");
+                        }
                         eprintln!(
                             "{}",
                             progress_line(completed_native, total_native_modules, "Linking", &name)
@@ -4558,14 +4555,15 @@ fn log_interface_diff(
     // Changed signatures.
     for (name, new_scheme) in &new.schemes {
         if let Some(old_scheme) = old.schemes.get(name)
-            && old_scheme != new_scheme {
-                eprintln!(
-                    "  ~ public {}: {} -> {}",
-                    name,
-                    format_scheme_for_cli(old_scheme),
-                    format_scheme_for_cli(new_scheme)
-                );
-            }
+            && old_scheme != new_scheme
+        {
+            eprintln!(
+                "  ~ public {}: {} -> {}",
+                name,
+                format_scheme_for_cli(old_scheme),
+                format_scheme_for_cli(new_scheme)
+            );
+        }
     }
 }
 

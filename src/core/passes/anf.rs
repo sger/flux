@@ -91,7 +91,9 @@ fn rep_of_expr(expr: &CoreExpr) -> FluxRep {
             }
         }
         CoreExpr::Lam { .. } => FluxRep::BoxedRep,
-        CoreExpr::Let { body, .. } | CoreExpr::LetRec { body, .. } => rep_of_expr(body),
+        CoreExpr::Let { body, .. }
+        | CoreExpr::LetRec { body, .. }
+        | CoreExpr::LetRecGroup { body, .. } => rep_of_expr(body),
         _ => FluxRep::TaggedRep,
     }
 }
@@ -271,6 +273,20 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         } => CoreExpr::LetRec {
             var,
             rhs: Box::new(anf_expr(*rhs, next_id)),
+            body: Box::new(anf_expr(*body, next_id)),
+            span,
+        },
+
+        // LetRecGroup — normalize all RHS and body.
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => CoreExpr::LetRecGroup {
+            bindings: bindings
+                .into_iter()
+                .map(|(b, rhs)| (b, Box::new(anf_expr(*rhs, next_id))))
+                .collect(),
             body: Box::new(anf_expr(*body, next_id)),
             span,
         },

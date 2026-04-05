@@ -97,6 +97,12 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
             check_contract(rhs, errors);
             check_contract(body, errors);
         }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                check_contract(rhs, errors);
+            }
+            check_contract(body, errors);
+        }
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
@@ -316,6 +322,12 @@ fn check_diagnostics(expr: &CoreExpr, diags: &mut Vec<AetherDiagnostic>) {
             check_diagnostics(rhs, diags);
             check_diagnostics(body, diags);
         }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                check_diagnostics(rhs, diags);
+            }
+            check_diagnostics(body, diags);
+        }
         CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             check_diagnostics(func, diags);
             for a in args {
@@ -377,6 +389,13 @@ fn invalid_drop_specialized_uses(
         }
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
             invalid_drop_specialized_uses(rhs, scrutinee_id, count_reuse_token)
+                + invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            bindings
+                .iter()
+                .map(|(_, rhs)| invalid_drop_specialized_uses(rhs, scrutinee_id, count_reuse_token))
+                .sum::<usize>()
                 + invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
         }
         CoreExpr::Case {

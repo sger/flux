@@ -30,6 +30,7 @@ pub fn elim_dead_let(expr: CoreExpr) -> CoreExpr {
         CoreExpr::Lam { .. }
         | CoreExpr::App { .. }
         | CoreExpr::LetRec { .. }
+        | CoreExpr::LetRecGroup { .. }
         | CoreExpr::Case { .. }
         | CoreExpr::Con { .. }
         | CoreExpr::PrimOp { .. }

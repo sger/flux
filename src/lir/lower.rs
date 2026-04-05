@@ -512,7 +512,10 @@ impl<'a> FnLower<'a> {
                 if let Some(&raw) = self.bool_raw_source.get(val) {
                     self.func.blocks[self.current_block]
                         .instrs
-                        .push(LirInstr::Copy { dst: *dst, src: raw });
+                        .push(LirInstr::Copy {
+                            dst: *dst,
+                            src: raw,
+                        });
                     return;
                 }
             }
@@ -686,6 +689,182 @@ impl<'a> FnLower<'a> {
             CoreExpr::Let { var, rhs, body, .. } => {
                 let rhs_var = self.lower_expr(rhs);
                 self.bind(var.id, rhs_var);
+                self.lower_expr(body)
+            }
+
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                // Sibling reconstruction for mutually recursive functions.
+                //
+                // All functions in the group share the same set of outer captures
+                // (free vars that aren't group members). Each function reconstructs
+                // siblings via MakeClosure(sibling_func_id, own_captures) — no
+                // circular references.
+
+                let group_binder_ids: HashSet<CoreBinderId> =
+                    bindings.iter().map(|(b, _)| b.id).collect();
+
+                // Collect per-binding info: (binder, rhs as Lam, free vars minus group)
+                struct GroupEntry {
+                    binder_id: CoreBinderId,
+                    synthetic_id: LirFuncId,
+                    func_idx: usize,
+                    outer_captures: Vec<(CoreBinderId, LirVar)>,
+                }
+                let mut entries: Vec<GroupEntry> = Vec::new();
+
+                // Compute shared outer captures (union of all free vars minus group members).
+                let mut all_outer_capture_ids: Vec<CoreBinderId> = Vec::new();
+                {
+                    let mut seen = HashSet::new();
+                    for (_, rhs) in bindings {
+                        let free = collect_free_vars(rhs);
+                        for id in free {
+                            if !group_binder_ids.contains(&id) && seen.insert(id) {
+                                all_outer_capture_ids.push(id);
+                            }
+                        }
+                    }
+                }
+
+                let shared_outer_captures: Vec<(CoreBinderId, LirVar)> = all_outer_capture_ids
+                    .iter()
+                    .filter_map(|id| self.env.get(id).copied().map(|v| (*id, v)))
+                    .collect();
+
+                // Phase 1: Pre-assign synthetic func IDs and placeholder functions.
+                let mut temp_program = std::mem::take(&mut *self.program);
+
+                for (var, _) in bindings {
+                    let synthetic_id = temp_program.alloc_synthetic_func_id();
+                    let func_idx = temp_program.functions.len();
+                    temp_program.functions.push(LirFunction {
+                        name: format!("letrec_group_{}_placeholder", func_idx),
+                        id: synthetic_id,
+                        qualified_name: format!(
+                            "{}_letrec_group_{}",
+                            self.func.qualified_name, synthetic_id.0
+                        ),
+                        params: Vec::new(),
+                        blocks: Vec::new(),
+                        next_var: 0,
+                        capture_vars: Vec::new(),
+                        param_reps: Vec::new(),
+                        result_rep: crate::core::FluxRep::TaggedRep,
+                    });
+                    temp_program.func_index.insert(synthetic_id, func_idx);
+                    entries.push(GroupEntry {
+                        binder_id: var.id,
+                        synthetic_id,
+                        func_idx,
+                        outer_captures: shared_outer_captures.clone(),
+                    });
+                }
+
+                // Phase 2: Lower each function body with sibling reconstruction.
+                for (i, (var, rhs)) in bindings.iter().enumerate() {
+                    if let CoreExpr::Lam {
+                        params,
+                        body: lam_body,
+                        ..
+                    } = rhs.as_ref()
+                    {
+                        let entry = &entries[i];
+                        let letrec_qname = format!(
+                            "{}_letrec_group_{}",
+                            self.func.qualified_name, entry.synthetic_id.0
+                        );
+                        let func_name = format!("letrec_group_{}", entry.func_idx);
+
+                        let mut inner = FnLower::new(
+                            func_name,
+                            entry.synthetic_id,
+                            letrec_qname,
+                            FnLowerCtx {
+                                program: &mut temp_program,
+                                interner: self.interner,
+                                globals_map: self.globals_map,
+                                extern_symbols: self.extern_symbols,
+                                name_binder_map: self.name_binder_map,
+                                binder_func_id_map: self.binder_func_id_map,
+                                qualified_names: self.qualified_names,
+                                top_level_value_map: self.top_level_value_map,
+                                int_return_binders: self.int_return_binders,
+                            },
+                        );
+
+                        // Capture shared outer variables.
+                        for &(binder_id, _) in &entry.outer_captures {
+                            let inner_var = inner.fresh_var();
+                            inner.func.capture_vars.push(inner_var);
+                            inner.bind(binder_id, inner_var);
+                        }
+
+                        // Self-reference via MakeClosure to own func_id.
+                        let self_var = inner.fresh_var();
+                        inner.emit(LirInstr::MakeClosure {
+                            dst: self_var,
+                            func_id: entry.synthetic_id,
+                            captures: (0..entry.outer_captures.len())
+                                .map(|ci| inner.func.capture_vars[ci])
+                                .collect(),
+                        });
+                        inner.bind(var.id, self_var);
+
+                        if entry.outer_captures.is_empty() {
+                            inner.direct_func_vars.insert(self_var, entry.synthetic_id);
+                        }
+
+                        // Sibling references via MakeClosure to sibling func_id.
+                        for (j, entry_j) in entries.iter().enumerate() {
+                            if j != i {
+                                let sibling_var = inner.fresh_var();
+                                inner.emit(LirInstr::MakeClosure {
+                                    dst: sibling_var,
+                                    func_id: entry_j.synthetic_id,
+                                    captures: (0..entry.outer_captures.len())
+                                        .map(|ci| inner.func.capture_vars[ci])
+                                        .collect(),
+                                });
+                                inner.bind(entry_j.binder_id, sibling_var);
+                            }
+                        }
+
+                        // Register parameters.
+                        for param in params {
+                            let pv = inner.fresh_var();
+                            inner.bind(param.id, pv);
+                            inner.func.params.push(pv);
+                            inner.func.param_reps.push(param.rep);
+                        }
+
+                        // Lower the body.
+                        let result = inner.lower_expr(lam_body);
+                        inner.set_terminator(LirTerminator::Return(result));
+                        let inner_func = inner.func;
+
+                        // Replace placeholder with actual function.
+                        temp_program.functions[entry.func_idx] = inner_func;
+                    } else {
+                        // Non-lambda binding in group (rare): simple lower.
+                        // Already have placeholder from Phase 1.
+                    }
+                }
+
+                *self.program = temp_program;
+
+                // Phase 3: Emit MakeClosure in outer context for each group member.
+                let outer_capture_vars: Vec<LirVar> =
+                    shared_outer_captures.iter().map(|&(_, v)| v).collect();
+                for entry in &entries {
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::MakeClosure {
+                        dst,
+                        func_id: entry.synthetic_id,
+                        captures: outer_capture_vars.clone(),
+                    });
+                    self.bind(entry.binder_id, dst);
+                }
+
                 self.lower_expr(body)
             }
 
@@ -1101,7 +1280,9 @@ impl<'a> FnLower<'a> {
         let value = match lit {
             CoreLit::Int(n) => {
                 let n = *n;
-                if (crate::runtime::nanbox::MIN_INLINE_INT..=crate::runtime::nanbox::MAX_INLINE_INT).contains(&n) {
+                if (crate::runtime::nanbox::MIN_INLINE_INT..=crate::runtime::nanbox::MAX_INLINE_INT)
+                    .contains(&n)
+                {
                     LirConst::Tagged(crate::lir::nanbox_tag_int(n))
                 } else {
                     LirConst::Int(n)
@@ -2976,6 +3157,20 @@ fn free_vars_rec(
             free_vars_rec(body, bound, free);
             if added {
                 bound.remove(&var.id);
+            }
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            let added: Vec<_> = bindings
+                .iter()
+                .filter(|(var, _)| bound.insert(var.id))
+                .map(|(var, _)| var.id)
+                .collect();
+            for (_, rhs) in bindings {
+                free_vars_rec(rhs, bound, free);
+            }
+            free_vars_rec(body, bound, free);
+            for id in added {
+                bound.remove(&id);
             }
         }
         CoreExpr::Case {

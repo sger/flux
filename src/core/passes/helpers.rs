@@ -139,6 +139,28 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
                 }
             }
         }
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => {
+            if bindings.iter().any(|(b, _)| b.id == var) {
+                CoreExpr::LetRecGroup {
+                    bindings,
+                    body,
+                    span,
+                }
+            } else {
+                CoreExpr::LetRecGroup {
+                    bindings: bindings
+                        .into_iter()
+                        .map(|(b, rhs)| (b, Box::new(subst(*rhs, var, replacement))))
+                        .collect(),
+                    body: Box::new(subst(*body, var, replacement)),
+                    span,
+                }
+            }
+        }
         CoreExpr::Handle {
             body,
             effect,
@@ -263,6 +285,18 @@ pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreE
         } => CoreExpr::LetRec {
             var,
             rhs: Box::new(f(*rhs)),
+            body: Box::new(f(*body)),
+            span,
+        },
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => CoreExpr::LetRecGroup {
+            bindings: bindings
+                .into_iter()
+                .map(|(b, rhs)| (b, Box::new(f(*rhs))))
+                .collect(),
             body: Box::new(f(*body)),
             span,
         },
@@ -566,6 +600,11 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
             body,
             ..
         } => binding.id != var && (appears_free(var, rhs) || appears_free(var, body)),
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            !bindings.iter().any(|(b, _)| b.id == var)
+                && (bindings.iter().any(|(_, rhs)| appears_free(var, rhs))
+                    || appears_free(var, body))
+        }
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
@@ -623,6 +662,13 @@ pub(super) fn expr_size(expr: &CoreExpr) -> usize {
         }
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
             1 + expr_size(rhs) + expr_size(body)
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            1 + bindings
+                .iter()
+                .map(|(_, rhs)| expr_size(rhs))
+                .sum::<usize>()
+                + expr_size(body)
         }
         CoreExpr::Case {
             scrutinee, alts, ..

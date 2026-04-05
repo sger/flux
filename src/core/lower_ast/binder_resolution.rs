@@ -71,6 +71,16 @@ fn resolve_expr_binders(expr: &mut CoreExpr, scopes: &mut Vec<BinderScope>) {
             resolve_expr_binders(body, scopes);
             scopes.pop();
         }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            // All binders are in scope for ALL RHS and body (mutual recursion)
+            let binder_scope: BinderScope = bindings.iter().map(|(b, _)| (b.name, b.id)).collect();
+            scopes.push(binder_scope);
+            for (_, rhs) in bindings {
+                resolve_expr_binders(rhs, scopes);
+            }
+            resolve_expr_binders(body, scopes);
+            scopes.pop();
+        }
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
@@ -163,6 +173,16 @@ fn validate_expr_binders(expr: &CoreExpr, scopes: &mut Vec<BinderScope>) -> bool
         CoreExpr::LetRec { var, rhs, body, .. } => {
             scopes.push(scope_for_binders(std::slice::from_ref(var)));
             let ok = validate_expr_binders(rhs, scopes) && validate_expr_binders(body, scopes);
+            scopes.pop();
+            ok
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            let binder_scope: BinderScope = bindings.iter().map(|(b, _)| (b.name, b.id)).collect();
+            scopes.push(binder_scope);
+            let ok = bindings
+                .iter()
+                .all(|(_, rhs)| validate_expr_binders(rhs, scopes))
+                && validate_expr_binders(body, scopes);
             scopes.pop();
             ok
         }

@@ -92,6 +92,24 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 span,
             }
         }
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => {
+            let bindings: Vec<_> = bindings
+                .into_iter()
+                .map(|(var, rhs)| {
+                    let rhs = specialize_with_env(*rhs, env);
+                    (var, Box::new(rhs))
+                })
+                .collect();
+            CoreExpr::LetRecGroup {
+                bindings,
+                body: Box::new(specialize_with_env(*body, env)),
+                span,
+            }
+        }
         CoreExpr::Case {
             scrutinee,
             alts,

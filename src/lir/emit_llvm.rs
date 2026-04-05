@@ -932,10 +932,7 @@ impl<'a> FnEmitter<'a> {
                     inbounds: true,
                     element_ty: LlvmType::i64(),
                     base: LlvmOperand::Local(payload_ptr),
-                    indices: vec![(
-                        LlvmType::i32(),
-                        self.i32_const(*index as i32),
-                    )],
+                    indices: vec![(LlvmType::i32(), self.i32_const(*index as i32))],
                 });
                 self.emit(LlvmInstr::Load {
                     dst: self.var_local(*dst),
@@ -2264,65 +2261,79 @@ impl<'a> FnEmitter<'a> {
 
         // Helper: emit an extraction block for field binders.
         // Inline field access (Phase 4, Proposal 0140): inttoptr → GEP payload → GEP index → load.
-        let emit_extract_block =
-            |this: &mut Self, arm: &CtorArm, is_tuple: bool| -> LabelId {
-                if arm.field_binders.is_empty() {
-                    return this.label(arm.target);
-                }
-                let extract_label =
-                    LabelId(format!("match.extract.{}.{}", arm.target.0, this.next_tmp));
-                this.next_tmp += 1;
+        let emit_extract_block = |this: &mut Self, arm: &CtorArm, is_tuple: bool| -> LabelId {
+            if arm.field_binders.is_empty() {
+                return this.label(arm.target);
+            }
+            let extract_label =
+                LabelId(format!("match.extract.{}.{}", arm.target.0, this.next_tmp));
+            this.next_tmp += 1;
 
-                let mut extract_instrs = Vec::new();
+            let mut extract_instrs = Vec::new();
 
-                // Convert scrutinee i64 to ptr once per extraction block.
-                let base_ptr = LlvmLocal(format!("ext.ptr.{}", arm.target.0));
-                extract_instrs.push(LlvmInstr::Cast {
-                    dst: base_ptr.clone(),
-                    op: LlvmValueKind::IntToPtr,
-                    from_ty: LlvmType::i64(),
-                    operand: this.var(scrutinee),
-                    to_ty: LlvmType::Ptr,
-                });
+            // Convert scrutinee i64 to ptr once per extraction block.
+            let base_ptr = LlvmLocal(format!("ext.ptr.{}", arm.target.0));
+            extract_instrs.push(LlvmInstr::Cast {
+                dst: base_ptr.clone(),
+                op: LlvmValueKind::IntToPtr,
+                from_ty: LlvmType::i64(),
+                operand: this.var(scrutinee),
+                to_ty: LlvmType::Ptr,
+            });
 
-                // GEP to payload base once.
-                let (struct_ty, payload_field) = if is_tuple {
-                    (LlvmType::Named("FluxTuple".into()), 5)
-                } else {
-                    (LlvmType::Named("FluxAdt".into()), 2)
-                };
-                let payload_ptr = LlvmLocal(format!("ext.payload.{}", arm.target.0));
+            // GEP to payload base once.
+            let (struct_ty, payload_field) = if is_tuple {
+                (LlvmType::Named("FluxTuple".into()), 5)
+            } else {
+                (LlvmType::Named("FluxAdt".into()), 2)
+            };
+            let payload_ptr = LlvmLocal(format!("ext.payload.{}", arm.target.0));
+            extract_instrs.push(LlvmInstr::GetElementPtr {
+                dst: payload_ptr.clone(),
+                inbounds: true,
+                element_ty: struct_ty,
+                base: LlvmOperand::Local(base_ptr),
+                indices: vec![
+                    (
+                        LlvmType::i32(),
+                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+                    ),
+                    (
+                        LlvmType::i32(),
+                        LlvmOperand::Const(LlvmConst::Int {
+                            bits: 32,
+                            value: payload_field,
+                        }),
+                    ),
+                    (
+                        LlvmType::i32(),
+                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+                    ),
+                ],
+            });
+
+            for (i, binder) in arm.field_binders.iter().enumerate() {
+                // GEP to field[i].
+                let field_ptr = LlvmLocal(format!("ext.{}.{}", arm.target.0, i));
                 extract_instrs.push(LlvmInstr::GetElementPtr {
-                    dst: payload_ptr.clone(),
+                    dst: field_ptr.clone(),
                     inbounds: true,
-                    element_ty: struct_ty,
-                    base: LlvmOperand::Local(base_ptr),
-                    indices: vec![
-                        (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
-                        (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: payload_field })),
-                        (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
-                    ],
+                    element_ty: LlvmType::i64(),
+                    base: LlvmOperand::Local(payload_ptr.clone()),
+                    indices: vec![(
+                        LlvmType::i32(),
+                        LlvmOperand::Const(LlvmConst::Int {
+                            bits: 32,
+                            value: i as i128,
+                        }),
+                    )],
                 });
-
-                for (i, binder) in arm.field_binders.iter().enumerate() {
-                    // GEP to field[i].
-                    let field_ptr = LlvmLocal(format!("ext.{}.{}", arm.target.0, i));
-                    extract_instrs.push(LlvmInstr::GetElementPtr {
-                        dst: field_ptr.clone(),
-                        inbounds: true,
-                        element_ty: LlvmType::i64(),
-                        base: LlvmOperand::Local(payload_ptr.clone()),
-                        indices: vec![(
-                            LlvmType::i32(),
-                            LlvmOperand::Const(LlvmConst::Int { bits: 32, value: i as i128 }),
-                        )],
-                    });
-                    extract_instrs.push(LlvmInstr::Load {
-                        dst: this.var_local(*binder),
-                        ty: LlvmType::i64(),
-                        ptr: LlvmOperand::Local(field_ptr),
-                        align: Some(8),
-                    });
+                extract_instrs.push(LlvmInstr::Load {
+                    dst: this.var_local(*binder),
+                    ty: LlvmType::i64(),
+                    ptr: LlvmOperand::Local(field_ptr),
+                    align: Some(8),
+                });
                 extract_instrs.push(LlvmInstr::Call {
                     dst: None,
                     tail: false,
@@ -2393,8 +2404,14 @@ impl<'a> FnEmitter<'a> {
                 element_ty: LlvmType::Named("FluxAdt".into()),
                 base: LlvmOperand::Local(adt_ptr),
                 indices: vec![
-                    (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
-                    (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
+                    (
+                        LlvmType::i32(),
+                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+                    ),
+                    (
+                        LlvmType::i32(),
+                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+                    ),
                 ],
             },
             LlvmInstr::Load {

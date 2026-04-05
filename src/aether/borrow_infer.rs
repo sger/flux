@@ -403,6 +403,12 @@ fn collect_local_callees(
             collect_local_callees(rhs, def_ids, out);
             collect_local_callees(body, def_ids, out);
         }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                collect_local_callees(rhs, def_ids, out);
+            }
+            collect_local_callees(body, def_ids, out);
+        }
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
@@ -624,6 +630,14 @@ fn collect_param_constraints(
                 collect_param_constraints(target, body, registry, group_set, constraint);
             }
         }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            if !bindings.iter().any(|(b, _)| b.id == target) {
+                for (_, rhs) in bindings {
+                    collect_param_constraints(target, rhs, registry, group_set, constraint);
+                }
+                collect_param_constraints(target, body, registry, group_set, constraint);
+            }
+        }
         CoreExpr::Handle { body, handlers, .. } => {
             collect_param_constraints(target, body, registry, group_set, constraint);
             for handler in handlers {
@@ -753,6 +767,12 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
         }
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
             collect_unresolved_callees(rhs, unresolved);
+            collect_unresolved_callees(body, unresolved);
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                collect_unresolved_callees(rhs, unresolved);
+            }
             collect_unresolved_callees(body, unresolved);
         }
         CoreExpr::Case {

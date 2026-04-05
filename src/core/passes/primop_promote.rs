@@ -317,6 +317,35 @@ fn promote_expr(
             )),
             span,
         },
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => CoreExpr::LetRecGroup {
+            bindings: bindings
+                .into_iter()
+                .map(|(b, rhs)| {
+                    (
+                        b,
+                        Box::new(promote_expr(
+                            *rhs,
+                            table,
+                            interner,
+                            def_arities,
+                            binder_qualified_names,
+                        )),
+                    )
+                })
+                .collect(),
+            body: Box::new(promote_expr(
+                *body,
+                table,
+                interner,
+                def_arities,
+                binder_qualified_names,
+            )),
+            span,
+        },
         CoreExpr::Case {
             scrutinee,
             alts,

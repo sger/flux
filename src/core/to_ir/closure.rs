@@ -60,6 +60,20 @@ fn collect_used_candidate_binders(
                 bound.remove(&var.id);
             }
         }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            let new_binders: Vec<_> = bindings
+                .iter()
+                .filter(|(var, _)| bound.insert(var.id))
+                .map(|(var, _)| var.id)
+                .collect();
+            for (_, rhs) in bindings {
+                collect_used_candidate_binders(rhs, bound, candidates, used);
+            }
+            collect_used_candidate_binders(body, bound, candidates, used);
+            for id in new_binders {
+                bound.remove(&id);
+            }
+        }
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {

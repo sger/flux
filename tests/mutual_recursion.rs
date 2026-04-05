@@ -1,7 +1,8 @@
-//! Integration tests for tail-recursive List stdlib functions.
+//! Integration tests for mutually recursive nested functions.
 //!
-//! Verifies that map, filter, take, take_while handle large lists
-//! without stack overflow on the VM backend.
+//! Verifies that the sibling reconstruction approach works correctly
+//! on the VM backend for 2-way, 3-way, and captured-variable mutual
+//! recursion groups.
 
 use std::path::Path;
 use std::process::Command;
@@ -26,14 +27,14 @@ fn run_flux_test(fixture: &str) -> (String, bool) {
 }
 
 #[test]
-fn stdlib_list_large_vm() {
-    let (stdout, success) = run_flux_test("stdlib_list_large.flx");
+fn mutual_recursion_vm() {
+    let (stdout, success) = run_flux_test("mutual_recursion.flx");
     assert!(
         success,
-        "list stdlib tests failed (likely stack overflow):\n{stdout}"
+        "mutual recursion tests failed:\n{stdout}"
     );
     assert!(
-        stdout.contains("8 passed"),
-        "expected all 8 tests to pass, got:\n{stdout}"
+        stdout.contains("6 passed"),
+        "expected all 6 tests to pass, got:\n{stdout}"
     );
 }

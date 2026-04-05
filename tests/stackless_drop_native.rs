@@ -19,17 +19,10 @@ fn workspace_root() -> &'static Path {
 
 /// Run a Flux program with the native backend and return (stdout, exit_success).
 fn run_native(fixture: &str) -> (String, bool) {
-    let path = workspace_root()
-        .join("tests")
-        .join("parity")
-        .join(fixture);
+    let path = workspace_root().join("tests").join("parity").join(fixture);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .args([
-            path.to_str().unwrap(),
-            "--native",
-            "--no-cache",
-        ])
+        .args([path.to_str().unwrap(), "--native", "--no-cache"])
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --native on {fixture}: {e}"));
 
@@ -42,10 +35,7 @@ fn run_native(fixture: &str) -> (String, bool) {
 
 /// Run a Flux program with the VM backend and return stdout.
 fn run_vm(fixture: &str) -> String {
-    let path = workspace_root()
-        .join("tests")
-        .join("parity")
-        .join(fixture);
+    let path = workspace_root().join("tests").join("parity").join(fixture);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--no-cache"])
@@ -61,7 +51,10 @@ fn run_vm(fixture: &str) -> String {
 #[test]
 fn stackless_drop_deep_list_native() {
     let (stdout, success) = run_native("stackless_drop_deep_list.flx");
-    assert!(success, "native backend crashed (likely stack overflow in flux_drop)");
+    assert!(
+        success,
+        "native backend crashed (likely stack overflow in flux_drop)"
+    );
     assert!(
         stdout.contains("ok"),
         "expected 'ok' in output, got: {stdout}"
@@ -75,10 +68,7 @@ fn stackless_drop_deep_list_parity() {
     assert!(success, "native backend crashed");
     // Compare just the program output lines (skip compilation messages).
     let vm_lines: Vec<&str> = vm_out.lines().collect();
-    let native_lines: Vec<&str> = native_out
-        .lines()
-        .filter(|l| !l.starts_with('['))
-        .collect();
+    let native_lines: Vec<&str> = native_out.lines().filter(|l| !l.starts_with('[')).collect();
     assert_eq!(
         vm_lines, native_lines,
         "VM and native output differ for deep list"
@@ -88,7 +78,10 @@ fn stackless_drop_deep_list_parity() {
 #[test]
 fn stackless_drop_nested_adt_native() {
     let (stdout, success) = run_native("stackless_drop_nested_adt.flx");
-    assert!(success, "native backend crashed (likely stack overflow in flux_drop)");
+    assert!(
+        success,
+        "native backend crashed (likely stack overflow in flux_drop)"
+    );
     assert!(
         stdout.contains("150000"),
         "expected depth=150000 in output, got: {stdout}"
@@ -101,10 +94,7 @@ fn stackless_drop_nested_adt_parity() {
     let (native_out, success) = run_native("stackless_drop_nested_adt.flx");
     assert!(success, "native backend crashed");
     let vm_lines: Vec<&str> = vm_out.lines().collect();
-    let native_lines: Vec<&str> = native_out
-        .lines()
-        .filter(|l| !l.starts_with('['))
-        .collect();
+    let native_lines: Vec<&str> = native_out.lines().filter(|l| !l.starts_with('[')).collect();
     assert_eq!(
         vm_lines, native_lines,
         "VM and native output differ for nested ADT"

@@ -14,9 +14,10 @@
 ///
 /// All surface Flux constructs (sugar, n-ary functions, multi-argument calls,
 /// pattern matching, effects) are desugared into the ~12-variant `CoreExpr`.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
+    ast::free_vars::collect_free_vars_in_function_body,
     diagnostics::position::Span,
     syntax::{block::Block, expression::ExprId, program::Program, statement::Statement},
     types::infer_type::InferType,
@@ -429,11 +430,118 @@ impl<'a> AstLowerer<'a> {
     }
 
     /// Lower the full statement slice by prepending one statement at a time.
+    ///
+    /// Detects runs of consecutive function statements that form mutual
+    /// recursion groups (any function references a sibling defined later)
+    /// and emits `LetRecGroup` for those instead of nested `LetRec`s.
     fn prepend_stmts(&mut self, stmts: &[Statement], body: CoreExpr, span: Span) -> CoreExpr {
-        stmts
+        // Process statements right-to-left, but handle mutual recursion
+        // groups as a single unit.
+        let mut result = body;
+        let mut i = stmts.len();
+        while i > 0 {
+            i -= 1;
+            if matches!(stmts[i], Statement::Function { .. }) {
+                // Found a function. Scan backward for a contiguous run.
+                let run_end = i + 1;
+                let mut run_start = i;
+                while run_start > 0 && matches!(stmts[run_start - 1], Statement::Function { .. }) {
+                    run_start -= 1;
+                }
+                let fn_run = &stmts[run_start..run_end];
+                if fn_run.len() >= 2 && Self::has_mutual_references(fn_run) {
+                    // Mutual recursion detected — emit LetRecGroup.
+                    result = self.lower_mutual_rec_group(fn_run, result);
+                } else {
+                    // No mutual recursion — lower each function individually.
+                    for stmt in fn_run.iter().rev() {
+                        result = self.prepend_one_stmt(stmt, result, span);
+                    }
+                }
+                i = run_start;
+            } else {
+                result = self.prepend_one_stmt(&stmts[i], result, span);
+            }
+        }
+        result
+    }
+
+    /// Check whether any function in a run references a sibling defined later.
+    fn has_mutual_references(fn_stmts: &[Statement]) -> bool {
+        let names: Vec<_> = fn_stmts
             .iter()
-            .rev()
-            .fold(body, |acc, stmt| self.prepend_one_stmt(stmt, acc, span))
+            .filter_map(|s| {
+                if let Statement::Function { name, .. } = s {
+                    Some(*name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let name_set: HashSet<_> = names.iter().copied().collect();
+
+        for (idx, stmt) in fn_stmts.iter().enumerate() {
+            if let Statement::Function {
+                parameters, body, ..
+            } = stmt
+            {
+                let fv = collect_free_vars_in_function_body(parameters, body);
+                // Check if this function references any sibling defined AFTER it.
+                for &sibling_name in &names[idx + 1..] {
+                    if fv.contains(&sibling_name) {
+                        return true;
+                    }
+                }
+                // Also check if a later function references THIS one (back-ref
+                // is already handled by LetRec, but grouping is cleaner).
+                let _ = &name_set; // used above via names[]
+            }
+        }
+        false
+    }
+
+    /// Lower a group of mutually recursive function statements as `LetRecGroup`.
+    fn lower_mutual_rec_group(&mut self, fn_stmts: &[Statement], tail: CoreExpr) -> CoreExpr {
+        let span = fn_stmts
+            .first()
+            .map(|s| match s {
+                Statement::Function { span, .. } => *span,
+                _ => Span::default(),
+            })
+            .unwrap_or_default();
+
+        let bindings: Vec<_> = fn_stmts
+            .iter()
+            .map(|stmt| {
+                let Statement::Function {
+                    name,
+                    parameters,
+                    body,
+                    span: s,
+                    ..
+                } = stmt
+                else {
+                    unreachable!("lower_mutual_rec_group called with non-function statement");
+                };
+                let binder = self.bind_name(*name);
+                let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                let body_expr = self.lower_block(body);
+                (
+                    binder,
+                    Box::new(CoreExpr::Lam {
+                        params,
+                        body: Box::new(body_expr),
+                        span: *s,
+                    }),
+                )
+            })
+            .collect();
+
+        CoreExpr::LetRecGroup {
+            bindings,
+            body: Box::new(tail),
+            span,
+        }
     }
 
     fn prepend_stmt(
@@ -693,6 +801,12 @@ mod tests {
                 collect_ops_in_expr(rhs, out);
                 collect_ops_in_expr(body, out);
             }
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                for (_, rhs) in bindings {
+                    collect_ops_in_expr(rhs, out);
+                }
+                collect_ops_in_expr(body, out);
+            }
             CoreExpr::Case {
                 scrutinee, alts, ..
             } => {
@@ -717,6 +831,12 @@ mod tests {
             }
             CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
                 collect_var_refs(rhs, out);
+                collect_var_refs(body, out);
+            }
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                for (_, rhs) in bindings {
+                    collect_var_refs(rhs, out);
+                }
                 collect_var_refs(body, out);
             }
             CoreExpr::Case {

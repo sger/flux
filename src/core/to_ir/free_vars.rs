@@ -56,6 +56,21 @@ pub(super) fn free_vars_rec(
                 bound.remove(&var.id);
             }
         }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            // All binders are bound before visiting any RHS
+            let new_binders: Vec<_> = bindings
+                .iter()
+                .filter(|(var, _)| bound.insert(var.id))
+                .map(|(var, _)| var.id)
+                .collect();
+            for (_, rhs) in bindings {
+                free_vars_rec(rhs, bound, free);
+            }
+            free_vars_rec(body, bound, free);
+            for id in new_binders {
+                bound.remove(&id);
+            }
+        }
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {

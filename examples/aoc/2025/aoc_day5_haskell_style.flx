@@ -69,7 +69,7 @@ fn parse_values(lines, idx, acc) {
 }
 }
 
-fn parse_input(path) {
+fn parse_input(path) with IO {
     let lines = read_lines(path)
     let sep = find_blank(lines, 0)
     let ranges = parse_ranges(lines, 0, sep, [||])

@@ -195,11 +195,11 @@ impl<'a> InferCtx<'a> {
         // Predeclare nested function names so forward references and mutual
         // recursion work inside function bodies (mirrors top-level Phase A).
         for stmt in &block.statements {
-            if let Statement::Function { name, span, .. } = stmt {
-                if self.env.lookup(*name).is_none() {
-                    let v = self.env.alloc_infer_type_var();
-                    self.env.bind_with_span(*name, Scheme::mono(v), Some(*span));
-                }
+            if let Statement::Function { name, span, .. } = stmt
+                && self.env.lookup(*name).is_none()
+            {
+                let v = self.env.alloc_infer_type_var();
+                self.env.bind_with_span(*name, Scheme::mono(v), Some(*span));
             }
         }
 
