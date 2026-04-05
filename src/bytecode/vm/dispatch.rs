@@ -600,11 +600,13 @@ impl VM {
                 } else {
                     self.execute_call(num_args)?;
                 }
-                Ok(if matches!(op, OpCode::OpCall0 | OpCode::OpCall1 | OpCode::OpCall2) {
-                    1
-                } else {
-                    0
-                })
+                Ok(
+                    if matches!(op, OpCode::OpCall0 | OpCode::OpCall1 | OpCode::OpCall2) {
+                        1
+                    } else {
+                        0
+                    },
+                )
             }
             OpCode::OpGetLocalCall1 => {
                 if self.sp == 0 {

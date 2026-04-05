@@ -28,7 +28,10 @@ fn all_functions_asm(input: &str) -> String {
     let mut out = disassemble(&bytecode.instructions);
     for value in &bytecode.constants {
         if let Value::Function(f) = value {
-            out.push_str(&format!("\n--- function ({} params) ---\n", f.num_parameters));
+            out.push_str(&format!(
+                "\n--- function ({} params) ---\n",
+                f.num_parameters
+            ));
             out.push_str(&disassemble(&f.instructions));
         }
     }
@@ -66,10 +69,7 @@ fn add_locals_fuses_two_getlocals_and_add() {
         f(1, 2)
     "#,
     );
-    assert!(
-        asm.contains("OpAddLocals"),
-        "expected OpAddLocals:\n{asm}"
-    );
+    assert!(asm.contains("OpAddLocals"), "expected OpAddLocals:\n{asm}");
 }
 
 #[test]
@@ -93,10 +93,7 @@ fn sub_locals_fuses_two_getlocals_and_sub() {
         f(1, 2)
     "#,
     );
-    assert!(
-        asm.contains("OpSubLocals"),
-        "expected OpSubLocals:\n{asm}"
-    );
+    assert!(asm.contains("OpSubLocals"), "expected OpSubLocals:\n{asm}");
 }
 
 #[test]
@@ -242,10 +239,7 @@ fn tail_call1_fuses_tail_call_with_one_arg() {
         countdown(5)
     "#,
     );
-    assert!(
-        asm.contains("OpTailCall1"),
-        "expected OpTailCall1:\n{asm}"
-    );
+    assert!(asm.contains("OpTailCall1"), "expected OpTailCall1:\n{asm}");
 }
 
 #[test]
@@ -345,8 +339,7 @@ fn fusion_skipped_when_jump_targets_interior_of_region() {
     // The if-else with a tail call pattern can produce bytecode where a jump
     // targets the interior of what would be a GetLocalGetLocal fusion region.
     // The peephole must NOT fuse in this case.
-    let result = run(
-        r#"
+    let result = run(r#"
         fn solve(items, idx, acc, checker) {
             if idx >= len(items) {
                 acc
@@ -356,16 +349,14 @@ fn fusion_skipped_when_jump_targets_interior_of_region() {
             }
         }
         solve([|"a", "b", "c"|], 0, 0, fn(i) { i < 2 })
-    "#,
-    );
+    "#);
     assert_eq!(result, Value::Integer(2));
 }
 
 #[test]
 fn recursive_tail_call_with_constant_add() {
     // Regression: OpConstantAdd in a recursive tail call must work correctly.
-    let result = run(
-        r#"
+    let result = run(r#"
         fn find(s, c) {
             if c >= len(s) {
                 -1
@@ -376,8 +367,7 @@ fn recursive_tail_call_with_constant_add() {
             }
         }
         find("..^..", 0)
-    "#,
-    );
+    "#);
     assert_eq!(result, Value::Integer(2));
 }
 
@@ -385,8 +375,7 @@ fn recursive_tail_call_with_constant_add() {
 
 #[test]
 fn four_arg_recursive_tail_call_with_if_arg() {
-    let result = run(
-        r#"
+    let result = run(r#"
         fn accum(items, idx, total, f) {
             if idx >= len(items) {
                 total
@@ -396,8 +385,7 @@ fn four_arg_recursive_tail_call_with_if_arg() {
             }
         }
         accum([|1, 2, 3, 4, 5|], 0, 0, fn(i) { i < 3 })
-    "#,
-    );
+    "#);
     assert_eq!(result, Value::Integer(30));
 }
 
@@ -454,8 +442,7 @@ fn fibonacci_produces_correct_result() {
 fn two_branch_tail_call_preserves_closure() {
     // Regression: when solve has two recursive branches (one simple,
     // one with if-expr arg), the closure must not be consumed prematurely.
-    let result = run(
-        r#"
+    let result = run(r#"
         fn solve(items, idx, acc, checker) {
             if idx >= len(items) {
                 acc
@@ -473,7 +460,6 @@ fn two_branch_tail_call_preserves_closure() {
             }
         }
         solve([|"a", "", "b", "c", ""|], 0, 0, fn(i) { i < 3 })
-    "#,
-    );
+    "#);
     assert_eq!(result, Value::Integer(2));
 }

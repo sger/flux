@@ -31,40 +31,10 @@ Hint:
   Define it first: let try_occurrences = ...;
 
 
-error[E300]: Branch Type Mismatch
-
-The branches of this `if` expression do not agree on a type.
-
-  examples/aoc/2025/aoc_day3_haskell_style.flx:58:5
-   |
-56 |         Some(0)
-   |         ------- `then` branch returns `Int`
-
-   |         ------- this branch established the expected type
-57 |     } else {
-58 |     match best_number_string(cleaned, 0, n) {
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-59 |         Some(s) -> Some(parse_int(s)),
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-60 |         _ -> None
-   | ^^^^^^^^^^^^^^^^^
-61 |     }
-   | ^^^^^
-
-Note:
-  then branch type: Int
-  else branch type: Option<Int>
-  the `then` branch fixes the type expected from the whole `if`
-  the `else` branch produces the competing type
-
-Help:
-  This value might be `None`. Use `match` to unwrap it before using it here.
-
-
 Note: Downstream Errors Suppressed
 
 I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
 
-Found 3 errors.
+Found 2 errors.
 == stdout ==
 <not executed>

@@ -64,10 +64,7 @@ fn run_module(module_source: &str, entry_source: &str) -> Value {
     );
 
     let interner = parser.take_interner();
-    let roots = vec![
-        temp_dir.clone(),
-        workspace_root.join("lib"),
-    ];
+    let roots = vec![temp_dir.clone(), workspace_root.join("lib")];
     let graph_result =
         ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &roots);
     if !graph_result.diagnostics.is_empty() {
@@ -88,8 +85,7 @@ fn run_module(module_source: &str, entry_source: &str) -> Value {
     for node in graph_result.graph.topo_order() {
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         if let Err(diags) = compiler.compile(&node.program) {
-            let source =
-                std::fs::read_to_string(&node.path).unwrap_or_else(|_| full_entry.clone());
+            let source = std::fs::read_to_string(&node.path).unwrap_or_else(|_| full_entry.clone());
             panic!(
                 "compile error in {}:\n{}",
                 node.path.display(),

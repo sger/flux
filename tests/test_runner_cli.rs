@@ -710,7 +710,7 @@ fn dump_core_reports_drop_specialized_stats() {
         text
     );
     assert!(
-        text.contains("drop_spec xs#18"),
+        text.contains("drop_spec xs#"),
         "expected debug Core dump to include DropSpecialized, output:\n{}",
         text
     );

@@ -83,8 +83,7 @@ fn run_named_module(module_file_name: &str, module_source: &str, entry_source: &
     for node in graph_result.graph.topo_order() {
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         if let Err(diags) = compiler.compile(&node.program) {
-            let source =
-                std::fs::read_to_string(&node.path).unwrap_or_else(|_| full_entry.clone());
+            let source = std::fs::read_to_string(&node.path).unwrap_or_else(|_| full_entry.clone());
             panic!(
                 "compile error in {}:\n{}",
                 node.path.display(),
@@ -151,8 +150,7 @@ fn run_two_modules(
     for node in graph_result.graph.topo_order() {
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         if let Err(diags) = compiler.compile(&node.program) {
-            let source =
-                std::fs::read_to_string(&node.path).unwrap_or_else(|_| full_entry.clone());
+            let source = std::fs::read_to_string(&node.path).unwrap_or_else(|_| full_entry.clone());
             panic!(
                 "compile error in {}:\n{}",
                 node.path.display(),

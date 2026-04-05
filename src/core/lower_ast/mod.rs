@@ -223,14 +223,11 @@ impl<'a> AstLowerer<'a> {
                 // source return-type annotation.  This is critical for
                 // recursive functions where HM may leave the return type as
                 // an unresolved variable.
-                if def.result_ty.is_none()
-                    || matches!(def.result_ty, Some(super::CoreType::Any))
+                if (def.result_ty.is_none() || matches!(def.result_ty, Some(super::CoreType::Any)))
+                    && let Some(rt) = return_type
+                    && let Some(annotated_ty) = self.core_type_from_type_expr(rt)
                 {
-                    if let Some(rt) = return_type {
-                        if let Some(annotated_ty) = self.core_type_from_type_expr(rt) {
-                            def.result_ty = Some(annotated_ty);
-                        }
-                    }
+                    def.result_ty = Some(annotated_ty);
                 }
                 out.push(def);
             }

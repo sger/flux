@@ -15,6 +15,7 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
+#include <setjmp.h>
 #if defined(_MSC_VER) || defined(_WIN32)
 #include <windows.h>
 #include <io.h>
@@ -649,7 +650,16 @@ static void flux_trace_print(void) {
 
 /* ── Control ────────────────────────────────────────────────────────── */
 
+/* Try/catch infrastructure: flux_try uses setjmp to catch flux_panic. */
+static __thread jmp_buf *flux_try_jmp = NULL;
+static __thread int64_t  flux_try_error_msg = 0; /* FLUX_NONE */
+
 void flux_panic(int64_t msg) {
+    /* If a try handler is active, longjmp instead of aborting. */
+    if (flux_try_jmp) {
+        flux_try_error_msg = msg;
+        longjmp(*flux_try_jmp, 1);
+    }
     if (flux_is_ptr(msg)) {
         uint32_t len = flux_string_len(msg);
         const char *data = flux_string_data(msg);
@@ -661,6 +671,96 @@ void flux_panic(int64_t msg) {
     }
     flux_trace_print();
     abort();
+}
+
+/* Allocate a tuple: { u8 obj_tag=0xF3, u8[3] pad, u32 arity, i64 elements[] }. */
+static int64_t make_tuple(int64_t *fields, uint32_t arity) {
+    uint32_t payload = 4 + 4 + arity * 8; /* pad+arity header + elements */
+    void *ptr = flux_gc_alloc_header(payload, (uint8_t)arity, FLUX_OBJ_TUPLE);
+    *(uint32_t *)((char *)ptr + 4) = arity;
+    int64_t *elems = (int64_t *)((char *)ptr + 8);
+    for (uint32_t i = 0; i < arity; i++) {
+        elems[i] = fields[i];
+    }
+    return (int64_t)ptr;
+}
+
+/* flux_try(thunk): call thunk(), return ("ok", result) or ("error", message). */
+int64_t flux_try(int64_t thunk) {
+    jmp_buf buf;
+    jmp_buf *prev = flux_try_jmp;
+    flux_try_jmp = &buf;
+    flux_try_error_msg = 0;
+
+    int64_t result;
+    if (setjmp(buf) == 0) {
+        /* Normal path: call the thunk with 0 args. */
+        result = flux_call_closure_c(thunk, NULL, 0);
+        flux_try_jmp = prev;
+        /* Return ("ok", result) as a 2-tuple. */
+        int64_t ok_str = flux_string_new("ok", 2);
+        int64_t fields[2];
+        fields[0] = ok_str;
+        fields[1] = result;
+        return make_tuple(fields, 2);
+    } else {
+        /* Error path: flux_panic called longjmp. */
+        flux_try_jmp = prev;
+        int64_t err_str = flux_string_new("error", 5);
+        int64_t msg = flux_try_error_msg;
+        if (msg == 0) {
+            msg = flux_string_new("unknown error", 13);
+        } else if (!flux_is_ptr(msg)) {
+            /* Convert non-string panic value to string. */
+            msg = flux_string_new("runtime error", 13);
+        }
+        int64_t fields[2];
+        fields[0] = err_str;
+        fields[1] = msg;
+        return make_tuple(fields, 2);
+    }
+}
+
+/* flux_assert_throws(thunk, expected_msg): assert that thunk() panics. */
+int64_t flux_assert_throws(int64_t thunk, int64_t expected_msg) {
+    jmp_buf buf;
+    jmp_buf *prev = flux_try_jmp;
+    flux_try_jmp = &buf;
+    flux_try_error_msg = 0;
+
+    if (setjmp(buf) == 0) {
+        /* Thunk completed without error — assertion failure. */
+        flux_call_closure_c(thunk, NULL, 0);
+        flux_try_jmp = prev;
+        flux_panic(flux_string_new("assert_throws failed: function completed without error", 54));
+        return 0; /* unreachable */
+    } else {
+        /* Thunk panicked — check message if expected_msg is provided. */
+        flux_try_jmp = prev;
+        if (expected_msg != 0 && flux_is_ptr(expected_msg)) {
+            int64_t actual = flux_try_error_msg;
+            if (actual != 0 && flux_is_ptr(actual)) {
+                const char *exp_data = flux_string_data(expected_msg);
+                uint32_t exp_len = flux_string_len(expected_msg);
+                const char *act_data = flux_string_data(actual);
+                uint32_t act_len = flux_string_len(actual);
+                /* Check if actual contains expected. */
+                int found = 0;
+                if (act_len >= exp_len) {
+                    for (uint32_t i = 0; i <= act_len - exp_len; i++) {
+                        if (memcmp(act_data + i, exp_data, exp_len) == 0) {
+                            found = 1;
+                            break;
+                        }
+                    }
+                }
+                if (!found) {
+                    flux_panic(flux_string_new("assert_throws: error message mismatch", 37));
+                }
+            }
+        }
+        return 0; /* FLUX_NONE */
+    }
 }
 
 int64_t flux_clock_now(void) {

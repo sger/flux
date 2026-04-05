@@ -220,13 +220,19 @@ fn compile_with_opts_skips_tail_call_analysis_without_optimization() {
 #[test]
 fn compile_function_fuses_add_locals() {
     let asm = compile_function_asm("fn f(a, b) { a + b }", "f");
-    assert!(asm.contains("OpAddLocals 0 1"), "expected fused add:\n{asm}");
+    assert!(
+        asm.contains("OpAddLocals 0 1"),
+        "expected fused add:\n{asm}"
+    );
 }
 
 #[test]
 fn compile_function_fuses_sub_locals() {
     let asm = compile_function_asm("fn f(a, b) { a - b }", "f");
-    assert!(asm.contains("OpSubLocals 0 1"), "expected fused sub:\n{asm}");
+    assert!(
+        asm.contains("OpSubLocals 0 1"),
+        "expected fused sub:\n{asm}"
+    );
 }
 
 #[test]
@@ -272,10 +278,7 @@ fn main() { zero(); one(1); two(1, 2) }
 
 #[test]
 fn compile_function_fuses_tail_call1() {
-    let asm = compile_function_asm(
-        "fn f(n) { if n == 0 { 0 } else { return f(n - 1); } }",
-        "f",
-    );
+    let asm = compile_function_asm("fn f(n) { if n == 0 { 0 } else { return f(n - 1); } }", "f");
     assert!(asm.contains("OpTailCall1"), "expected OpTailCall1:\n{asm}");
 }
 
