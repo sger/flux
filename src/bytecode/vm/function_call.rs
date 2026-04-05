@@ -142,6 +142,9 @@ impl VM {
     }
 
     pub(super) fn execute_tail_call(&mut self, num_args: usize) -> Result<(), String> {
+        if self.profiling {
+            self.exit_cost_centre();
+        }
         let callee_idx = self.sp - 1 - num_args;
         let callee_val = self.stack_get(callee_idx);
         match &callee_val {
