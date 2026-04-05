@@ -1,6 +1,6 @@
 // Advent of Code - Day 7 (Haskell-style translation)
 // Inspired by AOC2025.Day07 day07a/day07b.
-// Uses input file: examples/io/aoc_day7.txt
+// Uses input file: examples/aoc/2025/aoc_day7.txt
 
 fn main() with IO, Time {
     fn line_at(lines, idx) {
@@ -212,7 +212,7 @@ fn day07b(lines) {
     simulate_b(lines, srow, width, start_counts, 0)
 }
 
-let lines = read_lines("examples/io/aoc_day7.txt")
+let lines = read_lines("examples/aoc/2025/aoc_day7.txt")
 
 print(day07a(lines))
 print(day07b(lines))

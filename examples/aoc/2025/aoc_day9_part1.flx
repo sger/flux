@@ -1,6 +1,6 @@
 // Advent of Code - Day 9 Part 1 (Movie Theater)
 // Largest rectangle area using any two red tiles as opposite corners.
-// Input: examples/io/aoc_day9.txt
+// Input: examples/aoc/2025/aoc_day9.txt
 
 fn main() with IO, Time {
     fn int_at(arr, idx) {
@@ -48,7 +48,7 @@ fn best_all(points, i, best) {
 }
 }
 
-let lines = read_lines("examples/io/aoc_day9.txt")
+let lines = read_lines("aoc_day9.txt")
 let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
 print(best_all(points, 0, 0))
 }

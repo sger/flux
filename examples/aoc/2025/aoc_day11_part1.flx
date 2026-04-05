@@ -1,6 +1,6 @@
 // Advent of Code - Day 11 Part 1
 // Count directed paths from "you" to "out".
-// Input: examples/io/aoc_day11.txt
+// Input: examples/aoc/2025/aoc_day11.txt
 
 fn main() with IO, Time {
     fn line_at(lines, idx) {
@@ -114,7 +114,7 @@ fn dfs_count(node, graph, memo) {
 }
 }
 
-let lines = read_lines("examples/io/aoc_day11.txt")
+let lines = read_lines("examples/aoc/2025/aoc_day11.txt")
 let graph = parse_graph(lines)
 let ans = dfs_count("you", graph, {})
 print(result_count(ans))

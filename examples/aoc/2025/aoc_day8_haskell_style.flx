@@ -1,7 +1,7 @@
 // Advent of Code - Day 8 (Haskell-style, JIT-friendly)
 // Keeps day08a/day08b naming while using the pruned-edge approach
 // from existing Flux Day 8 examples for performance.
-// Uses input file: examples/io/aoc_day8.txt
+// Uses input file: examples/aoc/2025/aoc_day8.txt
 
 import Flow.Array as Array
 
@@ -231,7 +231,7 @@ fn day08b(points) {
     solve_day08b(points, 188000000, 40000000000)
 }
 
-let lines = read_lines("examples/io/aoc_day8.txt")
+let lines = read_lines("examples/aoc/2025/aoc_day8.txt")
 let points = parse_points(lines, 0, [||])
 
 print(day08a(points))

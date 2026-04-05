@@ -18,14 +18,14 @@ stderr:
 • 1 error • lib/Flow/List.flx
 error[E1004]: primop concat expected Array, got Int
 
-  lib/Flow/List.flx:90:36
+  lib/Flow/List.flx:96:36
    |
-90 |                         Some(v) -> flat_map_arr(i + 1, concat(acc, f(v))),
+96 |                         Some(v) -> flat_map_arr(i + 1, concat(acc, f(v))),
    |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Stack trace:
-  at flat_map_arr (lib/Flow/List.flx:90:36)
-  at Flow.List.flat_map (lib/Flow/List.flx:85:9)
+  at flat_map_arr (lib/Flow/List.flx:96:36)
+  at Flow.List.flat_map (lib/Flow/List.flx:91:9)
   at main (examples/runtime_errors/base_flat_map_return_shape.flx:2:5)
   at <main>
 == jit ==
@@ -44,13 +44,13 @@ stderr:
 • 1 error • lib/Flow/List.flx
 error[E1004]: primop concat expected Array, got Int
 
-  lib/Flow/List.flx:90:36
+  lib/Flow/List.flx:96:36
    |
-90 |                         Some(v) -> flat_map_arr(i + 1, concat(acc, f(v))),
+96 |                         Some(v) -> flat_map_arr(i + 1, concat(acc, f(v))),
    |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Stack trace:
-  at flat_map_arr (lib/Flow/List.flx:90:36)
-  at Flow.List.flat_map (lib/Flow/List.flx:85:9)
+  at flat_map_arr (lib/Flow/List.flx:96:36)
+  at Flow.List.flat_map (lib/Flow/List.flx:91:9)
   at main (examples/runtime_errors/base_flat_map_return_shape.flx:2:5)
   at <main>

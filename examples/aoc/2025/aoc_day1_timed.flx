@@ -1,5 +1,5 @@
 // Advent of Code - Day 1 (timed)
-// Uses input file: examples/io/aoc_day1.txt
+// Uses input file: examples/aoc/2025/aoc_day1.txt
 
 fn main() with IO, Time {
     fn wrap_100(value) {
@@ -54,7 +54,7 @@ fn solve_steps(steps, pos, hits) {
 }
 
 fn run_day1() {
-    let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
+    let lines = to_list(read_lines("examples/aoc/2025/aoc_day1.txt"))
     let steps = parse_rotations(lines, None)
     solve_steps(steps, 50, 0)
 }

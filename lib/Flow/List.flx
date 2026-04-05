@@ -20,10 +20,13 @@ module Flow.List {
             }
             map_arr(0, [||])
         } else {
-            match xs {
-                [h | t] -> [f(h) | map(t, f)],
-                _ -> []
+            fn map_acc(ys, acc) {
+                match ys {
+                    [h | t] -> map_acc(t, [f(h) | acc]),
+                    _ -> reverse(acc)
+                }
             }
+            map_acc(xs, [])
         }
     }
 
@@ -40,10 +43,13 @@ module Flow.List {
             }
             filter_arr(0, [||])
         } else {
-            match xs {
-                [h | t] -> if pred(h) { [h | filter(t, pred)] } else { filter(t, pred) },
-                _ -> []
+            fn filter_acc(ys, acc) {
+                match ys {
+                    [h | t] -> if pred(h) { filter_acc(t, [h | acc]) } else { filter_acc(t, acc) },
+                    _ -> reverse(acc)
+                }
             }
+            filter_acc(xs, [])
         }
     }
 
@@ -94,10 +100,13 @@ module Flow.List {
             }
             flat_map_arr(0, [||])
         } else {
-            match xs {
-                [h | t] -> append(f(h), flat_map(t, f)),
-                _ -> []
+            fn flat_map_acc(ys, acc) {
+                match ys {
+                    [h | t] -> flat_map_acc(t, append(reverse(f(h)), acc)),
+                    _ -> reverse(acc)
+                }
             }
+            flat_map_acc(xs, [])
         }
     }
 
@@ -114,10 +123,13 @@ module Flow.List {
             }
             flatten_arr(0, [||])
         } else {
-            match xs {
-                [h | t] -> append(h, flatten(t)),
-                _ -> []
+            fn flatten_acc(ys, acc) {
+                match ys {
+                    [h | t] -> flatten_acc(t, append(reverse(h), acc)),
+                    _ -> reverse(acc)
+                }
             }
+            flatten_acc(xs, [])
         }
     }
 
@@ -235,13 +247,16 @@ module Flow.List {
     }
 
     public fn take(xs, n) {
-        if n <= 0 { [] }
-        else {
-            match xs {
-                [h | t] -> [h | take(t, n - 1)],
-                _ -> []
+        fn take_acc(ys, remaining, acc) {
+            if remaining <= 0 { reverse(acc) }
+            else {
+                match ys {
+                    [h | t] -> take_acc(t, remaining - 1, [h | acc]),
+                    _ -> reverse(acc)
+                }
             }
         }
+        take_acc(xs, n, [])
     }
 
     public fn drop(xs, n) {
@@ -255,10 +270,13 @@ module Flow.List {
     }
 
     public fn take_while(xs, pred) {
-        match xs {
-            [h | t] -> if pred(h) { [h | take_while(t, pred)] } else { [] },
-            _ -> []
+        fn take_while_acc(ys, acc) {
+            match ys {
+                [h | t] -> if pred(h) { take_while_acc(t, [h | acc]) } else { reverse(acc) },
+                _ -> reverse(acc)
+            }
         }
+        take_while_acc(xs, [])
     }
 
     public fn drop_while(xs, pred) {
