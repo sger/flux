@@ -33,24 +33,12 @@ module Flow.IO {
         split(content, "\n")
     }
 
-    // safe_int: extract Int from parse_int result.
-    // parse_int returns bare Int on native, Option<Int> on VM.
-    fn safe_int(val, fallback) {
-        if is_int(val) { val }
-        else {
-            match val {
-                Some(n) -> n,
-                _ -> fallback
-            }
-        }
-    }
-
     public fn parse_ints(arr) {
         fn pi_go(i, result) {
             if i >= len(arr) { result }
             else {
                 match arr[i] {
-                    Some(s) -> pi_go(i + 1, push(result, safe_int(parse_int(s), 0))),
+                    Some(s) -> pi_go(i + 1, push(result, parse_int(s))),
                     _ -> pi_go(i + 1, result)
                 }
             }

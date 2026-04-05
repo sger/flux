@@ -18,6 +18,22 @@ fn new_vm() -> VM {
     })
 }
 
+fn make_test_closure(
+    instructions: Vec<u8>,
+    num_parameters: usize,
+    num_locals: usize,
+) -> Rc<Closure> {
+    Rc::new(Closure::new(
+        Rc::new(CompiledFunction::new(
+            instructions,
+            num_locals,
+            num_parameters,
+            None,
+        )),
+        vec![],
+    ))
+}
+
 #[test]
 fn dispatch_op_true_pushes_boolean() {
     let mut vm = new_vm();
@@ -175,6 +191,224 @@ fn dispatch_op_return_local_moves_value_out_of_frame_slot() {
     assert_eq!(vm.frame_index, 0);
     assert_eq!(vm.sp, 1);
     assert_eq!(vm.stack_get(0), Value::String(Rc::new("moved".to_string())));
+}
+
+#[test]
+fn dispatch_op_add_locals_pushes_sum() {
+    let mut vm = new_vm();
+    vm.frames[0] = Frame::new(vm.frames[0].closure.clone(), 0);
+    vm.stack_set(0, Value::Integer(7));
+    vm.stack_set(1, Value::Integer(5));
+    vm.sp = 2;
+
+    let advance = vm
+        .dispatch_instruction(&[OpCode::OpAddLocals as u8, 0, 1], 0, OpCode::OpAddLocals)
+        .unwrap();
+
+    assert_eq!(advance, 3);
+    assert_eq!(vm.pop().unwrap(), Value::Integer(12));
+}
+
+#[test]
+fn dispatch_op_sub_locals_pushes_difference() {
+    let mut vm = new_vm();
+    vm.frames[0] = Frame::new(vm.frames[0].closure.clone(), 0);
+    vm.stack_set(0, Value::Integer(9));
+    vm.stack_set(1, Value::Integer(4));
+    vm.sp = 2;
+
+    let advance = vm
+        .dispatch_instruction(&[OpCode::OpSubLocals as u8, 0, 1], 0, OpCode::OpSubLocals)
+        .unwrap();
+
+    assert_eq!(advance, 3);
+    assert_eq!(vm.pop().unwrap(), Value::Integer(5));
+}
+
+#[test]
+fn dispatch_op_get_local_get_local_preserves_order() {
+    let mut vm = new_vm();
+    vm.frames[0] = Frame::new(vm.frames[0].closure.clone(), 0);
+    vm.stack_set(0, Value::Integer(3));
+    vm.stack_set(1, Value::Integer(8));
+    vm.sp = 2;
+
+    let advance = vm
+        .dispatch_instruction(
+            &[OpCode::OpGetLocalGetLocal as u8, 1, 0],
+            0,
+            OpCode::OpGetLocalGetLocal,
+        )
+        .unwrap();
+
+    assert_eq!(advance, 3);
+    assert_eq!(vm.pop().unwrap(), Value::Integer(3));
+    assert_eq!(vm.pop().unwrap(), Value::Integer(8));
+}
+
+#[test]
+fn dispatch_op_constant_add_uses_existing_left_operand() {
+    let mut vm = new_vm();
+    vm.constants.push(super::slot::to_slot(Value::Integer(4)));
+    vm.push(Value::Integer(6)).unwrap();
+
+    let advance = vm
+        .dispatch_instruction(
+            &[OpCode::OpConstantAdd as u8, 0, 0],
+            0,
+            OpCode::OpConstantAdd,
+        )
+        .unwrap();
+
+    assert_eq!(advance, 3);
+    assert_eq!(vm.pop().unwrap(), Value::Integer(10));
+}
+
+#[test]
+fn dispatch_op_get_local_index_reads_collection_from_local() {
+    let mut vm = new_vm();
+    vm.frames[0] = Frame::new(vm.frames[0].closure.clone(), 0);
+    vm.stack_set(
+        0,
+        Value::Array(Rc::new(vec![Value::Integer(10), Value::Integer(20)])),
+    );
+    vm.sp = 1;
+    vm.push(Value::Integer(1)).unwrap();
+
+    let advance = vm
+        .dispatch_instruction(
+            &[OpCode::OpGetLocalIndex as u8, 0],
+            0,
+            OpCode::OpGetLocalIndex,
+        )
+        .unwrap();
+
+    assert_eq!(advance, 2);
+    assert_eq!(vm.pop().unwrap(), Value::Some(Rc::new(Value::Integer(20))));
+}
+
+#[test]
+fn dispatch_op_get_local_is_adt_pushes_match_result() {
+    let mut vm = new_vm();
+    vm.constants
+        .push(super::slot::to_slot(Value::String(Rc::new(
+            "Node".to_string(),
+        ))));
+    vm.frames[0] = Frame::new(vm.frames[0].closure.clone(), 0);
+    vm.stack_set(
+        0,
+        Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("Node".to_string()),
+            fields: AdtFields::from_vec(vec![Value::Integer(1)]),
+        })),
+    );
+    vm.sp = 1;
+
+    let advance = vm
+        .dispatch_instruction(
+            &[OpCode::OpGetLocalIsAdt as u8, 0, 0, 0],
+            0,
+            OpCode::OpGetLocalIsAdt,
+        )
+        .unwrap();
+
+    assert_eq!(advance, 4);
+    assert_eq!(vm.pop().unwrap(), Value::Boolean(true));
+}
+
+#[test]
+fn dispatch_op_set_local_pop_sets_local_and_discards_previous_tos() {
+    let mut vm = new_vm();
+    vm.frames[0] = Frame::new(vm.frames[0].closure.clone(), 1);
+    vm.stack_set(0, Value::Integer(999));
+    vm.stack_set(1, Value::Integer(0));
+    vm.sp = 2;
+    vm.push(Value::Integer(10)).unwrap();
+    vm.push(Value::Integer(42)).unwrap();
+
+    let advance = vm
+        .dispatch_instruction(&[OpCode::OpSetLocalPop as u8, 0], 0, OpCode::OpSetLocalPop)
+        .unwrap();
+
+    assert_eq!(advance, 2);
+    assert_eq!(vm.sp, 2);
+    assert_eq!(vm.stack_get(1), Value::Integer(42));
+}
+
+#[test]
+fn dispatch_op_call_variants_push_new_frame() {
+    let mut vm = new_vm();
+    let zero = make_test_closure(vec![OpCode::OpReturn as u8], 0, 0);
+    vm.push(Value::Closure(zero)).unwrap();
+    let advance0 = vm
+        .dispatch_instruction(&[OpCode::OpCall0 as u8], 0, OpCode::OpCall0)
+        .unwrap();
+    assert_eq!(advance0, 1);
+    assert_eq!(vm.frame_index, 1);
+
+    let mut vm = new_vm();
+    let one = make_test_closure(vec![OpCode::OpReturnLocal as u8, 0], 1, 1);
+    vm.push(Value::Closure(one)).unwrap();
+    vm.push(Value::Integer(7)).unwrap();
+    let advance1 = vm
+        .dispatch_instruction(&[OpCode::OpCall1 as u8], 0, OpCode::OpCall1)
+        .unwrap();
+    assert_eq!(advance1, 1);
+    assert_eq!(vm.frame_index, 1);
+
+    let mut vm = new_vm();
+    let two = make_test_closure(vec![OpCode::OpReturnLocal as u8, 0], 2, 2);
+    vm.push(Value::Closure(two)).unwrap();
+    vm.push(Value::Integer(7)).unwrap();
+    vm.push(Value::Integer(8)).unwrap();
+    let advance2 = vm
+        .dispatch_instruction(&[OpCode::OpCall2 as u8], 0, OpCode::OpCall2)
+        .unwrap();
+    assert_eq!(advance2, 1);
+    assert_eq!(vm.frame_index, 1);
+}
+
+#[test]
+fn dispatch_op_get_local_call1_reorders_local_callee_and_existing_arg() {
+    let mut vm = new_vm();
+    let closure = make_test_closure(vec![OpCode::OpReturnLocal as u8, 0], 1, 1);
+    vm.frames[0] = Frame::new(vm.frames[0].closure.clone(), 0);
+    vm.stack_set(0, Value::Closure(closure));
+    vm.sp = 1;
+    vm.push(Value::Integer(11)).unwrap();
+
+    let advance = vm
+        .dispatch_instruction(
+            &[OpCode::OpGetLocalCall1 as u8, 0],
+            0,
+            OpCode::OpGetLocalCall1,
+        )
+        .unwrap();
+
+    assert_eq!(advance, 2);
+    assert_eq!(vm.frame_index, 1);
+}
+
+#[test]
+fn dispatch_op_tail_call1_reuses_current_frame() {
+    let mut vm = new_vm();
+    let current = make_test_closure(vec![OpCode::OpReturnLocal as u8, 0], 1, 1);
+    let replacement = make_test_closure(vec![OpCode::OpReturnLocal as u8, 0], 1, 1);
+    vm.frames[0] = Frame::new(current, 0);
+    vm.frame_index = 0;
+    vm.stack_set(0, Value::Integer(1));
+    vm.sp = 1;
+    vm.push(Value::Closure(replacement.clone())).unwrap();
+    vm.push(Value::Integer(99)).unwrap();
+
+    let advance = vm
+        .dispatch_instruction(&[OpCode::OpTailCall1 as u8], 0, OpCode::OpTailCall1)
+        .unwrap();
+
+    assert_eq!(advance, 0);
+    assert_eq!(vm.frame_index, 0);
+    assert!(Rc::ptr_eq(&vm.current_frame().closure, &replacement));
+    assert_eq!(vm.stack_get(0), Value::Integer(99));
 }
 
 #[test]

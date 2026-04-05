@@ -39,6 +39,9 @@ mod tests {
 
         let ins = make(OpCode::OpCmpEqJumpNotTruthy, &[1024]);
         assert_eq!(ins, vec![OpCode::OpCmpEqJumpNotTruthy as u8, 0x04, 0x00]);
+
+        let ins = make(OpCode::OpConstantAdd, &[1024]);
+        assert_eq!(ins, vec![OpCode::OpConstantAdd as u8, 0x04, 0x00]);
     }
 
     #[test]
@@ -56,6 +59,15 @@ mod tests {
 
         let ins = make(OpCode::OpAetherDropLocal, &[7]);
         assert_eq!(ins, vec![OpCode::OpAetherDropLocal as u8, 7]);
+
+        let ins = make(OpCode::OpGetLocalCall1, &[4]);
+        assert_eq!(ins, vec![OpCode::OpGetLocalCall1 as u8, 4]);
+
+        let ins = make(OpCode::OpGetLocalIndex, &[2]);
+        assert_eq!(ins, vec![OpCode::OpGetLocalIndex as u8, 2]);
+
+        let ins = make(OpCode::OpSetLocalPop, &[9]);
+        assert_eq!(ins, vec![OpCode::OpSetLocalPop as u8, 9]);
     }
 
     #[test]
@@ -64,12 +76,18 @@ mod tests {
         // constant index 1, free vars 2
         let ins = make(OpCode::OpClosure, &[1, 2]);
         assert_eq!(ins, vec![OpCode::OpClosure as u8, 0x00, 0x01, 0x02]);
-    }
 
-    #[test]
-    fn make_op_call_base_operands() {
-        let ins = make(OpCode::OpCallBase, &[9, 2]);
-        assert_eq!(ins, vec![OpCode::OpCallBase as u8, 9, 2]);
+        let ins = make(OpCode::OpAddLocals, &[1, 3]);
+        assert_eq!(ins, vec![OpCode::OpAddLocals as u8, 1, 3]);
+
+        let ins = make(OpCode::OpSubLocals, &[2, 4]);
+        assert_eq!(ins, vec![OpCode::OpSubLocals as u8, 2, 4]);
+
+        let ins = make(OpCode::OpGetLocalGetLocal, &[5, 6]);
+        assert_eq!(ins, vec![OpCode::OpGetLocalGetLocal as u8, 5, 6]);
+
+        let ins = make(OpCode::OpGetLocalIsAdt, &[7, 258]);
+        assert_eq!(ins, vec![OpCode::OpGetLocalIsAdt as u8, 7, 0x01, 0x02]);
     }
 
     #[test]
@@ -137,6 +155,20 @@ mod tests {
     }
 
     #[test]
+    fn disassemble_superinstructions() {
+        let mut program: Instructions = Vec::new();
+        program.extend(make(OpCode::OpAddLocals, &[0, 1]));
+        program.extend(make(OpCode::OpCall1, &[]));
+        program.extend(make(OpCode::OpTailCall1, &[]));
+
+        let out = disassemble(&program);
+
+        assert!(out.contains("OpAddLocals 0 1"));
+        assert!(out.contains("OpCall1"));
+        assert!(out.contains("OpTailCall1"));
+    }
+
+    #[test]
     fn operand_widths_contract() {
         assert_eq!(operand_widths(OpCode::OpConstant), vec![2]);
         assert_eq!(operand_widths(OpCode::OpConstantLong), vec![4]);
@@ -155,9 +187,44 @@ mod tests {
         assert_eq!(operand_widths(OpCode::OpTupleLong), vec![4]);
         assert_eq!(operand_widths(OpCode::OpTupleIndex), vec![1]);
         assert_eq!(operand_widths(OpCode::OpAetherDropLocal), vec![1]);
+        assert_eq!(operand_widths(OpCode::OpAddLocals), vec![1, 1]);
+        assert_eq!(operand_widths(OpCode::OpSubLocals), vec![1, 1]);
+        assert_eq!(operand_widths(OpCode::OpGetLocalCall1), vec![1]);
+        assert_eq!(operand_widths(OpCode::OpConstantAdd), vec![2]);
+        assert_eq!(operand_widths(OpCode::OpGetLocalIndex), vec![1]);
+        assert_eq!(operand_widths(OpCode::OpGetLocalIsAdt), vec![1, 2]);
+        assert_eq!(operand_widths(OpCode::OpSetLocalPop), vec![1]);
+        assert_eq!(operand_widths(OpCode::OpGetLocalGetLocal), vec![1, 1]);
+        assert_eq!(operand_widths(OpCode::OpCall0), Vec::<usize>::new());
+        assert_eq!(operand_widths(OpCode::OpCall1), Vec::<usize>::new());
+        assert_eq!(operand_widths(OpCode::OpCall2), Vec::<usize>::new());
+        assert_eq!(operand_widths(OpCode::OpTailCall1), Vec::<usize>::new());
         assert_eq!(operand_widths(OpCode::OpConsumeLocal0), Vec::<usize>::new());
         assert_eq!(operand_widths(OpCode::OpConsumeLocal1), Vec::<usize>::new());
         assert_eq!(operand_widths(OpCode::OpIsAdtJumpLocal), vec![1, 2, 2]);
         assert_eq!(operand_widths(OpCode::OpAdd), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn max_opcode_matches_last_variant() {
+        // Ensure MAX_OPCODE stays in sync when new opcodes are added.
+        assert_eq!(
+            flux::bytecode::op_code::MAX_OPCODE,
+            OpCode::OpEnterCC as u8,
+            "MAX_OPCODE must equal the last OpCode variant"
+        );
+    }
+
+    #[test]
+    fn from_u8_roundtrips_all_opcodes() {
+        // Verify From<u8> produces correct values for all valid opcodes.
+        // Byte 63 is intentionally skipped (was OpCallBase, now removed).
+        for byte in 0..=flux::bytecode::op_code::MAX_OPCODE {
+            if byte == 63 {
+                continue; // gap from removed OpCallBase
+            }
+            let op = OpCode::from(byte);
+            assert_eq!(op as u8, byte, "OpCode::from({byte}) roundtrip failed");
+        }
     }
 }

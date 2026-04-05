@@ -19,7 +19,7 @@ fn parse_pair(line) {
 }
 
 // Parse whole input into an array of tuples: [(left, right), ...].
-fn parse_pairs(lines) {
+fn parse_pairs(lines: Array<String>) {
     lines
     |> map(\s -> trim(s))
     |> filter(\s -> s != "")

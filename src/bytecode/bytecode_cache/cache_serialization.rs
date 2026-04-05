@@ -106,10 +106,7 @@ pub(super) fn write_object(writer: &mut File, obj: &Value) -> std::io::Result<()
             writer.write_all(&[9])?;
             write_object(writer, value)
         }
-        Value::BaseFunction(index) => {
-            writer.write_all(&[10])?;
-            writer.write_all(&[*index])
-        }
+        // Tag 10 was BaseFunction (removed). Keep tag reserved for backward compat.
         Value::Array(values) => {
             writer.write_all(&[11])?;
             write_u32(writer, values.len() as u32)?;
@@ -183,9 +180,10 @@ pub(super) fn read_object(reader: &mut File) -> Option<Value> {
         8 => Some(Value::Left(std::rc::Rc::new(read_object(reader)?))),
         9 => Some(Value::Right(std::rc::Rc::new(read_object(reader)?))),
         10 => {
+            // Tag 10 was BaseFunction (removed). Skip 1 byte for compat.
             let mut value = [0u8; 1];
             reader.read_exact(&mut value).ok()?;
-            Some(Value::BaseFunction(value[0]))
+            Some(Value::None)
         }
         11 => {
             let len = read_u32(reader)? as usize;
