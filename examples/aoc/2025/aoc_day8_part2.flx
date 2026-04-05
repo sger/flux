@@ -1,7 +1,7 @@
 // Advent of Code - Day 8 Part 2 (Playground)
 // Keep connecting closest unconnected pairs until everything is one circuit.
 // Return X[a] * X[b] for the last successful union edge.
-// Input: examples/io/aoc_day8.txt
+// Input: examples/aoc/2025/aoc_day8.txt
 
 import Flow.Array as Array
 
@@ -154,7 +154,7 @@ fn solve_limit(points, limit, max_limit) {
 }
 }
 
-let lines = read_lines("examples/io/aoc_day8.txt")
+let lines = read_lines("examples/aoc/2025/aoc_day8.txt")
 let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
 print(solve_limit(points, 188000000, 40000000000))
 }

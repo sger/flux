@@ -1009,6 +1009,8 @@ impl Compiler {
                         && let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
                         && existing.symbol_scope != SymbolScope::Function
+                        // Skip if this binding was predeclared for forward references
+                        && existing.span != *span
                     {
                         let name_str = self.sym(name);
                         return Err(Self::boxed(self.make_redeclaration_error(
@@ -1724,6 +1726,18 @@ impl Compiler {
 
     #[allow(clippy::vec_box)]
     fn compile_block_with_tail_collect_errors(&mut self, block: &Block) -> Vec<Box<Diagnostic>> {
+        // Predeclare nested function names so forward references and mutual
+        // recursion work inside function bodies (mirrors top-level pass 1).
+        if self.scope_index > 0 {
+            for stmt in &block.statements {
+                if let Statement::Function { name, span, .. } = stmt {
+                    if !self.symbol_table.exists_in_current_scope(*name) {
+                        self.symbol_table.define(*name, *span);
+                    }
+                }
+            }
+        }
+
         let len = block.statements.len();
         let mut errors = Vec::new();
         let mut consumable_counts = HashMap::new();

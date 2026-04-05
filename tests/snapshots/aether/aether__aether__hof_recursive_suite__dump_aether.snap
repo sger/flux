@@ -109,43 +109,8 @@ Aether Memory Model Report
       _ →
         MakeTuple())
   aether_call[owned] pla_go(0)
-── fn map ──
-  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
-  FreshAllocs: 0
-  verifier: ok
-λxs, f.
-  let %t1 = IsArray(xs)
-  case %t1 of
-    true →
-      letrec map_arr = (λi, acc.
-        let %t2 = (let %t3 = Len(xs)
-        Ge(i, %t3))
-        case %t2 of
-          true →
-            acc
-          _ →
-            let %t4 = Index(xs, i)
-            case %t4 of
-              Some(v) →
-                let %t5 = Add(i, 1)
-                let %t6 = (let %t7 = aether_call[owned] f(v)
-                ArrayPush(acc, %t7))
-                aether_call[owned, owned] map_arr(%t5, %t6)
-              _ →
-                let %t8 = IAdd(i, 1)
-                aether_call[owned, owned] map_arr(%t8, acc))
-      let %t9 = MakeArray()
-      aether_call[owned, owned] map_arr(0, %t9)
-    _ →
-      case xs of
-        ::(h, t) →
-          let %t10 = aether_call[owned] f(h)
-          let %t11 = aether_call[owned, borrowed] map(t, f)
-          reuse xs ::(%t10, %t11)
-        _ →
-          []
 ── fn filter ──
-  Dups: 2  Drops: 2  Reuses: 1  DropSpecs: 1  FBIP: fbip(1)
+  Dups: 2  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 λxs, pred.
@@ -178,29 +143,22 @@ Aether Memory Model Report
       let %t10 = MakeArray()
       aether_call[owned, owned] filter_arr(0, %t10)
     _ →
-      case xs of
-        ::(h, t) →
-          drop_spec xs {
-            unique -> let %t11 = aether_call[owned] pred(h)
-              case %t11 of
-                true →
-                  let %t12 = aether_call[owned, borrowed] filter(t, pred)
-                  reuse xs ::(h, %t12) @mask=0b10
-                _ →
-                  drop h
-                  aether_call[owned, borrowed] filter(t, pred)
-            shared -> let %t11 = aether_call[owned] pred(dup h
-              h)
-              case %t11 of
-                true →
-                  let %t12 = aether_call[owned, borrowed] filter(t, pred)
-                  ::(h, %t12)
-                _ →
-                  drop h
-                  aether_call[owned, borrowed] filter(t, pred)
-          }
-        _ →
-          []
+      letrec filter_acc = (λys, acc.
+        case ys of
+          ::(h, t) →
+            let %t11 = aether_call[owned] pred(dup h
+            h)
+            case %t11 of
+              true →
+                let %t12 = ::(h, acc)
+                aether_call[owned, owned] filter_acc(t, %t12)
+              _ →
+                drop h
+                aether_call[owned, owned] filter_acc(t, acc)
+          _ →
+            aether_call[owned] reverse(acc))
+      let %t13 = []
+      aether_call[owned, owned] filter_acc(xs, %t13)
 ── fn find ──
   Dups: 2  Drops: 3  Reuses: 1  DropSpecs: 1  FBIP: fbip(2)
   FreshAllocs: 2
@@ -289,23 +247,6 @@ Aether Memory Model Report
           aether_call[borrowed, borrowed] each(t, f)
         _ →
           MakeTuple()
-── fn take ──
-  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
-  FreshAllocs: 0
-  verifier: ok
-λxs, n.
-  let %t1 = Le(n, 0)
-  case %t1 of
-    true →
-      []
-    _ →
-      case xs of
-        ::(h, t) →
-          let %t2 = (let %t3 = Sub(n, 1)
-          aether_call[owned, borrowed] take(t, %t3))
-          reuse xs ::(h, %t2) @mask=0b10
-        _ →
-          []
 ── fn drop ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
@@ -324,35 +265,27 @@ Aether Memory Model Report
         _ →
           []
 ── fn take_while ──
-  Dups: 1  Drops: 4  Reuses: 1  DropSpecs: 1  FBIP: fbip(1)
+  Dups: 1  Drops: 2  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 λxs, pred.
-  case xs of
-    ::(h, t) →
-      drop_spec xs {
-        unique -> let %t1 = aether_call[owned] pred(h)
-          case %t1 of
-            true →
-              let %t2 = aether_call[owned, borrowed] take_while(t, pred)
-              reuse xs ::(h, %t2) @mask=0b10
-            _ →
-              drop h
-              drop t
-              []
-        shared -> let %t1 = aether_call[owned] pred(dup h
-          h)
-          case %t1 of
-            true →
-              let %t2 = aether_call[owned, borrowed] take_while(t, pred)
-              ::(h, %t2)
-            _ →
-              drop h
-              drop t
-              []
-      }
-    _ →
-      []
+  letrec take_while_acc = (λys, acc.
+    case ys of
+      ::(h, t) →
+        let %t1 = aether_call[owned] pred(dup h
+        h)
+        case %t1 of
+          true →
+            let %t2 = ::(h, acc)
+            aether_call[owned, owned] take_while_acc(t, %t2)
+          _ →
+            drop h
+            drop t
+            aether_call[owned] reverse(acc)
+      _ →
+        aether_call[owned] reverse(acc))
+  let %t3 = []
+  aether_call[owned, owned] take_while_acc(xs, %t3)
 ── fn drop_while ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
@@ -1074,7 +1007,7 @@ Aether Memory Model Report
   Print(%t10)
 
 ── Total ──
-  Dups: 17  Drops: 61  Reuses: 16  DropSpecs: 3  FBIP: fbip(22)
+  Dups: 17  Drops: 58  Reuses: 12  DropSpecs: 1  FBIP: fbip(22)
   FreshAllocs: 22
 
 [1 of 7] Compiling  Assert

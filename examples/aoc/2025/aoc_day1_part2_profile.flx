@@ -73,7 +73,7 @@ fn repeat_solve(n, lines, checksum) {
 }
 }
 
-let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
+let lines = to_list(read_lines("examples/aoc/2025/aoc_day1.txt"))
 let iterations = 200
 
 let t0 = now_ms()

@@ -4,7 +4,7 @@ source: tests/aether_cli_snapshots.rs
 letrec assert_eq =
 λa#1, b#2.
     let %t1 = CmpEq(a#1, b#2)
-    case #4000570[synthetic]#570 of
+    case #4000589[synthetic]#589 of
       true →
         MakeTuple()
       _ →
@@ -19,7 +19,7 @@ letrec assert_eq =
 letrec assert_neq =
 λa#7, b#8.
     let %t5 = CmpNe(a#7, b#8)
-    case #4000571[synthetic]#571 of
+    case #4000590[synthetic]#590 of
       true →
         MakeTuple()
       _ →
@@ -38,7 +38,7 @@ letrec assert_true =
 letrec assert_false =
 λx#13.
     let %t7:Bool = Not(x#13)
-    case #4000572[synthetic]#572 of
+    case #4000591[synthetic]#591 of
       true →
         MakeTuple()
       _ →
@@ -47,7 +47,7 @@ letrec assert_false =
 letrec assert_gt =
 λa#15, b#16.
     let %t8:Bool = Gt(a#15, b#16)
-    case #4000573[synthetic]#573 of
+    case #4000592[synthetic]#592 of
       true →
         MakeTuple()
       _ →
@@ -56,7 +56,7 @@ letrec assert_gt =
 letrec assert_lt =
 λa#18, b#19.
     let %t9:Bool = Lt(a#18, b#19)
-    case #4000574[synthetic]#574 of
+    case #4000593[synthetic]#593 of
       true →
         MakeTuple()
       _ →
@@ -65,7 +65,7 @@ letrec assert_lt =
 letrec assert_gte =
 λa#21, b#22.
     let %t10:Bool = Ge(a#21, b#22)
-    case #4000575[synthetic]#575 of
+    case #4000594[synthetic]#594 of
       true →
         MakeTuple()
       _ →
@@ -74,7 +74,7 @@ letrec assert_gte =
 letrec assert_lte =
 λa#24, b#25.
     let %t11:Bool = Le(a#24, b#25)
-    case #4000576[synthetic]#576 of
+    case #4000595[synthetic]#595 of
       true →
         MakeTuple()
       _ →
@@ -86,20 +86,20 @@ letrec list_length =
       ::(h#29, t#30) →
         drop h#29
         let %t12 = Add(acc#28, 1)
-        aether_call[borrowed, owned] list_length#26(t#30, #4000577[synthetic]#577)
+        aether_call[borrowed, owned] list_length#26(t#30, #4000596[synthetic]#596)
       _ →
         acc#28
 
 letrec assert_len =
 λcollection#32, expected#33.
     let actual#35 = (let %t13 = IsList(collection#32)
-    case #4000578[synthetic]#578 of
+    case #4000597[synthetic]#597 of
       true →
         aether_call[borrowed, owned] list_length#26(collection#32, 0)
       _ →
         Len(collection#32))
     let %t14 = CmpEq(actual#35, expected#33)
-    case #4000579[synthetic]#579 of
+    case #4000598[synthetic]#598 of
       true →
         MakeTuple()
       _ →
@@ -119,18 +119,18 @@ letrec print_all =
 λarr#40.
     letrec pa_go#41 = (λi#42.
       let %t16:Bool = (let %t17 = Len(arr#40)
-      Lt(i#42, #4000580[synthetic]#580))
-      case #4000581[synthetic]#581 of
+      Lt(i#42, #4000599[synthetic]#599))
+      case #4000600[synthetic]#600 of
         true →
           let %t18 = (let %t19 = Index(arr#40, i#42)
-          case #4000582[synthetic]#582 of
+          case #4000601[synthetic]#601 of
             Some(v#44) →
               Print(v#44)
             _ →
               Print(""))
           drop #2000005[synthetic]#43
           let %t20 = Add(i#42, 1)
-          aether_call[owned] pa_go#41(#4000583[synthetic]#583)
+          aether_call[owned] pa_go#41(#4000602[synthetic]#602)
         _ →
           MakeTuple())
     aether_call[owned] pa_go#41(0)
@@ -139,18 +139,18 @@ letrec println_all =
 λarr#46.
     letrec pla_go#47 = (λi#48.
       let %t21:Bool = (let %t22 = Len(arr#46)
-      Lt(i#48, #4000584[synthetic]#584))
-      case #4000585[synthetic]#585 of
+      Lt(i#48, #4000603[synthetic]#603))
+      case #4000604[synthetic]#604 of
         true →
           let %t23 = (let %t24 = Index(arr#46, i#48)
-          case #4000586[synthetic]#586 of
+          case #4000605[synthetic]#605 of
             Some(v#50) →
               Println(v#50)
             _ →
               Println(""))
           drop #2000006[synthetic]#49
           let %t25 = Add(i#48, 1)
-          aether_call[owned] pla_go#47(#4000587[synthetic]#587)
+          aether_call[owned] pla_go#47(#4000606[synthetic]#606)
         _ →
           MakeTuple())
     aether_call[owned] pla_go#47(0)
@@ -164,23 +164,23 @@ letrec parse_ints =
 λarr#55.
     letrec pi_go#56 = (λi#57, result#58.
       let %t26:Bool = (let %t27 = Len(arr#55)
-      Ge(i#57, #4000588[synthetic]#588))
-      case #4000589[synthetic]#589 of
+      Ge(i#57, #4000607[synthetic]#607))
+      case #4000608[synthetic]#608 of
         true →
           result#58
         _ →
           let %t28 = Index(arr#55, i#57)
-          case #4000590[synthetic]#590 of
+          case #4000609[synthetic]#609 of
             Some(s#59) →
               let %t29 = Add(i#57, 1)
               let %t30:Box = (let %t31 = ParseInt(s#59)
-              ArrayPush(result#58, #4000592[synthetic]#592))
-              aether_call[owned, owned] pi_go#56(#4000591[synthetic]#591, #4000593[synthetic]#593)
+              ArrayPush(result#58, #4000611[synthetic]#611))
+              aether_call[owned, owned] pi_go#56(#4000610[synthetic]#610, #4000612[synthetic]#612)
             _ →
               let %t32 = Add(i#57, 1)
-              aether_call[owned, owned] pi_go#56(#4000594[synthetic]#594, result#58))
+              aether_call[owned, owned] pi_go#56(#4000613[synthetic]#613, result#58))
     let %t33:Box = MakeArray()
-    aether_call[owned, owned] pi_go#56(0, #4000595[synthetic]#595)
+    aether_call[owned, owned] pi_go#56(0, #4000614[synthetic]#614)
 
 letrec split_ints =
 λs#61, sep#62.
@@ -190,918 +190,917 @@ letrec split_ints =
 letrec map =
 λxs#65, f#66.
     let %t34 = IsArray(xs#65)
-    case #4000596[synthetic]#596 of
+    case #4000615[synthetic]#615 of
       true →
         letrec map_arr#67 = (λi#68, acc#69.
           let %t35:Bool = (let %t36 = Len(xs#65)
-          Ge(i#68, #4000597[synthetic]#597))
-          case #4000598[synthetic]#598 of
+          Ge(i#68, #4000616[synthetic]#616))
+          case #4000617[synthetic]#617 of
             true →
               acc#69
             _ →
               let %t37 = Index(xs#65, i#68)
-              case #4000599[synthetic]#599 of
+              case #4000618[synthetic]#618 of
                 Some(v#70) →
                   let %t38 = Add(i#68, 1)
                   let %t39:Box = (let %t40 = aether_call[owned] f#66(v#70)
-                  ArrayPush(acc#69, #4000601[synthetic]#601))
-                  aether_call[owned, owned] map_arr#67(#4000600[synthetic]#600, #4000602[synthetic]#602)
+                  ArrayPush(acc#69, #4000620[synthetic]#620))
+                  aether_call[owned, owned] map_arr#67(#4000619[synthetic]#619, #4000621[synthetic]#621)
                 _ →
                   let %t41 = Add(i#68, 1)
-                  aether_call[owned, owned] map_arr#67(#4000603[synthetic]#603, acc#69))
+                  aether_call[owned, owned] map_arr#67(#4000622[synthetic]#622, acc#69))
         let %t42:Box = MakeArray()
-        aether_call[owned, owned] map_arr#67(0, #4000604[synthetic]#604)
+        aether_call[owned, owned] map_arr#67(0, #4000623[synthetic]#623)
       _ →
-        case xs#65 of
-          ::(h#71, t#72) →
-            let %t43 = aether_call[owned] f#66(h#71)
-            let %t44 = aether_call[owned, borrowed] map#64(t#72, f#66)
-            reuse xs#65 ::(#4000605[synthetic]#605, #4000606[synthetic]#606)
-          _ →
-            []
+        letrec map_acc#71 = (λys#72, acc#73.
+          case ys#72 of
+            ::(h#74, t#75) →
+              let %t43:Box = (let %t44 = aether_call[owned] f#66(h#74)
+              ::(#4000624[synthetic]#624, acc#73))
+              aether_call[owned, owned] map_acc#71(t#75, #4000625[synthetic]#625)
+            _ →
+              aether_call[owned] reverse#273(acc#73))
+        let %t45:Unit = []
+        aether_call[owned, owned] map_acc#71(xs#65, #4000626[synthetic]#626)
 
 letrec filter =
-λxs#74, pred#75.
-    let %t45 = IsArray(xs#74)
-    case #4000607[synthetic]#607 of
+λxs#77, pred#78.
+    let %t46 = IsArray(xs#77)
+    case #4000627[synthetic]#627 of
       true →
-        letrec filter_arr#76 = (λi#77, acc#78.
-          let %t46:Bool = (let %t47 = Len(xs#74)
-          Ge(i#77, #4000608[synthetic]#608))
-          case #4000609[synthetic]#609 of
+        letrec filter_arr#79 = (λi#80, acc#81.
+          let %t47:Bool = (let %t48 = Len(xs#77)
+          Ge(i#80, #4000628[synthetic]#628))
+          case #4000629[synthetic]#629 of
             true →
-              acc#78
+              acc#81
             _ →
-              let %t48 = Index(xs#74, i#77)
-              case #4000610[synthetic]#610 of
-                Some(v#79) →
-                  let %t49 = aether_call[owned] pred#75(dup v#79
-                  v#79)
-                  case #4000611[synthetic]#611 of
+              let %t49 = Index(xs#77, i#80)
+              case #4000630[synthetic]#630 of
+                Some(v#82) →
+                  let %t50 = aether_call[owned] pred#78(dup v#82
+                  v#82)
+                  case #4000631[synthetic]#631 of
                     true →
-                      let %t50 = Add(i#77, 1)
-                      let %t51:Box = ArrayPush(acc#78, v#79)
-                      aether_call[owned, owned] filter_arr#76(#4000612[synthetic]#612, #4000613[synthetic]#613)
+                      let %t51 = Add(i#80, 1)
+                      let %t52:Box = ArrayPush(acc#81, v#82)
+                      aether_call[owned, owned] filter_arr#79(#4000632[synthetic]#632, #4000633[synthetic]#633)
                     _ →
-                      let %t52 = Add(i#77, 1)
-                      aether_call[owned, owned] filter_arr#76(#4000614[synthetic]#614, acc#78)
+                      let %t53 = Add(i#80, 1)
+                      aether_call[owned, owned] filter_arr#79(#4000634[synthetic]#634, acc#81)
                 _ →
-                  let %t53 = Add(i#77, 1)
-                  aether_call[owned, owned] filter_arr#76(#4000615[synthetic]#615, acc#78))
-        let %t54:Box = MakeArray()
-        aether_call[owned, owned] filter_arr#76(0, #4000616[synthetic]#616)
+                  let %t54 = Add(i#80, 1)
+                  aether_call[owned, owned] filter_arr#79(#4000635[synthetic]#635, acc#81))
+        let %t55:Box = MakeArray()
+        aether_call[owned, owned] filter_arr#79(0, #4000636[synthetic]#636)
       _ →
-        case xs#74 of
-          ::(h#80, t#81) →
-            drop_spec xs#74 {
-              unique -> let %t55 = aether_call[owned] pred#75(h#80)
-                case #4000617[synthetic]#617 of
-                  true →
-                    let %t56 = aether_call[owned, borrowed] filter#73(t#81, pred#75)
-                    reuse xs#74 ::(h#80, #4000618[synthetic]#618) @mask=0b10
-                  _ →
-                    drop h#80
-                    aether_call[owned, borrowed] filter#73(t#81, pred#75)
-              shared -> let %t55 = aether_call[owned] pred#75(dup h#80
-                h#80)
-                case #4000617[synthetic]#617 of
-                  true →
-                    let %t56 = aether_call[owned, borrowed] filter#73(t#81, pred#75)
-                    ::(h#80, #4000618[synthetic]#618)
-                  _ →
-                    drop h#80
-                    aether_call[owned, borrowed] filter#73(t#81, pred#75)
-            }
-          _ →
-            []
+        letrec filter_acc#83 = (λys#84, acc#85.
+          case ys#84 of
+            ::(h#86, t#87) →
+              let %t56 = aether_call[owned] pred#78(dup h#86
+              h#86)
+              case #4000637[synthetic]#637 of
+                true →
+                  let %t57:Box = ::(h#86, acc#85)
+                  aether_call[owned, owned] filter_acc#83(t#87, #4000638[synthetic]#638)
+                _ →
+                  drop h#86
+                  aether_call[owned, owned] filter_acc#83(t#87, acc#85)
+            _ →
+              aether_call[owned] reverse#273(acc#85))
+        let %t58:Unit = []
+        aether_call[owned, owned] filter_acc#83(xs#77, #4000639[synthetic]#639)
 
 letrec fold =
-λxs#83, acc#84, f#85.
-    let %t57 = IsArray(xs#83)
-    case #4000619[synthetic]#619 of
+λxs#89, acc#90, f#91.
+    let %t59 = IsArray(xs#89)
+    case #4000640[synthetic]#640 of
       true →
-        letrec fold_arr#86 = (λi#87, a#88.
-          let %t58:Bool = (let %t59 = Len(xs#83)
-          Ge(i#87, #4000620[synthetic]#620))
-          case #4000621[synthetic]#621 of
+        letrec fold_arr#92 = (λi#93, a#94.
+          let %t60:Bool = (let %t61 = Len(xs#89)
+          Ge(i#93, #4000641[synthetic]#641))
+          case #4000642[synthetic]#642 of
             true →
-              a#88
+              a#94
             _ →
-              let %t60 = Index(xs#83, i#87)
-              case #4000622[synthetic]#622 of
-                Some(v#89) →
-                  let %t61 = Add(i#87, 1)
-                  let %t62 = aether_call[owned, owned] f#85(a#88, v#89)
-                  aether_call[owned, owned] fold_arr#86(#4000623[synthetic]#623, #4000624[synthetic]#624)
+              let %t62 = Index(xs#89, i#93)
+              case #4000643[synthetic]#643 of
+                Some(v#95) →
+                  let %t63 = Add(i#93, 1)
+                  let %t64 = aether_call[owned, owned] f#91(a#94, v#95)
+                  aether_call[owned, owned] fold_arr#92(#4000644[synthetic]#644, #4000645[synthetic]#645)
                 _ →
-                  let %t63 = Add(i#87, 1)
-                  aether_call[owned, owned] fold_arr#86(#4000625[synthetic]#625, a#88))
-        aether_call[owned, owned] fold_arr#86(0, acc#84)
+                  let %t65 = Add(i#93, 1)
+                  aether_call[owned, owned] fold_arr#92(#4000646[synthetic]#646, a#94))
+        aether_call[owned, owned] fold_arr#92(0, acc#90)
       _ →
-        case xs#83 of
-          ::(h#90, t#91) →
-            let %t64 = aether_call[owned, owned] f#85(acc#84, h#90)
-            aether_call[borrowed, owned, borrowed] fold#82(t#91, #4000626[synthetic]#626, f#85)
+        case xs#89 of
+          ::(h#96, t#97) →
+            let %t66 = aether_call[owned, owned] f#91(acc#90, h#96)
+            aether_call[borrowed, owned, borrowed] fold#88(t#97, #4000647[synthetic]#647, f#91)
           _ →
-            acc#84
+            acc#90
 
 letrec foldr =
-λxs#93, acc#94, f#95.
-    case xs#93 of
-      ::(h#96, t#97) →
-        let %t65 = aether_call[borrowed, owned, borrowed] foldr#92(t#97, acc#94, f#95)
-        aether_call[owned, owned] f#95(h#96, #4000627[synthetic]#627)
+λxs#99, acc#100, f#101.
+    case xs#99 of
+      ::(h#102, t#103) →
+        let %t67 = aether_call[borrowed, owned, borrowed] foldr#98(t#103, acc#100, f#101)
+        aether_call[owned, owned] f#101(h#102, #4000648[synthetic]#648)
       _ →
-        acc#94
+        acc#100
 
 letrec fold1 =
-λxs#99, f#100.
-    case xs#99 of
-      ::(h#101, t#102) →
-        aether_call[borrowed, owned, borrowed] fold#82(t#102, h#101, f#100)
+λxs#105, f#106.
+    case xs#105 of
+      ::(h#107, t#108) →
+        aether_call[borrowed, owned, borrowed] fold#88(t#108, h#107, f#106)
       _ →
         Panic("fold1 called on empty list")
 
 letrec flat_map =
-λxs#104, f#105.
-    let %t66 = IsArray(xs#104)
-    case #4000628[synthetic]#628 of
+λxs#110, f#111.
+    let %t68 = IsArray(xs#110)
+    case #4000649[synthetic]#649 of
       true →
-        letrec flat_map_arr#106 = (λi#107, acc#108.
-          let %t67:Bool = (let %t68 = Len(xs#104)
-          Ge(i#107, #4000629[synthetic]#629))
-          case #4000630[synthetic]#630 of
+        letrec flat_map_arr#112 = (λi#113, acc#114.
+          let %t69:Bool = (let %t70 = Len(xs#110)
+          Ge(i#113, #4000650[synthetic]#650))
+          case #4000651[synthetic]#651 of
             true →
-              acc#108
+              acc#114
             _ →
-              let %t69 = Index(xs#104, i#107)
-              case #4000631[synthetic]#631 of
-                Some(v#109) →
-                  let %t70 = Add(i#107, 1)
-                  let %t71:Box = (let %t72 = aether_call[owned] f#105(v#109)
-                  ArrayConcat(acc#108, #4000633[synthetic]#633))
-                  aether_call[owned, owned] flat_map_arr#106(#4000632[synthetic]#632, #4000634[synthetic]#634)
+              let %t71 = Index(xs#110, i#113)
+              case #4000652[synthetic]#652 of
+                Some(v#115) →
+                  let %t72 = Add(i#113, 1)
+                  let %t73:Box = (let %t74 = aether_call[owned] f#111(v#115)
+                  ArrayConcat(acc#114, #4000654[synthetic]#654))
+                  aether_call[owned, owned] flat_map_arr#112(#4000653[synthetic]#653, #4000655[synthetic]#655)
                 _ →
-                  let %t73 = Add(i#107, 1)
-                  aether_call[owned, owned] flat_map_arr#106(#4000635[synthetic]#635, acc#108))
-        let %t74:Box = MakeArray()
-        aether_call[owned, owned] flat_map_arr#106(0, #4000636[synthetic]#636)
+                  let %t75 = Add(i#113, 1)
+                  aether_call[owned, owned] flat_map_arr#112(#4000656[synthetic]#656, acc#114))
+        let %t76:Box = MakeArray()
+        aether_call[owned, owned] flat_map_arr#112(0, #4000657[synthetic]#657)
       _ →
-        case xs#104 of
-          ::(h#110, t#111) →
-            let %t75 = aether_call[owned] f#105(h#110)
-            let %t76 = aether_call[borrowed, borrowed] flat_map#103(t#111, f#105)
-            aether_call[owned, owned] append#385(#4000637[synthetic]#637, #4000638[synthetic]#638)
-          _ →
-            []
+        letrec flat_map_acc#116 = (λys#117, acc#118.
+          case ys#117 of
+            ::(h#119, t#120) →
+              let %t77 = (let %t78 = (let %t79 = aether_call[owned] f#111(h#119)
+              aether_call[owned] reverse#273(#4000658[synthetic]#658))
+              aether_call[owned, owned] append#404(#4000659[synthetic]#659, acc#118))
+              aether_call[owned, owned] flat_map_acc#116(t#120, #4000660[synthetic]#660)
+            _ →
+              aether_call[owned] reverse#273(acc#118))
+        let %t80:Unit = []
+        aether_call[owned, owned] flat_map_acc#116(xs#110, #4000661[synthetic]#661)
 
 letrec flatten =
-λxs#113.
-    let %t77 = IsArray(xs#113)
-    case #4000639[synthetic]#639 of
+λxs#122.
+    let %t81 = IsArray(xs#122)
+    case #4000662[synthetic]#662 of
       true →
-        letrec flatten_arr#114 = (λi#115, acc#116.
-          let %t78:Bool = (let %t79 = Len(xs#113)
-          Ge(i#115, #4000640[synthetic]#640))
-          case #4000641[synthetic]#641 of
+        letrec flatten_arr#123 = (λi#124, acc#125.
+          let %t82:Bool = (let %t83 = Len(xs#122)
+          Ge(i#124, #4000663[synthetic]#663))
+          case #4000664[synthetic]#664 of
             true →
-              acc#116
+              acc#125
             _ →
-              let %t80 = Index(xs#113, i#115)
-              case #4000642[synthetic]#642 of
-                Some(v#117) →
-                  let %t81 = Add(i#115, 1)
-                  let %t82:Box = ArrayConcat(acc#116, v#117)
-                  aether_call[owned, owned] flatten_arr#114(#4000643[synthetic]#643, #4000644[synthetic]#644)
+              let %t84 = Index(xs#122, i#124)
+              case #4000665[synthetic]#665 of
+                Some(v#126) →
+                  let %t85 = Add(i#124, 1)
+                  let %t86:Box = ArrayConcat(acc#125, v#126)
+                  aether_call[owned, owned] flatten_arr#123(#4000666[synthetic]#666, #4000667[synthetic]#667)
                 _ →
-                  let %t83 = Add(i#115, 1)
-                  aether_call[owned, owned] flatten_arr#114(#4000645[synthetic]#645, acc#116))
-        let %t84:Box = MakeArray()
-        aether_call[owned, owned] flatten_arr#114(0, #4000646[synthetic]#646)
+                  let %t87 = Add(i#124, 1)
+                  aether_call[owned, owned] flatten_arr#123(#4000668[synthetic]#668, acc#125))
+        let %t88:Box = MakeArray()
+        aether_call[owned, owned] flatten_arr#123(0, #4000669[synthetic]#669)
       _ →
-        case xs#113 of
-          ::(h#118, t#119) →
-            let %t85 = aether_call[borrowed] flatten#112(t#119)
-            aether_call[owned, owned] append#385(h#118, #4000647[synthetic]#647)
-          _ →
-            []
+        letrec flatten_acc#127 = (λys#128, acc#129.
+          case ys#128 of
+            ::(h#130, t#131) →
+              let %t89 = (let %t90 = aether_call[owned] reverse#273(h#130)
+              aether_call[owned, owned] append#404(#4000670[synthetic]#670, acc#129))
+              aether_call[owned, owned] flatten_acc#127(t#131, #4000671[synthetic]#671)
+            _ →
+              aether_call[owned] reverse#273(acc#129))
+        let %t91:Unit = []
+        aether_call[owned, owned] flatten_acc#127(xs#122, #4000672[synthetic]#672)
 
 letrec concat =
-λxss#121.
-    aether_call[borrowed] flatten#112(xss#121)
+λxss#133.
+    aether_call[owned] flatten#121(xss#133)
 
 letrec any =
-λxs#123, pred#124.
-    let %t86 = IsArray(xs#123)
-    case #4000648[synthetic]#648 of
+λxs#135, pred#136.
+    let %t92 = IsArray(xs#135)
+    case #4000673[synthetic]#673 of
       true →
-        letrec any_arr#125 = (λi#126.
-          let %t87:Bool = (let %t88 = Len(xs#123)
-          Ge(i#126, #4000649[synthetic]#649))
-          case #4000650[synthetic]#650 of
+        letrec any_arr#137 = (λi#138.
+          let %t93:Bool = (let %t94 = Len(xs#135)
+          Ge(i#138, #4000674[synthetic]#674))
+          case #4000675[synthetic]#675 of
             true →
               false
             _ →
-              let %t89 = Index(xs#123, i#126)
-              case #4000651[synthetic]#651 of
-                Some(v#127) →
-                  let %t90 = aether_call[owned] pred#124(v#127)
-                  case #4000652[synthetic]#652 of
+              let %t95 = Index(xs#135, i#138)
+              case #4000676[synthetic]#676 of
+                Some(v#139) →
+                  let %t96 = aether_call[owned] pred#136(v#139)
+                  case #4000677[synthetic]#677 of
                     true →
                       true
                     _ →
-                      let %t91 = Add(i#126, 1)
-                      aether_call[owned] any_arr#125(#4000653[synthetic]#653)
+                      let %t97 = Add(i#138, 1)
+                      aether_call[owned] any_arr#137(#4000678[synthetic]#678)
                 _ →
-                  let %t92 = Add(i#126, 1)
-                  aether_call[owned] any_arr#125(#4000654[synthetic]#654))
-        aether_call[owned] any_arr#125(0)
+                  let %t98 = Add(i#138, 1)
+                  aether_call[owned] any_arr#137(#4000679[synthetic]#679))
+        aether_call[owned] any_arr#137(0)
       _ →
-        case xs#123 of
-          ::(h#128, t#129) →
-            let %t93 = aether_call[owned] pred#124(h#128)
-            case #4000655[synthetic]#655 of
+        case xs#135 of
+          ::(h#140, t#141) →
+            let %t99 = aether_call[owned] pred#136(h#140)
+            case #4000680[synthetic]#680 of
               true →
                 true
               _ →
-                aether_call[borrowed, borrowed] any#122(t#129, pred#124)
+                aether_call[borrowed, borrowed] any#134(t#141, pred#136)
           _ →
             false
 
 letrec all =
-λxs#131, pred#132.
-    let %t94 = IsArray(xs#131)
-    case #4000656[synthetic]#656 of
+λxs#143, pred#144.
+    let %t100 = IsArray(xs#143)
+    case #4000681[synthetic]#681 of
       true →
-        letrec all_arr#133 = (λi#134.
-          let %t95:Bool = (let %t96 = Len(xs#131)
-          Ge(i#134, #4000657[synthetic]#657))
-          case #4000658[synthetic]#658 of
+        letrec all_arr#145 = (λi#146.
+          let %t101:Bool = (let %t102 = Len(xs#143)
+          Ge(i#146, #4000682[synthetic]#682))
+          case #4000683[synthetic]#683 of
             true →
               true
             _ →
-              let %t97 = Index(xs#131, i#134)
-              case #4000659[synthetic]#659 of
-                Some(v#135) →
-                  let %t98 = aether_call[owned] pred#132(v#135)
-                  case #4000660[synthetic]#660 of
+              let %t103 = Index(xs#143, i#146)
+              case #4000684[synthetic]#684 of
+                Some(v#147) →
+                  let %t104 = aether_call[owned] pred#144(v#147)
+                  case #4000685[synthetic]#685 of
                     true →
-                      let %t99 = Add(i#134, 1)
-                      aether_call[owned] all_arr#133(#4000661[synthetic]#661)
+                      let %t105 = Add(i#146, 1)
+                      aether_call[owned] all_arr#145(#4000686[synthetic]#686)
                     _ →
                       false
                 _ →
-                  let %t100 = Add(i#134, 1)
-                  aether_call[owned] all_arr#133(#4000662[synthetic]#662))
-        aether_call[owned] all_arr#133(0)
+                  let %t106 = Add(i#146, 1)
+                  aether_call[owned] all_arr#145(#4000687[synthetic]#687))
+        aether_call[owned] all_arr#145(0)
       _ →
-        case xs#131 of
-          ::(h#136, t#137) →
-            let %t101 = aether_call[owned] pred#132(h#136)
-            case #4000663[synthetic]#663 of
+        case xs#143 of
+          ::(h#148, t#149) →
+            let %t107 = aether_call[owned] pred#144(h#148)
+            case #4000688[synthetic]#688 of
               true →
-                aether_call[borrowed, borrowed] all#130(t#137, pred#132)
+                aether_call[borrowed, borrowed] all#142(t#149, pred#144)
               _ →
                 false
           _ →
             true
 
 letrec find =
-λxs#139, pred#140.
-    let %t102 = IsArray(xs#139)
-    case #4000664[synthetic]#664 of
+λxs#151, pred#152.
+    let %t108 = IsArray(xs#151)
+    case #4000689[synthetic]#689 of
       true →
-        letrec find_arr#141 = (λi#142.
-          let %t103:Bool = (let %t104 = Len(xs#139)
-          Ge(i#142, #4000665[synthetic]#665))
-          case #4000666[synthetic]#666 of
+        letrec find_arr#153 = (λi#154.
+          let %t109:Bool = (let %t110 = Len(xs#151)
+          Ge(i#154, #4000690[synthetic]#690))
+          case #4000691[synthetic]#691 of
             true →
               None
             _ →
-              let %t105 = Index(xs#139, i#142)
-              case #4000667[synthetic]#667 of
-                Some(v#143) →
-                  drop_spec #4000667[synthetic]#667 {
-                    unique -> let %t106 = aether_call[owned] pred#140(v#143)
-                      case #4000668[synthetic]#668 of
+              let %t111 = Index(xs#151, i#154)
+              case #4000692[synthetic]#692 of
+                Some(v#155) →
+                  drop_spec #4000692[synthetic]#692 {
+                    unique -> let %t112 = aether_call[owned] pred#152(v#155)
+                      case #4000693[synthetic]#693 of
                         true →
-                          reuse #4000667[synthetic]#667 Some(v#143) @mask=0b0
+                          reuse #4000692[synthetic]#692 Some(v#155) @mask=0b0
                         _ →
-                          drop v#143
-                          let %t107 = Add(i#142, 1)
-                          aether_call[owned] find_arr#141(#4000669[synthetic]#669)
-                    shared -> let %t106 = aether_call[owned] pred#140(dup v#143
-                      v#143)
-                      case #4000668[synthetic]#668 of
+                          drop v#155
+                          let %t113 = Add(i#154, 1)
+                          aether_call[owned] find_arr#153(#4000694[synthetic]#694)
+                    shared -> let %t112 = aether_call[owned] pred#152(dup v#155
+                      v#155)
+                      case #4000693[synthetic]#693 of
                         true →
-                          Some(v#143)
+                          Some(v#155)
                         _ →
-                          drop v#143
-                          let %t107 = Add(i#142, 1)
-                          aether_call[owned] find_arr#141(#4000669[synthetic]#669)
+                          drop v#155
+                          let %t113 = Add(i#154, 1)
+                          aether_call[owned] find_arr#153(#4000694[synthetic]#694)
                   }
                 _ →
-                  let %t108 = Add(i#142, 1)
-                  aether_call[owned] find_arr#141(#4000670[synthetic]#670))
-        aether_call[owned] find_arr#141(0)
+                  let %t114 = Add(i#154, 1)
+                  aether_call[owned] find_arr#153(#4000695[synthetic]#695))
+        aether_call[owned] find_arr#153(0)
       _ →
-        case xs#139 of
-          ::(h#144, t#145) →
-            let %t109 = aether_call[owned] pred#140(dup h#144
-            h#144)
-            case #4000671[synthetic]#671 of
+        case xs#151 of
+          ::(h#156, t#157) →
+            let %t115 = aether_call[owned] pred#152(dup h#156
+            h#156)
+            case #4000696[synthetic]#696 of
               true →
-                Some(h#144)
+                Some(h#156)
               _ →
-                drop h#144
-                aether_call[borrowed, borrowed] find#138(t#145, pred#140)
+                drop h#156
+                aether_call[borrowed, borrowed] find#150(t#157, pred#152)
           _ →
             None
 
 letrec count =
-λxs#147, pred#148.
-    let %t110 = IsArray(xs#147)
-    case #4000672[synthetic]#672 of
+λxs#159, pred#160.
+    let %t116 = IsArray(xs#159)
+    case #4000697[synthetic]#697 of
       true →
-        letrec count_arr#149 = (λi#150, n#151.
-          let %t111:Bool = (let %t112 = Len(xs#147)
-          Ge(i#150, #4000673[synthetic]#673))
-          case #4000674[synthetic]#674 of
+        letrec count_arr#161 = (λi#162, n#163.
+          let %t117:Bool = (let %t118 = Len(xs#159)
+          Ge(i#162, #4000698[synthetic]#698))
+          case #4000699[synthetic]#699 of
             true →
-              n#151
+              n#163
             _ →
-              let %t113 = Index(xs#147, i#150)
-              case #4000675[synthetic]#675 of
-                Some(v#152) →
-                  let %t114 = aether_call[owned] pred#148(v#152)
-                  case #4000676[synthetic]#676 of
+              let %t119 = Index(xs#159, i#162)
+              case #4000700[synthetic]#700 of
+                Some(v#164) →
+                  let %t120 = aether_call[owned] pred#160(v#164)
+                  case #4000701[synthetic]#701 of
                     true →
-                      let %t115 = Add(i#150, 1)
-                      let %t116 = Add(n#151, 1)
-                      aether_call[owned, owned] count_arr#149(#4000677[synthetic]#677, #4000678[synthetic]#678)
+                      let %t121 = Add(i#162, 1)
+                      let %t122 = Add(n#163, 1)
+                      aether_call[owned, owned] count_arr#161(#4000702[synthetic]#702, #4000703[synthetic]#703)
                     _ →
-                      let %t117 = Add(i#150, 1)
-                      aether_call[owned, owned] count_arr#149(#4000679[synthetic]#679, n#151)
+                      let %t123 = Add(i#162, 1)
+                      aether_call[owned, owned] count_arr#161(#4000704[synthetic]#704, n#163)
                 _ →
-                  let %t118 = Add(i#150, 1)
-                  aether_call[owned, owned] count_arr#149(#4000680[synthetic]#680, n#151))
-        aether_call[owned, owned] count_arr#149(0, 0)
+                  let %t124 = Add(i#162, 1)
+                  aether_call[owned, owned] count_arr#161(#4000705[synthetic]#705, n#163))
+        aether_call[owned, owned] count_arr#161(0, 0)
       _ →
-        letrec count_go#153 = (λys#154, n#155.
-          case ys#154 of
-            ::(h#156, t#157) →
-              let %t119 = aether_call[owned] pred#148(h#156)
-              case #4000681[synthetic]#681 of
+        letrec count_go#165 = (λys#166, n#167.
+          case ys#166 of
+            ::(h#168, t#169) →
+              let %t125 = aether_call[owned] pred#160(h#168)
+              case #4000706[synthetic]#706 of
                 true →
-                  let %t120 = Add(n#155, 1)
-                  aether_call[owned, owned] count_go#153(t#157, #4000682[synthetic]#682)
+                  let %t126 = Add(n#167, 1)
+                  aether_call[owned, owned] count_go#165(t#169, #4000707[synthetic]#707)
                 _ →
-                  aether_call[owned, owned] count_go#153(t#157, n#155)
+                  aether_call[owned, owned] count_go#165(t#169, n#167)
             _ →
-              n#155)
-        aether_call[owned, owned] count_go#153(xs#147, 0)
+              n#167)
+        aether_call[owned, owned] count_go#165(xs#159, 0)
 
 letrec each =
-λxs#159, f#160.
-    let %t121 = IsArray(xs#159)
-    case #4000683[synthetic]#683 of
+λxs#171, f#172.
+    let %t127 = IsArray(xs#171)
+    case #4000708[synthetic]#708 of
       true →
-        letrec each_arr#161 = (λi#162.
-          let %t122:Bool = (let %t123 = Len(xs#159)
-          Ge(i#162, #4000684[synthetic]#684))
-          case #4000685[synthetic]#685 of
+        letrec each_arr#173 = (λi#174.
+          let %t128:Bool = (let %t129 = Len(xs#171)
+          Ge(i#174, #4000709[synthetic]#709))
+          case #4000710[synthetic]#710 of
             true →
               MakeTuple()
             _ →
-              let %t124 = Index(xs#159, i#162)
-              case #4000686[synthetic]#686 of
-                Some(v#163) →
-                  let %t125 = aether_call[owned] f#160(v#163)
-                  drop #2000007[synthetic]#164
-                  let %t126 = Add(i#162, 1)
-                  aether_call[owned] each_arr#161(#4000687[synthetic]#687)
+              let %t130 = Index(xs#171, i#174)
+              case #4000711[synthetic]#711 of
+                Some(v#175) →
+                  let %t131 = aether_call[owned] f#172(v#175)
+                  drop #2000007[synthetic]#176
+                  let %t132 = Add(i#174, 1)
+                  aether_call[owned] each_arr#173(#4000712[synthetic]#712)
                 _ →
-                  let %t127 = Add(i#162, 1)
-                  aether_call[owned] each_arr#161(#4000688[synthetic]#688))
-        aether_call[owned] each_arr#161(0)
+                  let %t133 = Add(i#174, 1)
+                  aether_call[owned] each_arr#173(#4000713[synthetic]#713))
+        aether_call[owned] each_arr#173(0)
       _ →
-        case xs#159 of
-          ::(h#165, t#166) →
-            let %t128 = aether_call[owned] f#160(h#165)
-            drop #2000008[synthetic]#167
-            aether_call[borrowed, borrowed] each#158(t#166, f#160)
+        case xs#171 of
+          ::(h#177, t#178) →
+            let %t134 = aether_call[owned] f#172(h#177)
+            drop #2000008[synthetic]#179
+            aether_call[borrowed, borrowed] each#170(t#178, f#172)
           _ →
             MakeTuple()
 
 letrec take =
-λxs#169, n#170.
-    let %t129:Bool = Le(n#170, 0)
-    case #4000689[synthetic]#689 of
-      true →
-        []
-      _ →
-        case xs#169 of
-          ::(h#171, t#172) →
-            let %t130 = (let %t131 = Sub(n#170, 1)
-            aether_call[owned, borrowed] take#168(t#172, #4000690[synthetic]#690))
-            reuse xs#169 ::(h#171, #4000691[synthetic]#691) @mask=0b10
-          _ →
-            []
+λxs#181, n#182.
+    letrec take_acc#183 = (λys#184, remaining#185, acc#186.
+      let %t135:Bool = Le(remaining#185, 0)
+      case #4000714[synthetic]#714 of
+        true →
+          aether_call[owned] reverse#273(acc#186)
+        _ →
+          case ys#184 of
+            ::(h#187, t#188) →
+              let %t136 = Sub(remaining#185, 1)
+              let %t137:Box = ::(h#187, acc#186)
+              aether_call[owned, owned, owned] take_acc#183(t#188, #4000715[synthetic]#715, #4000716[synthetic]#716)
+            _ →
+              aether_call[owned] reverse#273(acc#186))
+    let %t138:Unit = []
+    aether_call[owned, owned, owned] take_acc#183(xs#181, n#182, #4000717[synthetic]#717)
 
 letrec drop =
-λxs#174, n#175.
-    let %t132:Bool = Le(n#175, 0)
-    case #4000692[synthetic]#692 of
+λxs#190, n#191.
+    let %t139:Bool = Le(n#191, 0)
+    case #4000718[synthetic]#718 of
       true →
-        xs#174
+        xs#190
       _ →
-        case xs#174 of
-          ::(h#176, t#177) →
-            drop h#176
-            let %t133 = Sub(n#175, 1)
-            aether_call[owned, borrowed] drop#173(t#177, #4000693[synthetic]#693)
+        case xs#190 of
+          ::(h#192, t#193) →
+            drop h#192
+            let %t140 = Sub(n#191, 1)
+            aether_call[owned, borrowed] drop#189(t#193, #4000719[synthetic]#719)
           _ →
             []
 
 letrec take_while =
-λxs#179, pred#180.
-    case xs#179 of
-      ::(h#181, t#182) →
-        drop_spec xs#179 {
-          unique -> let %t134 = aether_call[owned] pred#180(h#181)
-            case #4000694[synthetic]#694 of
-              true →
-                let %t135 = aether_call[owned, borrowed] take_while#178(t#182, pred#180)
-                reuse xs#179 ::(h#181, #4000695[synthetic]#695) @mask=0b10
-              _ →
-                drop h#181
-                drop t#182
-                []
-          shared -> let %t134 = aether_call[owned] pred#180(dup h#181
-            h#181)
-            case #4000694[synthetic]#694 of
-              true →
-                let %t135 = aether_call[owned, borrowed] take_while#178(t#182, pred#180)
-                ::(h#181, #4000695[synthetic]#695)
-              _ →
-                drop h#181
-                drop t#182
-                []
-        }
-      _ →
-        []
+λxs#195, pred#196.
+    letrec take_while_acc#197 = (λys#198, acc#199.
+      case ys#198 of
+        ::(h#200, t#201) →
+          let %t141 = aether_call[owned] pred#196(dup h#200
+          h#200)
+          case #4000720[synthetic]#720 of
+            true →
+              let %t142:Box = ::(h#200, acc#199)
+              aether_call[owned, owned] take_while_acc#197(t#201, #4000721[synthetic]#721)
+            _ →
+              drop h#200
+              drop t#201
+              aether_call[owned] reverse#273(acc#199)
+        _ →
+          aether_call[owned] reverse#273(acc#199))
+    let %t143:Unit = []
+    aether_call[owned, owned] take_while_acc#197(xs#195, #4000722[synthetic]#722)
 
 letrec drop_while =
-λxs#184, pred#185.
-    case xs#184 of
-      ::(h#186, t#187) →
-        let %t136 = aether_call[owned] pred#185(h#186)
-        case #4000696[synthetic]#696 of
+λxs#203, pred#204.
+    case xs#203 of
+      ::(h#205, t#206) →
+        let %t144 = aether_call[owned] pred#204(h#205)
+        case #4000723[synthetic]#723 of
           true →
-            aether_call[owned, borrowed] drop_while#183(t#187, pred#185)
+            aether_call[owned, borrowed] drop_while#202(t#206, pred#204)
           _ →
-            xs#184
+            xs#203
       _ →
-        drop xs#184
+        drop xs#203
         []
 
 letrec split_at =
-λxs#189, n#190.
-    let %t137:Bool = Le(n#190, 0)
-    case #4000697[synthetic]#697 of
+λxs#208, n#209.
+    let %t145:Bool = Le(n#209, 0)
+    case #4000724[synthetic]#724 of
       true →
-        let %t138:Unit = []
-        MakeTuple(#4000698[synthetic]#698, xs#189)
+        let %t146:Unit = []
+        MakeTuple(#4000725[synthetic]#725, xs#208)
       _ →
-        case xs#189 of
-          ::(h#191, t#192) →
-            let %t139 = (let %t140 = Sub(n#190, 1)
-            aether_call[borrowed, borrowed] split_at#188(t#192, #4000699[synthetic]#699))
-            case #4000700[synthetic]#700 of
-              (left#193, right#194) →
-                let %t141:Box = ::(h#191, left#193)
-                MakeTuple(#4000701[synthetic]#701, right#194)
+        case xs#208 of
+          ::(h#210, t#211) →
+            let %t147 = (let %t148 = Sub(n#209, 1)
+            aether_call[borrowed, borrowed] split_at#207(t#211, #4000726[synthetic]#726))
+            case #4000727[synthetic]#727 of
+              (left#212, right#213) →
+                let %t149:Box = ::(h#210, left#212)
+                MakeTuple(#4000728[synthetic]#728, right#213)
               _ →
-                let %t142:Unit = []
-                MakeTuple(#4000702[synthetic]#702, xs#189)
+                let %t150:Unit = []
+                MakeTuple(#4000729[synthetic]#729, xs#208)
           _ →
-            let %t143:Unit = []
-            let %t144:Unit = []
-            MakeTuple(#4000703[synthetic]#703, #4000704[synthetic]#704)
+            let %t151:Unit = []
+            let %t152:Unit = []
+            MakeTuple(#4000730[synthetic]#730, #4000731[synthetic]#731)
 
 letrec span =
-λxs#196, pred#197.
-    case xs#196 of
-      ::(h#198, t#199) →
-        let %t145 = aether_call[owned] pred#197(dup h#198
-        h#198)
-        case #4000705[synthetic]#705 of
+λxs#215, pred#216.
+    case xs#215 of
+      ::(h#217, t#218) →
+        let %t153 = aether_call[owned] pred#216(dup h#217
+        h#217)
+        case #4000732[synthetic]#732 of
           true →
-            let %t146 = aether_call[borrowed, borrowed] span#195(t#199, pred#197)
-            case #4000706[synthetic]#706 of
-              (left#200, right#201) →
-                let %t147:Box = ::(h#198, left#200)
-                MakeTuple(#4000707[synthetic]#707, right#201)
+            let %t154 = aether_call[borrowed, borrowed] span#214(t#218, pred#216)
+            case #4000733[synthetic]#733 of
+              (left#219, right#220) →
+                let %t155:Box = ::(h#217, left#219)
+                MakeTuple(#4000734[synthetic]#734, right#220)
               _ →
-                let %t148:Unit = []
-                MakeTuple(#4000708[synthetic]#708, xs#196)
+                let %t156:Unit = []
+                MakeTuple(#4000735[synthetic]#735, xs#215)
           _ →
-            let %t149:Unit = []
-            MakeTuple(#4000709[synthetic]#709, xs#196)
+            let %t157:Unit = []
+            MakeTuple(#4000736[synthetic]#736, xs#215)
       _ →
-        let %t150:Unit = []
-        let %t151:Unit = []
-        MakeTuple(#4000710[synthetic]#710, #4000711[synthetic]#711)
+        let %t158:Unit = []
+        let %t159:Unit = []
+        MakeTuple(#4000737[synthetic]#737, #4000738[synthetic]#738)
 
 letrec scanl =
-λxs#203, acc#204, f#205.
-    let %t152 = aether_call[borrowed, owned, borrowed] scanl_rest#405(xs#203, dup acc#204
-    acc#204, f#205)
-    ::(acc#204, #4000712[synthetic]#712)
+λxs#222, acc#223, f#224.
+    let %t160 = aether_call[borrowed, owned, borrowed] scanl_rest#424(xs#222, dup acc#223
+    acc#223, f#224)
+    ::(acc#223, #4000739[synthetic]#739)
 
 letrec scanr =
-λxs#207, acc#208, f#209.
-    let %t153 = aether_call[borrowed, borrowed, borrowed] scanr_go#429(xs#207, acc#208, f#209)
-    case #4000713[synthetic]#713 of
-      (result#210, last_acc#211) →
-        drop last_acc#211
-        result#210
+λxs#226, acc#227, f#228.
+    let %t161 = aether_call[borrowed, borrowed, borrowed] scanr_go#448(xs#226, acc#227, f#228)
+    case #4000740[synthetic]#740 of
+      (result#229, last_acc#230) →
+        drop last_acc#230
+        result#229
       _ →
-        MakeList(acc#208)
+        MakeList(acc#227)
 
 letrec sort =
-λxs#213.
-    let %t154:Box = (λx#214.
-      x#214)
-    aether_call[owned, borrowed] merge_sort_by#448(xs#213, #4000714[synthetic]#714)
+λxs#232.
+    let %t162:Box = (λx#233.
+      x#233)
+    aether_call[owned, borrowed] merge_sort_by#467(xs#232, #4000741[synthetic]#741)
 
 letrec sort_by =
-λxs#216, f#217.
-    aether_call[owned, borrowed] merge_sort_by#448(xs#216, f#217)
+λxs#235, f#236.
+    aether_call[owned, borrowed] merge_sort_by#467(xs#235, f#236)
 
 letrec first =
-λxs#219.
-    let %t155 = IsArray(xs#219)
-    case #4000715[synthetic]#715 of
+λxs#238.
+    let %t163 = IsArray(xs#238)
+    case #4000742[synthetic]#742 of
       true →
-        let %t156:Bool = (let %t157 = Len(xs#219)
-        Eq(#4000716[synthetic]#716, 0))
-        case #4000717[synthetic]#717 of
+        let %t164:Bool = (let %t165 = Len(xs#238)
+        Eq(#4000743[synthetic]#743, 0))
+        case #4000744[synthetic]#744 of
           true →
             None
           _ →
-            let %t158 = Index(xs#219, 0)
-            case #4000718[synthetic]#718 of
-              Some(v#220) →
-                v#220
+            let %t166 = Index(xs#238, 0)
+            case #4000745[synthetic]#745 of
+              Some(v#239) →
+                v#239
               _ →
                 None
       _ →
-        case xs#219 of
-          ::(h#221, t#222) →
-            drop t#222
-            h#221
+        case xs#238 of
+          ::(h#240, t#241) →
+            drop t#241
+            h#240
           _ →
             None
 
 letrec last =
-λxs#224.
-    let %t159 = IsArray(xs#224)
-    case #4000719[synthetic]#719 of
+λxs#243.
+    let %t167 = IsArray(xs#243)
+    case #4000746[synthetic]#746 of
       true →
-        let %t160:Bool = (let %t161 = Len(xs#224)
-        Eq(#4000720[synthetic]#720, 0))
-        case #4000721[synthetic]#721 of
+        let %t168:Bool = (let %t169 = Len(xs#243)
+        Eq(#4000747[synthetic]#747, 0))
+        case #4000748[synthetic]#748 of
           true →
             None
           _ →
-            let %t162 = (let %t163 = (let %t164 = Len(xs#224)
-            Sub(#4000722[synthetic]#722, 1))
-            Index(xs#224, #4000723[synthetic]#723))
-            case #4000724[synthetic]#724 of
-              Some(v#225) →
-                v#225
+            let %t170 = (let %t171 = (let %t172 = Len(xs#243)
+            Sub(#4000749[synthetic]#749, 1))
+            Index(xs#243, #4000750[synthetic]#750))
+            case #4000751[synthetic]#751 of
+              Some(v#244) →
+                v#244
               _ →
                 None
       _ →
-        case xs#224 of
-          ::(h#226, t#227) →
-            case t#227 of
-              ::(h2#228, t2#229) →
-                drop h#226
-                aether_call[borrowed] last#223(t#227)
+        case xs#243 of
+          ::(h#245, t#246) →
+            case t#246 of
+              ::(h2#247, t2#248) →
+                drop h#245
+                aether_call[borrowed] last#242(t#246)
               _ →
-                h#226
+                h#245
           _ →
             None
 
 letrec rest =
-λxs#231.
-    let %t165 = IsArray(xs#231)
-    case #4000725[synthetic]#725 of
+λxs#250.
+    let %t173 = IsArray(xs#250)
+    case #4000752[synthetic]#752 of
       true →
-        let %t166:Bool = (let %t167 = Len(xs#231)
-        Le(#4000726[synthetic]#726, 1))
-        case #4000727[synthetic]#727 of
+        let %t174:Bool = (let %t175 = Len(xs#250)
+        Le(#4000753[synthetic]#753, 1))
+        case #4000754[synthetic]#754 of
           true →
             MakeArray()
           _ →
-            let %t168 = Len(xs#231)
-            ArraySlice(xs#231, 1, #4000728[synthetic]#728)
+            let %t176 = Len(xs#250)
+            ArraySlice(xs#250, 1, #4000755[synthetic]#755)
       _ →
-        case xs#231 of
-          ::(h#232, t#233) →
-            drop h#232
-            t#233
+        case xs#250 of
+          ::(h#251, t#252) →
+            drop h#251
+            t#252
           _ →
             []
 
 letrec length =
-λxs#235.
-    letrec length_go#236 = (λys#237, acc#238.
-      case ys#237 of
-        ::(h#239, t#240) →
-          drop h#239
-          let %t169 = Add(acc#238, 1)
-          aether_call[owned, owned] length_go#236(t#240, #4000729[synthetic]#729)
+λxs#254.
+    letrec length_go#255 = (λys#256, acc#257.
+      case ys#256 of
+        ::(h#258, t#259) →
+          drop h#258
+          let %t177 = Add(acc#257, 1)
+          aether_call[owned, owned] length_go#255(t#259, #4000756[synthetic]#756)
         _ →
-          acc#238)
-    aether_call[owned, owned] length_go#236(xs#235, 0)
+          acc#257)
+    aether_call[owned, owned] length_go#255(xs#254, 0)
 
 letrec init =
-λxs#242.
-    case xs#242 of
-      ::(h#243, t#244) →
-        case t#244 of
-          ::(h2#245, t2#246) →
-            let %t170 = aether_call[owned] init#241(t#244)
-            reuse xs#242 ::(h#243, #4000730[synthetic]#730) @mask=0b10
+λxs#261.
+    case xs#261 of
+      ::(h#262, t#263) →
+        case t#263 of
+          ::(h2#264, t2#265) →
+            let %t178 = aether_call[owned] init#260(t#263)
+            reuse xs#261 ::(h#262, #4000757[synthetic]#757) @mask=0b10
           _ →
-            drop h#243
-            drop t#244
-            drop xs#242
+            drop h#262
+            drop t#263
+            drop xs#261
             []
       _ →
         Panic("init called on empty list")
 
 letrec null =
-λxs#248.
-    case xs#248 of
-      ::(h#249, t#250) →
-        drop h#249
-        drop t#250
+λxs#267.
+    case xs#267 of
+      ::(h#268, t#269) →
+        drop h#268
+        drop t#269
         false
       _ →
         true
 
 letrec range =
-λstart#252, stop#253.
-    let %t171:Bool = Ge(start#252, stop#253)
-    case #4000731[synthetic]#731 of
+λstart#271, stop#272.
+    let %t179:Bool = Ge(start#271, stop#272)
+    case #4000758[synthetic]#758 of
       true →
-        drop start#252
+        drop start#271
         []
       _ →
-        let %t172 = (let %t173 = Add(start#252, 1)
-        aether_call[owned, borrowed] range#251(#4000732[synthetic]#732, stop#253))
-        ::(start#252, #4000733[synthetic]#733)
+        let %t180 = (let %t181 = Add(start#271, 1)
+        aether_call[owned, borrowed] range#270(#4000759[synthetic]#759, stop#272))
+        ::(start#271, #4000760[synthetic]#760)
 
 letrec reverse =
-λxs#255.
-    let %t174 = IsArray(xs#255)
-    case #4000734[synthetic]#734 of
+λxs#274.
+    let %t182 = IsArray(xs#274)
+    case #4000761[synthetic]#761 of
       true →
-        letrec rev_arr_go#256 = (λi#257, acc#258.
-          let %t175:Bool = Lt(i#257, 0)
-          case #4000735[synthetic]#735 of
+        letrec rev_arr_go#275 = (λi#276, acc#277.
+          let %t183:Bool = Lt(i#276, 0)
+          case #4000762[synthetic]#762 of
             true →
-              acc#258
+              acc#277
             _ →
-              let %t176 = Index(xs#255, i#257)
-              case #4000736[synthetic]#736 of
-                Some(v#259) →
-                  let %t177 = Sub(i#257, 1)
-                  let %t178:Box = ArrayPush(acc#258, v#259)
-                  aether_call[owned, owned] rev_arr_go#256(#4000737[synthetic]#737, #4000738[synthetic]#738)
+              let %t184 = Index(xs#274, i#276)
+              case #4000763[synthetic]#763 of
+                Some(v#278) →
+                  let %t185 = Sub(i#276, 1)
+                  let %t186:Box = ArrayPush(acc#277, v#278)
+                  aether_call[owned, owned] rev_arr_go#275(#4000764[synthetic]#764, #4000765[synthetic]#765)
                 _ →
-                  let %t179 = Sub(i#257, 1)
-                  aether_call[owned, owned] rev_arr_go#256(#4000739[synthetic]#739, acc#258))
-        let %t180 = (let %t181 = Len(xs#255)
-        Sub(#4000740[synthetic]#740, 1))
-        let %t182:Box = MakeArray()
-        aether_call[owned, owned] rev_arr_go#256(#4000741[synthetic]#741, #4000742[synthetic]#742)
+                  let %t187 = Sub(i#276, 1)
+                  aether_call[owned, owned] rev_arr_go#275(#4000766[synthetic]#766, acc#277))
+        let %t188 = (let %t189 = Len(xs#274)
+        Sub(#4000767[synthetic]#767, 1))
+        let %t190:Box = MakeArray()
+        aether_call[owned, owned] rev_arr_go#275(#4000768[synthetic]#768, #4000769[synthetic]#769)
       _ →
-        letrec rev_acc#260 = (λys#261, acc#262.
-          case ys#261 of
-            ::(h#263, t#264) →
-              let %t183:Box = ::(h#263, acc#262)
-              aether_call[owned, owned] rev_acc#260(t#264, #4000743[synthetic]#743)
+        letrec rev_acc#279 = (λys#280, acc#281.
+          case ys#280 of
+            ::(h#282, t#283) →
+              let %t191:Box = ::(h#282, acc#281)
+              aether_call[owned, owned] rev_acc#279(t#283, #4000770[synthetic]#770)
             _ →
-              acc#262)
-        let %t184:Unit = []
-        aether_call[owned, owned] rev_acc#260(xs#255, #4000744[synthetic]#744)
+              acc#281)
+        let %t192:Unit = []
+        aether_call[owned, owned] rev_acc#279(xs#274, #4000771[synthetic]#771)
 
 letrec zip =
-λxs#266, ys#267.
-    let %t185 = IsArray(xs#266)
-    case #4000745[synthetic]#745 of
+λxs#285, ys#286.
+    let %t193 = IsArray(xs#285)
+    case #4000772[synthetic]#772 of
       true →
-        let min_len#273 = (let %t186:Bool = (let %t187 = Len(xs#266)
-        let %t188 = Len(ys#267)
-        Lt(#4000746[synthetic]#746, #4000747[synthetic]#747))
-        case #4000748[synthetic]#748 of
+        let min_len#292 = (let %t194:Bool = (let %t195 = Len(xs#285)
+        let %t196 = Len(ys#286)
+        Lt(#4000773[synthetic]#773, #4000774[synthetic]#774))
+        case #4000775[synthetic]#775 of
           true →
-            Len(xs#266)
+            Len(xs#285)
           _ →
-            Len(ys#267))
-        letrec zip_arr#268 = (λi#269, acc#270.
-          let %t189:Bool = Ge(i#269, min_len#273)
-          case #4000749[synthetic]#749 of
+            Len(ys#286))
+        letrec zip_arr#287 = (λi#288, acc#289.
+          let %t197:Bool = Ge(i#288, min_len#292)
+          case #4000776[synthetic]#776 of
             true →
-              acc#270
+              acc#289
             _ →
-              let %t190 = Index(xs#266, i#269)
-              case #4000750[synthetic]#750 of
-                Some(va#271) →
-                  let %t191 = Index(ys#267, i#269)
-                  case #4000751[synthetic]#751 of
-                    Some(vb#272) →
-                      let %t192 = Add(i#269, 1)
-                      let %t193:Box = (let %t194:Box = MakeTuple(va#271, vb#272)
-                      ArrayPush(acc#270, #4000753[synthetic]#753))
-                      aether_call[owned, owned] zip_arr#268(#4000752[synthetic]#752, #4000754[synthetic]#754)
+              let %t198 = Index(xs#285, i#288)
+              case #4000777[synthetic]#777 of
+                Some(va#290) →
+                  let %t199 = Index(ys#286, i#288)
+                  case #4000778[synthetic]#778 of
+                    Some(vb#291) →
+                      let %t200 = Add(i#288, 1)
+                      let %t201:Box = (let %t202:Box = MakeTuple(va#290, vb#291)
+                      ArrayPush(acc#289, #4000780[synthetic]#780))
+                      aether_call[owned, owned] zip_arr#287(#4000779[synthetic]#779, #4000781[synthetic]#781)
                     _ →
-                      acc#270
+                      acc#289
                 _ →
-                  acc#270)
-        let %t195:Box = MakeArray()
-        aether_call[owned, owned] zip_arr#268(0, #4000755[synthetic]#755)
+                  acc#289)
+        let %t203:Box = MakeArray()
+        aether_call[owned, owned] zip_arr#287(0, #4000782[synthetic]#782)
       _ →
-        let %t196 = (let %t197:Unit = []
-        aether_call[borrowed, borrowed, owned] zip_go#466(xs#266, ys#267, #4000756[synthetic]#756))
-        aether_call[owned] reverse#254(#4000757[synthetic]#757)
+        let %t204 = (let %t205:Unit = []
+        aether_call[borrowed, borrowed, owned] zip_go#485(xs#285, ys#286, #4000783[synthetic]#783))
+        aether_call[owned] reverse#273(#4000784[synthetic]#784)
 
 letrec zip_with =
-λxs#275, ys#276, f#277.
-    let %t198 = (let %t199:Unit = []
-    aether_call[borrowed, borrowed, borrowed, owned] zip_with_go#474(xs#275, ys#276, f#277, #4000758[synthetic]#758))
-    aether_call[owned] reverse#254(#4000759[synthetic]#759)
+λxs#294, ys#295, f#296.
+    let %t206 = (let %t207:Unit = []
+    aether_call[borrowed, borrowed, borrowed, owned] zip_with_go#493(xs#294, ys#295, f#296, #4000785[synthetic]#785))
+    aether_call[owned] reverse#273(#4000786[synthetic]#786)
 
 letrec unzip =
-λxs#279.
-    case xs#279 of
-      ::((a#280, b#281), t#282) →
-        let %t200 = aether_call[borrowed] unzip#278(t#282)
-        case #4000760[synthetic]#760 of
-          (left#283, right#284) →
-            let %t201:Box = ::(a#280, left#283)
-            let %t202:Box = ::(b#281, right#284)
-            MakeTuple(#4000761[synthetic]#761, #4000762[synthetic]#762)
+λxs#298.
+    case xs#298 of
+      ::((a#299, b#300), t#301) →
+        let %t208 = aether_call[borrowed] unzip#297(t#301)
+        case #4000787[synthetic]#787 of
+          (left#302, right#303) →
+            let %t209:Box = ::(a#299, left#302)
+            let %t210:Box = ::(b#300, right#303)
+            MakeTuple(#4000788[synthetic]#788, #4000789[synthetic]#789)
           _ →
-            drop a#280
-            drop b#281
-            let %t203:Unit = []
-            let %t204:Unit = []
-            MakeTuple(#4000763[synthetic]#763, #4000764[synthetic]#764)
+            drop a#299
+            drop b#300
+            let %t211:Unit = []
+            let %t212:Unit = []
+            MakeTuple(#4000790[synthetic]#790, #4000791[synthetic]#791)
       _ →
-        let %t205:Unit = []
-        let %t206:Unit = []
-        MakeTuple(#4000765[synthetic]#765, #4000766[synthetic]#766)
+        let %t213:Unit = []
+        let %t214:Unit = []
+        MakeTuple(#4000792[synthetic]#792, #4000793[synthetic]#793)
 
 letrec enumerate =
-λxs#286.
-    aether_call[owned, borrowed] enumerate_go#390(xs#286, 0)
+λxs#305.
+    aether_call[owned, borrowed] enumerate_go#409(xs#305, 0)
 
 letrec contains =
-λxs#288, x#289.
-    let %t207 = IsArray(xs#288)
-    case #4000767[synthetic]#767 of
+λxs#307, x#308.
+    let %t215 = IsArray(xs#307)
+    case #4000794[synthetic]#794 of
       true →
-        letrec arr_contains_go#290 = (λi#291.
-          let %t208:Bool = (let %t209 = Len(xs#288)
-          Ge(i#291, #4000768[synthetic]#768))
-          case #4000769[synthetic]#769 of
+        letrec arr_contains_go#309 = (λi#310.
+          let %t216:Bool = (let %t217 = Len(xs#307)
+          Ge(i#310, #4000795[synthetic]#795))
+          case #4000796[synthetic]#796 of
             true →
               false
             _ →
-              let %t210 = Index(xs#288, i#291)
-              case #4000770[synthetic]#770 of
-                Some(v#292) →
-                  let %t211 = CmpEq(v#292, x#289)
-                  case #4000771[synthetic]#771 of
+              let %t218 = Index(xs#307, i#310)
+              case #4000797[synthetic]#797 of
+                Some(v#311) →
+                  let %t219 = CmpEq(v#311, x#308)
+                  case #4000798[synthetic]#798 of
                     true →
                       true
                     _ →
-                      let %t212 = Add(i#291, 1)
-                      aether_call[owned] arr_contains_go#290(#4000772[synthetic]#772)
+                      let %t220 = Add(i#310, 1)
+                      aether_call[owned] arr_contains_go#309(#4000799[synthetic]#799)
                 _ →
-                  let %t213 = Add(i#291, 1)
-                  aether_call[owned] arr_contains_go#290(#4000773[synthetic]#773))
-        aether_call[owned] arr_contains_go#290(0)
+                  let %t221 = Add(i#310, 1)
+                  aether_call[owned] arr_contains_go#309(#4000800[synthetic]#800))
+        aether_call[owned] arr_contains_go#309(0)
       _ →
-        case xs#288 of
-          ::(h#293, t#294) →
-            let %t214 = CmpEq(h#293, x#289)
-            case #4000774[synthetic]#774 of
+        case xs#307 of
+          ::(h#312, t#313) →
+            let %t222 = CmpEq(h#312, x#308)
+            case #4000801[synthetic]#801 of
               true →
                 true
               _ →
-                aether_call[borrowed, borrowed] contains#287(t#294, x#289)
+                aether_call[borrowed, borrowed] contains#306(t#313, x#308)
           _ →
             false
 
 letrec nub =
-λxs#296.
-    let %t215:Box = (λx#297.
-      x#297)
-    aether_call[borrowed, borrowed] unique_by#360(xs#296, #4000775[synthetic]#775)
+λxs#315.
+    let %t223:Box = (λx#316.
+      x#316)
+    aether_call[borrowed, borrowed] unique_by#379(xs#315, #4000802[synthetic]#802)
 
 letrec partition =
-λxs#299, pred#300.
-    case xs#299 of
-      ::(h#301, t#302) →
-        let %t216 = aether_call[borrowed, borrowed] partition#298(t#302, pred#300)
-        case #4000776[synthetic]#776 of
-          (yes#303, no#304) →
-            let %t217 = aether_call[owned] pred#300(dup h#301
-            h#301)
-            case #4000777[synthetic]#777 of
+λxs#318, pred#319.
+    case xs#318 of
+      ::(h#320, t#321) →
+        let %t224 = aether_call[borrowed, borrowed] partition#317(t#321, pred#319)
+        case #4000803[synthetic]#803 of
+          (yes#322, no#323) →
+            let %t225 = aether_call[owned] pred#319(dup h#320
+            h#320)
+            case #4000804[synthetic]#804 of
               true →
-                let %t218:Box = ::(h#301, yes#303)
-                MakeTuple(#4000778[synthetic]#778, no#304)
+                let %t226:Box = ::(h#320, yes#322)
+                MakeTuple(#4000805[synthetic]#805, no#323)
               _ →
-                let %t219:Box = ::(h#301, no#304)
-                MakeTuple(yes#303, #4000779[synthetic]#779)
+                let %t227:Box = ::(h#320, no#323)
+                MakeTuple(yes#322, #4000806[synthetic]#806)
           _ →
-            drop h#301
-            let %t220:Unit = []
-            let %t221:Unit = []
-            MakeTuple(#4000780[synthetic]#780, #4000781[synthetic]#781)
+            drop h#320
+            let %t228:Unit = []
+            let %t229:Unit = []
+            MakeTuple(#4000807[synthetic]#807, #4000808[synthetic]#808)
       _ →
-        let %t222:Unit = []
-        let %t223:Unit = []
-        MakeTuple(#4000782[synthetic]#782, #4000783[synthetic]#783)
+        let %t230:Unit = []
+        let %t231:Unit = []
+        MakeTuple(#4000809[synthetic]#809, #4000810[synthetic]#810)
 
 letrec delete =
-λxs#306, x#307.
-    aether_call[borrowed, borrowed] delete_go#308(xs#306, x#307)
+λxs#325, x#326.
+    aether_call[borrowed, borrowed] delete_go#327(xs#325, x#326)
 
 letrec delete_go =
-λxs#309, x#310.
-    let %t224:Unit = []
-    aether_call[borrowed, borrowed, owned] delete_go_acc#311(xs#309, x#310, #4000784[synthetic]#784)
+λxs#328, x#329.
+    let %t232:Unit = []
+    aether_call[borrowed, borrowed, owned] delete_go_acc#330(xs#328, x#329, #4000811[synthetic]#811)
 
 letrec delete_go_acc =
-λxs#312, x#313, acc#314.
-    case xs#312 of
-      ::(h#315, t#316) →
-        let %t225 = CmpEq(h#315, x#313)
-        case #4000785[synthetic]#785 of
+λxs#331, x#332, acc#333.
+    case xs#331 of
+      ::(h#334, t#335) →
+        let %t233 = CmpEq(h#334, x#332)
+        case #4000812[synthetic]#812 of
           true →
-            drop h#315
-            let %t226 = aether_call[owned] reverse#254(acc#314)
-            let %t227 = aether_call[owned] clone_list#317(t#316)
-            aether_call[owned, owned] append#385(#4000786[synthetic]#786, #4000787[synthetic]#787)
+            drop h#334
+            let %t234 = aether_call[owned] reverse#273(acc#333)
+            let %t235 = aether_call[owned] clone_list#336(t#335)
+            aether_call[owned, owned] append#404(#4000813[synthetic]#813, #4000814[synthetic]#814)
           _ →
-            let %t228:Box = ::(h#315, acc#314)
-            aether_call[borrowed, borrowed, owned] delete_go_acc#311(t#316, x#313, #4000788[synthetic]#788)
+            let %t236:Box = ::(h#334, acc#333)
+            aether_call[borrowed, borrowed, owned] delete_go_acc#330(t#335, x#332, #4000815[synthetic]#815)
       _ →
-        aether_call[owned] reverse#254(acc#314)
+        aether_call[owned] reverse#273(acc#333)
 
 letrec clone_list =
-λxs#318.
-    case xs#318 of
-      ::(h#319, t#320) →
-        let %t229 = aether_call[owned] clone_list#317(t#320)
-        reuse xs#318 ::(h#319, #4000789[synthetic]#789) @mask=0b10
+λxs#337.
+    case xs#337 of
+      ::(h#338, t#339) →
+        let %t237 = aether_call[owned] clone_list#336(t#339)
+        reuse xs#337 ::(h#338, #4000816[synthetic]#816) @mask=0b10
       _ →
         []
 
 letrec intersperse =
-λxs#322, sep#323.
-    case xs#322 of
-      ::(h#324, t#325) →
-        let %t230 = aether_call[owned, owned] intersperse_rest#395(t#325, sep#323)
-        reuse xs#322 ::(h#324, #4000790[synthetic]#790) @mask=0b10
+λxs#341, sep#342.
+    case xs#341 of
+      ::(h#343, t#344) →
+        let %t238 = aether_call[owned, owned] intersperse_rest#414(t#344, sep#342)
+        reuse xs#341 ::(h#343, #4000817[synthetic]#817) @mask=0b10
       _ →
-        drop sep#323
+        drop sep#342
         []
 
 letrec intercalate =
-λxss#327, sep#328.
-    let %t231 = aether_call[owned, owned] intersperse#321(xss#327, sep#328)
-    aether_call[borrowed] concat#120(#4000791[synthetic]#791)
+λxss#346, sep#347.
+    let %t239 = aether_call[owned, owned] intersperse#340(xss#346, sep#347)
+    aether_call[owned] concat#132(#4000818[synthetic]#818)
 
 letrec is_prefix =
-λprefix#330, xs#331.
-    case prefix#330 of
-      ::(p#332, pt#333) →
-        case xs#331 of
-          ::(x#334, xt#335) →
-            let %t232 = CmpEq(p#332, x#334)
-            case #4000792[synthetic]#792 of
+λprefix#349, xs#350.
+    case prefix#349 of
+      ::(p#351, pt#352) →
+        case xs#350 of
+          ::(x#353, xt#354) →
+            let %t240 = CmpEq(p#351, x#353)
+            case #4000819[synthetic]#819 of
               true →
-                aether_call[borrowed, borrowed] is_prefix#329(pt#333, xt#335)
+                aether_call[borrowed, borrowed] is_prefix#348(pt#352, xt#354)
               _ →
                 false
           _ →
@@ -1110,627 +1109,627 @@ letrec is_prefix =
         true
 
 letrec is_suffix =
-λsuffix#337, xs#338.
-    let %t233 = aether_call[owned] reverse#254(suffix#337)
-    let %t234 = aether_call[owned] reverse#254(xs#338)
-    aether_call[borrowed, borrowed] is_prefix#329(#4000793[synthetic]#793, #4000794[synthetic]#794)
+λsuffix#356, xs#357.
+    let %t241 = aether_call[owned] reverse#273(suffix#356)
+    let %t242 = aether_call[owned] reverse#273(xs#357)
+    aether_call[borrowed, borrowed] is_prefix#348(#4000820[synthetic]#820, #4000821[synthetic]#821)
 
 letrec nth =
-λxs#340, n#341.
-    let %t235:Bool = Lt(n#341, 0)
-    case #4000795[synthetic]#795 of
+λxs#359, n#360.
+    let %t243:Bool = Lt(n#360, 0)
+    case #4000822[synthetic]#822 of
       true →
         None
       _ →
-        case xs#340 of
-          ::(h#342, t#343) →
-            let %t236:Bool = Eq(n#341, 0)
-            case #4000796[synthetic]#796 of
+        case xs#359 of
+          ::(h#361, t#362) →
+            let %t244:Bool = Eq(n#360, 0)
+            case #4000823[synthetic]#823 of
               true →
-                Some(h#342)
+                Some(h#361)
               _ →
-                drop h#342
-                let %t237 = Sub(n#341, 1)
-                aether_call[borrowed, borrowed] nth#339(t#343, #4000797[synthetic]#797)
+                drop h#361
+                let %t245 = Sub(n#360, 1)
+                aether_call[borrowed, borrowed] nth#358(t#362, #4000824[synthetic]#824)
           _ →
             None
 
 letrec replicate =
-λn#345, x#346.
-    let %t238:Bool = Le(n#345, 0)
-    case #4000798[synthetic]#798 of
+λn#364, x#365.
+    let %t246:Bool = Le(n#364, 0)
+    case #4000825[synthetic]#825 of
       true →
-        drop x#346
+        drop x#365
         []
       _ →
-        let %t239 = (let %t240 = Sub(n#345, 1)
-        aether_call[borrowed, owned] replicate#344(#4000799[synthetic]#799, dup x#346
-        x#346))
-        ::(x#346, #4000800[synthetic]#800)
+        let %t247 = (let %t248 = Sub(n#364, 1)
+        aether_call[borrowed, owned] replicate#363(#4000826[synthetic]#826, dup x#365
+        x#365))
+        ::(x#365, #4000827[synthetic]#827)
 
 letrec iterate =
-λx#348, f#349, n#350.
-    let %t241:Bool = Le(n#350, 0)
-    case #4000801[synthetic]#801 of
+λx#367, f#368, n#369.
+    let %t249:Bool = Le(n#369, 0)
+    case #4000828[synthetic]#828 of
       true →
-        drop x#348
+        drop x#367
         []
       _ →
-        let %t242 = (let %t243 = aether_call[owned] f#349(dup x#348
-        x#348)
-        let %t244 = Sub(n#350, 1)
-        aether_call[owned, borrowed, borrowed] iterate#347(#4000802[synthetic]#802, f#349, #4000803[synthetic]#803))
-        ::(x#348, #4000804[synthetic]#804)
+        let %t250 = (let %t251 = aether_call[owned] f#368(dup x#367
+        x#367)
+        let %t252 = Sub(n#369, 1)
+        aether_call[owned, borrowed, borrowed] iterate#366(#4000829[synthetic]#829, f#368, #4000830[synthetic]#830))
+        ::(x#367, #4000831[synthetic]#831)
 
 letrec unfold =
-λseed#352, f#353.
-    let %t245 = aether_call[owned] f#353(seed#352)
-    case #4000805[synthetic]#805 of
-      Some(step#354) →
-        let %t246 = step#354.0
-        let %t247 = (let %t248 = step#354.1
-        aether_call[owned, borrowed] unfold#351(#4000807[synthetic]#807, f#353))
-        ::(#4000806[synthetic]#806, #4000808[synthetic]#808)
+λseed#371, f#372.
+    let %t253 = aether_call[owned] f#372(seed#371)
+    case #4000832[synthetic]#832 of
+      Some(step#373) →
+        let %t254 = step#373.0
+        let %t255 = (let %t256 = step#373.1
+        aether_call[owned, borrowed] unfold#370(#4000834[synthetic]#834, f#372))
+        ::(#4000833[synthetic]#833, #4000835[synthetic]#835)
       _ →
         []
 
 letrec group_by =
-λxs#356, eq#357.
-    case xs#356 of
-      ::(h#358, t#359) →
-        aether_call[owned, borrowed, borrowed] group_by_head#483(h#358, t#359, eq#357)
+λxs#375, eq#376.
+    case xs#375 of
+      ::(h#377, t#378) →
+        aether_call[owned, borrowed, borrowed] group_by_head#502(h#377, t#378, eq#376)
       _ →
         []
 
 letrec unique_by =
-λxs#361, f#362.
-    let %t249 = (let %t250:Unit = []
-    let %t251:Unit = []
-    aether_call[borrowed, borrowed, owned, owned] unique_by_go#415(xs#361, f#362, #4000809[synthetic]#809, #4000810[synthetic]#810))
-    aether_call[owned] reverse#254(#4000811[synthetic]#811)
+λxs#380, f#381.
+    let %t257 = (let %t258:Unit = []
+    let %t259:Unit = []
+    aether_call[borrowed, borrowed, owned, owned] unique_by_go#434(xs#380, f#381, #4000836[synthetic]#836, #4000837[synthetic]#837))
+    aether_call[owned] reverse#273(#4000838[synthetic]#838)
 
 letrec maximum =
-λxs#364.
-    case xs#364 of
-      ::(h#365, t#366) →
-        let %t252 = aether_call[borrowed, owned] maximum_go#490(t#366, h#365)
-        Some(#4000812[synthetic]#812)
+λxs#383.
+    case xs#383 of
+      ::(h#384, t#385) →
+        let %t260 = aether_call[borrowed, owned] maximum_go#509(t#385, h#384)
+        Some(#4000839[synthetic]#839)
       _ →
         None
 
 letrec minimum =
-λxs#368.
-    case xs#368 of
-      ::(h#369, t#370) →
-        let %t253 = aether_call[borrowed, owned] minimum_go#495(t#370, h#369)
-        Some(#4000813[synthetic]#813)
+λxs#387.
+    case xs#387 of
+      ::(h#388, t#389) →
+        let %t261 = aether_call[borrowed, owned] minimum_go#514(t#389, h#388)
+        Some(#4000840[synthetic]#840)
       _ →
         None
 
 letrec sum =
-λxs#372.
-    letrec sum_go#373 = (λys#374, acc#375.
-      case ys#374 of
-        ::(h#376, t#377) →
-          let %t254 = Add(acc#375, h#376)
-          aether_call[owned, owned] sum_go#373(t#377, #4000814[synthetic]#814)
+λxs#391.
+    letrec sum_go#392 = (λys#393, acc#394.
+      case ys#393 of
+        ::(h#395, t#396) →
+          let %t262 = Add(acc#394, h#395)
+          aether_call[owned, owned] sum_go#392(t#396, #4000841[synthetic]#841)
         _ →
-          acc#375)
-    aether_call[owned, owned] sum_go#373(xs#372, 0)
+          acc#394)
+    aether_call[owned, owned] sum_go#392(xs#391, 0)
 
 letrec product =
-λxs#379.
-    letrec product_go#380 = (λys#381, acc#382.
-      case ys#381 of
-        ::(h#383, t#384) →
-          let %t255 = Mul(acc#382, h#383)
-          aether_call[owned, owned] product_go#380(t#384, #4000815[synthetic]#815)
+λxs#398.
+    letrec product_go#399 = (λys#400, acc#401.
+      case ys#400 of
+        ::(h#402, t#403) →
+          let %t263 = Mul(acc#401, h#402)
+          aether_call[owned, owned] product_go#399(t#403, #4000842[synthetic]#842)
         _ →
-          acc#382)
-    aether_call[owned, owned] product_go#380(xs#379, 1)
+          acc#401)
+    aether_call[owned, owned] product_go#399(xs#398, 1)
 
 letrec append =
-λxs#386, ys#387.
-    case xs#386 of
-      ::(h#388, t#389) →
-        let %t256 = aether_call[owned, owned] append#385(t#389, ys#387)
-        reuse xs#386 ::(h#388, #4000816[synthetic]#816) @mask=0b10
+λxs#405, ys#406.
+    case xs#405 of
+      ::(h#407, t#408) →
+        let %t264 = aether_call[owned, owned] append#404(t#408, ys#406)
+        reuse xs#405 ::(h#407, #4000843[synthetic]#843) @mask=0b10
       _ →
-        ys#387
+        ys#406
 
 letrec enumerate_go =
-λxs#391, i#392.
-    case xs#391 of
-      ::(h#393, t#394) →
-        let %t257:Box = MakeTuple(i#392, h#393)
-        let %t258 = (let %t259 = Add(i#392, 1)
-        aether_call[owned, borrowed] enumerate_go#390(t#394, #4000818[synthetic]#818))
-        reuse xs#391 ::(#4000817[synthetic]#817, #4000819[synthetic]#819)
+λxs#410, i#411.
+    case xs#410 of
+      ::(h#412, t#413) →
+        let %t265:Box = MakeTuple(i#411, h#412)
+        let %t266 = (let %t267 = Add(i#411, 1)
+        aether_call[owned, borrowed] enumerate_go#409(t#413, #4000845[synthetic]#845))
+        reuse xs#410 ::(#4000844[synthetic]#844, #4000846[synthetic]#846)
       _ →
         []
 
 letrec intersperse_rest =
-λxs#396, sep#397.
-    case xs#396 of
-      ::(h#398, t#399) →
-        let %t260:Box = (let %t261 = aether_call[owned, owned] intersperse_rest#395(t#399, dup sep#397
-        sep#397)
-        ::(h#398, #4000820[synthetic]#820))
-        reuse xs#396 ::(sep#397, #4000821[synthetic]#821)
+λxs#415, sep#416.
+    case xs#415 of
+      ::(h#417, t#418) →
+        let %t268:Box = (let %t269 = aether_call[owned, owned] intersperse_rest#414(t#418, dup sep#416
+        sep#416)
+        ::(h#417, #4000847[synthetic]#847))
+        reuse xs#415 ::(sep#416, #4000848[synthetic]#848)
       _ →
-        drop sep#397
+        drop sep#416
         []
 
 letrec intercalate_rest =
-λxss#401, sep#402.
-    case xss#401 of
-      ::(h#403, t#404) →
-        let %t262 = (let %t263 = aether_call[borrowed, borrowed] intercalate_rest#400(t#404, sep#402)
-        aether_call[owned, owned] append#385(h#403, #4000822[synthetic]#822))
-        aether_call[owned, owned] append#385(sep#402, #4000823[synthetic]#823)
+λxss#420, sep#421.
+    case xss#420 of
+      ::(h#422, t#423) →
+        let %t270 = (let %t271 = aether_call[borrowed, borrowed] intercalate_rest#419(t#423, sep#421)
+        aether_call[owned, owned] append#404(h#422, #4000849[synthetic]#849))
+        aether_call[owned, owned] append#404(sep#421, #4000850[synthetic]#850)
       _ →
-        drop sep#402
+        drop sep#421
         []
 
 letrec scanl_rest =
-λxs#406, acc#407, f#408.
-    case xs#406 of
-      ::(h#409, t#410) →
-        let %t264 = aether_call[owned, owned] f#408(acc#407, h#409)
-        aether_call[borrowed, owned, borrowed] scanl_emit#411(t#410, #4000824[synthetic]#824, f#408)
+λxs#425, acc#426, f#427.
+    case xs#425 of
+      ::(h#428, t#429) →
+        let %t272 = aether_call[owned, owned] f#427(acc#426, h#428)
+        aether_call[borrowed, owned, borrowed] scanl_emit#430(t#429, #4000851[synthetic]#851, f#427)
       _ →
-        drop acc#407
+        drop acc#426
         []
 
 letrec scanl_emit =
-λxs#412, next#413, f#414.
-    let %t265 = aether_call[borrowed, owned, borrowed] scanl_rest#405(xs#412, dup next#413
-    next#413, f#414)
-    ::(next#413, #4000825[synthetic]#825)
+λxs#431, next#432, f#433.
+    let %t273 = aether_call[borrowed, owned, borrowed] scanl_rest#424(xs#431, dup next#432
+    next#432, f#433)
+    ::(next#432, #4000852[synthetic]#852)
 
 letrec unique_by_go =
-λxs#416, f#417, seen#418, acc#419.
-    case xs#416 of
-      ::(h#420, t#421) →
-        let %t266 = aether_call[owned] f#417(dup h#420
-        h#420)
-        aether_call[borrowed, owned, owned, borrowed, owned, owned] unique_by_step#422(t#421, h#420, #4000826[synthetic]#826, f#417, seen#418, acc#419)
+λxs#435, f#436, seen#437, acc#438.
+    case xs#435 of
+      ::(h#439, t#440) →
+        let %t274 = aether_call[owned] f#436(dup h#439
+        h#439)
+        aether_call[borrowed, owned, owned, borrowed, owned, owned] unique_by_step#441(t#440, h#439, #4000853[synthetic]#853, f#436, seen#437, acc#438)
       _ →
-        drop seen#418
-        acc#419
+        drop seen#437
+        acc#438
 
 letrec unique_by_step =
-λxs#423, value#424, key#425, f#426, seen#427, acc#428.
-    let %t267 = aether_call[borrowed, borrowed] contains#287(seen#427, key#425)
-    case #4000827[synthetic]#827 of
+λxs#442, value#443, key#444, f#445, seen#446, acc#447.
+    let %t275 = aether_call[borrowed, borrowed] contains#306(seen#446, key#444)
+    case #4000854[synthetic]#854 of
       true →
-        drop key#425
-        drop value#424
-        aether_call[borrowed, borrowed, owned, owned] unique_by_go#415(xs#423, f#426, seen#427, acc#428)
+        drop key#444
+        drop value#443
+        aether_call[borrowed, borrowed, owned, owned] unique_by_go#434(xs#442, f#445, seen#446, acc#447)
       _ →
-        let %t268:Box = ::(key#425, seen#427)
-        let %t269:Box = ::(value#424, acc#428)
-        aether_call[borrowed, borrowed, owned, owned] unique_by_go#415(xs#423, f#426, #4000828[synthetic]#828, #4000829[synthetic]#829)
+        let %t276:Box = ::(key#444, seen#446)
+        let %t277:Box = ::(value#443, acc#447)
+        aether_call[borrowed, borrowed, owned, owned] unique_by_go#434(xs#442, f#445, #4000855[synthetic]#855, #4000856[synthetic]#856)
 
 letrec scanr_go =
-λxs#430, acc#431, f#432.
-    case xs#430 of
-      ::(h#433, t#434) →
-        let %t270 = aether_call[borrowed, borrowed, borrowed] scanr_go#429(t#434, acc#431, f#432)
-        aether_call[owned, borrowed, borrowed, borrowed] scanr_step#435(h#433, #4000830[synthetic]#830, acc#431, f#432)
+λxs#449, acc#450, f#451.
+    case xs#449 of
+      ::(h#452, t#453) →
+        let %t278 = aether_call[borrowed, borrowed, borrowed] scanr_go#448(t#453, acc#450, f#451)
+        aether_call[owned, borrowed, borrowed, borrowed] scanr_step#454(h#452, #4000857[synthetic]#857, acc#450, f#451)
       _ →
-        let %t271:Box = MakeList(acc#431)
-        MakeTuple(#4000831[synthetic]#831, acc#431)
+        let %t279:Box = MakeList(acc#450)
+        MakeTuple(#4000858[synthetic]#858, acc#450)
 
 letrec scanr_step =
-λh#436, state#437, acc#438, f#439.
-    case state#437 of
-      (rest#440, next_acc#441) →
-        aether_call[owned, owned, owned, borrowed] scanr_finish#442(rest#440, next_acc#441, h#436, f#439)
+λh#455, state#456, acc#457, f#458.
+    case state#456 of
+      (rest#459, next_acc#460) →
+        aether_call[owned, owned, owned, borrowed] scanr_finish#461(rest#459, next_acc#460, h#455, f#458)
       _ →
-        drop h#436
-        let %t272:Box = MakeList(acc#438)
-        MakeTuple(#4000832[synthetic]#832, acc#438)
+        drop h#455
+        let %t280:Box = MakeList(acc#457)
+        MakeTuple(#4000859[synthetic]#859, acc#457)
 
 letrec scanr_finish =
-λrest#443, next_acc#444, h#445, f#446.
-    let current#447 = aether_call[owned, owned] f#446(h#445, next_acc#444)
-    let %t273:Box = ::(dup current#447
-    current#447, rest#443)
-    MakeTuple(#4000833[synthetic]#833, current#447)
+λrest#462, next_acc#463, h#464, f#465.
+    let current#466 = aether_call[owned, owned] f#465(h#464, next_acc#463)
+    let %t281:Box = ::(dup current#466
+    current#466, rest#462)
+    MakeTuple(#4000860[synthetic]#860, current#466)
 
 letrec merge_sort_by =
-λxs#449, key_fn#450.
-    case xs#449 of
-      ::(_, t#451) →
-        case t#451 of
+λxs#468, key_fn#469.
+    case xs#468 of
+      ::(_, t#470) →
+        case t#470 of
           ::(_, _) →
-            aether_call[owned, borrowed] merge_sort_do#452(xs#449, key_fn#450)
+            aether_call[owned, borrowed] merge_sort_do#471(xs#468, key_fn#469)
           _ →
-            xs#449
+            xs#468
       _ →
-        xs#449
+        xs#468
 
 letrec merge_sort_do =
-λxs#453, key_fn#454.
-    let mid#457 = (let %t274 = aether_call[owned] length#234(dup xs#453
-    xs#453)
-    Div(#4000834[synthetic]#834, 2))
-    let %t275 = aether_call[borrowed, borrowed] split_at#188(xs#453, mid#457)
-    case #4000835[synthetic]#835 of
-      (left#455, right#456) →
-        let %t276 = aether_call[owned, borrowed] merge_sort_by#448(left#455, key_fn#454)
-        let %t277 = aether_call[owned, borrowed] merge_sort_by#448(right#456, key_fn#454)
-        aether_call[owned, owned, borrowed] merge_by_key#458(#4000836[synthetic]#836, #4000837[synthetic]#837, key_fn#454)
+λxs#472, key_fn#473.
+    let mid#476 = (let %t282 = aether_call[owned] length#253(dup xs#472
+    xs#472)
+    Div(#4000861[synthetic]#861, 2))
+    let %t283 = aether_call[borrowed, borrowed] split_at#207(xs#472, mid#476)
+    case #4000862[synthetic]#862 of
+      (left#474, right#475) →
+        let %t284 = aether_call[owned, borrowed] merge_sort_by#467(left#474, key_fn#473)
+        let %t285 = aether_call[owned, borrowed] merge_sort_by#467(right#475, key_fn#473)
+        aether_call[owned, owned, borrowed] merge_by_key#477(#4000863[synthetic]#863, #4000864[synthetic]#864, key_fn#473)
       _ →
         []
 
 letrec merge_by_key =
-λleft#459, right#460, key_fn#461.
-    case left#459 of
-      ::(a#462, at#463) →
-        case right#460 of
-          ::(b#464, bt#465) →
-            let %t278:Bool = (let %t279 = aether_call[owned] key_fn#461(dup a#462
-            a#462)
-            let %t280 = aether_call[owned] key_fn#461(dup b#464
-            b#464)
-            Le(#4000838[synthetic]#838, #4000839[synthetic]#839))
-            case #4000840[synthetic]#840 of
+λleft#478, right#479, key_fn#480.
+    case left#478 of
+      ::(a#481, at#482) →
+        case right#479 of
+          ::(b#483, bt#484) →
+            let %t286:Bool = (let %t287 = aether_call[owned] key_fn#480(dup a#481
+            a#481)
+            let %t288 = aether_call[owned] key_fn#480(dup b#483
+            b#483)
+            Le(#4000865[synthetic]#865, #4000866[synthetic]#866))
+            case #4000867[synthetic]#867 of
               true →
-                let %t281 = aether_call[owned, owned, borrowed] merge_by_key#458(at#463, right#460, key_fn#461)
-                reuse left#459 ::(a#462, #4000841[synthetic]#841) @mask=0b10
+                let %t289 = aether_call[owned, owned, borrowed] merge_by_key#477(at#482, right#479, key_fn#480)
+                reuse left#478 ::(a#481, #4000868[synthetic]#868) @mask=0b10
               _ →
-                let %t282 = aether_call[owned, owned, borrowed] merge_by_key#458(left#459, bt#465, key_fn#461)
-                reuse right#460 ::(b#464, #4000842[synthetic]#842) @mask=0b10
+                let %t290 = aether_call[owned, owned, borrowed] merge_by_key#477(left#478, bt#484, key_fn#480)
+                reuse right#479 ::(b#483, #4000869[synthetic]#869) @mask=0b10
           _ →
-            drop right#460
-            left#459
+            drop right#479
+            left#478
       _ →
-        drop left#459
-        right#460
+        drop left#478
+        right#479
 
 letrec zip_go =
-λxs#467, ys#468, acc#469.
-    case xs#467 of
-      ::(a#470, at#471) →
-        case ys#468 of
-          ::(b#472, bt#473) →
-            let %t283:Box = (let %t284:Box = MakeTuple(a#470, b#472)
-            ::(#4000843[synthetic]#843, acc#469))
-            aether_call[borrowed, borrowed, owned] zip_go#466(at#471, bt#473, #4000844[synthetic]#844)
+λxs#486, ys#487, acc#488.
+    case xs#486 of
+      ::(a#489, at#490) →
+        case ys#487 of
+          ::(b#491, bt#492) →
+            let %t291:Box = (let %t292:Box = MakeTuple(a#489, b#491)
+            ::(#4000870[synthetic]#870, acc#488))
+            aether_call[borrowed, borrowed, owned] zip_go#485(at#490, bt#492, #4000871[synthetic]#871)
           _ →
-            acc#469
+            acc#488
       _ →
-        acc#469
+        acc#488
 
 letrec zip_with_go =
-λxs#475, ys#476, f#477, acc#478.
-    case xs#475 of
-      ::(a#479, at#480) →
-        case ys#476 of
-          ::(b#481, bt#482) →
-            let %t285:Box = (let %t286 = aether_call[owned, owned] f#477(a#479, b#481)
-            ::(#4000845[synthetic]#845, acc#478))
-            aether_call[borrowed, borrowed, borrowed, owned] zip_with_go#474(at#480, bt#482, f#477, #4000846[synthetic]#846)
+λxs#494, ys#495, f#496, acc#497.
+    case xs#494 of
+      ::(a#498, at#499) →
+        case ys#495 of
+          ::(b#500, bt#501) →
+            let %t293:Box = (let %t294 = aether_call[owned, owned] f#496(a#498, b#500)
+            ::(#4000872[synthetic]#872, acc#497))
+            aether_call[borrowed, borrowed, borrowed, owned] zip_with_go#493(at#499, bt#501, f#496, #4000873[synthetic]#873)
           _ →
-            drop a#479
-            acc#478
+            drop a#498
+            acc#497
       _ →
-        acc#478
+        acc#497
 
 letrec group_by_head =
-λh#484, t#485, eq#486.
-    let %t287 = (let %t288:Box = (λx#487.
-      aether_call[owned, owned] eq#486(h#484, x#487))
-    aether_call[borrowed, borrowed] span#195(t#485, #4000847[synthetic]#847))
-    case #4000848[synthetic]#848 of
-      (prefix#488, rest#489) →
-        let %t289:Box = ::(h#484, prefix#488)
-        let %t290 = aether_call[borrowed, borrowed] group_by#355(rest#489, eq#486)
-        ::(#4000849[synthetic]#849, #4000850[synthetic]#850)
+λh#503, t#504, eq#505.
+    let %t295 = (let %t296:Box = (λx#506.
+      aether_call[owned, owned] eq#505(h#503, x#506))
+    aether_call[borrowed, borrowed] span#214(t#504, #4000874[synthetic]#874))
+    case #4000875[synthetic]#875 of
+      (prefix#507, rest#508) →
+        let %t297:Box = ::(h#503, prefix#507)
+        let %t298 = aether_call[borrowed, borrowed] group_by#374(rest#508, eq#505)
+        ::(#4000876[synthetic]#876, #4000877[synthetic]#877)
       _ →
-        let %t291:Box = MakeList(h#484)
-        let %t292 = aether_call[borrowed, borrowed] group_by#355(t#485, eq#486)
-        ::(#4000851[synthetic]#851, #4000852[synthetic]#852)
+        let %t299:Box = MakeList(h#503)
+        let %t300 = aether_call[borrowed, borrowed] group_by#374(t#504, eq#505)
+        ::(#4000878[synthetic]#878, #4000879[synthetic]#879)
 
 letrec maximum_go =
-λxs#491, best#492.
-    case xs#491 of
-      ::(h#493, t#494) →
-        let %t293 = (let %t294:Bool = Gt(h#493, best#492)
-        case #4000853[synthetic]#853 of
+λxs#510, best#511.
+    case xs#510 of
+      ::(h#512, t#513) →
+        let %t301 = (let %t302:Bool = Gt(h#512, best#511)
+        case #4000880[synthetic]#880 of
           true →
-            drop best#492
-            h#493
+            drop best#511
+            h#512
           _ →
-            drop h#493
-            best#492)
-        aether_call[borrowed, owned] maximum_go#490(t#494, #4000854[synthetic]#854)
+            drop h#512
+            best#511)
+        aether_call[borrowed, owned] maximum_go#509(t#513, #4000881[synthetic]#881)
       _ →
-        best#492
+        best#511
 
 letrec minimum_go =
-λxs#496, best#497.
-    case xs#496 of
-      ::(h#498, t#499) →
-        let %t295 = (let %t296:Bool = Lt(h#498, best#497)
-        case #4000855[synthetic]#855 of
+λxs#515, best#516.
+    case xs#515 of
+      ::(h#517, t#518) →
+        let %t303 = (let %t304:Bool = Lt(h#517, best#516)
+        case #4000882[synthetic]#882 of
           true →
-            drop best#497
-            h#498
+            drop best#516
+            h#517
           _ →
-            drop h#498
-            best#497)
-        aether_call[borrowed, owned] minimum_go#495(t#499, #4000856[synthetic]#856)
+            drop h#517
+            best#516)
+        aether_call[borrowed, owned] minimum_go#514(t#518, #4000883[synthetic]#883)
       _ →
-        best#497
+        best#516
 
 letrec max_list =
-λarr#501.
-    letrec maxl_go#503 = (λi#504, best#505.
-      let %t297:Bool = (let %t298 = Len(arr#501)
-      Ge(i#504, #4000857[synthetic]#857))
-      case #4000858[synthetic]#858 of
+λarr#520.
+    letrec maxl_go#522 = (λi#523, best#524.
+      let %t305:Bool = (let %t306 = Len(arr#520)
+      Ge(i#523, #4000884[synthetic]#884))
+      case #4000885[synthetic]#885 of
         true →
-          best#505
+          best#524
         _ →
-          let %t299 = Index(arr#501, i#504)
-          case #4000859[synthetic]#859 of
-            Some(v#506) →
-              let %t300 = Add(i#504, 1)
-              let %t301 = (let %t302:Bool = Gt(v#506, best#505)
-              case #4000861[synthetic]#861 of
+          let %t307 = Index(arr#520, i#523)
+          case #4000886[synthetic]#886 of
+            Some(v#525) →
+              let %t308 = Add(i#523, 1)
+              let %t309 = (let %t310:Bool = Gt(v#525, best#524)
+              case #4000888[synthetic]#888 of
                 true →
-                  drop best#505
-                  v#506
+                  drop best#524
+                  v#525
                 _ →
-                  drop v#506
-                  best#505)
-              aether_call[owned, owned] maxl_go#503(#4000860[synthetic]#860, #4000862[synthetic]#862)
+                  drop v#525
+                  best#524)
+              aether_call[owned, owned] maxl_go#522(#4000887[synthetic]#887, #4000889[synthetic]#889)
             _ →
-              let %t303:Int = IAdd(i#504, 1)
-              aether_call[owned, owned] maxl_go#503(#4000863[synthetic]#863, best#505))
-    let %t304:Bool = (let %t305 = Len(arr#501)
-    Eq(#4000864[synthetic]#864, 0))
-    case #4000865[synthetic]#865 of
+              let %t311:Int = IAdd(i#523, 1)
+              aether_call[owned, owned] maxl_go#522(#4000890[synthetic]#890, best#524))
+    let %t312:Bool = (let %t313 = Len(arr#520)
+    Eq(#4000891[synthetic]#891, 0))
+    case #4000892[synthetic]#892 of
       true →
         0
       _ →
-        let %t306 = Index(arr#501, 0)
-        case #4000866[synthetic]#866 of
-          Some(first#502) →
-            aether_call[owned, owned] maxl_go#503(1, first#502)
+        let %t314 = Index(arr#520, 0)
+        case #4000893[synthetic]#893 of
+          Some(first#521) →
+            aether_call[owned, owned] maxl_go#522(1, first#521)
           _ →
             0
 
 letrec min_list =
-λarr#508.
-    letrec minl_go#510 = (λi#511, best#512.
-      let %t307:Bool = (let %t308 = Len(arr#508)
-      Ge(i#511, #4000867[synthetic]#867))
-      case #4000868[synthetic]#868 of
+λarr#527.
+    letrec minl_go#529 = (λi#530, best#531.
+      let %t315:Bool = (let %t316 = Len(arr#527)
+      Ge(i#530, #4000894[synthetic]#894))
+      case #4000895[synthetic]#895 of
         true →
-          best#512
+          best#531
         _ →
-          let %t309 = Index(arr#508, i#511)
-          case #4000869[synthetic]#869 of
-            Some(v#513) →
-              let %t310 = Add(i#511, 1)
-              let %t311 = (let %t312:Bool = Lt(v#513, best#512)
-              case #4000871[synthetic]#871 of
+          let %t317 = Index(arr#527, i#530)
+          case #4000896[synthetic]#896 of
+            Some(v#532) →
+              let %t318 = Add(i#530, 1)
+              let %t319 = (let %t320:Bool = Lt(v#532, best#531)
+              case #4000898[synthetic]#898 of
                 true →
-                  drop best#512
-                  v#513
+                  drop best#531
+                  v#532
                 _ →
-                  drop v#513
-                  best#512)
-              aether_call[owned, owned] minl_go#510(#4000870[synthetic]#870, #4000872[synthetic]#872)
+                  drop v#532
+                  best#531)
+              aether_call[owned, owned] minl_go#529(#4000897[synthetic]#897, #4000899[synthetic]#899)
             _ →
-              let %t313 = Add(i#511, 1)
-              aether_call[owned, owned] minl_go#510(#4000873[synthetic]#873, best#512))
-    let %t314:Bool = (let %t315 = Len(arr#508)
-    Eq(#4000874[synthetic]#874, 0))
-    case #4000875[synthetic]#875 of
+              let %t321 = Add(i#530, 1)
+              aether_call[owned, owned] minl_go#529(#4000900[synthetic]#900, best#531))
+    let %t322:Bool = (let %t323 = Len(arr#527)
+    Eq(#4000901[synthetic]#901, 0))
+    case #4000902[synthetic]#902 of
       true →
         0
       _ →
-        let %t316 = Index(arr#508, 0)
-        case #4000876[synthetic]#876 of
-          Some(first#509) →
-            aether_call[owned, owned] minl_go#510(1, first#509)
+        let %t324 = Index(arr#527, 0)
+        case #4000903[synthetic]#903 of
+          Some(first#528) →
+            aether_call[owned, owned] minl_go#529(1, first#528)
           _ →
             0
 
 letrec unwrap =
-λopt#515.
-    case opt#515 of
-      Some(v#516) →
-        v#516
+λopt#534.
+    case opt#534 of
+      Some(v#535) →
+        v#535
       _ →
         Panic("unwrap called on None")
 
 letrec unwrap_or =
-λopt#518, default#519.
-    case opt#518 of
-      Some(v#520) →
-        drop default#519
-        v#520
+λopt#537, default#538.
+    case opt#537 of
+      Some(v#539) →
+        drop default#538
+        v#539
       _ →
-        default#519
+        default#538
 
 letrec map_option =
-λopt#522, f#523.
-    case opt#522 of
-      Some(v#524) →
-        let %t317 = aether_call[owned] f#523(v#524)
-        reuse opt#522 Some(#4000877[synthetic]#877)
+λopt#541, f#542.
+    case opt#541 of
+      Some(v#543) →
+        let %t325 = aether_call[owned] f#542(v#543)
+        reuse opt#541 Some(#4000904[synthetic]#904)
       _ →
         None
 
 letrec flat_map_option =
-λopt#526, f#527.
-    case opt#526 of
-      Some(v#528) →
-        aether_call[owned] f#527(v#528)
+λopt#545, f#546.
+    case opt#545 of
+      Some(v#547) →
+        aether_call[owned] f#546(v#547)
       _ →
         None
 
 letrec is_some =
-λopt#530.
-    case opt#530 of
+λopt#549.
+    case opt#549 of
       Some(_) →
         true
       _ →
         false
 
 letrec is_none_opt =
-λopt#532.
-    case opt#532 of
+λopt#551.
+    case opt#551 of
       Some(_) →
         false
       _ →
         true
 
 letrec starts_with =
-λs#534, prefix#535.
-    let plen#536:Int = Len(prefix#535)
-    let %t318:Bool = (let %t319 = Len(s#534)
-    Gt(plen#536, #4000878[synthetic]#878))
-    case #4000879[synthetic]#879 of
+λs#553, prefix#554.
+    let plen#555:Int = Len(prefix#554)
+    let %t326:Bool = (let %t327 = Len(s#553)
+    Gt(plen#555, #4000905[synthetic]#905))
+    case #4000906[synthetic]#906 of
       true →
         false
       _ →
-        let %t320:Box = Substring(s#534, 0, plen#536)
-        Eq(#4000880[synthetic]#880, prefix#535)
+        let %t328:Box = Substring(s#553, 0, plen#555)
+        Eq(#4000907[synthetic]#907, prefix#554)
 
 letrec ends_with =
-λs#538, suffix#539.
-    let slen#541:Box = Len(s#538)
-    let plen#540:Int = Len(suffix#539)
-    let %t321:Bool = Gt(plen#540, slen#541)
-    case #4000881[synthetic]#881 of
+λs#557, suffix#558.
+    let slen#560:Box = Len(s#557)
+    let plen#559:Int = Len(suffix#558)
+    let %t329:Bool = Gt(plen#559, slen#560)
+    case #4000908[synthetic]#908 of
       true →
         false
       _ →
-        let %t322:Box = (let %t323 = Sub(slen#541, plen#540)
-        Substring(s#538, #4000882[synthetic]#882, slen#541))
-        Eq(#4000883[synthetic]#883, suffix#539)
+        let %t330:Box = (let %t331 = Sub(slen#560, plen#559)
+        Substring(s#557, #4000909[synthetic]#909, slen#560))
+        Eq(#4000910[synthetic]#910, suffix#558)
 
 letrec chars =
-λs#543.
-    letrec chars_go#544 = (λi#545, result#546.
-      let %t324:Bool = (let %t325 = Len(s#543)
-      Ge(i#545, #4000884[synthetic]#884))
-      case #4000885[synthetic]#885 of
+λs#562.
+    letrec chars_go#563 = (λi#564, result#565.
+      let %t332:Bool = (let %t333 = Len(s#562)
+      Ge(i#564, #4000911[synthetic]#911))
+      case #4000912[synthetic]#912 of
         true →
-          result#546
+          result#565
         _ →
-          let %t326 = Add(i#545, 1)
-          let %t327:Box = (let %t328:Box = (let %t329 = Add(i#545, 1)
-          Substring(s#543, i#545, #4000887[synthetic]#887))
-          ArrayPush(result#546, #4000888[synthetic]#888))
-          aether_call[owned, owned] chars_go#544(#4000886[synthetic]#886, #4000889[synthetic]#889))
-    let %t330:Box = MakeArray()
-    aether_call[owned, owned] chars_go#544(0, #4000890[synthetic]#890)
+          let %t334 = Add(i#564, 1)
+          let %t335:Box = (let %t336:Box = (let %t337 = Add(i#564, 1)
+          Substring(s#562, i#564, #4000914[synthetic]#914))
+          ArrayPush(result#565, #4000915[synthetic]#915))
+          aether_call[owned, owned] chars_go#563(#4000913[synthetic]#913, #4000916[synthetic]#916))
+    let %t338:Box = MakeArray()
+    aether_call[owned, owned] chars_go#563(0, #4000917[synthetic]#917)
 
 letrec join =
-λarr#548, sep#549.
-    let %t331:Bool = (let %t332 = Len(arr#548)
-    Eq(#4000891[synthetic]#891, 0))
-    case #4000892[synthetic]#892 of
+λarr#567, sep#568.
+    let %t339:Bool = (let %t340 = Len(arr#567)
+    Eq(#4000918[synthetic]#918, 0))
+    case #4000919[synthetic]#919 of
       true →
         ""
       _ →
-        letrec join_go#551 = (λi#552, result#553.
-          let %t333:Bool = (let %t334 = Len(arr#548)
-          Ge(i#552, #4000893[synthetic]#893))
-          case #4000894[synthetic]#894 of
+        letrec join_go#570 = (λi#571, result#572.
+          let %t341:Bool = (let %t342 = Len(arr#567)
+          Ge(i#571, #4000920[synthetic]#920))
+          case #4000921[synthetic]#921 of
             true →
-              result#553
+              result#572
             _ →
-              let %t335 = Index(arr#548, i#552)
-              case #4000895[synthetic]#895 of
-                Some(v#554) →
-                  let %t336 = Add(i#552, 1)
-                  let %t337 = (let %t338 = Add(result#553, sep#549)
-                  Add(#4000897[synthetic]#897, v#554))
-                  aether_call[owned, owned] join_go#551(#4000896[synthetic]#896, #4000898[synthetic]#898)
+              let %t343 = Index(arr#567, i#571)
+              case #4000922[synthetic]#922 of
+                Some(v#573) →
+                  let %t344 = Add(i#571, 1)
+                  let %t345 = (let %t346 = Add(result#572, sep#568)
+                  Add(#4000924[synthetic]#924, v#573))
+                  aether_call[owned, owned] join_go#570(#4000923[synthetic]#923, #4000925[synthetic]#925)
                 _ →
-                  let %t339 = Add(i#552, 1)
-                  aether_call[owned, owned] join_go#551(#4000899[synthetic]#899, result#553))
-        let %t340 = Index(arr#548, 0)
-        case #4000900[synthetic]#900 of
-          Some(first_val#550) →
-            aether_call[owned, owned] join_go#551(1, first_val#550)
+                  let %t347 = Add(i#571, 1)
+                  aether_call[owned, owned] join_go#570(#4000926[synthetic]#926, result#572))
+        let %t348 = Index(arr#567, 0)
+        case #4000927[synthetic]#927 of
+          Some(first_val#569) →
+            aether_call[owned, owned] join_go#570(1, first_val#569)
           _ →
             ""
 
 letrec string_len =
-λs#556.
-    Len(s#556)
+λs#575.
+    Len(s#575)
 
 letrec str_contains =
-λs#558, needle#559.
-    let slen#563 = Len(s#558)
-    let nlen#562 = Len(needle#559)
-    let %t341:Bool = Gt(nlen#562, slen#563)
-    case #4000901[synthetic]#901 of
+λs#577, needle#578.
+    let slen#582 = Len(s#577)
+    let nlen#581 = Len(needle#578)
+    let %t349:Bool = Gt(nlen#581, slen#582)
+    case #4000928[synthetic]#928 of
       true →
         false
       _ →
-        letrec sc_go#560 = (λi#561.
-          let %t342:Bool = (let %t343 = Add(i#561, nlen#562)
-          Gt(#4000902[synthetic]#902, slen#563))
-          case #4000903[synthetic]#903 of
+        letrec sc_go#579 = (λi#580.
+          let %t350:Bool = (let %t351 = Add(i#580, nlen#581)
+          Gt(#4000929[synthetic]#929, slen#582))
+          case #4000930[synthetic]#930 of
             true →
               false
             _ →
-              let %t344:Bool = (let %t345:Box = (let %t346 = Add(i#561, nlen#562)
-              Substring(s#558, i#561, #4000904[synthetic]#904))
-              Eq(#4000905[synthetic]#905, needle#559))
-              case #4000906[synthetic]#906 of
+              let %t352:Bool = (let %t353:Box = (let %t354 = Add(i#580, nlen#581)
+              Substring(s#577, i#580, #4000931[synthetic]#931))
+              Eq(#4000932[synthetic]#932, needle#578))
+              case #4000933[synthetic]#933 of
                 true →
                   true
                 _ →
-                  let %t347 = Add(i#561, 1)
-                  aether_call[owned] sc_go#560(#4000907[synthetic]#907))
-        aether_call[owned] sc_go#560(0)
+                  let %t355 = Add(i#580, 1)
+                  aether_call[owned] sc_go#579(#4000934[synthetic]#934))
+        aether_call[owned] sc_go#579(0)
 
 letrec rec_copy_or_keep : List<Int> =
-λxs#565, choose#566.
-    case xs#565 of
-      ::(h#567, t#568) →
-        drop_spec xs#565 {
-          unique -> case choose#566 of
+λxs#584, choose#585.
+    case xs#584 of
+      ::(h#586, t#587) →
+        drop_spec xs#584 {
+          unique -> case choose#585 of
               true →
-                let %t348 = aether_call[owned, borrowed] rec_copy_or_keep#564(t#568, choose#566)
-                reuse xs#565 ::(h#567, #4000908[synthetic]#908) @mask=0b10
+                let %t356 = aether_call[owned, borrowed] rec_copy_or_keep#583(t#587, choose#585)
+                reuse xs#584 ::(h#586, #4000935[synthetic]#935) @mask=0b10
               _ →
-                let %t349:Box = (let %t350 = aether_call[owned, borrowed] rec_copy_or_keep#564(t#568, choose#566)
-                ::(h#567, #4000909[synthetic]#909))
-                reuse xs#565 ::(h#567, #4000910[synthetic]#910) @mask=0b10
-          shared -> case choose#566 of
+                let %t357:Box = (let %t358 = aether_call[owned, borrowed] rec_copy_or_keep#583(t#587, choose#585)
+                ::(h#586, #4000936[synthetic]#936))
+                reuse xs#584 ::(h#586, #4000937[synthetic]#937) @mask=0b10
+          shared -> case choose#585 of
               true →
-                let %t348 = aether_call[owned, borrowed] rec_copy_or_keep#564(t#568, choose#566)
-                ::(h#567, #4000908[synthetic]#908)
+                let %t356 = aether_call[owned, borrowed] rec_copy_or_keep#583(t#587, choose#585)
+                ::(h#586, #4000935[synthetic]#935)
               _ →
-                let %t349:Box = (let %t350 = aether_call[owned, borrowed] rec_copy_or_keep#564(t#568, choose#566)
-                ::(dup h#567
-                h#567, #4000909[synthetic]#909))
-                ::(h#567, #4000910[synthetic]#910)
+                let %t357:Box = (let %t358 = aether_call[owned, borrowed] rec_copy_or_keep#583(t#587, choose#585)
+                ::(dup h#586
+                h#586, #4000936[synthetic]#936))
+                ::(h#586, #4000937[synthetic]#937)
         }
       _ →
         []
 
 letrec main : Any =
 λ.
-    let %t351 = (let %t352:Box = MakeList(1, 2, 3)
-    aether_call[owned, borrowed] rec_copy_or_keep#564(#4000911[synthetic]#911, false))
-    Print(#4000912[synthetic]#912)
+    let %t359 = (let %t360:Box = MakeList(1, 2, 3)
+    aether_call[owned, borrowed] rec_copy_or_keep#583(#4000938[synthetic]#938, false))
+    Print(#4000939[synthetic]#939)
 
 ── Aether stats ──
-Dups: 18  Drops: 59  Reuses: 16  DropSpecs: 4  FBIP: fbip(34)
+Dups: 18  Drops: 56  Reuses: 12  DropSpecs: 2  FBIP: fbip(36)
 [1 of 7] Compiling  Assert
 [2 of 7] Compiling  IO
 [3 of 7] Compiling  List
