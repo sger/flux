@@ -39,7 +39,7 @@ fn parse_range_token(token) {
     (start, end)
 }
 
-fn parse_ranges(path) {
+fn parse_ranges(path) with IO {
     read_file(path)
     |> trim
     |> split(",")

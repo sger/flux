@@ -38,6 +38,7 @@ pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
         CoreExpr::Lam { .. }
         | CoreExpr::App { .. }
         | CoreExpr::LetRec { .. }
+        | CoreExpr::LetRecGroup { .. }
         | CoreExpr::Case { .. }
         | CoreExpr::Con { .. }
         | CoreExpr::PrimOp { .. }

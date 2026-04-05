@@ -248,6 +248,13 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
             collect_max_binder_id(rhs, max);
             collect_max_binder_id(body, max);
         }
+        LetRecGroup { bindings, body, .. } => {
+            for (b, rhs) in bindings {
+                *max = (*max).max(b.id.0);
+                collect_max_binder_id(rhs, max);
+            }
+            collect_max_binder_id(body, max);
+        }
         Case {
             scrutinee, alts, ..
         } => {

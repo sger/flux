@@ -173,6 +173,22 @@ impl<'a> Formatter<'a> {
                 push_indent(out, indent);
                 self.write_expr(out, body, indent);
             }
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                write!(out, "letrec {{").unwrap();
+                for (var, rhs) in bindings {
+                    out.push('\n');
+                    push_indent(out, indent + 1);
+                    write!(out, "{} = ", self.resolve_binder(var)).unwrap();
+                    self.write_expr_inline(out, rhs, indent + 1);
+                    out.push(';');
+                }
+                out.push('\n');
+                push_indent(out, indent);
+                out.push_str("} in");
+                out.push('\n');
+                push_indent(out, indent);
+                self.write_expr(out, body, indent);
+            }
             CoreExpr::Case {
                 scrutinee, alts, ..
             } => {
@@ -322,6 +338,7 @@ impl<'a> Formatter<'a> {
             CoreExpr::Lam { .. }
                 | CoreExpr::Let { .. }
                 | CoreExpr::LetRec { .. }
+                | CoreExpr::LetRecGroup { .. }
                 | CoreExpr::Case { .. }
                 | CoreExpr::Return { .. }
                 | CoreExpr::Handle { .. }

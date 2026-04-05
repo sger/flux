@@ -229,6 +229,19 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
             span,
         },
 
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => CoreExpr::LetRecGroup {
+            bindings: bindings
+                .into_iter()
+                .map(|(b, rhs)| (b, Box::new(evidence_transform(*rhs, next_id, evidence))))
+                .collect(),
+            body: Box::new(evidence_transform(*body, next_id, evidence)),
+            span,
+        },
+
         CoreExpr::Case {
             scrutinee,
             alts,

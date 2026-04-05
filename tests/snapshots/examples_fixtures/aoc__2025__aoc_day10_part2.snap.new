@@ -1,0 +1,52 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+assertion_line: 27
+---
+Fixture: examples/aoc/2025/aoc_day10_part2.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day10_part2.flx:752:21
+    |
+752 | let machine_lines = [trim(line) | line <- lines, trim(line) != ""]
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/aoc/2025/aoc_day10_part2.flx:753:15
+    |
+753 | let presses = [machine_min_presses(line) | line <- machine_lines]
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `sum`.
+
+  examples/aoc/2025/aoc_day10_part2.flx:754:7
+    |
+754 | print(sum(presses))
+    |       ^^^
+
+Hint:
+  Define it first: let sum = ...;
+
+Help:
+  Did you mean `sum_free`?
+
+Found 3 errors.
+== stdout ==
+<not executed>

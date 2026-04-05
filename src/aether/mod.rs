@@ -139,6 +139,12 @@ fn count_nodes(expr: &CoreExpr, stats: &mut AetherStats) {
             count_nodes(rhs, stats);
             count_nodes(body, stats);
         }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                count_nodes(rhs, stats);
+            }
+            count_nodes(body, stats);
+        }
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {

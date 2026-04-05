@@ -25,6 +25,9 @@ fn is_arm_tail_resumptive(resume_id: CoreBinderId, body: &CoreExpr) -> bool {
         // LetRec: letrec x = e in <tail-resumptive body>
         CoreExpr::LetRec { body, .. } => is_arm_tail_resumptive(resume_id, body),
 
+        // LetRecGroup: letrec group in <tail-resumptive body>
+        CoreExpr::LetRecGroup { body, .. } => is_arm_tail_resumptive(resume_id, body),
+
         // Case: all alternatives must be tail-resumptive.
         CoreExpr::Case { alts, .. } => alts
             .iter()

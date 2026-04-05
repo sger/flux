@@ -104,7 +104,10 @@ impl<'a> super::AstLowerer<'a> {
                 let inner = self.lower_block(block);
                 // Preserve the span wrapper.
                 match inner {
-                    CoreExpr::Let { .. } | CoreExpr::LetRec { .. } | CoreExpr::Case { .. } => inner,
+                    CoreExpr::Let { .. }
+                    | CoreExpr::LetRec { .. }
+                    | CoreExpr::LetRecGroup { .. }
+                    | CoreExpr::Case { .. } => inner,
                     other => CoreExpr::Let {
                         var: self.fresh_binder(crate::syntax::symbol::Symbol::new(
                             3_000_000 + self.fresh,

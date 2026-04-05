@@ -143,6 +143,17 @@ fn count_uses(expr: &CoreExpr, counts: &mut HashMap<CoreBinderId, usize>) {
             inner.remove(&var.id);
             merge_counts(counts, &inner);
         }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            let mut inner = HashMap::new();
+            for (_, rhs) in bindings {
+                count_uses(rhs, &mut inner);
+            }
+            count_uses(body, &mut inner);
+            for (var, _) in bindings {
+                inner.remove(&var.id);
+            }
+            merge_counts(counts, &inner);
+        }
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
@@ -459,6 +470,18 @@ fn count_owned_inner(
                 0 // shadowed in both
             } else {
                 count_owned_inner(var, rhs, registry) + count_owned_inner(var, body, registry)
+            }
+        }
+
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            if bindings.iter().any(|(b, _)| b.id == var) {
+                0 // shadowed
+            } else {
+                bindings
+                    .iter()
+                    .map(|(_, rhs)| count_owned_inner(var, rhs, registry))
+                    .sum::<usize>()
+                    + count_owned_inner(var, body, registry)
             }
         }
 

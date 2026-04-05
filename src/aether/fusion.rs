@@ -78,6 +78,18 @@ fn fuse(expr: CoreExpr) -> CoreExpr {
             body: Box::new(fuse(*body)),
             span,
         },
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => CoreExpr::LetRecGroup {
+            bindings: bindings
+                .into_iter()
+                .map(|(var, rhs)| (var, Box::new(fuse(*rhs))))
+                .collect(),
+            body: Box::new(fuse(*body)),
+            span,
+        },
         CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
             params,
             body: Box::new(fuse(*body)),
@@ -338,6 +350,7 @@ fn is_safe_fusion_wrapper_rhs(expr: &CoreExpr) -> bool {
         CoreExpr::Perform { .. }
         | CoreExpr::Handle { .. }
         | CoreExpr::LetRec { .. }
+        | CoreExpr::LetRecGroup { .. }
         | CoreExpr::DropSpecialized { .. }
         | CoreExpr::Lam { .. } => false,
         CoreExpr::Var { .. }
@@ -405,6 +418,13 @@ mod tests {
             }
             CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
                 here + count_matching(rhs, predicate) + count_matching(body, predicate)
+            }
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                here + bindings
+                    .iter()
+                    .map(|(_, rhs)| count_matching(rhs, predicate))
+                    .sum::<usize>()
+                    + count_matching(body, predicate)
             }
             CoreExpr::Case {
                 scrutinee, alts, ..

@@ -90,6 +90,18 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             body: Box::new(transform(*body)),
             span,
         },
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => CoreExpr::LetRecGroup {
+            bindings: bindings
+                .into_iter()
+                .map(|(var, rhs)| (var, Box::new(transform(*rhs))))
+                .collect(),
+            body: Box::new(transform(*body)),
+            span,
+        },
         CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
             params,
             body: Box::new(transform(*body)),
@@ -323,9 +335,10 @@ fn validate_skeleton(
                 acc,
             )
         }
-        CoreExpr::LetRec { .. } | CoreExpr::Perform { .. } | CoreExpr::Handle { .. } => {
-            Err(DropSpecFailureReason::EffectfulBoundary)
-        }
+        CoreExpr::LetRec { .. }
+        | CoreExpr::LetRecGroup { .. }
+        | CoreExpr::Perform { .. }
+        | CoreExpr::Handle { .. } => Err(DropSpecFailureReason::EffectfulBoundary),
         CoreExpr::Dup { var, body, .. } => {
             if var.binder == Some(scrutinee_id) {
                 return Err(DropSpecFailureReason::ScrutineeEscapes);
@@ -446,9 +459,10 @@ fn validate_after_drop_body(
             validate_after_drop_body(rhs, scrutinee_id, field_binders, acc)?;
             validate_after_drop_body(body, scrutinee_id, field_binders, acc)
         }
-        CoreExpr::LetRec { .. } | CoreExpr::Perform { .. } | CoreExpr::Handle { .. } => {
-            Err(DropSpecFailureReason::EffectfulBoundary)
-        }
+        CoreExpr::LetRec { .. }
+        | CoreExpr::LetRecGroup { .. }
+        | CoreExpr::Perform { .. }
+        | CoreExpr::Handle { .. } => Err(DropSpecFailureReason::EffectfulBoundary),
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
@@ -704,6 +718,7 @@ fn is_safe_wrapper_rhs(expr: &CoreExpr) -> bool {
         CoreExpr::Perform { .. }
         | CoreExpr::Handle { .. }
         | CoreExpr::LetRec { .. }
+        | CoreExpr::LetRecGroup { .. }
         | CoreExpr::DropSpecialized { .. }
         | CoreExpr::Lam { .. } => false,
         CoreExpr::Var { .. }
@@ -758,6 +773,13 @@ mod tests {
             }
             CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
                 here + count_matching(rhs, predicate) + count_matching(body, predicate)
+            }
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                here + bindings
+                    .iter()
+                    .map(|(_, rhs)| count_matching(rhs, predicate))
+                    .sum::<usize>()
+                    + count_matching(body, predicate)
             }
             CoreExpr::Case {
                 scrutinee, alts, ..

@@ -80,12 +80,11 @@ fn plan_expr(
             // Track field→parent for TupleField access (e.g. `let total = st.2`).
             // This prevents the parent from being dropped while the field
             // binder is still live (use-after-free on borrowed field).
-            if let CoreExpr::TupleField { object, .. } = rhs.as_ref() {
-                if let CoreExpr::Var { var: obj_var, .. } = object.as_ref() {
-                    if let Some(parent_id) = obj_var.binder {
-                        field_parents.insert(var.id, (parent_id, None));
-                    }
-                }
+            if let CoreExpr::TupleField { object, .. } = rhs.as_ref()
+                && let CoreExpr::Var { var: obj_var, .. } = object.as_ref()
+                && let Some(parent_id) = obj_var.binder
+            {
+                field_parents.insert(var.id, (parent_id, None));
             }
 
             let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
@@ -158,6 +157,50 @@ fn plan_expr(
                     span,
                 },
                 env_before,
+            }
+        }
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => {
+            for (var, _) in &bindings {
+                scope.insert(var.id, *var);
+            }
+            let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
+            let mut body_expr = body_plan.expr;
+            // Insert drops for unused bindings
+            for (var, _) in bindings.iter().rev() {
+                let bd = binder_demand(&body_plan.env_before, var.id);
+                if bd == ValueDemand::Ignore {
+                    body_expr = wrap_drop(*var, body_expr, span);
+                }
+            }
+
+            let mut env = body_plan.env_before.clone();
+            let mut new_bindings = Vec::with_capacity(bindings.len());
+            for (var, rhs) in bindings.into_iter().rev() {
+                let bd = binder_demand(&env, var.id);
+                let mut rhs_tail = env.clone();
+                rhs_tail.remove(var.id);
+                let rhs_plan = plan_expr(*rhs, rhs_tail, bd, registry, scope, field_parents);
+                env = rhs_plan.env_before;
+                env.remove(var.id);
+                new_bindings.push((var, Box::new(rhs_plan.expr)));
+            }
+            new_bindings.reverse();
+
+            for (var, _) in new_bindings.iter() {
+                scope.remove(&var.id);
+            }
+
+            AetherPlan {
+                expr: CoreExpr::LetRecGroup {
+                    bindings: new_bindings,
+                    body: Box::new(body_expr),
+                    span,
+                },
+                env_before: env,
             }
         }
         CoreExpr::Lam { params, body, span } => {
@@ -953,6 +996,12 @@ fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
             expr_drops_binder(rhs, binder) || expr_drops_binder(body, binder)
         }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            bindings
+                .iter()
+                .any(|(_, rhs)| expr_drops_binder(rhs, binder))
+                || expr_drops_binder(body, binder)
+        }
         CoreExpr::Lam { body, .. }
         | CoreExpr::Dup { body, .. }
         | CoreExpr::Return { value: body, .. } => expr_drops_binder(body, binder),
@@ -1032,6 +1081,13 @@ mod tests {
             }
             CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
                 count_binder_nodes(rhs, binder, predicate)
+                    + count_binder_nodes(body, binder, predicate)
+            }
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                bindings
+                    .iter()
+                    .map(|(_, rhs)| count_binder_nodes(rhs, binder, predicate))
+                    .sum::<usize>()
                     + count_binder_nodes(body, binder, predicate)
             }
             CoreExpr::Case {

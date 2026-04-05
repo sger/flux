@@ -119,6 +119,33 @@ fn rewrite_with_ctx(
             )),
             span,
         },
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => CoreExpr::LetRecGroup {
+            bindings: bindings
+                .into_iter()
+                .map(|(var, rhs)| {
+                    (
+                        var,
+                        Box::new(rewrite_with_ctx(
+                            *rhs,
+                            pat_binders,
+                            pat_tag,
+                            blocked_outer_token,
+                        )),
+                    )
+                })
+                .collect(),
+            body: Box::new(rewrite_with_ctx(
+                *body,
+                pat_binders,
+                pat_tag,
+                blocked_outer_token,
+            )),
+            span,
+        },
         CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
             params,
             body: Box::new(rewrite_with_ctx(*body, None, None, None)),

@@ -94,6 +94,7 @@ pub fn case_of_case(expr: CoreExpr) -> CoreExpr {
         | CoreExpr::App { .. }
         | CoreExpr::Let { .. }
         | CoreExpr::LetRec { .. }
+        | CoreExpr::LetRecGroup { .. }
         | CoreExpr::Con { .. }
         | CoreExpr::PrimOp { .. }
         | CoreExpr::Return { .. }

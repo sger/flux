@@ -330,6 +330,13 @@ fn analyze_expr(expr: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
             seq(analyze_expr(rhs, ctx), analyze_expr(body, ctx))
         }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            let mut fact = FbipFact::default();
+            for (_, rhs) in bindings {
+                fact = seq(fact, analyze_expr(rhs, ctx));
+            }
+            seq(fact, analyze_expr(body, ctx))
+        }
         CoreExpr::PrimOp { args, .. } => fold_all(args.iter().map(|arg| analyze_expr(arg, ctx))),
         CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             let mut fact = analyze_expr(func, ctx);
@@ -611,6 +618,12 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
         }
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
             collect_unresolved_callees(rhs, unresolved);
+            collect_unresolved_callees(body, unresolved);
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                collect_unresolved_callees(rhs, unresolved);
+            }
             collect_unresolved_callees(body, unresolved);
         }
         CoreExpr::Case {
