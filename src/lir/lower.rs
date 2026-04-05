@@ -391,6 +391,11 @@ struct FnLower<'a> {
     /// Used for local type propagation: when a generic `Add` sees both
     /// operands in this set, it emits `IAdd` instead of a C runtime call.
     int_vars: HashSet<LirVar>,
+    /// Maps a TagBool destination to its raw i1 source.  When UntagBool is
+    /// emitted on a variable in this map, we emit Copy instead of the
+    /// full untag, eliminating the TagBool→UntagBool round-trip (Phase 6,
+    /// Proposal 0140).
+    bool_raw_source: HashMap<LirVar, LirVar>,
     /// Function binders whose return type is known to be Int.
     int_return_binders: &'a HashSet<CoreBinderId>,
 }
@@ -442,6 +447,7 @@ impl<'a> FnLower<'a> {
             top_level_value_map: ctx.top_level_value_map,
             int_vars: HashSet::new(),
             int_return_binders: ctx.int_return_binders,
+            bool_raw_source: HashMap::new(),
         }
     }
 
@@ -495,6 +501,23 @@ impl<'a> FnLower<'a> {
 
     /// Emit an instruction into the current block.
     fn emit(&mut self, instr: LirInstr) {
+        // Phase 6 (Proposal 0140): track TagBool producers and elide
+        // UntagBool when the source was a TagBool — the raw i1 value
+        // can be used directly, avoiding the tag→untag round-trip.
+        match &instr {
+            LirInstr::TagBool { dst, raw } => {
+                self.bool_raw_source.insert(*dst, *raw);
+            }
+            LirInstr::UntagBool { dst, val } => {
+                if let Some(&raw) = self.bool_raw_source.get(val) {
+                    self.func.blocks[self.current_block]
+                        .instrs
+                        .push(LirInstr::Copy { dst: *dst, src: raw });
+                    return;
+                }
+            }
+            _ => {}
+        }
         self.func.blocks[self.current_block].instrs.push(instr);
     }
 
@@ -1922,16 +1945,24 @@ impl<'a> FnLower<'a> {
         for alt in alts {
             match &alt.pat {
                 CorePat::Lit(lit) => {
-                    let raw_cmp = if matches!(lit, CoreLit::Bool(true)) {
-                        // Optimize: `case x of true -> ...` can just untag the
-                        // scrutinee directly instead of comparing with a boxed
-                        // `true` literal via `flux_rt_eq`.
+                    // Phase 6 (Proposal 0140): for boolean scrutinees,
+                    // untag directly instead of comparing with a boxed
+                    // literal via `flux_rt_eq`.  For `false`, swap the
+                    // branch targets to avoid negation.
+                    let (raw_cmp, negate) = if matches!(lit, CoreLit::Bool(true)) {
                         let raw = self.fresh_var();
                         self.emit(LirInstr::UntagBool {
                             dst: raw,
                             val: scrut,
                         });
-                        raw
+                        (raw, false)
+                    } else if matches!(lit, CoreLit::Bool(false)) {
+                        let raw = self.fresh_var();
+                        self.emit(LirInstr::UntagBool {
+                            dst: raw,
+                            val: scrut,
+                        });
+                        (raw, true)
                     } else {
                         let lit_var = self.lower_lit(lit);
                         let cmp = self.fresh_var();
@@ -1942,7 +1973,7 @@ impl<'a> FnLower<'a> {
                         });
                         let raw = self.fresh_var();
                         self.emit(LirInstr::UntagBool { dst: raw, val: cmp });
-                        raw
+                        (raw, false)
                     };
 
                     let then_idx = self.new_block();
@@ -1950,10 +1981,12 @@ impl<'a> FnLower<'a> {
                     let then_id = BlockId(then_idx as u32);
                     let else_id = BlockId(else_idx as u32);
 
+                    // For `case x of false -> ...`, branch to body when
+                    // raw_cmp is 0 by swapping then/else targets.
                     self.set_terminator(LirTerminator::Branch {
                         cond: raw_cmp,
-                        then_block: then_id,
-                        else_block: else_id,
+                        then_block: if negate { else_id } else { then_id },
+                        else_block: if negate { then_id } else { else_id },
                     });
 
                     // Then: evaluate body, jump to join.

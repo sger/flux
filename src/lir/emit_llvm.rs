@@ -904,20 +904,43 @@ impl<'a> FnEmitter<'a> {
             }
 
             LirInstr::TupleGet { dst, tuple, index } => {
+                // Inline tuple field access (Phase 4, Proposal 0140):
+                // inttoptr → GEP %FluxTuple field 5 (payload) → GEP [i64] index → load i64
                 let ptr_tmp = self.tmp();
-                self.call_fastcc(
-                    Some(ptr_tmp.clone()),
-                    "flux_tuple_field_ptr",
-                    vec![
-                        (LlvmType::i64(), self.var(*tuple)),
-                        (LlvmType::i32(), self.i32_const(*index as i32)),
+                self.emit(LlvmInstr::Cast {
+                    dst: ptr_tmp.clone(),
+                    op: LlvmValueKind::IntToPtr,
+                    from_ty: LlvmType::i64(),
+                    operand: self.var(*tuple),
+                    to_ty: LlvmType::Ptr,
+                });
+                let payload_ptr = self.tmp();
+                self.emit(LlvmInstr::GetElementPtr {
+                    dst: payload_ptr.clone(),
+                    inbounds: true,
+                    element_ty: LlvmType::Named("FluxTuple".into()),
+                    base: LlvmOperand::Local(ptr_tmp),
+                    indices: vec![
+                        (LlvmType::i32(), self.i32_const(0)),
+                        (LlvmType::i32(), self.i32_const(5)), // payload field
+                        (LlvmType::i32(), self.i32_const(0)),
                     ],
-                    LlvmType::Ptr,
-                );
+                });
+                let field_ptr = self.tmp();
+                self.emit(LlvmInstr::GetElementPtr {
+                    dst: field_ptr.clone(),
+                    inbounds: true,
+                    element_ty: LlvmType::i64(),
+                    base: LlvmOperand::Local(payload_ptr),
+                    indices: vec![(
+                        LlvmType::i32(),
+                        self.i32_const(*index as i32),
+                    )],
+                });
                 self.emit(LlvmInstr::Load {
                     dst: self.var_local(*dst),
                     ty: LlvmType::i64(),
-                    ptr: LlvmOperand::Local(ptr_tmp),
+                    ptr: LlvmOperand::Local(field_ptr),
                     align: Some(8),
                 });
             }
@@ -2240,41 +2263,66 @@ impl<'a> FnEmitter<'a> {
         self.next_tmp += 1;
 
         // Helper: emit an extraction block for field binders.
-        let emit_extract_block = |this: &mut Self, arm: &CtorArm, field_fn: &str| -> LabelId {
-            if arm.field_binders.is_empty() {
-                return this.label(arm.target);
-            }
-            let extract_label =
-                LabelId(format!("match.extract.{}.{}", arm.target.0, this.next_tmp));
-            this.next_tmp += 1;
+        // Inline field access (Phase 4, Proposal 0140): inttoptr → GEP payload → GEP index → load.
+        let emit_extract_block =
+            |this: &mut Self, arm: &CtorArm, is_tuple: bool| -> LabelId {
+                if arm.field_binders.is_empty() {
+                    return this.label(arm.target);
+                }
+                let extract_label =
+                    LabelId(format!("match.extract.{}.{}", arm.target.0, this.next_tmp));
+                this.next_tmp += 1;
 
-            let mut extract_instrs = Vec::new();
-            for (i, binder) in arm.field_binders.iter().enumerate() {
-                let ptr_tmp = LlvmLocal(format!("ext.{}.{}", arm.target.0, i));
-                extract_instrs.push(LlvmInstr::Call {
-                    dst: Some(ptr_tmp.clone()),
-                    tail: false,
-                    call_conv: Some(CallConv::Fastcc),
-                    ret_ty: LlvmType::Ptr,
-                    callee: LlvmOperand::Global(GlobalId(field_fn.to_string())),
-                    args: vec![
-                        (LlvmType::i64(), this.var(scrutinee)),
-                        (
-                            LlvmType::i32(),
-                            LlvmOperand::Const(LlvmConst::Int {
-                                bits: 32,
-                                value: i as i128,
-                            }),
-                        ),
+                let mut extract_instrs = Vec::new();
+
+                // Convert scrutinee i64 to ptr once per extraction block.
+                let base_ptr = LlvmLocal(format!("ext.ptr.{}", arm.target.0));
+                extract_instrs.push(LlvmInstr::Cast {
+                    dst: base_ptr.clone(),
+                    op: LlvmValueKind::IntToPtr,
+                    from_ty: LlvmType::i64(),
+                    operand: this.var(scrutinee),
+                    to_ty: LlvmType::Ptr,
+                });
+
+                // GEP to payload base once.
+                let (struct_ty, payload_field) = if is_tuple {
+                    (LlvmType::Named("FluxTuple".into()), 5)
+                } else {
+                    (LlvmType::Named("FluxAdt".into()), 2)
+                };
+                let payload_ptr = LlvmLocal(format!("ext.payload.{}", arm.target.0));
+                extract_instrs.push(LlvmInstr::GetElementPtr {
+                    dst: payload_ptr.clone(),
+                    inbounds: true,
+                    element_ty: struct_ty,
+                    base: LlvmOperand::Local(base_ptr),
+                    indices: vec![
+                        (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
+                        (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: payload_field })),
+                        (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
                     ],
-                    attrs: Vec::new(),
                 });
-                extract_instrs.push(LlvmInstr::Load {
-                    dst: this.var_local(*binder),
-                    ty: LlvmType::i64(),
-                    ptr: LlvmOperand::Local(ptr_tmp),
-                    align: Some(8),
-                });
+
+                for (i, binder) in arm.field_binders.iter().enumerate() {
+                    // GEP to field[i].
+                    let field_ptr = LlvmLocal(format!("ext.{}.{}", arm.target.0, i));
+                    extract_instrs.push(LlvmInstr::GetElementPtr {
+                        dst: field_ptr.clone(),
+                        inbounds: true,
+                        element_ty: LlvmType::i64(),
+                        base: LlvmOperand::Local(payload_ptr.clone()),
+                        indices: vec![(
+                            LlvmType::i32(),
+                            LlvmOperand::Const(LlvmConst::Int { bits: 32, value: i as i128 }),
+                        )],
+                    });
+                    extract_instrs.push(LlvmInstr::Load {
+                        dst: this.var_local(*binder),
+                        ty: LlvmType::i64(),
+                        ptr: LlvmOperand::Local(field_ptr),
+                        align: Some(8),
+                    });
                 extract_instrs.push(LlvmInstr::Call {
                     dst: None,
                     tail: false,
@@ -2312,7 +2360,7 @@ impl<'a> FnEmitter<'a> {
                     .unwrap_or(5),
                 _ => continue,
             };
-            let target = emit_extract_block(self, arm, "flux_adt_field_ptr");
+            let target = emit_extract_block(self, arm, false);
             adt_cases.push((
                 LlvmConst::Int {
                     bits: 32,
@@ -2323,22 +2371,42 @@ impl<'a> FnEmitter<'a> {
         }
 
         // The ADT dispatch block: extract ctor_tag THEN switch.
-        // flux_adt_tag is safe here because this block is only reached
-        // when the value is a confirmed heap pointer.
+        // Inline ADT tag extraction (Phase 4, Proposal 0140):
+        // inttoptr → GEP %FluxAdt field 0 → load i32
         let adt_dispatch_label = LabelId(format!("match.adt.{}", self.next_tmp));
         self.next_tmp += 1;
-        let adt_tag_call = LlvmInstr::Call {
-            dst: Some(adt_tag.clone()),
-            tail: false,
-            call_conv: Some(CallConv::Fastcc),
-            ret_ty: LlvmType::i32(),
-            callee: LlvmOperand::Global(GlobalId("flux_adt_tag".to_string())),
-            args: vec![(LlvmType::i64(), self.var(scrutinee))],
-            attrs: Vec::new(),
-        };
+        let adt_ptr = LlvmLocal(format!("match.adtptr.{}", self.next_tmp));
+        self.next_tmp += 1;
+        let adt_tag_ptr = LlvmLocal(format!("match.adttagptr.{}", self.next_tmp));
+        self.next_tmp += 1;
+        let adt_tag_instrs = vec![
+            LlvmInstr::Cast {
+                dst: adt_ptr.clone(),
+                op: LlvmValueKind::IntToPtr,
+                from_ty: LlvmType::i64(),
+                operand: self.var(scrutinee),
+                to_ty: LlvmType::Ptr,
+            },
+            LlvmInstr::GetElementPtr {
+                dst: adt_tag_ptr.clone(),
+                inbounds: true,
+                element_ty: LlvmType::Named("FluxAdt".into()),
+                base: LlvmOperand::Local(adt_ptr),
+                indices: vec![
+                    (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
+                    (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
+                ],
+            },
+            LlvmInstr::Load {
+                dst: adt_tag.clone(),
+                ty: LlvmType::i32(),
+                ptr: LlvmOperand::Local(adt_tag_ptr),
+                align: Some(4),
+            },
+        ];
         self.extra_blocks.push(LlvmBlock {
             label: adt_dispatch_label.clone(),
-            instrs: vec![adt_tag_call],
+            instrs: adt_tag_instrs,
             term: LlvmTerminator::Switch {
                 ty: LlvmType::i32(),
                 scrutinee: LlvmOperand::Local(adt_tag),
@@ -2351,7 +2419,7 @@ impl<'a> FnEmitter<'a> {
         // Tuples have FluxHeader obj_tag = 0xF3 (FLUX_OBJ_TUPLE), while ADTs
         // have 0xF2. We read the obj_tag to distinguish them before reading ctor_tag.
         if let Some(t_arm) = tuple_arm {
-            let tuple_target = emit_extract_block(self, t_arm, "flux_tuple_field_ptr");
+            let tuple_target = emit_extract_block(self, t_arm, true);
 
             // Build instructions for the boxed block inline.
             // With pointer tagging, the value IS the pointer — just inttoptr.
@@ -2511,8 +2579,7 @@ fn is_fastcc_prelude_helper(name: &str) -> bool {
         | "flux_bump_alloc_inline"
         // ADT/Tuple/Closure construction
         | "flux_make_adt" | "flux_make_cons" | "flux_make_tuple"
-        | "flux_adt_tag" | "flux_adt_field_ptr"
-        | "flux_tuple_len" | "flux_tuple_field_ptr"
+        | "flux_tuple_len"
         | "flux_copy_i64s"
         | "flux_make_closure" | "flux_call_closure"
     )
@@ -2685,7 +2752,6 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
             LlvmType::i64(),
             vec![LlvmType::Ptr, LlvmType::i32(), LlvmType::i32()],
         ),
-        "flux_adt_tag" => (LlvmType::i32(), vec![LlvmType::i64()]),
         "flux_rc_is_unique" => (LlvmType::i1(), vec![LlvmType::i64()]),
         "flux_drop_reuse" => (LlvmType::Ptr, vec![LlvmType::i64(), LlvmType::i32()]),
         // Collection helpers

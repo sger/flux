@@ -413,36 +413,12 @@ entry:
   ret i64 %boxed
 }
 
-define internal fastcc i32 @flux_adt_tag(i64 %value) alwaysinline {
-entry:
-  %ptr = call fastcc ptr @flux_untag_boxed_ptr(i64 %value)
-  %tag.ptr = getelementptr inbounds %FluxAdt, ptr %ptr, i32 0, i32 0
-  %tag = load i32, ptr %tag.ptr, align 4
-  ret i32 %tag
-}
-
-define internal fastcc ptr @flux_adt_field_ptr(i64 %value, i32 %index) alwaysinline {
-entry:
-  %ptr = call fastcc ptr @flux_untag_boxed_ptr(i64 %value)
-  %payload.ptr = getelementptr inbounds %FluxAdt, ptr %ptr, i32 0, i32 2, i32 0
-  %field.ptr = getelementptr inbounds i64, ptr %payload.ptr, i32 %index
-  ret ptr %field.ptr
-}
-
 define internal fastcc i32 @flux_tuple_len(i64 %value) alwaysinline {
 entry:
   %ptr = call fastcc ptr @flux_untag_boxed_ptr(i64 %value)
   %arity.ptr = getelementptr inbounds %FluxTuple, ptr %ptr, i32 0, i32 4
   %arity = load i32, ptr %arity.ptr, align 4
   ret i32 %arity
-}
-
-define internal fastcc ptr @flux_tuple_field_ptr(i64 %value, i32 %index) alwaysinline {
-entry:
-  %ptr = call fastcc ptr @flux_untag_boxed_ptr(i64 %value)
-  %payload.ptr = getelementptr inbounds %FluxTuple, ptr %ptr, i32 0, i32 5, i32 0
-  %field.ptr = getelementptr inbounds i64, ptr %payload.ptr, i32 %index
-  ret ptr %field.ptr
 }
 
 define fastcc void @flux_copy_i64s(ptr %dst, ptr %src, i32 %count) {
@@ -546,15 +522,19 @@ bb0:
     i64 6, label %bb2
   ]
 match.extract.3.2:
-  %ext.3.0 = call fastcc ptr @flux_adt_field_ptr(i64 %v0, i32 0)
+  %ext.ptr.3 = inttoptr i64 %v0 to ptr
+  %ext.payload.3 = getelementptr inbounds %FluxAdt, ptr %ext.ptr.3, i32 0, i32 2, i32 0
+  %ext.3.0 = getelementptr inbounds i64, ptr %ext.payload.3, i32 0
   %v2 = load i64, ptr %ext.3.0, align 8
   call ccc void @flux_dup(i64 %v2)
-  %ext.3.1 = call fastcc ptr @flux_adt_field_ptr(i64 %v0, i32 1)
+  %ext.3.1 = getelementptr inbounds i64, ptr %ext.payload.3, i32 1
   %v3 = load i64, ptr %ext.3.1, align 8
   call ccc void @flux_dup(i64 %v3)
   br label %bb3
 match.adt.3:
-  %t0 = call fastcc i32 @flux_adt_tag(i64 %v0)
+  %match.adtptr.4 = inttoptr i64 %v0 to ptr
+  %match.adttagptr.5 = getelementptr inbounds %FluxAdt, ptr %match.adtptr.4, i32 0, i32 0
+  %t0 = load i32, ptr %match.adttagptr.5, align 4
   switch i32 %t0, label %bb4 [
     i32 4, label %match.extract.3.2
   ]
@@ -600,71 +580,93 @@ bb1:
   %t6 = getelementptr inbounds i64, ptr %t4, i32 1
   store i64 %v6, ptr %t6, align 8
   %v7 = call fastcc i64 @flux_make_tuple(ptr %t4, i32 2)
-  %t7 = call fastcc ptr @flux_tuple_field_ptr(i64 %v7, i32 0)
-  %v9 = load i64, ptr %t7, align 8
-  %t8 = call fastcc ptr @flux_tuple_field_ptr(i64 %v7, i32 1)
-  %v10 = load i64, ptr %t8, align 8
+  %t7 = inttoptr i64 %v7 to ptr
+  %t8 = getelementptr inbounds %FluxTuple, ptr %t7, i32 0, i32 5, i32 0
+  %t9 = getelementptr inbounds i64, ptr %t8, i32 0
+  %v9 = load i64, ptr %t9, align 8
+  %t10 = inttoptr i64 %v7 to ptr
+  %t11 = getelementptr inbounds %FluxTuple, ptr %t10, i32 0, i32 5, i32 0
+  %t12 = getelementptr inbounds i64, ptr %t11, i32 1
+  %v10 = load i64, ptr %t12, align 8
   br label %bb5
 bb2:
   %v8 = phi i64 [ %v19, %bb3 ], [ %v24, %bb7 ]
   ret i64 %v8
 bb3:
-  %t9 = call fastcc ptr @flux_tuple_field_ptr(i64 %v7, i32 0)
-  %v12 = load i64, ptr %t9, align 8
-  %t10 = call fastcc ptr @flux_tuple_field_ptr(i64 %v7, i32 1)
-  %v13 = load i64, ptr %t10, align 8
+  %t13 = inttoptr i64 %v7 to ptr
+  %t14 = getelementptr inbounds %FluxTuple, ptr %t13, i32 0, i32 5, i32 0
+  %t15 = getelementptr inbounds i64, ptr %t14, i32 0
+  %v12 = load i64, ptr %t15, align 8
+  %t16 = inttoptr i64 %v7 to ptr
+  %t17 = getelementptr inbounds %FluxTuple, ptr %t16, i32 0, i32 5, i32 0
+  %t18 = getelementptr inbounds i64, ptr %t17, i32 1
+  %v13 = load i64, ptr %t18, align 8
   %v14 = add i64 %v13, 0
-  %t11 = inttoptr i64 %v14 to ptr
-  %t12 = getelementptr inbounds i8, ptr %t11, i32 8
-  %v15 = load i64, ptr %t12, align 8
+  %t19 = inttoptr i64 %v14 to ptr
+  %t20 = getelementptr inbounds i8, ptr %t19, i32 8
+  %v15 = load i64, ptr %t20, align 8
   %v16 = ashr i64 %v12, 1
   %v17 = ashr i64 %v15, 1
   %v18 = add i64 %v16, %v17
-  %t13 = shl i64 %v18, 1
-  %v19 = or i64 %t13, 1
+  %t21 = shl i64 %v18, 1
+  %v19 = or i64 %t21, 1
   br label %bb2
 bb4:
-  %t14 = call fastcc ptr @flux_tuple_field_ptr(i64 %v7, i32 0)
-  %v20 = load i64, ptr %t14, align 8
-  %t15 = call fastcc ptr @flux_tuple_field_ptr(i64 %v7, i32 1)
-  %v21 = load i64, ptr %t15, align 8
+  %t22 = inttoptr i64 %v7 to ptr
+  %t23 = getelementptr inbounds %FluxTuple, ptr %t22, i32 0, i32 5, i32 0
+  %t24 = getelementptr inbounds i64, ptr %t23, i32 0
+  %v20 = load i64, ptr %t24, align 8
+  %t25 = inttoptr i64 %v7 to ptr
+  %t26 = getelementptr inbounds %FluxTuple, ptr %t25, i32 0, i32 5, i32 0
+  %t27 = getelementptr inbounds i64, ptr %t26, i32 1
+  %v21 = load i64, ptr %t27, align 8
   br label %bb9
 bb5:
-  %match.ptrck.20 = icmp ule i64 12, %v10
-  br i1 %match.ptrck.20, label %match.boxed.17, label %bb4
-match.extract.6.18:
-  %ext.6.0 = call fastcc ptr @flux_adt_field_ptr(i64 %v10, i32 0)
+  %match.ptrck.34 = icmp ule i64 12, %v10
+  br i1 %match.ptrck.34, label %match.boxed.29, label %bb4
+match.extract.6.30:
+  %ext.ptr.6 = inttoptr i64 %v10 to ptr
+  %ext.payload.6 = getelementptr inbounds %FluxAdt, ptr %ext.ptr.6, i32 0, i32 2, i32 0
+  %ext.6.0 = getelementptr inbounds i64, ptr %ext.payload.6, i32 0
   %v11 = load i64, ptr %ext.6.0, align 8
   call ccc void @flux_dup(i64 %v11)
   br label %bb6
-match.adt.19:
-  %t16 = call fastcc i32 @flux_adt_tag(i64 %v10)
-  switch i32 %t16, label %bb4 [
-    i32 5, label %match.extract.6.18
+match.adt.31:
+  %match.adtptr.32 = inttoptr i64 %v10 to ptr
+  %match.adttagptr.33 = getelementptr inbounds %FluxAdt, ptr %match.adtptr.32, i32 0, i32 0
+  %t28 = load i32, ptr %match.adttagptr.33, align 4
+  switch i32 %t28, label %bb4 [
+    i32 5, label %match.extract.6.30
   ]
-match.boxed.17:
-  br label %match.adt.19
+match.boxed.29:
+  br label %match.adt.31
 bb6:
   br label %bb3
 bb7:
-  %t21 = call fastcc ptr @flux_tuple_field_ptr(i64 %v7, i32 0)
-  %v22 = load i64, ptr %t21, align 8
-  %t22 = call fastcc ptr @flux_tuple_field_ptr(i64 %v7, i32 1)
-  %v23 = load i64, ptr %t22, align 8
+  %t35 = inttoptr i64 %v7 to ptr
+  %t36 = getelementptr inbounds %FluxTuple, ptr %t35, i32 0, i32 5, i32 0
+  %t37 = getelementptr inbounds i64, ptr %t36, i32 0
+  %v22 = load i64, ptr %t37, align 8
+  %t38 = inttoptr i64 %v7 to ptr
+  %t39 = getelementptr inbounds %FluxTuple, ptr %t38, i32 0, i32 5, i32 0
+  %t40 = getelementptr inbounds i64, ptr %t39, i32 1
+  %v23 = load i64, ptr %t40, align 8
   %v24 = add i64 1, 0
   br label %bb2
 bb8:
   unreachable
 bb9:
-  %match.ptrck.26 = icmp ule i64 12, %v21
-  br i1 %match.ptrck.26, label %match.boxed.24, label %bb8
-match.adt.25:
-  %t23 = call fastcc i32 @flux_adt_tag(i64 %v21)
-  switch i32 %t23, label %bb8 [
+  %match.ptrck.46 = icmp ule i64 12, %v21
+  br i1 %match.ptrck.46, label %match.boxed.42, label %bb8
+match.adt.43:
+  %match.adtptr.44 = inttoptr i64 %v21 to ptr
+  %match.adttagptr.45 = getelementptr inbounds %FluxAdt, ptr %match.adtptr.44, i32 0, i32 0
+  %t41 = load i32, ptr %match.adttagptr.45, align 4
+  switch i32 %t41, label %bb8 [
     i32 6, label %bb10
   ]
-match.boxed.24:
-  br label %match.adt.25
+match.boxed.42:
+  br label %match.adt.43
 bb10:
   br label %bb7
 }

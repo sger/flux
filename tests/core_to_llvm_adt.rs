@@ -71,7 +71,11 @@ fn main() {
         rendered.contains("flux_make_adt") || rendered.contains("flux_make_cons"),
         "expected ADT construction"
     );
-    assert!(rendered.contains("flux_adt_tag"), "expected ADT tag check");
+    // Phase 4 (Proposal 0140): ADT tag check is now inlined as GEP+load.
+    assert!(
+        rendered.contains("getelementptr inbounds %FluxAdt"),
+        "expected inline ADT tag extraction"
+    );
 }
 
 #[test]
@@ -142,10 +146,10 @@ fn main() {
 "#,
     );
 
-    assert!(rendered.contains("flux_adt_tag"), "expected ADT tag check");
+    // Phase 4 (Proposal 0140): ADT tag/field access is now inlined as GEP+load.
     assert!(
-        rendered.contains("flux_adt_field_ptr"),
-        "expected ADT field access"
+        rendered.contains("getelementptr inbounds %FluxAdt"),
+        "expected inline ADT tag/field extraction"
     );
 }
 
