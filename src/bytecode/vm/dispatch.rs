@@ -623,14 +623,6 @@ impl VM {
                 self.execute_call_self(num_args)?;
                 Ok(2)
             }
-            OpCode::OpCallBase => {
-                // OpCallBase is no longer emitted by the compiler.
-                // Base functions are resolved as module members from lib/Flow/.
-                Err(
-                    "OpCallBase is deprecated; base functions are now compiled from lib/Flow/"
-                        .to_string(),
-                )
-            }
             OpCode::OpPrimOp => {
                 // Encoded as [OpPrimOp, primop_id, arity].
                 // Stack before: [..., arg0, ..., argN]. After: [..., result].
@@ -641,16 +633,12 @@ impl VM {
             }
             OpCode::OpTailCall => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
-                let callee_idx = self.sp - 1 - num_args;
-                let is_base_function = matches!(self.stack_get(callee_idx), Value::BaseFunction(_));
                 self.execute_tail_call(num_args)?;
-                if is_base_function { Ok(2) } else { Ok(0) }
+                Ok(0)
             }
             OpCode::OpTailCall1 => {
-                let callee_idx = self.sp - 2;
-                let is_base_function = matches!(self.stack_get(callee_idx), Value::BaseFunction(_));
                 self.execute_tail_call(1)?;
-                if is_base_function { Ok(1) } else { Ok(0) }
+                Ok(0)
             }
             OpCode::OpPop => {
                 self.pop_and_track()?;

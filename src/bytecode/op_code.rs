@@ -74,10 +74,8 @@ pub enum OpCode {
     /// Generic primop dispatch: operands are `[primop_id: u8, arity: u8]`.
     /// Consumes `arity` arguments from the stack and pushes one result.
     OpPrimOp = 62,
-    /// Direct built-in function call: operands are `[base_fn_index: u8, arity: u8]`.
-    /// Unlike `OpCall`, no callee value is read from the stack.
-    /// Consumes `arity` arguments from the stack and pushes one result.
-    OpCallBase = 63,
+    // OpCallBase = 63 was removed (deprecated). Slot intentionally left empty
+    // to preserve bytecode compatibility with cached .fxc/.fxm files.
     /// Construct a user-defined ADT value.
     /// Operands: `[const_idx: u16, arity: u8]`.
     /// Pops `arity` values (the constructor fields), then pushes `Value::Adt { constructor, fields }`.
@@ -278,7 +276,7 @@ impl From<u8> for OpCode {
             60 => OpCode::OpTupleIndex,
             61 => OpCode::OpIsTuple,
             62 => OpCode::OpPrimOp,
-            63 => OpCode::OpCallBase,
+            // 63 was OpCallBase (removed)
             64 => OpCode::OpMakeAdt,
             65 => OpCode::OpIsAdt,
             66 => OpCode::OpAdtField,
@@ -367,7 +365,7 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpAddLocals | OpCode::OpSubLocals | OpCode::OpGetLocalGetLocal => vec![1, 1],
         OpCode::OpConstantAdd => vec![2],
         OpCode::OpGetLocalIsAdt => vec![1, 2],
-        OpCode::OpPrimOp | OpCode::OpCallBase => vec![1, 1],
+        OpCode::OpPrimOp => vec![1, 1],
         OpCode::OpClosure => vec![2, 1],
         OpCode::OpClosureLong => vec![4, 1],
         // ADT opcodes

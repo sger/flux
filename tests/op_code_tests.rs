@@ -91,12 +91,6 @@ mod tests {
     }
 
     #[test]
-    fn make_op_call_base_operands() {
-        let ins = make(OpCode::OpCallBase, &[9, 2]);
-        assert_eq!(ins, vec![OpCode::OpCallBase as u8, 9, 2]);
-    }
-
-    #[test]
     fn read_helpers() {
         let bytes = vec![0xAA, 0x01, 0x02, 0x03, 0x04, 0xFF];
 
@@ -223,8 +217,12 @@ mod tests {
 
     #[test]
     fn from_u8_roundtrips_all_opcodes() {
-        // Verify transmute-based From<u8> produces correct values for all opcodes.
+        // Verify From<u8> produces correct values for all valid opcodes.
+        // Byte 63 is intentionally skipped (was OpCallBase, now removed).
         for byte in 0..=flux::bytecode::op_code::MAX_OPCODE {
+            if byte == 63 {
+                continue; // gap from removed OpCallBase
+            }
             let op = OpCode::from(byte);
             assert_eq!(op as u8, byte, "OpCode::from({byte}) roundtrip failed");
         }
