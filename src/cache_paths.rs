@@ -5,6 +5,18 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
+/// Global cache epoch. Bump this single constant to invalidate ALL caches
+/// (bytecode `.fxc`, module bytecode `.fxm`, module interfaces `.flxi`,
+/// and native `.o` metadata) at once.
+///
+/// This replaces the need to coordinate 4 separate `FORMAT_VERSION` constants
+/// across different cache modules. Each cache type embeds this epoch and
+/// rejects entries written with a different value.
+///
+/// Epoch 1: initial unified epoch (replaces FXBC=11, FXMC=2, flxi=3, native=2).
+/// Epoch 2: fix parse_int HM signature (String -> Int, was String -> Option<Int>).
+pub const CACHE_EPOCH: u16 = 2;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
     root: PathBuf,
@@ -181,7 +193,15 @@ mod tests {
     fn resolves_non_cargo_cache_root_to_local_flux_cache() {
         let entry = PathBuf::from("/tmp/flux-standalone/example.flx");
         let root = resolve_cache_root(&entry, None);
-        assert_eq!(root, PathBuf::from("/tmp/flux-standalone/.flux/cache"));
+        // On Windows, /tmp resolves to the current drive (e.g. E:/tmp).
+        // Check the suffix instead of the full path.
+        let suffix = Path::new("flux-standalone").join(".flux").join("cache");
+        assert!(
+            root.ends_with(&suffix),
+            "expected root to end with {}, got {}",
+            suffix.display(),
+            root.display()
+        );
     }
 
     #[test]

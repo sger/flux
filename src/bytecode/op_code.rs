@@ -74,10 +74,8 @@ pub enum OpCode {
     /// Generic primop dispatch: operands are `[primop_id: u8, arity: u8]`.
     /// Consumes `arity` arguments from the stack and pushes one result.
     OpPrimOp = 62,
-    /// Direct built-in function call: operands are `[base_fn_index: u8, arity: u8]`.
-    /// Unlike `OpCall`, no callee value is read from the stack.
-    /// Consumes `arity` arguments from the stack and pushes one result.
-    OpCallBase = 63,
+    // OpCallBase = 63 was removed (deprecated). Slot intentionally left empty
+    // to preserve bytecode compatibility with cached .fxc/.fxm files.
     /// Construct a user-defined ADT value.
     /// Operands: `[const_idx: u16, arity: u8]`.
     /// Pops `arity` values (the constructor fields), then pushes `Value::Adt { constructor, fields }`.
@@ -180,7 +178,37 @@ pub enum OpCode {
     /// Operand: `[local_idx: u8]`.
     /// Immediate `Int`/`Float`/`Bool` locals are left unchanged.
     OpAetherDropLocal = 91,
+    /// Superinstruction: `GetLocal(a) + GetLocal(b) + Add`.
+    OpAddLocals = 92,
+    /// Superinstruction: `GetLocal(a) + GetLocal(b) + Sub`.
+    OpSubLocals = 93,
+    /// Superinstruction: `GetLocal(n) + Call(1)`.
+    OpGetLocalCall1 = 94,
+    /// Superinstruction: `Constant(idx) + Add`.
+    OpConstantAdd = 95,
+    /// Superinstruction: `GetLocal(n) + Index`.
+    OpGetLocalIndex = 96,
+    /// Superinstruction: `GetLocal(n) + IsAdt(tag)`.
+    OpGetLocalIsAdt = 97,
+    /// Superinstruction: `SetLocal(n) + Pop`.
+    OpSetLocalPop = 98,
+    /// Superinstruction: `GetLocal(a) + GetLocal(b)`.
+    OpGetLocalGetLocal = 99,
+    /// Superinstruction: `Call(0)`.
+    OpCall0 = 100,
+    /// Superinstruction: `Call(1)`.
+    OpCall1 = 101,
+    /// Superinstruction: `Call(2)`.
+    OpCall2 = 102,
+    /// Superinstruction: `TailCall(1)`.
+    OpTailCall1 = 103,
+    /// Profiling: enter a cost centre at function entry. Operand: `[cc_index: u16]`.
+    /// Only emitted when `--prof` is passed. The VM tracks call counts and timing.
+    OpEnterCC = 104,
 }
+
+/// Maximum valid opcode value (inclusive). Must be updated when adding new opcodes.
+pub const MAX_OPCODE: u8 = OpCode::OpEnterCC as u8;
 
 impl From<u8> for OpCode {
     fn from(byte: u8) -> Self {
@@ -248,7 +276,7 @@ impl From<u8> for OpCode {
             60 => OpCode::OpTupleIndex,
             61 => OpCode::OpIsTuple,
             62 => OpCode::OpPrimOp,
-            63 => OpCode::OpCallBase,
+            // 63 was OpCallBase (removed)
             64 => OpCode::OpMakeAdt,
             65 => OpCode::OpIsAdt,
             66 => OpCode::OpAdtField,
@@ -277,6 +305,19 @@ impl From<u8> for OpCode {
             89 => OpCode::OpReuseRight,
             90 => OpCode::OpIsUnique,
             91 => OpCode::OpAetherDropLocal,
+            92 => OpCode::OpAddLocals,
+            93 => OpCode::OpSubLocals,
+            94 => OpCode::OpGetLocalCall1,
+            95 => OpCode::OpConstantAdd,
+            96 => OpCode::OpGetLocalIndex,
+            97 => OpCode::OpGetLocalIsAdt,
+            98 => OpCode::OpSetLocalPop,
+            99 => OpCode::OpGetLocalGetLocal,
+            100 => OpCode::OpCall0,
+            101 => OpCode::OpCall1,
+            102 => OpCode::OpCall2,
+            103 => OpCode::OpTailCall1,
+            104 => OpCode::OpEnterCC,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -317,8 +358,14 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpGetBase
         | OpCode::OpReturnLocal
         | OpCode::OpTupleIndex
-        | OpCode::OpAetherDropLocal => vec![1],
-        OpCode::OpPrimOp | OpCode::OpCallBase => vec![1, 1],
+        | OpCode::OpAetherDropLocal
+        | OpCode::OpGetLocalCall1
+        | OpCode::OpGetLocalIndex
+        | OpCode::OpSetLocalPop => vec![1],
+        OpCode::OpAddLocals | OpCode::OpSubLocals | OpCode::OpGetLocalGetLocal => vec![1, 1],
+        OpCode::OpConstantAdd => vec![2],
+        OpCode::OpGetLocalIsAdt => vec![1, 2],
+        OpCode::OpPrimOp => vec![1, 1],
         OpCode::OpClosure => vec![2, 1],
         OpCode::OpClosureLong => vec![4, 1],
         // ADT opcodes
@@ -340,6 +387,8 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpReuseAdt => vec![2, 1, 1], // const_idx: u16, arity: u8, field_mask: u8
         OpCode::OpReuseSome | OpCode::OpReuseLeft | OpCode::OpReuseRight => vec![],
         OpCode::OpIsUnique => vec![],
+        OpCode::OpCall0 | OpCode::OpCall1 | OpCode::OpCall2 | OpCode::OpTailCall1 => vec![],
+        OpCode::OpEnterCC => vec![2], // cc_index: u16
         _ => vec![],
     }
 }

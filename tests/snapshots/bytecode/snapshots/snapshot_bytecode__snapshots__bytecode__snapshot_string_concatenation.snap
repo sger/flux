@@ -9,8 +9,6 @@ Constants:
 
 Instructions:
 0000 OpConstant 0
-0003 OpConstant 1
-0006 OpAdd 
-0007 OpConstant 2
-0010 OpAdd 
-0011 OpSetGlobal 0
+0003 OpConstantAdd 1
+0006 OpConstantAdd 2
+0009 OpSetGlobal 0
