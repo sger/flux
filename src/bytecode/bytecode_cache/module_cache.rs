@@ -23,8 +23,7 @@ use crate::{
 };
 
 const MAGIC: &[u8; 4] = b"FXMC";
-// Bumped for superinstruction constant patching in module linker (OpConstantAdd, OpGetLocalIsAdt, OpReuseAdt).
-const FORMAT_VERSION: u16 = 2;
+const FORMAT_VERSION: u16 = crate::cache_paths::CACHE_EPOCH;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModuleCacheLoadError {
