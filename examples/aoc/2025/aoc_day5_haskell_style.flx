@@ -1,6 +1,6 @@
 // Advent of Code - Day 5 (Haskell-style translation)
 // Inspired by AOC2025.Day05 day05a/day05b.
-// Uses input file: examples/io/aoc_day5.txt
+// Uses input file: examples/aoc/2025/aoc_day5.txt
 
 fn main() with IO, Time {
     fn line_at(lines, idx) {
@@ -154,7 +154,7 @@ fn day05b(ranges) {
     merged_width_sum(sorted, 0, -1, -1, 0)
 }
 
-let parsed = parse_input("examples/io/aoc_day5.txt")
+let parsed = parse_input("examples/aoc/2025/aoc_day5.txt")
 let ranges = parsed.0
 
 print(day05a(parsed))

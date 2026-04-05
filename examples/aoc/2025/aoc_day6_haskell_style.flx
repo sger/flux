@@ -1,6 +1,6 @@
 // Advent of Code - Day 6 (Haskell-style translation)
 // Inspired by AOC2025.Day06 day06a/day06b.
-// Uses input file: examples/io/aoc_day6.txt
+// Uses input file: examples/aoc/2025/aoc_day6.txt
 
 fn main() with IO, Time {
     fn line_at(lines, idx) {
@@ -237,7 +237,7 @@ fn solve_day06b(lines) {
     groups |> fold(0, \(acc, g) -> acc + eval_day06b_group(g))
 }
 
-let lines = read_lines("examples/io/aoc_day6.txt")
+let lines = read_lines("examples/aoc/2025/aoc_day6.txt")
 
 let day06a = solve_day06a(lines)
 let day06b = solve_day06b(lines)

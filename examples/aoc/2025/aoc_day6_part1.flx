@@ -1,6 +1,6 @@
 // Advent of Code - Day 6 Part 1 (Trash Compactor)
 // Parse vertical problems separated by all-space columns.
-// Input: examples/io/aoc_day6.txt
+// Input: examples/aoc/2025/aoc_day6.txt
 
 fn main() with IO, Time {
     fn line_at(lines, idx) {
@@ -102,7 +102,7 @@ fn solve_cols(lines, num_rows, width, col, total) {
 }
 }
 
-let lines = read_lines("examples/io/aoc_day6.txt")
+let lines = read_lines("examples/aoc/2025/aoc_day6.txt")
 let num_rows = len(lines) - 1
 let width = max_width(lines, 0, 0)
 print(solve_cols(lines, num_rows, width, 0, 0))

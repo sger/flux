@@ -1,6 +1,6 @@
 // Advent of Code - Day 3 (Haskell-style translation)
 // Mirrors the provided StateT/List backtracking approach.
-// Uses input file: examples/io/aoc_day3.txt
+// Uses input file: examples/aoc/2025/aoc_day3.txt
 
 fn main() with IO, Time {
     fn find_next_pos(line, digit_str, idx) {
@@ -81,8 +81,8 @@ fn day03(n, path) {
     }
 }
 
-let day03a = day03(2, "examples/io/aoc_day3.txt")
-let day03b = day03(12, "examples/io/aoc_day3.txt")
+let day03a = day03(2, "examples/aoc/2025/aoc_day3.txt")
+let day03b = day03(12, "examples/aoc/2025/aoc_day3.txt")
 
 print(day03a)
 print(day03b)

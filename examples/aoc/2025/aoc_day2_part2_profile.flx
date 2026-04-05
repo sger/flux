@@ -12,7 +12,7 @@ fn repeat_solve(n, parsed_ranges, checksum) {
     }
 }
 
-let parsed_ranges = Day2.parse_ranges("examples/io/aoc_day2.txt")
+let parsed_ranges = Day2.parse_ranges("examples/aoc/2025/aoc_day2.txt")
 let iterations = 5
 
 let t0 = now_ms()
