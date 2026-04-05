@@ -152,7 +152,10 @@ fn patch_instructions(
             | OpCode::OpHandle
             | OpCode::OpHandleDirect
             | OpCode::OpPerform
-            | OpCode::OpPerformDirect => {
+            | OpCode::OpPerformDirect
+            | OpCode::OpConstantAdd
+            | OpCode::OpGetLocalIsAdt
+            | OpCode::OpReuseAdt => {
                 patch_constant_operand(instructions, ip, op, constant_base)?;
             }
             _ => {}
@@ -230,6 +233,32 @@ fn patch_constant_operand(
                 .map_err(|_| format!("constant index overflow for {op:?}: {idx}"))?;
             let arity = instructions[ip + 2] as usize;
             replace_instruction(instructions, ip, op, &make(op, &[idx as usize, arity]));
+        }
+        OpCode::OpConstantAdd => {
+            let idx = read_u16(instructions, ip + 1) as usize + constant_base;
+            let _ = u16::try_from(idx)
+                .map_err(|_| format!("constant index overflow for {op:?}: {idx}"))?;
+            replace_instruction(instructions, ip, op, &make(OpCode::OpConstantAdd, &[idx]));
+        }
+        OpCode::OpGetLocalIsAdt => {
+            let local = instructions[ip + 1] as usize;
+            let idx = read_u16(instructions, ip + 2) as usize + constant_base;
+            let _ = u16::try_from(idx)
+                .map_err(|_| format!("constant index overflow for {op:?}: {idx}"))?;
+            replace_instruction(instructions, ip, op, &make(op, &[local, idx]));
+        }
+        OpCode::OpReuseAdt => {
+            let idx = read_u16(instructions, ip + 1) as usize + constant_base;
+            let _ = u16::try_from(idx)
+                .map_err(|_| format!("constant index overflow for {op:?}: {idx}"))?;
+            let arity = instructions[ip + 3] as usize;
+            let field_mask = instructions[ip + 4] as usize;
+            replace_instruction(
+                instructions,
+                ip,
+                op,
+                &make(op, &[idx, arity, field_mask]),
+            );
         }
         _ => {}
     }
@@ -315,6 +344,42 @@ mod tests {
         diagnostics::position::{Position, Span},
     };
 
+    /// Helper: assemble two modules and return the linked bytecode.
+    fn link_two_modules(
+        mod_a: CachedModuleBytecode,
+        mod_b: CachedModuleBytecode,
+    ) -> Bytecode {
+        let interner = Interner::new();
+        let mut linker = VmAssemblyContext::new(interner);
+        linker.assemble_module(&mod_a).expect("assemble module A");
+        linker.assemble_module(&mod_b).expect("assemble module B");
+        linker.finish().bytecode
+    }
+
+    /// Helper: build a minimal module artifact with given globals, constants, and instructions.
+    fn module_with(
+        globals: Vec<CachedModuleBinding>,
+        constants: Vec<Value>,
+        instructions: Vec<u8>,
+    ) -> CachedModuleBytecode {
+        CachedModuleBytecode {
+            globals,
+            constants,
+            instructions,
+            debug_info: FunctionDebugInfo::default(),
+        }
+    }
+
+    fn global_def(name: &str, index: usize) -> CachedModuleBinding {
+        CachedModuleBinding {
+            name: name.to_string(),
+            index,
+            span: Span::default(),
+            is_assigned: true,
+            kind: CachedModuleBindingKind::Defined,
+        }
+    }
+
     #[test]
     fn assembles_defined_and_imported_globals() {
         let mut interner = Interner::new();
@@ -354,5 +419,105 @@ mod tests {
         let linked = linker.finish();
         assert_eq!(linked.symbol_table.num_definitions, 2);
         assert_eq!(linked.bytecode.constants.len(), 1);
+    }
+
+    #[test]
+    fn patches_op_constant_add_constant_index() {
+        // Module A has 2 constants; module B uses OpConstantAdd with local index 0.
+        // After linking, B's constant index must be rebased by A's constant count.
+        let mod_a = module_with(
+            vec![global_def("A.x", 0)],
+            vec![Value::Integer(100), Value::Integer(200)],
+            make(OpCode::OpConstant, &[0]),
+        );
+        let mod_b = module_with(
+            vec![global_def("B.y", 0)],
+            vec![Value::Integer(1)], // constant 0 in B = value 1
+            make(OpCode::OpConstantAdd, &[0]),
+        );
+
+        let linked = link_two_modules(mod_a, mod_b);
+        // B's constant 0 should be rebased to index 2 (A had 2 constants).
+        assert_eq!(linked.constants.len(), 3);
+        let b_instructions = &linked.instructions[3..]; // skip A's 3-byte OpConstant
+        assert_eq!(b_instructions[0], OpCode::OpConstantAdd as u8);
+        let rebased_idx = read_u16(b_instructions, 1) as usize;
+        assert_eq!(rebased_idx, 2, "OpConstantAdd index should be rebased from 0 to 2");
+    }
+
+    #[test]
+    fn patches_op_get_local_is_adt_constant_index() {
+        // OpGetLocalIsAdt has operands [local_idx: u8, const_idx: u16].
+        // The const_idx must be rebased when linking.
+        let mod_a = module_with(
+            vec![global_def("A.x", 0)],
+            vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)],
+            make(OpCode::OpConstant, &[0]),
+        );
+        let mod_b = module_with(
+            vec![global_def("B.y", 0)],
+            vec![Value::String("Cons".to_string().into())], // const 0 = constructor name
+            make(OpCode::OpGetLocalIsAdt, &[5, 0]),         // local 5, const 0
+        );
+
+        let linked = link_two_modules(mod_a, mod_b);
+        let b_instructions = &linked.instructions[3..];
+        assert_eq!(b_instructions[0], OpCode::OpGetLocalIsAdt as u8);
+        assert_eq!(b_instructions[1], 5, "local index should be unchanged");
+        let rebased_idx = read_u16(b_instructions, 2) as usize;
+        assert_eq!(rebased_idx, 3, "OpGetLocalIsAdt const index should be rebased from 0 to 3");
+    }
+
+    #[test]
+    fn patches_op_reuse_adt_constant_index() {
+        // OpReuseAdt has operands [const_idx: u16, arity: u8, field_mask: u8].
+        // The const_idx must be rebased when linking.
+        let mod_a = module_with(
+            vec![global_def("A.x", 0)],
+            vec![Value::Integer(10)],
+            make(OpCode::OpConstant, &[0]),
+        );
+        let mod_b = module_with(
+            vec![global_def("B.y", 0)],
+            vec![Value::String("MyAdt".to_string().into())],
+            make(OpCode::OpReuseAdt, &[0, 2, 0xFF]), // const 0, arity 2, mask 0xFF
+        );
+
+        let linked = link_two_modules(mod_a, mod_b);
+        let b_instructions = &linked.instructions[3..];
+        assert_eq!(b_instructions[0], OpCode::OpReuseAdt as u8);
+        let rebased_idx = read_u16(b_instructions, 1) as usize;
+        assert_eq!(rebased_idx, 1, "OpReuseAdt const index should be rebased from 0 to 1");
+        assert_eq!(b_instructions[3], 2, "arity should be unchanged");
+        assert_eq!(b_instructions[4], 0xFF, "field_mask should be unchanged");
+    }
+
+    #[test]
+    fn constant_patching_preserves_non_constant_opcodes() {
+        // OpAddLocals, OpSubLocals, OpCall0 etc. have no constant operands
+        // and should pass through linking unchanged.
+        let mod_a = module_with(
+            vec![global_def("A.x", 0)],
+            vec![Value::Integer(1)],
+            make(OpCode::OpConstant, &[0]),
+        );
+        let mod_b = module_with(
+            vec![global_def("B.y", 0)],
+            vec![],
+            {
+                let mut ins = make(OpCode::OpAddLocals, &[3, 5]);
+                ins.extend(make(OpCode::OpCall0, &[]));
+                ins.extend(make(OpCode::OpTailCall1, &[]));
+                ins
+            },
+        );
+
+        let linked = link_two_modules(mod_a, mod_b);
+        let b_instructions = &linked.instructions[3..];
+        assert_eq!(b_instructions[0], OpCode::OpAddLocals as u8);
+        assert_eq!(b_instructions[1], 3);
+        assert_eq!(b_instructions[2], 5);
+        assert_eq!(b_instructions[3], OpCode::OpCall0 as u8);
+        assert_eq!(b_instructions[4], OpCode::OpTailCall1 as u8);
     }
 }

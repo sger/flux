@@ -810,9 +810,17 @@ impl Compiler {
             }
             Expression::Index { left, index, .. } => {
                 self.validate_index_expression_types(left, index)?;
-                self.compile_non_tail_expression(left)?;
-                self.compile_non_tail_expression(index)?;
-                self.emit(OpCode::OpIndex, &[]);
+                if let Expression::Identifier { name, .. } = left.as_ref()
+                    && let Some(binding) = self.resolve_visible_symbol(*name)
+                    && binding.symbol_scope == SymbolScope::Local
+                {
+                    self.compile_non_tail_expression(index)?;
+                    self.emit(OpCode::OpGetLocalIndex, &[binding.index]);
+                } else {
+                    self.compile_non_tail_expression(left)?;
+                    self.compile_non_tail_expression(index)?;
+                    self.emit(OpCode::OpIndex, &[]);
+                }
             }
             // Note: Pipe operator (|>) is handled at parse time by transforming
             // `a |> f(b, c)` into `f(a, b, c)` - a regular Call expression.
@@ -837,6 +845,19 @@ impl Compiler {
                 let is_direct_self_call = self.is_self_call(function);
                 let is_self_tail_call = self.in_tail_position && is_direct_self_call;
                 let is_self_non_tail_call = !self.in_tail_position && is_direct_self_call;
+
+                if !is_self_tail_call
+                    && !is_self_non_tail_call
+                    && arguments.len() == 1
+                    && let Expression::Identifier { name, .. } = function.as_ref()
+                    && let Some(binding) = self.resolve_visible_symbol(*name)
+                    && binding.symbol_scope == SymbolScope::Local
+                {
+                    self.compile_non_tail_expression(&arguments[0])?;
+                    self.emit(OpCode::OpGetLocalCall1, &[binding.index]);
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
 
                 if !is_self_non_tail_call {
                     self.compile_non_tail_expression(function)?;

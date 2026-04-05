@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{aether::borrow_infer::BorrowSignature, types::scheme::Scheme};
 
-pub const MODULE_INTERFACE_FORMAT_VERSION: u16 = 2;
+// Bumped to invalidate stale interface caches after superinstruction additions.
+pub const MODULE_INTERFACE_FORMAT_VERSION: u16 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DependencyFingerprint {

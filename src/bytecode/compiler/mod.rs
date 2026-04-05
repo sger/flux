@@ -3702,6 +3702,263 @@ impl Compiler {
         self.scopes[self.scope_index].last_instruction = last;
     }
 
+    fn instruction_len(op: OpCode) -> usize {
+        1 + crate::bytecode::op_code::operand_widths(op)
+            .iter()
+            .sum::<usize>()
+    }
+
+    fn previous_instruction_before(&self, target_pos: usize) -> Option<(usize, OpCode)> {
+        let instructions = &self.scopes[self.scope_index].instructions;
+        let mut ip = 0;
+        let mut previous = None;
+
+        while ip < instructions.len() {
+            let op = OpCode::from(instructions[ip]);
+            if ip == target_pos {
+                return previous;
+            }
+            previous = Some((ip, op));
+            ip += Self::instruction_len(op);
+        }
+
+        None
+    }
+
+    fn decode_local_read_at(&self, pos: usize) -> Option<(usize, usize)> {
+        let instructions = &self.scopes[self.scope_index].instructions;
+        let op = OpCode::from(instructions[pos]);
+        match op {
+            OpCode::OpGetLocal => Some((instructions[pos + 1] as usize, 2)),
+            OpCode::OpGetLocal0 => Some((0, 1)),
+            OpCode::OpGetLocal1 => Some((1, 1)),
+            _ => None,
+        }
+    }
+
+    fn decode_get_local_get_local_at(&self, pos: usize) -> Option<(usize, usize)> {
+        let instructions = &self.scopes[self.scope_index].instructions;
+        if OpCode::from(instructions[pos]) == OpCode::OpGetLocalGetLocal {
+            Some((instructions[pos + 1] as usize, instructions[pos + 2] as usize))
+        } else {
+            None
+        }
+    }
+
+    fn can_fuse_trailing_region(&self, start: usize, new_len: usize) -> bool {
+        let old_len = self.scopes[self.scope_index].instructions.len() - start;
+        if new_len > old_len {
+            return false;
+        }
+        // Check all interior positions: both operand bytes of the fused instruction
+        // AND removed bytes. A jump target that previously pointed to the start of
+        // a constituent instruction would land on an operand byte after fusion.
+        for pos in start + 1..start + old_len {
+            if self.has_jump_target_at(pos) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn rewrite_trailing_region(&mut self, start: usize, new_instruction: Instructions) {
+        let first_location = self.scopes[self.scope_index]
+            .locations
+            .iter()
+            .find(|location| location.offset == start)
+            .and_then(|location| location.location.clone());
+
+        self.scopes[self.scope_index].instructions.truncate(start);
+        self.scopes[self.scope_index]
+            .instructions
+            .extend_from_slice(&new_instruction);
+        self.scopes[self.scope_index]
+            .locations
+            .retain(|location| location.offset < start);
+        self.scopes[self.scope_index]
+            .locations
+            .push(InstructionLocation {
+                offset: start,
+                location: first_location,
+            });
+        self.recompute_last_instructions();
+    }
+
+    fn try_fuse_trailing_superinstructions(&mut self) {
+        while self.try_fuse_trailing_superinstruction_once() {}
+    }
+
+    fn try_fuse_trailing_superinstruction_once(&mut self) -> bool {
+        self.try_fuse_trailing_add_sub_locals()
+            || self.try_fuse_trailing_constant_add()
+            || self.try_fuse_trailing_local_is_adt()
+            || self.try_fuse_trailing_set_local_pop()
+            || self.try_fuse_trailing_call_arity()
+            || self.try_fuse_trailing_tail_call1()
+            || self.try_fuse_trailing_get_local_get_local()
+    }
+
+    fn try_fuse_trailing_add_sub_locals(&mut self) -> bool {
+        let scope = &self.scopes[self.scope_index];
+        let last = scope.last_instruction.clone();
+        let fused_op = match last.opcode {
+            Some(OpCode::OpAdd) => OpCode::OpAddLocals,
+            Some(OpCode::OpSub) => OpCode::OpSubLocals,
+            _ => return false,
+        };
+        let last_pos = last.position;
+
+        if let Some((prev_pos, _)) = self.previous_instruction_before(last_pos) {
+            if let Some((a, b)) = self.decode_get_local_get_local_at(prev_pos) {
+                let new_instruction = make(fused_op, &[a, b]);
+                if self.can_fuse_trailing_region(prev_pos, new_instruction.len()) {
+                    self.rewrite_trailing_region(prev_pos, new_instruction);
+                    return true;
+                }
+            }
+
+            if let Some((b, len_b)) = self.decode_local_read_at(prev_pos)
+                && let Some((prev_prev_pos, _)) = self.previous_instruction_before(prev_pos)
+                && let Some((a, len_a)) = self.decode_local_read_at(prev_prev_pos)
+                && prev_prev_pos + len_a == prev_pos
+                && prev_pos + len_b == last_pos
+            {
+                let new_instruction = make(fused_op, &[a, b]);
+                if self.can_fuse_trailing_region(prev_prev_pos, new_instruction.len()) {
+                    self.rewrite_trailing_region(prev_prev_pos, new_instruction);
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    fn try_fuse_trailing_constant_add(&mut self) -> bool {
+        let scope = &self.scopes[self.scope_index];
+        let last = scope.last_instruction.clone();
+        if last.opcode != Some(OpCode::OpAdd) {
+            return false;
+        }
+        let Some((prev_pos, prev_op)) = self.previous_instruction_before(last.position) else {
+            return false;
+        };
+        if prev_op != OpCode::OpConstant {
+            return false;
+        }
+        let const_idx =
+            crate::bytecode::op_code::read_u16(&scope.instructions, prev_pos + 1) as usize;
+        let new_instruction = make(OpCode::OpConstantAdd, &[const_idx]);
+        if !self.can_fuse_trailing_region(prev_pos, new_instruction.len()) {
+            return false;
+        }
+        self.rewrite_trailing_region(prev_pos, new_instruction);
+        true
+    }
+
+    fn try_fuse_trailing_local_is_adt(&mut self) -> bool {
+        let scope = &self.scopes[self.scope_index];
+        let last = scope.last_instruction.clone();
+        if last.opcode != Some(OpCode::OpIsAdt) {
+            return false;
+        }
+        let Some((prev_pos, _)) = self.previous_instruction_before(last.position) else {
+            return false;
+        };
+        let Some((local_idx, _)) = self.decode_local_read_at(prev_pos) else {
+            return false;
+        };
+        let const_idx =
+            crate::bytecode::op_code::read_u16(&scope.instructions, last.position + 1) as usize;
+        let new_instruction = make(OpCode::OpGetLocalIsAdt, &[local_idx, const_idx]);
+        if !self.can_fuse_trailing_region(prev_pos, new_instruction.len()) {
+            return false;
+        }
+        self.rewrite_trailing_region(prev_pos, new_instruction);
+        true
+    }
+
+    fn try_fuse_trailing_set_local_pop(&mut self) -> bool {
+        let scope = &self.scopes[self.scope_index];
+        let last = scope.last_instruction.clone();
+        if last.opcode != Some(OpCode::OpPop) {
+            return false;
+        }
+        let Some((prev_pos, prev_op)) = self.previous_instruction_before(last.position) else {
+            return false;
+        };
+        if prev_op != OpCode::OpSetLocal {
+            return false;
+        }
+        let local_idx = scope.instructions[prev_pos + 1] as usize;
+        let new_instruction = make(OpCode::OpSetLocalPop, &[local_idx]);
+        if !self.can_fuse_trailing_region(prev_pos, new_instruction.len()) {
+            return false;
+        }
+        self.rewrite_trailing_region(prev_pos, new_instruction);
+        true
+    }
+
+    fn try_fuse_trailing_call_arity(&mut self) -> bool {
+        let scope = &self.scopes[self.scope_index];
+        let last = scope.last_instruction.clone();
+        if last.opcode != Some(OpCode::OpCall) {
+            return false;
+        }
+        let fused_op = match scope.instructions[last.position + 1] {
+            0 => OpCode::OpCall0,
+            1 => OpCode::OpCall1,
+            2 => OpCode::OpCall2,
+            _ => return false,
+        };
+        let new_instruction = make(fused_op, &[]);
+        if !self.can_fuse_trailing_region(last.position, new_instruction.len()) {
+            return false;
+        }
+        self.rewrite_trailing_region(last.position, new_instruction);
+        true
+    }
+
+    fn try_fuse_trailing_tail_call1(&mut self) -> bool {
+        let scope = &self.scopes[self.scope_index];
+        let last = scope.last_instruction.clone();
+        if last.opcode != Some(OpCode::OpTailCall) || scope.instructions[last.position + 1] != 1 {
+            return false;
+        }
+        let new_instruction = make(OpCode::OpTailCall1, &[]);
+        if !self.can_fuse_trailing_region(last.position, new_instruction.len()) {
+            return false;
+        }
+        self.rewrite_trailing_region(last.position, new_instruction);
+        true
+    }
+
+    fn try_fuse_trailing_get_local_get_local(&mut self) -> bool {
+        let scope = &self.scopes[self.scope_index];
+        let last = scope.last_instruction.clone();
+        let Some((b, len_b)) = self.decode_local_read_at(last.position) else {
+            return false;
+        };
+        let Some((prev_pos, _)) = self.previous_instruction_before(last.position) else {
+            return false;
+        };
+        let Some((a, len_a)) = self.decode_local_read_at(prev_pos) else {
+            return false;
+        };
+        if prev_pos + len_a != last.position {
+            return false;
+        }
+        let new_instruction = make(OpCode::OpGetLocalGetLocal, &[a, b]);
+        if !self.can_fuse_trailing_region(prev_pos, new_instruction.len()) {
+            return false;
+        }
+        if len_a + len_b < new_instruction.len() {
+            return false;
+        }
+        self.rewrite_trailing_region(prev_pos, new_instruction);
+        true
+    }
+
     pub(super) fn replace_last_pop_with_return(&mut self) {
         let scope = &self.scopes[self.scope_index];
         let pop_pos = scope.last_instruction.position;

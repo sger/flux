@@ -172,6 +172,26 @@ fn build_module_compiler(
             compiler.preload_dependency_program(&dep_node.program);
         }
     }
+    // Auto-prelude: ensure Flow library interfaces and AST visibility are
+    // available to all non-Flow modules, even without explicit import edges.
+    // The sequential (--no-cache) path achieves this via a shared compiler
+    // instance; the parallel path needs explicit preloading.
+    if !is_flow_library_path(&node.path) {
+        for (path, interface) in loaded_interfaces {
+            if !node.imports.iter().any(|dep| &dep.target_path == path)
+                && is_flow_library_path(path)
+            {
+                compiler.preload_module_interface(interface);
+            }
+        }
+        for (path, dep_node) in nodes_by_path {
+            if !node.imports.iter().any(|dep| &dep.target_path == path)
+                && is_flow_library_path(path)
+            {
+                compiler.preload_dependency_program(&dep_node.program);
+            }
+        }
+    }
     if is_flow_library_path(&node.path) {
         compiler.set_strict_mode(false);
     }
@@ -483,6 +503,25 @@ fn compile_vm_modules_parallel(
             continue;
         }
 
+        // Split each topo level into Flow library modules and user modules.
+        // Flow modules must be processed first so their interfaces are in
+        // `loaded_interfaces` before user modules compile — the auto-prelude
+        // makes Flow functions available to all modules, but user modules
+        // have no explicit import edges to them in the module graph.
+        let (flow_nodes, user_nodes): (Vec<_>, Vec<_>) =
+            ready.iter().partition(|node| is_flow_library_path(&node.path));
+
+        // Sub-batches to process: Flow first, then user modules.
+        let batches: Vec<Vec<&ModuleNode>> = if flow_nodes.is_empty() {
+            vec![user_nodes]
+        } else if user_nodes.is_empty() {
+            vec![flow_nodes]
+        } else {
+            vec![flow_nodes, user_nodes]
+        };
+
+        for batch in batches {
+
         let dependency_changed = |node: &ModuleNode| {
             node.imports.iter().any(|dep| {
                 module_states
@@ -491,7 +530,7 @@ fn compile_vm_modules_parallel(
             })
         };
 
-        let parallel_results: Vec<ParallelModuleResult> = ready
+        let parallel_results: Vec<ParallelModuleResult> = batch
             .par_iter()
             .filter(|node| !dependency_changed(node))
             .map(|node| {
@@ -519,7 +558,7 @@ fn compile_vm_modules_parallel(
             .iter()
             .map(|result| result.path.clone())
             .collect();
-        for node in &ready {
+        for node in &batch {
             if dependency_changed(node) && !skipped_paths.contains(&node.path) {
                 let is_entry = entry_canonical.is_some_and(|entry| entry == &node.path);
                 let result = compile_parallel_module(
@@ -649,6 +688,7 @@ fn compile_vm_modules_parallel(
             linker.assemble_module(&artifact)?;
         }
 
+        } // end for batch in batches
     }
 
     let compiled_count = total_modules - cached_count;
@@ -998,7 +1038,21 @@ fn compile_native_modules_parallel(
     let mut completed_native = 0usize;
 
     for level in graph.topo_levels().into_iter() {
-        let mut results: Vec<_> = level
+        // Split each level into Flow library modules and user modules.
+        // Flow modules must be processed first so their interfaces are
+        // available for user modules via auto-prelude.
+        let (flow_nodes, user_nodes): (Vec<_>, Vec<_>) =
+            level.iter().partition(|node| is_flow_library_path(&node.path));
+        let batches: Vec<Vec<&ModuleNode>> = if flow_nodes.is_empty() {
+            vec![user_nodes]
+        } else if user_nodes.is_empty() {
+            vec![flow_nodes]
+        } else {
+            vec![flow_nodes, user_nodes]
+        };
+
+        for batch in batches {
+        let mut results: Vec<_> = batch
             .par_iter()
             .map(|node| {
                 // Force rebuild if any dependency's interface changed.
@@ -1105,6 +1159,7 @@ fn compile_native_modules_parallel(
             }
             object_paths.push(result.object_path);
         }
+        } // end for batch in batches
     }
 
     object_paths.sort();
