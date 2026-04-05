@@ -10,7 +10,7 @@ use crate::{
     types::module_interface::{DependencyFingerprint, DependencyMissReason},
 };
 
-pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = 2;
+pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = crate::cache_paths::CACHE_EPOCH;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeModuleArtifactMetadata {

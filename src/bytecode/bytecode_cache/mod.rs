@@ -20,8 +20,7 @@ use cache_validation::{
 };
 
 const MAGIC: &[u8; 4] = b"FXBC";
-// Bumped for superinstruction constant patching in module linker (OpConstantAdd, OpGetLocalIsAdt).
-const FORMAT_VERSION: u16 = 11;
+const FORMAT_VERSION: u16 = crate::cache_paths::CACHE_EPOCH;
 
 pub struct BytecodeCache {
     dir: PathBuf,
