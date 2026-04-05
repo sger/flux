@@ -84,19 +84,27 @@ impl Display for LlvmTypeDef {
 
 impl Display for LlvmGlobal {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "@{} = {} {} {} {}",
-            self.name,
-            self.linkage,
-            if self.is_constant {
-                "constant"
-            } else {
-                "global"
-            },
-            self.ty,
-            self.value
-        )?;
+        match &self.value {
+            Some(value) => {
+                write!(
+                    f,
+                    "@{} = {} {} {} {}",
+                    self.name,
+                    self.linkage,
+                    if self.is_constant {
+                        "constant"
+                    } else {
+                        "global"
+                    },
+                    self.ty,
+                    value
+                )?;
+            }
+            None => {
+                // External global declaration (no initializer).
+                write!(f, "@{} = {} global {}", self.name, self.linkage, self.ty)?;
+            }
+        }
         for attr in &self.attrs {
             write!(f, " {attr}")?;
         }
@@ -527,6 +535,7 @@ fn cmp_name(op: LlvmCmpOp) -> &'static str {
         LlvmCmpOp::Sge => "sge",
         LlvmCmpOp::Slt => "slt",
         LlvmCmpOp::Sle => "sle",
+        LlvmCmpOp::Ule => "ule",
         LlvmCmpOp::Oeq => "oeq",
         LlvmCmpOp::One => "one",
         LlvmCmpOp::Ogt => "ogt",
@@ -723,10 +732,10 @@ mod tests {
                 name: GlobalId("flux.tag.int".into()),
                 ty: LlvmType::i64(),
                 is_constant: true,
-                value: LlvmConst::Int {
+                value: Some(LlvmConst::Int {
                     bits: 64,
                     value: 4607182418800017408,
-                },
+                }),
                 attrs: vec![],
             }],
             declarations: vec![

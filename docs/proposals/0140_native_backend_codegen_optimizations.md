@@ -318,7 +318,7 @@ time ./target/release/binarytrees_hs 8  # Haskell
 
 ## Architectural optimizations (future phases)
 
-These address the remaining 50ms → 3ms gap to GHC. Each is a significant project and would warrant its own proposal. Documented here as the roadmap based on GHC source analysis (`/Users/s.gerokostas/Downloads/Github/ghc`).
+These address the remaining 50ms → 3ms gap to GHC. Each is a significant project and would warrant its own proposal. Documented here as the roadmap based on GHC source analysis.
 
 ### Phase 7: Bump allocator (GHC's nursery model)
 
@@ -435,8 +435,6 @@ The remaining 1.3x gap to GHC would be due to:
 
 ### GHC (Haskell)
 
-Source: `/Users/s.gerokostas/Downloads/Github/ghc`
-
 - **Allocation** (`rts/sm/Storage.c`): Bump-pointer nursery allocator. Heap pointer `Hp` pinned to CPU register (`r12` on x86_64, `r21` on ARM64). Allocation is 2-3 instructions: bump Hp, compare with HpLim, conditional branch to GC. Per-capability nurseries (256KB-4MB) eliminate thread contention.
 - **Function dispatch** (`compiler/GHC/StgToCmm/Closure.hs`): `getCallMethod` classifies every call site. Known functions with matching arity → `DirectEntry` (direct jump to code label). Unknown functions → `SlowCall` through `stg_ap_*` apply routines. `LambdaFormInfo` tracks arity/type for every binding, serialized in `.hi` interface files for cross-module optimization.
 - **Pointer tagging** (`rts/include/rts/storage/ClosureMacros.h`): Low 3 bits of heap pointers encode constructor tag (values 0-7). `GET_TAG(p) = p & 0x7` — 1 AND instruction, no dereference. Constructors tagged at allocation time. Pattern matching checks tag bits before loading fields.
@@ -444,8 +442,6 @@ Source: `/Users/s.gerokostas/Downloads/Github/ghc`
 - **Value representation**: No NaN-boxing. `Int` is a heap-allocated closure `I# Int#`. `Int#` is an unlifted raw machine word. Strictness analysis + worker/wrapper eliminate most boxing in practice.
 
 ### Koka
-
-Source: `/Users/s.gerokostas/Downloads/Github/koka`
 
 - **Allocation** (`kklib/include/kklib.h:500-642`): Uses **mimalloc** (Microsoft's allocator) with per-thread heaps. `kk_malloc_small()` → `mi_heap_malloc_small()`. Not a bump allocator, but mimalloc's thread-local free-lists are very fast (~10 instructions for small allocs). Perceus reuse (`kk_block_drop_reuse()`) returns unique blocks directly for re-allocation, often avoiding malloc entirely.
 - **Function dispatch** (`src/Backend/C/FromCore.hs:1894-2032`): Two paths:

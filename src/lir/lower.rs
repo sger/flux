@@ -300,6 +300,14 @@ pub fn lower_program_with_interner_and_externs(
             .push(def.binder.id);
     }
 
+    // Build set of function binders known to return Int for local type propagation.
+    let int_return_binders: HashSet<CoreBinderId> = program
+        .defs
+        .iter()
+        .filter(|def| matches!(def.result_ty, Some(crate::core::CoreType::Int)))
+        .map(|def| def.binder.id)
+        .collect();
+
     // Phase 1: Lower all non-main defs.
     for (i, def) in program.defs.iter().enumerate() {
         if main_idx.is_some_and(|idx| i == idx) {
@@ -314,6 +322,7 @@ pub fn lower_program_with_interner_and_externs(
             globals_map,
             extern_symbols,
             top_level_value_map: &top_level_value_map,
+            int_return_binders: &int_return_binders,
         };
         let func = lower_def(def, ctx);
         lir.push_function(func);
@@ -332,6 +341,7 @@ pub fn lower_program_with_interner_and_externs(
             globals_map,
             extern_symbols,
             top_level_value_map: &top_level_value_map,
+            int_return_binders: &int_return_binders,
         };
         let func = lower_def(main_def, ctx);
         lir.push_function(func);
@@ -377,6 +387,12 @@ struct FnLower<'a> {
     /// Maps CoreBinderId → top-level non-function rhs so native lowering can
     /// use the value directly instead of fabricating a closure placeholder.
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
+    /// Variables known to hold NaN-boxed integers at this point in lowering.
+    /// Used for local type propagation: when a generic `Add` sees both
+    /// operands in this set, it emits `IAdd` instead of a C runtime call.
+    int_vars: HashSet<LirVar>,
+    /// Function binders whose return type is known to be Int.
+    int_return_binders: &'a HashSet<CoreBinderId>,
 }
 
 struct FnLowerCtx<'a> {
@@ -388,6 +404,8 @@ struct FnLowerCtx<'a> {
     binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
     qualified_names: &'a HashMap<CoreBinderId, String>,
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
+    /// Function binders known to return Int (from `CoreDef::result_ty`).
+    int_return_binders: &'a HashSet<CoreBinderId>,
 }
 
 impl<'a> FnLower<'a> {
@@ -408,6 +426,8 @@ impl<'a> FnLower<'a> {
                 blocks: vec![entry_block],
                 next_var: 0,
                 capture_vars: Vec::new(),
+                param_reps: Vec::new(),
+                result_rep: crate::core::FluxRep::TaggedRep,
             },
             current_block: 0,
             program: ctx.program,
@@ -420,6 +440,8 @@ impl<'a> FnLower<'a> {
             binder_func_id_map: ctx.binder_func_id_map,
             qualified_names: ctx.qualified_names,
             top_level_value_map: ctx.top_level_value_map,
+            int_vars: HashSet::new(),
+            int_return_binders: ctx.int_return_binders,
         }
     }
 
@@ -666,7 +688,8 @@ impl<'a> FnLower<'a> {
 
                     // Assign a synthetic LirFuncId for this letrec function.
                     let synthetic_id = temp_program.alloc_synthetic_func_id();
-                    let letrec_qname = format!("{}_letrec_{}", self.func.qualified_name, synthetic_id.0);
+                    let letrec_qname =
+                        format!("{}_letrec_{}", self.func.qualified_name, synthetic_id.0);
 
                     // Pre-assign function slot so self-recursion works.
                     let func_idx = temp_program.functions.len();
@@ -678,6 +701,8 @@ impl<'a> FnLower<'a> {
                         blocks: Vec::new(),
                         next_var: 0,
                         capture_vars: Vec::new(),
+                        param_reps: Vec::new(),
+                        result_rep: crate::core::FluxRep::TaggedRep,
                     });
                     temp_program.func_index.insert(synthetic_id, func_idx);
 
@@ -695,6 +720,7 @@ impl<'a> FnLower<'a> {
                             binder_func_id_map: self.binder_func_id_map,
                             qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
+                            int_return_binders: self.int_return_binders,
                         },
                     );
 
@@ -717,11 +743,20 @@ impl<'a> FnLower<'a> {
                     });
                     inner.bind(var.id, self_var);
 
+                    // Phase 8: For zero-capture LetRec functions, enable
+                    // direct self-calls to bypass flux_call_closure overhead.
+                    // Functions with captures use closure calling convention,
+                    // so CallKind::Direct would be a convention mismatch.
+                    if outer_captures.is_empty() {
+                        inner.direct_func_vars.insert(self_var, synthetic_id);
+                    }
+
                     // Register parameters.
                     for param in params {
                         let pv = inner.fresh_var();
                         inner.bind(param.id, pv);
                         inner.func.params.push(pv);
+                        inner.func.param_reps.push(param.rep);
                     }
 
                     // Lower the body.
@@ -775,7 +810,8 @@ impl<'a> FnLower<'a> {
                     let mut temp_program = std::mem::take(&mut *self.program);
 
                     let synthetic_id = temp_program.alloc_synthetic_func_id();
-                    let lambda_qname = format!("{}_lambda_{}", self.func.qualified_name, synthetic_id.0);
+                    let lambda_qname =
+                        format!("{}_lambda_{}", self.func.qualified_name, synthetic_id.0);
                     let func_name = format!("closure_{}", temp_program.functions.len());
                     let mut inner = FnLower::new(
                         func_name,
@@ -790,6 +826,7 @@ impl<'a> FnLower<'a> {
                             binder_func_id_map: self.binder_func_id_map,
                             qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
+                            int_return_binders: self.int_return_binders,
                         },
                     );
 
@@ -806,6 +843,7 @@ impl<'a> FnLower<'a> {
                         let pv = inner.fresh_var();
                         inner.bind(param.id, pv);
                         inner.func.params.push(pv);
+                        inner.func.param_reps.push(param.rep);
                     }
 
                     // Lower the body in the inner context.
@@ -1036,8 +1074,16 @@ impl<'a> FnLower<'a> {
 
     fn lower_lit(&mut self, lit: &CoreLit) -> LirVar {
         let dst = self.fresh_var();
+        let is_int = matches!(lit, CoreLit::Int(_));
         let value = match lit {
-            CoreLit::Int(n) => LirConst::Int(*n),
+            CoreLit::Int(n) => {
+                let n = *n;
+                if (crate::runtime::nanbox::MIN_INLINE_INT..=crate::runtime::nanbox::MAX_INLINE_INT).contains(&n) {
+                    LirConst::Tagged(crate::lir::nanbox_tag_int(n))
+                } else {
+                    LirConst::Int(n)
+                }
+            }
             CoreLit::Float(f) => LirConst::Float(*f),
             CoreLit::Bool(b) => LirConst::Bool(*b),
             CoreLit::String(s) => {
@@ -1047,6 +1093,9 @@ impl<'a> FnLower<'a> {
             CoreLit::Unit => LirConst::None,
         };
         self.emit(LirInstr::Const { dst, value });
+        if is_int {
+            self.int_vars.insert(dst);
+        }
         dst
     }
 
@@ -1171,12 +1220,16 @@ impl<'a> FnLower<'a> {
             return dst;
         }
 
-        let direct_func_id = match func {
-            CoreExpr::Var { var, .. } if var.binder.is_some() => var.binder.and_then(|bid| {
+        let (direct_func_id, callee_binder) = match func {
+            CoreExpr::Var { var, .. } if var.binder.is_some() => {
+                let bid = var.binder.unwrap();
                 let preferred = self.prefer_same_module_binder(bid, var.name);
-                self.binder_func_id_map.get(&preferred).copied()
-            }),
-            _ => None,
+                (
+                    self.binder_func_id_map.get(&preferred).copied(),
+                    Some(preferred),
+                )
+            }
+            _ => (None, None),
         };
         let direct_external_symbol = if direct_func_id.is_none() {
             match func {
@@ -1225,6 +1278,12 @@ impl<'a> FnLower<'a> {
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
+            // Mark result as integer if the callee is known to return Int.
+            if let Some(bid) = callee_binder
+                && self.int_return_binders.contains(&bid)
+            {
+                self.int_vars.insert(result);
+            }
             return result;
         }
 
@@ -1251,6 +1310,11 @@ impl<'a> FnLower<'a> {
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
+            if let Some(bid) = callee_binder
+                && self.int_return_binders.contains(&bid)
+            {
+                self.int_vars.insert(result);
+            }
             return result;
         }
 
@@ -1265,6 +1329,34 @@ impl<'a> FnLower<'a> {
                 args: arg_vars,
             });
             return dst;
+        }
+
+        // Phase 8: If func_var is a known zero-capture function reference
+        // (populated in direct_func_vars when MakeClosure wraps a known
+        // function with no captures), emit a direct call instead of going
+        // through flux_call_closure.
+        if let Some(&func_id) = self.direct_func_vars.get(&func_var) {
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::Direct { func_id },
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            return result;
         }
 
         let cont_idx = self.new_block();
@@ -1342,6 +1434,7 @@ impl<'a> FnLower<'a> {
                 binder_func_id_map: self.binder_func_id_map,
                 qualified_names: self.qualified_names,
                 top_level_value_map: self.top_level_value_map,
+                int_return_binders: self.int_return_binders,
             },
         );
 
@@ -1460,6 +1553,7 @@ impl<'a> FnLower<'a> {
                 binder_func_id_map: self.binder_func_id_map,
                 qualified_names: self.qualified_names,
                 top_level_value_map: self.top_level_value_map,
+                int_return_binders: self.int_return_binders,
             },
         );
 
@@ -1633,6 +1727,44 @@ impl<'a> FnLower<'a> {
                 dst
             }
 
+            // Generic arithmetic → specialize to inline integer ops when both
+            // operands are known integers (local type propagation, Phase 5).
+            CorePrimOp::Add
+                if arg_vars.len() == 2
+                    && self.int_vars.contains(&arg_vars[0])
+                    && self.int_vars.contains(&arg_vars[1]) =>
+            {
+                self.lower_int_binop(LirIntOp::Add, &arg_vars)
+            }
+            CorePrimOp::Sub
+                if arg_vars.len() == 2
+                    && self.int_vars.contains(&arg_vars[0])
+                    && self.int_vars.contains(&arg_vars[1]) =>
+            {
+                self.lower_int_binop(LirIntOp::Sub, &arg_vars)
+            }
+            CorePrimOp::Mul
+                if arg_vars.len() == 2
+                    && self.int_vars.contains(&arg_vars[0])
+                    && self.int_vars.contains(&arg_vars[1]) =>
+            {
+                self.lower_int_binop(LirIntOp::Mul, &arg_vars)
+            }
+            CorePrimOp::Div
+                if arg_vars.len() == 2
+                    && self.int_vars.contains(&arg_vars[0])
+                    && self.int_vars.contains(&arg_vars[1]) =>
+            {
+                self.lower_int_binop(LirIntOp::Div, &arg_vars)
+            }
+            CorePrimOp::Mod
+                if arg_vars.len() == 2
+                    && self.int_vars.contains(&arg_vars[0])
+                    && self.int_vars.contains(&arg_vars[1]) =>
+            {
+                self.lower_int_binop(LirIntOp::Rem, &arg_vars)
+            }
+
             // Everything else → C runtime call via PrimCall.
             _ => {
                 let dst = self.fresh_var();
@@ -1694,6 +1826,7 @@ impl<'a> FnLower<'a> {
             dst,
             raw: result_raw,
         });
+        self.int_vars.insert(dst);
         dst
     }
 
@@ -1789,18 +1922,28 @@ impl<'a> FnLower<'a> {
         for alt in alts {
             match &alt.pat {
                 CorePat::Lit(lit) => {
-                    let lit_var = self.lower_lit(lit);
-                    let cmp = self.fresh_var();
-                    self.emit(LirInstr::PrimCall {
-                        dst: Some(cmp),
-                        op: CorePrimOp::CmpEq,
-                        args: vec![scrut, lit_var],
-                    });
-                    let raw_cmp = self.fresh_var();
-                    self.emit(LirInstr::UntagBool {
-                        dst: raw_cmp,
-                        val: cmp,
-                    });
+                    let raw_cmp = if matches!(lit, CoreLit::Bool(true)) {
+                        // Optimize: `case x of true -> ...` can just untag the
+                        // scrutinee directly instead of comparing with a boxed
+                        // `true` literal via `flux_rt_eq`.
+                        let raw = self.fresh_var();
+                        self.emit(LirInstr::UntagBool {
+                            dst: raw,
+                            val: scrut,
+                        });
+                        raw
+                    } else {
+                        let lit_var = self.lower_lit(lit);
+                        let cmp = self.fresh_var();
+                        self.emit(LirInstr::PrimCall {
+                            dst: Some(cmp),
+                            op: CorePrimOp::CmpEq,
+                            args: vec![scrut, lit_var],
+                        });
+                        let raw = self.fresh_var();
+                        self.emit(LirInstr::UntagBool { dst: raw, val: cmp });
+                        raw
+                    };
 
                     let then_idx = self.new_block();
                     let else_idx = self.new_block();
@@ -1954,16 +2097,11 @@ impl<'a> FnLower<'a> {
     }
 
     fn lower_case_con_chain(&mut self, scrut: LirVar, alts: &[CoreAlt], join_block: BlockId) {
-        for (index, alt) in alts.iter().enumerate() {
+        for alt in alts {
             let success_idx = self.new_block();
             let success_id = BlockId(success_idx as u32);
-            let fail_id = if index + 1 == alts.len() {
-                let fail_idx = self.new_block();
-                BlockId(fail_idx as u32)
-            } else {
-                let fail_idx = self.new_block();
-                BlockId(fail_idx as u32)
-            };
+            let fail_idx = self.new_block();
+            let fail_id = BlockId(fail_idx as u32);
 
             self.emit_pattern_check(scrut, &alt.pat, success_id, fail_id);
 
@@ -2093,7 +2231,8 @@ impl<'a> FnLower<'a> {
             return;
         }
 
-        for (index, (field_var, field_pat)) in field_vars.iter().zip(field_pats.iter()).enumerate() {
+        for (index, (field_var, field_pat)) in field_vars.iter().zip(field_pats.iter()).enumerate()
+        {
             let next_block = if index + 1 == field_vars.len() {
                 success
             } else {
@@ -2432,6 +2571,7 @@ struct LowerDefCtx<'a> {
     globals_map: Option<&'a HashMap<String, usize>>,
     extern_symbols: Option<&'a HashMap<String, ImportedNativeSymbol>>,
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
+    int_return_binders: &'a HashSet<CoreBinderId>,
 }
 
 fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
@@ -2455,6 +2595,7 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
             binder_func_id_map: ctx.binder_func_map,
             qualified_names: ctx.qualified_names,
             top_level_value_map: ctx.top_level_value_map,
+            int_return_binders: ctx.int_return_binders,
         },
     );
 
@@ -2466,6 +2607,13 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
     // This follows GHC's approach: known calls are free, closures are only
     // created when functions escape as values.
 
+    // Set result representation from HM-inferred return type.
+    ctx.func.result_rep = def
+        .result_ty
+        .as_ref()
+        .map(crate::core::FluxRep::from_core_type)
+        .unwrap_or(crate::core::FluxRep::TaggedRep);
+
     // If the def is a lambda, register its parameters.
     let body = match &def.expr {
         CoreExpr::Lam { params, body, .. } => {
@@ -2473,6 +2621,7 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
                 let pv = ctx.fresh_var();
                 ctx.bind(param.id, pv);
                 ctx.func.params.push(pv);
+                ctx.func.param_reps.push(param.rep);
             }
             body.as_ref()
         }

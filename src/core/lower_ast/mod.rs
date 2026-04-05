@@ -40,7 +40,19 @@ pub fn lower_program_ast(
     program: &Program,
     hm_expr_types: &HashMap<ExprId, InferType>,
 ) -> CoreProgram {
-    let mut lowerer = AstLowerer::new(hm_expr_types);
+    lower_program_ast_with_interner(program, hm_expr_types, None)
+}
+
+/// Lower with an optional interner for resolving source-level type annotations
+/// on function return types.  When the interner is available, annotated return
+/// types (e.g. `-> Int`) can fill in `CoreDef::result_ty` even when HM
+/// inference leaves the type unresolved (common for recursive functions).
+pub fn lower_program_ast_with_interner(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&crate::syntax::interner::Interner>,
+) -> CoreProgram {
+    let mut lowerer = AstLowerer::new(hm_expr_types, interner);
     let mut defs = Vec::new();
     let mut top_level_items = Vec::new();
     for stmt in &program.statements {
@@ -66,14 +78,20 @@ pub(super) struct AstLowerer<'a> {
     /// Counter for synthesizing fresh binding names.
     pub(super) fresh: u32,
     pub(super) next_binder_id: u32,
+    /// Optional interner for resolving source-level type annotations.
+    interner: Option<&'a crate::syntax::interner::Interner>,
 }
 
 impl<'a> AstLowerer<'a> {
-    fn new(hm_expr_types: &'a HashMap<ExprId, InferType>) -> Self {
+    fn new(
+        hm_expr_types: &'a HashMap<ExprId, InferType>,
+        interner: Option<&'a crate::syntax::interner::Interner>,
+    ) -> Self {
         Self {
             hm_expr_types,
             fresh: 0,
             next_binder_id: 0,
+            interner,
         }
     }
 
@@ -131,6 +149,27 @@ impl<'a> AstLowerer<'a> {
         self.hm_expr_types.get(&id).map(super::CoreType::from_infer)
     }
 
+    /// Convert a source-level type annotation to a `CoreType`, if the interner
+    /// is available and the annotation is a simple named type (Int, Float, etc.).
+    fn core_type_from_type_expr(
+        &self,
+        type_expr: &crate::syntax::type_expr::TypeExpr,
+    ) -> Option<super::CoreType> {
+        let interner = self.interner?;
+        match type_expr {
+            crate::syntax::type_expr::TypeExpr::Named { name, args, .. } if args.is_empty() => {
+                match interner.resolve(*name) {
+                    "Int" => Some(super::CoreType::Int),
+                    "Float" => Some(super::CoreType::Float),
+                    "Bool" => Some(super::CoreType::Bool),
+                    "String" => Some(super::CoreType::String),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     // ── Top-level statements ─────────────────────────────────────────────────
 
     fn lower_top_level(
@@ -150,6 +189,7 @@ impl<'a> AstLowerer<'a> {
                 body,
                 fip,
                 span,
+                return_type,
                 ..
             } => {
                 let binder = self.bind_name(*name);
@@ -178,6 +218,16 @@ impl<'a> AstLowerer<'a> {
                 ) = body.statements.last()
                 {
                     def.result_ty = self.infer_core_type(expression.expr_id());
+                }
+                // If HM didn't resolve the result type, fall back to the
+                // source return-type annotation.  This is critical for
+                // recursive functions where HM may leave the return type as
+                // an unresolved variable.
+                if (def.result_ty.is_none() || matches!(def.result_ty, Some(super::CoreType::Any)))
+                    && let Some(rt) = return_type
+                    && let Some(annotated_ty) = self.core_type_from_type_expr(rt)
+                {
+                    def.result_ty = Some(annotated_ty);
                 }
                 out.push(def);
             }

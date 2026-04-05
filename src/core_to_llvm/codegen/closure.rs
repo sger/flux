@@ -1,13 +1,10 @@
-use crate::{
-    core_to_llvm::{
-        CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl,
-        LlvmFunction, LlvmFunctionSig, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand,
-        LlvmTerminator, LlvmType, LlvmTypeDef, LlvmValueKind,
-    },
-    runtime::nanbox::NanTag,
+use crate::core_to_llvm::{
+    CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl, LlvmFunction,
+    LlvmFunctionSig, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType,
+    LlvmTypeDef, LlvmValueKind,
 };
 
-use super::prelude::{FluxNanboxLayout, has_function, helper_attrs};
+use super::prelude::{has_function, helper_attrs};
 
 pub const FLUX_CLOSURE_TYPE_NAME: &str = "FluxClosure";
 pub const FLUX_CLOSURE_HEADER_SIZE: i64 = 24;
@@ -47,9 +44,12 @@ pub fn closure_entry_sig() -> LlvmFunctionSig {
     }
 }
 
+/// With pointer tagging, boxed pointers don't need extra tag bits.
+/// This function is kept for backward compatibility but returns 0
+/// (no extra bits to OR in — the pointer value IS the tagged representation).
+#[allow(dead_code)]
 pub fn boxed_nanbox_tag_bits() -> i64 {
-    (FluxNanboxLayout::NANBOX_SENTINEL_U64
-        | ((NanTag::BoxedValue as u64) << FluxNanboxLayout::TAG_SHIFT)) as i64
+    0
 }
 
 fn emit_closure_type(module: &mut LlvmModule) {
@@ -211,6 +211,7 @@ fn emit_tag_boxed_ptr(module: &mut LlvmModule) {
     if has_function(module, name) {
         return;
     }
+    // With pointer tagging, tagging a pointer is just ptrtoint.
     module.functions.push(LlvmFunction {
         linkage: Linkage::Internal,
         name: flux_closure_symbol(name),
@@ -224,36 +225,13 @@ fn emit_tag_boxed_ptr(module: &mut LlvmModule) {
         attrs: helper_attrs(),
         blocks: vec![LlvmBlock {
             label: LabelId("entry".into()),
-            instrs: vec![
-                LlvmInstr::Cast {
-                    dst: LlvmLocal("addr".into()),
-                    op: LlvmValueKind::PtrToInt,
-                    from_ty: LlvmType::ptr(),
-                    operand: local("ptr"),
-                    to_ty: LlvmType::i64(),
-                },
-                LlvmInstr::Binary {
-                    dst: LlvmLocal("shifted".into()),
-                    op: LlvmValueKind::LShr,
-                    ty: LlvmType::i64(),
-                    lhs: local("addr"),
-                    rhs: const_i64_operand(3),
-                },
-                LlvmInstr::Binary {
-                    dst: LlvmLocal("payload".into()),
-                    op: LlvmValueKind::And,
-                    ty: LlvmType::i64(),
-                    lhs: local("shifted"),
-                    rhs: const_i64_operand(FluxNanboxLayout::payload_mask_i64()),
-                },
-                LlvmInstr::Binary {
-                    dst: LlvmLocal("tagged".into()),
-                    op: LlvmValueKind::Or,
-                    ty: LlvmType::i64(),
-                    lhs: local("payload"),
-                    rhs: const_i64_operand(boxed_nanbox_tag_bits()),
-                },
-            ],
+            instrs: vec![LlvmInstr::Cast {
+                dst: LlvmLocal("tagged".into()),
+                op: LlvmValueKind::PtrToInt,
+                from_ty: LlvmType::ptr(),
+                operand: local("ptr"),
+                to_ty: LlvmType::i64(),
+            }],
             term: LlvmTerminator::Ret {
                 ty: LlvmType::i64(),
                 value: local("tagged"),
@@ -267,6 +245,7 @@ fn emit_untag_boxed_ptr(module: &mut LlvmModule) {
     if has_function(module, name) {
         return;
     }
+    // With pointer tagging, untagging a pointer is just inttoptr.
     module.functions.push(LlvmFunction {
         linkage: Linkage::Internal,
         name: flux_closure_symbol(name),
@@ -280,29 +259,13 @@ fn emit_untag_boxed_ptr(module: &mut LlvmModule) {
         attrs: helper_attrs(),
         blocks: vec![LlvmBlock {
             label: LabelId("entry".into()),
-            instrs: vec![
-                LlvmInstr::Binary {
-                    dst: LlvmLocal("payload".into()),
-                    op: LlvmValueKind::And,
-                    ty: LlvmType::i64(),
-                    lhs: local("value"),
-                    rhs: const_i64_operand(FluxNanboxLayout::payload_mask_i64()),
-                },
-                LlvmInstr::Binary {
-                    dst: LlvmLocal("addr".into()),
-                    op: LlvmValueKind::Shl,
-                    ty: LlvmType::i64(),
-                    lhs: local("payload"),
-                    rhs: const_i64_operand(3),
-                },
-                LlvmInstr::Cast {
-                    dst: LlvmLocal("ptr".into()),
-                    op: LlvmValueKind::IntToPtr,
-                    from_ty: LlvmType::i64(),
-                    operand: local("addr"),
-                    to_ty: LlvmType::ptr(),
-                },
-            ],
+            instrs: vec![LlvmInstr::Cast {
+                dst: LlvmLocal("ptr".into()),
+                op: LlvmValueKind::IntToPtr,
+                from_ty: LlvmType::i64(),
+                operand: local("value"),
+                to_ty: LlvmType::ptr(),
+            }],
             term: LlvmTerminator::Ret {
                 ty: LlvmType::ptr(),
                 value: local("ptr"),
@@ -892,6 +855,7 @@ pub(super) fn const_i32_operand(value: i32) -> LlvmOperand {
     })
 }
 
+#[allow(dead_code)]
 pub(super) fn const_i64_operand(value: i64) -> LlvmOperand {
     LlvmOperand::Const(LlvmConst::Int {
         bits: 64,
@@ -914,9 +878,11 @@ mod tests {
         assert!(rendered.contains("%FluxClosure = type {ptr, i32, i32, i32, i32, [0 x i64]}"));
         assert!(rendered.contains("declare ccc ptr @flux_gc_alloc(i32)"));
         assert!(rendered.contains("define internal fastcc i64 @flux_tag_boxed_ptr(ptr %ptr)"));
-        assert!(rendered.contains("lshr i64 %addr, 3"));
+        // With pointer tagging, tag_boxed_ptr is just ptrtoint
+        assert!(rendered.contains("%tagged = ptrtoint ptr %ptr to i64"));
         assert!(rendered.contains("define internal fastcc ptr @flux_untag_boxed_ptr(i64 %value)"));
-        assert!(rendered.contains("shl i64 %payload, 3"));
+        // With pointer tagging, untag_boxed_ptr is just inttoptr
+        assert!(rendered.contains("%ptr = inttoptr i64 %value to ptr"));
     }
 
     #[test]

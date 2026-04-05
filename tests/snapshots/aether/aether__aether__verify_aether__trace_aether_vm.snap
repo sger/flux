@@ -133,36 +133,36 @@ Aether Memory Model Report
   FreshAllocs: 1
   verifier: ok
 λ.
-  let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
-  let %t4 = (λx.
-    Mul(x, 2))
-  aether_call[owned, borrowed] my_map(%t3, %t4))
-  Print(%t2))
-  drop %t1
-  let %t5 = (let %t6 = (let %t7 = Some(42)
-  let %t8 = (λx.
-    Add(x, 1))
-  aether_call[owned, borrowed] option_map(%t7, %t8))
-  Print(%t6))
-  drop %t5
-  let %t9 = (let %t10 = (let %t11 = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
-  aether_call[owned] set_black(%t11))
-  Print(%t10))
+  let result = (let %t1 = MakeList(1, 2, 3)
+  let %t2 = (λx.
+    IMul(x, 2))
+  aether_call[owned, borrowed] my_map(%t1, %t2))
+  let %t3 = Print(result)
+  drop %t3
+  let opt = (let %t4 = Some(42)
+  let %t5 = (λx.
+    IAdd(x, 1))
+  aether_call[owned, borrowed] option_map(%t4, %t5))
+  let %t6 = Print(opt)
+  drop %t6
+  let tree = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
+  let blk = aether_call[owned] set_black(tree)
+  let %t7 = Print(blk)
+  drop %t7
+  let n = (let %t8 = MakeList(1, 2, 3, 4, 5)
+  aether_call[borrowed] my_len(%t8))
+  let %t9 = Print(n)
   drop %t9
-  let %t12 = (let %t13 = (let %t14 = MakeList(1, 2, 3, 4, 5)
-  aether_call[borrowed] my_len(%t14))
-  Print(%t13))
-  drop %t12
-  let %t15 = (let %t16 = (let %t17 = MakeList(1, 2, 3, 4, 5, 6)
-  let %t18 = (λx.
-    let %t19 = Mod(x, 2)
-    Eq(%t19, 0))
-  aether_call[owned, borrowed] my_filter(%t17, %t18))
-  Print(%t16))
-  drop %t15
-  let %t20 = (let %t21 = MakeList(1, 2, 3, 4, 5)
-  aether_call[borrowed] my_sum(%t21))
-  Print(%t20)
+  let evens = (let %t10 = MakeList(1, 2, 3, 4, 5, 6)
+  let %t11 = (λx.
+    let %t12 = IMod(x, 2)
+    ICmpEq(%t12, 0))
+  aether_call[owned, borrowed] my_filter(%t10, %t11))
+  let %t13 = Print(evens)
+  drop %t13
+  let total = (let %t14 = MakeList(1, 2, 3, 4, 5)
+  aether_call[borrowed] my_sum(%t14))
+  Print(total)
 
 ── Total ──
   Dups: 1  Drops: 7  Reuses: 4  DropSpecs: 1  FBIP: fbip(2)

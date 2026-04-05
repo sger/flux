@@ -19,22 +19,21 @@ use crate::core_to_llvm::ir::{
 };
 use crate::lir::*;
 
-// ── NaN-box constants (must match runtime/c/flux_rt.h and prelude.rs) ───────
+// ── Pointer-tag constants (must match runtime/c/flux_rt.h and prelude.rs) ───
 
-const NANBOX_SENTINEL: u64 = 0x7FFC_0000_0000_0000;
-const TAG_SHIFT: u32 = 46;
+const FLUX_NONE: i64 = 0;
+const FLUX_FALSE: i64 = 2;
+const FLUX_TRUE: i64 = 4;
+const FLUX_EMPTY_LIST: i64 = 6;
+const FLUX_MIN_PTR: i64 = 12;
+#[allow(dead_code)]
+const FLUX_UNINIT: i64 = 8;
+#[allow(dead_code)]
+const FLUX_YIELD_SENTINEL: i64 = 10;
 
-// NaN-box tags (must match runtime/c/flux_rt.h)
-const TAG_BOOLEAN: u64 = 0x1;
-const TAG_NONE: u64 = 0x2;
-const TAG_EMPTY_LIST: u64 = 0x4;
+/// Object tag for floats in the heap header (must match FLUX_OBJ_FLOAT in flux_rt.h).
 #[allow(dead_code)]
-const TAG_BOXED_VALUE: u64 = 0x8;
-#[allow(dead_code)]
-const TAG_YIELD: u64 = 0x9;
-/// Yield sentinel value (Proposal 0134).
-#[allow(dead_code)]
-const YIELD_SENTINEL: i64 = (NANBOX_SENTINEL | (TAG_YIELD << TAG_SHIFT)) as i64;
+const FLUX_OBJ_FLOAT: i64 = 0xF8;
 
 // ADT constructor tag IDs (must match lir/lower.rs and core_to_llvm/codegen/adt.rs)
 const SOME_TAG: i32 = 1;
@@ -67,7 +66,7 @@ pub fn emit_llvm_module_with_options(
         functions: Vec::new(),
     };
 
-    // Emit prelude (NaN-box helpers, dup/drop declarations, arithmetic).
+    // Emit prelude (pointer-tag helpers, dup/drop declarations, arithmetic).
     crate::core_to_llvm::codegen::emit_prelude_and_arith(&mut module);
     // Emit ADT/tuple/closure support types and helpers.
     let empty_metadata = crate::core_to_llvm::codegen::AdtMetadata::default();
@@ -80,6 +79,14 @@ pub fn emit_llvm_module_with_options(
     let mut needed_user_fastcc_decls: HashSet<(String, usize)> = HashSet::new();
     let mut needed_closure_entry_decls: HashSet<String> = HashSet::new();
     let mut string_globals: Vec<(GlobalId, String)> = Vec::new();
+
+    // Build set of worker-eligible functions (Phase 10: Worker/Wrapper unboxing).
+    let worker_eligible: HashSet<LirFuncId> = program
+        .functions
+        .iter()
+        .filter(|f| is_worker_eligible(f))
+        .map(|f| f.id)
+        .collect();
 
     // Emit each LIR function.
     let mut closure_wrappers_needed: HashSet<LirFuncId> = HashSet::new();
@@ -97,9 +104,34 @@ pub fn emit_llvm_module_with_options(
             current_instrs: Vec::new(),
             extra_blocks: Vec::new(),
             closure_wrappers_needed: &mut closure_wrappers_needed,
+            worker_mode: false,
+            worker_eligible: &worker_eligible,
         };
         let llvm_func = emitter.emit_function();
         module.functions.push(llvm_func);
+    }
+
+    // Phase 10: Emit worker functions for eligible all-int functions.
+    for func in &program.functions {
+        if is_worker_eligible(func) {
+            let mut emitter = FnEmitter {
+                program,
+                func,
+                is_main: false,
+                next_tmp: 0,
+                needed_decls: &mut needed_decls,
+                needed_user_fastcc_decls: &mut needed_user_fastcc_decls,
+                needed_closure_entry_decls: &mut needed_closure_entry_decls,
+                string_globals: &mut string_globals,
+                current_instrs: Vec::new(),
+                extra_blocks: Vec::new(),
+                closure_wrappers_needed: &mut closure_wrappers_needed,
+                worker_mode: true,
+                worker_eligible: &worker_eligible,
+            };
+            let worker_func = emitter.emit_function();
+            module.functions.push(worker_func);
+        }
     }
 
     // Emit closure entry wrappers for direct functions used as higher-order values.
@@ -129,7 +161,7 @@ pub fn emit_llvm_module_with_options(
                 element: Box::new(LlvmType::i8()),
             },
             is_constant: true,
-            value: LlvmConst::Array {
+            value: Some(LlvmConst::Array {
                 element_ty: LlvmType::i8(),
                 elements: s
                     .bytes()
@@ -138,7 +170,7 @@ pub fn emit_llvm_module_with_options(
                         value: b as i128,
                     })
                     .collect(),
-            },
+            }),
             attrs: Vec::new(),
         });
     }
@@ -265,7 +297,7 @@ fn emit_user_ctor_name_helper(module: &mut LlvmModule, program: &LirProgram) {
                 element: Box::new(LlvmType::i8()),
             },
             is_constant: true,
-            value: LlvmConst::Array {
+            value: Some(LlvmConst::Array {
                 element_ty: LlvmType::i8(),
                 elements: bytes
                     .into_iter()
@@ -274,7 +306,7 @@ fn emit_user_ctor_name_helper(module: &mut LlvmModule, program: &LirProgram) {
                         value: byte as i128,
                     })
                     .collect(),
-            },
+            }),
             attrs: Vec::new(),
         });
 
@@ -432,6 +464,48 @@ fn emit_closure_wrapper(func: &LirFunction, linkage: Linkage) -> LlvmFunction {
     }
 }
 
+// ── Worker/Wrapper eligibility (Proposal 0140 Phase 10) ────────────────────
+
+/// A function is eligible for worker/wrapper splitting when all parameters
+/// and the return value are `IntRep`, it has zero captures, and it is not main.
+fn is_worker_eligible(func: &LirFunction) -> bool {
+    if func.capture_vars.is_empty()
+        && func.qualified_name != "main"
+        && !func.param_reps.is_empty()
+        && func
+            .param_reps
+            .iter()
+            .all(|r| matches!(r, crate::core::FluxRep::IntRep))
+        && matches!(func.result_rep, crate::core::FluxRep::IntRep)
+    {
+        return true;
+    }
+
+    // Fallback: infer param types from LIR body.
+    // A function is worker-eligible if it has zero captures, is not main,
+    // has parameters, returns Int, and every parameter is immediately
+    // consumed by UntagInt in the entry block (indicating integer type).
+    if func.capture_vars.is_empty()
+        && func.qualified_name != "main"
+        && !func.params.is_empty()
+        && matches!(func.result_rep, crate::core::FluxRep::IntRep)
+    {
+        let entry = &func.blocks[0];
+        let param_set: HashSet<u32> = func.params.iter().map(|v| v.0).collect();
+        let mut untagged_params: HashSet<u32> = HashSet::new();
+        for instr in &entry.instrs {
+            if let LirInstr::UntagInt { val, .. } = instr
+                && param_set.contains(&val.0)
+            {
+                untagged_params.insert(val.0);
+            }
+        }
+        return untagged_params.len() == func.params.len();
+    }
+
+    false
+}
+
 // ── Per-function emitter ────────────────────────────────────────────────────
 
 struct FnEmitter<'a> {
@@ -449,6 +523,10 @@ struct FnEmitter<'a> {
     /// Set of LirFuncIds that need closure entry wrappers
     /// (top-level direct functions used as higher-order values via MakeClosure).
     closure_wrappers_needed: &'a mut HashSet<LirFuncId>,
+    /// When true, emit the worker variant (raw i64, no tag/untag overhead).
+    worker_mode: bool,
+    /// Set of LirFuncIds eligible for worker/wrapper splitting.
+    worker_eligible: &'a HashSet<LirFuncId>,
 }
 
 impl<'a> FnEmitter<'a> {
@@ -475,6 +553,8 @@ impl<'a> FnEmitter<'a> {
     fn func_name(&self) -> GlobalId {
         if self.is_main {
             GlobalId("flux_main".to_string())
+        } else if self.worker_mode {
+            GlobalId(format!("flux_{}$w", self.func.qualified_name))
         } else {
             GlobalId(format!("flux_{}", self.func.qualified_name))
         }
@@ -875,100 +955,198 @@ impl<'a> FnEmitter<'a> {
                 });
             }
 
-            // ── NaN-boxing tag/untag ────────────────────────────────
+            // ── Pointer-tag tag/untag ──────────────────────────────
             LirInstr::TagInt { dst, raw } => {
-                self.call_fastcc(
-                    Some(self.var_local(*dst)),
-                    "flux_tag_int",
-                    vec![(LlvmType::i64(), self.var(*raw))],
-                    LlvmType::i64(),
-                );
+                if self.worker_mode {
+                    // Worker mode: identity copy, no tagging needed.
+                    self.emit(LlvmInstr::Binary {
+                        dst: self.var_local(*dst),
+                        op: LlvmValueKind::Add,
+                        ty: LlvmType::i64(),
+                        lhs: self.var(*raw),
+                        rhs: self.i64_const(0),
+                    });
+                } else {
+                    // Pointer-tag int: (raw << 1) | 1
+                    let shifted = self.tmp();
+                    self.emit(LlvmInstr::Binary {
+                        dst: shifted.clone(),
+                        op: LlvmValueKind::Shl,
+                        ty: LlvmType::i64(),
+                        lhs: self.var(*raw),
+                        rhs: self.i64_const(1),
+                    });
+                    self.emit(LlvmInstr::Binary {
+                        dst: self.var_local(*dst),
+                        op: LlvmValueKind::Or,
+                        ty: LlvmType::i64(),
+                        lhs: LlvmOperand::Local(shifted),
+                        rhs: self.i64_const(1),
+                    });
+                }
             }
             LirInstr::UntagInt { dst, val } => {
-                self.call_fastcc(
+                if self.worker_mode {
+                    // Worker mode: identity copy, no untagging needed.
+                    self.emit(LlvmInstr::Binary {
+                        dst: self.var_local(*dst),
+                        op: LlvmValueKind::Add,
+                        ty: LlvmType::i64(),
+                        lhs: self.var(*val),
+                        rhs: self.i64_const(0),
+                    });
+                } else {
+                    // Pointer-tag untag int: val >> 1 (arithmetic shift)
+                    self.emit(LlvmInstr::Binary {
+                        dst: self.var_local(*dst),
+                        op: LlvmValueKind::AShr,
+                        ty: LlvmType::i64(),
+                        lhs: self.var(*val),
+                        rhs: self.i64_const(1),
+                    });
+                }
+            }
+            LirInstr::TagFloat { dst, raw } => {
+                // Floats are heap-boxed: call flux_box_float.
+                // raw is i64 (IEEE 754 bits), bitcast to double first.
+                let dbl_tmp = self.tmp();
+                self.emit(LlvmInstr::Cast {
+                    dst: dbl_tmp.clone(),
+                    op: LlvmValueKind::Bitcast,
+                    from_ty: LlvmType::i64(),
+                    operand: self.var(*raw),
+                    to_ty: LlvmType::Double,
+                });
+                self.call_c(
                     Some(self.var_local(*dst)),
-                    "flux_untag_int",
-                    vec![(LlvmType::i64(), self.var(*val))],
+                    "flux_box_float_rt",
+                    vec![(LlvmType::Double, LlvmOperand::Local(dbl_tmp))],
                     LlvmType::i64(),
                 );
             }
-            LirInstr::TagFloat { dst, raw } | LirInstr::UntagFloat { dst, val: raw } => {
-                // Floats: the NaN-boxed representation IS the raw bits.
+            LirInstr::UntagFloat { dst, val } => {
+                // Floats are heap-boxed: call flux_unbox_float_rt.
+                let dbl_tmp = self.tmp();
+                self.call_c(
+                    Some(dbl_tmp.clone()),
+                    "flux_unbox_float_rt",
+                    vec![(LlvmType::i64(), self.var(*val))],
+                    LlvmType::Double,
+                );
+                self.emit(LlvmInstr::Cast {
+                    dst: self.var_local(*dst),
+                    op: LlvmValueKind::Bitcast,
+                    from_ty: LlvmType::Double,
+                    operand: LlvmOperand::Local(dbl_tmp),
+                    to_ty: LlvmType::i64(),
+                });
+            }
+            LirInstr::TagBool { dst, raw } => {
+                if self.worker_mode {
+                    // Worker mode: identity copy, raw 0/1 stays as 0/1.
+                    self.emit(LlvmInstr::Binary {
+                        dst: self.var_local(*dst),
+                        op: LlvmValueKind::Add,
+                        ty: LlvmType::i64(),
+                        lhs: self.var(*raw),
+                        rhs: self.i64_const(0),
+                    });
+                } else {
+                    // Pointer-tag bool: false=2, true=4.
+                    // raw is i64 0 or 1: result = raw * 2 + 2 = (raw << 1) + 2
+                    let shifted = self.tmp();
+                    self.emit(LlvmInstr::Binary {
+                        dst: shifted.clone(),
+                        op: LlvmValueKind::Shl,
+                        ty: LlvmType::i64(),
+                        lhs: self.var(*raw),
+                        rhs: self.i64_const(1),
+                    });
+                    self.emit(LlvmInstr::Binary {
+                        dst: self.var_local(*dst),
+                        op: LlvmValueKind::Add,
+                        ty: LlvmType::i64(),
+                        lhs: LlvmOperand::Local(shifted),
+                        rhs: self.i64_const(FLUX_FALSE),
+                    });
+                }
+            }
+            LirInstr::UntagBool { dst, val } => {
+                if self.worker_mode {
+                    // Worker mode: identity copy, no untagging needed.
+                    self.emit(LlvmInstr::Binary {
+                        dst: self.var_local(*dst),
+                        op: LlvmValueKind::Add,
+                        ty: LlvmType::i64(),
+                        lhs: self.var(*val),
+                        rhs: self.i64_const(0),
+                    });
+                } else {
+                    // Pointer-tag untag bool: compare with FLUX_TRUE (4)
+                    let cmp_tmp = self.tmp();
+                    self.emit(LlvmInstr::Icmp {
+                        dst: cmp_tmp.clone(),
+                        op: LlvmCmpOp::Eq,
+                        ty: LlvmType::i64(),
+                        lhs: self.var(*val),
+                        rhs: self.i64_const(FLUX_TRUE),
+                    });
+                    self.emit(LlvmInstr::Cast {
+                        dst: self.var_local(*dst),
+                        op: LlvmValueKind::ZExt,
+                        from_ty: LlvmType::i1(),
+                        operand: LlvmOperand::Local(cmp_tmp),
+                        to_ty: LlvmType::i64(),
+                    });
+                }
+            }
+            LirInstr::TagPtr { dst, ptr } => {
+                // Pointer-tag: raw pointer value IS the tagged value (even, >= 12).
+                // Just copy the i64 directly.
                 self.emit(LlvmInstr::Binary {
                     dst: self.var_local(*dst),
                     op: LlvmValueKind::Add,
                     ty: LlvmType::i64(),
-                    lhs: self.var(*raw),
+                    lhs: self.var(*ptr),
                     rhs: self.i64_const(0),
                 });
             }
-            LirInstr::TagBool { dst, raw } => {
-                let sentinel = (NANBOX_SENTINEL | (TAG_BOOLEAN << TAG_SHIFT)) as i64;
+            LirInstr::UntagPtr { dst, val } => {
+                // Pointer-tag: the tagged value IS the raw pointer.
+                // Just copy the i64 directly.
                 self.emit(LlvmInstr::Binary {
                     dst: self.var_local(*dst),
-                    op: LlvmValueKind::Or,
-                    ty: LlvmType::i64(),
-                    lhs: self.var(*raw),
-                    rhs: self.i64_const(sentinel),
-                });
-            }
-            LirInstr::UntagBool { dst, val } => {
-                self.emit(LlvmInstr::Binary {
-                    dst: self.var_local(*dst),
-                    op: LlvmValueKind::And,
+                    op: LlvmValueKind::Add,
                     ty: LlvmType::i64(),
                     lhs: self.var(*val),
-                    rhs: self.i64_const(1),
+                    rhs: self.i64_const(0),
                 });
             }
-            LirInstr::TagPtr { dst, ptr } => {
-                // Convert raw pointer (as i64) to NaN-boxed pointer.
+            LirInstr::GetTag { dst, val } => {
+                // With pointer tagging, GetTag extracts the ADT constructor tag
+                // from the heap object. The value is a pointer; load the i32
+                // ctor_tag from offset 0 of the pointed-to struct.
                 let ptr_tmp = self.tmp();
                 self.emit(LlvmInstr::Cast {
                     dst: ptr_tmp.clone(),
                     op: LlvmValueKind::IntToPtr,
                     from_ty: LlvmType::i64(),
-                    operand: self.var(*ptr),
+                    operand: self.var(*val),
                     to_ty: LlvmType::Ptr,
                 });
-                self.call_fastcc(
-                    Some(self.var_local(*dst)),
-                    "flux_tag_boxed_ptr",
-                    vec![(LlvmType::Ptr, LlvmOperand::Local(ptr_tmp))],
-                    LlvmType::i64(),
-                );
-            }
-            LirInstr::UntagPtr { dst, val } => {
-                let ptr_tmp = self.tmp();
-                self.call_fastcc(
-                    Some(ptr_tmp.clone()),
-                    "flux_untag_boxed_ptr",
-                    vec![(LlvmType::i64(), self.var(*val))],
-                    LlvmType::Ptr,
-                );
+                let i32_tmp = self.tmp();
+                self.emit(LlvmInstr::Load {
+                    dst: i32_tmp.clone(),
+                    ty: LlvmType::i32(),
+                    ptr: LlvmOperand::Local(ptr_tmp),
+                    align: Some(4),
+                });
                 self.emit(LlvmInstr::Cast {
                     dst: self.var_local(*dst),
-                    op: LlvmValueKind::PtrToInt,
-                    from_ty: LlvmType::Ptr,
-                    operand: LlvmOperand::Local(ptr_tmp),
+                    op: LlvmValueKind::ZExt,
+                    from_ty: LlvmType::i32(),
+                    operand: LlvmOperand::Local(i32_tmp),
                     to_ty: LlvmType::i64(),
-                });
-            }
-            LirInstr::GetTag { dst, val } => {
-                let shifted = self.tmp();
-                self.emit(LlvmInstr::Binary {
-                    dst: shifted.clone(),
-                    op: LlvmValueKind::LShr,
-                    ty: LlvmType::i64(),
-                    lhs: self.var(*val),
-                    rhs: self.i64_const(TAG_SHIFT as i64),
-                });
-                self.emit(LlvmInstr::Binary {
-                    dst: self.var_local(*dst),
-                    op: LlvmValueKind::And,
-                    ty: LlvmType::i64(),
-                    lhs: LlvmOperand::Local(shifted),
-                    rhs: self.i64_const(0xF),
                 });
             }
 
@@ -1099,9 +1277,9 @@ impl<'a> FnEmitter<'a> {
             }
             LirInstr::Alloc { dst, size, .. } => {
                 let ptr_tmp = self.tmp();
-                self.call_c(
+                self.call_fastcc(
                     Some(ptr_tmp.clone()),
-                    "flux_gc_alloc_header",
+                    "flux_bump_alloc_inline",
                     vec![
                         (LlvmType::i32(), self.i32_const(*size as i32)),
                         (
@@ -1126,20 +1304,25 @@ impl<'a> FnEmitter<'a> {
 
             // ── Aether RC ───────────────────────────────────────────
             LirInstr::Dup { val } => {
-                self.call_c(
-                    None,
-                    "flux_dup",
-                    vec![(LlvmType::i64(), self.var(*val))],
-                    LlvmType::Void,
-                );
+                // In worker mode, all values are raw integers — skip RC ops.
+                if !self.worker_mode {
+                    self.call_c(
+                        None,
+                        "flux_dup",
+                        vec![(LlvmType::i64(), self.var(*val))],
+                        LlvmType::Void,
+                    );
+                }
             }
             LirInstr::Drop { val } => {
-                self.call_c(
-                    None,
-                    "flux_drop",
-                    vec![(LlvmType::i64(), self.var(*val))],
-                    LlvmType::Void,
-                );
+                if !self.worker_mode {
+                    self.call_c(
+                        None,
+                        "flux_drop",
+                        vec![(LlvmType::i64(), self.var(*val))],
+                        LlvmType::Void,
+                    );
+                }
             }
             LirInstr::IsUnique { dst, val } => {
                 let bool_tmp = self.tmp();
@@ -1234,32 +1417,48 @@ impl<'a> FnEmitter<'a> {
     fn emit_const(&mut self, dst: LirVar, value: &LirConst) {
         match value {
             LirConst::Int(n) => {
-                self.call_fastcc(
-                    Some(self.var_local(dst)),
-                    "flux_tag_int",
-                    vec![(LlvmType::i64(), self.i64_const(*n))],
-                    LlvmType::i64(),
-                );
-            }
-            LirConst::Float(f) => {
-                // NaN-boxed floats: raw IEEE 754 bits stored directly.
-                let bits = f.to_bits() as i64;
+                // In worker mode, emit raw value; otherwise pointer-tag: (n << 1) | 1.
+                let value = if self.worker_mode { *n } else { (*n << 1) | 1 };
                 self.emit(LlvmInstr::Binary {
                     dst: self.var_local(dst),
                     op: LlvmValueKind::Add,
                     ty: LlvmType::i64(),
-                    lhs: self.i64_const(bits),
+                    lhs: self.i64_const(value),
                     rhs: self.i64_const(0),
                 });
             }
+            LirConst::Float(f) => {
+                // Floats are heap-boxed: call flux_box_float_rt at runtime.
+                let bits = f.to_bits() as i64;
+                let dbl_tmp = self.tmp();
+                self.emit(LlvmInstr::Cast {
+                    dst: dbl_tmp.clone(),
+                    op: LlvmValueKind::Bitcast,
+                    from_ty: LlvmType::i64(),
+                    operand: self.i64_const(bits),
+                    to_ty: LlvmType::Double,
+                });
+                self.call_c(
+                    Some(self.var_local(dst)),
+                    "flux_box_float_rt",
+                    vec![(LlvmType::Double, LlvmOperand::Local(dbl_tmp))],
+                    LlvmType::i64(),
+                );
+            }
             LirConst::Bool(b) => {
-                let val = if *b { 1u64 } else { 0u64 };
-                let tagged = (NANBOX_SENTINEL | (TAG_BOOLEAN << TAG_SHIFT) | val) as i64;
+                // In worker mode, emit raw 0/1; otherwise tagged constants.
+                let value = if self.worker_mode {
+                    if *b { 1 } else { 0 }
+                } else if *b {
+                    FLUX_TRUE
+                } else {
+                    FLUX_FALSE
+                };
                 self.emit(LlvmInstr::Binary {
                     dst: self.var_local(dst),
                     op: LlvmValueKind::Add,
                     ty: LlvmType::i64(),
-                    lhs: self.i64_const(tagged),
+                    lhs: self.i64_const(value),
                     rhs: self.i64_const(0),
                 });
             }
@@ -1279,22 +1478,20 @@ impl<'a> FnEmitter<'a> {
                 );
             }
             LirConst::None => {
-                let val = (NANBOX_SENTINEL | (TAG_NONE << TAG_SHIFT)) as i64;
                 self.emit(LlvmInstr::Binary {
                     dst: self.var_local(dst),
                     op: LlvmValueKind::Add,
                     ty: LlvmType::i64(),
-                    lhs: self.i64_const(val),
+                    lhs: self.i64_const(FLUX_NONE),
                     rhs: self.i64_const(0),
                 });
             }
             LirConst::EmptyList => {
-                let val = (NANBOX_SENTINEL | (TAG_EMPTY_LIST << TAG_SHIFT)) as i64;
                 self.emit(LlvmInstr::Binary {
                     dst: self.var_local(dst),
                     op: LlvmValueKind::Add,
                     ty: LlvmType::i64(),
-                    lhs: self.i64_const(val),
+                    lhs: self.i64_const(FLUX_EMPTY_LIST),
                     rhs: self.i64_const(0),
                 });
             }
@@ -1412,8 +1609,7 @@ impl<'a> FnEmitter<'a> {
 
     fn emit_make_extern_closure(&mut self, dst: LirVar, symbol: &str, arity: usize) {
         let wrapper_name = format!("{symbol}.closure_entry");
-        self.needed_closure_entry_decls
-            .insert(wrapper_name.clone());
+        self.needed_closure_entry_decls.insert(wrapper_name.clone());
         self.call_fastcc(
             Some(self.var_local(dst)),
             "flux_make_closure",
@@ -1588,7 +1784,7 @@ impl<'a> FnEmitter<'a> {
 
     fn emit_make_list(&mut self, dst: LirVar, elements: &[LirVar]) {
         // Build cons list right-to-left: Cons(e_n-1, Cons(e_n, EmptyList))
-        let empty = (NANBOX_SENTINEL | (TAG_EMPTY_LIST << TAG_SHIFT)) as i64;
+        let empty = FLUX_EMPTY_LIST;
         let current = self.i64_const(empty);
         // Need a variable to hold the current tail.
         let mut current_local: Option<LlvmLocal> = None;
@@ -1808,7 +2004,14 @@ impl<'a> FnEmitter<'a> {
                             .program
                             .func_by_id(*func_id)
                             .expect("Direct call references unknown LirFuncId");
-                        let target_name = format!("flux_{}", target.qualified_name);
+                        // In worker mode, if the callee is also worker-eligible,
+                        // call the worker variant directly to bypass tag/untag.
+                        let use_worker = self.worker_mode && self.worker_eligible.contains(func_id);
+                        let target_name = if use_worker {
+                            format!("flux_{}$w", target.qualified_name)
+                        } else {
+                            format!("flux_{}", target.qualified_name)
+                        };
                         let call_args: Vec<(LlvmType, LlvmOperand)> = args
                             .iter()
                             .map(|a| (LlvmType::i64(), self.var(*a)))
@@ -1861,7 +2064,14 @@ impl<'a> FnEmitter<'a> {
                             .program
                             .func_by_id(*func_id)
                             .expect("Direct tail call references unknown LirFuncId");
-                        let target_name = format!("flux_{}", target.qualified_name);
+                        // In worker mode, if the callee is also worker-eligible,
+                        // call the worker variant directly to bypass tag/untag.
+                        let use_worker = self.worker_mode && self.worker_eligible.contains(func_id);
+                        let target_name = if use_worker {
+                            format!("flux_{}$w", target.qualified_name)
+                        } else {
+                            format!("flux_{}", target.qualified_name)
+                        };
                         let call_args: Vec<(LlvmType, LlvmOperand)> = args
                             .iter()
                             .map(|a| (LlvmType::i64(), self.var(*a)))
@@ -1972,32 +2182,20 @@ impl<'a> FnEmitter<'a> {
             }
         }
 
-        // Get NaN-box tag for dispatch.
-        let shifted = self.tmp();
-        let nb_tag = self.tmp();
-        self.emit(LlvmInstr::Binary {
-            dst: shifted.clone(),
-            op: LlvmValueKind::LShr,
-            ty: LlvmType::i64(),
-            lhs: self.var(scrutinee),
-            rhs: self.i64_const(TAG_SHIFT as i64),
-        });
-        self.emit(LlvmInstr::Binary {
-            dst: nb_tag.clone(),
-            op: LlvmValueKind::And,
-            ty: LlvmType::i64(),
-            lhs: LlvmOperand::Local(shifted),
-            rhs: self.i64_const(0xF),
-        });
+        // With pointer tagging, sentinels are small even integers:
+        //   None=0, false=2, true=4, EmptyList=6, Uninit=8, Yield=10
+        // Pointers are even values >= 12.
+        // We switch directly on the i64 value for sentinel arms,
+        // then fall through to boxed dispatch for heap pointers.
 
         let mut switch_cases: Vec<(LlvmConst, LabelId)> = Vec::new();
 
-        // For None/EmptyList: no field binders, jump directly.
+        // For None/EmptyList: compare against sentinel values directly.
         if let Some(arm) = none_arm {
             switch_cases.push((
                 LlvmConst::Int {
                     bits: 64,
-                    value: TAG_NONE as i128,
+                    value: FLUX_NONE as i128,
                 },
                 self.label(arm.target),
             ));
@@ -2006,16 +2204,17 @@ impl<'a> FnEmitter<'a> {
             switch_cases.push((
                 LlvmConst::Int {
                     bits: 64,
-                    value: TAG_EMPTY_LIST as i128,
+                    value: FLUX_EMPTY_LIST as i128,
                 },
                 self.label(arm.target),
             ));
         }
 
         if boxed_arms.is_empty() {
+            // Only sentinel arms — switch directly on the scrutinee value.
             return LlvmTerminator::Switch {
                 ty: LlvmType::i64(),
-                scrutinee: LlvmOperand::Local(nb_tag),
+                scrutinee: self.var(scrutinee),
                 default: self.label(default),
                 cases: switch_cases,
             };
@@ -2033,22 +2232,12 @@ impl<'a> FnEmitter<'a> {
         }
 
         // ADT tag extraction is deferred to the adt_dispatch block
-        // (only reached after NaN-box switch confirms TAG_BOXED_VALUE).
-        // Calling flux_adt_tag here would crash for None/EmptyList values.
+        // (only reached when we've confirmed the value is a heap pointer).
         let adt_tag = self.tmp();
 
         // Boxed dispatch block label.
         let boxed_label = LabelId(format!("match.boxed.{}", self.next_tmp));
         self.next_tmp += 1;
-
-        // NaN-box tag 0x8 (BoxedValue) goes to boxed dispatch.
-        switch_cases.push((
-            LlvmConst::Int {
-                bits: 64,
-                value: TAG_BOXED_VALUE as i128,
-            },
-            boxed_label.clone(),
-        ));
 
         // Helper: emit an extraction block for field binders.
         let emit_extract_block = |this: &mut Self, arm: &CtorArm, field_fn: &str| -> LabelId {
@@ -2135,7 +2324,7 @@ impl<'a> FnEmitter<'a> {
 
         // The ADT dispatch block: extract ctor_tag THEN switch.
         // flux_adt_tag is safe here because this block is only reached
-        // when the NaN-box tag is TAG_BOXED_VALUE (confirmed pointer).
+        // when the value is a confirmed heap pointer.
         let adt_dispatch_label = LabelId(format!("match.adt.{}", self.next_tmp));
         self.next_tmp += 1;
         let adt_tag_call = LlvmInstr::Call {
@@ -2165,6 +2354,7 @@ impl<'a> FnEmitter<'a> {
             let tuple_target = emit_extract_block(self, t_arm, "flux_tuple_field_ptr");
 
             // Build instructions for the boxed block inline.
+            // With pointer tagging, the value IS the pointer — just inttoptr.
             let ptr_tmp = LlvmLocal(format!("match.ptr.{}", self.next_tmp));
             self.next_tmp += 1;
             let obj_tag_ptr = LlvmLocal(format!("match.otptr.{}", self.next_tmp));
@@ -2175,15 +2365,13 @@ impl<'a> FnEmitter<'a> {
             self.next_tmp += 1;
 
             let boxed_instrs = vec![
-                // Untag pointer.
-                LlvmInstr::Call {
-                    dst: Some(ptr_tmp.clone()),
-                    tail: false,
-                    call_conv: Some(CallConv::Fastcc),
-                    ret_ty: LlvmType::Ptr,
-                    callee: LlvmOperand::Global(GlobalId("flux_untag_boxed_ptr".to_string())),
-                    args: vec![(LlvmType::i64(), self.var(scrutinee))],
-                    attrs: Vec::new(),
+                // Convert i64 to ptr (pointer IS the tagged value).
+                LlvmInstr::Cast {
+                    dst: ptr_tmp.clone(),
+                    op: LlvmValueKind::IntToPtr,
+                    from_ty: LlvmType::i64(),
+                    operand: self.var(scrutinee),
+                    to_ty: LlvmType::Ptr,
                 },
                 // GEP to ptr - 3 (obj_tag field in FluxHeader).
                 LlvmInstr::GetElementPtr {
@@ -2220,7 +2408,7 @@ impl<'a> FnEmitter<'a> {
             ];
 
             self.extra_blocks.push(LlvmBlock {
-                label: boxed_label,
+                label: boxed_label.clone(),
                 instrs: boxed_instrs,
                 term: LlvmTerminator::CondBr {
                     cond_ty: LlvmType::i1(),
@@ -2232,7 +2420,7 @@ impl<'a> FnEmitter<'a> {
         } else {
             // No tuple arm — boxed dispatch is the ADT dispatch directly.
             self.extra_blocks.push(LlvmBlock {
-                label: boxed_label,
+                label: boxed_label.clone(),
                 instrs: Vec::new(),
                 term: LlvmTerminator::Br {
                     target: adt_dispatch_label,
@@ -2240,12 +2428,40 @@ impl<'a> FnEmitter<'a> {
             });
         }
 
-        // Main switch on NaN-box tag.
-        LlvmTerminator::Switch {
-            ty: LlvmType::i64(),
-            scrutinee: LlvmOperand::Local(nb_tag),
-            default: self.label(default),
-            cases: switch_cases,
+        // If there are sentinel arms, we need a two-level dispatch:
+        // switch on the value for sentinels, default to boxed dispatch.
+        if !switch_cases.is_empty() {
+            LlvmTerminator::Switch {
+                ty: LlvmType::i64(),
+                scrutinee: self.var(scrutinee),
+                default: boxed_label,
+                cases: switch_cases,
+            }
+        } else {
+            // No explicit sentinel arms, but with pointer tagging the
+            // scrutinee could be a sentinel (None=0, EmptyList=6, etc.)
+            // handled by the default arm.  Guard: if scrutinee < 12
+            // (i.e. it's a sentinel, not a heap pointer), jump to default.
+            let guard_ok = LlvmLocal(format!("match.ptrck.{}", self.next_tmp));
+            self.next_tmp += 1;
+
+            self.emit(LlvmInstr::Icmp {
+                dst: guard_ok.clone(),
+                op: LlvmCmpOp::Ule,
+                ty: LlvmType::i64(),
+                lhs: LlvmOperand::Const(LlvmConst::Int {
+                    bits: 64,
+                    value: FLUX_MIN_PTR as i128,
+                }),
+                rhs: self.var(scrutinee),
+            });
+
+            LlvmTerminator::CondBr {
+                cond_ty: LlvmType::i1(),
+                cond: LlvmOperand::Local(guard_ok),
+                then_label: boxed_label,
+                else_label: self.label(default),
+            }
         }
     }
 }
@@ -2291,6 +2507,8 @@ fn is_fastcc_prelude_helper(name: &str) -> bool {
         | "flux_not" | "flux_and" | "flux_or"
         // RC helpers
         | "flux_drop_reuse" | "flux_rc_is_unique"
+        // Bump allocator
+        | "flux_bump_alloc_inline"
         // ADT/Tuple/Closure construction
         | "flux_make_adt" | "flux_make_cons" | "flux_make_tuple"
         | "flux_adt_tag" | "flux_adt_field_ptr"
@@ -2340,12 +2558,12 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::HamtSize => "size",
         CorePrimOp::HamtContains => "has_key",
         CorePrimOp::TypeOf => "type_of",
-        CorePrimOp::IsInt => "is_int",
-        CorePrimOp::IsFloat => "is_float",
-        CorePrimOp::IsString => "is_string",
-        CorePrimOp::IsBool => "is_bool",
+        CorePrimOp::IsInt => "is_int_val",
+        CorePrimOp::IsFloat => "is_float_val",
+        CorePrimOp::IsString => "is_string_val",
+        CorePrimOp::IsBool => "is_bool_val",
         CorePrimOp::IsArray => "is_array",
-        CorePrimOp::IsNone => "is_none",
+        CorePrimOp::IsNone => "is_none_val",
         CorePrimOp::IsSome => "is_some",
         CorePrimOp::IsList => "is_list",
         CorePrimOp::IsMap => "is_map",
@@ -2511,6 +2729,9 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
                 LlvmType::i64(),
             ],
         ),
+        // Float boxing/unboxing wrappers (Phase 9 pointer tagging)
+        "flux_box_float_rt" => (LlvmType::i64(), vec![LlvmType::Double]),
+        "flux_unbox_float_rt" => (LlvmType::Double, vec![LlvmType::i64()]),
         _ => return None,
     };
     Some(LlvmDecl {
@@ -2575,5 +2796,30 @@ fn guess_arity(name: &str) -> usize {
         3
     } else {
         1 // default fallback
+    }
+}
+
+/// Generate an empty `flux_main` stub function: `define i64 @flux_main() { ret i64 0 }`.
+/// Used when compiling module-only .flx files with `--native` that have no `fn main()`.
+pub fn flux_main_stub() -> LlvmFunction {
+    LlvmFunction {
+        linkage: Linkage::External,
+        name: GlobalId("flux_main".to_string()),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::i64(),
+            params: vec![],
+            varargs: false,
+            call_conv: CallConv::Ccc,
+        },
+        params: vec![],
+        attrs: vec![],
+        blocks: vec![LlvmBlock {
+            label: LabelId("entry".to_string()),
+            instrs: vec![],
+            term: LlvmTerminator::Ret {
+                ty: LlvmType::i64(),
+                value: LlvmOperand::Const(LlvmConst::Int { bits: 64, value: 0 }),
+            },
+        }],
     }
 }

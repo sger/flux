@@ -5,35 +5,14 @@ Fixture: examples/aoc/2024/Day03Solver.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/aoc/2024/Day03Solver.flx:59:27
-   |
-59 |                     Some((Mul(parse_int(left_text), parse_int(right_text)), after_right + 1))
-   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |                           ------------------------------------------------ this expression has type `Int`
-
-   |                           ------------------------------------------------ this type mismatch is reported here
-
-Note:
-  expected type: Option<Int>
-  found type: Int
-  the conflicting types meet at this expression
-
-Help:
-  Wrap this value in `Some(...)` or return `None`.
-
-
 error[E004]: Undefined Variable
 
 I can't find a value named `range`.
 
-  examples/aoc/2024/Day03Solver.flx:71:33
+  examples/aoc/2024/Day03Solver.flx:81:25
    |
-71 |         where indices = to_list(range(0, len(memory)))
-   |                                 ^^^^^
+81 |         where indices = range(0, len(memory))
+   |                         ^^^^^
 
 Hint:
   Define it first: let range = ...;
@@ -43,9 +22,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `fold`.
 
-  examples/aoc/2024/Day03Solver.flx:72:23
+  examples/aoc/2024/Day03Solver.flx:82:23
    |
-72 |         where state = fold(indices, (0, 0), /(st: (Int, Int), i: Int) -> {
+82 |         where state = fold(indices, (0, 0), fn(st, i) {
    |                       ^^^^
 
 Hint:
@@ -56,10 +35,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `range`.
 
-  examples/aoc/2024/Day03Solver.flx:94:33
-   |
-94 |         where indices = to_list(range(0, len(memory)))
-   |                                 ^^^^^
+  examples/aoc/2024/Day03Solver.flx:105:25
+    |
+105 |         where indices = range(0, len(memory))
+    |                         ^^^^^
 
 Hint:
   Define it first: let range = ...;
@@ -69,14 +48,14 @@ error[E004]: Undefined Variable
 
 I can't find a value named `fold`.
 
-  examples/aoc/2024/Day03Solver.flx:95:23
-   |
-95 |         where state = fold(indices, (0, true, 0), /(st: (Int, Bool, Int), i: Int) -> {
-   |                       ^^^^
+  examples/aoc/2024/Day03Solver.flx:106:23
+    |
+106 |         where state = fold(indices, (0, true, 0), fn(st, i) {
+    |                       ^^^^
 
 Hint:
   Define it first: let fold = ...;
 
-Found 5 errors.
+Found 4 errors.
 == stdout ==
 <not executed>

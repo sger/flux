@@ -158,7 +158,10 @@ fn test_indirect_self_call_stays_generic_call() {
     let bytecode = compile(input);
     let asm = find_function_disassembly(&bytecode, 1);
     assert!(!asm.contains("OpCallSelf"), "unexpected OpCallSelf:\n{asm}");
-    assert!(asm.contains("OpCall 1"), "expected generic call:\n{asm}");
+    assert!(
+        asm.contains("OpCall 1") || asm.contains("OpCall1") || asm.contains("OpGetLocalCall1"),
+        "expected generic call:\n{asm}"
+    );
 }
 
 #[test]
@@ -405,7 +408,7 @@ fn test_block_level_does_not_consume_repeated_local_reads() {
         "unexpected consume:\n{asm}"
     );
     assert!(
-        asm.contains("OpGetLocal0"),
+        asm.contains("OpGetLocal0") || asm.contains("OpAddLocals"),
         "missing ordinary local read:\n{asm}"
     );
 }
