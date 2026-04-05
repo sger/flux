@@ -188,6 +188,9 @@ impl VM {
                 Ok(1)
             }
             OpCode::OpReturnValue => {
+                if self.profiling {
+                    self.exit_cost_centre();
+                }
                 let mut return_value = self.pop()?;
                 // Internal sentinel values must not escape to user-observable results.
                 if matches!(return_value, Value::Uninit) {
@@ -221,6 +224,9 @@ impl VM {
                 Ok(0)
             }
             OpCode::OpReturn => {
+                if self.profiling {
+                    self.exit_cost_centre();
+                }
                 if let Some(contract) = self.current_frame().closure.function.contract.as_ref()
                     && let Some(expected) = contract.ret.as_ref()
                     && !expected.matches_value(&Value::None, self)
@@ -890,6 +896,9 @@ impl VM {
                 Ok(1)
             }
             OpCode::OpReturnLocal => {
+                if self.profiling {
+                    self.exit_cost_centre();
+                }
                 // Superinstruction: GetLocal(n) + ReturnValue fused into one dispatch.
                 // Avoids clone + push + pop cycle, and can move because the frame is discarded.
                 let idx = Self::read_u8_fast(instructions, ip + 1);
@@ -1641,6 +1650,13 @@ impl VM {
                 self.push(val)?;
                 self.push(Value::Boolean(unique))?;
                 Ok(1)
+            }
+            OpCode::OpEnterCC => {
+                if self.profiling {
+                    let cc_idx = Self::read_u16_fast(instructions, ip + 1) as u16;
+                    self.enter_cost_centre(cc_idx);
+                }
+                Ok(3)
             }
         }
     }

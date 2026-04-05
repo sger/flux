@@ -401,6 +401,10 @@ pub struct Compiler {
     /// When true, run two-phase inference with type-informed optimization
     /// between Phase 1 and Phase 2 (proposal 0077).
     type_optimize: bool,
+    /// When true, emit OpEnterCC at function entry for profiling.
+    profiling: bool,
+    /// Cost centre metadata accumulated during compilation.
+    pub cost_centre_infos: Vec<crate::bytecode::vm::profiling::CostCentreInfo>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -474,6 +478,8 @@ impl Compiler {
             strict_mode: false,
             strict_require_main: true,
             type_optimize: false,
+            profiling: false,
+            cost_centre_infos: Vec::new(),
         }
     }
 
@@ -566,6 +572,20 @@ impl Compiler {
 
     pub fn set_strict_mode(&mut self, strict_mode: bool) {
         self.strict_mode = strict_mode;
+    }
+
+    pub fn set_profiling(&mut self, enabled: bool) {
+        self.profiling = enabled;
+    }
+
+    fn register_cost_centre(&mut self, name: &str, module: &str) -> u16 {
+        let idx = self.cost_centre_infos.len() as u16;
+        self.cost_centre_infos
+            .push(crate::bytecode::vm::profiling::CostCentreInfo {
+                name: name.to_string(),
+                module: module.to_string(),
+            });
+        idx
     }
 
     pub fn set_strict_require_main(&mut self, strict_require_main: bool) {

@@ -204,10 +204,13 @@ pub enum OpCode {
     OpCall2 = 102,
     /// Superinstruction: `TailCall(1)`.
     OpTailCall1 = 103,
+    /// Profiling: enter a cost centre at function entry. Operand: `[cc_index: u16]`.
+    /// Only emitted when `--prof` is passed. The VM tracks call counts and timing.
+    OpEnterCC = 104,
 }
 
 /// Maximum valid opcode value (inclusive). Must be updated when adding new opcodes.
-pub const MAX_OPCODE: u8 = OpCode::OpTailCall1 as u8;
+pub const MAX_OPCODE: u8 = OpCode::OpEnterCC as u8;
 
 impl From<u8> for OpCode {
     fn from(byte: u8) -> Self {
@@ -316,6 +319,7 @@ impl From<u8> for OpCode {
             101 => OpCode::OpCall1,
             102 => OpCode::OpCall2,
             103 => OpCode::OpTailCall1,
+            104 => OpCode::OpEnterCC,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -386,6 +390,7 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpReuseSome | OpCode::OpReuseLeft | OpCode::OpReuseRight => vec![],
         OpCode::OpIsUnique => vec![],
         OpCode::OpCall0 | OpCode::OpCall1 | OpCode::OpCall2 | OpCode::OpTailCall1 => vec![],
+        OpCode::OpEnterCC => vec![2], // cc_index: u16
         _ => vec![],
     }
 }
