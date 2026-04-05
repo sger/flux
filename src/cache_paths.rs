@@ -5,6 +5,18 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
+/// Global cache epoch. Bump this single constant to invalidate ALL caches
+/// (bytecode `.fxc`, module bytecode `.fxm`, module interfaces `.flxi`,
+/// and native `.o` metadata) at once.
+///
+/// This replaces the need to coordinate 4 separate `FORMAT_VERSION` constants
+/// across different cache modules. Each cache type embeds this epoch and
+/// rejects entries written with a different value.
+///
+/// Epoch 1: initial unified epoch (replaces FXBC=11, FXMC=2, flxi=3, native=2).
+/// Epoch 2: fix parse_int HM signature (String -> Int, was String -> Option<Int>).
+pub const CACHE_EPOCH: u16 = 2;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
     root: PathBuf,

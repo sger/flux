@@ -4,13 +4,13 @@
 //! self-contained binaries that link against `libflux_rt.a` (the C runtime
 //! from `runtime/c/`).
 
-use std::fs;
 use std::fmt;
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT_NATIVE_BUILD_ID: AtomicUsize = AtomicUsize::new(0);
 static TOOLCHAIN_INFO_CACHE: OnceLock<String> = OnceLock::new();
@@ -126,7 +126,11 @@ fn run_llc(bc_path: &Path, obj_path: &Path, opt_level: u32) -> Result<(), Pipeli
 /// This replaces the `opt` + `llc` two-subprocess pipeline with a single
 /// `clang -c -x ir` call, saving ~20-40ms of process spawn overhead.
 /// Returns `None` if the detected C compiler is not clang-compatible.
-fn run_clang_compile(ll_path: &Path, obj_path: &Path, opt_level: u32) -> Option<Result<(), PipelineError>> {
+fn run_clang_compile(
+    ll_path: &Path,
+    obj_path: &Path,
+    opt_level: u32,
+) -> Option<Result<(), PipelineError>> {
     let toolchain = detect_c_toolchain().ok()?;
     // Only clang supports `-x ir`. GCC and MSVC cl.exe do not.
     let cc = match &toolchain {
@@ -215,9 +219,7 @@ fn has_lld() -> bool {
     if cfg!(windows) {
         which("lld-link").is_some()
     } else {
-        which("ld.lld").is_some()
-            || which("ld.lld-18").is_some()
-            || which("ld.lld-17").is_some()
+        which("ld.lld").is_some() || which("ld.lld-18").is_some() || which("ld.lld-17").is_some()
     }
 }
 
@@ -386,7 +388,11 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
         .clone()
         .unwrap_or_else(|| dir.join("program"));
 
-    run_linker(std::slice::from_ref(&obj_path), &exe_path, config.runtime_lib_dir.as_deref())?;
+    run_linker(
+        std::slice::from_ref(&obj_path),
+        &exe_path,
+        config.runtime_lib_dir.as_deref(),
+    )?;
 
     // Clean up intermediates (keep the output binary).
     let _ = std::fs::remove_file(&ll_path);
@@ -438,9 +444,7 @@ pub fn toolchain_info() -> &'static str {
                     })
                     .unwrap_or_else(|| cc.clone());
                 let is_clang = cc.contains("clang")
-                    || output.is_some_and(|o| {
-                        String::from_utf8_lossy(&o.stdout).contains("clang")
-                    });
+                    || output.is_some_and(|o| String::from_utf8_lossy(&o.stdout).contains("clang"));
                 (first_line, is_clang)
             }
             CToolchain::Msvc { cc, .. } => (format!("msvc ({cc})"), false),

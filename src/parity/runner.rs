@@ -7,9 +7,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use crate::bytecode::bytecode_cache::{
-    BytecodeCache, hash_bytes, hash_cache_key,
-};
+use crate::bytecode::bytecode_cache::{BytecodeCache, hash_bytes, hash_cache_key};
 use crate::cache_paths;
 
 use super::normalize::{normalize, normalize_aether_dump, normalize_core_dump};
@@ -200,7 +198,11 @@ fn execute_and_collect(binary: &Path, args: &[String], way: Way, timeout: Durati
 /// Clear all known cache files for a fixture.
 fn clear_cache_files(file: &Path, extra_args: &[String]) {
     let layout = cache_paths::resolve_cache_layout(file, None);
-    for dir in [layout.interfaces_dir(), layout.vm_dir(), layout.native_dir()] {
+    for dir in [
+        layout.interfaces_dir(),
+        layout.vm_dir(),
+        layout.native_dir(),
+    ] {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -234,7 +236,11 @@ fn observe_cache_files(file: &Path, extra_args: &[String]) -> Vec<CacheObservati
         });
     }
 
-    for dir in [layout.interfaces_dir(), layout.vm_dir(), layout.native_dir()] {
+    for dir in [
+        layout.interfaces_dir(),
+        layout.vm_dir(),
+        layout.native_dir(),
+    ] {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();

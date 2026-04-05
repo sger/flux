@@ -1192,6 +1192,17 @@ impl Compiler {
             }
         }
 
+        // Emit cost centre entry when profiling is enabled.
+        if self.profiling {
+            let module_name = self
+                .current_module_prefix
+                .map(|s| self.sym(s).to_string())
+                .unwrap_or_else(|| "<main>".to_string());
+            let fn_name = self.sym(name).to_string();
+            let cc_idx = self.register_cost_centre(&fn_name, &module_name);
+            self.emit(OpCode::OpEnterCC, &[cc_idx as usize]);
+        }
+
         let compile_result: CompileResult<()> = (|| {
             // Compile-time return type check: if the declared return type and
             // the static type of the tail expression are both known, verify

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{aether::borrow_infer::BorrowSignature, types::scheme::Scheme};
 
-pub const MODULE_INTERFACE_FORMAT_VERSION: u16 = 2;
+pub const MODULE_INTERFACE_FORMAT_VERSION: u16 = crate::cache_paths::CACHE_EPOCH;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DependencyFingerprint {

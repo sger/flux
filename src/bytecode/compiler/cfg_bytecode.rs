@@ -7,6 +7,7 @@ use crate::cfg::{
 };
 use crate::{
     bytecode::op_code::OpCode,
+    bytecode::symbol_scope::SymbolScope,
     diagnostics::{Diagnostic, DiagnosticBuilder},
     runtime::{handler_descriptor::HandlerDescriptor, value::Value},
     syntax::symbol::Symbol,
@@ -903,17 +904,25 @@ impl Compiler {
                 Ok(())
             }
             IrExpr::Index { left, index } => {
-                self.load_symbol(bindings.get(left).ok_or_else(|| {
+                let left_binding = bindings.get(left).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning(
                         "missing CFG bytecode index left binding",
                     ))
-                })?);
-                self.load_symbol(bindings.get(index).ok_or_else(|| {
+                })?;
+                let index_binding = bindings.get(index).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning(
                         "missing CFG bytecode index right binding",
                     ))
-                })?);
-                self.emit(OpCode::OpIndex, &[]);
+                })?;
+
+                if left_binding.symbol_scope == SymbolScope::Local {
+                    self.load_symbol(index_binding);
+                    self.emit(OpCode::OpGetLocalIndex, &[left_binding.index]);
+                } else {
+                    self.load_symbol(left_binding);
+                    self.load_symbol(index_binding);
+                    self.emit(OpCode::OpIndex, &[]);
+                }
                 Ok(())
             }
             IrExpr::LoadName(name) => {
@@ -1119,7 +1128,11 @@ impl Compiler {
                     })?);
                 }
                 if is_self {
-                    this.emit(OpCode::OpTailCall, &[args.len()]);
+                    if args.len() == 1 {
+                        this.emit(OpCode::OpTailCall1, &[]);
+                    } else {
+                        this.emit(OpCode::OpTailCall, &[args.len()]);
+                    }
                 } else {
                     this.emit(OpCode::OpCall, &[args.len()]);
                     this.emit(OpCode::OpReturnValue, &[]);

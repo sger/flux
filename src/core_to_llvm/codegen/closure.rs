@@ -1,7 +1,7 @@
 use crate::core_to_llvm::{
-    CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl,
-    LlvmFunction, LlvmFunctionSig, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator,
-    LlvmType, LlvmTypeDef, LlvmValueKind,
+    CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl, LlvmFunction,
+    LlvmFunctionSig, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType,
+    LlvmTypeDef, LlvmValueKind,
 };
 
 use super::prelude::{has_function, helper_attrs};

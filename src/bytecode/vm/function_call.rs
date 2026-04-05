@@ -88,9 +88,6 @@ impl VM {
 
         match self.stack_get(callee_idx) {
             Value::Closure(closure) => self.call_closure(closure, num_args),
-            Value::BaseFunction(_) => {
-                Err("BaseFunction values are deprecated; base functions are now compiled from lib/Flow/".to_string())
-            }
             other => Err(self.runtime_error_enhanced(&NOT_A_FUNCTION, &[other.type_name()])),
         }
     }
@@ -142,14 +139,13 @@ impl VM {
     }
 
     pub(super) fn execute_tail_call(&mut self, num_args: usize) -> Result<(), String> {
+        if self.profiling {
+            self.exit_cost_centre();
+        }
         let callee_idx = self.sp - 1 - num_args;
         let callee_val = self.stack_get(callee_idx);
         match &callee_val {
             Value::Closure(closure) => self.tail_call_closure(closure.clone(), num_args),
-            Value::BaseFunction(_) => {
-                // BaseFunctions don't push frames, so treat as normal call
-                self.execute_call(num_args)
-            }
             other => Err(self.runtime_error_enhanced(&NOT_A_FUNCTION, &[other.type_name()])),
         }
     }
@@ -285,9 +281,6 @@ impl VM {
     /// functions from within the Flow function implementation.
     pub fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
         match callee {
-            Value::BaseFunction(_) => {
-                Err("BaseFunction values are deprecated; base functions are now compiled from lib/Flow/".to_string())
-            }
             Value::Closure(closure) => {
                 let start_sp = self.sp;
                 let start_frame_index = self.frame_index;
@@ -439,7 +432,6 @@ impl RuntimeContext for VM {
     #[inline]
     fn invoke_unary_value(&mut self, callee: &Value, arg: Value) -> Result<Value, String> {
         match callee {
-            Value::BaseFunction(_) => Err("BaseFunction values are deprecated".to_string()),
             Value::Closure(closure) => self.invoke_closure_arity1(closure.clone(), arg),
             other => Err(format!("not callable: {}", other.type_name())),
         }
@@ -453,7 +445,6 @@ impl RuntimeContext for VM {
         right: Value,
     ) -> Result<Value, String> {
         match callee {
-            Value::BaseFunction(_) => Err("BaseFunction values are deprecated".to_string()),
             Value::Closure(closure) => self.invoke_closure_arity2(closure.clone(), left, right),
             other => Err(format!("not callable: {}", other.type_name())),
         }
