@@ -34,11 +34,20 @@ module Day03Solver {
 
     // Try to parse a Token at position idx.
     // Returns Some((Token, next_idx)) on success, None otherwise.
+    fn to_int(s: String) -> Int {
+        let arr = parse_ints([|s|])
+        match arr[0] {
+            Some(v) -> v,
+            _ -> 0
+        }
+    }
+
+    // Returns Some((kind, value, next_idx)) where kind: 0=mul, 1=enable, 2=disable.
     fn parse_token_at(s: String, idx: Int) {
         if starts_with_at(s, idx, "don't()") {
-            Some((Disable, idx + 7))
+            Some((2, 0, idx + 7))
         } else if starts_with_at(s, idx, "do()") {
-            Some((Enable, idx + 4))
+            Some((1, 0, idx + 4))
         } else if starts_with_at(s, idx, "mul(") {
             let left = take_digits_1_to_3(s, idx + 4, 0, "")
             let left_text = left.0
@@ -56,7 +65,8 @@ module Day03Solver {
                 if right_count == 0 || after_right >= len(s) || char_at(s, after_right) != ")" {
                     None
                 } else {
-                    Some((Mul(parse_int(left_text), parse_int(right_text)), after_right + 1))
+                    let product = to_int(left_text) * to_int(right_text)
+                    Some((0, product, after_right + 1))
                 }
             }
         } else {
@@ -68,8 +78,8 @@ module Day03Solver {
     // state = (next_idx_to_process, total)
     public fn day03a_from_memory(memory: String) -> Int {
         state.1
-        where indices = to_list(range(0, len(memory)))
-        where state = fold(indices, (0, 0), \(st: (Int, Int), i: Int) -> {
+        where indices = range(0, len(memory))
+        where state = fold(indices, (0, 0), fn(st, i) {
             let next_idx = st.0
             let total = st.1
 
@@ -77,9 +87,10 @@ module Day03Solver {
                 st
             } else {
                 match parse_token_at(memory, i) {
-                    Some(hit) -> match hit.0 {
-                        Mul(a, b) -> (hit.1, total + a * b),
-                        _ -> (hit.1, total),
+                    Some(hit) -> if hit.0 == 0 {
+                        (hit.2, total + hit.1)
+                    } else {
+                        (hit.2, total)
                     },
                     _ -> (i + 1, total),
                 }
@@ -91,8 +102,8 @@ module Day03Solver {
     // state = (next_idx_to_process, enabled, total)
     public fn day03b_from_memory(memory: String) -> Int {
         state.2
-        where indices = to_list(range(0, len(memory)))
-        where state = fold(indices, (0, true, 0), \(st: (Int, Bool, Int), i: Int) -> {
+        where indices = range(0, len(memory))
+        where state = fold(indices, (0, true, 0), fn(st, i) {
             let next_idx = st.0
             let enabled = st.1
             let total = st.2
@@ -101,13 +112,14 @@ module Day03Solver {
                 st
             } else {
                 match parse_token_at(memory, i) {
-                    Some(hit) -> match hit.0 {
-                        Enable -> (hit.1, true, total),
-                        Disable -> (hit.1, false, total),
-                        Mul(a, b) ->
-                            if enabled { (hit.1, true, total + a * b) }
-                            else { (hit.1, false, total) },
-                        _ -> (i + 1, enabled, total),
+                    Some(hit) -> if hit.0 == 1 {
+                        (hit.2, true, total)
+                    } else if hit.0 == 2 {
+                        (hit.2, false, total)
+                    } else if enabled {
+                        (hit.2, true, total + hit.1)
+                    } else {
+                        (hit.2, false, total)
                     },
                     _ -> (i + 1, enabled, total),
                 }
