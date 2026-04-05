@@ -305,8 +305,6 @@ mod inner {
             self.payload() != 0
         }
 
-        /// Decode as a base-function index.
-        #[inline(always)]
         // ── Value conversion ──────────────────────────────────────────────────
 
         /// Encode a [`Value`] as a [`NanBox`].

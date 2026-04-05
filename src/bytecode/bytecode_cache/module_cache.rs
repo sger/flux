@@ -474,10 +474,8 @@ mod tests {
 
     #[test]
     fn inspect_reports_stale_dependency_interface() {
-        let cache_root = std::env::temp_dir().join(format!(
-            "flux_module_cache_inspect_{}",
-            std::process::id()
-        ));
+        let cache_root =
+            std::env::temp_dir().join(format!("flux_module_cache_inspect_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&cache_root);
         std::fs::create_dir_all(&cache_root).expect("cache root");
         let cache_dir = cache_root.join("vm");
@@ -485,8 +483,7 @@ mod tests {
         let source_path = Path::new("examples/aoc/2024/Day06Solver.flx");
         let cache_key = crate::bytecode::bytecode_cache::hash_bytes(b"cache-key");
         let dep_path = Path::new("lib/Flow/List.flx");
-        let interface_path =
-            module_interface::interface_path(&cache_root, dep_path);
+        let interface_path = module_interface::interface_path(&cache_root, dep_path);
         std::fs::create_dir_all(interface_path.parent().expect("parent")).expect("mkdirs");
         let mut interface =
             crate::types::module_interface::ModuleInterface::new("Flow.List", "source", "config");

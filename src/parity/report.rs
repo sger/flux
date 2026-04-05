@@ -186,15 +186,17 @@ pub fn diagnose_mismatch(details: &[MismatchDetail]) -> Option<&'static str> {
         .any(|d| matches!(d, MismatchDetail::StrictModeMismatch { .. }));
 
     if has_cache {
-        if details.iter().any(|d| {
-            matches!(d, MismatchDetail::CacheMismatch { field, .. } if field.contains(".flxi"))
-        }) {
+        if details.iter().any(
+            |d| matches!(d, MismatchDetail::CacheMismatch { field, .. } if field.contains(".flxi")),
+        ) {
             return Some("semantic interface drift between fresh and cached ways");
         }
-        if details.iter().any(|d| {
-            matches!(d, MismatchDetail::CacheMismatch { field, .. } if field.contains(".fxm"))
-        }) {
-            return Some("VM artifact hydration or module cache drift between fresh and cached ways");
+        if details.iter().any(
+            |d| matches!(d, MismatchDetail::CacheMismatch { field, .. } if field.contains(".fxm")),
+        ) {
+            return Some(
+                "VM artifact hydration or module cache drift between fresh and cached ways",
+            );
         }
         if details.iter().any(|d| {
             matches!(d, MismatchDetail::CacheMismatch { field, .. } if field.contains("native"))
@@ -242,12 +244,21 @@ fn print_cache_summary(result: &ParityResult) {
             run.cache_observations.len()
         );
         for obs in &run.cache_observations {
-            println!("    - {} [{}] {}", obs.kind, state_label(obs.state), obs.path.display());
+            println!(
+                "    - {} [{}] {}",
+                obs.kind,
+                state_label(obs.state),
+                obs.path.display()
+            );
         }
         if run.way == Way::LlvmCached && created > 0 && existed > 0 {
-            println!("    note: native artifact boundary working; cached output matched with artifact reuse observed");
+            println!(
+                "    note: native artifact boundary working; cached output matched with artifact reuse observed"
+            );
         } else if run.way == Way::LlvmCached && existed > 0 {
-            println!("    note: native cached way matched output; full module skipping is not required in this phase");
+            println!(
+                "    note: native cached way matched output; full module skipping is not required in this phase"
+            );
         }
     }
 }

@@ -154,8 +154,6 @@ impl VM {
         }
     }
 
-
-
     pub fn print_profile_report(&self, execute_ns: u64) {
         profiling::print_profile_report(&self.cost_centres, execute_ns);
     }

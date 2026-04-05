@@ -253,12 +253,7 @@ fn patch_constant_operand(
                 .map_err(|_| format!("constant index overflow for {op:?}: {idx}"))?;
             let arity = instructions[ip + 3] as usize;
             let field_mask = instructions[ip + 4] as usize;
-            replace_instruction(
-                instructions,
-                ip,
-                op,
-                &make(op, &[idx, arity, field_mask]),
-            );
+            replace_instruction(instructions, ip, op, &make(op, &[idx, arity, field_mask]));
         }
         _ => {}
     }
@@ -345,10 +340,7 @@ mod tests {
     };
 
     /// Helper: assemble two modules and return the linked bytecode.
-    fn link_two_modules(
-        mod_a: CachedModuleBytecode,
-        mod_b: CachedModuleBytecode,
-    ) -> Bytecode {
+    fn link_two_modules(mod_a: CachedModuleBytecode, mod_b: CachedModuleBytecode) -> Bytecode {
         let interner = Interner::new();
         let mut linker = VmAssemblyContext::new(interner);
         linker.assemble_module(&mod_a).expect("assemble module A");
@@ -442,7 +434,10 @@ mod tests {
         let b_instructions = &linked.instructions[3..]; // skip A's 3-byte OpConstant
         assert_eq!(b_instructions[0], OpCode::OpConstantAdd as u8);
         let rebased_idx = read_u16(b_instructions, 1) as usize;
-        assert_eq!(rebased_idx, 2, "OpConstantAdd index should be rebased from 0 to 2");
+        assert_eq!(
+            rebased_idx, 2,
+            "OpConstantAdd index should be rebased from 0 to 2"
+        );
     }
 
     #[test]
@@ -465,7 +460,10 @@ mod tests {
         assert_eq!(b_instructions[0], OpCode::OpGetLocalIsAdt as u8);
         assert_eq!(b_instructions[1], 5, "local index should be unchanged");
         let rebased_idx = read_u16(b_instructions, 2) as usize;
-        assert_eq!(rebased_idx, 3, "OpGetLocalIsAdt const index should be rebased from 0 to 3");
+        assert_eq!(
+            rebased_idx, 3,
+            "OpGetLocalIsAdt const index should be rebased from 0 to 3"
+        );
     }
 
     #[test]
@@ -487,7 +485,10 @@ mod tests {
         let b_instructions = &linked.instructions[3..];
         assert_eq!(b_instructions[0], OpCode::OpReuseAdt as u8);
         let rebased_idx = read_u16(b_instructions, 1) as usize;
-        assert_eq!(rebased_idx, 1, "OpReuseAdt const index should be rebased from 0 to 1");
+        assert_eq!(
+            rebased_idx, 1,
+            "OpReuseAdt const index should be rebased from 0 to 1"
+        );
         assert_eq!(b_instructions[3], 2, "arity should be unchanged");
         assert_eq!(b_instructions[4], 0xFF, "field_mask should be unchanged");
     }
@@ -501,16 +502,12 @@ mod tests {
             vec![Value::Integer(1)],
             make(OpCode::OpConstant, &[0]),
         );
-        let mod_b = module_with(
-            vec![global_def("B.y", 0)],
-            vec![],
-            {
-                let mut ins = make(OpCode::OpAddLocals, &[3, 5]);
-                ins.extend(make(OpCode::OpCall0, &[]));
-                ins.extend(make(OpCode::OpTailCall1, &[]));
-                ins
-            },
-        );
+        let mod_b = module_with(vec![global_def("B.y", 0)], vec![], {
+            let mut ins = make(OpCode::OpAddLocals, &[3, 5]);
+            ins.extend(make(OpCode::OpCall0, &[]));
+            ins.extend(make(OpCode::OpTailCall1, &[]));
+            ins
+        });
 
         let linked = link_two_modules(mod_a, mod_b);
         let b_instructions = &linked.instructions[3..];

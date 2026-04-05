@@ -92,13 +92,19 @@ impl NativeModuleCache {
     }
 
     pub fn object_path(&self, source_path: &Path, cache_key: &[u8; 32]) -> PathBuf {
-        self.cache_dir
-            .join(cache_paths::cache_key_filename(source_path, cache_key, object_ext()))
+        self.cache_dir.join(cache_paths::cache_key_filename(
+            source_path,
+            cache_key,
+            object_ext(),
+        ))
     }
 
     pub fn metadata_path(&self, source_path: &Path, cache_key: &[u8; 32]) -> PathBuf {
-        self.cache_dir
-            .join(cache_paths::cache_key_filename(source_path, cache_key, "fno"))
+        self.cache_dir.join(cache_paths::cache_key_filename(
+            source_path,
+            cache_key,
+            "fno",
+        ))
     }
 
     pub fn store(
@@ -211,7 +217,9 @@ impl NativeModuleCache {
                     cache_root,
                     &dependency_path,
                 ) {
-                    Ok(current) if current.interface_fingerprint == dependency.interface_fingerprint => {
+                    Ok(current)
+                        if current.interface_fingerprint == dependency.interface_fingerprint =>
+                    {
                         DependencyFingerprintStatus {
                             module_name: dependency.module_name.clone(),
                             source_path: dependency.source_path.clone(),
@@ -272,23 +280,21 @@ mod tests {
 
     #[test]
     fn native_module_cache_roundtrips_metadata_validation() {
-        let temp = std::env::temp_dir().join(format!(
-            "flux-native-cache-{}",
-            std::process::id()
-        ));
+        let temp = std::env::temp_dir().join(format!("flux-native-cache-{}", std::process::id()));
         let cache = NativeModuleCache::new(temp.join("native"));
         let cache_root = temp.join("root");
         fs::create_dir_all(cache_root.join("interfaces")).expect("cache root");
         let source = Path::new("examples/aoc/2024/Day06Solver.flx");
         let dep_path = Path::new("lib/Flow/List.flx");
-        let dep_interface_path = crate::bytecode::compiler::module_interface::interface_path(
-            &cache_root,
-            dep_path,
-        );
+        let dep_interface_path =
+            crate::bytecode::compiler::module_interface::interface_path(&cache_root, dep_path);
         let mut dep_interface = ModuleInterface::new("Flow.List", "deadbeef", "config");
         dep_interface.interface_fingerprint = "feedface".to_string();
-        crate::bytecode::compiler::module_interface::save_interface(&dep_interface_path, &dep_interface)
-            .expect("save interface");
+        crate::bytecode::compiler::module_interface::save_interface(
+            &dep_interface_path,
+            &dep_interface,
+        )
+        .expect("save interface");
         let cache_key = hash_bytes(b"native");
         let object_path = cache
             .store(
@@ -313,10 +319,8 @@ mod tests {
 
     #[test]
     fn native_module_cache_inspect_reports_stale_dependency() {
-        let temp = std::env::temp_dir().join(format!(
-            "flux-native-cache-stale-{}",
-            std::process::id()
-        ));
+        let temp =
+            std::env::temp_dir().join(format!("flux-native-cache-stale-{}", std::process::id()));
         let cache = NativeModuleCache::new(temp.join("native"));
         let cache_root = temp.join("root");
         fs::create_dir_all(cache_root.join("interfaces")).expect("cache root");
@@ -326,8 +330,11 @@ mod tests {
             crate::bytecode::compiler::module_interface::interface_path(&cache_root, dep_path);
         let mut dep_interface = ModuleInterface::new("Flow.List", "deadbeef", "config");
         dep_interface.interface_fingerprint = "feedface".to_string();
-        crate::bytecode::compiler::module_interface::save_interface(&dep_interface_path, &dep_interface)
-            .expect("save interface");
+        crate::bytecode::compiler::module_interface::save_interface(
+            &dep_interface_path,
+            &dep_interface,
+        )
+        .expect("save interface");
         let cache_key = hash_bytes(b"native-stale");
         let object_path = cache
             .store(

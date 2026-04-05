@@ -472,7 +472,10 @@ fn is_worker_eligible(func: &LirFunction) -> bool {
     if func.capture_vars.is_empty()
         && func.qualified_name != "main"
         && !func.param_reps.is_empty()
-        && func.param_reps.iter().all(|r| matches!(r, crate::core::FluxRep::IntRep))
+        && func
+            .param_reps
+            .iter()
+            .all(|r| matches!(r, crate::core::FluxRep::IntRep))
         && matches!(func.result_rep, crate::core::FluxRep::IntRep)
     {
         return true;
@@ -491,10 +494,10 @@ fn is_worker_eligible(func: &LirFunction) -> bool {
         let param_set: HashSet<u32> = func.params.iter().map(|v| v.0).collect();
         let mut untagged_params: HashSet<u32> = HashSet::new();
         for instr in &entry.instrs {
-            if let LirInstr::UntagInt { val, .. } = instr {
-                if param_set.contains(&val.0) {
-                    untagged_params.insert(val.0);
-                }
+            if let LirInstr::UntagInt { val, .. } = instr
+                && param_set.contains(&val.0)
+            {
+                untagged_params.insert(val.0);
             }
         }
         return untagged_params.len() == func.params.len();
@@ -1446,8 +1449,10 @@ impl<'a> FnEmitter<'a> {
                 // In worker mode, emit raw 0/1; otherwise tagged constants.
                 let value = if self.worker_mode {
                     if *b { 1 } else { 0 }
+                } else if *b {
+                    FLUX_TRUE
                 } else {
-                    if *b { FLUX_TRUE } else { FLUX_FALSE }
+                    FLUX_FALSE
                 };
                 self.emit(LlvmInstr::Binary {
                     dst: self.var_local(dst),
@@ -1604,8 +1609,7 @@ impl<'a> FnEmitter<'a> {
 
     fn emit_make_extern_closure(&mut self, dst: LirVar, symbol: &str, arity: usize) {
         let wrapper_name = format!("{symbol}.closure_entry");
-        self.needed_closure_entry_decls
-            .insert(wrapper_name.clone());
+        self.needed_closure_entry_decls.insert(wrapper_name.clone());
         self.call_fastcc(
             Some(self.var_local(dst)),
             "flux_make_closure",
@@ -2002,8 +2006,7 @@ impl<'a> FnEmitter<'a> {
                             .expect("Direct call references unknown LirFuncId");
                         // In worker mode, if the callee is also worker-eligible,
                         // call the worker variant directly to bypass tag/untag.
-                        let use_worker =
-                            self.worker_mode && self.worker_eligible.contains(func_id);
+                        let use_worker = self.worker_mode && self.worker_eligible.contains(func_id);
                         let target_name = if use_worker {
                             format!("flux_{}$w", target.qualified_name)
                         } else {
@@ -2063,8 +2066,7 @@ impl<'a> FnEmitter<'a> {
                             .expect("Direct tail call references unknown LirFuncId");
                         // In worker mode, if the callee is also worker-eligible,
                         // call the worker variant directly to bypass tag/untag.
-                        let use_worker =
-                            self.worker_mode && self.worker_eligible.contains(func_id);
+                        let use_worker = self.worker_mode && self.worker_eligible.contains(func_id);
                         let target_name = if use_worker {
                             format!("flux_{}$w", target.qualified_name)
                         } else {
@@ -2794,5 +2796,30 @@ fn guess_arity(name: &str) -> usize {
         3
     } else {
         1 // default fallback
+    }
+}
+
+/// Generate an empty `flux_main` stub function: `define i64 @flux_main() { ret i64 0 }`.
+/// Used when compiling module-only .flx files with `--native` that have no `fn main()`.
+pub fn flux_main_stub() -> LlvmFunction {
+    LlvmFunction {
+        linkage: Linkage::External,
+        name: GlobalId("flux_main".to_string()),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::i64(),
+            params: vec![],
+            varargs: false,
+            call_conv: CallConv::Ccc,
+        },
+        params: vec![],
+        attrs: vec![],
+        blocks: vec![LlvmBlock {
+            label: LabelId("entry".to_string()),
+            instrs: vec![],
+            term: LlvmTerminator::Ret {
+                ty: LlvmType::i64(),
+                value: LlvmOperand::Const(LlvmConst::Int { bits: 64, value: 0 }),
+            },
+        }],
     }
 }

@@ -736,16 +736,12 @@ impl Compiler {
             "Flow.IO",
             "Flow.Assert",
         ];
-        let skip_flow_auto_expose = [
-            ("Flow.List", "concat"),
-            ("Flow.List", "delete"),
-        ];
+        let skip_flow_auto_expose = [("Flow.List", "concat"), ("Flow.List", "delete")];
 
         for ((module_name, member_name), scheme) in &self.cached_member_schemes {
             let module = self.sym(*module_name);
             let member = self.sym(*member_name);
-            if !flow_prefixes.contains(&module)
-                || skip_flow_auto_expose.contains(&(module, member))
+            if !flow_prefixes.contains(&module) || skip_flow_auto_expose.contains(&(module, member))
             {
                 continue;
             }
@@ -830,8 +826,9 @@ impl Compiler {
                 ImportExposing::Names(names) => {
                     for member_name in names {
                         let member = self.sym(*member_name);
-                        if let Some(scheme) =
-                            self.cached_member_schemes.get(&(*module_name, *member_name))
+                        if let Some(scheme) = self
+                            .cached_member_schemes
+                            .get(&(*module_name, *member_name))
                         {
                             symbols.insert(
                                 member.to_string(),
@@ -1228,7 +1225,9 @@ impl Compiler {
                     ImportExposing::All => self
                         .module_function_visibility
                         .iter()
-                        .filter(|((mod_name, _), is_public)| *mod_name == *module_name && **is_public)
+                        .filter(|((mod_name, _), is_public)| {
+                            *mod_name == *module_name && **is_public
+                        })
                         .map(|((_, member), _)| *member)
                         .collect(),
                     ImportExposing::Names(names) => names.clone(),
@@ -1418,13 +1417,7 @@ impl Compiler {
                 pure(),
                 0,
             ),
-            (
-                "parse_int",
-                vec![con(TC::String)],
-                con(TC::Int),
-                pure(),
-                0,
-            ),
+            ("parse_int", vec![con(TC::String)], con(TC::Int), pure(), 0),
             (
                 "parse_ints",
                 vec![app(TC::Array, vec![con(TC::String)])],
@@ -3759,7 +3752,10 @@ impl Compiler {
     fn decode_get_local_get_local_at(&self, pos: usize) -> Option<(usize, usize)> {
         let instructions = &self.scopes[self.scope_index].instructions;
         if OpCode::from(instructions[pos]) == OpCode::OpGetLocalGetLocal {
-            Some((instructions[pos + 1] as usize, instructions[pos + 2] as usize))
+            Some((
+                instructions[pos + 1] as usize,
+                instructions[pos + 2] as usize,
+            ))
         } else {
             None
         }
@@ -4388,7 +4384,10 @@ impl Compiler {
         self.symbol_table.resolve(name)
     }
 
-    pub(super) fn resolve_library_primop(name: &str, arity: usize) -> Option<crate::core::CorePrimOp> {
+    pub(super) fn resolve_library_primop(
+        name: &str,
+        arity: usize,
+    ) -> Option<crate::core::CorePrimOp> {
         match (name.rsplit('.').next().unwrap_or(name), arity) {
             ("sort", 1) => Some(crate::core::CorePrimOp::Sort),
             ("sort_by", 2) => Some(crate::core::CorePrimOp::SortBy),

@@ -71,10 +71,7 @@ fn main() {
         rendered.contains("flux_make_adt") || rendered.contains("flux_make_cons"),
         "expected ADT construction"
     );
-    assert!(
-        rendered.contains("flux_adt_tag"),
-        "expected ADT tag check"
-    );
+    assert!(rendered.contains("flux_adt_tag"), "expected ADT tag check");
 }
 
 #[test]
@@ -145,10 +142,7 @@ fn main() {
 "#,
     );
 
-    assert!(
-        rendered.contains("flux_adt_tag"),
-        "expected ADT tag check"
-    );
+    assert!(rendered.contains("flux_adt_tag"), "expected ADT tag check");
     assert!(
         rendered.contains("flux_adt_field_ptr"),
         "expected ADT field access"
