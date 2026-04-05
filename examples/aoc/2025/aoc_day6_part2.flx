@@ -84,7 +84,8 @@ fn col_value(lines, num_rows, col, empty_default) {
     | row <- range(0, num_rows),
     char_at_pad(line_at(lines, row), col) != " "
     ]
-    if len(digits) == 0 { empty_default } else { parse_int(join(digits, "")) }
+    let joined = trim(join(digits, ""))
+    if joined == "" { empty_default } else { parse_int(joined) }
 }
 
 fn eval_problem(lines, num_rows, start, stop) {

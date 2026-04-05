@@ -113,7 +113,7 @@ module Day2Part2 {
         }
     }
 
-    fn parse_ranges(path) with IO {
+    public fn parse_ranges(path) with IO {
         [parse_range_token(t)
             | t <- read_file(path)
                 |> trim
@@ -126,13 +126,13 @@ module Day2Part2 {
         ends |> fold(0, \(acc, x) -> if x > acc { x } else { acc })
     }
 
-    fn solve_parsed_ranges(parsed_ranges) {
+    public fn solve_parsed_ranges(parsed_ranges) {
         let upper = max_end(parsed_ranges)
         let limits = (upper, digits_count(upper) / 2)
         sum_for_all_chunk_lens(1, limits.1, limits.0, parsed_ranges)
     }
 
-    fn solve_file(path) {
+    public fn solve_file(path) {
         let parsed_ranges = parse_ranges(path)
         solve_parsed_ranges(parsed_ranges)
     }

@@ -48,7 +48,7 @@ fn main() with IO, Time {
 
 // parse_area_counts: filter + map pipeline replaces 3-arg index recursion
 fn parse_area_counts(tokens) {
-    tokens |> filter(\t -> trim(t) != "") |> map(parse_int)
+    tokens |> filter(\t -> trim(t) != "") |> map(\t -> parse_int(t))
 }
 
 // parse_areas: fold with simple array acc (no tuple boxing overhead)
