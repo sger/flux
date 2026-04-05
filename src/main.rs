@@ -1172,7 +1172,10 @@ fn main() {
     let leak_detector = args.iter().any(|arg| arg == "--leak-detector");
     let trace = args.iter().any(|arg| arg == "--trace");
     let trace_aether = args.iter().any(|arg| arg == "--trace-aether");
-    let no_cache = args.iter().any(|arg| arg == "--no-cache");
+    let profiling = args.iter().any(|arg| arg == "--prof");
+    // Profiling requires fresh compilation (no cached bytecode) since
+    // OpEnterCC instructions are only emitted when profiling is enabled.
+    let no_cache = args.iter().any(|arg| arg == "--no-cache") || profiling;
     let roots_only = args.iter().any(|arg| arg == "--roots-only");
     let enable_optimize = args.iter().any(|arg| arg == "--optimize" || arg == "-O");
     let enable_analyze = args.iter().any(|arg| arg == "--analyze" || arg == "-A");
@@ -1215,6 +1218,9 @@ fn main() {
     }
     if no_cache {
         args.retain(|arg| arg != "--no-cache");
+    }
+    if profiling {
+        args.retain(|arg| arg != "--prof");
     }
     if roots_only {
         args.retain(|arg| arg != "--roots-only");
@@ -1329,6 +1335,7 @@ fn main() {
                 show_stats,
                 trace_aether,
                 strict_mode,
+                profiling,
                 diagnostics_format,
                 all_errors,
                 dump_core,
@@ -1392,6 +1399,7 @@ fn main() {
                     show_stats,
                     trace_aether,
                     strict_mode,
+                    profiling,
                     diagnostics_format,
                     all_errors,
                     dump_core,
@@ -1628,6 +1636,7 @@ Flags:
   --root <path>      Add a module root (can be repeated)
   --roots-only       Use only explicitly provided --root values
   --stats            Print execution analytics (parse/compile/execute times, module info)
+  --prof             Print per-function profiling report (call counts, time, allocations)
   --strict           Enable strict type/effect boundary checks
   --all-errors       Show diagnostics from all phases (disable stage-aware filtering)
   --dump-core        Lower to Flux Core IR, print a readable dump, and exit
@@ -1666,6 +1675,7 @@ fn run_file(
     show_stats: bool,
     trace_aether: bool,
     strict_mode: bool,
+    profiling: bool,
     diagnostics_format: DiagnosticOutputFormat,
     all_errors: bool,
     dump_core: CoreDumpMode,
@@ -1758,6 +1768,9 @@ fn run_file(
             let compile_start = Instant::now();
             let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
             compiler.set_strict_mode(strict_mode);
+            if profiling {
+                compiler.set_profiling(true);
+            }
             let entry_canonical = std::fs::canonicalize(entry_path).ok();
             let mut preloaded_interfaces: HashSet<PathBuf> = HashSet::new();
             let mut loaded_interfaces: HashMap<
@@ -2842,12 +2855,19 @@ fn run_file(
             eprintln!("[cfg→vm] Running via CFG → bytecode VM backend...");
             let mut vm = VM::new(bytecode);
             vm.set_trace(trace);
+            if profiling {
+                vm.set_profiling(true, compiler.cost_centre_infos.clone());
+            }
             let exec_start = Instant::now();
             if let Err(err) = vm.run() {
                 eprintln!("{}", err);
                 std::process::exit(1);
             }
-            let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
+            let execute_ns = exec_start.elapsed().as_nanos() as u64;
+            let execute_ms = execute_ns as f64 / 1_000_000.0;
+            if profiling {
+                vm.print_profile_report(execute_ns);
+            }
             if leak_detector {
                 print_leak_stats();
             }

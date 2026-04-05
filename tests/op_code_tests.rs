@@ -216,7 +216,7 @@ mod tests {
         // Ensure MAX_OPCODE stays in sync when new opcodes are added.
         assert_eq!(
             flux::bytecode::op_code::MAX_OPCODE,
-            OpCode::OpTailCall1 as u8,
+            OpCode::OpEnterCC as u8,
             "MAX_OPCODE must equal the last OpCode variant"
         );
     }
