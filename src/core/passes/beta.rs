@@ -58,6 +58,7 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
         CoreExpr::Lam { .. }
         | CoreExpr::Let { .. }
         | CoreExpr::LetRec { .. }
+        | CoreExpr::LetRecGroup { .. }
         | CoreExpr::Case { .. }
         | CoreExpr::Con { .. }
         | CoreExpr::PrimOp { .. }

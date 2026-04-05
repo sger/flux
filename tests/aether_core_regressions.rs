@@ -62,6 +62,12 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
             out.extend(collect_core_exprs(rhs));
             out.extend(collect_core_exprs(body));
         }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                out.extend(collect_core_exprs(rhs));
+            }
+            out.extend(collect_core_exprs(body));
+        }
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {

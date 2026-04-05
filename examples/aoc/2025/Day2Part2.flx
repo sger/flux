@@ -113,7 +113,7 @@ module Day2Part2 {
         }
     }
 
-    fn parse_ranges(path) {
+    fn parse_ranges(path) with IO {
         [parse_range_token(t)
             | t <- read_file(path)
                 |> trim

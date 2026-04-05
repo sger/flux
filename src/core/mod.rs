@@ -740,6 +740,14 @@ pub enum CoreExpr {
         body: Box<CoreExpr>,
         span: Span,
     },
+    /// Multi-binding recursive let for mutually recursive functions.
+    /// All binders are in scope for all RHS expressions, enabling mutual
+    /// recursion. Analogous to GHC's `Rec` / Koka's `DefRec`.
+    LetRecGroup {
+        bindings: Vec<(CoreBinder, Box<CoreExpr>)>,
+        body: Box<CoreExpr>,
+        span: Span,
+    },
     Case {
         scrutinee: Box<CoreExpr>,
         alts: Vec<CoreAlt>,
@@ -914,6 +922,7 @@ impl CoreExpr {
             | CoreExpr::AetherCall { span, .. }
             | CoreExpr::Let { span, .. }
             | CoreExpr::LetRec { span, .. }
+            | CoreExpr::LetRecGroup { span, .. }
             | CoreExpr::Case { span, .. }
             | CoreExpr::Con { span, .. }
             | CoreExpr::PrimOp { span, .. }

@@ -131,6 +131,12 @@ fn collect_aether_debug_details(
                 walk(rhs, interner, details);
                 walk(body, interner, details);
             }
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                for (_, rhs) in bindings {
+                    walk(rhs, interner, details);
+                }
+                walk(body, interner, details);
+            }
             CoreExpr::Case {
                 scrutinee, alts, ..
             } => {

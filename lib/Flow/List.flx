@@ -66,10 +66,13 @@ module Flow.List {
             }
             fold_arr(0, acc)
         } else {
-            match xs {
-                [h | t] -> fold(t, f(acc, h), f),
-                _ -> acc
+            fn fold_list(ys, a) {
+                match ys {
+                    [h | t] -> fold_list(t, f(a, h)),
+                    _ -> a
+                }
             }
+            fold_list(xs, acc)
         }
     }
 

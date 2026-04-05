@@ -256,6 +256,55 @@ impl<'a> FnCtx<'a> {
                 self.with_bound_var(var.id, var.name, rhs_var, |this| this.lower_expr(body))
             }
 
+            CoreExpr::LetRecGroup {
+                bindings,
+                body,
+                span,
+            } => {
+                // Phase 1: Create placeholders for all bindings so they can
+                // reference each other (mutual recursion).
+                let mut placeholders = Vec::with_capacity(bindings.len());
+                for (var, _) in bindings {
+                    let placeholder = self.ctx.alloc_var();
+                    self.emit(IrInstr::Assign {
+                        dest: placeholder,
+                        expr: IrExpr::LoadName(var.name),
+                        metadata: IrMetadata::from_span(*span),
+                    });
+                    self.env.insert(var.id, placeholder);
+                    self.binder_names.insert(var.id, var.name);
+                    placeholders.push((var, placeholder));
+                }
+
+                // Phase 2: Lower each RHS with all binders in scope.
+                let mut rhs_vars = Vec::with_capacity(bindings.len());
+                for (var, rhs) in bindings {
+                    let rhs_var = match rhs.as_ref() {
+                        CoreExpr::Lam { .. } => {
+                            self.lower_lam_as_closure(Some(var.name), Some(var.id), rhs.as_ref())
+                        }
+                        _ => self.lower_expr(rhs),
+                    };
+                    rhs_vars.push((var, rhs_var));
+                }
+
+                // Phase 3: Rebind to actual lowered values.
+                for (var, rhs_var) in &rhs_vars {
+                    self.env.insert(var.id, *rhs_var);
+                }
+
+                // Phase 4: Lower the body.
+                let result = self.lower_expr(body);
+
+                // Phase 5: Remove bindings from env.
+                for (var, _) in bindings {
+                    self.env.remove(&var.id);
+                    self.binder_names.remove(&var.id);
+                }
+
+                result
+            }
+
             CoreExpr::Case {
                 scrutinee,
                 alts,

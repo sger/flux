@@ -37,4 +37,3 @@ fn stdlib_list_large_vm() {
         "expected all 8 tests to pass, got:\n{stdout}"
     );
 }
-

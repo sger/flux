@@ -61,6 +61,7 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
         }
         // Never inline recursive bindings.
         CoreExpr::LetRec { .. }
+        | CoreExpr::LetRecGroup { .. }
         | CoreExpr::Lam { .. }
         | CoreExpr::App { .. }
         | CoreExpr::Case { .. }
@@ -129,6 +130,17 @@ fn count_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
                 0 // shadowed in both rhs and body
             } else {
                 count_occurrences(var, rhs) + count_occurrences(var, body)
+            }
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            if bindings.iter().any(|(b, _)| b.id == var) {
+                0 // shadowed by one of the group binders
+            } else {
+                bindings
+                    .iter()
+                    .map(|(_, rhs)| count_occurrences(var, rhs))
+                    .sum::<usize>()
+                    + count_occurrences(var, body)
             }
         }
         CoreExpr::Case {
@@ -226,6 +238,13 @@ fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
             body,
             ..
         } => binding.id != var && (occurs_under_lambda(var, rhs) || occurs_under_lambda(var, body)),
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            !bindings.iter().any(|(b, _)| b.id == var)
+                && (bindings
+                    .iter()
+                    .any(|(_, rhs)| occurs_under_lambda(var, rhs))
+                    || occurs_under_lambda(var, body))
+        }
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
