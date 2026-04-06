@@ -61,6 +61,8 @@ fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
     match (short, arity) {
         ("sort", 1) => Some(CorePrimOp::Sort),
         ("sort_by", 2) => Some(CorePrimOp::SortBy),
+        ("safe_div", 2) => Some(CorePrimOp::SafeDiv),
+        ("safe_mod", 2) => Some(CorePrimOp::SafeMod),
         _ => None,
     }
 }
@@ -94,7 +96,9 @@ fn collect_module_paths(
                 let mut parts = prefix.to_vec();
                 parts.push(func_name);
                 parts.join("_")
-            } else if let Some(qual) = entry_qualifier && func_name != "main" {
+            } else if let Some(qual) = entry_qualifier
+                && func_name != "main"
+            {
                 // Entry-file functions get qualified to avoid collisions
                 // with C runtime primops (e.g., flux_sum in libflux_rt.a).
                 // The main function is excluded — it must remain "main" for
@@ -146,7 +150,13 @@ fn build_qualified_names(
         crate::diagnostics::position::Span,
     )> = Vec::new();
     for item in &program.top_level_items {
-        collect_module_paths(item, &[], &mut name_qualified_pairs, interner, entry_qualifier);
+        collect_module_paths(
+            item,
+            &[],
+            &mut name_qualified_pairs,
+            interner,
+            entry_qualifier,
+        );
     }
 
     // Step 2: Match CoreDef entries to qualified names.
@@ -498,10 +508,8 @@ fn promote_tail_calls(program: &mut LirProgram) {
             };
 
             if should_promote {
-                let old = std::mem::replace(
-                    &mut func.blocks[idx].terminator,
-                    LirTerminator::Unreachable,
-                );
+                let old =
+                    std::mem::replace(&mut func.blocks[idx].terminator, LirTerminator::Unreachable);
                 if let LirTerminator::Call {
                     func: call_func,
                     args,

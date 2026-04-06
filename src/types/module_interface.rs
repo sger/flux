@@ -2,11 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    aether::borrow_infer::BorrowSignature,
-    syntax::symbol::Symbol,
-    types::scheme::Scheme,
-};
+use crate::{aether::borrow_infer::BorrowSignature, syntax::symbol::Symbol, types::scheme::Scheme};
 
 pub const MODULE_INTERFACE_FORMAT_VERSION: u16 = crate::cache_paths::CACHE_EPOCH;
 
@@ -173,12 +169,8 @@ mod tests {
         use crate::syntax::symbol::Symbol;
 
         let mut interface = ModuleInterface::new("Test", "hash", "cfg");
-        interface
-            .symbol_table
-            .insert(5, "IO".to_string());
-        interface
-            .symbol_table
-            .insert(10, "MyAdt".to_string());
+        interface.symbol_table.insert(5, "IO".to_string());
+        interface.symbol_table.insert(10, "MyAdt".to_string());
         interface.schemes.insert(
             "run".to_string(),
             Scheme::mono(InferType::Fun(

@@ -671,17 +671,13 @@ impl<'a> FnEmitter<'a> {
                         else_block,
                         ..
                     } => vec![then_block.0, else_block.0],
-                    LirTerminator::Switch {
-                        cases, default, ..
-                    } => {
+                    LirTerminator::Switch { cases, default, .. } => {
                         let mut v: Vec<_> = cases.iter().map(|(_, t)| t.0).collect();
                         v.push(default.0);
                         v
                     }
                     LirTerminator::Call { cont, .. } => vec![cont.0],
-                    LirTerminator::MatchCtor {
-                        arms, default, ..
-                    } => {
+                    LirTerminator::MatchCtor { arms, default, .. } => {
                         let mut v: Vec<_> = arms.iter().map(|a| a.target.0).collect();
                         v.push(default.0);
                         v
@@ -999,8 +995,8 @@ impl<'a> FnEmitter<'a> {
             LirInstr::IAdd { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::Add, *a, *b),
             LirInstr::ISub { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::Sub, *a, *b),
             LirInstr::IMul { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::Mul, *a, *b),
-            LirInstr::IDiv { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::SDiv, *a, *b),
-            LirInstr::IRem { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::SRem, *a, *b),
+            LirInstr::IDiv { dst, a, b } => self.emit_idiv_call(*dst, *a, *b),
+            LirInstr::IRem { dst, a, b } => self.emit_irem_call(*dst, *a, *b),
 
             LirInstr::ICmp { dst, op, a, b } => {
                 let cmp_op = match op {
@@ -1484,6 +1480,73 @@ impl<'a> FnEmitter<'a> {
             ty: LlvmType::i64(),
             lhs: self.var(a),
             rhs: self.var(b),
+        });
+    }
+
+    /// Emit integer division with a zero-divisor guard.
+    /// Tags raw values, calls `flux_rt_div` (which panics on zero), and untags the result.
+    fn emit_idiv_call(&mut self, dst: LirVar, a: LirVar, b: LirVar) {
+        self.emit_checked_int_op(dst, a, b, "flux_rt_div");
+    }
+
+    /// Emit integer modulo with a zero-divisor guard.
+    fn emit_irem_call(&mut self, dst: LirVar, a: LirVar, b: LirVar) {
+        self.emit_checked_int_op(dst, a, b, "flux_rt_mod");
+    }
+
+    /// Tag raw integers, call a C runtime function, and untag the result.
+    fn emit_checked_int_op(&mut self, dst: LirVar, a: LirVar, b: LirVar, c_name: &str) {
+        // Tag: (raw << 1) | 1
+        let a_tag = LlvmLocal(format!("dz{}_a_tag", self.next_tmp));
+        let a_tag2 = LlvmLocal(format!("dz{}_a_tag2", self.next_tmp));
+        self.emit(LlvmInstr::Binary {
+            dst: a_tag.clone(),
+            op: LlvmValueKind::Shl,
+            ty: LlvmType::i64(),
+            lhs: self.var(a),
+            rhs: self.i64_const(1),
+        });
+        self.emit(LlvmInstr::Binary {
+            dst: a_tag2.clone(),
+            op: LlvmValueKind::Or,
+            ty: LlvmType::i64(),
+            lhs: LlvmOperand::Local(a_tag),
+            rhs: self.i64_const(1),
+        });
+        let b_tag = LlvmLocal(format!("dz{}_b_tag", self.next_tmp));
+        let b_tag2 = LlvmLocal(format!("dz{}_b_tag2", self.next_tmp));
+        self.emit(LlvmInstr::Binary {
+            dst: b_tag.clone(),
+            op: LlvmValueKind::Shl,
+            ty: LlvmType::i64(),
+            lhs: self.var(b),
+            rhs: self.i64_const(1),
+        });
+        self.emit(LlvmInstr::Binary {
+            dst: b_tag2.clone(),
+            op: LlvmValueKind::Or,
+            ty: LlvmType::i64(),
+            lhs: LlvmOperand::Local(b_tag),
+            rhs: self.i64_const(1),
+        });
+        // Call the C runtime function (which checks for zero).
+        let tagged_result = LlvmLocal(format!("dz{}_result", self.next_tmp));
+        self.call_c(
+            Some(tagged_result.clone()),
+            c_name,
+            vec![
+                (LlvmType::i64(), LlvmOperand::Local(a_tag2)),
+                (LlvmType::i64(), LlvmOperand::Local(b_tag2)),
+            ],
+            LlvmType::i64(),
+        );
+        // Untag: result >> 1  (arithmetic shift right)
+        self.emit(LlvmInstr::Binary {
+            dst: self.var_local(dst),
+            op: LlvmValueKind::AShr,
+            ty: LlvmType::i64(),
+            lhs: LlvmOperand::Local(tagged_result),
+            rhs: self.i64_const(1),
         });
     }
 
@@ -2805,6 +2868,8 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::IsYielding => return "flux_is_yielding".to_string(),
         CorePrimOp::PerformDirect => return "flux_perform_direct".to_string(),
         CorePrimOp::Unwrap => return "flux_unwrap".to_string(),
+        CorePrimOp::SafeDiv => return "flux_safe_div".to_string(),
+        CorePrimOp::SafeMod => return "flux_safe_mod".to_string(),
     };
 
     // Look up in builtins table for the C name.
@@ -2827,6 +2892,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_wrap_some" | "flux_make_left" | "flux_make_right" => {
             (LlvmType::i64(), vec![LlvmType::i64()])
         }
+        "flux_panic" => (LlvmType::Void, vec![LlvmType::i64()]),
         "flux_make_cons" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_make_array" | "flux_make_tuple" | "flux_make_hash" | "flux_interpolate" => {
             (LlvmType::i64(), vec![LlvmType::Ptr, LlvmType::i32()])
@@ -2841,9 +2907,9 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_reverse" | "flux_sort_default" | "flux_flatten" => {
             (LlvmType::i64(), vec![LlvmType::i64()])
         }
-        "flux_contains" | "flux_ho_sort_by" | "flux_ho_map" | "flux_ho_filter" | "flux_ho_any"
-        | "flux_ho_all" | "flux_ho_each" | "flux_ho_find" | "flux_ho_count"
-        | "flux_ho_flat_map" | "flux_zip" => {
+        "flux_safe_div" | "flux_safe_mod" | "flux_contains" | "flux_ho_sort_by" | "flux_ho_map"
+        | "flux_ho_filter" | "flux_ho_any" | "flux_ho_all" | "flux_ho_each" | "flux_ho_find"
+        | "flux_ho_count" | "flux_ho_flat_map" | "flux_zip" => {
             (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()])
         }
         // Effect handlers (Koka-style yield model)

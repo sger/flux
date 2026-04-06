@@ -462,6 +462,8 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         CorePrimOp::And | CorePrimOp::Or | CorePrimOp::Not | CorePrimOp::Eq | CorePrimOp::NEq => {
             true
         }
+        // Safe arithmetic (Proposal 0135) — total, always returns Option
+        CorePrimOp::SafeDiv | CorePrimOp::SafeMod => true,
         // Constructors — always pure
         CorePrimOp::MakeList
         | CorePrimOp::MakeArray

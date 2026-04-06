@@ -55,6 +55,10 @@ pub fn execute_core_primop(
             "imod",
         ),
 
+        // ── Safe arithmetic (Proposal 0135) ──────────────────────────
+        SafeDiv => safe_arith_div(&args),
+        SafeMod => safe_arith_mod(&args),
+
         // ── Typed float arithmetic ────────────────────────────────────
         FAdd => float2(&args, |a, b| Value::Float(a + b), "fadd"),
         FSub => float2(&args, |a, b| Value::Float(a - b), "fsub"),
@@ -869,5 +873,83 @@ fn hash_key_to_value(key: &HashKey) -> Value {
         HashKey::Integer(v) => Value::Integer(*v),
         HashKey::Boolean(v) => Value::Boolean(*v),
         HashKey::String(v) => Value::String(v.clone().into()),
+    }
+}
+
+// ── Safe arithmetic (Proposal 0135) ─────────────────────────────────────────
+
+fn safe_arith_div(args: &[Value]) -> Result<Value, String> {
+    match (&args[0], &args[1]) {
+        (Value::Integer(a), Value::Integer(b)) => {
+            if *b == 0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Integer(a / b))))
+            }
+        }
+        (Value::Float(a), Value::Float(b)) => {
+            if *b == 0.0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Float(a / b))))
+            }
+        }
+        (Value::Integer(a), Value::Float(b)) => {
+            if *b == 0.0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Float(*a as f64 / b))))
+            }
+        }
+        (Value::Float(a), Value::Integer(b)) => {
+            if *b == 0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Float(a / *b as f64))))
+            }
+        }
+        (a, b) => Err(format!(
+            "safe_div expects (Number, Number), got ({}, {})",
+            a.type_name(),
+            b.type_name()
+        )),
+    }
+}
+
+fn safe_arith_mod(args: &[Value]) -> Result<Value, String> {
+    match (&args[0], &args[1]) {
+        (Value::Integer(a), Value::Integer(b)) => {
+            if *b == 0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Integer(a % b))))
+            }
+        }
+        (Value::Float(a), Value::Float(b)) => {
+            if *b == 0.0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Float(a % b))))
+            }
+        }
+        (Value::Integer(a), Value::Float(b)) => {
+            if *b == 0.0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Float(*a as f64 % b))))
+            }
+        }
+        (Value::Float(a), Value::Integer(b)) => {
+            if *b == 0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Float(*a % *b as f64))))
+            }
+        }
+        (a, b) => Err(format!(
+            "safe_mod expects (Number, Number), got ({}, {})",
+            a.type_name(),
+            b.type_name()
+        )),
     }
 }

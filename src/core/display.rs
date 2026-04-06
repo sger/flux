@@ -643,6 +643,8 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::IsYielding => out.push_str("IsYielding"),
         CorePrimOp::PerformDirect => out.push_str("PerformDirect"),
         CorePrimOp::Unwrap => out.push_str("Unwrap"),
+        CorePrimOp::SafeDiv => out.push_str("SafeDiv"),
+        CorePrimOp::SafeMod => out.push_str("SafeMod"),
     }
 }
 

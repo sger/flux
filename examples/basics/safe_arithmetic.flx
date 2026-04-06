@@ -1,0 +1,50 @@
+// Safe arithmetic: total division and modulo (Proposal 0135)
+//
+// safe_div and safe_mod never panic — they return Option:
+//   Some(result) on success, None on division by zero.
+
+fn main() with IO {
+    // ── Basic usage ──────────────────────────────────────────────────
+    print(safe_div(10, 3))      // Some(3)
+    print(safe_div(10, 0))      // None  (no panic!)
+    print(safe_mod(10, 3))      // Some(1)
+    print(safe_mod(10, 0))      // None
+
+    // ── Pattern matching on the result ───────────────────────────────
+    fn average(total, count) {
+        match safe_div(total, count) {
+            Some(avg) -> "Average: " + to_string(avg),
+            None -> "Cannot compute average of zero items",
+        }
+    }
+
+    print(average(100, 4))      // "Average: 25"
+    print(average(100, 0))      // "Cannot compute average of zero items"
+
+    // ── Using with default values ────────────────────────────────────
+    fn safe_divide_or(a, b, default) {
+        match safe_div(a, b) {
+            Some(v) -> v,
+            None -> default,
+        }
+    }
+
+    print(safe_divide_or(100, 5, 0))    // 20
+    print(safe_divide_or(100, 0, -1))   // -1
+
+    // ── Negative numbers ─────────────────────────────────────────────
+    print(safe_div(-15, 3))     // Some(-5)
+    print(safe_mod(-10, 3))     // Some(-1)
+
+    // ── Chaining safe operations ─────────────────────────────────────
+    fn chain_div(a, b, c) {
+        match safe_div(a, b) {
+            Some(ab) -> safe_div(ab, c),
+            None -> None,
+        }
+    }
+
+    print(chain_div(100, 5, 2))     // Some(10)
+    print(chain_div(100, 0, 2))     // None  (first division fails)
+    print(chain_div(100, 5, 0))     // None  (second division fails)
+}

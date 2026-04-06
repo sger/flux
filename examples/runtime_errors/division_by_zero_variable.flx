@@ -1,0 +1,4 @@
+fn main() {
+    let x = 0
+    let ignored = 100 / x
+}

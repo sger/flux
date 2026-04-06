@@ -414,6 +414,30 @@ int64_t flux_wrap_some(int64_t val) {
     return flux_tag_ptr(mem);
 }
 
+/* ── Safe arithmetic (Proposal 0135) ───────────────────────────────── */
+
+int64_t flux_safe_div(int64_t a, int64_t b) {
+    if (flux_val_is_float(a)) {
+        double fb = flux_unbox_float(b);
+        if (fb == 0.0) return flux_make_none();
+        return flux_wrap_some(flux_box_float(flux_unbox_float(a) / fb));
+    }
+    int64_t rb = flux_untag_int(b);
+    if (rb == 0) return flux_make_none();
+    return flux_wrap_some(flux_tag_int(flux_untag_int(a) / rb));
+}
+
+int64_t flux_safe_mod(int64_t a, int64_t b) {
+    if (flux_val_is_float(a)) {
+        double fb = flux_unbox_float(b);
+        if (fb == 0.0) return flux_make_none();
+        return flux_wrap_some(flux_box_float(fmod(flux_unbox_float(a), fb)));
+    }
+    int64_t rb = flux_untag_int(b);
+    if (rb == 0) return flux_make_none();
+    return flux_wrap_some(flux_tag_int(flux_untag_int(a) % rb));
+}
+
 int64_t flux_make_left(int64_t val) {
     void *mem = flux_gc_alloc_header(8 + 8, 1, FLUX_OBJ_ADT);
     int32_t *hdr = (int32_t *)mem;
@@ -693,7 +717,7 @@ void flux_panic(int64_t msg) {
         fprintf(stderr, "\n");
     }
     flux_trace_print();
-    abort();
+    exit(1);
 }
 
 /* Allocate a tuple: { u8 obj_tag=0xF3, u8[3] pad, u32 arity, i64 elements[] }. */

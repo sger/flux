@@ -1,0 +1,45 @@
+// parity: vm, llvm
+// expect: success
+// Tests NonZero type-safe division (Proposal 0135 Phase 2).
+
+import Flow.NonZero exposing (..)
+
+fn main() with IO {
+    // Smart constructor accepts non-zero
+    match non_zero(5) {
+        Some(nz) -> print(from_non_zero(nz)),
+        None -> print("fail"),
+    }
+
+    // Smart constructor rejects zero
+    match non_zero(0) {
+        Some(_) -> print("fail"),
+        None -> print("rejected"),
+    }
+
+    // div_nz: total division
+    match non_zero(4) {
+        Some(nz) -> do {
+            print(div_nz(100, nz))
+            print(div_nz(0, nz))
+            print(mod_nz(17, nz))
+        },
+        None -> print("fail"),
+    }
+
+    // div_mod_nz
+    match non_zero(3) {
+        Some(nz) -> print(div_mod_nz(10, nz)),
+        None -> print("fail"),
+    }
+
+    // Negative NonZero
+    match non_zero(-2) {
+        Some(nz) -> do {
+            print(div_nz(10, nz))
+            print(from_non_zero(abs_nz(nz)))
+            print(from_non_zero(negate_nz(nz)))
+        },
+        None -> print("fail"),
+    }
+}
