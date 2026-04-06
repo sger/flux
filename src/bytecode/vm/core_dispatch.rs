@@ -412,6 +412,10 @@ pub fn execute_core_primop(
         }
 
         // ── Control ───────────────────────────────────────────────────
+        Unwrap => match &args[0] {
+            Value::None => Err("unwrap called on None".into()),
+            other => Ok(other.clone()),
+        },
         Panic => Err(format!("panic: {}", args[0].to_string_value())),
         ClockNow => {
             let now = SystemTime::now()

@@ -622,10 +622,14 @@ impl<'a> FnLower<'a> {
     }
 
     /// Resolve an Identifier (Symbol) to a string name.
-    /// Falls back to the numeric symbol ID if no interner is available.
+    /// Falls back to the numeric symbol ID if no interner is available or
+    /// if the symbol is synthetic (not in the interner's string table).
     fn resolve_name(&self, name: crate::syntax::Identifier) -> String {
         if let Some(interner) = self.interner {
-            interner.resolve(name).to_string()
+            interner
+                .try_resolve(name)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("sym_{}", name.as_u32()))
         } else {
             format!("ctor_{}", name)
         }
@@ -1375,10 +1379,28 @@ impl<'a> FnLower<'a> {
                     return dst;
                 }
 
-                // Fallback: lower the object and ignore the member.
+                // Fallback: runtime map member access.
+                // Lower the object, create a string key for the member name,
+                // and emit flux_hamt_get(object, key) + flux_unwrap(result).
                 let obj = self.lower_expr(object);
+                let member_str = self.resolve_name(*member);
+                let key = self.fresh_var();
+                self.emit(LirInstr::Const {
+                    dst: key,
+                    value: LirConst::String(member_str),
+                });
+                let option_result = self.fresh_var();
+                self.emit(LirInstr::PrimCall {
+                    dst: Some(option_result),
+                    op: CorePrimOp::HamtGet,
+                    args: vec![obj, key],
+                });
                 let dst = self.fresh_var();
-                self.emit(LirInstr::Copy { dst, src: obj });
+                self.emit(LirInstr::PrimCall {
+                    dst: Some(dst),
+                    op: CorePrimOp::Unwrap,
+                    args: vec![option_result],
+                });
                 dst
             }
 

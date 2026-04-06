@@ -2804,6 +2804,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::YieldPrompt => return "flux_yield_prompt".to_string(),
         CorePrimOp::IsYielding => return "flux_is_yielding".to_string(),
         CorePrimOp::PerformDirect => return "flux_perform_direct".to_string(),
+        CorePrimOp::Unwrap => return "flux_unwrap".to_string(),
     };
 
     // Look up in builtins table for the C name.
