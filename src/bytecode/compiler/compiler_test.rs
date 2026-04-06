@@ -246,7 +246,9 @@ fn compile_function_fuses_get_local_index() {
 
 #[test]
 fn compile_function_fuses_get_local_call1() {
-    let asm = compile_function_asm("fn f(x) { let g = fn(n) { n }; g(x) }", "f");
+    // Use a non-tail-position call so OpGetLocalCall1 fusion applies.
+    // Tail-position calls emit OpTailCall instead (which is better).
+    let asm = compile_function_asm("fn f(x) { let g = fn(n) { n }; g(x) + 1 }", "f");
     assert!(
         asm.contains("OpGetLocalCall1"),
         "expected fused local call1:\n{asm}"

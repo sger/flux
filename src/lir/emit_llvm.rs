@@ -651,6 +651,49 @@ impl<'a> FnEmitter<'a> {
     // ── Function emission ───────────────────────────────────────────
 
     fn emit_function(&mut self) -> LlvmFunction {
+        // Pre-pass: compute reachable blocks. After tail call promotion,
+        // some continuation blocks become orphaned. Emitting them would
+        // produce invalid LLVM SSA (undefined phi values).
+        let reachable = {
+            let mut visited = HashSet::new();
+            let mut worklist = vec![0u32]; // entry block
+            while let Some(idx) = worklist.pop() {
+                if !visited.insert(idx) {
+                    continue;
+                }
+                let Some(block) = self.func.blocks.get(idx as usize) else {
+                    continue;
+                };
+                let successors: Vec<u32> = match &block.terminator {
+                    LirTerminator::Jump(t) => vec![t.0],
+                    LirTerminator::Branch {
+                        then_block,
+                        else_block,
+                        ..
+                    } => vec![then_block.0, else_block.0],
+                    LirTerminator::Switch {
+                        cases, default, ..
+                    } => {
+                        let mut v: Vec<_> = cases.iter().map(|(_, t)| t.0).collect();
+                        v.push(default.0);
+                        v
+                    }
+                    LirTerminator::Call { cont, .. } => vec![cont.0],
+                    LirTerminator::MatchCtor {
+                        arms, default, ..
+                    } => {
+                        let mut v: Vec<_> = arms.iter().map(|a| a.target.0).collect();
+                        v.push(default.0);
+                        v
+                    }
+                    // Return, TailCall, Unreachable have no successors.
+                    _ => vec![],
+                };
+                worklist.extend(successors);
+            }
+            visited
+        };
+
         // Pre-pass: collect phi-node information.
         // Block params in LIR are written via Copy instructions in predecessor
         // blocks.  In LLVM SSA, these become phi nodes at the target block.
@@ -665,6 +708,11 @@ impl<'a> FnEmitter<'a> {
             .collect();
 
         for block in &self.func.blocks {
+            // Skip unreachable blocks — their Copy instructions must not
+            // contribute phi edges (orphaned by tail call promotion).
+            if !reachable.contains(&block.id.0) {
+                continue;
+            }
             for instr in &block.instrs {
                 if let LirInstr::Copy { dst, src } = instr
                     && block_param_vars.contains(&dst.0)
@@ -677,6 +725,11 @@ impl<'a> FnEmitter<'a> {
         let mut blocks = Vec::new();
 
         for block in &self.func.blocks {
+            // Skip unreachable blocks entirely.
+            if !reachable.contains(&block.id.0) {
+                continue;
+            }
+
             self.current_instrs.clear();
 
             // Emit phi nodes for block parameters.
@@ -2084,8 +2137,6 @@ impl<'a> FnEmitter<'a> {
                             .program
                             .func_by_id(*func_id)
                             .expect("Direct tail call references unknown LirFuncId");
-                        // In worker mode, if the callee is also worker-eligible,
-                        // call the worker variant directly to bypass tag/untag.
                         let use_worker = self.worker_mode && self.worker_eligible.contains(func_id);
                         let target_name = if use_worker {
                             format!("flux_{}$w", target.qualified_name)
@@ -2096,26 +2147,40 @@ impl<'a> FnEmitter<'a> {
                             .iter()
                             .map(|a| (LlvmType::i64(), self.var(*a)))
                             .collect();
-                        self.call_fastcc(
-                            Some(result.clone()),
-                            &target_name,
-                            call_args,
-                            LlvmType::i64(),
-                        );
+                        if !is_fastcc_prelude_helper(&target_name) {
+                            self.needed_user_fastcc_decls
+                                .insert((target_name.clone(), call_args.len()));
+                        }
+                        self.emit(LlvmInstr::Call {
+                            dst: Some(result.clone()),
+                            tail: true,
+                            call_conv: Some(CallConv::Fastcc),
+                            ret_ty: LlvmType::i64(),
+                            callee: LlvmOperand::Global(GlobalId(target_name)),
+                            args: call_args,
+                            attrs: Vec::new(),
+                        });
                     }
                     CallKind::DirectExtern { symbol } => {
                         let call_args: Vec<(LlvmType, LlvmOperand)> = args
                             .iter()
                             .map(|a| (LlvmType::i64(), self.var(*a)))
                             .collect();
-                        self.call_extern_fastcc_user(
-                            Some(result.clone()),
-                            symbol,
-                            call_args,
-                            LlvmType::i64(),
-                        );
+                        self.needed_user_fastcc_decls
+                            .insert((symbol.clone(), call_args.len()));
+                        self.emit(LlvmInstr::Call {
+                            dst: Some(result.clone()),
+                            tail: true,
+                            call_conv: Some(CallConv::Fastcc),
+                            ret_ty: LlvmType::i64(),
+                            callee: LlvmOperand::Global(GlobalId(symbol.clone())),
+                            args: call_args,
+                            attrs: Vec::new(),
+                        });
                     }
                     CallKind::Indirect => {
+                        // Indirect calls go through flux_call_closure which has
+                        // a different prototype — do NOT mark as tail call.
                         let llvm_args = self.build_call_args(args);
                         self.call_fastcc(
                             Some(result.clone()),
