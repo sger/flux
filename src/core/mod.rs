@@ -462,7 +462,11 @@ pub enum CorePrimOp {
     IsYielding = 128,
     /// Direct (tail-resumptive) perform: calls handler inline, no yield.
     PerformDirect = 129,
-    // ── Next free ID: 130 ─────────────────────────────────────────────
+
+    // ── Option operations ────────────────────────────────────────────
+    /// Unwrap a Some value — panics if None.
+    Unwrap = 130,
+    // ── Next free ID: 131 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -473,8 +477,8 @@ impl CorePrimOp {
 
     /// Reconstruct from a `u8` discriminant.  Returns `None` for invalid IDs.
     pub fn from_id(id: u8) -> Option<Self> {
-        if id <= 129 {
-            // SAFETY: all discriminants 0..=129 are defined and the enum is
+        if id <= 130 {
+            // SAFETY: all discriminants 0..=130 are defined and the enum is
             // `#[repr(u8)]`, so the transmute is valid for any value in range.
             Some(unsafe { std::mem::transmute::<u8, CorePrimOp>(id) })
         } else {
@@ -576,6 +580,7 @@ impl CorePrimOp {
             ("trim", 1, CorePrimOp::Trim),
             ("try", 1, CorePrimOp::Try),
             ("type_of", 1, CorePrimOp::TypeOf),
+            ("unwrap", 1, CorePrimOp::Unwrap),
             ("upper", 1, CorePrimOp::Upper),
             ("values", 1, CorePrimOp::HamtValues),
             ("write_file", 2, CorePrimOp::WriteFile),
@@ -596,7 +601,7 @@ impl CorePrimOp {
             | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | ParseInts | Print
             | Println | ReadFile | ReadLines | StringLength | ToArray | ToList | ToString
             | Trim | Try | AssertThrows | TypeOf | Upper | HamtKeys | HamtValues | HamtSize
-            | Neg | Not | Reverse | Sort | Flatten => 1,
+            | Neg | Not | Reverse | Sort | Flatten | Unwrap => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe

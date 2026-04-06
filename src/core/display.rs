@@ -642,6 +642,7 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::YieldPrompt => out.push_str("YieldPrompt"),
         CorePrimOp::IsYielding => out.push_str("IsYielding"),
         CorePrimOp::PerformDirect => out.push_str("PerformDirect"),
+        CorePrimOp::Unwrap => out.push_str("Unwrap"),
     }
 }
 

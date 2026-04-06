@@ -60,6 +60,7 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::CmpEq => "cmp_eq",
         CorePrimOp::CmpNe => "cmp_ne",
         CorePrimOp::Panic => "panic",
+        CorePrimOp::Unwrap => "unwrap",
         CorePrimOp::ClockNow => "now_ms",
         CorePrimOp::Time => "time",
         CorePrimOp::Try => "try",
@@ -267,6 +268,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::IsList
             | CorePrimOp::IsMap
             | CorePrimOp::Panic
+            | CorePrimOp::Unwrap
             | CorePrimOp::ClockNow
             | CorePrimOp::Time
             | CorePrimOp::ParseInt
