@@ -549,6 +549,29 @@ int64_t flux_rt_index(int64_t collection, int64_t key) {
         int64_t *elems = (int64_t *)((char *)ptr + 8);
         return flux_wrap_some(elems[idx]);
     }
+    case FLUX_OBJ_ADT: {
+        /* Cons list: ctor_tag=4, traverse to nth element. */
+        int32_t ctor_tag = *(int32_t *)ptr;
+        if (ctor_tag == 4) {
+            int64_t idx = flux_untag_int(key);
+            if (idx < 0) return flux_make_none();
+            int64_t cur = collection;
+            while (flux_is_ptr(cur)) {
+                void *cp = flux_untag_ptr(cur);
+                if (*(int32_t *)cp != 4) break;
+                if (idx == 0) {
+                    int64_t *fields = (int64_t *)((char *)cp + 8);
+                    return flux_wrap_some(fields[0]);
+                }
+                idx--;
+                int64_t *fields = (int64_t *)((char *)cp + 8);
+                cur = fields[1];
+            }
+            return flux_make_none();
+        }
+        /* Non-list ADT: fall through to HAMT check. */
+        return flux_hamt_get_option(collection, key);
+    }
     default: {
         /* Assume HAMT for any other boxed value. */
         return flux_hamt_get_option(collection, key);
