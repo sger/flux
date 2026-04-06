@@ -24,7 +24,7 @@ I can't find a value named `map`.
 
   examples/aoc/2025/aoc_day12_refactored.flx:51:46
    |
-51 |     tokens |> filter(/t -> trim(t) != "") |> map(parse_int)
+51 |     tokens |> filter(/t -> trim(t) != "") |> map(/t -> parse_int(t))
    |                                              ^^^
 
 Hint:

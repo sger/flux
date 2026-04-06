@@ -7,22 +7,6 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
-I can't find a value named `iter_free_bounded`.
-
-  examples/aoc/2025/aoc_day10_part2.flx:687:1
-    |
-687 | iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, 0, max_v, best, mt)
-    | ^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let iter_free_bounded = ...;
-
-Help:
-  Did you mean `search_free_bounded`?
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `map`.
 
   examples/aoc/2025/aoc_day10_part2.flx:752:21
@@ -62,6 +46,6 @@ Hint:
 Help:
   Did you mean `sum_free`?
 
-Found 4 errors.
+Found 3 errors.
 == stdout ==
 <not executed>

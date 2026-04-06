@@ -7,19 +7,6 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
-I can't find a value named `solve`.
-
-  examples/aoc/2025/aoc_day1_part2.flx:47:9
-   |
-47 |         solve(rest, next_pos_right, hits + zeros)
-   |         ^^^^^
-
-Hint:
-  Define it first: let solve = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `map`.
 
   examples/aoc/2025/aoc_day1_part2.flx:63:13
@@ -29,7 +16,5 @@ I can't find a value named `map`.
 
 Hint:
   Define it first: let map = ...;
-
-Found 2 errors.
 == stdout ==
 <not executed>

@@ -7,9 +7,12 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{
-    TypeVarId, infer_effect_row::InferEffectRow, type_constructor::TypeConstructor,
-    type_subst::TypeSubst,
+use crate::{
+    syntax::symbol::Symbol,
+    types::{
+        TypeVarId, infer_effect_row::InferEffectRow, type_constructor::TypeConstructor,
+        type_subst::TypeSubst,
+    },
 };
 
 /// The compile-time type representation used by the HM type checker.
@@ -31,6 +34,56 @@ pub enum InferType {
 }
 
 impl InferType {
+    /// Collect all `Symbol`s (from `Adt` constructors and effect names).
+    pub fn collect_symbols(&self, out: &mut HashSet<Symbol>) {
+        match self {
+            InferType::Var(_) => {}
+            InferType::Con(tc) | InferType::App(tc, _) => {
+                tc.collect_symbols(out);
+                if let InferType::App(_, args) = self {
+                    for arg in args {
+                        arg.collect_symbols(out);
+                    }
+                }
+            }
+            InferType::Fun(params, ret, effects) => {
+                for p in params {
+                    p.collect_symbols(out);
+                }
+                ret.collect_symbols(out);
+                effects.collect_symbols(out);
+            }
+            InferType::Tuple(elems) => {
+                for e in elems {
+                    e.collect_symbols(out);
+                }
+            }
+        }
+    }
+
+    /// Replace Symbol IDs according to `remap`. Returns a new type.
+    pub fn remap_symbols(
+        &self,
+        remap: &std::collections::HashMap<Symbol, Symbol>,
+    ) -> Self {
+        match self {
+            InferType::Var(v) => InferType::Var(*v),
+            InferType::Con(tc) => InferType::Con(tc.remap_symbols(remap)),
+            InferType::App(tc, args) => InferType::App(
+                tc.remap_symbols(remap),
+                args.iter().map(|a| a.remap_symbols(remap)).collect(),
+            ),
+            InferType::Fun(params, ret, effects) => InferType::Fun(
+                params.iter().map(|p| p.remap_symbols(remap)).collect(),
+                Box::new(ret.remap_symbols(remap)),
+                effects.remap_symbols(remap),
+            ),
+            InferType::Tuple(elems) => {
+                InferType::Tuple(elems.iter().map(|e| e.remap_symbols(remap)).collect())
+            }
+        }
+    }
+
     /// Collect all free (unbound) type variables.
     pub fn free_vars(&self) -> HashSet<TypeVarId> {
         let mut set = HashSet::new();
@@ -376,5 +429,94 @@ mod tests {
 
         let applied = infer_type.apply_type_subst(&type_subst);
         assert!(matches!(applied, InferType::Var(0) | InferType::Var(1)));
+    }
+
+    #[test]
+    fn collect_symbols_finds_adt_and_effects() {
+        use crate::syntax::symbol::Symbol;
+
+        let adt_sym = Symbol::new(7);
+        let effect_sym = Symbol::new(42);
+        let infer_type = InferType::Fun(
+            vec![InferType::App(
+                TypeConstructor::Adt(adt_sym),
+                vec![int()],
+            )],
+            Box::new(int()),
+            InferEffectRow::closed_from_symbols([effect_sym]),
+        );
+
+        let mut out = HashSet::new();
+        infer_type.collect_symbols(&mut out);
+        assert!(out.contains(&adt_sym));
+        assert!(out.contains(&effect_sym));
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn collect_symbols_empty_for_primitive_types() {
+        use crate::syntax::symbol::Symbol;
+
+        let infer_type = InferType::Fun(
+            vec![int(), InferType::Con(TypeConstructor::Bool)],
+            Box::new(InferType::Tuple(vec![int(), infer_var(0)])),
+            InferEffectRow::closed_empty(),
+        );
+
+        let mut out = HashSet::<Symbol>::new();
+        infer_type.collect_symbols(&mut out);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn remap_symbols_rewrites_adt_and_effects() {
+        use crate::syntax::symbol::Symbol;
+        use std::collections::HashMap;
+
+        let old_adt = Symbol::new(5);
+        let new_adt = Symbol::new(50);
+        let old_effect = Symbol::new(10);
+        let new_effect = Symbol::new(100);
+
+        let infer_type = InferType::Fun(
+            vec![InferType::App(
+                TypeConstructor::Adt(old_adt),
+                vec![int()],
+            )],
+            Box::new(InferType::Con(TypeConstructor::Adt(old_adt))),
+            InferEffectRow::closed_from_symbols([old_effect]),
+        );
+
+        let remap = HashMap::from([(old_adt, new_adt), (old_effect, new_effect)]);
+        let remapped = infer_type.remap_symbols(&remap);
+
+        let expected = InferType::Fun(
+            vec![InferType::App(
+                TypeConstructor::Adt(new_adt),
+                vec![int()],
+            )],
+            Box::new(InferType::Con(TypeConstructor::Adt(new_adt))),
+            InferEffectRow::closed_from_symbols([new_effect]),
+        );
+        assert_eq!(remapped, expected);
+    }
+
+    #[test]
+    fn remap_symbols_preserves_var_and_builtin_types() {
+        use crate::syntax::symbol::Symbol;
+        use std::collections::HashMap;
+
+        let infer_type = InferType::Fun(
+            vec![infer_var(0), int()],
+            Box::new(InferType::Tuple(vec![
+                InferType::Con(TypeConstructor::Bool),
+                InferType::App(TypeConstructor::List, vec![infer_var(1)]),
+            ])),
+            InferEffectRow::closed_empty(),
+        );
+
+        let remap = HashMap::from([(Symbol::new(99), Symbol::new(100))]);
+        let remapped = infer_type.remap_symbols(&remap);
+        assert_eq!(remapped, infer_type);
     }
 }

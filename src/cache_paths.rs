@@ -15,7 +15,8 @@ use sha2::{Digest, Sha256};
 ///
 /// Epoch 1: initial unified epoch (replaces FXBC=11, FXMC=2, flxi=3, native=2).
 /// Epoch 2: fix parse_int HM signature (String -> Int, was String -> Option<Int>).
-pub const CACHE_EPOCH: u16 = 2;
+/// Epoch 3: portable symbol table in .flxi (re-intern Symbols across sessions).
+pub const CACHE_EPOCH: u16 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

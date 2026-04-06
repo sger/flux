@@ -294,12 +294,14 @@ letrec fold =
                   aether_call[owned, owned] fold_arr(%t65, a))
         aether_call[owned, owned] fold_arr(0, acc)
       _ →
-        case xs of
-          ::(h, t) →
-            let %t66 = aether_call[owned, owned] f(acc, h)
-            aether_call[borrowed, owned, borrowed] fold(t, %t66, f)
-          _ →
-            acc
+        letrec fold_list = (λys, a.
+          case ys of
+            ::(h, t) →
+              let %t66 = aether_call[owned, owned] f(a, h)
+              aether_call[owned, owned] fold_list(t, %t66)
+            _ →
+              a)
+        aether_call[owned, owned] fold_list(xs, acc)
 
 letrec foldr =
 λxs, acc, f.
@@ -314,7 +316,7 @@ letrec fold1 =
 λxs, f.
     case xs of
       ::(h, t) →
-        aether_call[borrowed, owned, borrowed] fold(t, h, f)
+        aether_call[owned, owned, borrowed] fold(t, h, f)
       _ →
         Panic("fold1 called on empty list")
 
