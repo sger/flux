@@ -1,0 +1,66 @@
+// Flow.NonZero — Type-safe non-zero integers (Proposal 0135 Phase 2).
+//
+// NonZero wraps an Int that is guaranteed to be non-zero by construction.
+// The only way to create a NonZero is via the smart constructor `non_zero`,
+// which returns Option<NonZero>. This makes division total by construction:
+// `div_nz(a, b)` cannot fail because `b` is proven non-zero at the type level.
+
+module Flow.NonZero {
+    data NonZero {
+        NonZero(Int),
+    }
+
+    /// Smart constructor: returns Some(NonZero(x)) if x != 0, None otherwise.
+    public fn non_zero(x) {
+        if x == 0 { None } else { Some(NonZero(x)) }
+    }
+
+    /// Extract the Int value from a NonZero.
+    public fn from_non_zero(nz) {
+        match nz {
+            NonZero(v) -> v,
+        }
+    }
+
+    /// Total division: guaranteed safe because the divisor is NonZero.
+    public fn div_nz(a, b) {
+        match b {
+            NonZero(bv) -> a / bv,
+        }
+    }
+
+    /// Total modulo: guaranteed safe because the divisor is NonZero.
+    public fn mod_nz(a, b) {
+        match b {
+            NonZero(bv) -> a % bv,
+        }
+    }
+
+    /// Division returning both quotient and remainder.
+    public fn div_mod_nz(a, b) {
+        match b {
+            NonZero(bv) -> (a / bv, a % bv),
+        }
+    }
+
+    /// Multiply a NonZero by an Int. Result is NonZero only if the Int is non-zero.
+    public fn mul_nz(nz, x) {
+        match nz {
+            NonZero(v) -> non_zero(v * x),
+        }
+    }
+
+    /// Absolute value of a NonZero is always NonZero.
+    public fn abs_nz(nz) {
+        match nz {
+            NonZero(v) -> NonZero(abs(v)),
+        }
+    }
+
+    /// Negate a NonZero. The result is always NonZero.
+    public fn negate_nz(nz) {
+        match nz {
+            NonZero(v) -> NonZero(0 - v),
+        }
+    }
+}

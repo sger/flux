@@ -52,9 +52,7 @@ impl TypeConstructor {
     /// Replace Symbol IDs according to `remap`. Returns a new constructor.
     pub fn remap_symbols(&self, remap: &std::collections::HashMap<Symbol, Symbol>) -> Self {
         match self {
-            TypeConstructor::Adt(sym) => {
-                TypeConstructor::Adt(*remap.get(sym).unwrap_or(sym))
-            }
+            TypeConstructor::Adt(sym) => TypeConstructor::Adt(*remap.get(sym).unwrap_or(sym)),
             other => other.clone(),
         }
     }
@@ -138,8 +136,14 @@ mod tests {
     #[test]
     fn remap_symbols_preserves_builtins() {
         let remap = std::collections::HashMap::from([(Symbol::new(1), Symbol::new(2))]);
-        assert_eq!(TypeConstructor::Int.remap_symbols(&remap), TypeConstructor::Int);
-        assert_eq!(TypeConstructor::List.remap_symbols(&remap), TypeConstructor::List);
+        assert_eq!(
+            TypeConstructor::Int.remap_symbols(&remap),
+            TypeConstructor::Int
+        );
+        assert_eq!(
+            TypeConstructor::List.remap_symbols(&remap),
+            TypeConstructor::List
+        );
     }
 
     #[test]

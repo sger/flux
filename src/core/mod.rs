@@ -466,7 +466,13 @@ pub enum CorePrimOp {
     // ── Option operations ────────────────────────────────────────────
     /// Unwrap a Some value — panics if None.
     Unwrap = 130,
-    // ── Next free ID: 131 ─────────────────────────────────────────────
+
+    // ── Safe arithmetic (Proposal 0135) ──────────────────────────────
+    /// Total division: returns `Some(a / b)` or `None` when `b == 0`.
+    SafeDiv = 131,
+    /// Total modulo:   returns `Some(a % b)` or `None` when `b == 0`.
+    SafeMod = 132,
+    // ── Next free ID: 133 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -477,8 +483,8 @@ impl CorePrimOp {
 
     /// Reconstruct from a `u8` discriminant.  Returns `None` for invalid IDs.
     pub fn from_id(id: u8) -> Option<Self> {
-        if id <= 130 {
-            // SAFETY: all discriminants 0..=130 are defined and the enum is
+        if id <= 132 {
+            // SAFETY: all discriminants 0..=132 are defined and the enum is
             // `#[repr(u8)]`, so the transmute is valid for any value in range.
             Some(unsafe { std::mem::transmute::<u8, CorePrimOp>(id) })
         } else {
@@ -562,6 +568,8 @@ impl CorePrimOp {
             ("read_stdin", 0, CorePrimOp::ReadStdin),
             ("replace", 3, CorePrimOp::Replace),
             ("reverse", 1, CorePrimOp::Reverse),
+            ("safe_div", 2, CorePrimOp::SafeDiv),
+            ("safe_mod", 2, CorePrimOp::SafeMod),
             ("size", 1, CorePrimOp::HamtSize),
             ("slice", 3, CorePrimOp::ArraySlice),
             ("split", 2, CorePrimOp::Split),
@@ -609,7 +617,7 @@ impl CorePrimOp {
             | HamtDelete | HamtMerge | Index | Join | Max | Min | Split | SplitInts
             | StartsWith | EndsWith | StringConcat | StrContains | WriteFile | Contains
             | SortBy | HoMap | HoFilter | HoAny | HoAll | HoEach | HoFind | HoCount | HoFlatMap
-            | Zip => 2,
+            | Zip | SafeDiv | SafeMod => 2,
             HoFold => 3,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate

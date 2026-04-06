@@ -22,6 +22,10 @@ target datalayout = "e-m:e-p:64:64-i64:64-n8:16:32:64-S128"
 
 @flux_arena_limit = external global ptr
 
+@flux_idiv.div_zero_msg = private constant [16 x i8] [i8 68, i8 105, i8 118, i8 105, i8 115, i8 105, i8 111, i8 110, i8 32, i8 98, i8 121, i8 32, i8 122, i8 101, i8 114, i8 111]
+
+@flux_imod.div_zero_msg = private constant [16 x i8] [i8 68, i8 105, i8 118, i8 105, i8 115, i8 105, i8 111, i8 110, i8 32, i8 98, i8 121, i8 32, i8 122, i8 101, i8 114, i8 111]
+
 declare ccc void @flux_dup(i64) nounwind
 
 declare ccc void @flux_drop(i64) nounwind
@@ -35,6 +39,10 @@ declare ccc ptr @flux_gc_alloc_header(i32, i32, i32) nounwind
 declare ccc ptr @flux_bump_alloc_slow(i32, i32, i32) nounwind
 
 declare ccc void @llvm.memset.p0.i64(ptr, i8, i64, i1) nocallback nounwind
+
+declare ccc void @flux_panic(i64) nounwind
+
+declare ccc i64 @flux_string_new(ptr, i32) nounwind
 
 declare ccc i64 @flux_box_float_rt(double) nounwind
 
@@ -184,6 +192,13 @@ define internal fastcc i64 @flux_idiv(i64 %a, i64 %b) alwaysinline {
 entry:
   %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
   %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
+  %is_zero = icmp eq i64 %b_raw, 0
+  br i1 %is_zero, label %panic, label %safe
+panic:
+  %msg = call ccc i64 @flux_string_new(ptr @flux_idiv.div_zero_msg, i32 16)
+  call ccc void @flux_panic(i64 %msg)
+  unreachable
+safe:
   %result_raw = sdiv i64 %a_raw, %b_raw
   %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
   ret i64 %result
@@ -193,6 +208,13 @@ define internal fastcc i64 @flux_imod(i64 %a, i64 %b) alwaysinline {
 entry:
   %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
   %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
+  %is_zero = icmp eq i64 %b_raw, 0
+  br i1 %is_zero, label %panic, label %safe
+panic:
+  %msg = call ccc i64 @flux_string_new(ptr @flux_imod.div_zero_msg, i32 16)
+  call ccc void @flux_panic(i64 %msg)
+  unreachable
+safe:
   %result_raw = srem i64 %a_raw, %b_raw
   %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
   ret i64 %result

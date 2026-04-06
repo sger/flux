@@ -1550,6 +1550,21 @@ impl Compiler {
             // Sum/Product
             ("sum", vec![con(TC::Any)], con(TC::Any), pure(), 0),
             ("product", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            // Safe arithmetic (Proposal 0135)
+            (
+                "safe_div",
+                vec![con(TC::Any), con(TC::Any)],
+                app(TC::Option, vec![con(TC::Any)]),
+                pure(),
+                0,
+            ),
+            (
+                "safe_mod",
+                vec![con(TC::Any), con(TC::Any)],
+                app(TC::Option, vec![con(TC::Any)]),
+                pure(),
+                0,
+            ),
         ];
 
         for (name, params, ret, effects, _forall) in primop_sigs {

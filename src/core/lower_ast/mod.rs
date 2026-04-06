@@ -479,7 +479,8 @@ impl<'a> AstLowerer<'a> {
         // Step 1: Collect function names and their dependencies on siblings.
         let mut names: Vec<crate::syntax::Identifier> = Vec::new();
         let mut stmt_by_name: HashMap<crate::syntax::Identifier, &Statement> = HashMap::new();
-        let mut deps: HashMap<crate::syntax::Identifier, HashSet<crate::syntax::Identifier>> = HashMap::new();
+        let mut deps: HashMap<crate::syntax::Identifier, HashSet<crate::syntax::Identifier>> =
+            HashMap::new();
 
         let name_set: HashSet<crate::syntax::Identifier> = fn_stmts
             .iter()
@@ -525,8 +526,7 @@ impl<'a> AstLowerer<'a> {
                 result = self.prepend_one_stmt(stmt, result, span);
             } else {
                 // Multiple functions in a cycle — emit as LetRecGroup.
-                let group_stmts: Vec<&Statement> =
-                    scc.iter().map(|n| stmt_by_name[n]).collect();
+                let group_stmts: Vec<&Statement> = scc.iter().map(|n| stmt_by_name[n]).collect();
                 result = self.lower_scc_group(&group_stmts, result);
             }
         }
@@ -576,7 +576,6 @@ impl<'a> AstLowerer<'a> {
             span,
         }
     }
-
 
     fn prepend_stmt(
         &mut self,
@@ -817,8 +816,16 @@ fn tarjan_scc(
                     if indices[w] == usize::MAX {
                         // w not yet visited — recurse.
                         strongconnect(
-                            w, names, deps, name_to_idx, index_counter,
-                            indices, lowlinks, on_stack, stack, result,
+                            w,
+                            names,
+                            deps,
+                            name_to_idx,
+                            index_counter,
+                            indices,
+                            lowlinks,
+                            on_stack,
+                            stack,
+                            result,
                         );
                         lowlinks[v] = lowlinks[v].min(lowlinks[w]);
                     } else if on_stack[w] {
@@ -847,8 +854,16 @@ fn tarjan_scc(
     for i in 0..n {
         if indices[i] == usize::MAX {
             strongconnect(
-                i, names, deps, &name_to_idx, &mut index_counter,
-                &mut indices, &mut lowlinks, &mut on_stack, &mut stack, &mut result,
+                i,
+                names,
+                deps,
+                &name_to_idx,
+                &mut index_counter,
+                &mut indices,
+                &mut lowlinks,
+                &mut on_stack,
+                &mut stack,
+                &mut result,
             );
         }
     }
@@ -1225,7 +1240,7 @@ f("flux")
         let mut deps = HashMap::new();
         deps.insert(sym(0), HashSet::from([sym(1)])); // a depends on b
         deps.insert(sym(1), HashSet::from([sym(2)])); // b depends on c
-        deps.insert(sym(2), HashSet::new());           // c depends on nothing
+        deps.insert(sym(2), HashSet::new()); // c depends on nothing
 
         let sccs = tarjan_scc(&names, &deps);
         assert_eq!(sccs.len(), 3, "chain should produce 3 SCCs: {sccs:?}");
@@ -1244,7 +1259,11 @@ f("flux")
         deps.insert(sym(1), HashSet::from([sym(0)])); // b depends on a
 
         let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(sccs.len(), 1, "mutual recursion should produce 1 SCC: {sccs:?}");
+        assert_eq!(
+            sccs.len(),
+            1,
+            "mutual recursion should produce 1 SCC: {sccs:?}"
+        );
         assert_eq!(sccs[0].len(), 2);
     }
 
@@ -1255,11 +1274,14 @@ f("flux")
         let mut deps = HashMap::new();
         deps.insert(sym(0), HashSet::from([sym(1)])); // a depends on b
         deps.insert(sym(1), HashSet::from([sym(0)])); // b depends on a
-        deps.insert(sym(2), HashSet::new());           // c independent
+        deps.insert(sym(2), HashSet::new()); // c independent
 
         let sccs = tarjan_scc(&names, &deps);
         assert_eq!(sccs.len(), 2, "should produce 2 SCCs: {sccs:?}");
-        let cycle_scc = sccs.iter().find(|s| s.len() == 2).expect("one SCC with 2 elements");
+        let cycle_scc = sccs
+            .iter()
+            .find(|s| s.len() == 2)
+            .expect("one SCC with 2 elements");
         assert!(cycle_scc.contains(&sym(0)));
         assert!(cycle_scc.contains(&sym(1)));
     }
@@ -1352,14 +1374,15 @@ f("flux")
                 count_bindings_in_expr(body, groups, singles);
             }
             CoreExpr::Lam { body, .. } => count_bindings_in_expr(body, groups, singles),
-            CoreExpr::Case { scrutinee, alts, .. } => {
+            CoreExpr::Case {
+                scrutinee, alts, ..
+            } => {
                 count_bindings_in_expr(scrutinee, groups, singles);
                 for alt in alts {
                     count_bindings_in_expr(&alt.rhs, groups, singles);
                 }
             }
-            CoreExpr::App { func, args, .. }
-            | CoreExpr::AetherCall { func, args, .. } => {
+            CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
                 count_bindings_in_expr(func, groups, singles);
                 for a in args {
                     count_bindings_in_expr(a, groups, singles);
@@ -1371,9 +1394,8 @@ f("flux")
 
     #[test]
     fn scc_chain_produces_individual_letrecs() {
-        let (groups, singles) = count_binding_kinds(
-            "fn main() { fn a() { b() } fn b() { c() } fn c() { 42 } a() }",
-        );
+        let (groups, singles) =
+            count_binding_kinds("fn main() { fn a() { b() } fn b() { c() } fn c() { 42 } a() }");
         assert_eq!(groups, 0, "chain a→b→c should produce no LetRecGroup");
         assert_eq!(singles, 3, "chain should produce 3 individual LetRecs");
     }

@@ -1,0 +1,128 @@
+// Tests for Flow.NonZero — type-safe non-zero integers (Proposal 0135 Phase 2).
+
+import Flow.NonZero exposing (..)
+
+// ── Smart constructor ────────────────────────────────────────────────────
+
+fn test_non_zero_accepts_positive() {
+    assert_true(is_some(non_zero(5)))
+    assert_true(is_some(non_zero(1)))
+    assert_true(is_some(non_zero(999)))
+}
+
+fn test_non_zero_accepts_negative() {
+    assert_true(is_some(non_zero(-1)))
+    assert_true(is_some(non_zero(-42)))
+}
+
+fn test_non_zero_rejects_zero() {
+    assert_eq(non_zero(0), None)
+}
+
+// ── from_non_zero ────────────────────────────────────────────────────────
+
+fn test_from_non_zero() {
+    match non_zero(7) {
+        Some(nz) -> assert_eq(from_non_zero(nz), 7),
+        None -> assert_true(false),
+    }
+    match non_zero(-3) {
+        Some(nz) -> assert_eq(from_non_zero(nz), -3),
+        None -> assert_true(false),
+    }
+}
+
+// ── div_nz ───────────────────────────────────────────────────────────────
+
+fn test_div_nz_basic() {
+    match non_zero(5) {
+        Some(nz) -> do {
+            assert_eq(div_nz(100, nz), 20)
+            assert_eq(div_nz(17, nz), 3)
+            assert_eq(div_nz(0, nz), 0)
+        },
+        None -> assert_true(false),
+    }
+}
+
+fn test_div_nz_negative_divisor() {
+    match non_zero(-3) {
+        Some(nz) -> assert_eq(div_nz(9, nz), -3),
+        None -> assert_true(false),
+    }
+}
+
+fn test_div_nz_one() {
+    match non_zero(1) {
+        Some(nz) -> assert_eq(div_nz(42, nz), 42),
+        None -> assert_true(false),
+    }
+}
+
+// ── mod_nz ───────────────────────────────────────────────────────────────
+
+fn test_mod_nz_basic() {
+    match non_zero(3) {
+        Some(nz) -> do {
+            assert_eq(mod_nz(10, nz), 1)
+            assert_eq(mod_nz(9, nz), 0)
+            assert_eq(mod_nz(0, nz), 0)
+        },
+        None -> assert_true(false),
+    }
+}
+
+// ── div_mod_nz ───────────────────────────────────────────────────────────
+
+fn test_div_mod_nz() {
+    match non_zero(3) {
+        Some(nz) -> do {
+            assert_eq(div_mod_nz(10, nz), (3, 1))
+            assert_eq(div_mod_nz(9, nz), (3, 0))
+        },
+        None -> assert_true(false),
+    }
+}
+
+// ── abs_nz / negate_nz ───────────────────────────────────────────────────
+
+fn test_abs_nz() {
+    match non_zero(-5) {
+        Some(nz) -> assert_eq(from_non_zero(abs_nz(nz)), 5),
+        None -> assert_true(false),
+    }
+    match non_zero(5) {
+        Some(nz) -> assert_eq(from_non_zero(abs_nz(nz)), 5),
+        None -> assert_true(false),
+    }
+}
+
+fn test_negate_nz() {
+    match non_zero(3) {
+        Some(nz) -> assert_eq(from_non_zero(negate_nz(nz)), -3),
+        None -> assert_true(false),
+    }
+    match non_zero(-7) {
+        Some(nz) -> assert_eq(from_non_zero(negate_nz(nz)), 7),
+        None -> assert_true(false),
+    }
+}
+
+// ── mul_nz ───────────────────────────────────────────────────────────────
+
+fn test_mul_nz_non_zero_result() {
+    match non_zero(3) {
+        Some(nz) -> match mul_nz(nz, 4) {
+            Some(result) -> assert_eq(from_non_zero(result), 12),
+            None -> assert_true(false),
+        },
+        None -> assert_true(false),
+    }
+}
+
+fn test_mul_nz_zero_result() {
+    match non_zero(3) {
+        Some(nz) -> assert_eq(mul_nz(nz, 0), None),
+        None -> assert_true(false),
+    }
+}

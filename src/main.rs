@@ -2086,13 +2086,9 @@ fn run_file(
                 // instead of `.fxm` to avoid cross-backend cache pollution —
                 // a `.fxm` written during an LLVM session contains global
                 // indices incompatible with the VM backend.
-                let llvm_entry_marker = cache_layout
-                    .vm_dir()
-                    .join(cache_paths::cache_key_filename(
-                        &node.path,
-                        &module_cache_key,
-                        "fxs",
-                    ));
+                let llvm_entry_marker = cache_layout.vm_dir().join(
+                    cache_paths::cache_key_filename(&node.path, &module_cache_key, "fxs"),
+                );
                 let skip_llvm_entry =
                     use_core_to_llvm && is_entry_module && !no_cache && llvm_entry_marker.exists();
 
@@ -2233,13 +2229,11 @@ fn run_file(
                 // marker (.fxs) so the next LLVM run can skip re-compilation.
                 // This is separate from .fxm to avoid cross-backend pollution.
                 if !no_cache && use_core_to_llvm && is_entry_module {
-                    let marker_path = cache_layout
-                        .vm_dir()
-                        .join(cache_paths::cache_key_filename(
-                            &node.path,
-                            &module_cache_key,
-                            "fxs",
-                        ));
+                    let marker_path = cache_layout.vm_dir().join(cache_paths::cache_key_filename(
+                        &node.path,
+                        &module_cache_key,
+                        "fxs",
+                    ));
                     if let Some(parent) = marker_path.parent() {
                         let _ = std::fs::create_dir_all(parent);
                     }

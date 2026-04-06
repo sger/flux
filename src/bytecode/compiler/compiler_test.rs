@@ -5,8 +5,8 @@ use crate::{
     runtime::value::Value,
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},
     types::{
-        infer_effect_row::InferEffectRow, infer_type::InferType,
-        module_interface::ModuleInterface, scheme::Scheme, type_constructor::TypeConstructor,
+        infer_effect_row::InferEffectRow, infer_type::InferType, module_interface::ModuleInterface,
+        scheme::Scheme, type_constructor::TypeConstructor,
     },
 };
 
