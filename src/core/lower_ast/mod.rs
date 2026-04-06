@@ -1380,7 +1380,7 @@ f("flux")
 
     #[test]
     fn scc_mutual_recursion_produces_one_group() {
-        let (groups, singles) = count_binding_kinds(
+        let (groups, _singles) = count_binding_kinds(
             "fn main() { fn f(n) { if n <= 0 { 1 } else { g(n - 1) } } fn g(n) { if n <= 0 { 2 } else { f(n - 1) } } f(5) }",
         );
         assert_eq!(groups, 1, "mutual recursion should produce 1 LetRecGroup");

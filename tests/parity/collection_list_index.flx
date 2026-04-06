@@ -1,0 +1,33 @@
+// parity: vm, llvm
+// expect: success
+// Tests runtime-dispatching index (flux_rt_index) on cons lists (FLUX_OBJ_ADT).
+// Exercises the case added so that list[idx] returns Some(v) instead of None.
+
+fn main() with IO {
+    // Basic indexed access on a list literal
+    let xs = [1, 2, 3, 4, 5]
+    print(xs[0])        // Some(1)
+    print(xs[2])        // Some(3)
+    print(xs[4])        // Some(5)
+
+    // Out-of-bounds returns None
+    print(xs[5])        // None
+    print(xs[10])       // None
+
+    // Negative index returns None
+    print(xs[-1])       // None
+
+    // to_list conversion then indexed access
+    let arr = [|10, 20, 30|]
+    let ls = to_list(arr)
+    print(ls[0])        // Some(10)
+    print(ls[1])        // Some(20)
+    print(ls[2])        // Some(30)
+    print(ls[3])        // None
+
+    // Single-element list
+    let one = [42]
+    print(one[0])       // Some(42)
+    print(one[1])       // None
+
+}
