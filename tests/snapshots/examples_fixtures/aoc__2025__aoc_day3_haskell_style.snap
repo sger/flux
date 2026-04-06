@@ -3,38 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day3_haskell_style.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `best_with_digit`.
-
-  examples/aoc/2025/aoc_day3_haskell_style.flx:22:5
-   |
-22 |     best_with_digit(line, start_idx, k, 9)
-   |     ^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let best_with_digit = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `try_occurrences`.
-
-  examples/aoc/2025/aoc_day3_haskell_style.flx:32:11
-   |
-32 |     match try_occurrences(line, digit_str, first_pos, k) {
-   |           ^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let try_occurrences = ...;
-
-
-Note: Downstream Errors Suppressed
-
-I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
-
-Found 2 errors.
+<none>
 == stdout ==
 <not executed>

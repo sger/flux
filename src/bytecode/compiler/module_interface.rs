@@ -4,7 +4,7 @@
 //! compiled module. Consumers can later preload this metadata without
 //! recompiling the dependency from source.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -15,7 +15,7 @@ use crate::{
     bytecode::bytecode_cache::hash_bytes,
     cache_paths,
     core::CoreProgram,
-    syntax::{Identifier, interner::Interner},
+    syntax::{Identifier, interner::Interner, symbol::Symbol},
     types::{
         module_interface::{
             DependencyFingerprint, DependencyMissReason, MODULE_INTERFACE_FORMAT_VERSION,
@@ -102,6 +102,19 @@ pub fn build_interface(
         if let Some(signature) = &def.borrow_signature {
             interface.borrow_signatures.insert(name, signature.clone());
         }
+    }
+
+    // Build portable symbol table: collect all Symbol IDs from schemes and
+    // resolve them to strings via the interner. This allows consumers loading
+    // the interface in a different session to re-intern and remap correctly.
+    let mut symbols = HashSet::<Symbol>::new();
+    for scheme in interface.schemes.values() {
+        scheme.collect_symbols(&mut symbols);
+    }
+    for &sym in &symbols {
+        interface
+            .symbol_table
+            .insert(sym.as_u32(), interner.resolve(sym).to_string());
     }
 
     interface.interface_fingerprint = compute_interface_fingerprint(&interface);
@@ -375,6 +388,118 @@ mod tests {
     }
 
     #[test]
+    fn build_interface_populates_symbol_table_for_adt_and_effects() {
+        let mut interner = Interner::new();
+        let module = interner.intern("Test.Mod");
+        let fn_name = interner.intern("make");
+        let adt_sym = interner.intern("Color");
+        let effect_sym = interner.intern("IO");
+
+        let program = CoreProgram {
+            defs: vec![CoreDef::new(
+                CoreBinder::new(CoreBinderId(0), fn_name),
+                CoreExpr::Lit(CoreLit::Unit, Default::default()),
+                false,
+                Default::default(),
+            )],
+            top_level_items: Vec::new(),
+        };
+
+        let mut schemes = HashMap::new();
+        schemes.insert(
+            (module, fn_name),
+            Scheme {
+                forall: vec![],
+                infer_type: InferType::Fun(
+                    vec![InferType::Con(TypeConstructor::Adt(adt_sym))],
+                    Box::new(InferType::Con(TypeConstructor::Unit)),
+                    InferEffectRow::closed_from_symbols([effect_sym]),
+                ),
+            },
+        );
+
+        let visibility = HashMap::from([((module, fn_name), true)]);
+        let hash = crate::bytecode::bytecode_cache::hash_bytes(b"test");
+        let semantic_hash = compute_semantic_config_hash(false, false);
+        let interface = build_interface(
+            interner.resolve(module),
+            module,
+            &hash,
+            &semantic_hash,
+            &program,
+            &schemes,
+            &visibility,
+            Vec::new(),
+            &interner,
+        );
+
+        // Symbol table should contain both the ADT and effect symbols.
+        assert!(
+            interface.symbol_table.len() >= 2,
+            "expected at least 2 entries, got: {:?}",
+            interface.symbol_table
+        );
+        assert_eq!(
+            interface.symbol_table.get(&adt_sym.as_u32()),
+            Some(&"Color".to_string())
+        );
+        assert_eq!(
+            interface.symbol_table.get(&effect_sym.as_u32()),
+            Some(&"IO".to_string())
+        );
+    }
+
+    #[test]
+    fn build_interface_symbol_table_empty_for_builtin_only_schemes() {
+        let mut interner = Interner::new();
+        let module = interner.intern("Test.Simple");
+        let fn_name = interner.intern("id");
+
+        let program = CoreProgram {
+            defs: vec![CoreDef::new(
+                CoreBinder::new(CoreBinderId(0), fn_name),
+                CoreExpr::Lit(CoreLit::Unit, Default::default()),
+                false,
+                Default::default(),
+            )],
+            top_level_items: Vec::new(),
+        };
+
+        let mut schemes = HashMap::new();
+        schemes.insert(
+            (module, fn_name),
+            Scheme {
+                forall: vec![0],
+                infer_type: InferType::Fun(
+                    vec![InferType::Var(0)],
+                    Box::new(InferType::Var(0)),
+                    InferEffectRow::closed_empty(),
+                ),
+            },
+        );
+
+        let visibility = HashMap::from([((module, fn_name), true)]);
+        let hash = crate::bytecode::bytecode_cache::hash_bytes(b"test");
+        let semantic_hash = compute_semantic_config_hash(false, false);
+        let interface = build_interface(
+            interner.resolve(module),
+            module,
+            &hash,
+            &semantic_hash,
+            &program,
+            &schemes,
+            &visibility,
+            Vec::new(),
+            &interner,
+        );
+
+        assert!(
+            interface.symbol_table.is_empty(),
+            "builtin-only schemes should not populate symbol_table"
+        );
+    }
+
+    #[test]
     fn interface_roundtrip() {
         let mut schemes = HashMap::new();
         schemes.insert(
@@ -401,6 +526,7 @@ mod tests {
                 source_path: "lib/Flow/List.flx".to_string(),
                 interface_fingerprint: "dep".to_string(),
             }],
+            symbol_table: HashMap::new(),
         };
 
         let json = serde_json::to_string_pretty(&interface).unwrap();

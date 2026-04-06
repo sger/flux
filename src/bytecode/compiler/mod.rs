@@ -692,6 +692,10 @@ impl Compiler {
         &mut self,
         interface: &crate::types::module_interface::ModuleInterface,
     ) {
+        // Build symbol remap: translate serialized Symbol IDs to this session's
+        // interner IDs. This is necessary because Symbol is a u32 index into an
+        // interner that is session-specific.
+        let symbol_remap = interface.build_symbol_remap(&mut self.interner);
         let module_name = self.interner.intern(&interface.module_name);
         for (member_name, scheme) in &interface.schemes {
             let member = self.interner.intern(member_name);
@@ -702,8 +706,13 @@ impl Compiler {
             self.preloaded_imported_globals.insert(qualified);
             self.module_function_visibility
                 .insert((module_name, member), true);
+            let remapped = if symbol_remap.is_empty() {
+                scheme.clone()
+            } else {
+                scheme.remap_symbols(&symbol_remap)
+            };
             self.cached_member_schemes
-                .insert((module_name, member), scheme.clone());
+                .insert((module_name, member), remapped);
         }
         for (member_name, signature) in &interface.borrow_signatures {
             let member = self.interner.intern(member_name);

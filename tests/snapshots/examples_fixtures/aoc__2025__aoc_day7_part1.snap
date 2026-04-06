@@ -9,10 +9,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/aoc/2025/aoc_day7_part1.flx:44:5
+  examples/aoc/2025/aoc_day7_part1.flx:44:14
    |
-44 |     map(range(0, width), /_ -> 0)
-   |     ^^^
+44 |     to_array(map(range(0, width), /_ -> 0))
+   |              ^^^
 
 Hint:
   Define it first: let map = ...;

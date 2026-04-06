@@ -74,10 +74,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `range`.
 
-  examples/aoc/2025/aoc_day2_haskell_style.flx:126:28
+  examples/aoc/2025/aoc_day2_haskell_style.flx:126:20
     |
-126 | let day02b = day02(to_list(range(2, 12)), ranges)
-    |                            ^^^^^
+126 | let day02b = day02(range(2, 12), ranges)
+    |                    ^^^^^
 
 Hint:
   Define it first: let range = ...;
@@ -85,6 +85,35 @@ Hint:
 Help:
   Did you mean `ranges`?
 
-Found 6 errors.
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `day02`.
+
+  examples/aoc/2025/aoc_day2_haskell_style.flx:126:20
+    |
+115 | fn day02(repeat_counts, ranges) {
+116 | 
+117 |     solve_for_repeat_counts(repeat_counts, ranges, (0, {}))
+118 | }
+119 | 
+120 | let ranges = parse_ranges("examples/aoc/2025/aoc_day2.txt")
+... |
+124 | 
+125 | 
+126 | let day02b = day02(range(2, 12), ranges)
+    |                    ^^^^^^^^^^^^
+    |                    ------------ this argument has type `Array<Int>`
+
+Note:
+  expected argument type: List<Int>
+  found argument type: Array<Int>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `List<Int>` value as the 1st argument.
+
+Found 7 errors.
 == stdout ==
 <not executed>

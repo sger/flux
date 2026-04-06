@@ -35,10 +35,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `range`.
 
-  examples/aoc/2025/aoc_day8_haskell_style.flx:172:20
+  examples/aoc/2025/aoc_day8_haskell_style.flx:172:29
     |
-172 |     let parents0 = range(0, n)
-    |                    ^^^^^
+172 |     let parents0 = to_array(range(0, n))
+    |                             ^^^^^
 
 Hint:
   Define it first: let range = ...;
@@ -48,10 +48,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/aoc/2025/aoc_day8_haskell_style.flx:173:18
+  examples/aoc/2025/aoc_day8_haskell_style.flx:173:27
     |
-173 |     let sizes0 = map(range(0, n), /_ -> 1)
-    |                  ^^^
+173 |     let sizes0 = to_array(map(range(0, n), /_ -> 1))
+    |                           ^^^
 
 Hint:
   Define it first: let map = ...;
@@ -100,10 +100,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `range`.
 
-  examples/aoc/2025/aoc_day8_haskell_style.flx:193:20
+  examples/aoc/2025/aoc_day8_haskell_style.flx:193:29
     |
-193 |     let parents0 = range(0, n)
-    |                    ^^^^^
+193 |     let parents0 = to_array(range(0, n))
+    |                             ^^^^^
 
 Hint:
   Define it first: let range = ...;
@@ -113,10 +113,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/aoc/2025/aoc_day8_haskell_style.flx:194:18
+  examples/aoc/2025/aoc_day8_haskell_style.flx:194:27
     |
-194 |     let sizes0 = map(range(0, n), /_ -> 1)
-    |                  ^^^
+194 |     let sizes0 = to_array(map(range(0, n), /_ -> 1))
+    |                           ^^^
 
 Hint:
   Define it first: let map = ...;

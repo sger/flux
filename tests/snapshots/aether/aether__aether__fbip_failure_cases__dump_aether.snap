@@ -966,7 +966,7 @@ Aether Memory Model Report
   FreshAllocs: 0
   verifier: ok
   fbip: NotProvable
-    - calls indirect or opaque callee `Symbol(4000942)` whose FBIP behavior is unknown
+    - calls indirect or opaque callee `Symbol(4000945)` whose FBIP behavior is unknown
 λx.
   let %t1 = Imported.imported_inc
   aether_call[owned] %t1(x)
