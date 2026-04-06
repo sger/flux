@@ -7,29 +7,14 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day7_part2.flx:44:5
-   |
-44 |     map(range(0, n), /_ -> 0)
-   |     ^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `sum`.
 
-  examples/aoc/2025/aoc_day7_part2.flx:127:20
+  examples/aoc/2025/aoc_day7_part2.flx:130:20
     |
-127 |         finished + sum(active_counts)
+130 |         finished + sum(active_counts)
     |                    ^^^
 
 Hint:
   Define it first: let sum = ...;
-
-Found 2 errors.
 == stdout ==
 <not executed>

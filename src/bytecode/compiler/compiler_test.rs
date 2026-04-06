@@ -5,8 +5,8 @@ use crate::{
     runtime::value::Value,
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},
     types::{
-        infer_type::InferType, module_interface::ModuleInterface, scheme::Scheme,
-        type_constructor::TypeConstructor,
+        infer_effect_row::InferEffectRow, infer_type::InferType,
+        module_interface::ModuleInterface, scheme::Scheme, type_constructor::TypeConstructor,
     },
 };
 
@@ -327,6 +327,115 @@ fn main() {
 }
 
 #[test]
+fn preload_module_interface_remaps_adt_symbols_across_sessions() {
+    use crate::syntax::symbol::Symbol;
+
+    // Simulate session 1: ADT "Color" was interned as Symbol(5).
+    let old_adt_id = 5u32;
+    let interface = ModuleInterface {
+        module_name: "Example.Types".to_string(),
+        source_hash: "hash".to_string(),
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
+        schemes: std::collections::HashMap::from([(
+            "make_color".to_string(),
+            Scheme {
+                forall: vec![],
+                infer_type: InferType::Con(TypeConstructor::Adt(Symbol::new(old_adt_id))),
+            },
+        )]),
+        borrow_signatures: std::collections::HashMap::new(),
+        dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::from([(old_adt_id, "Color".to_string())]),
+    };
+
+    // Session 2: fresh compiler. "Color" will get a different symbol ID.
+    let mut compiler = Compiler::new();
+    // Pre-intern some other strings so "Color" gets a different ID
+    let _ = compiler.interner.intern("Alpha");
+    let _ = compiler.interner.intern("Beta");
+    let _ = compiler.interner.intern("Gamma");
+    compiler.preload_module_interface(&interface);
+
+    let module = compiler.interner.intern("Example.Types");
+    let member = compiler.interner.intern("make_color");
+    let scheme = compiler
+        .cached_member_schemes()
+        .get(&(module, member))
+        .cloned()
+        .expect("scheme should be cached");
+
+    // The ADT symbol in the scheme should now point to the correct
+    // "Color" symbol in this session's interner.
+    let color_sym = compiler.interner.intern("Color");
+    match &scheme.infer_type {
+        InferType::Con(TypeConstructor::Adt(sym)) => {
+            assert_eq!(
+                *sym, color_sym,
+                "ADT symbol should be remapped to this session's Color symbol"
+            );
+        }
+        other => panic!("expected Adt constructor, got: {:?}", other),
+    }
+}
+
+#[test]
+fn preload_module_interface_remaps_effect_symbols_across_sessions() {
+    use crate::syntax::symbol::Symbol;
+
+    let old_effect_id = 3u32;
+    let interface = ModuleInterface {
+        module_name: "Example.IO".to_string(),
+        source_hash: "hash".to_string(),
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
+        schemes: std::collections::HashMap::from([(
+            "run".to_string(),
+            Scheme {
+                forall: vec![],
+                infer_type: InferType::Fun(
+                    vec![InferType::Con(TypeConstructor::Unit)],
+                    Box::new(InferType::Con(TypeConstructor::Unit)),
+                    InferEffectRow::closed_from_symbols([Symbol::new(old_effect_id)]),
+                ),
+            },
+        )]),
+        borrow_signatures: std::collections::HashMap::new(),
+        dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::from([(old_effect_id, "IO".to_string())]),
+    };
+
+    let mut compiler = Compiler::new();
+    let _ = compiler.interner.intern("Foo");
+    let _ = compiler.interner.intern("Bar");
+    compiler.preload_module_interface(&interface);
+
+    let module = compiler.interner.intern("Example.IO");
+    let member = compiler.interner.intern("run");
+    let scheme = compiler
+        .cached_member_schemes()
+        .get(&(module, member))
+        .cloned()
+        .expect("scheme should be cached");
+
+    let io_sym = compiler.interner.intern("IO");
+    match &scheme.infer_type {
+        InferType::Fun(_, _, effects) => {
+            assert!(
+                effects.concrete().contains(&io_sym),
+                "effect row should contain remapped IO symbol, got: {:?}",
+                effects.concrete()
+            );
+        }
+        other => panic!("expected Fun type, got: {:?}", other),
+    }
+}
+
+#[test]
 fn preload_module_interface_inserts_cached_public_schemes() {
     let mut compiler = Compiler::new();
     let interface = ModuleInterface {
@@ -342,6 +451,7 @@ fn preload_module_interface_inserts_cached_public_schemes() {
         )]),
         borrow_signatures: std::collections::HashMap::new(),
         dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::new(),
     };
 
     compiler.preload_module_interface(&interface);
@@ -375,6 +485,7 @@ fn preload_module_interface_inserts_cached_borrow_signatures() {
             signature.clone(),
         )]),
         dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::new(),
     };
 
     compiler.preload_module_interface(&interface);

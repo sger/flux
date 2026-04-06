@@ -2081,16 +2081,20 @@ fn run_file(
                 let skip_for_llvm = can_skip_semantic && use_core_to_llvm;
 
                 // LLVM entry modules have no interface but can still skip
-                // semantic compilation when their bytecode marker file exists.
-                // The native backend validates dependencies and recompiles the
-                // .o file independently — we only need to confirm the source
-                // was compiled before (same cache key = same source hash).
-                let skip_llvm_entry = use_core_to_llvm
-                    && is_entry_module
-                    && !no_cache
-                    && module_cache
-                        .cache_path(&node.path, &module_cache_key)
-                        .exists();
+                // semantic compilation when their compilation marker file
+                // exists. Uses a dedicated `.fxs` (flux-semantic) marker
+                // instead of `.fxm` to avoid cross-backend cache pollution —
+                // a `.fxm` written during an LLVM session contains global
+                // indices incompatible with the VM backend.
+                let llvm_entry_marker = cache_layout
+                    .vm_dir()
+                    .join(cache_paths::cache_key_filename(
+                        &node.path,
+                        &module_cache_key,
+                        "fxs",
+                    ));
+                let skip_llvm_entry =
+                    use_core_to_llvm && is_entry_module && !no_cache && llvm_entry_marker.exists();
 
                 if has_vm_cache || skip_for_llvm || has_vm_cache_entry || skip_llvm_entry {
                     if let Some(interface) = current_interface.as_ref() {
@@ -2208,11 +2212,8 @@ fn run_file(
                     })
                     .collect();
 
-                // Store bytecode cache for VM runs, and also for LLVM entry
-                // modules (serves as a "compilation succeeded" marker).
-                if !no_cache
-                    && (allow_cached_module_bytecode || (use_core_to_llvm && is_entry_module))
-                {
+                // Store bytecode cache for VM runs.
+                if !no_cache && allow_cached_module_bytecode {
                     let cached_module = compiler.build_cached_module_bytecode(module_snapshot);
                     if let Err(e) = module_cache.store(
                         &node.path,
@@ -2227,6 +2228,22 @@ fn run_file(
                             node.path.display()
                         );
                     }
+                }
+                // For LLVM entry modules, write a lightweight semantic
+                // marker (.fxs) so the next LLVM run can skip re-compilation.
+                // This is separate from .fxm to avoid cross-backend pollution.
+                if !no_cache && use_core_to_llvm && is_entry_module {
+                    let marker_path = cache_layout
+                        .vm_dir()
+                        .join(cache_paths::cache_key_filename(
+                            &node.path,
+                            &module_cache_key,
+                            "fxs",
+                        ));
+                    if let Some(parent) = marker_path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    let _ = std::fs::write(&marker_path, b"");
                 }
 
                 // Save module interface (.flxi) when available.

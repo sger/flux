@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    syntax::Identifier,
+    syntax::{Identifier, symbol::Symbol},
     types::{
         TypeVarId, infer_effect_row::InferEffectRow, infer_type::InferType, type_subst::TypeSubst,
     },
@@ -42,6 +42,19 @@ pub struct Scheme {
 }
 
 impl Scheme {
+    /// Collect all `Symbol`s referenced by this scheme's type body.
+    pub fn collect_symbols(&self, out: &mut HashSet<Symbol>) {
+        self.infer_type.collect_symbols(out);
+    }
+
+    /// Replace Symbol IDs according to `remap`. Returns a new scheme.
+    pub fn remap_symbols(&self, remap: &HashMap<Symbol, Symbol>) -> Self {
+        Scheme {
+            forall: self.forall.clone(),
+            infer_type: self.infer_type.remap_symbols(remap),
+        }
+    }
+
     /// Constructs a monomorphic scheme (`forall = []`).
     ///
     /// Use this when a binding should remain monomorphic in the environment.
@@ -245,5 +258,55 @@ mod tests {
 
         assert_eq!(scheme.forall, vec![0, 2]);
         assert_eq!(scheme.infer_type, infer_type);
+    }
+
+    #[test]
+    fn collect_symbols_delegates_to_body() {
+        use crate::syntax::symbol::Symbol;
+
+        let adt_sym = Symbol::new(7);
+        let scheme = Scheme {
+            forall: vec![0],
+            infer_type: InferType::App(TypeConstructor::Adt(adt_sym), vec![infer_var(0)]),
+        };
+
+        let mut out = HashSet::new();
+        scheme.collect_symbols(&mut out);
+        assert!(out.contains(&adt_sym));
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn remap_symbols_rewrites_body_and_preserves_forall() {
+        use crate::syntax::symbol::Symbol;
+        use std::collections::HashMap;
+
+        let old_sym = Symbol::new(5);
+        let new_sym = Symbol::new(50);
+        let scheme = Scheme {
+            forall: vec![0, 1],
+            infer_type: InferType::Fun(
+                vec![InferType::App(
+                    TypeConstructor::Adt(old_sym),
+                    vec![infer_var(0)],
+                )],
+                Box::new(infer_var(1)),
+                InferEffectRow::closed_empty(),
+            ),
+        };
+
+        let remap = HashMap::from([(old_sym, new_sym)]);
+        let remapped = scheme.remap_symbols(&remap);
+
+        assert_eq!(remapped.forall, vec![0, 1]);
+        let expected_type = InferType::Fun(
+            vec![InferType::App(
+                TypeConstructor::Adt(new_sym),
+                vec![infer_var(0)],
+            )],
+            Box::new(infer_var(1)),
+            InferEffectRow::closed_empty(),
+        );
+        assert_eq!(remapped.infer_type, expected_type);
     }
 }

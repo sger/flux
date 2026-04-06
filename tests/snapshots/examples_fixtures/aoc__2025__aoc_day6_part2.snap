@@ -30,9 +30,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `range`.
 
-  examples/aoc/2025/aoc_day6_part2.flx:93:16
+  examples/aoc/2025/aoc_day6_part2.flx:94:16
    |
-93 |     let cols = range(start, stop)
+94 |     let cols = range(start, stop)
    |                ^^^^^
 
 Hint:
@@ -43,9 +43,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/aoc/2025/aoc_day6_part2.flx:95:23
+  examples/aoc/2025/aoc_day6_part2.flx:96:23
    |
-95 |         let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
+96 |         let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
@@ -56,9 +56,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `product`.
 
-  examples/aoc/2025/aoc_day6_part2.flx:96:9
+  examples/aoc/2025/aoc_day6_part2.flx:97:9
    |
-96 |         product(factors)
+97 |         product(factors)
    |         ^^^^^^^
 
 Hint:
