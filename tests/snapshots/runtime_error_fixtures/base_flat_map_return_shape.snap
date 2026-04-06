@@ -25,7 +25,6 @@ error[E1004]: primop concat expected Array, got Int
 
 Stack trace:
   at flat_map_arr (lib/Flow/List.flx:99:36)
-  at Flow.List.flat_map (lib/Flow/List.flx:94:9)
   at main (examples/runtime_errors/base_flat_map_return_shape.flx:2:5)
   at <main>
 == jit ==
@@ -51,6 +50,5 @@ error[E1004]: primop concat expected Array, got Int
 
 Stack trace:
   at flat_map_arr (lib/Flow/List.flx:99:36)
-  at Flow.List.flat_map (lib/Flow/List.flx:94:9)
   at main (examples/runtime_errors/base_flat_map_return_shape.flx:2:5)
   at <main>

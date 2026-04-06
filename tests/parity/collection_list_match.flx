@@ -2,6 +2,8 @@
 // expect: success
 // bug: pattern matching on cons lists [h|t] may produce different results
 //       when the native backend mishandles the cons cell tag check.
+//
+// note: list() is deprecated — use [] literal syntax instead.
 
 fn sum(xs) {
     match xs {
@@ -20,11 +22,11 @@ fn length(xs) {
 }
 
 fn main() with IO {
-    let xs = list(1, 2, 3, 4, 5);
-    print(sum(xs));
-    print(length(xs));
+    let xs = [1, 2, 3, 4, 5]
+    print(sum(xs))
+    print(length(xs))
 
-    let empty = list();
-    print(sum(empty));
-    print(length(empty));
+    let empty = []
+    print(sum(empty))
+    print(length(empty))
 }

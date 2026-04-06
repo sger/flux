@@ -536,6 +536,7 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::IsList
         | CorePrimOp::IsMap
         | CorePrimOp::Panic
+        | CorePrimOp::Unwrap
         | CorePrimOp::ClockNow
         | CorePrimOp::Time
         | CorePrimOp::ParseInt
