@@ -9,10 +9,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `filter`.
 
-  examples/aoc/2025/aoc_day6_haskell_style.flx:55:31
+  examples/aoc/2025/aoc_day6_haskell_style.flx:55:35
    |
-55 |     split(trim(line), " ") |> filter(/x -> x != "")
-   |                               ^^^^^^
+55 |         split(trim(line), " ") |> filter(/x -> x != "")
+   |                                   ^^^^^^
 
 Hint:
   Define it first: let filter = ...;
@@ -22,10 +22,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/aoc/2025/aoc_day6_haskell_style.flx:59:14
+  examples/aoc/2025/aoc_day6_haskell_style.flx:59:18
    |
-59 |     lines |> map(/line -> split_words_line(line))
-   |              ^^^
+59 |         lines |> map(/line -> split_words_line(line))
+   |                  ^^^
 
 Hint:
   Define it first: let map = ...;
@@ -35,10 +35,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `fold`.
 
-  examples/aoc/2025/aoc_day6_haskell_style.flx:122:13
+  examples/aoc/2025/aoc_day6_haskell_style.flx:122:17
     |
-122 |     cols |> fold(0, /(acc, col) -> acc + eval_day06a_col(col))
-    |             ^^^^
+122 |         cols |> fold(0, /(acc, col) -> acc + eval_day06a_col(col))
+    |                 ^^^^
 
 Hint:
   Define it first: let fold = ...;
@@ -51,10 +51,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `fold`.
 
-  examples/aoc/2025/aoc_day6_haskell_style.flx:238:15
+  examples/aoc/2025/aoc_day6_haskell_style.flx:238:19
     |
-238 |     groups |> fold(0, /(acc, g) -> acc + eval_day06b_group(g))
-    |               ^^^^
+238 |         groups |> fold(0, /(acc, g) -> acc + eval_day06b_group(g))
+    |                   ^^^^
 
 Hint:
   Define it first: let fold = ...;
