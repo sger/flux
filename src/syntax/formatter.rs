@@ -24,7 +24,7 @@ pub fn format_source(source: &str) -> String {
         out.push_str(trimmed);
         out.push('\n');
 
-        indent = indent.saturating_add(brace_delta(trimmed));
+        indent = indent.saturating_add(brace_delta(trimmed, leading_closes));
     }
 
     // Trim trailing newlines to avoid extra blank lines at EOF.
@@ -41,7 +41,7 @@ fn leading_close_count(line: &str) -> usize {
         if ch.is_whitespace() {
             continue;
         }
-        if ch == '}' {
+        if ch == '}' || ch == ')' {
             count += 1;
             continue;
         }
@@ -50,8 +50,9 @@ fn leading_close_count(line: &str) -> usize {
     count
 }
 
-fn brace_delta(line: &str) -> usize {
-    let mut delta: i32 = 0;
+fn brace_delta(line: &str, leading_closes: usize) -> usize {
+    let mut opens: i32 = 0;
+    let mut closes: i32 = 0;
     let mut in_string = false;
     let mut chars = line.chars().peekable();
     while let Some(ch) = chars.next() {
@@ -63,17 +64,20 @@ fn brace_delta(line: &str) -> usize {
             continue;
         }
         if in_string {
-            // Handle escape sequences: skip the next character after backslash
             if ch == '\\' {
-                chars.next(); // Skip the escaped character
+                chars.next();
             }
             continue;
         }
         match ch {
-            '{' => delta += 1,
-            '}' => delta -= 1,
+            '{' | '(' => opens += 1,
+            '}' | ')' => closes += 1,
             _ => {}
         }
     }
-    if delta < 0 { 0 } else { delta as usize }
+    // Leading `}` are already subtracted from indent before this call, so
+    // exclude them from the closes count to avoid double-counting.
+    // e.g. `} else {`: opens=1, closes=1, leading_closes=1 → delta=1 (correct)
+    let delta = opens - (closes - leading_closes as i32);
+    delta.max(0) as usize
 }
