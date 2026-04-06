@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Day12Solver` to import.
 
-  examples/aoc/2025/aoc_day12_haskell_style_using_modules.flx:1:1
+  examples/aoc/2025/aoc_day12_haskell_style_using_modules.flx:3:1
   |
-1 | import Modules.Day12Solver as Day12
+3 | import Modules.Day12Solver as Day12
   | ^
 
 Hint:

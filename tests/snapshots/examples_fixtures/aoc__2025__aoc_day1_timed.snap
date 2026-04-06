@@ -3,18 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day1_timed.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `time`.
-
-  examples/aoc/2025/aoc_day1_timed.flx:63:24
-   |
-63 | let elapsed_via_time = time(run_day1)
-   |                        ^^^^
-
-Hint:
-  Define it first: let time = ...;
+<none>
 == stdout ==
 <not executed>
