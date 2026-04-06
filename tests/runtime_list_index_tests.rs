@@ -55,9 +55,18 @@ fn list_index_in_bounds_native() {
     let (stdout, success) = run_native(FIXTURE);
     assert!(success, "native backend failed:\n{stdout}");
     // xs[0..4] on [1,2,3,4,5]
-    assert!(stdout.contains("Some(1)"), "expected Some(1), got:\n{stdout}");
-    assert!(stdout.contains("Some(3)"), "expected Some(3), got:\n{stdout}");
-    assert!(stdout.contains("Some(5)"), "expected Some(5), got:\n{stdout}");
+    assert!(
+        stdout.contains("Some(1)"),
+        "expected Some(1), got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Some(3)"),
+        "expected Some(3), got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Some(5)"),
+        "expected Some(5), got:\n{stdout}"
+    );
 }
 
 /// Out-of-bounds and negative indices return None on native.
@@ -101,10 +110,7 @@ fn list_index_vm_native_parity() {
 
     let vm_lines: Vec<&str> = vm_out.lines().collect();
     // Strip compilation progress lines ([N of M] ...) from native output.
-    let native_lines: Vec<&str> = native_out
-        .lines()
-        .filter(|l| !l.starts_with('['))
-        .collect();
+    let native_lines: Vec<&str> = native_out.lines().filter(|l| !l.starts_with('[')).collect();
 
     assert_eq!(
         vm_lines, native_lines,

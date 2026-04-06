@@ -62,10 +62,7 @@ impl InferType {
     }
 
     /// Replace Symbol IDs according to `remap`. Returns a new type.
-    pub fn remap_symbols(
-        &self,
-        remap: &std::collections::HashMap<Symbol, Symbol>,
-    ) -> Self {
+    pub fn remap_symbols(&self, remap: &std::collections::HashMap<Symbol, Symbol>) -> Self {
         match self {
             InferType::Var(v) => InferType::Var(*v),
             InferType::Con(tc) => InferType::Con(tc.remap_symbols(remap)),
@@ -438,10 +435,7 @@ mod tests {
         let adt_sym = Symbol::new(7);
         let effect_sym = Symbol::new(42);
         let infer_type = InferType::Fun(
-            vec![InferType::App(
-                TypeConstructor::Adt(adt_sym),
-                vec![int()],
-            )],
+            vec![InferType::App(TypeConstructor::Adt(adt_sym), vec![int()])],
             Box::new(int()),
             InferEffectRow::closed_from_symbols([effect_sym]),
         );
@@ -479,10 +473,7 @@ mod tests {
         let new_effect = Symbol::new(100);
 
         let infer_type = InferType::Fun(
-            vec![InferType::App(
-                TypeConstructor::Adt(old_adt),
-                vec![int()],
-            )],
+            vec![InferType::App(TypeConstructor::Adt(old_adt), vec![int()])],
             Box::new(InferType::Con(TypeConstructor::Adt(old_adt))),
             InferEffectRow::closed_from_symbols([old_effect]),
         );
@@ -491,10 +482,7 @@ mod tests {
         let remapped = infer_type.remap_symbols(&remap);
 
         let expected = InferType::Fun(
-            vec![InferType::App(
-                TypeConstructor::Adt(new_adt),
-                vec![int()],
-            )],
+            vec![InferType::App(TypeConstructor::Adt(new_adt), vec![int()])],
             Box::new(InferType::Con(TypeConstructor::Adt(new_adt))),
             InferEffectRow::closed_from_symbols([new_effect]),
         );

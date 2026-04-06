@@ -1,0 +1,9 @@
+// NonZero makes division safe by construction — zero is rejected at creation time.
+import Flow.NonZero exposing (..)
+
+fn main() with IO {
+    match non_zero(0) {
+        Some(nz) -> print(div_nz(42, nz)),
+        None -> print("non_zero(0) returned None - division prevented at construction"),
+    }
+}

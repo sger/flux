@@ -1,0 +1,34 @@
+// parity: vm, llvm
+// expect: success
+// Tests safe_div and safe_mod (Proposal 0135 Phase 1).
+// These are total functions: return Some(result) on success, None on zero divisor.
+
+fn main() with IO {
+    // ── safe_div ─────────────────────────────────────────────────────
+    // Integer division
+    print(safe_div(10, 3))      // Some(3)
+    print(safe_div(10, 0))      // None
+    print(safe_div(0, 5))       // Some(0)
+    print(safe_div(-15, 3))     // Some(-5)
+
+    // ── safe_mod ─────────────────────────────────────────────────────
+    // Integer modulo
+    print(safe_mod(10, 3))      // Some(1)
+    print(safe_mod(10, 0))      // None
+    print(safe_mod(0, 5))       // Some(0)
+    print(safe_mod(7, 7))       // Some(0)
+
+    // ── Pattern matching on result ───────────────────────────────────
+    let result = safe_div(100, 4)
+    match result {
+        Some(v) -> print("100/4 = " + to_string(v)),
+        None -> print("unreachable"),
+    }
+
+    let result2 = safe_div(100, 0)
+    match result2 {
+        Some(_) -> print("unreachable"),
+        None -> print("division by zero handled"),
+    }
+
+}

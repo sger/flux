@@ -1,7 +1,7 @@
 use crate::core_to_llvm::{
     CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl, LlvmFunction,
-    LlvmFunctionSig, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType,
-    LlvmValueKind,
+    LlvmFunctionSig, LlvmGlobal, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator,
+    LlvmType, LlvmValueKind,
 };
 
 use super::prelude::{
@@ -52,11 +52,153 @@ fn emit_imul(module: &mut LlvmModule) {
 }
 
 fn emit_idiv(module: &mut LlvmModule) {
-    emit_tagged_binary_helper(module, "flux_idiv", LlvmValueKind::SDiv);
+    emit_checked_div_helper(module, "flux_idiv", LlvmValueKind::SDiv, "Division by zero");
 }
 
 fn emit_imod(module: &mut LlvmModule) {
-    emit_tagged_binary_helper(module, "flux_imod", LlvmValueKind::SRem);
+    emit_checked_div_helper(module, "flux_imod", LlvmValueKind::SRem, "Division by zero");
+}
+
+/// Emit a tagged integer binary helper with a zero-divisor check.
+/// If the divisor is zero, calls `flux_panic` instead of executing the
+/// hardware `sdiv`/`srem` (which would trigger STATUS_INTEGER_DIVIDE_BY_ZERO).
+fn emit_checked_div_helper(module: &mut LlvmModule, name: &str, op: LlvmValueKind, msg: &str) {
+    if has_function(module, name) {
+        return;
+    }
+
+    // Declare external C functions used by the zero check.
+    for (ext_name, ret, params) in [
+        ("flux_panic", LlvmType::Void, vec![LlvmType::i64()]),
+        (
+            "flux_string_new",
+            LlvmType::i64(),
+            vec![LlvmType::Ptr, LlvmType::i32()],
+        ),
+    ] {
+        if !module.declarations.iter().any(|d| d.name.0 == ext_name)
+            && !has_function(module, ext_name)
+        {
+            module.declarations.push(LlvmDecl {
+                linkage: Linkage::External,
+                name: GlobalId(ext_name.into()),
+                sig: LlvmFunctionSig {
+                    ret,
+                    params,
+                    varargs: false,
+                    call_conv: CallConv::Ccc,
+                },
+                attrs: vec!["nounwind".into()],
+            });
+        }
+    }
+
+    // Emit a global constant for the panic message string.
+    let msg_global_name = format!("{name}.div_zero_msg");
+    let msg_global_id = GlobalId(msg_global_name);
+    module.globals.push(LlvmGlobal {
+        linkage: Linkage::Private,
+        name: msg_global_id.clone(),
+        ty: LlvmType::Array {
+            len: msg.len() as u64,
+            element: Box::new(LlvmType::i8()),
+        },
+        is_constant: true,
+        value: Some(LlvmConst::Array {
+            element_ty: LlvmType::i8(),
+            elements: msg
+                .bytes()
+                .map(|b| LlvmConst::Int {
+                    bits: 8,
+                    value: b as i128,
+                })
+                .collect(),
+        }),
+        attrs: vec![],
+    });
+
+    module.functions.push(LlvmFunction {
+        linkage: linkage_internal(),
+        name: flux_arith_symbol(name),
+        sig: binary_i64_sig(),
+        params: vec![LlvmLocal("a".into()), LlvmLocal("b".into())],
+        attrs: helper_attrs(),
+        blocks: vec![
+            // entry: untag both, check b_raw == 0
+            LlvmBlock {
+                label: LabelId("entry".into()),
+                instrs: vec![
+                    call_i64("a_raw", "flux_untag_int", vec![local("a")]),
+                    call_i64("b_raw", "flux_untag_int", vec![local("b")]),
+                    LlvmInstr::Icmp {
+                        dst: LlvmLocal("is_zero".into()),
+                        op: LlvmCmpOp::Eq,
+                        ty: LlvmType::i64(),
+                        lhs: local("b_raw"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 64, value: 0 }),
+                    },
+                ],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("is_zero"),
+                    then_label: LabelId("panic".into()),
+                    else_label: LabelId("safe".into()),
+                },
+            },
+            // panic: call flux_panic("Division by zero")
+            LlvmBlock {
+                label: LabelId("panic".into()),
+                instrs: vec![
+                    LlvmInstr::Call {
+                        dst: Some(LlvmLocal("msg".into())),
+                        tail: false,
+                        call_conv: Some(CallConv::Ccc),
+                        ret_ty: LlvmType::i64(),
+                        callee: LlvmOperand::Global(GlobalId("flux_string_new".into())),
+                        args: vec![
+                            (LlvmType::Ptr, LlvmOperand::Global(msg_global_id)),
+                            (
+                                LlvmType::i32(),
+                                LlvmOperand::Const(LlvmConst::Int {
+                                    bits: 32,
+                                    value: msg.len() as i128,
+                                }),
+                            ),
+                        ],
+                        attrs: vec![],
+                    },
+                    LlvmInstr::Call {
+                        dst: None,
+                        tail: false,
+                        call_conv: Some(CallConv::Ccc),
+                        ret_ty: LlvmType::Void,
+                        callee: LlvmOperand::Global(GlobalId("flux_panic".into())),
+                        args: vec![(LlvmType::i64(), local("msg"))],
+                        attrs: vec![],
+                    },
+                ],
+                term: LlvmTerminator::Unreachable,
+            },
+            // safe: perform the division
+            LlvmBlock {
+                label: LabelId("safe".into()),
+                instrs: vec![
+                    LlvmInstr::Binary {
+                        dst: LlvmLocal("result_raw".into()),
+                        op,
+                        ty: LlvmType::i64(),
+                        lhs: local("a_raw"),
+                        rhs: local("b_raw"),
+                    },
+                    call_i64("result", "flux_tag_int", vec![local("result_raw")]),
+                ],
+                term: LlvmTerminator::Ret {
+                    ty: LlvmType::i64(),
+                    value: local("result"),
+                },
+            },
+        ],
+    });
 }
 
 fn emit_tagged_binary_helper(module: &mut LlvmModule, name: &str, op: LlvmValueKind) {

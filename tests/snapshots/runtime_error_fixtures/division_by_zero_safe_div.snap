@@ -1,0 +1,30 @@
+---
+source: tests/runtime_error_fixtures_snapshots.rs
+---
+Fixture: examples/runtime_errors/division_by_zero_safe_div.flx
+== vm ==
+status: 0
+stdout:
+"safe_div returned None - no panic!"
+stderr:
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+[7 of 7] Compiling  division_by_zero_safe_div
+[cfg→vm] Running via CFG → bytecode VM backend...
+== jit ==
+status: 0
+stdout:
+"safe_div returned None - no panic!"
+stderr:
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+[7 of 7] Compiling  division_by_zero_safe_div
+[cfg→vm] Running via CFG → bytecode VM backend...

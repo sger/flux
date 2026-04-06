@@ -93,10 +93,7 @@ impl InferEffectRow {
     }
 
     /// Replace Symbol IDs according to `remap`. Returns a new row.
-    pub fn remap_symbols(
-        &self,
-        remap: &std::collections::HashMap<Identifier, Identifier>,
-    ) -> Self {
+    pub fn remap_symbols(&self, remap: &std::collections::HashMap<Identifier, Identifier>) -> Self {
         let concrete = self
             .concrete
             .iter()
