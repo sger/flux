@@ -3115,12 +3115,21 @@ impl Compiler {
                 Statement::Function { name, .. } if self.sym(*name) == "main"
             )
         });
+        // Derive an entry qualifier from the file path to prevent symbol
+        // collisions with C runtime primops. E.g. "examples/day06.flx"
+        // yields qualifier "day06", so user's `fn sum` becomes `flux_day06_sum`
+        // instead of `flux_sum` (which clashes with libflux_rt.a).
+        let entry_qualifier = std::path::Path::new(&self.file_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(|s| s.replace(['-', '.', ' '], "_"));
         let lir = crate::lir::lower::lower_program_with_interner_and_externs(
             &core,
             Some(&self.interner),
             None,
             Some(&extern_symbols),
             emit_main,
+            entry_qualifier.as_deref(),
         );
         Ok(crate::lir::emit_llvm::emit_llvm_module_with_options(
             &lir,

@@ -848,6 +848,7 @@ impl Compiler {
 
                 if !is_self_tail_call
                     && !is_self_non_tail_call
+                    && !self.in_tail_position
                     && arguments.len() == 1
                     && let Expression::Identifier { name, .. } = function.as_ref()
                     && let Some(binding) = self.resolve_visible_symbol(*name)
@@ -879,8 +880,11 @@ impl Compiler {
                     }
                 }
 
-                // Emit OpTailCall for self recursive tail calls otherwise OpCall
-                if is_self_tail_call {
+                // Emit OpTailCall for tail-position calls (self or sibling),
+                // otherwise OpCall. OpTailCall reuses the current stack frame
+                // and works for any callee (self-recursive, mutual, or any
+                // known function).
+                if is_self_tail_call || self.in_tail_position {
                     self.emit(OpCode::OpTailCall, &[arguments.len()]);
                 } else if is_self_non_tail_call {
                     self.emit(OpCode::OpCallSelf, &[arguments.len()]);

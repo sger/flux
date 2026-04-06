@@ -83,18 +83,25 @@ fn collect_module_paths(
         crate::diagnostics::position::Span,
     )>,
     interner: Option<&Interner>,
+    entry_qualifier: Option<&str>,
 ) {
     match item {
         CoreTopLevelItem::Function { name, span, .. } => {
             let func_name = interner
                 .map(|i| i.resolve(*name).to_string())
                 .unwrap_or_else(|| format!("sym_{}", name.as_u32()));
-            let qualified = if prefix.is_empty() {
-                func_name
-            } else {
+            let qualified = if !prefix.is_empty() {
                 let mut parts = prefix.to_vec();
                 parts.push(func_name);
                 parts.join("_")
+            } else if let Some(qual) = entry_qualifier && func_name != "main" {
+                // Entry-file functions get qualified to avoid collisions
+                // with C runtime primops (e.g., flux_sum in libflux_rt.a).
+                // The main function is excluded — it must remain "main" for
+                // the C runtime entry point.
+                format!("{qual}_{func_name}")
+            } else {
+                func_name
             };
             // Sanitize for LLVM symbol names: replace '.' with '_'
             let sanitized = qualified.replace('.', "_");
@@ -109,7 +116,8 @@ fn collect_module_paths(
             let mut new_prefix = prefix.to_vec();
             new_prefix.push(mod_name);
             for child in body {
-                collect_module_paths(child, &new_prefix, out, interner);
+                // Inside a module, no entry qualifier needed — module prefix handles naming.
+                collect_module_paths(child, &new_prefix, out, interner, None);
             }
         }
         _ => {} // Import, Data, EffectDecl — skip
@@ -121,9 +129,15 @@ fn collect_module_paths(
 ///
 /// For each module function, finds the first unclaimed `CoreDef` with a matching
 /// bare name and assigns it the qualified name.
+///
+/// `entry_qualifier`: optional prefix for entry-file functions that have no
+/// `module` declaration. Prevents LLVM symbol collisions with C runtime primops
+/// (e.g., a user's `fn sum` would collide with `flux_sum` in libflux_rt.a
+/// without qualification).
 fn build_qualified_names(
     program: &CoreProgram,
     interner: Option<&Interner>,
+    entry_qualifier: Option<&str>,
 ) -> HashMap<CoreBinderId, String> {
     // Step 1: Collect (bare_name, qualified_name, span) triples from the module tree.
     let mut name_qualified_pairs: Vec<(
@@ -132,7 +146,7 @@ fn build_qualified_names(
         crate::diagnostics::position::Span,
     )> = Vec::new();
     for item in &program.top_level_items {
-        collect_module_paths(item, &[], &mut name_qualified_pairs, interner);
+        collect_module_paths(item, &[], &mut name_qualified_pairs, interner, entry_qualifier);
     }
 
     // Step 2: Match CoreDef entries to qualified names.
@@ -163,12 +177,20 @@ fn build_qualified_names(
     }
 
     // Step 3: Assign fallback names for defs not found in any module
-    // (anonymous lambdas, letrec bindings, etc.)
+    // (entry-file functions, anonymous lambdas, letrec bindings, etc.)
+    // Entry-file functions get qualified with `entry_qualifier` to avoid
+    // symbol collisions with C runtime primops like `flux_sum`.
     for def in &program.defs {
         result.entry(def.binder.id).or_insert_with(|| {
-            interner
+            let bare = interner
                 .map(|i| i.resolve(def.name).to_string())
-                .unwrap_or_else(|| format!("def_{}", def.binder.id.0))
+                .unwrap_or_else(|| format!("def_{}", def.binder.id.0));
+            match entry_qualifier {
+                Some(qual) if !bare.starts_with("lambda_") && !bare.starts_with("letrec_") => {
+                    format!("{qual}_{bare}")
+                }
+                _ => bare,
+            }
         });
     }
 
@@ -230,7 +252,7 @@ pub fn lower_program_with_interner(
     interner: Option<&Interner>,
     globals_map: Option<&HashMap<String, usize>>,
 ) -> LirProgram {
-    lower_program_with_interner_and_externs(program, interner, globals_map, None, true)
+    lower_program_with_interner_and_externs(program, interner, globals_map, None, true, None)
 }
 
 /// Lower a `CoreProgram` to `LirProgram` with optional native external symbol
@@ -241,11 +263,12 @@ pub fn lower_program_with_interner_and_externs(
     globals_map: Option<&HashMap<String, usize>>,
     extern_symbols: Option<&HashMap<String, ImportedNativeSymbol>>,
     emit_main: bool,
+    entry_qualifier: Option<&str>,
 ) -> LirProgram {
     let mut lir = LirProgram::new();
 
     // Build module-qualified names from the CoreTopLevelItem tree.
-    let qualified_names = build_qualified_names(program, interner);
+    let qualified_names = build_qualified_names(program, interner, entry_qualifier);
 
     // Collect user-defined ADT constructor tags from Data declarations.
     collect_constructor_tags(
@@ -347,7 +370,154 @@ pub fn lower_program_with_interner_and_externs(
         lir.push_function(func);
     }
 
+    // Post-pass: promote Call → TailCall where the result flows directly
+    // to a Return with no intervening side effects.
+    promote_tail_calls(&mut lir);
+
     lir
+}
+
+// ── Tail call promotion ─────────────────────────────────────────────────────
+
+/// Promote `Call` terminators to `TailCall` where the continuation block
+/// is a trivial return (the call result flows to `Return` with no work).
+///
+/// Only promotes `CallKind::Direct` and `CallKind::DirectExtern` — indirect
+/// calls through `flux_call_closure` have a different prototype and must not
+/// be marked as tail calls (causes Bus errors on Apple clang).
+fn promote_tail_calls(program: &mut LirProgram) {
+    for func in &mut program.functions {
+        let num_blocks = func.blocks.len();
+        if num_blocks == 0 {
+            continue;
+        }
+
+        // Phase 1: identify "return tail" blocks — blocks where a value
+        // entering as the block param flows directly to Return.
+        //
+        // A block is a return tail if:
+        //   - it has exactly one param
+        //   - all instructions are phi-bridge Copies (Copy where dst is a
+        //     block param of a successor)
+        //   - terminator is Return(param) or Return(copy_dst)
+        //   - OR terminator is Jump to another return-tail block
+        let mut is_return_tail = vec![false; num_blocks];
+
+        // Collect which vars are block params (for phi-bridge detection).
+        let block_param_set: HashSet<u32> = func
+            .blocks
+            .iter()
+            .flat_map(|b| b.params.iter().map(|v| v.0))
+            .collect();
+
+        // First pass: direct Return(param) with no non-phi instructions.
+        for (idx, block) in func.blocks.iter().enumerate() {
+            if block.params.len() != 1 {
+                continue;
+            }
+            let param = block.params[0];
+
+            // Check all instructions are phi-bridge Copies.
+            let all_phi_bridge = block.instrs.iter().all(|instr| {
+                matches!(instr, LirInstr::Copy { dst, .. } if block_param_set.contains(&dst.0))
+            });
+            if !all_phi_bridge {
+                continue;
+            }
+
+            // Find the "effective return value" — either param directly or
+            // a Copy destination that is then returned.
+            match &block.terminator {
+                LirTerminator::Return(v) if *v == param => {
+                    is_return_tail[idx] = true;
+                }
+                LirTerminator::Return(v) => {
+                    // Check if param is copied to v.
+                    let copied_to_ret = block.instrs.iter().any(|instr| {
+                        matches!(instr, LirInstr::Copy { dst, src } if *src == param && *dst == *v)
+                    });
+                    if copied_to_ret {
+                        is_return_tail[idx] = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Fixed-point: propagate through Copy+Jump chains.
+        loop {
+            let mut changed = false;
+            for idx in 0..num_blocks {
+                if is_return_tail[idx] {
+                    continue;
+                }
+                let block = &func.blocks[idx];
+                if block.params.len() != 1 {
+                    continue;
+                }
+
+                let all_phi_bridge = block.instrs.iter().all(|instr| {
+                    matches!(instr, LirInstr::Copy { dst, .. } if block_param_set.contains(&dst.0))
+                });
+                if !all_phi_bridge {
+                    continue;
+                }
+
+                if let LirTerminator::Jump(target) = &block.terminator {
+                    let target_idx = target.0 as usize;
+                    if target_idx < num_blocks && is_return_tail[target_idx] {
+                        is_return_tail[idx] = true;
+                        changed = true;
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+
+        // Phase 2: promote eligible Call → TailCall.
+        for idx in 0..num_blocks {
+            let should_promote = if let LirTerminator::Call {
+                cont,
+                yield_cont,
+                kind,
+                ..
+            } = &func.blocks[idx].terminator
+            {
+                let cont_idx = cont.0 as usize;
+                yield_cont.is_none()
+                    && cont_idx < num_blocks
+                    && is_return_tail[cont_idx]
+                    && matches!(
+                        kind,
+                        CallKind::Direct { .. } | CallKind::DirectExtern { .. }
+                    )
+            } else {
+                false
+            };
+
+            if should_promote {
+                let old = std::mem::replace(
+                    &mut func.blocks[idx].terminator,
+                    LirTerminator::Unreachable,
+                );
+                if let LirTerminator::Call {
+                    func: call_func,
+                    args,
+                    kind,
+                    ..
+                } = old
+                {
+                    func.blocks[idx].terminator = LirTerminator::TailCall {
+                        func: call_func,
+                        args,
+                        kind,
+                    };
+                }
+            }
+        }
+    }
 }
 
 // ── Per-function lowering context ────────────────────────────────────────────

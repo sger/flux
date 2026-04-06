@@ -158,9 +158,14 @@ fn test_indirect_self_call_stays_generic_call() {
     let bytecode = compile(input);
     let asm = find_function_disassembly(&bytecode, 1);
     assert!(!asm.contains("OpCallSelf"), "unexpected OpCallSelf:\n{asm}");
+    // In tail position, OpTailCall is emitted instead of OpCall — this is
+    // correct and preferred (avoids stack growth). Accept either form.
     assert!(
-        asm.contains("OpCall 1") || asm.contains("OpCall1") || asm.contains("OpGetLocalCall1"),
-        "expected generic call:\n{asm}"
+        asm.contains("OpCall 1")
+            || asm.contains("OpCall1")
+            || asm.contains("OpGetLocalCall1")
+            || asm.contains("OpTailCall"),
+        "expected generic call or tail call:\n{asm}"
     );
 }
 
