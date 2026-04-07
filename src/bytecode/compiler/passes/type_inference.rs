@@ -75,7 +75,9 @@ impl Compiler {
 
         // Type class constraint solving: verify that concrete-type constraints
         // have matching instances in the ClassEnv (Proposal 0145, Step 4).
-        if !class_constraints.is_empty() && !self.class_env.classes.is_empty() {
+        // Only enforced when strict_types is active (Flow stdlib is excluded).
+        if self.strict_types && !class_constraints.is_empty() && !self.class_env.classes.is_empty()
+        {
             let mut solver_diags =
                 solve_class_constraints(&class_constraints, &self.class_env, &self.interner);
             tag_diagnostics(&mut solver_diags, DiagnosticPhase::TypeInference);
