@@ -1724,7 +1724,7 @@ letrec rec_copy_or_keep : List<Int> =
       _ →
         []
 
-letrec main : Any =
+letrec main : Unit =
 λ.
     let %t359 = (let %t360:Box = MakeList(1, 2, 3)
     aether_call[owned, borrowed] rec_copy_or_keep#586(#4000941[synthetic]#941, false))

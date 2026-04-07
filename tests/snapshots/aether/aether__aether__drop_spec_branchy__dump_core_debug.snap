@@ -1742,7 +1742,7 @@ letrec keep_or_dup_left : Tree =
       _ →
         t#592
 
-letrec main : Any =
+letrec main : Unit =
 λ.
     let %t357 = (let %t358 = (let %t359:Box = MakeList(1, 2, 3)
     aether_call[owned, borrowed] copy_or_keep_head#586(#4000947[synthetic]#947, true))

@@ -1342,8 +1342,8 @@ impl Compiler {
         // (name, params, ret, effects, forall_count)
         let primop_sigs: Vec<(&str, Vec<InferType>, InferType, InferEffectRow, usize)> = vec![
             // I/O
-            ("print", vec![con(TC::Any)], con(TC::Any), io(), 0),
-            ("println", vec![con(TC::Any)], con(TC::Any), io(), 0),
+            ("print", vec![con(TC::Any)], con(TC::Unit), io(), 0),
+            ("println", vec![con(TC::Any)], con(TC::Unit), io(), 0),
             ("read_file", vec![con(TC::String)], con(TC::String), io(), 0),
             ("read_stdin", vec![], con(TC::String), io(), 0),
             (

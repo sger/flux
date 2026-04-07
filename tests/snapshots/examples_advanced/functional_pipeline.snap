@@ -70,6 +70,32 @@ Hint:
   Define it first: let first = ...;
 
 
+error[E300]: Match Arm Type Mismatch
+
+The arms of this `match` expression do not agree on a type.
+
+  examples/advanced/functional_pipeline.flx:75:14
+   |
+74 |         Some(n) -> print(upper(n)),
+   |                    --------------- first arm returns `Unit`
+
+   |                    --------------- this arm established the expected type
+75 |         _ -> ()
+   |              ^^
+   |              -- arm 2 has type `()`
+
+   |              -- arm 2 conflicts with that type
+
+Note:
+  first arm type: Unit
+  this arm type: ()
+  the first arm fixes the type expected from the whole `match`
+  this arm produces the competing type
+
+Help:
+  Change arm 2 so every arm returns the same type.
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `first`.
@@ -95,6 +121,6 @@ I can't find a value named `map`.
 Hint:
   Define it first: let map = ...;
 
-Found 7 errors.
+Found 8 errors.
 == stdout ==
 <not executed>

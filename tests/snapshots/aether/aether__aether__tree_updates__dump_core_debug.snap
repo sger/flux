@@ -184,7 +184,7 @@ letrec parse_ints =
 
 letrec split_ints =
 λs#61, sep#62.
-    let parts#63 = Split(s#61, sep#62)
+    let parts#63:Unit = Split(s#61, sep#62)
     aether_call[borrowed] parse_ints#54(parts#63)
 
 letrec map =
@@ -1764,7 +1764,7 @@ letrec churn_tree : Tree =
           aether_call[owned, owned] go#610(#4000973[synthetic]#973, t4#613))
     aether_call[owned, owned] go#610(iterations#609, t#608)
 
-letrec main : Any =
+letrec main : Unit =
 λ.
     let tree#625:Box = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
     let updated#624:Box = aether_call[owned, owned] churn_tree#607(dup tree#625
