@@ -230,7 +230,7 @@ letrec filter =
       true →
         letrec filter_arr = (λi, acc.
           let %t47 = (let %t48 = Len(xs)
-          Ge(i, %t48))
+          ICmpGe(i, %t48))
           case %t47 of
             true →
               acc
@@ -1518,7 +1518,7 @@ letrec min_list =
           case %t317 of
             Some(v) →
               let %t318 = Add(i, 1)
-              let %t319 = (let %t320 = Lt(v, best)
+              let %t319 = (let %t320 = ICmpLt(v, best)
               case %t320 of
                 true →
                   drop best
@@ -1765,7 +1765,7 @@ letrec my_sum =
     case xs of
       ::(h, t) →
         let %t362 = aether_call[borrowed] my_sum(t)
-        Add(h, %t362)
+        IAdd(h, %t362)
       _ →
         0
 

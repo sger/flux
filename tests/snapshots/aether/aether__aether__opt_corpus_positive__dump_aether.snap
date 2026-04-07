@@ -906,7 +906,7 @@ Aether Memory Model Report
         let %t3 = Index(arr, i)
         case %t3 of
           Some(v) →
-            let %t4 = Add(i, 1)
+            let %t4 = IAdd(i, 1)
             let %t5 = (let %t6 = ICmpLt(v, best)
             case %t6 of
               true →

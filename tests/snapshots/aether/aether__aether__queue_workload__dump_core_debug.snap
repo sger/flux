@@ -1782,7 +1782,7 @@ letrec drain_sum : Int =
       _ →
         total#617
 
-letrec main : Any =
+letrec main : Unit =
 λ.
     let seed_queue#626:Box = aether_call[owned] build_queue#604(2000)
     let rotated#625:Int = aether_call[owned, borrowed, owned] rotate_sum#609(seed_queue#626, 3000, 0)

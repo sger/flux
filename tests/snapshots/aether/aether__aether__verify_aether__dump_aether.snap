@@ -119,7 +119,7 @@ Aether Memory Model Report
     true →
       letrec filter_arr = (λi, acc.
         let %t2 = (let %t3 = Len(xs)
-        Ge(i, %t3))
+        ICmpGe(i, %t3))
         case %t2 of
           true →
             acc
@@ -907,7 +907,7 @@ Aether Memory Model Report
         case %t3 of
           Some(v) →
             let %t4 = Add(i, 1)
-            let %t5 = (let %t6 = Lt(v, best)
+            let %t5 = (let %t6 = ICmpLt(v, best)
             case %t6 of
               true →
                 drop best
