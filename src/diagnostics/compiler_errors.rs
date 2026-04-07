@@ -802,6 +802,14 @@ pub const UNDEFINED_TYPE_VAR: ErrorCode = ErrorCode {
     hint: Some("Declare the type variable in the function's generic parameter list: fn f<T>(...)"),
 };
 
+pub const STRICT_TYPES_ANY_INFERRED: ErrorCode = ErrorCode {
+    code: "E430",
+    title: "ANY TYPE INFERRED",
+    error_type: ErrorType::Compiler,
+    message: "Could not determine a concrete type for `{}`.",
+    hint: Some("Add a type annotation so the compiler can verify type safety."),
+};
+
 // ============================================================================
 // Error Constructor Functions
 // ============================================================================

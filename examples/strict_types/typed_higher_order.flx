@@ -1,0 +1,16 @@
+// parity: vm, llvm
+// expect: success
+// Typed higher-order functions — passes --strict-types.
+
+fn apply(f: (Int) -> Int, x: Int) -> Int { f(x) }
+fn compose(f: (Int) -> Int, g: (Int) -> Int, x: Int) -> Int { f(g(x)) }
+
+fn double(x: Int) -> Int { x * 2 }
+fn inc(x: Int) -> Int { x + 1 }
+
+fn main() with IO {
+    print(apply(double, 5))
+    print(apply(inc, 10))
+    print(compose(double, inc, 3))
+    print(compose(inc, double, 3))
+}

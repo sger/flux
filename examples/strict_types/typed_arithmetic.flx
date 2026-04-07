@@ -1,0 +1,14 @@
+// parity: vm, llvm
+// expect: success
+// Fully typed arithmetic — passes --strict-types.
+
+fn add(x: Int, y: Int) -> Int { x + y }
+fn mul(x: Int, y: Int) -> Int { x * y }
+fn sub(x: Int, y: Int) -> Int { x - y }
+
+fn main() with IO {
+    print(add(10, 20))
+    print(mul(3, 7))
+    print(sub(100, 42))
+    print(add(mul(2, 3), sub(10, 4)))
+}
