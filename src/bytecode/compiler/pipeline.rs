@@ -1,5 +1,6 @@
 use crate::diagnostics::Diagnostic;
 use crate::syntax::program::Program;
+use crate::types::class_dispatch::generate_dispatch_functions;
 
 use super::{Compiler, MainValidationState};
 
@@ -25,6 +26,31 @@ impl Compiler {
 
         // Phase 1: Collect definitions + validate structure
         let collection = self.phase_collection(program);
+
+        // Phase 1b: Generate dispatch functions for type class instances.
+        // This injects mangled instance methods + dispatch functions into the
+        // program AST so they compile through the normal pipeline.
+        let class_augmented;
+        let program = if !self.class_env.classes.is_empty() {
+            let extra = generate_dispatch_functions(
+                &program.statements,
+                &self.class_env,
+                &mut self.interner,
+            );
+            if !extra.is_empty() {
+                let mut stmts = program.statements.clone();
+                stmts.extend(extra);
+                class_augmented = Program {
+                    statements: stmts,
+                    span: program.span,
+                };
+                &class_augmented
+            } else {
+                program
+            }
+        } else {
+            program
+        };
 
         // Phase 2: Predeclare function names
         self.phase_predeclaration(program, &collection);

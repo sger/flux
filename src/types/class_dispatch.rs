@@ -1,0 +1,288 @@
+//! Type class dispatch — transforms class/instance declarations into callable
+//! functions via AST preprocessing.
+//!
+//! For each instance method, generates a mangled function that compiles through
+//! the normal pipeline. For methods with multiple instances, generates a runtime
+//! dispatch function using `type_of()`.
+//!
+//! This is the static-dispatch MVP. A future dictionary-passing elaboration
+//! (Proposal 0145, Step 5) will replace runtime dispatch with compile-time
+//! dictionary arguments for polymorphic code.
+
+use std::collections::HashMap;
+
+use crate::{
+    diagnostics::position::Span,
+    syntax::{
+        Identifier,
+        block::Block,
+        expression::{ExprId, Expression},
+        interner::Interner,
+        statement::Statement,
+    },
+    types::class_env::ClassEnv,
+};
+
+/// Information about a single instance method for dispatch generation.
+struct InstanceMethodInfo {
+    /// The mangled function name (e.g., `__tc_Eq_Int_eq`).
+    mangled_name: Identifier,
+    /// The type name this instance applies to (e.g., `"Int"`, `"String"`).
+    type_name: String,
+}
+
+/// Generate function statements from class/instance declarations.
+///
+/// Returns a list of new `Statement::Function` to inject into the program:
+/// 1. Mangled instance method functions (one per instance method)
+/// 2. Dispatch functions for methods with instances (one per class method)
+pub fn generate_dispatch_functions(
+    statements: &[Statement],
+    class_env: &ClassEnv,
+    interner: &mut Interner,
+) -> Vec<Statement> {
+    let mut generated = Vec::new();
+
+    // Collect instance method info grouped by (class_name, method_name)
+    let mut dispatch_table: HashMap<(Identifier, Identifier), Vec<InstanceMethodInfo>> =
+        HashMap::new();
+
+    generate_from_statements(
+        statements,
+        class_env,
+        interner,
+        &mut generated,
+        &mut dispatch_table,
+    );
+
+    // Generate dispatch functions for each class method
+    for ((class_name, method_name), instances) in &dispatch_table {
+        if let Some(class_def) = class_env.lookup_class(*class_name) {
+            let method_sig = class_def.methods.iter().find(|m| m.name == *method_name);
+            let arity = method_sig.map(|m| m.arity).unwrap_or(2);
+
+            if let Some(dispatch_fn) =
+                generate_dispatch_function(*method_name, instances, arity, interner)
+            {
+                generated.push(dispatch_fn);
+            }
+        }
+    }
+
+    generated
+}
+
+/// Recursively walk statements, generating mangled functions for instance methods.
+fn generate_from_statements(
+    statements: &[Statement],
+    _class_env: &ClassEnv,
+    interner: &mut Interner,
+    generated: &mut Vec<Statement>,
+    dispatch_table: &mut HashMap<(Identifier, Identifier), Vec<InstanceMethodInfo>>,
+) {
+    for stmt in statements {
+        match stmt {
+            Statement::Instance {
+                class_name,
+                type_args,
+                methods,
+                span,
+                ..
+            } => {
+                // Determine the head type name for mangling
+                let type_name = if let Some(first_arg) = type_args.first() {
+                    first_arg.display_with(interner)
+                } else {
+                    "Unknown".to_string()
+                };
+
+                let class_name_str = interner.resolve(*class_name).to_string();
+
+                for method in methods {
+                    // Generate mangled name: __tc_ClassName_TypeName_methodName
+                    let method_name_str = interner.resolve(method.name).to_string();
+                    let mangled = format!("__tc_{class_name_str}_{type_name}_{method_name_str}");
+                    let mangled_sym = interner.intern(&mangled);
+
+                    // Create a regular function statement with the mangled name
+                    let fn_stmt = Statement::Function {
+                        is_public: false,
+                        fip: None,
+                        name: mangled_sym,
+                        type_params: vec![],
+                        parameters: method.params.clone(),
+                        parameter_types: vec![None; method.params.len()],
+                        return_type: None,
+                        effects: vec![],
+                        body: method.body.clone(),
+                        span: *span,
+                    };
+                    generated.push(fn_stmt);
+
+                    // Record for dispatch table
+                    dispatch_table
+                        .entry((*class_name, method.name))
+                        .or_default()
+                        .push(InstanceMethodInfo {
+                            mangled_name: mangled_sym,
+                            type_name: type_name.clone(),
+                        });
+                }
+            }
+            Statement::Module { body, .. } => {
+                generate_from_statements(
+                    &body.statements,
+                    _class_env,
+                    interner,
+                    generated,
+                    dispatch_table,
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Generate a dispatch function that routes to the correct instance at runtime.
+///
+/// For `eq` with instances for Int and String, generates:
+/// ```flux
+/// fn eq(x, y) {
+///     if type_of(x) == "Int" { __tc_Eq_Int_eq(x, y) }
+///     else if type_of(x) == "String" { __tc_Eq_String_eq(x, y) }
+///     else { panic("No instance for Eq") }
+/// }
+/// ```
+fn generate_dispatch_function(
+    method_name: Identifier,
+    instances: &[InstanceMethodInfo],
+    arity: usize,
+    interner: &mut Interner,
+) -> Option<Statement> {
+    if instances.is_empty() {
+        return None;
+    }
+
+    // Generate parameter names: __x0, __x1, ...
+    let params: Vec<Identifier> = (0..arity)
+        .map(|i| interner.intern(&format!("__x{i}")))
+        .collect();
+
+    let span = Span::default();
+    let id = ExprId::UNSET;
+
+    // Build the dispatch chain as nested if-else expressions.
+    // Start from the last instance (the else/panic branch) and work backwards.
+    let type_of_sym = interner.intern("type_of");
+    let panic_sym = interner.intern("panic");
+
+    // The panic fallback: panic("No instance for MethodName")
+    let method_display = interner.resolve(method_name).to_string();
+    let panic_msg = format!("No instance for {method_display}");
+    let panic_expr = Expression::Call {
+        function: Box::new(Expression::Identifier {
+            name: panic_sym,
+            span,
+            id,
+        }),
+        arguments: vec![Expression::String {
+            value: panic_msg,
+            span,
+            id,
+        }],
+        span,
+        id,
+    };
+
+    // Build if-else chain from last to first
+    let mut current_else = panic_expr;
+
+    for inst in instances.iter().rev() {
+        // Condition: type_of(__x0) == "TypeName"
+        let condition = Expression::Infix {
+            left: Box::new(Expression::Call {
+                function: Box::new(Expression::Identifier {
+                    name: type_of_sym,
+                    span,
+                    id,
+                }),
+                arguments: vec![Expression::Identifier {
+                    name: params[0],
+                    span,
+                    id,
+                }],
+                span,
+                id,
+            }),
+            operator: "==".to_string(),
+            right: Box::new(Expression::String {
+                value: inst.type_name.clone(),
+                span,
+                id,
+            }),
+            span,
+            id,
+        };
+
+        // Consequence: call the mangled function with all params
+        let call_expr = Expression::Call {
+            function: Box::new(Expression::Identifier {
+                name: inst.mangled_name,
+                span,
+                id,
+            }),
+            arguments: params
+                .iter()
+                .map(|p| Expression::Identifier {
+                    name: *p,
+                    span,
+                    id,
+                })
+                .collect(),
+            span,
+            id,
+        };
+
+        current_else = Expression::If {
+            condition: Box::new(condition),
+            consequence: Block {
+                statements: vec![Statement::Expression {
+                    expression: call_expr,
+                    has_semicolon: false,
+                    span,
+                }],
+                span,
+            },
+            alternative: Some(Block {
+                statements: vec![Statement::Expression {
+                    expression: current_else,
+                    has_semicolon: false,
+                    span,
+                }],
+                span,
+            }),
+            span,
+            id,
+        };
+    }
+
+    Some(Statement::Function {
+        is_public: false,
+        fip: None,
+        name: method_name,
+        type_params: vec![],
+        parameters: params,
+        parameter_types: vec![None; arity],
+        return_type: None,
+        effects: vec![],
+        body: Block {
+            statements: vec![Statement::Expression {
+                expression: current_else,
+                has_semicolon: false,
+                span,
+            }],
+            span,
+        },
+        span,
+    })
+}
