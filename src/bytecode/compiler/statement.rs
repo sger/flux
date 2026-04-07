@@ -1282,7 +1282,7 @@ impl Compiler {
                 let const_len = self.constants.len();
                 match self.try_compile_ir_cfg_function_body(ir_function, name) {
                     Some(Ok(())) => return Ok(()),
-                    Some(Err(_)) => {
+                    Some(Err(ref _e)) => {
                         // CFG compilation error (e.g. unresolved name) — roll
                         // back and fall through to AST for proper diagnostics.
                         self.scopes[self.scope_index] = scope_snapshot;

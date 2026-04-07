@@ -1418,6 +1418,10 @@ impl Parser {
         }
         let name = self.current_token.symbol.expect("ident should have symbol");
 
+        // Optional per-method type parameters: `<a, b>`
+        // parse_type_params_angle_bracket checks for `<` as peek token internally.
+        let method_type_params = self.parse_type_params_angle_bracket();
+
         // `(`
         if !self.expect_peek_context(
             TokenType::LParen,
@@ -1494,6 +1498,7 @@ impl Parser {
 
         Some(ClassMethod {
             name,
+            type_params: method_type_params,
             params,
             param_types,
             return_type,
