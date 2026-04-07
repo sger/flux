@@ -4,6 +4,7 @@
 //! This module is intentionally separate from:
 //! - surface syntax types (`TypeExpr`)
 //! - runtime contract/checking types (`RuntimeType`)
+pub mod class_env;
 pub mod infer_effect_row;
 pub mod infer_type;
 pub mod module_interface;
