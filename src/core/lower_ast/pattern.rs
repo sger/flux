@@ -1,27 +1,66 @@
 use crate::{
     diagnostics::position::Span,
     syntax::expression::{Expression, HandleArm, MatchArm, Pattern},
+    types::infer_type::InferType,
 };
 
-use crate::core::{CoreAlt, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat, CoreTag};
+use crate::core::{
+    CoreAlt, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat, CoreTag, FluxRep,
+};
 
 impl<'a> super::AstLowerer<'a> {
     // ── Pattern lowering ─────────────────────────────────────────────────────
 
-    pub(super) fn lower_match_arm(&mut self, arm: &MatchArm) -> CoreAlt {
+    /// Lower a match arm with an optional scrutinee type for typed pattern binders.
+    pub(super) fn lower_match_arm_typed(
+        &mut self,
+        arm: &MatchArm,
+        scrutinee_ty: Option<&InferType>,
+    ) -> CoreAlt {
         CoreAlt {
-            pat: self.lower_pattern(&arm.pattern),
+            pat: self.lower_pattern_typed(&arm.pattern, scrutinee_ty),
             guard: arm.guard.as_ref().map(|g| self.lower_expr(g)),
             rhs: self.lower_expr(&arm.body),
             span: arm.span,
         }
     }
 
-    pub(super) fn lower_handle_arm(&mut self, arm: &HandleArm) -> CoreHandler {
+    /// Lower an effect handler arm with typed binders from effect op signatures.
+    pub(super) fn lower_handle_arm_typed(
+        &mut self,
+        arm: &HandleArm,
+        effect: crate::syntax::Identifier,
+    ) -> CoreHandler {
+        // Look up op signature: (effect, operation) → (param_types, return_type)
+        let op_sig = self
+            .effect_op_sigs
+            .and_then(|sigs| sigs.get(&(effect, arm.operation_name)));
+
+        let params = if let Some((param_tys, _ret_ty)) = op_sig {
+            if param_tys.len() == arm.params.len() {
+                arm.params
+                    .iter()
+                    .zip(param_tys.iter())
+                    .map(|(&p, ty)| self.bind_name_with_type(p, ty))
+                    .collect()
+            } else {
+                arm.params.iter().map(|&p| self.bind_name(p)).collect()
+            }
+        } else {
+            arm.params.iter().map(|&p| self.bind_name(p)).collect()
+        };
+
+        // Resume is always a closure (boxed).
+        let resume = {
+            let id = super::super::CoreBinderId(self.next_binder_id);
+            self.next_binder_id += 1;
+            super::super::CoreBinder::with_rep(id, arm.resume_param, FluxRep::BoxedRep)
+        };
+
         CoreHandler {
             operation: arm.operation_name,
-            params: arm.params.iter().map(|&p| self.bind_name(p)).collect(),
-            resume: self.bind_name(arm.resume_param),
+            params,
+            resume,
             body: self.lower_expr(&arm.body),
             span: arm.span,
         }
@@ -81,49 +120,130 @@ impl<'a> super::AstLowerer<'a> {
     // ── Pure pattern lowering (no side effects) ─────────────────────────────
 
     pub(super) fn lower_pattern(&mut self, pat: &Pattern) -> CorePat {
+        self.lower_pattern_typed(pat, None)
+    }
+
+    /// Lower a pattern with an optional known type for the value being matched.
+    ///
+    /// When `ty` is `Some`, pattern variable binders get their `FluxRep` from
+    /// the decomposed type (mirroring HM inference's `bind_pattern_variables`).
+    /// When `ty` is `None`, falls back to `TaggedRep` (the default).
+    pub(super) fn lower_pattern_typed(
+        &mut self,
+        pat: &Pattern,
+        ty: Option<&InferType>,
+    ) -> CorePat {
+        use crate::types::type_constructor::TypeConstructor;
+
         match pat {
             Pattern::Wildcard { .. } => CorePat::Wildcard,
-            Pattern::Identifier { name, .. } => CorePat::Var(self.bind_name(*name)),
-            Pattern::Literal { expression, .. } => {
-                // Only simple literal patterns are supported.
-                match expression {
-                    Expression::Integer { value, .. } => CorePat::Lit(CoreLit::Int(*value)),
-                    Expression::Float { value, .. } => CorePat::Lit(CoreLit::Float(*value)),
-                    Expression::String { value, .. } => {
-                        CorePat::Lit(CoreLit::String(value.clone()))
-                    }
-                    Expression::Boolean { value, .. } => CorePat::Lit(CoreLit::Bool(*value)),
-                    _ => CorePat::Wildcard, // complex expression patterns → wildcard
+            Pattern::Identifier { name, .. } => {
+                if let Some(t) = ty {
+                    CorePat::Var(self.bind_name_with_type(*name, t))
+                } else {
+                    CorePat::Var(self.bind_name(*name))
                 }
             }
+            Pattern::Literal { expression, .. } => match expression {
+                Expression::Integer { value, .. } => CorePat::Lit(CoreLit::Int(*value)),
+                Expression::Float { value, .. } => CorePat::Lit(CoreLit::Float(*value)),
+                Expression::String { value, .. } => {
+                    CorePat::Lit(CoreLit::String(value.clone()))
+                }
+                Expression::Boolean { value, .. } => CorePat::Lit(CoreLit::Bool(*value)),
+                _ => CorePat::Wildcard,
+            },
             Pattern::None { .. } => CorePat::Con {
                 tag: CoreTag::None,
                 fields: Vec::new(),
             },
-            Pattern::Some { pattern, .. } => CorePat::Con {
-                tag: CoreTag::Some,
-                fields: vec![self.lower_pattern(pattern)],
-            },
-            Pattern::Left { pattern, .. } => CorePat::Con {
-                tag: CoreTag::Left,
-                fields: vec![self.lower_pattern(pattern)],
-            },
-            Pattern::Right { pattern, .. } => CorePat::Con {
-                tag: CoreTag::Right,
-                fields: vec![self.lower_pattern(pattern)],
-            },
-            Pattern::Cons { head, tail, .. } => CorePat::Con {
-                tag: CoreTag::Cons,
-                fields: vec![self.lower_pattern(head), self.lower_pattern(tail)],
-            },
+            Pattern::Some { pattern, .. } => {
+                // Extract inner type from Option<T>
+                let inner_ty = ty.and_then(|t| match t {
+                    InferType::App(TypeConstructor::Option, args) if args.len() == 1 => {
+                        Some(&args[0])
+                    }
+                    _ => None,
+                });
+                CorePat::Con {
+                    tag: CoreTag::Some,
+                    fields: vec![self.lower_pattern_typed(pattern, inner_ty)],
+                }
+            }
+            Pattern::Left { pattern, .. } => {
+                let left_ty = ty.and_then(|t| match t {
+                    InferType::App(TypeConstructor::Either, args) if args.len() == 2 => {
+                        Some(&args[0])
+                    }
+                    _ => None,
+                });
+                CorePat::Con {
+                    tag: CoreTag::Left,
+                    fields: vec![self.lower_pattern_typed(pattern, left_ty)],
+                }
+            }
+            Pattern::Right { pattern, .. } => {
+                let right_ty = ty.and_then(|t| match t {
+                    InferType::App(TypeConstructor::Either, args) if args.len() == 2 => {
+                        Some(&args[1])
+                    }
+                    _ => None,
+                });
+                CorePat::Con {
+                    tag: CoreTag::Right,
+                    fields: vec![self.lower_pattern_typed(pattern, right_ty)],
+                }
+            }
+            Pattern::Cons { head, tail, .. } => {
+                let elem_ty = ty.and_then(|t| match t {
+                    InferType::App(TypeConstructor::List, args) if args.len() == 1 => {
+                        Some(&args[0])
+                    }
+                    _ => None,
+                });
+                CorePat::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![
+                        self.lower_pattern_typed(head, elem_ty),
+                        self.lower_pattern_typed(tail, ty),
+                    ],
+                }
+            }
             Pattern::EmptyList { .. } => CorePat::EmptyList,
             Pattern::Tuple { elements, .. } => {
-                CorePat::Tuple(elements.iter().map(|p| self.lower_pattern(p)).collect())
+                let elem_types: Option<&[InferType]> = ty.and_then(|t| match t {
+                    InferType::Tuple(elems) if elems.len() == elements.len() => {
+                        Some(elems.as_slice())
+                    }
+                    _ => None,
+                });
+                CorePat::Tuple(match elem_types {
+                    Some(types) => elements
+                        .iter()
+                        .zip(types.iter())
+                        .map(|(p, t)| self.lower_pattern_typed(p, Some(t)))
+                        .collect(),
+                    None => elements
+                        .iter()
+                        .map(|p| self.lower_pattern_typed(p, None))
+                        .collect(),
+                })
             }
-            Pattern::Constructor { name, fields, .. } => CorePat::Con {
-                tag: CoreTag::Named(*name),
-                fields: fields.iter().map(|p| self.lower_pattern(p)).collect(),
-            },
+            Pattern::Constructor { name, fields, .. } => {
+                // Try to get field types from ADT constructor info via hm_expr_types.
+                // ADT constructor field types require looking up the constructor's
+                // type scheme, which we don't have direct access to here.
+                // Fall back to untyped for ADT fields — this is a known limitation
+                // (Phase 7e handles built-in patterns; ADT field typing needs
+                // constructor type info threaded into the lowerer).
+                CorePat::Con {
+                    tag: CoreTag::Named(*name),
+                    fields: fields
+                        .iter()
+                        .map(|p| self.lower_pattern_typed(p, None))
+                        .collect(),
+                }
+            }
         }
     }
 }

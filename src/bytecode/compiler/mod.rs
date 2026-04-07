@@ -950,7 +950,8 @@ impl Compiler {
     fn collect_adt_definitions_from_stmt(&mut self, statement: &Statement) {
         match statement {
             Statement::Data { name, variants, .. } => {
-                self.adt_registry.register_adt(*name, variants);
+                self.adt_registry
+                    .register_adt(*name, variants, &self.interner);
             }
             Statement::Module { body, .. } => {
                 for statement in &body.statements {

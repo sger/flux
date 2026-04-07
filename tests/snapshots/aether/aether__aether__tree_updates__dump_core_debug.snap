@@ -83,7 +83,7 @@ letrec assert_lte =
 letrec list_length =
 λxs#27, acc#28.
     case xs#27 of
-      ::(h#29, t#30) →
+      ::(h#29, t#30:Int) →
         drop h#29
         let %t12 = Add(acc#28, 1)
         aether_call[borrowed, owned] list_length#26(t#30, #4000633[synthetic]#633)
@@ -256,7 +256,7 @@ letrec filter =
       _ →
         letrec filter_acc#83 = (λys#84, acc#85.
           case ys#84 of
-            ::(h#86, t#87) →
+            ::(h#86, t#87:Box) →
               let %t56 = aether_call[owned] pred#78(dup h#86
               h#86)
               case #4000674[synthetic]#674 of

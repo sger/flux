@@ -1701,26 +1701,15 @@ letrec str_contains =
 letrec rec_copy_or_keep : List<Int> =
 λxs#587, choose#588.
     case xs#587 of
-      ::(h#589, t#590) →
-        drop_spec xs#587 {
-          unique -> case choose#588 of
-              true →
-                let %t356 = aether_call[owned, borrowed] rec_copy_or_keep#586(t#590, choose#588)
-                reuse xs#587 ::(h#589, #4000938[synthetic]#938) @mask=0b10
-              _ →
-                let %t357:Box = (let %t358 = aether_call[owned, borrowed] rec_copy_or_keep#586(t#590, choose#588)
-                ::(h#589, #4000939[synthetic]#939))
-                reuse xs#587 ::(h#589, #4000940[synthetic]#940) @mask=0b10
-          shared -> case choose#588 of
-              true →
-                let %t356 = aether_call[owned, borrowed] rec_copy_or_keep#586(t#590, choose#588)
-                ::(h#589, #4000938[synthetic]#938)
-              _ →
-                let %t357:Box = (let %t358 = aether_call[owned, borrowed] rec_copy_or_keep#586(t#590, choose#588)
-                ::(dup h#589
-                h#589, #4000939[synthetic]#939))
-                ::(h#589, #4000940[synthetic]#940)
-        }
+      ::(h#589:Int, t#590:Box) →
+        case choose#588 of
+          true →
+            let %t356 = aether_call[owned, borrowed] rec_copy_or_keep#586(t#590, choose#588)
+            reuse xs#587 ::(h#589, #4000938[synthetic]#938) @mask=0b10
+          _ →
+            let %t357:Box = (let %t358 = aether_call[owned, borrowed] rec_copy_or_keep#586(t#590, choose#588)
+            ::(h#589, #4000939[synthetic]#939))
+            reuse xs#587 ::(h#589, #4000940[synthetic]#940) @mask=0b10
       _ →
         []
 
@@ -1731,7 +1720,7 @@ letrec main : Unit =
     Print(#4000942[synthetic]#942)
 
 ── Aether stats ──
-Dups: 18  Drops: 56  Reuses: 12  DropSpecs: 2  FBIP: fbip(36)
+Dups: 17  Drops: 56  Reuses: 12  DropSpecs: 1  FBIP: fbip(33)
 [1 of 7] Compiling  Assert
 [2 of 7] Compiling  IO
 [3 of 7] Compiling  List

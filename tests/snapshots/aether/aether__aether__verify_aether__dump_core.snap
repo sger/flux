@@ -1738,25 +1738,14 @@ letrec my_filter =
 λxs, f.
     case xs of
       ::(h, t) →
-        drop_spec xs {
-          unique -> let %t360 = aether_call[owned] f(h)
-            case %t360 of
-              true →
-                let %t361 = aether_call[owned, borrowed] my_filter(t, f)
-                reuse xs ::(h, %t361) @mask=0b10
-              _ →
-                drop h
-                aether_call[owned, borrowed] my_filter(t, f)
-          shared -> let %t360 = aether_call[owned] f(dup h
-            h)
-            case %t360 of
-              true →
-                let %t361 = aether_call[owned, borrowed] my_filter(t, f)
-                ::(h, %t361)
-              _ →
-                drop h
-                aether_call[owned, borrowed] my_filter(t, f)
-        }
+        let %t360 = aether_call[owned] f(h)
+        case %t360 of
+          true →
+            let %t361 = aether_call[owned, borrowed] my_filter(t, f)
+            reuse xs ::(h, %t361) @mask=0b10
+          _ →
+            drop xs
+            aether_call[owned, borrowed] my_filter(t, f)
       _ →
         []
 
@@ -1802,7 +1791,7 @@ let result = (let %t363 = MakeList(1, 2, 3)
   Print(total)
 
 ── Aether stats ──
-Dups: 18  Drops: 63  Reuses: 14  DropSpecs: 2  FBIP: fbip(34)
+Dups: 17  Drops: 62  Reuses: 14  DropSpecs: 1  FBIP: fbip(33)
 [1 of 7] Compiling  Assert
 [2 of 7] Compiling  IO
 [3 of 7] Compiling  List

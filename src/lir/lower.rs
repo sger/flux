@@ -823,6 +823,7 @@ impl<'a> FnLower<'a> {
                             ctor_tag,
                             ctor_name: Some(name),
                             fields: Vec::new(),
+                            field_reps: Vec::new(),
                         });
                         dst
                     } else if let Some(binders) = self.name_binder_map.get(&var.name) {
@@ -1620,6 +1621,7 @@ impl<'a> FnLower<'a> {
                 ctor_tag,
                 ctor_name: Some(name.clone()),
                 fields: arg_vars,
+                field_reps: Vec::new(),
             });
             return dst;
         }
@@ -2738,6 +2740,7 @@ impl<'a> FnLower<'a> {
                     ctor_tag,
                     ctor_name: None, // built-in ctors don't need a name
                     fields: field_vars,
+                    field_reps: Vec::new(),
                 });
                 dst
             }
@@ -2755,6 +2758,7 @@ impl<'a> FnLower<'a> {
                     ctor_tag,
                     ctor_name: Some(ctor_name),
                     fields: field_vars,
+                    field_reps: Vec::new(),
                 });
                 dst
             }
@@ -2889,6 +2893,7 @@ impl<'a> FnLower<'a> {
             ctor_tag,
             ctor_name,
             fields: field_vars.clone(),
+            field_reps: Vec::new(),
         });
         self.emit_copy_to_join_param(fresh_val, join_id);
         self.set_terminator(LirTerminator::Jump(join_id));
@@ -3181,6 +3186,7 @@ fn display_instr(instr: &LirInstr) -> String {
             ctor_tag,
             ctor_name,
             fields,
+            ..
         } => {
             let fs: Vec<String> = fields.iter().map(|v| format!("{v}")).collect();
             let name = ctor_name.as_deref().unwrap_or("?");

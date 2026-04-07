@@ -14,7 +14,7 @@ The transition is incremental — each phase adds type system features while mai
 
 ## Implementation status
 
-Last updated: 2026-04-07
+Last updated: 2026-04-07 (Phase 7 complete)
 
 ### Completed
 
@@ -29,6 +29,9 @@ Last updated: 2026-04-07
 | **7b** | Typed Core IR — lambda param typing | **Done** | Lambda parameters get `FluxRep` from HM-inferred function type via `bind_lambda_params()`. |
 | **7c** | Typed Core IR — LIR/LLVM type extraction | **Done** | LIR extracts `param_reps`/`result_rep` from Core binders; LLVM worker/wrapper uses them for unboxed specialization. |
 | **7d** | Aether type-directed RC elision | **Done** | `wrap_drop`/`wrap_dups` skip Dup/Drop for binders with `IntRep`/`FloatRep`/`BoolRep` (`!needs_rc()`). |
+| **7e** | Typed Core IR — pattern binders | **Done** | `lower_pattern_typed()` threads scrutinee `InferType` from `hm_expr_types` through pattern decomposition. Built-in patterns (Option, Either, List, Tuple) extract inner types; `CorePat::Var` binders get correct `FluxRep`. Eliminates unnecessary Dup/Drop for unboxed pattern vars (e.g. `h` in `[h\|t]` for `List<Int>` is `IntRep`). |
+| **7f** | Typed Core IR — effect handler binders | **Done** | `lower_handle_arm_typed()` uses `EffectOpSigs` map threaded into `AstLowerer` to type handler param binders from effect op signatures. Resume binder is always `BoxedRep` (closure). New `lower_program_ast_complete()` entry point accepts `EffectOpSigs`. |
+| **7g** | Typed Core IR — ADT field layout metadata | **Done** | `FluxRep::from_type_expr()` converts syntactic field types to reps. `AdtDefinition` and `ConstructorInfo` now store per-constructor `field_reps: Vec<FluxRep>`. LIR `MakeCtor` carries `field_reps`. Infrastructure for future unboxed field storage. |
 
 ### Remaining
 
@@ -37,9 +40,6 @@ Last updated: 2026-04-07
 | **3** | Type classes (full) | In progress | Proposal 0145: Steps 1-4, 6 done. Step 5 (dictionary passing) remaining. |
 | **4** | Constraint solver + dictionaries | **Partially done** | Constraint generation + solving done (0145 Steps 3-4). Dictionary passing (Step 5) remaining. |
 | **5** | Higher-kinded types | Not started | Phase 4 complete; requires kind system |
-| **7e** | Typed Core IR — pattern binders | Deferred | Requires polymorphism-aware type decomposition; monomorphized HM types are unsound for polymorphic scrutinees |
-| **7f** | Typed Core IR — effect handler binders | Deferred | Needs effect declaration threading into lowerer |
-| **7g** | Typed Core IR — optimized ADT layouts | Not started | Unboxed fields for primitives in ADT payloads |
 
 ### Key files
 
@@ -51,6 +51,11 @@ Last updated: 2026-04-07
 | `src/syntax/type_class.rs` | Phase 3: AST types for `ClassConstraint`, `ClassMethod`, `InstanceMethod` |
 | `src/diagnostics/compiler_errors.rs` | E430 (strict-types), E440–E443 (type class validation) |
 | `docs/proposals/0145_type_classes.md` | Detailed type class proposal with step-by-step tracking |
+| `src/core/lower_ast/pattern.rs` | Phase 7e: `lower_pattern_typed()` — typed pattern binder lowering |
+| `src/core/lower_ast/mod.rs` | Phase 7f: `EffectOpSigs` type, `lower_program_ast_complete()` entry point |
+| `src/bytecode/compiler/adt_registry.rs` | Phase 7g: `register_adt()` populates `field_reps` from `DataVariant` |
+| `src/bytecode/compiler/adt_definition.rs` | Phase 7g: `AdtDefinition` with per-constructor `field_reps` |
+| `src/bytecode/compiler/constructor_info.rs` | Phase 7g: `ConstructorInfo` with `field_reps: Vec<FluxRep>` |
 
 ### What `--strict-types` catches today
 
