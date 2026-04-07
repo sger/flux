@@ -3009,10 +3009,18 @@ impl Compiler {
             program.clone()
         };
 
-        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
+        let class_env_ref = if self.class_env.classes.is_empty() {
+            None
+        } else {
+            Some(&self.class_env)
+        };
+        let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
             &program_to_lower,
             &self.hm_expr_types,
             Some(&self.interner),
+            None,
+            None,
+            class_env_ref,
         );
         let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
         crate::core::passes::run_core_passes_with_interner_and_registry(
@@ -3061,10 +3069,18 @@ impl Compiler {
             program.clone()
         };
 
-        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
+        let class_env_ref = if self.class_env.classes.is_empty() {
+            None
+        } else {
+            Some(&self.class_env)
+        };
+        let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
             &program_to_lower,
             &self.hm_expr_types,
             Some(&self.interner),
+            None,
+            None,
+            class_env_ref,
         );
         let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
         crate::core::passes::run_core_passes_with_interner_and_registry(
@@ -3102,10 +3118,18 @@ impl Compiler {
             program.clone()
         };
 
-        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
+        let class_env_ref = if self.class_env.classes.is_empty() {
+            None
+        } else {
+            Some(&self.class_env)
+        };
+        let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
             &program_to_lower,
             &self.hm_expr_types,
             Some(&self.interner),
+            None,
+            None,
+            class_env_ref,
         );
         let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
         crate::core::passes::run_core_passes_with_interner_and_registry(
@@ -3142,10 +3166,18 @@ impl Compiler {
             program.clone()
         };
 
-        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
+        let class_env_ref = if self.class_env.classes.is_empty() {
+            None
+        } else {
+            Some(&self.class_env)
+        };
+        let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
             &program_to_lower,
             &self.hm_expr_types,
             Some(&self.interner),
+            None,
+            None,
+            class_env_ref,
         );
         let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
         crate::core::passes::run_core_passes_with_interner_and_registry(
@@ -3278,10 +3310,18 @@ impl Compiler {
             program.clone()
         };
 
-        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
+        let class_env_ref = if self.class_env.classes.is_empty() {
+            None
+        } else {
+            Some(&self.class_env)
+        };
+        let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
             &program_to_lower,
             &self.hm_expr_types,
             Some(&self.interner),
+            None,
+            None,
+            class_env_ref,
         );
         let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
         crate::core::passes::run_core_passes_with_interner_and_registry(

@@ -148,10 +148,22 @@ impl<'a> super::AstLowerer<'a> {
                 span,
                 ..
             } => {
+                // Phase 4 Step 5: compile-time class method dispatch.
+                // If the callee is a class method and the argument type is known,
+                // resolve directly to the mangled instance function.
+                if let Expression::Identifier { name, .. } = function.as_ref()
+                    && let Some(mangled) = self.try_resolve_class_call(*name, arguments)
+                {
+                    let args: Vec<CoreExpr> =
+                        arguments.iter().map(|a| self.lower_expr(a)).collect();
+                    return CoreExpr::App {
+                        func: Box::new(CoreExpr::external_var(mangled, *span)),
+                        args,
+                        span: *span,
+                    };
+                }
                 let func = self.lower_expr(function);
                 let args: Vec<CoreExpr> = arguments.iter().map(|a| self.lower_expr(a)).collect();
-                // Always emit App, even for zero-arg calls — Flux functions
-                // must be invoked explicitly (they can have side effects).
                 CoreExpr::App {
                     func: Box::new(func),
                     args,

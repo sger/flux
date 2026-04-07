@@ -37,8 +37,8 @@ Last updated: 2026-04-07 (Phase 7 complete)
 
 | Phase | Feature | Status | Blocker |
 |-------|---------|--------|---------|
-| **3** | Type classes (full) | In progress | Proposal 0145: Steps 1-4, 6 done. Step 5 (dictionary passing) remaining. |
-| **4** | Constraint solver + dictionaries | **Partially done** | Constraint generation + solving done (0145 Steps 3-4). Dictionary passing (Step 5) remaining. |
+| **3** | Type classes (full) | In progress | Proposal 0145: Steps 1-4, 6 done. Step 5 monomorphic resolution done; polymorphic dictionary threading remaining. |
+| **4** | Constraint solver + dictionaries | **Mostly done** | Constraint generation + solving done. Monomorphic compile-time instance resolution done (0145 Step 5). Polymorphic dictionary parameters deferred. |
 | **5** | Higher-kinded types | Not started | Phase 4 complete; requires kind system |
 
 ### Key files
