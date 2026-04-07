@@ -993,31 +993,20 @@ Aether Memory Model Report
     _ →
       t
 ── fn my_filter ──
-  Dups: 1  Drops: 2  Reuses: 1  DropSpecs: 1  FBIP: fbip(1)
-  FreshAllocs: 1
+  Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
   verifier: ok
 λxs, f.
   case xs of
     ::(h, t) →
-      drop_spec xs {
-        unique -> let %t1 = aether_call[owned] f(h)
-          case %t1 of
-            true →
-              let %t2 = aether_call[owned, borrowed] my_filter(t, f)
-              reuse xs ::(h, %t2) @mask=0b10
-            _ →
-              drop h
-              aether_call[owned, borrowed] my_filter(t, f)
-        shared -> let %t1 = aether_call[owned] f(dup h
-          h)
-          case %t1 of
-            true →
-              let %t2 = aether_call[owned, borrowed] my_filter(t, f)
-              ::(h, %t2)
-            _ →
-              drop h
-              aether_call[owned, borrowed] my_filter(t, f)
-      }
+      let %t1 = aether_call[owned] f(h)
+      case %t1 of
+        true →
+          let %t2 = aether_call[owned, borrowed] my_filter(t, f)
+          reuse xs ::(h, %t2) @mask=0b10
+        _ →
+          drop xs
+          aether_call[owned, borrowed] my_filter(t, f)
     _ →
       []
 ── fn main ──
@@ -1057,8 +1046,8 @@ Aether Memory Model Report
   Print(total)
 
 ── Total ──
-  Dups: 18  Drops: 63  Reuses: 14  DropSpecs: 2  FBIP: fbip(23)
-  FreshAllocs: 23
+  Dups: 17  Drops: 62  Reuses: 14  DropSpecs: 1  FBIP: fbip(22)
+  FreshAllocs: 22
 
 [1 of 7] Compiling  Assert
 [2 of 7] Compiling  IO

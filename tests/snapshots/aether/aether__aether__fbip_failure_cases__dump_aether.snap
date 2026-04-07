@@ -852,7 +852,7 @@ Aether Memory Model Report
     _ →
       best
 ── fn max_list ──
-  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
   verifier: ok
 λarr.
@@ -873,7 +873,6 @@ Aether Memory Model Report
                 drop best
                 v
               _ →
-                drop v
                 best)
             aether_call[owned, owned] maxl_go(%t4, %t5)
           _ →
@@ -995,7 +994,7 @@ Aether Memory Model Report
   Print(%t6)
 
 ── Total ──
-  Dups: 17  Drops: 58  Reuses: 10  DropSpecs: 1  FBIP: fbip(22)
+  Dups: 17  Drops: 57  Reuses: 10  DropSpecs: 1  FBIP: fbip(22)
   FreshAllocs: 22
 
 [1 of 8] Compiling  Assert

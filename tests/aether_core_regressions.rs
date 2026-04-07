@@ -513,35 +513,19 @@ fn maintained_drop_spec_branchy_fixture_emits_reuse_inside_drop_specialized() {
 }
 
 #[test]
-fn maintained_drop_spec_recursive_fixture_emits_drop_specialized() {
+fn maintained_drop_spec_recursive_fixture_skips_drop_specialized_for_int_elements() {
+    // Phase 7e: `h` in [h | t] is IntRep (typed pattern binders), so
+    // DropSpecialized is no longer emitted — no dup/drop divergence.
     let src = std::fs::read_to_string("examples/aether/drop_spec_recursive.flx")
         .expect("fixture should exist");
     let core = lowered_core(src);
-    let found = core
-        .defs
-        .iter()
-        .flat_map(|def| collect_core_exprs(&def.expr))
-        .any(|expr| match expr {
-            CoreExpr::DropSpecialized {
-                unique_body,
-                shared_body,
-                ..
-            } => {
-                let unique_reuses = collect_core_exprs(unique_body)
-                    .into_iter()
-                    .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
-                    .count();
-                let shared_reuses = collect_core_exprs(shared_body)
-                    .into_iter()
-                    .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
-                    .count();
-                unique_reuses >= 1 && shared_reuses == 0
-            }
-            _ => false,
-        });
     assert!(
-        found,
-        "expected maintained recursive drop-spec fixture to preserve unique-path-only reuse"
+        !core
+            .defs
+            .iter()
+            .flat_map(|def| collect_core_exprs(&def.expr))
+            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
+        "typed pattern binders (IntRep) should eliminate DropSpecialized for integer list elements"
     );
 }
 
@@ -579,35 +563,23 @@ fn maintained_drop_spec_branchy_fixture_keeps_unique_path_dup_free() {
 }
 
 #[test]
-fn maintained_drop_spec_recursive_fixture_keeps_unique_path_dup_lighter_than_shared() {
+fn maintained_drop_spec_recursive_fixture_has_no_dups_for_int_elements() {
+    // Phase 7e: with typed pattern binders, `h` is IntRep and needs no dup/drop.
+    // DropSpecialized is gone, so we just verify that dups are minimal overall.
     let src = std::fs::read_to_string("examples/aether/drop_spec_recursive.flx")
         .expect("fixture should exist");
     let core = lowered_core(src);
-    let found = core
+    let total_dups: usize = core
         .defs
         .iter()
         .flat_map(|def| collect_core_exprs(&def.expr))
-        .any(|expr| match expr {
-            CoreExpr::DropSpecialized {
-                unique_body,
-                shared_body,
-                ..
-            } => {
-                let unique_dups = collect_core_exprs(unique_body)
-                    .into_iter()
-                    .filter(|inner| matches!(inner, CoreExpr::Dup { .. }))
-                    .count();
-                let shared_dups = collect_core_exprs(shared_body)
-                    .into_iter()
-                    .filter(|inner| matches!(inner, CoreExpr::Dup { .. }))
-                    .count();
-                unique_dups < shared_dups
-            }
-            _ => false,
-        });
+        .filter(|expr| matches!(expr, CoreExpr::Dup { .. }))
+        .count();
+    // Typed binders eliminate dups for IntRep pattern variables. The remaining
+    // dups (if any) are for boxed values like the list tail or closures.
     assert!(
-        found,
-        "expected maintained recursive drop-spec fixture to keep fewer dups on the unique path than on the shared path"
+        total_dups <= 2,
+        "typed pattern binders should minimize dups; got {total_dups}"
     );
 }
 
@@ -641,7 +613,10 @@ fn main() { keep_right_only(Node(Red, Leaf, 5, Leaf)) }
 }
 
 #[test]
-fn drop_spec_list_multiuse_field_emits_drop_specialized() {
+fn drop_spec_list_multiuse_field_skips_drop_specialized_for_int_elements() {
+    // Phase 7e: `h` in `[h | t]` is now IntRep (from typed pattern binders),
+    // so no dup/drop divergence between unique/shared paths — DropSpecialized
+    // is unnecessary when list elements are unboxed primitives.
     let src = r#"
 fn copy_head(xs) {
     match xs {
@@ -653,10 +628,12 @@ fn main() { copy_head([1, 2, 3]) }
 "#;
     let core = lowered_core(src);
     assert!(
-        core.defs
+        !core
+            .defs
             .iter()
             .flat_map(|def| collect_core_exprs(&def.expr))
-            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. }))
+            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
+        "typed pattern binders (IntRep) should eliminate DropSpecialized for integer list elements"
     );
 }
 
@@ -707,7 +684,8 @@ fn main() with IO { shadow_in_handler(41) }
 }
 
 #[test]
-fn drop_spec_branchy_list_update_emits_drop_specialized() {
+fn drop_spec_branchy_list_update_skips_drop_specialized_for_int_elements() {
+    // Phase 7e: `h` is IntRep — no dup/drop divergence, DropSpecialized unnecessary.
     let src = r#"
 fn copy_or_keep_head(xs, copy) {
     match xs {
@@ -719,10 +697,12 @@ fn main() { copy_or_keep_head([1, 2, 3], true) }
 "#;
     let core = lowered_core(src);
     assert!(
-        core.defs
+        !core
+            .defs
             .iter()
             .flat_map(|def| collect_core_exprs(&def.expr))
-            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. }))
+            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
+        "typed pattern binders (IntRep) should eliminate DropSpecialized for integer list elements"
     );
 }
 
@@ -771,7 +751,8 @@ fn main() { keep_or_dup_left(Node(Red, Leaf, 5, Leaf), false) }
 }
 
 #[test]
-fn drop_spec_recursive_update_emits_drop_specialized() {
+fn drop_spec_recursive_update_skips_drop_specialized_for_int_elements() {
+    // Phase 7e: `h` is IntRep — no dup/drop divergence, DropSpecialized unnecessary.
     let src = r#"
 fn rec_copy_or_keep(xs, choose) {
     match xs {
@@ -783,10 +764,12 @@ fn main() { rec_copy_or_keep([1, 2, 3], false) }
 "#;
     let core = lowered_core(src);
     assert!(
-        core.defs
+        !core
+            .defs
             .iter()
             .flat_map(|def| collect_core_exprs(&def.expr))
-            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. }))
+            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
+        "typed pattern binders (IntRep) should eliminate DropSpecialized for integer list elements"
     );
 }
 
@@ -1161,37 +1144,33 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
         )
     }));
 
+    // Phase 7e: `my_filter` no longer needs DropSpecialized because `h` in
+    // [h | t] is IntRep (typed pattern binders). The function now gets a direct
+    // Reuse on the Cons cell without the unique/shared split.
     let my_filter = core
         .defs
         .iter()
         .find(|def| {
-            collect_core_exprs(&def.expr)
-                .into_iter()
-                .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. }))
-        })
-        .expect("my_filter-like def");
-    assert!(
-        collect_core_exprs(&my_filter.expr)
-            .into_iter()
-            .any(|expr| match expr {
-                CoreExpr::DropSpecialized {
-                    unique_body,
-                    shared_body,
-                    ..
-                } => {
-                    let unique_reuses = collect_core_exprs(unique_body)
-                        .into_iter()
-                        .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
-                        .count();
-                    let shared_reuses = collect_core_exprs(shared_body)
-                        .into_iter()
-                        .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
-                        .count();
-                    unique_reuses >= 1 && shared_reuses == 0
-                }
-                _ => false,
+            collect_core_exprs(&def.expr).into_iter().any(|expr| {
+                matches!(
+                    expr,
+                    CoreExpr::Reuse {
+                        tag: flux::core::CoreTag::Cons,
+                        ..
+                    }
+                )
             })
-    );
+        })
+        .expect("my_filter-like def (Cons reuse)");
+    assert!(collect_core_exprs(&my_filter.expr).into_iter().any(|expr| {
+        matches!(
+            expr,
+            CoreExpr::Reuse {
+                tag: flux::core::CoreTag::Cons,
+                ..
+            }
+        )
+    }));
 
     let my_map = core
         .defs
@@ -1528,12 +1507,10 @@ fn opt_corpus_negative_fixture_stays_conservative_on_intended_shapes() {
         }),
         "negative corpus should keep the forwarding near-miss fresh"
     );
-    assert!(
-        exprs
-            .iter()
-            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
-        "negative corpus should still allow branch-local DropSpecialized on the forwarding near-miss"
-    );
+    // Phase 7e: with typed pattern binders, `y` in [y | ys] is IntRep (from
+    // List<Int>), so DropSpecialized is no longer needed — no dup/drop divergence.
+    // DropSpecialized may or may not be present depending on other functions.
+    // The key invariant is that reuse stays limited and near-miss stays fresh.
 }
 
 #[test]

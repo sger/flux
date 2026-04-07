@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     ast::free_vars::collect_free_vars_in_function_body,
     diagnostics::position::Span,
-    syntax::{block::Block, expression::ExprId, program::Program, statement::Statement},
+    syntax::{block::Block, expression::ExprId, Identifier, program::Program, statement::Statement},
     types::infer_type::InferType,
 };
 
@@ -30,6 +30,10 @@ mod expression;
 mod pattern;
 
 use binder_resolution::{resolve_program_binders, validate_program_binders};
+
+/// Pre-resolved effect operation signatures: `(effect, operation) → (param_types, return_type)`.
+/// Used by the lowerer to assign `FluxRep` to handler arm binders.
+pub type EffectOpSigs = HashMap<(Identifier, Identifier), (Vec<InferType>, InferType)>;
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -65,7 +69,19 @@ pub fn lower_program_ast_full(
     interner: Option<&crate::syntax::interner::Interner>,
     type_env: Option<&crate::types::type_env::TypeEnv>,
 ) -> CoreProgram {
-    let mut lowerer = AstLowerer::new(hm_expr_types, interner, type_env);
+    lower_program_ast_complete(program, hm_expr_types, interner, type_env, None)
+}
+
+/// Lower with interner, TypeEnv, and effect op signatures for fully typed binders.
+/// This is the most complete entry point — all optional context is available.
+pub fn lower_program_ast_complete(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&crate::syntax::interner::Interner>,
+    type_env: Option<&crate::types::type_env::TypeEnv>,
+    effect_op_sigs: Option<&EffectOpSigs>,
+) -> CoreProgram {
+    let mut lowerer = AstLowerer::new(hm_expr_types, interner, type_env, effect_op_sigs);
     let mut defs = Vec::new();
     let mut top_level_items = Vec::new();
     for stmt in &program.statements {
@@ -95,6 +111,8 @@ pub(super) struct AstLowerer<'a> {
     interner: Option<&'a crate::syntax::interner::Interner>,
     /// Optional TypeEnv for looking up function parameter types (Phase 7).
     type_env: Option<&'a crate::types::type_env::TypeEnv>,
+    /// Optional effect op signatures for typed handler binders (Phase 7f).
+    pub(super) effect_op_sigs: Option<&'a EffectOpSigs>,
 }
 
 impl<'a> AstLowerer<'a> {
@@ -102,6 +120,7 @@ impl<'a> AstLowerer<'a> {
         hm_expr_types: &'a HashMap<ExprId, InferType>,
         interner: Option<&'a crate::syntax::interner::Interner>,
         type_env: Option<&'a crate::types::type_env::TypeEnv>,
+        effect_op_sigs: Option<&'a EffectOpSigs>,
     ) -> Self {
         Self {
             hm_expr_types,
@@ -109,6 +128,7 @@ impl<'a> AstLowerer<'a> {
             next_binder_id: 0,
             interner,
             type_env,
+            effect_op_sigs,
         }
     }
 

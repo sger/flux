@@ -225,6 +225,43 @@ impl FluxRep {
     pub fn needs_rc(self) -> bool {
         matches!(self, FluxRep::BoxedRep | FluxRep::TaggedRep)
     }
+
+    /// Derive the runtime representation from a syntactic `TypeExpr`.
+    ///
+    /// Requires an interner to resolve named types (e.g. `Int`, `Float`).
+    /// Type variables and unknown types default to `TaggedRep`.
+    pub fn from_type_expr(
+        ty: &crate::syntax::type_expr::TypeExpr,
+        interner: &crate::syntax::interner::Interner,
+    ) -> Self {
+        use crate::syntax::type_expr::TypeExpr;
+        match ty {
+            TypeExpr::Named { name, args, .. } => {
+                let resolved = interner.resolve(*name);
+                match resolved {
+                    "Int" => FluxRep::IntRep,
+                    "Float" => FluxRep::FloatRep,
+                    "Bool" => FluxRep::BoolRep,
+                    "Unit" | "Never" => FluxRep::UnitRep,
+                    "String" | "Array" | "List" | "Map" | "Option" | "Either" => {
+                        FluxRep::BoxedRep
+                    }
+                    _ => {
+                        // Named type with no args could be an ADT (boxed) or a
+                        // type variable (tagged). Single-char names are likely
+                        // type params; anything else is an ADT.
+                        if args.is_empty() && resolved.len() == 1 && resolved.chars().next().is_some_and(|c| c.is_lowercase()) {
+                            FluxRep::TaggedRep
+                        } else {
+                            FluxRep::BoxedRep
+                        }
+                    }
+                }
+            }
+            TypeExpr::Tuple { .. } => FluxRep::BoxedRep,
+            TypeExpr::Function { .. } => FluxRep::BoxedRep,
+        }
+    }
 }
 
 // ── Literals ─────────────────────────────────────────────────────────────────

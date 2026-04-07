@@ -231,6 +231,10 @@ pub enum LirInstr {
         ctor_tag: i32,
         ctor_name: Option<String>,
         fields: Vec<LirVar>,
+        /// Per-field runtime representations (Proposal 0123 Phase 7g).
+        /// When populated, enables unboxed field storage in ADT payloads.
+        /// Empty means all fields are TaggedRep (legacy/unknown).
+        field_reps: Vec<crate::core::FluxRep>,
     },
 
     // ── Variables ───────────────────────────────────────────────────
