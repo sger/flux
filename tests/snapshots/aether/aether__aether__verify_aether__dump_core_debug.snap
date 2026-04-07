@@ -230,7 +230,7 @@ letrec filter =
       true →
         letrec filter_arr#79 = (λi#80, acc#81.
           let %t47:Bool = (let %t48 = Len(xs#77)
-          Ge(i#80, #4000668[synthetic]#668))
+          ICmpGe(i#80, #4000668[synthetic]#668))
           case #4000669[synthetic]#669 of
             true →
               acc#81
@@ -1518,7 +1518,7 @@ letrec min_list =
           case #4000936[synthetic]#936 of
             Some(v#535) →
               let %t318 = Add(i#533, 1)
-              let %t319 = (let %t320:Bool = Lt(v#535, best#534)
+              let %t319 = (let %t320:Bool = ICmpLt(v#535, best#534)
               case #4000938[synthetic]#938 of
                 true →
                   drop best#534
@@ -1760,16 +1760,16 @@ letrec my_filter : List<Int> =
       _ →
         []
 
-letrec my_sum : Any =
+letrec my_sum : Int =
 λxs#609.
     case xs#609 of
       ::(h#610, t#611) →
         let %t362 = aether_call[borrowed] my_sum#608(t#611)
-        Add(h#610, #4000981[synthetic]#981)
+        IAdd(h#610, #4000981[synthetic]#981)
       _ →
         0
 
-letrec main : Any =
+letrec main : Unit =
 λ.
     let result#627:Box = (let %t363:Box = MakeList(1, 2, 3)
     let %t364:Box = (λx#628.
@@ -1798,7 +1798,7 @@ letrec main : Any =
     aether_call[owned, borrowed] my_filter#603(#4000987[synthetic]#987, #4000989[synthetic]#989))
     let %t375 = Print(evens#615)
     drop #2000009[synthetic]#614
-    let total#613 = (let %t376:Box = MakeList(1, 2, 3, 4, 5)
+    let total#613:Int = (let %t376:Box = MakeList(1, 2, 3, 4, 5)
     aether_call[borrowed] my_sum#608(#4000990[synthetic]#990))
     Print(total#613)
 

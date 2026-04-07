@@ -1726,7 +1726,7 @@ letrec option_map : Option<Int> =
       _ →
         None
 
-letrec main : Any =
+letrec main : Unit =
 λ.
     let %t357 = (let %t358 = (let %t359 = aether_call[owned, owned, owned, owned] Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
     aether_call[owned] set_black#586(#4000952[synthetic]#952))

@@ -46,9 +46,9 @@ impl<'a> InferCtx<'a> {
             InferType::Con(TypeConstructor::Int)
             | InferType::Con(TypeConstructor::Float)
             | InferType::Con(TypeConstructor::String) => substituted,
-            InferType::Con(TypeConstructor::Any) | InferType::Var(_) => {
-                InferType::Con(TypeConstructor::Any)
-            }
+            // Unresolved variable: preserve it — let call-site unification resolve.
+            InferType::Var(_) => substituted,
+            InferType::Con(TypeConstructor::Any) => InferType::Con(TypeConstructor::Any),
             other => {
                 let expected_numeric = InferType::Con(TypeConstructor::Int);
                 self.unify_reporting(&other, &expected_numeric, span);
@@ -70,9 +70,9 @@ impl<'a> InferCtx<'a> {
             InferType::Con(TypeConstructor::Int) | InferType::Con(TypeConstructor::Float) => {
                 substituted
             }
-            InferType::Con(TypeConstructor::Any) | InferType::Var(_) => {
-                InferType::Con(TypeConstructor::Any)
-            }
+            // Unresolved variable: preserve it — let call-site unification resolve.
+            InferType::Var(_) => substituted,
+            InferType::Con(TypeConstructor::Any) => InferType::Con(TypeConstructor::Any),
             other => {
                 let expected_numeric = InferType::Con(TypeConstructor::Int);
                 self.unify_reporting(&other, &expected_numeric, span);
