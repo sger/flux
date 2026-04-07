@@ -83,7 +83,7 @@ letrec assert_lte =
 letrec list_length =
 λxs#27, acc#28.
     case xs#27 of
-      ::(h#29, t#30) →
+      ::(h#29, t#30:Box) →
         drop h#29
         let %t12 = Add(acc#28, 1)
         aether_call[borrowed, owned] list_length#26(t#30, #4000636[synthetic]#636)
@@ -201,7 +201,7 @@ letrec map =
             _ →
               let %t37 = Index(xs#65, i#68)
               case #4000658[synthetic]#658 of
-                Some(v#70) →
+                Some(v#70:Int) →
                   let %t38 = Add(i#68, 1)
                   let %t39:Box = (let %t40 = aether_call[owned] f#66(v#70)
                   ArrayPush(acc#69, #4000660[synthetic]#660))
@@ -214,7 +214,7 @@ letrec map =
       _ →
         letrec map_acc#71 = (λys#72, acc#73.
           case ys#72 of
-            ::(h#74, t#75) →
+            ::(h#74:Int, t#75:Box) →
               let %t43:Box = (let %t44 = aether_call[owned] f#66(h#74)
               ::(#4000664[synthetic]#664, acc#73))
               aether_call[owned, owned] map_acc#71(t#75, #4000665[synthetic]#665)
@@ -256,7 +256,7 @@ letrec filter =
       _ →
         letrec filter_acc#83 = (λys#84, acc#85.
           case ys#84 of
-            ::(h#86, t#87) →
+            ::(h#86, t#87:Int) →
               let %t56 = aether_call[owned] pred#78(dup h#86
               h#86)
               case #4000677[synthetic]#677 of
@@ -1538,7 +1538,7 @@ letrec min_list =
       _ →
         let %t324 = Index(arr#530, 0)
         case #4000943[synthetic]#943 of
-          Some(first#531) →
+          Some(first#531:Int) →
             aether_call[owned, owned] minl_go#532(1, first#531)
           _ →
             0
@@ -1572,7 +1572,7 @@ letrec map_option =
 letrec flat_map_option =
 λopt#548, f#549.
     case opt#548 of
-      Some(v#550) →
+      Some(v#550:Int) →
         aether_call[owned] f#549(v#550)
       _ →
         None
@@ -1701,7 +1701,7 @@ letrec str_contains =
 letrec my_map : List<Int> =
 λxs#587, f#588.
     case xs#587 of
-      ::(h#589, t#590) →
+      ::(h#589:Int, t#590:Box) →
         let %t356 = aether_call[owned] f#588(h#589)
         let %t357 = aether_call[owned, borrowed] my_map#586(t#590, f#588)
         reuse xs#587 ::(#4000975[synthetic]#975, #4000976[synthetic]#976)
@@ -1711,7 +1711,7 @@ letrec my_map : List<Int> =
 letrec option_map : Option<Int> =
 λopt#592, f#593.
     case opt#592 of
-      Some(x#594) →
+      Some(x#594:Int) →
         let %t358 = aether_call[owned] f#593(x#594)
         reuse opt#592 Some(#4000977[synthetic]#977)
       _ →
@@ -1728,7 +1728,7 @@ letrec set_black : Tree =
 letrec my_len : Int =
 λxs#601.
     case xs#601 of
-      ::(_, t#602) →
+      ::(_, t#602:Box) →
         let %t359 = aether_call[borrowed] my_len#600(t#602)
         IAdd(1, #4000978[synthetic]#978)
       _ →
@@ -1737,33 +1737,22 @@ letrec my_len : Int =
 letrec my_filter : List<Int> =
 λxs#604, f#605.
     case xs#604 of
-      ::(h#606, t#607) →
-        drop_spec xs#604 {
-          unique -> let %t360 = aether_call[owned] f#605(h#606)
-            case #4000979[synthetic]#979 of
-              true →
-                let %t361 = aether_call[owned, borrowed] my_filter#603(t#607, f#605)
-                reuse xs#604 ::(h#606, #4000980[synthetic]#980) @mask=0b10
-              _ →
-                drop h#606
-                aether_call[owned, borrowed] my_filter#603(t#607, f#605)
-          shared -> let %t360 = aether_call[owned] f#605(dup h#606
-            h#606)
-            case #4000979[synthetic]#979 of
-              true →
-                let %t361 = aether_call[owned, borrowed] my_filter#603(t#607, f#605)
-                ::(h#606, #4000980[synthetic]#980)
-              _ →
-                drop h#606
-                aether_call[owned, borrowed] my_filter#603(t#607, f#605)
-        }
+      ::(h#606:Int, t#607:Box) →
+        let %t360 = aether_call[owned] f#605(h#606)
+        case #4000979[synthetic]#979 of
+          true →
+            let %t361 = aether_call[owned, borrowed] my_filter#603(t#607, f#605)
+            reuse xs#604 ::(h#606, #4000980[synthetic]#980) @mask=0b10
+          _ →
+            drop xs#604
+            aether_call[owned, borrowed] my_filter#603(t#607, f#605)
       _ →
         []
 
 letrec my_sum : Int =
 λxs#609.
     case xs#609 of
-      ::(h#610, t#611) →
+      ::(h#610:Int, t#611:Box) →
         let %t362 = aether_call[borrowed] my_sum#608(t#611)
         IAdd(h#610, #4000981[synthetic]#981)
       _ →
@@ -1803,7 +1792,7 @@ letrec main : Unit =
     Print(total#613)
 
 ── Aether stats ──
-Dups: 18  Drops: 63  Reuses: 14  DropSpecs: 2  FBIP: fbip(34)
+Dups: 17  Drops: 62  Reuses: 14  DropSpecs: 1  FBIP: fbip(33)
 [1 of 7] Compiling  Assert
 [2 of 7] Compiling  IO
 [3 of 7] Compiling  List

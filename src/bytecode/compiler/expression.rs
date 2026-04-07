@@ -4168,7 +4168,7 @@ impl Compiler {
             let missing_list = adt_def
                 .constructors
                 .iter()
-                .map(|(name, _)| self.interner.resolve(*name))
+                .map(|(name, ..)| self.interner.resolve(*name))
                 .collect::<Vec<_>>()
                 .join(", ");
             return Err(Self::boxed(
@@ -4190,8 +4190,8 @@ impl Compiler {
         let missing: Vec<&str> = adt_def
             .constructors
             .iter()
-            .filter(|(name, _)| !covered.contains(name))
-            .map(|(name, _)| self.interner.resolve(*name))
+            .filter(|(name, ..)| !covered.contains(name))
+            .map(|(name, ..)| self.interner.resolve(*name))
             .collect();
 
         if !missing.is_empty() {
@@ -4226,7 +4226,7 @@ impl Compiler {
         adt_def: &crate::bytecode::compiler::adt_definition::AdtDefinition,
         span: Span,
     ) -> CompileResult<()> {
-        for (outer_ctor_name, outer_arity) in &adt_def.constructors {
+        for (outer_ctor_name, outer_arity, _) in &adt_def.constructors {
             let mut ctor_fields: Vec<&[Pattern]> = Vec::new();
             for arm in arms {
                 if arm.guard.is_some() {
@@ -4329,8 +4329,8 @@ impl Compiler {
             let missing: Vec<&str> = nested_adt_def
                 .constructors
                 .iter()
-                .filter(|(name, _)| !covered.contains(name))
-                .map(|(name, _)| self.interner.resolve(*name))
+                .filter(|(name, ..)| !covered.contains(name))
+                .map(|(name, ..)| self.interner.resolve(*name))
                 .collect();
 
             if !missing.is_empty() {
@@ -4351,7 +4351,7 @@ impl Compiler {
             }
 
             // Recurse into constructor fields.
-            for (ctor_name, arity) in &nested_adt_def.constructors {
+            for (ctor_name, arity, _) in &nested_adt_def.constructors {
                 let ctor_rows: Vec<&[Pattern]> = ctor_patterns
                     .iter()
                     .filter_map(|(name, fields)| {

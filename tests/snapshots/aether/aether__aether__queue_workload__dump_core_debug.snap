@@ -83,7 +83,7 @@ letrec assert_lte =
 letrec list_length =
 λxs#27, acc#28.
     case xs#27 of
-      ::(h#29, t#30) →
+      ::(h#29, t#30:Int) →
         drop h#29
         let %t12:Int = IAdd(acc#28, 1)
         aether_call[borrowed, owned] list_length#26(t#30, #4000636[synthetic]#636)
@@ -214,7 +214,7 @@ letrec map =
       _ →
         letrec map_acc#71 = (λys#72, acc#73.
           case ys#72 of
-            ::(h#74, t#75) →
+            ::(h#74, t#75:Box) →
               let %t43:Box = (let %t44 = aether_call[owned] f#66(h#74)
               ::(#4000664[synthetic]#664, acc#73))
               aether_call[owned, owned] map_acc#71(t#75, #4000665[synthetic]#665)
@@ -257,7 +257,7 @@ letrec filter =
       _ →
         letrec filter_acc#83 = (λys#84, acc#85.
           case ys#84 of
-            ::(h#86, t#87) →
+            ::(h#86, t#87:Int) →
               let %t56 = aether_call[owned] pred#78(dup h#86
               h#86)
               case #4000677[synthetic]#677 of
@@ -1702,7 +1702,7 @@ letrec str_contains =
 letrec rev_append : List<Int> =
 λxs#587, acc#588.
     case xs#587 of
-      ::(h#589, t#590) →
+      ::(h#589:Int, t#590:Box) →
         let %t356:Box = ::(h#589, acc#588)
         aether_call[borrowed, owned] rev_append#586(t#590, #4000975[synthetic]#975)
       _ →

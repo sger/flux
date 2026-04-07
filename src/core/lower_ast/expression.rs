@@ -252,10 +252,12 @@ impl<'a> super::AstLowerer<'a> {
                 span,
                 ..
             } => {
+                // Look up the scrutinee's HM-inferred type for typed pattern binders.
+                let scrutinee_ty = self.hm_expr_types.get(&scrutinee.expr_id()).cloned();
                 let scrut = self.lower_expr(scrutinee);
                 let alts: Vec<CoreAlt> = arms
                     .iter()
-                    .map(|arm| self.lower_match_arm(arm))
+                    .map(|arm| self.lower_match_arm_typed(arm, scrutinee_ty.as_ref()))
                     .collect();
                 CoreExpr::Case {
                     scrutinee: Box::new(scrut),
@@ -333,8 +335,10 @@ impl<'a> super::AstLowerer<'a> {
                 ..
             } => {
                 let body = self.lower_expr(expr);
-                let handlers: Vec<CoreHandler> =
-                    arms.iter().map(|arm| self.lower_handle_arm(arm)).collect();
+                let handlers: Vec<CoreHandler> = arms
+                    .iter()
+                    .map(|arm| self.lower_handle_arm_typed(arm, *effect))
+                    .collect();
                 CoreExpr::Handle {
                     body: Box::new(body),
                     effect: *effect,

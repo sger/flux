@@ -1463,8 +1463,8 @@ impl<'a> FnEmitter<'a> {
             LirInstr::MakeCtor {
                 dst,
                 ctor_tag,
-                ctor_name: _,
                 fields,
+                ..
             } => {
                 self.emit_make_ctor(*dst, *ctor_tag, fields);
             }

@@ -214,7 +214,7 @@ letrec map =
       _ →
         letrec map_acc#71 = (λys#72, acc#73.
           case ys#72 of
-            ::(h#74, t#75) →
+            ::(h#74:Int, t#75:Box) →
               let %t43:Box = (let %t44 = aether_call[owned] f#66(h#74)
               ::(#4000635[synthetic]#635, acc#73))
               aether_call[owned, owned] map_acc#71(t#75, #4000636[synthetic]#636)
@@ -1701,22 +1701,13 @@ letrec str_contains =
 letrec copy_or_keep_head : List<Int> =
 λxs#587, copy#588.
     case xs#587 of
-      ::(h#589, t#590) →
-        drop_spec xs#587 {
-          unique -> case copy#588 of
-              true →
-                let %t356:Box = ::(h#589, t#590)
-                reuse xs#587 ::(h#589, #4000946[synthetic]#946) @mask=0b10
-              _ →
-                reuse xs#587 ::(h#589, t#590) @mask=0b0
-          shared -> case copy#588 of
-              true →
-                let %t356:Box = ::(dup h#589
-                h#589, t#590)
-                ::(h#589, #4000946[synthetic]#946)
-              _ →
-                ::(h#589, t#590)
-        }
+      ::(h#589:Int, t#590:Box) →
+        case copy#588 of
+          true →
+            let %t356:Box = ::(h#589, t#590)
+            reuse xs#587 ::(h#589, #4000946[synthetic]#946) @mask=0b10
+          _ →
+            reuse xs#587 ::(h#589, t#590) @mask=0b0
       _ →
         []
 
@@ -1753,7 +1744,7 @@ letrec main : Unit =
     Print(#4000950[synthetic]#950)
 
 ── Aether stats ──
-Dups: 19  Drops: 59  Reuses: 14  DropSpecs: 3  FBIP: fbip(36)
+Dups: 18  Drops: 59  Reuses: 14  DropSpecs: 2  FBIP: fbip(33)
 [1 of 7] Compiling  Assert
 [2 of 7] Compiling  IO
 [3 of 7] Compiling  List
