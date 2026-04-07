@@ -1,8 +1,16 @@
 - Feature Name: Traits and Typeclasses (Eq/Ord/Show/Functor)
 - Start Date: 2026-02-26
-- Status: Not Implemented
+- Status: **Superseded by Proposal 0145 (Type Classes)**
+- Superseded Date: 2026-04-07
 - Proposal PR: 
 - Flux Issue: 
+
+> **Note:** This proposal has been superseded by [Proposal 0145](../0145_type_classes.md),
+> which implements Haskell-style type classes with `class`/`instance` syntax, ClassEnv
+> validation, and runtime dispatch. Proposal 0145 covers the same goals (Eq, Ord, Show,
+> constrained polymorphism) with a concrete implementation that is partially landed.
+> See also [Proposal 0123](../0123_full_static_typing.md) for the broader static typing
+> roadmap that 0145 is part of.
 
 # Proposal 0053: Traits and Typeclasses (Eq/Ord/Show/Functor)
 

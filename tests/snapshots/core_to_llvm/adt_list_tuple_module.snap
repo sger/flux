@@ -56,8 +56,6 @@ declare ccc i64 @flux_box_float_rt(double) nounwind
 
 declare ccc double @flux_unbox_float_rt(i64) nounwind
 
-declare ccc i64 @flux_rt_add(i64, i64) nounwind
-
 define internal fastcc i64 @flux_tag_int(i64 %raw) alwaysinline {
 entry:
   %shifted = shl i64 %raw, 1
@@ -563,7 +561,7 @@ match.adt.3:
 match.boxed.1:
   br label %match.adt.3
 bb1:
-  %v1 = phi i64 [ %v4, %bb2 ], [ %v7, %bb5 ]
+  %v1 = phi i64 [ %v4, %bb2 ], [ %v10, %bb5 ]
   ret i64 %v1
 bb2:
   %v4 = add i64 1, 0
@@ -575,7 +573,11 @@ bb3:
 bb4:
   unreachable
 bb5:
-  %v7 = call ccc i64 @flux_rt_add(i64 %v2, i64 %v5)
+  %v7 = ashr i64 %v2, 1
+  %v8 = ashr i64 %v5, 1
+  %v9 = add i64 %v7, %v8
+  %t6 = shl i64 %v9, 1
+  %v10 = or i64 %t6, 1
   br label %bb1
 }
 
