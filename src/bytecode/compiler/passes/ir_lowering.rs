@@ -1,5 +1,5 @@
 use crate::cfg::{
-    IrPassContext, IrProgram, lower_program_to_ir_with_optimize, run_ir_pass_pipeline,
+    IrPassContext, IrProgram, lower_program_to_ir_typed, run_ir_pass_pipeline,
 };
 use crate::diagnostics::Diagnostic;
 use crate::syntax::program::Program;
@@ -14,11 +14,12 @@ impl Compiler {
         &mut self,
         program: &Program,
     ) -> Result<IrProgram, Vec<Diagnostic>> {
-        let (mut ir_program, fbip_warnings) = match lower_program_to_ir_with_optimize(
+        let (mut ir_program, fbip_warnings) = match lower_program_to_ir_typed(
             program,
             &self.hm_expr_types,
             Some(&self.interner),
             self.type_optimize,
+            Some(&self.type_env),
         ) {
             Ok(program) => program,
             Err(diag) => {
