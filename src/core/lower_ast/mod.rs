@@ -53,7 +53,19 @@ pub fn lower_program_ast_with_interner(
     hm_expr_types: &HashMap<ExprId, InferType>,
     interner: Option<&crate::syntax::interner::Interner>,
 ) -> CoreProgram {
-    let mut lowerer = AstLowerer::new(hm_expr_types, interner);
+    lower_program_ast_full(program, hm_expr_types, interner, None)
+}
+
+/// Lower with both interner and TypeEnv for typed binder creation.
+/// When the TypeEnv is available, function parameters get their FluxRep
+/// from HM-inferred types instead of defaulting to TaggedRep.
+pub fn lower_program_ast_full(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&crate::syntax::interner::Interner>,
+    type_env: Option<&crate::types::type_env::TypeEnv>,
+) -> CoreProgram {
+    let mut lowerer = AstLowerer::new(hm_expr_types, interner, type_env);
     let mut defs = Vec::new();
     let mut top_level_items = Vec::new();
     for stmt in &program.statements {
@@ -81,18 +93,22 @@ pub(super) struct AstLowerer<'a> {
     pub(super) next_binder_id: u32,
     /// Optional interner for resolving source-level type annotations.
     interner: Option<&'a crate::syntax::interner::Interner>,
+    /// Optional TypeEnv for looking up function parameter types (Phase 7).
+    type_env: Option<&'a crate::types::type_env::TypeEnv>,
 }
 
 impl<'a> AstLowerer<'a> {
     fn new(
         hm_expr_types: &'a HashMap<ExprId, InferType>,
         interner: Option<&'a crate::syntax::interner::Interner>,
+        type_env: Option<&'a crate::types::type_env::TypeEnv>,
     ) -> Self {
         Self {
             hm_expr_types,
             fresh: 0,
             next_binder_id: 0,
             interner,
+            type_env,
         }
     }
 
@@ -124,6 +140,40 @@ impl<'a> AstLowerer<'a> {
 
     pub(super) fn fresh_binder(&mut self, name: crate::syntax::Identifier) -> CoreBinder {
         self.bind_name(name)
+    }
+
+    /// Create a binder with a rep derived from a known `InferType`.
+    pub(super) fn bind_name_with_type(
+        &mut self,
+        name: crate::syntax::Identifier,
+        ty: &InferType,
+    ) -> CoreBinder {
+        let id = super::CoreBinderId(self.next_binder_id);
+        self.next_binder_id += 1;
+        let rep = super::FluxRep::from_infer_type(ty);
+        CoreBinder::with_rep(id, name, rep)
+    }
+
+    /// Look up a function's parameter types from the TypeEnv and create
+    /// typed binders. Falls back to untyped binders if TypeEnv is unavailable.
+    fn bind_fn_params(
+        &mut self,
+        fn_name: crate::syntax::Identifier,
+        parameters: &[crate::syntax::Identifier],
+    ) -> Vec<CoreBinder> {
+        // Try to get parameter types from the function's HM scheme.
+        if let Some(scheme) = self.type_env.and_then(|env| env.lookup(fn_name)) {
+            let param_types = scheme.infer_type.param_types();
+            if param_types.len() == parameters.len() && !param_types.is_empty() {
+                return parameters
+                    .iter()
+                    .zip(param_types)
+                    .map(|(&p, ty)| self.bind_name_with_type(p, ty))
+                    .collect();
+            }
+        }
+        // Fallback: untyped binders
+        parameters.iter().map(|&p| self.bind_name(p)).collect()
     }
 
     /// Allocate a fresh synthetic `Identifier` for compiler-generated bindings.
@@ -194,7 +244,7 @@ impl<'a> AstLowerer<'a> {
                 ..
             } => {
                 let binder = self.bind_name(*name);
-                let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                let params = self.bind_fn_params(*name, parameters);
                 let body_expr = self.lower_block(body);
                 // Always wrap in Lam, even for parameterless functions — the
                 // Core→IR lowerer uses the Lam marker to distinguish function
@@ -315,7 +365,7 @@ impl<'a> AstLowerer<'a> {
                     ..
                 } => {
                     let binder = self.bind_name(*name);
-                    let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                    let params = self.bind_fn_params(*name, parameters);
                     let body_expr = self.lower_block(body);
                     let expr = CoreExpr::Lam {
                         params,

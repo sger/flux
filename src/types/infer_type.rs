@@ -215,6 +215,15 @@ impl InferType {
         matches!(self, InferType::Con(TypeConstructor::Any))
     }
 
+    /// Extract parameter types from a function type.
+    /// Returns an empty slice for non-function types.
+    pub fn param_types(&self) -> &[InferType] {
+        match self {
+            InferType::Fun(params, _, _) => params,
+            _ => &[],
+        }
+    }
+
     /// Returns `true` if this type contains `Any` at any nesting depth.
     pub fn contains_any(&self) -> bool {
         match self {
