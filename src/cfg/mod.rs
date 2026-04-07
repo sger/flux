@@ -54,7 +54,7 @@ pub fn lower_program_to_ir_with_interner_and_warnings(
     hm_expr_types: &HashMap<ExprId, InferType>,
     interner: Option<&Interner>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(program, hm_expr_types, interner, false, None)
+    lower_program_to_ir_impl(program, hm_expr_types, interner, false, None, None)
 }
 
 #[allow(clippy::result_large_err)]
@@ -64,7 +64,7 @@ pub fn lower_program_to_ir_with_optimize(
     interner: Option<&Interner>,
     optimize: bool,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize, None)
+    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize, None, None)
 }
 
 /// Lower with TypeEnv for typed parameter binders (Phase 7).
@@ -75,8 +75,9 @@ pub fn lower_program_to_ir_typed(
     interner: Option<&Interner>,
     optimize: bool,
     type_env: Option<&crate::types::type_env::TypeEnv>,
+    class_env: Option<&crate::types::class_env::ClassEnv>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize, type_env)
+    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize, type_env, class_env)
 }
 
 #[allow(clippy::result_large_err)]
@@ -86,9 +87,10 @@ fn lower_program_to_ir_impl(
     interner: Option<&Interner>,
     optimize: bool,
     type_env: Option<&crate::types::type_env::TypeEnv>,
+    class_env: Option<&crate::types::class_env::ClassEnv>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    let mut core = crate::core::lower_ast::lower_program_ast_full(
-        program, hm_expr_types, interner, type_env,
+    let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
+        program, hm_expr_types, interner, type_env, None, class_env,
     );
     let warnings = if let Some(interner) = interner {
         crate::core::passes::run_core_passes_with_interner_and_warnings(
