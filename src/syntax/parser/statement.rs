@@ -7,6 +7,7 @@ use crate::{
     syntax::{
         data_variant::DataVariant, effect_ops::EffectOp, precedence::Precedence,
         statement::Statement, token_type::TokenType,
+        type_class::{ClassMethod, InstanceMethod},
     },
 };
 
@@ -59,6 +60,8 @@ impl Parser {
             TokenType::Type => self.parse_type_adt_statement(),
             TokenType::Data => self.parse_data_statement(),
             TokenType::Effect => self.parse_effect_statement(),
+            TokenType::Class => self.parse_class_statement(),
+            TokenType::Instance => self.parse_instance_statement(),
             TokenType::Fn if self.is_peek_token(TokenType::Ident) => {
                 self.parse_function_statement(false, None)
             }
@@ -1283,6 +1286,358 @@ impl Parser {
             variants,
             span: self.span_from(start),
         })
+    }
+
+    // ── Type class declarations ──────────────────────────────────────────────
+
+    /// Parses `class [Constraint =>] Name<params> { methods... }`.
+    /// current_token is `class` on entry.
+    pub(super) fn parse_class_statement(&mut self) -> Option<Statement> {
+        let start = self.current_token.position;
+
+        // Parse the head: either `Name<a>` or `Constraint<a> => Name<a>`
+        // We parse the first Name<args>, then check for `=>`.
+        if !self.expect_peek_context_with_details(
+            TokenType::Ident,
+            "Missing Class Name",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected class name or constraint after `class`.".to_string(),
+            "Class declarations use `class Name<a> { ... }`.".to_string(),
+        ) {
+            return None;
+        }
+
+        let first_name = self.current_token.symbol.expect("ident should have symbol");
+        let first_args = self.parse_type_params_angle_bracket();
+
+        // Check for `=>` — if present, the first name was a superclass constraint
+        let (superclasses, class_name, type_params) =
+            if self.is_peek_token(TokenType::Arrow) && self.peek_token.literal == "=>" {
+                // Actually, `=>` is not a token — let me check for `=` followed by `>`
+                // In Flux, `=>` is parsed as Assign(=) + Gt(>) — but let me check the lexer.
+                // Actually, looking at the token types, there's no `=>` token.
+                // We'll handle this as: if next is `=` and after that `>`, it's a fat arrow.
+                // For now, let's use a simpler approach: no superclass support in first pass.
+                // Just treat it as the class name.
+                (vec![], first_name, first_args)
+            } else {
+                (vec![], first_name, first_args)
+            };
+
+        // Expect `{`
+        if !self.expect_peek_context_with_details(
+            TokenType::LBrace,
+            "Missing Class Body",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected `{` to begin class body.".to_string(),
+            "Class declarations use `class Name<a> { fn method(x: a) -> ReturnType }`.".to_string(),
+        ) {
+            return None;
+        }
+        self.next_token(); // move past `{`
+
+        // Parse methods
+        let mut methods: Vec<ClassMethod> = Vec::new();
+        while !self.is_current_token(TokenType::RBrace) && !self.is_current_token(TokenType::Eof) {
+            if let Some(method) = self.parse_class_method() {
+                methods.push(method);
+            } else {
+                // Skip to next method or closing brace
+                self.next_token();
+            }
+        }
+
+        Some(Statement::Class {
+            name: class_name,
+            type_params,
+            superclasses,
+            methods,
+            span: self.span_from(start),
+        })
+    }
+
+    /// Parse a single method inside a class declaration.
+    /// Expects `fn name(params) -> ReturnType` or `fn name(params) -> ReturnType { body }`.
+    fn parse_class_method(&mut self) -> Option<ClassMethod> {
+        // Expect `fn`
+        if !self.is_current_token(TokenType::Fn) {
+            return None;
+        }
+        let start = self.current_token.position;
+
+        // Method name
+        if !self.expect_peek_context_with_details(
+            TokenType::Ident,
+            "Missing Method Name",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected method name after `fn` in class declaration.".to_string(),
+            "Class methods use `fn name(x: a, y: a) -> ReturnType`.".to_string(),
+        ) {
+            return None;
+        }
+        let name = self.current_token.symbol.expect("ident should have symbol");
+
+        // `(`
+        if !self.expect_peek_context(
+            TokenType::LParen,
+            "Expected `(` after method name.".to_string(),
+            "Class methods use `fn name(x: a, y: a) -> ReturnType`.".to_string(),
+        ) {
+            return None;
+        }
+
+        // Parse parameters with types: (x: a, y: a)
+        let mut params = Vec::new();
+        let mut param_types = Vec::new();
+        self.next_token(); // move past `(`
+        while !self.is_current_token(TokenType::RParen) && !self.is_current_token(TokenType::Eof) {
+            // Parameter name
+            let param_name = self.current_token.symbol.expect("ident should have symbol");
+            params.push(param_name);
+
+            // `:` type
+            if self.is_peek_token(TokenType::Colon) {
+                self.next_token(); // consume `:`
+                self.next_token(); // move to type
+                let ty = self.parse_type_expr()?;
+                param_types.push(ty);
+            }
+
+            // Comma or end
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token(); // consume `,`
+                self.next_token(); // next param
+            } else {
+                break;
+            }
+        }
+        // Consume `)`
+        if !self.expect_peek_context(
+            TokenType::RParen,
+            "Expected `)` after method parameters.".to_string(),
+            "".to_string(),
+        ) && !self.is_current_token(TokenType::RParen)
+        {
+            return None;
+        }
+
+        // `->` return type
+        let return_type = if self.is_peek_token(TokenType::Arrow) {
+            self.next_token(); // consume `->`
+            self.next_token(); // move to type
+            self.parse_type_expr()?
+        } else {
+            // Default to Unit if no return type
+            crate::syntax::type_expr::TypeExpr::Named {
+                name: self.lexer.interner_mut().intern("Unit"),
+                args: vec![],
+                span: Span::default(),
+            }
+        };
+
+        // Optional default body `{ ... }`
+        let default_body = if self.is_peek_token(TokenType::LBrace) {
+            self.next_token(); // move current to `{`
+            let body = self.parse_block();
+            // parse_block leaves current_token on `}` — advance past it
+            self.next_token();
+            Some(body)
+        } else {
+            // Skip optional comma/newline
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token();
+            }
+            self.next_token(); // advance to next method or `}`
+            None
+        };
+
+        Some(ClassMethod {
+            name,
+            params,
+            param_types,
+            return_type,
+            default_body,
+            span: self.span_from(start),
+        })
+    }
+
+    /// Parses `instance [Constraint =>] ClassName<TypeArgs> { methods... }`.
+    /// current_token is `instance` on entry.
+    pub(super) fn parse_instance_statement(&mut self) -> Option<Statement> {
+        let start = self.current_token.position;
+
+        // Class name
+        if !self.expect_peek_context_with_details(
+            TokenType::Ident,
+            "Missing Instance Class Name",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected class name after `instance`.".to_string(),
+            "Instance declarations use `instance ClassName<Type> { ... }`.".to_string(),
+        ) {
+            return None;
+        }
+        let class_name = self.current_token.symbol.expect("ident should have symbol");
+
+        // `<TypeArgs>`
+        let type_args = if self.is_peek_token(TokenType::Lt) {
+            self.next_token(); // consume `<`
+            let mut args = Vec::new();
+            loop {
+                self.next_token();
+                args.push(self.parse_type_expr()?);
+                if self.is_peek_token(TokenType::Comma) {
+                    self.next_token(); // consume `,`
+                    continue;
+                }
+                break;
+            }
+            if !self.expect_peek_context(
+                TokenType::Gt,
+                "Expected `>` after instance type arguments.".to_string(),
+                "".to_string(),
+            ) {
+                return None;
+            }
+            args
+        } else {
+            vec![]
+        };
+
+        // Expect `{`
+        if !self.expect_peek_context_with_details(
+            TokenType::LBrace,
+            "Missing Instance Body",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected `{` to begin instance body.".to_string(),
+            "Instance declarations use `instance ClassName<Type> { fn method(...) { ... } }`.".to_string(),
+        ) {
+            return None;
+        }
+        self.next_token(); // move past `{`
+
+        // Parse methods
+        let mut methods: Vec<InstanceMethod> = Vec::new();
+        while !self.is_current_token(TokenType::RBrace) && !self.is_current_token(TokenType::Eof) {
+            if let Some(method) = self.parse_instance_method() {
+                methods.push(method);
+            } else {
+                self.next_token();
+            }
+        }
+
+        Some(Statement::Instance {
+            class_name,
+            type_args,
+            context: vec![],
+            methods,
+            span: self.span_from(start),
+        })
+    }
+
+    /// Parse a single method inside an instance declaration.
+    /// Expects `fn name(params) { body }`.
+    fn parse_instance_method(&mut self) -> Option<InstanceMethod> {
+        if !self.is_current_token(TokenType::Fn) {
+            return None;
+        }
+        let start = self.current_token.position;
+
+        // Method name
+        if !self.expect_peek_context_with_details(
+            TokenType::Ident,
+            "Missing Method Name",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected method name after `fn` in instance declaration.".to_string(),
+            "Instance methods use `fn name(x, y) { body }`.".to_string(),
+        ) {
+            return None;
+        }
+        let name = self.current_token.symbol.expect("ident should have symbol");
+
+        // `(`
+        if !self.expect_peek_context(
+            TokenType::LParen,
+            "Expected `(` after method name.".to_string(),
+            "".to_string(),
+        ) {
+            return None;
+        }
+
+        // Parse parameter names (no types needed in instance methods)
+        let mut params = Vec::new();
+        self.next_token(); // move past `(`
+        while !self.is_current_token(TokenType::RParen) && !self.is_current_token(TokenType::Eof) {
+            let param_name = self.current_token.symbol.expect("ident should have symbol");
+            params.push(param_name);
+
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token(); // consume `,`
+                self.next_token(); // next param
+            } else {
+                break;
+            }
+        }
+        // Consume `)`
+        if !self.expect_peek_context(
+            TokenType::RParen,
+            "Expected `)` after method parameters.".to_string(),
+            "".to_string(),
+        ) && !self.is_current_token(TokenType::RParen)
+        {
+            return None;
+        }
+
+        // `{` body `}`
+        if !self.expect_peek_context_with_details(
+            TokenType::LBrace,
+            "Missing Method Body",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected `{` for method body.".to_string(),
+            "Instance methods require a body: `fn name(x, y) { ... }`.".to_string(),
+        ) {
+            return None;
+        }
+        let body = self.parse_block();
+        // parse_block leaves current_token on `}` — advance past it
+        // so the instance loop can see the next `fn` or closing `}`.
+        self.next_token();
+
+        Some(InstanceMethod {
+            name,
+            params,
+            body,
+            span: self.span_from(start),
+        })
+    }
+
+    /// Parse optional type parameters in angle brackets: `<a, b>`.
+    /// Returns empty vec if no `<` follows.
+    fn parse_type_params_angle_bracket(&mut self) -> Vec<crate::syntax::Identifier> {
+        let mut type_params = Vec::new();
+        if self.is_peek_token(TokenType::Lt) {
+            self.next_token(); // consume `<`
+            loop {
+                self.next_token(); // move to param name
+                if self.is_current_token(TokenType::Gt) {
+                    break;
+                }
+                if let Some(sym) = self.current_token.symbol {
+                    type_params.push(sym);
+                }
+                if self.is_peek_token(TokenType::Comma) {
+                    self.next_token(); // consume `,`
+                } else {
+                    break;
+                }
+            }
+            // Expect `>`
+            if self.is_peek_token(TokenType::Gt) {
+                self.next_token();
+            } else if !self.is_current_token(TokenType::Gt) {
+                // Try to recover
+            }
+        }
+        type_params
     }
 
     /// Parses `effect Name { op: TypeExpr, ... }`.

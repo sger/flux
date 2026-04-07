@@ -299,7 +299,8 @@ impl<'a> AstLowerer<'a> {
                 self.lower_functions_in_module(&body.statements, out);
             }
 
-            Statement::Import { .. } | Statement::Data { .. } | Statement::EffectDecl { .. } => {}
+            Statement::Import { .. } | Statement::Data { .. } | Statement::EffectDecl { .. }
+            | Statement::Class { .. } | Statement::Instance { .. } => {}
         }
     }
 
@@ -392,6 +393,24 @@ impl<'a> AstLowerer<'a> {
                 ops: ops.clone(),
                 span: *span,
             }),
+            Statement::Class { name, type_params, superclasses, methods, span } => {
+                Some(CoreTopLevelItem::Class {
+                    name: *name,
+                    type_params: type_params.clone(),
+                    superclasses: superclasses.clone(),
+                    methods: methods.clone(),
+                    span: *span,
+                })
+            }
+            Statement::Instance { class_name, type_args, context, methods, span } => {
+                Some(CoreTopLevelItem::Instance {
+                    class_name: *class_name,
+                    type_args: type_args.clone(),
+                    context: context.clone(),
+                    methods: methods.clone(),
+                    span: *span,
+                })
+            }
             Statement::Let { .. }
             | Statement::LetDestructure { .. }
             | Statement::Return { .. }
@@ -719,7 +738,9 @@ impl<'a> AstLowerer<'a> {
             Statement::Import { .. }
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
-            | Statement::Module { .. } => tail,
+            | Statement::Module { .. }
+            | Statement::Class { .. }
+            | Statement::Instance { .. } => tail,
         }
     }
 

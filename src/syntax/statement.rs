@@ -10,6 +10,7 @@ use crate::{
         effect_ops::EffectOp,
         expression::{Expression, Pattern},
         interner::Interner,
+        type_class::{ClassConstraint, ClassMethod, InstanceMethod},
         type_expr::TypeExpr,
     },
 };
@@ -107,6 +108,22 @@ pub enum Statement {
         ops: Vec<EffectOp>,
         span: Span,
     },
+    /// Type class declaration: class Eq<a> => Ord<a> { methods... }
+    Class {
+        name: Identifier,
+        type_params: Vec<Identifier>,
+        superclasses: Vec<ClassConstraint>,
+        methods: Vec<ClassMethod>,
+        span: Span,
+    },
+    /// Instance declaration: instance Eq<a> => Eq<List<a>> { methods... }
+    Instance {
+        class_name: Identifier,
+        type_args: Vec<TypeExpr>,
+        context: Vec<ClassConstraint>,
+        methods: Vec<InstanceMethod>,
+        span: Span,
+    },
 }
 
 impl Statement {
@@ -122,6 +139,8 @@ impl Statement {
             Statement::Import { span, .. } => span.start,
             Statement::Data { span, .. } => span.start,
             Statement::EffectDecl { span, .. } => span.start,
+            Statement::Class { span, .. } => span.start,
+            Statement::Instance { span, .. } => span.start,
         }
     }
 
@@ -137,6 +156,8 @@ impl Statement {
             Statement::Import { span, .. } => *span,
             Statement::Data { span, .. } => *span,
             Statement::EffectDecl { span, .. } => *span,
+            Statement::Class { span, .. } => *span,
+            Statement::Instance { span, .. } => *span,
         }
     }
 }
@@ -290,6 +311,29 @@ impl fmt::Display for Statement {
                     write!(f, " {}: {},", op.name, op.type_expr)?;
                 }
                 write!(f, " }}")
+            }
+            Statement::Class {
+                name,
+                type_params,
+                methods,
+                ..
+            } => {
+                write!(f, "class {}", name)?;
+                if !type_params.is_empty() {
+                    write!(f, "<{}>", type_params.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", "))?;
+                }
+                write!(f, " {{ {} methods }}", methods.len())
+            }
+            Statement::Instance {
+                class_name,
+                type_args,
+                ..
+            } => {
+                write!(f, "instance {}", class_name)?;
+                if !type_args.is_empty() {
+                    write!(f, "<{}>", type_args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "))?;
+                }
+                write!(f, " {{ ... }}")
             }
         }
     }
@@ -479,6 +523,36 @@ impl Statement {
                 }
                 text.push_str(" }");
                 text
+            }
+            Statement::Class {
+                name,
+                type_params,
+                methods,
+                ..
+            } => {
+                let params: Vec<&str> =
+                    type_params.iter().map(|p| interner.resolve(*p)).collect();
+                format!(
+                    "class {}<{}> {{ {} methods }}",
+                    interner.resolve(*name),
+                    params.join(", "),
+                    methods.len()
+                )
+            }
+            Statement::Instance {
+                class_name,
+                type_args,
+                methods,
+                ..
+            } => {
+                let args: Vec<String> =
+                    type_args.iter().map(|t| t.display_with(interner)).collect();
+                format!(
+                    "instance {}<{}> {{ {} methods }}",
+                    interner.resolve(*class_name),
+                    args.join(", "),
+                    methods.len()
+                )
             }
         }
     }

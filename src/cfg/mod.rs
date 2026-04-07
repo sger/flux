@@ -626,6 +626,20 @@ pub enum IrTopLevelItem {
         ops: Vec<EffectOp>,
         span: Span,
     },
+    Class {
+        name: Identifier,
+        type_params: Vec<Identifier>,
+        superclasses: Vec<crate::syntax::type_class::ClassConstraint>,
+        methods: Vec<crate::syntax::type_class::ClassMethod>,
+        span: Span,
+    },
+    Instance {
+        class_name: Identifier,
+        type_args: Vec<TypeExpr>,
+        context: Vec<crate::syntax::type_class::ClassConstraint>,
+        methods: Vec<crate::syntax::type_class::InstanceMethod>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone)]

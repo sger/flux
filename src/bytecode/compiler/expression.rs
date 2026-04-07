@@ -3487,6 +3487,8 @@ impl Compiler {
             Statement::Import { .. } => {}
             Statement::Data { .. } => {}
             Statement::EffectDecl { .. } => {}
+            Statement::Class { .. } => {}
+            Statement::Instance { .. } => {}
         }
     }
 
