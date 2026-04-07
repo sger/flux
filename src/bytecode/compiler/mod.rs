@@ -403,6 +403,7 @@ pub struct Compiler {
     pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
     pub(super) inferred_function_effects: HashMap<ContractKey, HashSet<Symbol>>,
     strict_mode: bool,
+    strict_types: bool,
     strict_require_main: bool,
     /// When true, run two-phase inference with type-informed optimization
     /// between Phase 1 and Phase 2 (proposal 0077).
@@ -482,6 +483,7 @@ impl Compiler {
             ir_function_symbols: HashMap::new(),
             inferred_function_effects: HashMap::new(),
             strict_mode: false,
+            strict_types: false,
             strict_require_main: true,
             type_optimize: false,
             profiling: false,
@@ -578,6 +580,10 @@ impl Compiler {
 
     pub fn set_strict_mode(&mut self, strict_mode: bool) {
         self.strict_mode = strict_mode;
+    }
+
+    pub fn set_strict_types(&mut self, enabled: bool) {
+        self.strict_types = enabled;
     }
 
     pub fn set_profiling(&mut self, enabled: bool) {

@@ -154,6 +154,7 @@ fn build_module_compiler(
     loaded_interfaces: &HashMap<PathBuf, flux::types::module_interface::ModuleInterface>,
     base_interner: &flux::syntax::interner::Interner,
     strict_mode: bool,
+    strict_types: bool,
     is_entry_module: bool,
 ) -> Compiler {
     let mut compiler = Compiler::new_with_interner(
@@ -162,6 +163,7 @@ fn build_module_compiler(
     );
     compiler.set_strict_require_main(is_entry_module);
     compiler.set_strict_mode(!is_flow_library_path(&node.path) && strict_mode);
+    compiler.set_strict_types(!is_flow_library_path(&node.path) && strict_types);
     for dep in &node.imports {
         if let Some(interface) = loaded_interfaces.get(&dep.target_path) {
             compiler.preload_module_interface(interface);
@@ -193,16 +195,19 @@ fn build_module_compiler(
     }
     if is_flow_library_path(&node.path) {
         compiler.set_strict_mode(false);
+        compiler.set_strict_types(false);
     }
     compiler
 }
 
+#[allow(clippy::too_many_arguments)]
 fn replay_module_diagnostics(
     node: &ModuleNode,
     nodes_by_path: &HashMap<PathBuf, ModuleNode>,
     loaded_interfaces: &HashMap<PathBuf, flux::types::module_interface::ModuleInterface>,
     base_interner: &flux::syntax::interner::Interner,
     strict_mode: bool,
+    strict_types: bool,
     enable_optimize: bool,
     enable_analyze: bool,
 ) -> Vec<Diagnostic> {
@@ -212,6 +217,7 @@ fn replay_module_diagnostics(
         loaded_interfaces,
         base_interner,
         strict_mode,
+        strict_types,
         false,
     );
     let compile_result = compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
@@ -233,6 +239,7 @@ fn compile_parallel_module(
     no_cache: bool,
     force_rebuild: bool,
     strict_mode: bool,
+    strict_types: bool,
     enable_optimize: bool,
     enable_analyze: bool,
     is_entry: bool,
@@ -330,6 +337,7 @@ fn compile_parallel_module(
         loaded_interfaces,
         base_interner,
         strict_mode,
+        strict_types,
         is_entry,
     );
     let compile_result = compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
@@ -453,6 +461,7 @@ fn compile_vm_modules_parallel(
     cache_layout: &CacheLayout,
     no_cache: bool,
     strict_mode: bool,
+    strict_types: bool,
     enable_optimize: bool,
     enable_analyze: bool,
     verbose: bool,
@@ -543,6 +552,7 @@ fn compile_vm_modules_parallel(
                         no_cache,
                         false,
                         strict_mode,
+                        strict_types,
                         enable_optimize,
                         enable_analyze,
                         is_entry,
@@ -569,6 +579,7 @@ fn compile_vm_modules_parallel(
                         no_cache,
                         true,
                         strict_mode,
+                        strict_types,
                         enable_optimize,
                         enable_analyze,
                         is_entry,
@@ -589,6 +600,7 @@ fn compile_vm_modules_parallel(
                             &loaded_interfaces,
                             graph_interner,
                             strict_mode,
+                            strict_types,
                             enable_optimize,
                             enable_analyze,
                         ));
@@ -604,6 +616,7 @@ fn compile_vm_modules_parallel(
                         &loaded_interfaces,
                         graph_interner,
                         strict_mode,
+                        strict_types,
                         enable_optimize,
                         enable_analyze,
                     );
@@ -778,6 +791,7 @@ fn compile_parallel_native_module(
     no_cache: bool,
     force_rebuild: bool,
     strict_mode: bool,
+    strict_types: bool,
     enable_optimize: bool,
     enable_analyze: bool,
     base_interner: &flux::syntax::interner::Interner,
@@ -841,12 +855,14 @@ fn compile_parallel_native_module(
         loaded_interfaces,
         base_interner,
         strict_mode,
+        strict_types,
         false,
     );
     compiler.set_file_path(node.path.to_string_lossy().to_string());
 
     if is_flow_library {
         compiler.set_strict_mode(false);
+        compiler.set_strict_types(false);
     }
 
     let compile_result = compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
@@ -1006,6 +1022,7 @@ fn compile_native_modules_parallel(
     cache_layout: &CacheLayout,
     no_cache: bool,
     strict_mode: bool,
+    strict_types: bool,
     enable_optimize: bool,
     enable_analyze: bool,
     verbose: bool,
@@ -1074,6 +1091,7 @@ fn compile_native_modules_parallel(
                         no_cache,
                         force_rebuild,
                         strict_mode,
+                        strict_types,
                         enable_optimize,
                         enable_analyze,
                         base_interner,
@@ -1094,6 +1112,7 @@ fn compile_native_modules_parallel(
                             &loaded_interfaces,
                             base_interner,
                             strict_mode,
+                            strict_types,
                             enable_optimize,
                             enable_analyze,
                         ));
@@ -1114,6 +1133,7 @@ fn compile_native_modules_parallel(
                         &loaded_interfaces,
                         base_interner,
                         strict_mode,
+                        strict_types,
                         enable_optimize,
                         enable_analyze,
                     );
@@ -1190,6 +1210,7 @@ fn main() {
     let show_stats = args.iter().any(|arg| arg == "--stats");
     let test_mode = args.iter().any(|arg| arg == "--test");
     let strict_mode = args.iter().any(|arg| arg == "--strict");
+    let strict_types = args.iter().any(|arg| arg == "--strict-types");
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
     let dump_aether = if args.iter().any(|arg| arg == "--dump-aether=debug") {
         AetherDumpMode::Debug
@@ -1247,6 +1268,9 @@ fn main() {
     }
     if args.iter().any(|arg| arg == "--strict") {
         args.retain(|arg| arg != "--strict");
+    }
+    if strict_types {
+        args.retain(|arg| arg != "--strict-types");
     }
     args.retain(|arg| arg != "--no-strict");
     if all_errors {
@@ -1323,6 +1347,7 @@ fn main() {
                 cache_dir.as_deref(),
                 test_filter.as_deref(),
                 strict_mode,
+                strict_types,
                 diagnostics_format,
                 all_errors,
                 use_core_to_llvm,
@@ -1343,6 +1368,7 @@ fn main() {
                 show_stats,
                 trace_aether,
                 strict_mode,
+                strict_types,
                 profiling,
                 diagnostics_format,
                 all_errors,
@@ -1387,6 +1413,7 @@ fn main() {
                     cache_dir.as_deref(),
                     test_filter.as_deref(),
                     strict_mode,
+                    strict_types,
                     diagnostics_format,
                     all_errors,
                     use_core_to_llvm,
@@ -1407,6 +1434,7 @@ fn main() {
                     show_stats,
                     trace_aether,
                     strict_mode,
+                    strict_types,
                     profiling,
                     diagnostics_format,
                     all_errors,
@@ -1453,6 +1481,7 @@ fn main() {
                 enable_analyze,
                 max_errors,
                 strict_mode,
+                strict_types,
                 diagnostics_format,
             );
         }
@@ -1682,6 +1711,7 @@ fn run_file(
     show_stats: bool,
     trace_aether: bool,
     strict_mode: bool,
+    strict_types: bool,
     profiling: bool,
     diagnostics_format: DiagnosticOutputFormat,
     all_errors: bool,
@@ -1775,6 +1805,7 @@ fn run_file(
             let compile_start = Instant::now();
             let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
             compiler.set_strict_mode(strict_mode);
+            compiler.set_strict_types(strict_types);
             if profiling {
                 compiler.set_profiling(true);
             }
@@ -1803,6 +1834,7 @@ fn run_file(
                     &cache_layout,
                     no_cache,
                     strict_mode,
+                    strict_types,
                     enable_optimize,
                     enable_analyze,
                     verbose,
@@ -2158,12 +2190,14 @@ fn run_file(
                 // polymorphic signatures that strict mode can't validate yet.
                 if is_flow_library {
                     compiler.set_strict_mode(false);
+                    compiler.set_strict_types(false);
                 }
                 let module_snapshot = compiler.module_cache_snapshot();
                 let compile_result =
                     compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
                 if is_flow_library {
                     compiler.set_strict_mode(strict_mode);
+                    compiler.set_strict_types(strict_types);
                 }
                 let mut compiler_warnings = compiler.take_warnings();
                 tag_diagnostics(&mut compiler_warnings, DiagnosticPhase::Validation);
@@ -2589,6 +2623,7 @@ fn run_file(
                         &cache_layout,
                         no_cache,
                         strict_mode,
+                        strict_types,
                         enable_optimize,
                         enable_analyze,
                         verbose,
@@ -2930,6 +2965,7 @@ fn run_test_file(
     _cache_dir: Option<&Path>,
     test_filter: Option<&str>,
     strict_mode: bool,
+    strict_types: bool,
     diagnostics_format: DiagnosticOutputFormat,
     all_errors: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] use_core_to_llvm: bool,
@@ -3000,6 +3036,7 @@ fn run_test_file(
     // --- Compile ---
     let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
     compiler.set_strict_mode(strict_mode);
+    compiler.set_strict_types(strict_types);
     let entry_canonical = std::fs::canonicalize(entry_path).ok();
 
     // Sort topo_order to compile Flow library modules first.
@@ -3023,11 +3060,13 @@ fn run_test_file(
         compiler.set_strict_require_main(is_entry_module);
         if is_flow_library {
             compiler.set_strict_mode(false);
+            compiler.set_strict_types(false);
         }
         let compile_result =
             compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
         if is_flow_library {
             compiler.set_strict_mode(strict_mode);
+            compiler.set_strict_types(strict_types);
         }
         let mut compiler_warnings = compiler.take_warnings();
         tag_diagnostics(&mut compiler_warnings, DiagnosticPhase::Validation);
@@ -3804,6 +3843,7 @@ fn show_bytecode(
     enable_analyze: bool,
     max_errors: usize,
     strict_mode: bool,
+    strict_types: bool,
     diagnostics_format: DiagnosticOutputFormat,
 ) {
     match fs::read_to_string(path) {
@@ -3848,6 +3888,7 @@ fn show_bytecode(
             let interner = parser.take_interner();
             let mut compiler = Compiler::new_with_interner(path, interner);
             compiler.set_strict_mode(strict_mode);
+            compiler.set_strict_types(strict_types);
             let compile_result =
                 compiler.compile_with_opts(&program, enable_optimize, enable_analyze);
             let mut compiler_warnings = compiler.take_warnings();

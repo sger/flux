@@ -47,6 +47,7 @@ mod expression;
 mod function;
 mod solver;
 mod statement;
+pub mod strict_types;
 mod unification;
 
 // ─────────────────────────────────────────────────────────────────────────────

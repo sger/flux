@@ -1,4 +1,5 @@
 use crate::ast::type_infer::infer_program;
+use crate::ast::type_infer::strict_types::validate_strict_types;
 use crate::ast::type_informed_fold::type_informed_fold;
 use crate::diagnostics::DiagnosticPhase;
 use crate::syntax::program::Program;
@@ -55,6 +56,17 @@ impl Compiler {
                 diags
             }
         };
+
+        // Strict-types validation: reject any binding whose inferred type
+        // still contains `Any`. Runs after inference on the final program.
+        let mut hm_diagnostics = hm_diagnostics;
+        if self.strict_types {
+            let final_program = type_optimized_program.as_ref().unwrap_or(program);
+            let mut strict_diags =
+                validate_strict_types(final_program, &self.type_env, &self.interner);
+            tag_diagnostics(&mut strict_diags, DiagnosticPhase::TypeInference);
+            hm_diagnostics.extend(strict_diags);
+        }
 
         self.has_hm_diagnostics = !hm_diagnostics.is_empty();
 
