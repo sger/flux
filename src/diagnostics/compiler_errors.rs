@@ -810,6 +810,40 @@ pub const STRICT_TYPES_ANY_INFERRED: ErrorCode = ErrorCode {
     hint: Some("Add a type annotation so the compiler can verify type safety."),
 };
 
+// Type class errors (E440–E449)
+
+pub const DUPLICATE_CLASS: ErrorCode = ErrorCode {
+    code: "E440",
+    title: "DUPLICATE TYPE CLASS",
+    error_type: ErrorType::Compiler,
+    message: "Type class `{}` is already defined.",
+    hint: Some("Each type class name must be unique."),
+};
+
+pub const INSTANCE_UNKNOWN_CLASS: ErrorCode = ErrorCode {
+    code: "E441",
+    title: "UNKNOWN TYPE CLASS",
+    error_type: ErrorType::Compiler,
+    message: "No type class `{}` is defined.",
+    hint: Some("Declare the class before writing instances for it."),
+};
+
+pub const INSTANCE_MISSING_METHOD: ErrorCode = ErrorCode {
+    code: "E442",
+    title: "MISSING INSTANCE METHOD",
+    error_type: ErrorType::Compiler,
+    message: "Missing method `{}` in instance.",
+    hint: Some("Implement all required methods that don't have defaults."),
+};
+
+pub const DUPLICATE_INSTANCE: ErrorCode = ErrorCode {
+    code: "E443",
+    title: "DUPLICATE INSTANCE",
+    error_type: ErrorType::Compiler,
+    message: "Duplicate instance for `{}`.",
+    hint: Some("Each type can have at most one instance per class."),
+};
+
 // ============================================================================
 // Error Constructor Functions
 // ============================================================================
