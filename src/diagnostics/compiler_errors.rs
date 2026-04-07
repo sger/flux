@@ -844,6 +844,14 @@ pub const DUPLICATE_INSTANCE: ErrorCode = ErrorCode {
     hint: Some("Each type can have at most one instance per class."),
 };
 
+pub const NO_INSTANCE: ErrorCode = ErrorCode {
+    code: "E444",
+    title: "NO TYPE CLASS INSTANCE",
+    error_type: ErrorType::Compiler,
+    message: "No instance for `{}`.",
+    hint: Some("Add an instance declaration for this type."),
+};
+
 // ============================================================================
 // Error Constructor Functions
 // ============================================================================

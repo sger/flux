@@ -40,7 +40,7 @@ use crate::{
 };
 
 mod adt;
-mod constraint;
+pub mod constraint;
 mod display;
 mod effects;
 mod expression;
@@ -67,7 +67,7 @@ struct AdtConstructorTypeInfo {
 
 /// Reporting mode for HM unification diagnostics.
 #[derive(Debug, Clone)]
-enum ReportContext {
+pub enum ReportContext {
     Plain,
     IfBranch {
         then_span: Span,
