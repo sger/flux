@@ -1,10 +1,70 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
+assertion_line: 27
 ---
 Fixture: examples/strict_types/type_class_full.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Return Type Mismatch
+
+The body of `add` does not match its declared return type.
+
+  examples/strict_types/type_class_full.flx:0:1
+  |
+
+Note:
+  declared return type: a
+  body type: String
+
+Help:
+  Return a `a` value from `add` or change its annotation.
+
+
+error[E300]: Return Type Mismatch
+
+The body of `eq` does not match its declared return type.
+
+  examples/strict_types/type_class_full.flx:0:1
+  |
+
+Note:
+  declared return type: Bool
+  body type: String
+
+Help:
+  Return a `Bool` value from `eq` or change its annotation.
+
+
+error[E300]: Return Type Mismatch
+
+The body of `mul` does not match its declared return type.
+
+  examples/strict_types/type_class_full.flx:0:1
+  |
+
+Note:
+  declared return type: a
+  body type: String
+
+Help:
+  Return a `a` value from `mul` or change its annotation.
+
+
+error[E300]: Return Type Mismatch
+
+The body of `sub` does not match its declared return type.
+
+  examples/strict_types/type_class_full.flx:0:1
+  |
+
+Note:
+  declared return type: a
+  body type: String
+
+Help:
+  Return a `a` value from `sub` or change its annotation.
+
+Found 4 errors.
 == stdout ==
 <not executed>

@@ -1,23 +1,26 @@
-// Multiple instances of the same class.
-// Compile-time dispatch resolves to the correct mangled instance function.
+// Multiple instances with compile-time dispatch.
+// Calls to class methods are resolved at compile time to the
+// correct mangled instance function based on the argument type.
+// Each call site instantiates the polymorphic dispatch stub fresh,
+// so different types can be used in the same scope.
 
-class Repeatable<a> {
-    fn repeat(x: a) -> a
+class Sizeable<a> {
+    fn size(x: a) -> Int
 }
 
-instance Repeatable<Int> {
-    fn repeat(x) { x + x }
+instance Sizeable<Int> {
+    fn size(x) { x }
 }
 
-instance Repeatable<String> {
-    fn repeat(x) { x }
+instance Sizeable<String> {
+    fn size(x) { len(x) }
 }
 
 fn main() with IO {
-    // Compile-time resolution: repeat(21) -> __tc_Repeatable_Int_repeat(21)
-    print(repeat(21))
-    print(repeat(5))
-
-    // Nested: repeat(repeat(3)) = repeat(6) = 12
-    print(repeat(repeat(3)))
+    // Both calls in the same scope — each instantiates fresh type vars:
+    //   size(42)      -> __tc_Sizeable_Int_size(42)
+    //   size("hello") -> __tc_Sizeable_String_size("hello")
+    print(size(42))
+    print(size("hello"))
+    print(size(100) + size("world"))
 }
