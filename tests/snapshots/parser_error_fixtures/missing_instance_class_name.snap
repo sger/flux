@@ -1,0 +1,32 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_instance_class_name.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Missing Instance Class Name
+
+Expected class name after `instance`.
+
+  examples/parser_errors/missing_instance_class_name.flx:7:10
+  |
+7 | instance {
+  |          ^
+
+Hint:
+  Instance declarations use `instance ClassName<Type> { ... }`.
+
+
+error[E034]: Unexpected Closing Delimiter
+
+Unexpected `}` outside of a block.
+
+  examples/parser_errors/missing_instance_class_name.flx:9:1
+  |
+9 | }
+  | ^
+
+Found 2 errors.
+== stdout ==
+<not executed>

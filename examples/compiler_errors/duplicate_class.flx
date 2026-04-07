@@ -1,0 +1,17 @@
+// Defining the same type class twice.
+//
+// Expected: E440 Duplicate Type Class
+//   "Type class `Show` is already defined."
+//   Hint: "Each type class name must be unique."
+
+class Show<a> {
+    fn show(x: a) -> Int
+}
+
+class Show<a> {
+    fn show(x: a) -> Int
+}
+
+fn main() {
+    42
+}

@@ -1,0 +1,24 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/instance_unknown_class.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E441]: Unknown Type Class
+
+No type class `Foo` is defined.
+
+  examples/compiler_errors/instance_unknown_class.flx:7:1
+  |
+7 | instance Foo<Int> {
+  | ^^^^^^^^^^^^^^^^^^^
+8 |     fn bar(x) { x }
+  | ^^^^^^^^^^^^^^^^^^^
+9 | }
+  | ^
+
+Hint:
+  Declare the class first: `class Foo<a> { ... }`
+== stdout ==
+<not executed>
