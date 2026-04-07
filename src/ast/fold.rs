@@ -181,6 +181,12 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             span,
         },
         Statement::EffectDecl { name, ops, span } => Statement::EffectDecl { name, ops, span },
+        Statement::Class { name, type_params, superclasses, methods, span } => {
+            Statement::Class { name, type_params, superclasses, methods, span }
+        }
+        Statement::Instance { class_name, type_args, context, methods, span } => {
+            Statement::Instance { class_name, type_args, context, methods, span }
+        }
     }
 }
 

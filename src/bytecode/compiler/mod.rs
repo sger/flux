@@ -1342,6 +1342,7 @@ impl Compiler {
         // IDs are arbitrary — schemes are instantiated with fresh vars at each use.
         let var_a = || InferType::Var(9000);
         let var_b = || InferType::Var(9001);
+        let var_c = || InferType::Var(9002);
 
         // (name, params, ret, effects, forall_count)
         let primop_sigs: Vec<(&str, Vec<InferType>, InferType, InferEffectRow, usize)> = vec![
@@ -1508,8 +1509,8 @@ impl Compiler {
             ("is_hash", vec![var_a()], con(TC::Bool), pure(), 0),
             ("is_map", vec![var_a()], con(TC::Bool), pure(), 0),
             // List ops
-            ("to_list", vec![var_a()], var_a(), pure(), 0),
-            ("to_array", vec![var_a()], var_a(), pure(), 0),
+            ("to_list", vec![var_a()], var_b(), pure(), 0),
+            ("to_array", vec![var_a()], var_b(), pure(), 0),
             // Map ops
             ("keys", vec![var_a()], var_b(), pure(), 0),
             ("values", vec![var_a()], var_b(), pure(), 0),
@@ -1536,7 +1537,7 @@ impl Compiler {
             ),
             (
                 "put",
-                vec![var_a(), var_b(), var_b()],
+                vec![var_a(), var_b(), var_c()],
                 var_a(),
                 pure(),
                 0,
@@ -1544,7 +1545,7 @@ impl Compiler {
             (
                 "get",
                 vec![var_a(), var_b()],
-                var_b(),
+                var_c(),
                 pure(),
                 0,
             ),

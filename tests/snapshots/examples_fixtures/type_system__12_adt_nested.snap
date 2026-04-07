@@ -63,12 +63,14 @@ Hint:
   Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
-error[E015]: Non-Exhaustive Match
+error[E300]: Return Type Mismatch
 
-Match is non-exhaustive without an unguarded catch-all arm.
+The body of `inorder` does not match its declared return type.
 
   examples/type_system/12_adt_nested.flx:32:5
    |
+31 | fn inorder(t: Tree) -> Array {
+   |                        ----- `inorder` was declared to return `Array`
 32 |     match t {
    |     ^^^^^^^^^
 33 |         Leaf -> [||],
@@ -80,8 +82,12 @@ Match is non-exhaustive without an unguarded catch-all arm.
 36 |     }
    | ^^^^^
 
-Hint:
-  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
+Note:
+  declared return type: Array
+  body type: Array<Int>
+
+Help:
+  Return a `Array` value from `inorder` or change its annotation.
 
 
 error[E004]: Undefined Variable
