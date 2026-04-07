@@ -107,6 +107,7 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     INSTANCE_UNKNOWN_CLASS,
     INSTANCE_MISSING_METHOD,
     DUPLICATE_INSTANCE,
+    NO_INSTANCE,
     // Runtime errors (E1000+)
     WRONG_NUMBER_OF_ARGUMENTS,
     NOT_A_FUNCTION,
@@ -162,7 +163,7 @@ pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
         "E076" => Some(DiagnosticCategory::ParserDelimiter),
         "E423" => Some(DiagnosticCategory::TypeInference),
         "E426" => Some(DiagnosticCategory::Internal),
-        "E056" | "E300" | "E301" | "E430" | "E440" | "E441" | "E442" | "E443" => {
+        "E056" | "E300" | "E301" | "E430" | "E440" | "E441" | "E442" | "E443" | "E444" => {
             Some(DiagnosticCategory::TypeInference)
         }
         "E400" | "E401" | "E402" | "E403" | "E404" | "E405" | "E406" | "E407" | "E419" | "E420"
