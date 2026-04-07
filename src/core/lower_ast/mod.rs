@@ -81,7 +81,29 @@ pub fn lower_program_ast_complete(
     type_env: Option<&crate::types::type_env::TypeEnv>,
     effect_op_sigs: Option<&EffectOpSigs>,
 ) -> CoreProgram {
-    let mut lowerer = AstLowerer::new(hm_expr_types, interner, type_env, effect_op_sigs);
+    lower_program_ast_with_class_env(
+        program,
+        hm_expr_types,
+        interner,
+        type_env,
+        effect_op_sigs,
+        None,
+    )
+}
+
+/// Lower with all context including ClassEnv for compile-time class method dispatch.
+/// When ClassEnv is available, calls to class methods are resolved to mangled
+/// instance functions at compile time, eliminating runtime `type_of()` dispatch.
+pub fn lower_program_ast_with_class_env(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&crate::syntax::interner::Interner>,
+    type_env: Option<&crate::types::type_env::TypeEnv>,
+    effect_op_sigs: Option<&EffectOpSigs>,
+    class_env: Option<&crate::types::class_env::ClassEnv>,
+) -> CoreProgram {
+    let mut lowerer =
+        AstLowerer::new(hm_expr_types, interner, type_env, effect_op_sigs, class_env);
     let mut defs = Vec::new();
     let mut top_level_items = Vec::new();
     for stmt in &program.statements {
@@ -108,11 +130,13 @@ pub(super) struct AstLowerer<'a> {
     pub(super) fresh: u32,
     pub(super) next_binder_id: u32,
     /// Optional interner for resolving source-level type annotations.
-    interner: Option<&'a crate::syntax::interner::Interner>,
+    pub(super) interner: Option<&'a crate::syntax::interner::Interner>,
     /// Optional TypeEnv for looking up function parameter types (Phase 7).
     type_env: Option<&'a crate::types::type_env::TypeEnv>,
     /// Optional effect op signatures for typed handler binders (Phase 7f).
     pub(super) effect_op_sigs: Option<&'a EffectOpSigs>,
+    /// Optional ClassEnv for compile-time class method dispatch (Phase 4 Step 5).
+    pub(super) class_env: Option<&'a crate::types::class_env::ClassEnv>,
 }
 
 impl<'a> AstLowerer<'a> {
@@ -121,6 +145,7 @@ impl<'a> AstLowerer<'a> {
         interner: Option<&'a crate::syntax::interner::Interner>,
         type_env: Option<&'a crate::types::type_env::TypeEnv>,
         effect_op_sigs: Option<&'a EffectOpSigs>,
+        class_env: Option<&'a crate::types::class_env::ClassEnv>,
     ) -> Self {
         Self {
             hm_expr_types,
@@ -129,6 +154,7 @@ impl<'a> AstLowerer<'a> {
             interner,
             type_env,
             effect_op_sigs,
+            class_env,
         }
     }
 
@@ -233,6 +259,71 @@ impl<'a> AstLowerer<'a> {
     #[allow(dead_code)]
     pub(super) fn expr_type(&self, id: ExprId) -> Option<&InferType> {
         self.hm_expr_types.get(&id)
+    }
+
+    /// Try to resolve a class method call to a mangled instance function.
+    ///
+    /// If `name` is a known class method, and the first argument's type is
+    /// known (concrete, not a type variable), resolves to `__tc_{Class}_{Type}_{method}`.
+    /// Returns `None` if resolution fails (unknown type, no instance, no ClassEnv).
+    pub(super) fn try_resolve_class_call(
+        &self,
+        name: Identifier,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Option<Identifier> {
+        let class_env = self.class_env?;
+        let interner = self.interner?;
+
+        // Check if this name is a class method.
+        let (class_name, _class_def) = class_env.method_to_class(name)?;
+
+        // Get the first argument's type from HM inference.
+        let first_arg = arguments.first()?;
+        let first_arg_type = self.hm_expr_types.get(&first_arg.expr_id())?;
+
+        // Convert to a concrete type name string.
+        let type_name = Self::infer_type_to_type_name(first_arg_type, interner)?;
+
+        // Verify an instance exists.
+        let _instance = class_env.resolve_instance_for_type(class_name, &type_name, interner)?;
+
+        // Construct the mangled name: __tc_{ClassName}_{TypeName}_{methodName}
+        // The mangled function was already interned by class_dispatch.rs.
+        let class_str = interner.resolve(class_name);
+        let method_str = interner.resolve(name);
+        let mangled = format!("__tc_{class_str}_{type_name}_{method_str}");
+        interner.lookup(&mangled)
+    }
+
+    /// Convert an `InferType` to a simple type name string (e.g. "Int", "String").
+    /// Returns `None` for type variables, function types, or complex types.
+    fn infer_type_to_type_name(
+        ty: &InferType,
+        interner: &crate::syntax::interner::Interner,
+    ) -> Option<String> {
+        use crate::types::type_constructor::TypeConstructor;
+        match ty {
+            InferType::Con(tc) => match tc {
+                TypeConstructor::Int => Some("Int".to_string()),
+                TypeConstructor::Float => Some("Float".to_string()),
+                TypeConstructor::Bool => Some("Bool".to_string()),
+                TypeConstructor::String => Some("String".to_string()),
+                TypeConstructor::Unit => Some("Unit".to_string()),
+                TypeConstructor::List => Some("List".to_string()),
+                TypeConstructor::Array => Some("Array".to_string()),
+                TypeConstructor::Option => Some("Option".to_string()),
+                TypeConstructor::Adt(sym) => Some(interner.resolve(*sym).to_string()),
+                _ => None,
+            },
+            InferType::App(tc, _) => match tc {
+                TypeConstructor::Adt(sym) => Some(interner.resolve(*sym).to_string()),
+                TypeConstructor::List => Some("List".to_string()),
+                TypeConstructor::Array => Some("Array".to_string()),
+                TypeConstructor::Option => Some("Option".to_string()),
+                _ => None,
+            },
+            _ => None, // Type variables, functions, tuples — can't resolve
+        }
     }
 
     /// Convert an HM-inferred expression type to a `CoreType`, if available.

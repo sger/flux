@@ -1,0 +1,23 @@
+// Multiple instances of the same class.
+// Compile-time dispatch resolves to the correct mangled instance function.
+
+class Repeatable<a> {
+    fn repeat(x: a) -> a
+}
+
+instance Repeatable<Int> {
+    fn repeat(x) { x + x }
+}
+
+instance Repeatable<String> {
+    fn repeat(x) { x }
+}
+
+fn main() with IO {
+    // Compile-time resolution: repeat(21) -> __tc_Repeatable_Int_repeat(21)
+    print(repeat(21))
+    print(repeat(5))
+
+    // Nested: repeat(repeat(3)) = repeat(6) = 12
+    print(repeat(repeat(3)))
+}

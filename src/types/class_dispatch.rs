@@ -55,7 +55,12 @@ pub fn generate_dispatch_functions(
         &mut dispatch_table,
     );
 
-    // Generate dispatch functions for each class method
+    // Generate dispatch functions for each class method.
+    // These provide name resolution for the type checker and serve as fallback
+    // for cases where compile-time resolution fails. When compile-time resolution
+    // succeeds (Phase 4 Step 5), calls are rewritten directly to the mangled
+    // instance function during Core lowering, making these dispatch functions
+    // dead code for monomorphic call sites.
     for ((class_name, method_name), instances) in &dispatch_table {
         if let Some(class_def) = class_env.lookup_class(*class_name) {
             let method_sig = class_def.methods.iter().find(|m| m.name == *method_name);
