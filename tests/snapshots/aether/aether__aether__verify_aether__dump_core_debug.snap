@@ -1772,13 +1772,13 @@ letrec my_sum : Int =
 letrec main : Unit =
 λ.
     let result#627:Box = (let %t363:Box = MakeList(1, 2, 3)
-    let %t364:Box = (λx#628.
+    let %t364:Box = (λx#628:Int.
       IMul(x#628, 2))
     aether_call[owned, borrowed] my_map#586(#4000982[synthetic]#982, #4000983[synthetic]#983))
     let %t365 = Print(result#627)
     drop #2000013[synthetic]#626
     let opt#624:Box = (let %t366:Box = Some(42)
-    let %t367:Box = (λx#625.
+    let %t367:Box = (λx#625:Int.
       IAdd(x#625, 1))
     aether_call[owned, borrowed] option_map#591(#4000984[synthetic]#984, #4000985[synthetic]#985))
     let %t368 = Print(opt#624)
@@ -1792,7 +1792,7 @@ letrec main : Unit =
     let %t371 = Print(n#618)
     drop #2000010[synthetic]#617
     let evens#615:Box = (let %t372:Box = MakeList(1, 2, 3, 4, 5, 6)
-    let %t373:Box = (λx#616.
+    let %t373:Box = (λx#616:Int.
       let %t374:Int = IMod(x#616, 2)
       ICmpEq(#4000988[synthetic]#988, 0))
     aether_call[owned, borrowed] my_filter#603(#4000987[synthetic]#987, #4000989[synthetic]#989))

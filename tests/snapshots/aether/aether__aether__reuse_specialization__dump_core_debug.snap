@@ -1737,7 +1737,7 @@ letrec main : Unit =
     Print(#4000955[synthetic]#955))
     drop #2000009[synthetic]#603
     let %t363 = (let %t364:Box = Some(41)
-    let %t365:Box = (λx#602.
+    let %t365:Box = (λx#602:Int.
       IAdd(x#602, 1))
     aether_call[owned, borrowed] option_map#597(#4000956[synthetic]#956, #4000957[synthetic]#957))
     Print(#4000958[synthetic]#958)
