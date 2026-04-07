@@ -881,6 +881,10 @@ fn binder_demand(env: &AetherEnv, binder: CoreBinderId) -> ValueDemand {
 }
 
 fn wrap_drop(binder: CoreBinder, body: CoreExpr, span: Span) -> CoreExpr {
+    // Unboxed primitives (Int, Float, Bool) don't need reference counting.
+    if !binder.rep.needs_rc() {
+        return body;
+    }
     CoreExpr::Drop {
         var: CoreVarRef::resolved(binder),
         body: Box::new(body),
@@ -889,6 +893,10 @@ fn wrap_drop(binder: CoreBinder, body: CoreExpr, span: Span) -> CoreExpr {
 }
 
 fn wrap_dups(binder: CoreBinder, body: CoreExpr, span: Span, n: usize) -> CoreExpr {
+    // Unboxed primitives (Int, Float, Bool) don't need reference counting.
+    if !binder.rep.needs_rc() {
+        return body;
+    }
     let mut result = body;
     for _ in 0..n {
         result = CoreExpr::Dup {

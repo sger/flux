@@ -154,6 +154,26 @@ impl<'a> AstLowerer<'a> {
         CoreBinder::with_rep(id, name, rep)
     }
 
+    /// Create typed binders for lambda parameters by extracting param types
+    /// from the lambda's HM-inferred function type.
+    pub(super) fn bind_lambda_params(
+        &mut self,
+        parameters: &[crate::syntax::Identifier],
+        lambda_expr_id: crate::syntax::expression::ExprId,
+    ) -> Vec<CoreBinder> {
+        if let Some(fn_ty) = self.hm_expr_types.get(&lambda_expr_id) {
+            let param_types = fn_ty.param_types();
+            if param_types.len() == parameters.len() && !param_types.is_empty() {
+                return parameters
+                    .iter()
+                    .zip(param_types)
+                    .map(|(&p, ty)| self.bind_name_with_type(p, ty))
+                    .collect();
+            }
+        }
+        parameters.iter().map(|&p| self.bind_name(p)).collect()
+    }
+
     /// Look up a function's parameter types from the TypeEnv and create
     /// typed binders. Falls back to untyped binders if TypeEnv is unavailable.
     fn bind_fn_params(
