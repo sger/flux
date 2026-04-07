@@ -96,6 +96,9 @@ fn is_concrete_type(ty: &InferType) -> bool {
         InferType::Fun(params, ret, _) => {
             params.iter().all(is_concrete_type) && is_concrete_type(ret)
         }
+        InferType::HktApp(head, args) => {
+            is_concrete_type(head) && args.iter().all(is_concrete_type)
+        }
     }
 }
 

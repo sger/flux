@@ -1,0 +1,15 @@
+// Higher-kinded type class: Functor.
+// Demonstrates HKT type parameters where f has kind Type -> Type.
+
+class Functor<f> {
+    fn fmap<a, b>(x: f<a>, func: (a) -> b): f<b>
+}
+
+instance Functor<List> {
+    fn fmap(xs, func) { map(xs, func) }
+}
+
+fn main() with IO {
+    let doubled = fmap([1, 2, 3], \x -> x * 2)
+    print(doubled)
+}

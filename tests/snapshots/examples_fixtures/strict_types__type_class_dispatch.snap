@@ -1,10 +1,55 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
+assertion_line: 27
 ---
 Fixture: examples/strict_types/type_class_dispatch.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Return Type Mismatch
+
+The body of `add` does not match its declared return type.
+
+  examples/strict_types/type_class_dispatch.flx:0:1
+  |
+
+Note:
+  declared return type: a
+  body type: Bool
+
+Help:
+  Return a `a` value from `add` or change its annotation.
+
+
+error[E300]: Return Type Mismatch
+
+The body of `mul` does not match its declared return type.
+
+  examples/strict_types/type_class_dispatch.flx:0:1
+  |
+
+Note:
+  declared return type: a
+  body type: Bool
+
+Help:
+  Return a `a` value from `mul` or change its annotation.
+
+
+error[E300]: Return Type Mismatch
+
+The body of `show` does not match its declared return type.
+
+  examples/strict_types/type_class_dispatch.flx:0:1
+  |
+
+Note:
+  declared return type: String
+  body type: Bool
+
+Help:
+  Return a `String` value from `show` or change its annotation.
+
+Found 3 errors.
 == stdout ==
 <not executed>

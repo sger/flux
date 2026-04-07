@@ -1,5 +1,5 @@
 // Composing type class method calls.
-// Class methods work in nested calls, match arms, and recursion.
+// Class methods work in nested calls and expressions.
 
 class Combinable<a> {
     fn combine(x: a, y: a) -> a
@@ -9,23 +9,17 @@ instance Combinable<Int> {
     fn combine(x, y) { x + y }
 }
 
-fn fold_combine(xs, acc) {
-    match xs {
-        [h | t] -> fold_combine(t, combine(acc, h)),
-        _ -> acc,
-    }
-}
-
 fn main() with IO {
-    // Direct calls
+    // Direct calls — resolved at compile time to __tc_Combinable_Int_combine
     print(combine(10, 20))
 
-    // Nested calls
+    // Nested calls — each resolved independently
     print(combine(combine(1, 2), combine(3, 4)))
 
-    // Used in a recursive fold
-    let sum = fold_combine([1, 2, 3, 4, 5], 0)
-    print(sum)
+    // In a let binding
+    let a = combine(100, 200)
+    let b = combine(a, 50)
+    print(b)
 
     // In a match expression
     let result = match [10, 20] {

@@ -842,6 +842,29 @@ impl Compiler {
                     self.current_span = previous_span;
                     return Ok(());
                 }
+
+                // Phase 4 Step 5: compile-time class method dispatch.
+                // If the callee is a class method with a known argument type,
+                // compile a call to the mangled instance function directly.
+                if let Expression::Identifier { name, .. } = function.as_ref()
+                    && let Some(mangled) = self.try_resolve_class_method_call(*name, arguments)
+                {
+                    let mangled_expr = Expression::Identifier {
+                        name: mangled,
+                        span: function.span(),
+                        id: crate::syntax::expression::ExprId::UNSET,
+                    };
+                    let call = Expression::Call {
+                        function: Box::new(mangled_expr),
+                        arguments: arguments.clone(),
+                        span: expression.span(),
+                        id: crate::syntax::expression::ExprId::UNSET,
+                    };
+                    self.compile_non_tail_expression(&call)?;
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
+
                 let is_direct_self_call = self.is_self_call(function);
                 let is_self_tail_call = self.in_tail_position && is_direct_self_call;
                 let is_self_non_tail_call = !self.in_tail_position && is_direct_self_call;
@@ -4658,5 +4681,58 @@ impl Compiler {
             }
             _ => false,
         }
+    }
+
+    /// Try to resolve a class method call at compile time.
+    ///
+    /// If `name` is a class method and the first argument's HM-inferred type
+    /// is concrete, returns the mangled instance function symbol.
+    fn try_resolve_class_method_call(
+        &self,
+        name: crate::syntax::Identifier,
+        arguments: &[Expression],
+    ) -> Option<crate::syntax::Identifier> {
+        if self.class_env.classes.is_empty() {
+            return None;
+        }
+        let (class_name, _) = self.class_env.method_to_class(name)?;
+
+        // Try compile-time resolution: if the first argument's type is concrete,
+        // resolve directly to the mangled instance function.
+        if let Some(first_arg) = arguments.first()
+            && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
+        {
+            use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
+            let type_name = match first_arg_type {
+                InferType::Con(tc) | InferType::App(tc, _) => match tc {
+                    TypeConstructor::Int => Some("Int"),
+                    TypeConstructor::Float => Some("Float"),
+                    TypeConstructor::Bool => Some("Bool"),
+                    TypeConstructor::String => Some("String"),
+                    TypeConstructor::Unit => Some("Unit"),
+                    TypeConstructor::List => Some("List"),
+                    TypeConstructor::Array => Some("Array"),
+                    TypeConstructor::Option => Some("Option"),
+                    TypeConstructor::Adt(sym) => Some(self.interner.resolve(*sym)),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(tn) = type_name
+                && self.class_env.resolve_instance_for_type(class_name, tn, &self.interner).is_some()
+            {
+                let class_str = self.interner.resolve(class_name);
+                let method_str = self.interner.resolve(name);
+                let mangled = format!("__tc_{class_str}_{tn}_{method_str}");
+                if let Some(sym) = self.interner.lookup(&mangled) {
+                    return Some(sym);
+                }
+            }
+        }
+
+        // Fallback: polymorphic call — use runtime dispatch function.
+        let method_str = self.interner.resolve(name);
+        let rt_name = format!("__rt_{method_str}");
+        self.interner.lookup(&rt_name)
     }
 }

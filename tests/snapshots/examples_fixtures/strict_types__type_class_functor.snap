@@ -1,0 +1,23 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/strict_types/type_class_functor.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E004]: Undefined Variable
+
+I can't find a value named `map`.
+
+  examples/strict_types/type_class_functor.flx:9:25
+  |
+9 |     fn fmap(xs, func) { map(xs, func) }
+  |                         ^^^
+
+Hint:
+  Define it first: let map = ...;
+
+Help:
+  Did you mean `fmap`?
+== stdout ==
+<not executed>

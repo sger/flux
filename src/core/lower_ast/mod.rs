@@ -277,27 +277,30 @@ impl<'a> AstLowerer<'a> {
         // Check if this name is a class method.
         let (class_name, _class_def) = class_env.method_to_class(name)?;
 
-        // Get the first argument's type from HM inference.
-        let first_arg = arguments.first()?;
-        let first_arg_type = self.hm_expr_types.get(&first_arg.expr_id())?;
+        // Try compile-time resolution: if the first argument's type is concrete,
+        // resolve directly to the mangled instance function.
+        if let Some(first_arg) = arguments.first()
+            && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
+            && let Some(type_name) = Self::infer_type_to_type_name(first_arg_type, interner)
+            && class_env.resolve_instance_for_type(class_name, &type_name, interner).is_some()
+        {
+            let class_str = interner.resolve(class_name);
+            let method_str = interner.resolve(name);
+            let mangled = format!("__tc_{class_str}_{type_name}_{method_str}");
+            if let Some(sym) = interner.lookup(&mangled) {
+                return Some(sym);
+            }
+        }
 
-        // Convert to a concrete type name string.
-        let type_name = Self::infer_type_to_type_name(first_arg_type, interner)?;
-
-        // Verify an instance exists.
-        let _instance = class_env.resolve_instance_for_type(class_name, &type_name, interner)?;
-
-        // Construct the mangled name: __tc_{ClassName}_{TypeName}_{methodName}
-        // The mangled function was already interned by class_dispatch.rs.
-        let class_str = interner.resolve(class_name);
+        // Fallback: polymorphic call — use runtime dispatch function.
         let method_str = interner.resolve(name);
-        let mangled = format!("__tc_{class_str}_{type_name}_{method_str}");
-        interner.lookup(&mangled)
+        let rt_name = format!("__rt_{method_str}");
+        interner.lookup(&rt_name)
     }
 
     /// Convert an `InferType` to a simple type name string (e.g. "Int", "String").
     /// Returns `None` for type variables, function types, or complex types.
-    fn infer_type_to_type_name(
+    pub fn infer_type_to_type_name(
         ty: &InferType,
         interner: &crate::syntax::interner::Interner,
     ) -> Option<String> {
