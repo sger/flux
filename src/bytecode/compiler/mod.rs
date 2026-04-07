@@ -1322,12 +1322,19 @@ impl Compiler {
             }
         }
 
+        let class_env = if self.class_env.classes.is_empty() {
+            None
+        } else {
+            Some(self.class_env.clone())
+        };
+
         InferProgramConfig {
             file_path: Some(self.file_path.as_str().into()),
             preloaded_base_schemes: exposed_schemes,
             preloaded_module_member_schemes: preloaded_member_schemes,
             known_flow_names: HashSet::new(),
             flow_module_symbol,
+            class_env,
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
         }
     }

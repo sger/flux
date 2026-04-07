@@ -14,8 +14,22 @@ impl<'a> InferCtx<'a> {
         match op {
             "+" => self.infer_add_operator(&left_ty, &right_ty, span),
             "-" | "*" | "/" | "%" => self.infer_arithmetic_operator(&left_ty, &right_ty, span),
-            "==" | "!=" | "<" | "<=" | ">" | ">=" => {
+            "==" | "!=" => {
                 self.unify_reporting(&left_ty, &right_ty, span);
+                // Emit Eq constraint if the Eq class is declared.
+                if let Some(eq_sym) = self.class_sym_eq {
+                    let resolved = left_ty.apply_type_subst(&self.subst);
+                    self.emit_class_constraint(eq_sym, resolved, span);
+                }
+                InferType::Con(TypeConstructor::Bool)
+            }
+            "<" | "<=" | ">" | ">=" => {
+                self.unify_reporting(&left_ty, &right_ty, span);
+                // Emit Ord constraint if the Ord class is declared.
+                if let Some(ord_sym) = self.class_sym_ord {
+                    let resolved = left_ty.apply_type_subst(&self.subst);
+                    self.emit_class_constraint(ord_sym, resolved, span);
+                }
                 InferType::Con(TypeConstructor::Bool)
             }
             "&&" | "||" => {
@@ -26,7 +40,12 @@ impl<'a> InferCtx<'a> {
             }
             "++" => {
                 self.unify_reporting(&left_ty, &right_ty, span);
-                left_ty.apply_type_subst(&self.subst)
+                let resolved = left_ty.apply_type_subst(&self.subst);
+                // Emit Semigroup constraint if declared.
+                if let Some(sg_sym) = self.class_sym_semigroup {
+                    self.emit_class_constraint(sg_sym, resolved.clone(), span);
+                }
+                resolved
             }
             "|>" => right_ty,
             _ => InferType::Con(TypeConstructor::Any),
@@ -42,6 +61,10 @@ impl<'a> InferCtx<'a> {
     ) -> InferType {
         let resolved = self.unify_reporting(left_ty, right_ty, span);
         let substituted = resolved.apply_type_subst(&self.subst);
+        // Emit Num constraint for numeric + usage.
+        if let Some(num_sym) = self.class_sym_num {
+            self.emit_class_constraint(num_sym, substituted.clone(), span);
+        }
         match substituted {
             InferType::Con(TypeConstructor::Int)
             | InferType::Con(TypeConstructor::Float)
@@ -66,6 +89,10 @@ impl<'a> InferCtx<'a> {
     ) -> InferType {
         let resolved = self.unify_reporting(left_ty, right_ty, span);
         let substituted = resolved.apply_type_subst(&self.subst);
+        // Emit Num constraint for arithmetic usage.
+        if let Some(num_sym) = self.class_sym_num {
+            self.emit_class_constraint(num_sym, substituted.clone(), span);
+        }
         match substituted {
             InferType::Con(TypeConstructor::Int) | InferType::Con(TypeConstructor::Float) => {
                 substituted

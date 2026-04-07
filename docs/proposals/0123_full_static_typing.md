@@ -10,6 +10,67 @@ Transition Flux from a gradually-typed language (where unannotated code infers a
 
 The transition is incremental — each phase adds type system features while maintaining backward compatibility through a `--strict-types` flag that becomes the default in a future release.
 
+---
+
+## Implementation status
+
+Last updated: 2026-04-07
+
+### Completed
+
+| Phase | Feature | Status | Notes |
+|-------|---------|--------|-------|
+| **1** | Eliminate `Any` fallback (`--strict-types`) | **Done** | New flag, post-inference validation pass (`strict_types.rs`), error code E430. Rejects any binding whose inferred type `contains_any()`. Disabled for Flow library. |
+| **2** | Public API annotations (`--strict`) | **Already existed** | E416 (params), E417 (return type), E418 (effects), E423 (Any in annotations). |
+| **—** | Typed primop returns | **Done** | `print`/`println` return `Unit` (was `Any`). All primop params polymorphic with type variables (was `Any`). Operators preserve type vars instead of collapsing to `Any`. |
+| **3** | Type classes (syntax + AST) | **Done (MVP)** | See Proposal 0145. Parser, ClassEnv, runtime dispatch for single-instance. Constraint solver + dictionaries remain. |
+
+### Remaining
+
+| Phase | Feature | Status | Blocker |
+|-------|---------|--------|---------|
+| **3** | Type classes (full) | In progress | Proposal 0145 Steps 3–6: constraint generation, solving, dictionary passing, built-in classes |
+| **4** | Constraint solver + dictionaries | Not started | Proposal 0145 Steps 3–5 |
+| **5** | Higher-kinded types | Not started | Phase 4 complete; requires kind system |
+| **6** | Deriving (`Eq`, `Ord`, `Show`) | Not started | Phase 3–4 complete |
+| **7** | Typed Core IR (Proposal 0119) | Not started | Phase 1–2 complete (done) |
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `src/ast/type_infer/strict_types.rs` | Phase 1: `--strict-types` validation pass |
+| `src/types/class_env.rs` | Phase 3: ClassEnv — class/instance registry + validation |
+| `src/types/class_dispatch.rs` | Phase 3: MVP runtime dispatch — instance method compilation |
+| `src/syntax/type_class.rs` | Phase 3: AST types for `ClassConstraint`, `ClassMethod`, `InstanceMethod` |
+| `src/diagnostics/compiler_errors.rs` | E430 (strict-types), E440–E443 (type class validation) |
+| `docs/proposals/0145_type_classes.md` | Detailed type class proposal with step-by-step tracking |
+
+### What `--strict-types` catches today
+
+```flux
+fn add(x, y) { x + y }       // ✓ passes — infers as a -> a -> a (polymorphic, no Any)
+fn identity(x) { x }         // ✓ passes — infers as a -> a (polymorphic)
+fn bad() { x + "hello" }     // ✗ E300 type mismatch (caught by normal inference)
+
+fn main() with IO {
+    print(add(1, 2))          // ✓ passes — print returns Unit, add returns Int
+}
+```
+
+### What `--strict-types` cannot catch yet
+
+```flux
+fn add(x, y) { x + y }       // infers a -> a -> a — but + should require Num<a>
+                               // Without type classes, any type is accepted for +
+                               // Needs: Phase 3-4 (constraint solver)
+
+fn show_it(x) { show(x) }    // Would need Show<a> constraint
+                               // Needs: Phase 3-4 (dictionary passing for polymorphic dispatch)
+```
+
+---
+
 ## Motivation
 
 ### The problem with gradual typing
@@ -342,7 +403,7 @@ The solver follows GHC's **OutsideIn(X)** approach, simplified:
 //   Solve Num Int -> found instance -> emit NumIntDict
 ```
 
-**GHC comparison**: GHC's solver (`GHC.Tc.Solver`) is ~850K lines across 10 files. The core loop in `simplify_loop` iterates until a fixed point. GHC tracks "Given" constraints (from context) and "Wanted" constraints (to solve). For Flux, a single-pass solver is sufficient initially — iterate only if superclass expansion adds new constraints.
+**GHC comparison**: GHC's solver (`GHC.Tc.Solver`) is ~16K lines across 10 files. The core loop in `simplify_loop` iterates until a fixed point. GHC tracks "Given" constraints (from context) and "Wanted" constraints (to solve). For Flux, a single-pass solver is sufficient initially — iterate only if superclass expansion adds new constraints.
 
 **GHC comparison on evidence**: GHC compiles type classes to explicit dictionaries in Core:
 ```haskell
@@ -652,15 +713,16 @@ The transition is opt-in per compilation unit:
 
 ### Timeline
 
-| Phase | Feature | Depends on | GHC Reference |
-|-------|---------|------------|---------------|
-| 1 | Eliminate Any fallback | 0120 Phase 4 (done) | `GHC.Tc.Gen.Bind` generalization |
-| 2 | Public API annotations | Phase 1 | `-Wmissing-signatures` |
-| 3 | Type classes (syntax + AST) | Phase 1 | `GHC.Core.Class`, `GHC.Tc.TyCl` |
-| 4 | Constraint solver + dictionaries | Phase 3 | `GHC.Tc.Solver` (simplified) |
-| 5 | Higher-kinded types | Phase 4 | `GHC.Tc.Gen.HsType` kind checking |
-| 6 | Deriving | Phase 3-4 | `GHC.Tc.Deriv.Generate` |
-| 7 | Typed Core IR (0119) | Phase 1-2 | `GHC.Core` typed expressions |
+| Phase | Feature | Depends on | GHC Reference | Status |
+|-------|---------|------------|---------------|--------|
+| 1 | Eliminate Any fallback | 0120 Phase 4 (done) | `GHC.Tc.Gen.Bind` generalization | **Done** |
+| 2 | Public API annotations | Phase 1 | `-Wmissing-signatures` | **Done** (pre-existing) |
+| — | Typed primop returns | Phase 1 | — | **Done** |
+| 3 | Type classes (syntax + AST) | Phase 1 | `GHC.Core.Class`, `GHC.Tc.TyCl` | **MVP done** (Proposal 0145) |
+| 4 | Constraint solver + dictionaries | Phase 3 + **Proposal 0145 Steps 3–5** | `GHC.Tc.Solver` (simplified) | Not started |
+| 5 | Higher-kinded types | Phase 4 | `GHC.Tc.Gen.HsType` kind checking | Not started |
+| 6 | Deriving | Phase 3-4 | `GHC.Tc.Deriv.Generate` | Not started |
+| 7 | Typed Core IR (0119) | Phase 1-2 | `GHC.Core` typed expressions | Not started |
 
 Phases 1-2 give immediate value (catch type errors). Phases 3-4 are the big investment (type classes + solver). Phase 5-6 unlock expressiveness. Phase 7 unlocks performance.
 
@@ -672,7 +734,7 @@ Phases 1-2 give immediate value (catch type errors). Phases 3-4 are the big inve
 
 - **Annotation burden**: Users must write type annotations on public APIs. Mitigated by HM inference handling local/private code.
 
-- **Type class complexity**: Type classes add significant compiler complexity. GHC's constraint solver (`GHC.Tc.Solver`) is ~850K lines across 10 files. However, Flux's simplified version (no type families, no GADTs, no overlapping instances) should be ~2-3K lines — closer to PureScript's implementation.
+- **Type class complexity**: Type classes add significant compiler complexity. GHC's constraint solver (`GHC.Tc.Solver`) is ~16K lines across 10 files. However, Flux's simplified version (no type families, no GADTs, no overlapping instances) should be ~2-3K lines — closer to PureScript's implementation.
 
 - **Higher-kinded types**: HKTs make the type system significantly more complex. Can be deferred — basic type classes work without HKTs (just no `Functor`/`Foldable`).
 

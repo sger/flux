@@ -115,6 +115,7 @@ fn infer_program_from_source(
             known_flow_names: HashSet::new(),
             flow_module_symbol: base_symbol,
             preloaded_effect_op_signatures: effect_op_sigs,
+            class_env: None,
         },
     );
     (result, program)
@@ -1782,6 +1783,7 @@ fn main() -> Unit {
             known_flow_names,
             flow_module_symbol: base,
             preloaded_effect_op_signatures: HashMap::new(),
+            class_env: None,
         },
     );
     assert!(

@@ -163,6 +163,16 @@ struct InferCtx<'a> {
     /// Deferred constraints awaiting batch solving. Empty under the current
     /// eager model; used by [`Self::solve_deferred_constraints`].
     deferred_constraints: Vec<constraint::Constraint>,
+    /// Type class environment for constraint generation (Proposal 0145).
+    class_env: Option<crate::types::class_env::ClassEnv>,
+    /// Accumulated type class constraints (e.g., `Num<a>` from `x + y`).
+    class_constraints: Vec<constraint::WantedClassConstraint>,
+    /// Pre-resolved class name symbols for constraint emission in operators.
+    /// `None` if the class is not declared in the current program.
+    class_sym_eq: Option<Identifier>,
+    class_sym_ord: Option<Identifier>,
+    class_sym_num: Option<Identifier>,
+    class_sym_semigroup: Option<Identifier>,
 }
 
 impl<'a> InferCtx<'a> {
@@ -228,6 +238,12 @@ impl<'a> InferCtx<'a> {
             seen_error_keys: HashSet::new(),
             contraint_log: Vec::new(),
             deferred_constraints: Vec::new(),
+            class_env: None,
+            class_constraints: Vec::new(),
+            class_sym_eq: None,
+            class_sym_ord: None,
+            class_sym_num: None,
+            class_sym_semigroup: None,
         }
     }
 
@@ -239,6 +255,39 @@ impl<'a> InferCtx<'a> {
     /// Record a constraint in the log for observability and future deferred solving.
     fn record_constraint(&mut self, constraint: constraint::Constraint) {
         self.contraint_log.push(constraint);
+    }
+
+    /// Emit a type class constraint (e.g., `Num<a>` from `x + y`).
+    ///
+    /// The constraint is recorded for downstream phases (Step 4: solving).
+    /// Currently informational — does not affect type inference behavior.
+    fn emit_class_constraint(
+        &mut self,
+        class_name: Identifier,
+        type_arg: InferType,
+        span: Span,
+    ) {
+        self.class_constraints.push(constraint::WantedClassConstraint {
+            class_name,
+            type_arg: type_arg.clone(),
+            span,
+        });
+        self.record_constraint(constraint::Constraint::Class {
+            class_name,
+            type_arg,
+            span,
+        });
+    }
+
+    /// Check if a name is a known class method. Returns the class name if so.
+    fn lookup_class_method(&self, name: Identifier) -> Option<Identifier> {
+        let class_env = self.class_env.as_ref()?;
+        for (class_name, class_def) in &class_env.classes {
+            if class_def.methods.iter().any(|m| m.name == name) {
+                return Some(*class_name);
+            }
+        }
+        None
     }
 }
 
@@ -268,6 +317,8 @@ pub struct InferProgramConfig {
     pub known_flow_names: HashSet<Identifier>,
     pub flow_module_symbol: Identifier,
     pub preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
+    /// Type class environment for constraint generation.
+    pub class_env: Option<crate::types::class_env::ClassEnv>,
 }
 
 /// Run Algorithm W (Hindley-Milner) over the entire program.
@@ -310,13 +361,15 @@ pub fn infer_program(
         config.flow_module_symbol,
         config.preloaded_effect_op_signatures,
     );
+    init_class_env(&mut ctx, config.class_env, interner);
     ctx.infer_program(program);
-    // Solve any deferred constraints (no-op under current eager model).
     ctx.solve_deferred_constraints();
+    build_infer_result(ctx)
+}
+
+/// Apply final substitution to all inferred types and build the result.
+fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
     let constraint_count = ctx.contraint_log.len();
-    // Apply the final substitution to module member schemes so type
-    // variables are resolved to their concrete types before being cached
-    // for downstream modules.
     let resolved_schemes: HashMap<(Identifier, Identifier), Scheme> = ctx
         .module_member_schemes
         .into_iter()
@@ -325,32 +378,50 @@ pub fn infer_program(
             let mut forall = resolved_type.free_vars().into_iter().collect::<Vec<_>>();
             forall.sort_unstable();
             forall.dedup();
-            (
-                key,
-                Scheme {
-                    forall,
-                    infer_type: resolved_type,
-                },
-            )
+            (key, Scheme { forall, infer_type: resolved_type })
         })
         .collect();
-
-    // Apply the final substitution to expression types so type variables
-    // are resolved to their concrete types.  Without this, recursive call
-    // sites keep stale type variables (e.g. Var(5) instead of Int) which
-    // prevents typed primop specialization (IAdd vs Add) downstream.
     let resolved_expr_types: HashMap<ExprId, InferType> = ctx
         .expr_types
         .into_iter()
         .map(|(id, ty)| (id, ty.apply_type_subst(&ctx.subst)))
         .collect();
-
+    let resolved_class_constraints: Vec<constraint::WantedClassConstraint> = ctx
+        .class_constraints
+        .into_iter()
+        .map(|mut c| {
+            c.type_arg = c.type_arg.apply_type_subst(&ctx.subst);
+            c
+        })
+        .collect();
     InferProgramResult {
         type_env: ctx.env,
         diagnostics: ctx.errors,
         expr_types: resolved_expr_types,
         module_member_schemes: resolved_schemes,
         constraint_count,
+        class_constraints: resolved_class_constraints,
+    }
+}
+
+/// Initialize the class environment and pre-resolve well-known class name
+/// symbols for constraint emission in operators.
+fn init_class_env(
+    ctx: &mut InferCtx<'_>,
+    class_env: Option<crate::types::class_env::ClassEnv>,
+    interner: &Interner,
+) {
+    ctx.class_env = class_env;
+    if let Some(ref env) = ctx.class_env {
+        for class_name in env.classes.keys() {
+            match interner.resolve(*class_name) {
+                "Eq" => ctx.class_sym_eq = Some(*class_name),
+                "Ord" => ctx.class_sym_ord = Some(*class_name),
+                "Num" => ctx.class_sym_num = Some(*class_name),
+                "Semigroup" => ctx.class_sym_semigroup = Some(*class_name),
+                _ => {}
+            }
+        }
     }
 }
 
@@ -370,6 +441,12 @@ pub struct InferProgramResult {
     pub module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     /// Total number of type/effect constraints generated during inference.
     pub constraint_count: usize,
+    /// Type class constraints collected during inference (Proposal 0145, Step 3).
+    ///
+    /// Each entry records a `ClassName<Type>` constraint arising from operator
+    /// usage or class method calls. Currently informational — Step 4 (solving)
+    /// will resolve these against known instances.
+    pub class_constraints: Vec<constraint::WantedClassConstraint>,
 }
 
 /// Stable identifier for one expression node within a single inference run.
