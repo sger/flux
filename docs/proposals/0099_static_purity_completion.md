@@ -1,9 +1,22 @@
 - Feature Name: Static Purity Completion
 - Start Date: 2026-03-11
-- Status: Draft
+- Status: **Partially implemented / Partially superseded**
+- Last Updated: 2026-04-07
 - Proposal PR:
 - Flux Issue:
-- Depends on: 0053 (traits and typeclasses), 0086 (backend-neutral core IR), 0098 (Cranelift JIT improvements / Flux IR)
+- Depends on: ~~0053 (traits and typeclasses)~~ → superseded by 0145, 0086 (backend-neutral core IR) ✅, 0098 (Cranelift JIT improvements / Flux IR) ✅
+
+> **Status update (2026-04-07):**
+>
+> | Part | Status | Details |
+> |------|--------|---------|
+> | **Part 1: IO as algebraic effect** | **Still valid** | Not started. No blockers — can begin independently. |
+> | **Part 2: `Any` elimination** | **Largely superseded** | Proposal 0123 Phase 1 (`--strict-types`) + polymorphic primops eliminate `Any` from inferred types. Proposal 0145 (type classes) replaces 0053 as the mechanism for constrained polymorphism. The `E0201` error code proposed here is covered by E430 (`ANY_TYPE_INFERRED`). |
+> | **Part 3: Monomorphization** | **Still valid, unblocked** | Dependencies 0086 and 0098 are both implemented. Core IR (0119) typed codegen is also implemented. Can begin once Part 2 is complete (mostly done). |
+>
+> **Dependency 0053** (traits/typeclasses) has been superseded by **Proposal 0145** (Type Classes),
+> which implements Haskell-style `class`/`instance` with parser, ClassEnv validation, and
+> runtime dispatch (MVP). See [0145](0145_type_classes.md) for tracking.
 
 # Proposal 0099: Static Purity Completion
 

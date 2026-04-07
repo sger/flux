@@ -59,8 +59,15 @@ impl<'a> InferCtx<'a> {
             _ => (None, None),
         };
 
+        // Check if callee is a class method (for post-inference constraint emission).
+        let class_method_info = if let Expression::Identifier { name, .. } = input.function {
+            self.lookup_class_method(*name).map(|c| (c, input.span))
+        } else {
+            None
+        };
+
         if let InferType::Fun(param_tys, ret_ty, fn_effects) = fn_ty_resolved {
-            return self.infer_call_typed_callee(CallTypedCalleeSpec {
+            let result = self.infer_call_typed_callee(CallTypedCalleeSpec {
                 fn_ty: &fn_ty,
                 param_tys: &param_tys,
                 ret_ty: &ret_ty,
@@ -70,6 +77,15 @@ impl<'a> InferCtx<'a> {
                 fn_def_span,
                 ambient_effect_row,
             });
+            // Emit class constraint after inference resolves argument types.
+            if let Some((class_name, span)) = class_method_info {
+                let constrained_ty = param_tys
+                    .first()
+                    .map(|t| t.apply_type_subst(&self.subst))
+                    .unwrap_or(result.apply_type_subst(&self.subst));
+                self.emit_class_constraint(class_name, constrained_ty, span);
+            }
+            return result;
         }
 
         self.infer_call_unresolved_callee(&fn_ty, input, fn_name, fn_def_span, ambient_effect_row)

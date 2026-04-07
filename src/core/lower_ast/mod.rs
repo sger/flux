@@ -922,6 +922,7 @@ mod tests {
                 known_flow_names: std::collections::HashSet::new(),
                 flow_module_symbol: flow_sym,
                 preloaded_effect_op_signatures: HashMap::new(),
+                class_env: None,
             },
         );
         let types = hm.expr_types;

@@ -69,7 +69,62 @@ pub fn generate_dispatch_functions(
         }
     }
 
+    // Generate functions for default methods that have no instance override.
+    // These are methods with a body in the class declaration (e.g., `neq`).
+    generate_default_method_functions(statements, class_env, &dispatch_table, &mut generated);
+
     generated
+}
+
+/// Generate functions for default class methods that have no explicit
+/// instance implementation. E.g., `neq` with default body `{ !eq(x, y) }`.
+fn generate_default_method_functions(
+    statements: &[Statement],
+    class_env: &ClassEnv,
+    dispatch_table: &HashMap<(Identifier, Identifier), Vec<InstanceMethodInfo>>,
+    generated: &mut Vec<Statement>,
+) {
+    for stmt in statements {
+        match stmt {
+            Statement::Class {
+                name,
+                methods,
+                span,
+                ..
+            } => {
+                for method in methods {
+                    // Only generate for methods with a default body that have NO instance overrides.
+                    if let Some(ref default_body) = method.default_body {
+                        let has_instances = dispatch_table.contains_key(&(*name, method.name));
+                        if !has_instances {
+                            // Generate a regular function from the default body.
+                            generated.push(Statement::Function {
+                                is_public: false,
+                                fip: None,
+                                name: method.name,
+                                type_params: vec![],
+                                parameters: method.params.clone(),
+                                parameter_types: vec![None; method.params.len()],
+                                return_type: None,
+                                effects: vec![],
+                                body: default_body.clone(),
+                                span: *span,
+                            });
+                        }
+                    }
+                }
+            }
+            Statement::Module { body, .. } => {
+                generate_default_method_functions(
+                    &body.statements,
+                    class_env,
+                    dispatch_table,
+                    generated,
+                );
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Recursively walk statements, generating mangled functions for instance methods.

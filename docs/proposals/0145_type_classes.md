@@ -10,6 +10,54 @@ Add Haskell-style type classes to Flux. Type classes enable constrained polymorp
 
 This proposal covers syntax, parsing, type inference integration, constraint solving, and dictionary-passing elaboration in Core IR. It is scoped to single-parameter type classes without higher-kinded types.
 
+---
+
+## Implementation status
+
+Last updated: 2026-04-07
+
+### Completed
+
+| Step | Feature | Files | Notes |
+|------|---------|-------|-------|
+| **1. Parser** | `class` and `instance` keywords, AST types, full pipeline (Core IR, CFG, LIR) | `token_type.rs`, `type_class.rs`, `statement.rs`, `parser/statement.rs`, `core/mod.rs`, `cfg/mod.rs` + 15 match exhaustiveness fixes | Superclass `=>` syntax not yet parsed (no `=>` token) |
+| **2. ClassEnv** | Collect and validate declarations, error codes E440–E443 | `types/class_env.rs`, `compiler_errors.rs`, `registry.rs`, `compiler/mod.rs`, `passes/collection.rs` | Validates: duplicate class, unknown class in instance, missing methods (respects defaults), duplicate instances |
+| **3–5. Dispatch (MVP)** | Instance methods compiled as mangled functions + runtime `type_of()` dispatch | `types/class_dispatch.rs`, `compiler/pipeline.rs` | Works for single-instance per method. Multi-instance in same scope hits HM inference conflict |
+
+### Remaining
+
+| Step | Feature | Blocker | Difficulty |
+|------|---------|---------|------------|
+| **3. Constraint generation** | Emit `ClassConstraintWanted` during HM inference when class methods are called | None — can start now | Medium |
+| **4. Constraint solving** | Resolve constraints at generalization: concrete types → instance lookup, type variables → add to scheme | Step 3 | Medium-Hard |
+| **5. Dictionary elaboration** | Replace runtime dispatch with dictionary-passing in Core IR; constrained functions get extra dictionary params | Step 4 | Hard |
+| **6. Built-in classes** | Register compiler-provided `Eq`, `Ord`, `Num`, `Show`, `Semigroup`, `Monoid` with instances for `Int`, `Float`, `String`, `Bool` | Step 5 (or can do partially with MVP dispatch) | Medium |
+| **7. Stdlib migration** | Split `Flow.List`/`Flow.Array` into typed modules; eventually `Functor`/`Foldable` | Step 6 + HKTs | Large |
+
+### Known limitations of current MVP
+
+1. **No constraint system** — Steps 3–5 were bypassed with runtime `type_of()` dispatch. This works end-to-end for single-instance cases but is not type-safe at compile time.
+
+2. **Multi-instance conflict** — When `Eq<Int>` and `Eq<String>` both exist, calling `eq(1, 1)` then `eq("a", "b")` in the same scope fails because HM inference locks the dispatch function's parameter type from the first call. Fix: dictionary passing (Step 5) or `Any`-typed dispatch params.
+
+3. **No superclass parsing** — `class Eq<a> => Ord<a>` syntax is not parsed. The lexer has no `=>` token. Needs either a new token or two-token lookahead (`=` + `>`).
+
+4. **No operator desugaring** — `==` still goes through `CmpEq` primop, not `Eq.eq`. Operators and class methods are independent systems.
+
+5. **No polymorphic dispatch** — `fn contains<a: Eq>(xs, elem)` can't work because there's no dictionary passing for type-variable cases. Only concrete types are dispatched.
+
+6. **No built-in instances** — Users must write their own `instance Eq<Int> { ... }`. The compiler doesn't pre-register any class/instance definitions.
+
+### Architecture decisions
+
+- **Runtime dispatch (MVP) vs dictionary passing (target)**: The MVP uses `type_of()` runtime checks to route class method calls to the correct instance. This was chosen for speed of implementation — it compiles through the existing pipeline without backend changes. The target architecture is GHC-style dictionary passing, where each constrained function gets an explicit dictionary argument containing method closures. This eliminates runtime type checks and enables polymorphic dispatch.
+
+- **AST preprocessing vs Core pass**: Instance methods are injected as regular functions during AST preprocessing (Phase 1b in the pipeline), before type inference. This ensures they go through the full compilation pipeline without special-casing any backend. A future Core-to-Core pass for dictionary elaboration would replace this.
+
+- **Mangled names**: Instance methods use `__tc_ClassName_TypeName_methodName` naming (e.g., `__tc_Eq_Int_eq`). These are internal — users call the class method name (`eq`) which routes through the generated dispatch function.
+
+---
+
 ## Motivation
 
 After Proposal 0123 Phase 1 (`--strict-types`) and the typed primop foundation, Flux can reject programs with `Any` types. But many real programs still rely on polymorphic operations:
@@ -527,51 +575,65 @@ instance Monoid<String>      { fn empty() { "" } }
 
 ## Implementation plan
 
-### Step 1: Lexer + Parser (syntax only)
+### Step 1: Lexer + Parser (syntax only) — DONE
 
-- Add `class` and `instance` keywords to lexer
-- Add `ClassConstraint`, `ClassMethod`, `InstanceMethod` AST types
-- Add `Class` and `Instance` variants to `Statement`
-- Parse class and instance declarations
-- **No semantic changes** — just parse and store in AST
-- Test: parse examples, verify AST structure
+- [x] Add `class` and `instance` keywords to lexer
+- [x] Add `ClassConstraint`, `ClassMethod`, `InstanceMethod` AST types
+- [x] Add `Class` and `Instance` variants to `Statement`
+- [x] Parse class and instance declarations
+- [x] Add `CoreTopLevelItem::Class/Instance` and `IrTopLevelItem::Class/Instance`
+- [x] Handle match exhaustiveness across 15+ files
+- [ ] Parse superclass syntax (`Eq<a> => Ord<a>`) — needs `=>` token
 
-### Step 2: Class environment
+### Step 2: Class environment — DONE
 
-- Build `ClassEnv` from parsed `Class` and `Instance` statements
-- Validate: no duplicate classes, no duplicate instances for same type
-- Validate: superclass references exist
-- Validate: instance methods match class method signatures
-- **No inference changes yet**
+- [x] Build `ClassEnv` from parsed `Class` and `Instance` statements
+- [x] Validate: no duplicate classes (E440)
+- [x] Validate: no duplicate instances for same type (E443)
+- [x] Validate: instance for unknown class rejected (E441)
+- [x] Validate: instance methods match class (missing required methods: E442)
+- [x] Default methods respected (skipped if class provides default body)
+- [ ] Validate: superclass references exist
+- [ ] Validate: method arity matches class signature
 
-### Step 3: Constraint generation
+### Step 3–5 MVP: Runtime dispatch — DONE
 
-- During HM inference, when a class method name is called, emit a `ClassConstraintWanted`
-- Operator desugaring: `+` emits `Num<a>`, `==` emits `Eq<a>`, etc.
-- Constraints are accumulated, not solved yet
-- **Functions still compile** — constraints are recorded but not enforced
+- [x] Generate mangled instance functions (`__tc_Eq_Int_eq`)
+- [x] Generate `type_of()`-based dispatch functions for class method names
+- [x] Inject generated functions into AST before predeclaration (Phase 1b)
+- [x] End-to-end: `class Eq<a> { fn eq ... }` + `instance Eq<Int> { ... }` → `eq(1, 2)` works
+- [ ] Multi-instance dispatch in same scope (HM conflict)
 
-### Step 4: Constraint solving
+### Step 3: Constraint generation — TODO
 
-- At generalization time, solve accumulated constraints
-- Concrete type → look up instance → satisfied or error
-- Type variable → constraint becomes part of the scheme: `forall a. Num<a> => a -> a -> a`
-- Defaulting: unconstrained `Num` variables default to `Int`
-- Error messages: "No instance for Num<String> arising from a use of `+`"
+- [ ] Add `ClassConstraintWanted` data structure to `InferCtx`
+- [ ] When a class method name is called, emit a constraint
+- [ ] Operator desugaring: `+` emits `Num<a>`, `==` emits `Eq<a>`, etc.
+- [ ] Constraints accumulated, not solved yet
 
-### Step 5: Dictionary elaboration
+### Step 4: Constraint solving — TODO
 
-- In Core IR lowering, translate class constraints to explicit dictionary arguments
-- Each constrained function gets extra dictionary parameters
-- At call sites, insert the appropriate dictionary value
-- Both VM and LLVM backends receive the dictionaries as regular arguments
+- [ ] At generalization time, solve accumulated constraints
+- [ ] Concrete type → look up instance → satisfied or error
+- [ ] Type variable → constraint becomes part of the scheme: `forall a. Num<a> => a -> a -> a`
+- [ ] Defaulting: unconstrained `Num` variables default to `Int`
+- [ ] Error messages: "No instance for Num<String> arising from a use of `+`"
 
-### Step 6: Built-in classes
+### Step 5: Dictionary elaboration — TODO
 
-- Register `Eq`, `Ord`, `Num`, `Show`, `Semigroup`, `Monoid` in the class environment
-- Register built-in instances for `Int`, `Float`, `String`, `Bool`
-- Wire operator desugaring to class methods
-- Remove `Any`-typed primop overloads — replaced by class dispatch
+- [ ] Define dictionary ADT for each class (record of closures)
+- [ ] In Core IR, translate class constraints to explicit dictionary arguments
+- [ ] Each constrained function gets extra dictionary parameters
+- [ ] At call sites, insert the appropriate dictionary value
+- [ ] Both VM and LLVM backends receive dictionaries as regular arguments
+- [ ] Remove runtime `type_of()` dispatch — replaced by compile-time dictionaries
+
+### Step 6: Built-in classes — TODO
+
+- [ ] Register `Eq`, `Ord`, `Num`, `Show`, `Semigroup`, `Monoid` in the class environment
+- [ ] Register built-in instances for `Int`, `Float`, `String`, `Bool`
+- [ ] Wire operator desugaring to class methods
+- [ ] Remove `Any`-typed primop overloads — replaced by class dispatch
 
 ### Step 7: Flow stdlib migration
 
