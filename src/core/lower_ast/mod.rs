@@ -382,6 +382,7 @@ impl<'a> AstLowerer<'a> {
                 type_params,
                 variants,
                 span,
+                deriving: _,
             } => Some(CoreTopLevelItem::Data {
                 name: *name,
                 type_params: type_params.clone(),

@@ -145,5 +145,6 @@ define_tokens! {
         Perform => "perform",
         Class => "class",
         Instance => "instance",
+        Deriving => "deriving",
     }
 }

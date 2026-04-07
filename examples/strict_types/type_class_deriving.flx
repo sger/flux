@@ -1,0 +1,20 @@
+// Deriving type class instances for ADTs.
+// `deriving (Eq)` auto-registers an Eq instance so the constraint
+// solver accepts == on the ADT under --strict-types.
+
+data Color { Red, Green, Blue } deriving (Eq)
+
+data Direction {
+    North,
+    South,
+    East,
+    West
+} deriving (Eq)
+
+fn main() with IO {
+    print(Red == Red)
+    print(Red == Blue)
+    print(Green == Green)
+    print(North == South)
+    print(East == East)
+}

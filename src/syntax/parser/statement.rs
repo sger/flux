@@ -1119,12 +1119,52 @@ impl Parser {
             self.next_token(); // advance to next variant or '}'
         }
 
+        // Optional `deriving (Eq, Show, ...)`
+        let deriving = if self.is_peek_token(TokenType::Deriving) {
+            self.next_token(); // consume `deriving`
+            self.parse_deriving_list()
+        } else {
+            vec![]
+        };
+
         Some(Statement::Data {
             name,
             type_params,
             variants,
+            deriving,
             span: self.span_from(start),
         })
+    }
+
+    /// Parse `(Eq, Show, Ord)` after `deriving` keyword.
+    fn parse_deriving_list(&mut self) -> Vec<crate::syntax::Identifier> {
+        let mut classes = Vec::new();
+        if !self.expect_peek_context(
+            TokenType::LParen,
+            "Expected `(` after `deriving`.".to_string(),
+            "Use `deriving (Eq, Show)` to auto-derive instances.".to_string(),
+        ) {
+            return classes;
+        }
+        loop {
+            self.next_token(); // move to class name or `)`
+            if self.is_current_token(TokenType::RParen) {
+                break;
+            }
+            if let Some(sym) = self.current_token.symbol {
+                classes.push(sym);
+            }
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token(); // consume `,`
+            } else {
+                break;
+            }
+        }
+        // Consume `)`
+        if self.is_peek_token(TokenType::RParen) {
+            self.next_token();
+        }
+        classes
     }
 
     /// Parses ADT sugar:
@@ -1285,6 +1325,7 @@ impl Parser {
             type_params,
             variants,
             span: self.span_from(start),
+            deriving: vec![],
         })
     }
 
