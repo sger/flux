@@ -24,6 +24,11 @@ Last updated: 2026-04-07
 | **2** | Public API annotations (`--strict`) | **Already existed** | E416 (params), E417 (return type), E418 (effects), E423 (Any in annotations). |
 | **—** | Typed primop returns | **Done** | `print`/`println` return `Unit` (was `Any`). All primop params polymorphic with type variables (was `Any`). Operators preserve type vars instead of collapsing to `Any`. |
 | **3** | Type classes (syntax + AST) | **Done (MVP)** | See Proposal 0145. Parser, ClassEnv, runtime dispatch for single-instance. Constraint solver + dictionaries remain. |
+| **6** | Deriving (`Eq`, `Ord`, `Show`, `Semigroup`) | **Done** | Auto-derive type class instances for ADTs. |
+| **7a** | Typed Core IR — binder infrastructure | **Done** | `FluxRep` enum on `CoreBinder`, `CoreType`, `TypeEnv` threading to AST lowerer, typed function params via `bind_fn_params()`. |
+| **7b** | Typed Core IR — lambda param typing | **Done** | Lambda parameters get `FluxRep` from HM-inferred function type via `bind_lambda_params()`. |
+| **7c** | Typed Core IR — LIR/LLVM type extraction | **Done** | LIR extracts `param_reps`/`result_rep` from Core binders; LLVM worker/wrapper uses them for unboxed specialization. |
+| **7d** | Aether type-directed RC elision | **Done** | `wrap_drop`/`wrap_dups` skip Dup/Drop for binders with `IntRep`/`FloatRep`/`BoolRep` (`!needs_rc()`). |
 
 ### Remaining
 
@@ -32,8 +37,9 @@ Last updated: 2026-04-07
 | **3** | Type classes (full) | In progress | Proposal 0145: Steps 1-4, 6 done. Step 5 (dictionary passing) remaining. |
 | **4** | Constraint solver + dictionaries | **Partially done** | Constraint generation + solving done (0145 Steps 3-4). Dictionary passing (Step 5) remaining. |
 | **5** | Higher-kinded types | Not started | Phase 4 complete; requires kind system |
-| **6** | Deriving (`Eq`, `Ord`, `Show`) | Not started | Phase 3–4 complete |
-| **7** | Typed Core IR (Proposal 0119) | Not started | Phase 1–2 complete (done) |
+| **7e** | Typed Core IR — pattern binders | Deferred | Requires polymorphism-aware type decomposition; monomorphized HM types are unsound for polymorphic scrutinees |
+| **7f** | Typed Core IR — effect handler binders | Deferred | Needs effect declaration threading into lowerer |
+| **7g** | Typed Core IR — optimized ADT layouts | Not started | Unboxed fields for primitives in ADT payloads |
 
 ### Key files
 

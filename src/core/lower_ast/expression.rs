@@ -123,9 +123,10 @@ impl<'a> super::AstLowerer<'a> {
                 parameters,
                 body,
                 span,
+                id,
                 ..
             } => {
-                let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                let params: Vec<_> = self.bind_lambda_params(parameters, *id);
                 let body_expr = self.lower_block(body);
                 if parameters.is_empty() {
                     // Nullary lambda — keep the Lam wrapper so the Core→IR
@@ -252,7 +253,10 @@ impl<'a> super::AstLowerer<'a> {
                 ..
             } => {
                 let scrut = self.lower_expr(scrutinee);
-                let alts: Vec<CoreAlt> = arms.iter().map(|arm| self.lower_match_arm(arm)).collect();
+                let alts: Vec<CoreAlt> = arms
+                    .iter()
+                    .map(|arm| self.lower_match_arm(arm))
+                    .collect();
                 CoreExpr::Case {
                     scrutinee: Box::new(scrut),
                     alts,
