@@ -3105,10 +3105,34 @@ impl Compiler {
     #[cfg(feature = "core_to_llvm")]
     #[allow(clippy::result_large_err)]
     pub fn lower_to_lir_llvm_module(
-        &self,
+        &mut self,
         program: &Program,
         optimize: bool,
     ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
+        // Inject mangled type class instance methods so Core IR sees their
+        // definitions (mirrors the VM pipeline's Phase 1b).
+        let class_augmented;
+        let program = if !self.class_env.classes.is_empty() {
+            let extra = crate::types::class_dispatch::generate_dispatch_functions(
+                &program.statements,
+                &self.class_env,
+                &mut self.interner,
+            );
+            if !extra.is_empty() {
+                let mut stmts = extra;
+                stmts.extend(program.statements.iter().cloned());
+                class_augmented = Program {
+                    statements: stmts,
+                    span: program.span,
+                };
+                &class_augmented
+            } else {
+                program
+            }
+        } else {
+            program
+        };
+
         let program_to_lower = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
@@ -3152,11 +3176,35 @@ impl Compiler {
     #[cfg(feature = "core_to_llvm")]
     #[allow(clippy::result_large_err)]
     pub fn lower_to_lir_llvm_module_per_module(
-        &self,
+        &mut self,
         program: &Program,
         optimize: bool,
         export_user_ctor_name_helper: bool,
     ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
+        // Inject mangled type class instance methods so Core IR sees their
+        // definitions (mirrors the VM pipeline's Phase 1b).
+        let class_augmented;
+        let program = if !self.class_env.classes.is_empty() {
+            let extra = crate::types::class_dispatch::generate_dispatch_functions(
+                &program.statements,
+                &self.class_env,
+                &mut self.interner,
+            );
+            if !extra.is_empty() {
+                let mut stmts = extra;
+                stmts.extend(program.statements.iter().cloned());
+                class_augmented = Program {
+                    statements: stmts,
+                    span: program.span,
+                };
+                &class_augmented
+            } else {
+                program
+            }
+        } else {
+            program
+        };
+
         let program_to_lower = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
@@ -3220,7 +3268,7 @@ impl Compiler {
     /// Dump LIR as LLVM IR text (Proposal 0132 Phase 7).
     #[cfg(feature = "core_to_llvm")]
     #[allow(clippy::result_large_err)]
-    pub fn dump_lir_llvm(&self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
+    pub fn dump_lir_llvm(&mut self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
         let module = self.lower_to_lir_llvm_module(program, optimize)?;
         Ok(crate::core_to_llvm::render_module(&module))
     }

@@ -1,0 +1,17 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_instance_method_fn.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Unexpected Closing Delimiter
+
+Unexpected `}` outside of a block.
+
+  examples/parser_errors/missing_instance_method_fn.flx:12:1
+   |
+12 | }
+   | ^
+== stdout ==
+<not executed>

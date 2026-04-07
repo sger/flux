@@ -14,7 +14,7 @@ The transition is incremental — each phase adds type system features while mai
 
 ## Implementation status
 
-Last updated: 2026-04-07 (Phase 7 complete)
+Last updated: 2026-04-07 (Phase 7 + HKTs complete)
 
 ### Completed
 
@@ -23,7 +23,9 @@ Last updated: 2026-04-07 (Phase 7 complete)
 | **1** | Eliminate `Any` fallback (`--strict-types`) | **Done** | New flag, post-inference validation pass (`strict_types.rs`), error code E430. Rejects any binding whose inferred type `contains_any()`. Disabled for Flow library. |
 | **2** | Public API annotations (`--strict`) | **Already existed** | E416 (params), E417 (return type), E418 (effects), E423 (Any in annotations). |
 | **—** | Typed primop returns | **Done** | `print`/`println` return `Unit` (was `Any`). All primop params polymorphic with type variables (was `Any`). Operators preserve type vars instead of collapsing to `Any`. |
-| **3** | Type classes (syntax + AST) | **Done (MVP)** | See Proposal 0145. Parser, ClassEnv, runtime dispatch for single-instance. Constraint solver + dictionaries remain. |
+| **3** | Type classes (syntax + AST + dispatch) | **Done** | See Proposal 0145. Parser, ClassEnv, compile-time monomorphic dispatch, polymorphic dispatch via `type_of()` for multi-instance, LLVM backend support. Constraint solver (Steps 3–4) done. |
+| **4** | Constraint solver | **Done** | Constraint generation + solving done. Monomorphic compile-time instance resolution during Core lowering. E444 for unsatisfied constraints under `--strict-types`. |
+| **5** | Higher-kinded types | **Done** | Kind system (`src/types/kind.rs`), `InferType::HktApp` variant, HKT unification in `unify.rs`, `Functor<List>` works end-to-end. Per-method type params on class methods (`fn fmap<a, b>`). |
 | **6** | Deriving (`Eq`, `Ord`, `Show`, `Semigroup`) | **Done** | Auto-derive type class instances for ADTs. |
 | **7a** | Typed Core IR — binder infrastructure | **Done** | `FluxRep` enum on `CoreBinder`, `CoreType`, `TypeEnv` threading to AST lowerer, typed function params via `bind_fn_params()`. |
 | **7b** | Typed Core IR — lambda param typing | **Done** | Lambda parameters get `FluxRep` from HM-inferred function type via `bind_lambda_params()`. |
@@ -37,9 +39,8 @@ Last updated: 2026-04-07 (Phase 7 complete)
 
 | Phase | Feature | Status | Blocker |
 |-------|---------|--------|---------|
-| **3** | Type classes (full) | In progress | Proposal 0145: Steps 1-4, 6 done. Step 5 monomorphic resolution done; polymorphic dictionary threading remaining. |
-| **4** | Constraint solver + dictionaries | **Mostly done** | Constraint generation + solving done. Monomorphic compile-time instance resolution done (0145 Step 5). Polymorphic dictionary parameters deferred. |
-| **5** | Higher-kinded types | Not started | Phase 4 complete; requires kind system |
+| **3–4** | Dictionary elaboration | Not started | Proposal 0145 Step 5: polymorphic constrained functions need dictionary parameters instead of `type_of()` dispatch. See Proposal 0146 Track 1. |
+| **—** | Type class hardening | Not started | Proposal 0146: superclass enforcement, structural duplicate detection, extra method validation, multi-param classes. |
 
 ### Key files
 

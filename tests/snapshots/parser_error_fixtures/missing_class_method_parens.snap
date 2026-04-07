@@ -1,0 +1,20 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_class_method_parens.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Unexpected Token
+
+Expected `(` after method name.
+
+  examples/parser_errors/missing_class_method_parens.flx:9:1
+  |
+9 | }
+  | ^
+
+Hint:
+  Class methods use `fn name(x: a, y: a) -> ReturnType`.
+== stdout ==
+<not executed>
