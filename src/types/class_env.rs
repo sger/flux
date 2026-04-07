@@ -321,6 +321,37 @@ impl ClassEnv {
             .collect()
     }
 
+    /// Given a method name, find which class it belongs to.
+    /// Returns `(class_name, &ClassDef)` if the method is declared in any class.
+    pub fn method_to_class(&self, method_name: Identifier) -> Option<(Identifier, &ClassDef)> {
+        for (&class_name, class_def) in &self.classes {
+            if class_def.methods.iter().any(|m| m.name == method_name) {
+                return Some((class_name, class_def));
+            }
+        }
+        None
+    }
+
+    /// Resolve a class instance for a concrete type name (e.g., "Int", "String").
+    /// Matches against the first `type_arg` of each instance declaration.
+    pub fn resolve_instance_for_type(
+        &self,
+        class_name: Identifier,
+        type_name: &str,
+        interner: &Interner,
+    ) -> Option<&InstanceDef> {
+        self.instances.iter().find(|inst| {
+            inst.class_name == class_name
+                && inst.type_args.first().is_some_and(|ta| {
+                    if let TypeExpr::Named { name, args, .. } = ta {
+                        args.is_empty() && interner.resolve(*name) == type_name
+                    } else {
+                        false
+                    }
+                })
+        })
+    }
+
     /// Register built-in type classes and instances.
     ///
     /// These are "phantom" entries — no real method bodies. They exist so the

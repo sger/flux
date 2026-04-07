@@ -95,6 +95,21 @@ impl Interner {
     /// # Panics
     ///
     /// Panics if the number of unique symbols exceeds `u32::MAX`.
+    ///
+    /// Look up a string that was previously interned. Returns `None` if
+    /// the string has never been interned. Does not modify the interner.
+    pub fn lookup(&self, s: &str) -> Option<Symbol> {
+        let hash = self.hash_str(s);
+        if let Some(candidates) = self.buckets.get(&hash) {
+            for candidate in candidates {
+                if self.resolve(*candidate) == s {
+                    return Some(*candidate);
+                }
+            }
+        }
+        None
+    }
+
     pub fn intern(&mut self, s: &str) -> Symbol {
         let hash = self.hash_str(s);
         if let Some(candidates) = self.buckets.get(&hash) {

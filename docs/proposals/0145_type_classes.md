@@ -31,7 +31,7 @@ Last updated: 2026-04-07
 |------|---------|---------|------------|
 | **3. Constraint generation** | Emit `ClassConstraintWanted` during HM inference when class methods are called | None | **Done** |
 | **4. Constraint solving** | Resolve constraints at generalization: concrete types → instance lookup | Step 3 | **Done** |
-| **5. Dictionary elaboration** | Replace runtime dispatch with dictionary-passing in Core IR; constrained functions get extra dictionary params | Step 4 | Hard |
+| **5. Dictionary elaboration** | Replace runtime dispatch with dictionary-passing in Core IR; constrained functions get extra dictionary params | Step 4 | **Monomorphic done** (compile-time instance resolution during Core lowering); polymorphic dictionary params deferred |
 | **6. Built-in classes** | Register compiler-provided `Eq`, `Ord`, `Num`, `Show`, `Semigroup` with instances for `Int`, `Float`, `String`, `Bool` | Step 4 | **Done** |
 | **7. Stdlib migration** | Split `Flow.List`/`Flow.Array` into typed modules; eventually `Functor`/`Foldable` | Step 6 + HKTs | Large |
 
