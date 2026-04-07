@@ -38,8 +38,10 @@ impl Compiler {
                 &mut self.interner,
             );
             if !extra.is_empty() {
-                let mut stmts = program.statements.clone();
-                stmts.extend(extra);
+                // Prepend generated functions so their polymorphic type stubs
+                // are inferred before user code that calls them (Phase A/B order).
+                let mut stmts = extra;
+                stmts.extend(program.statements.iter().cloned());
                 class_augmented = Program {
                     statements: stmts,
                     span: program.span,

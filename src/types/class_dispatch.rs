@@ -24,6 +24,7 @@ use crate::{
 };
 
 /// Information about a single instance method for dispatch generation.
+#[allow(dead_code)]
 struct InstanceMethodInfo {
     /// The mangled function name (e.g., `__tc_Eq_Int_eq`).
     mangled_name: Identifier,
@@ -61,16 +62,16 @@ pub fn generate_dispatch_functions(
     // succeeds (Phase 4 Step 5), calls are rewritten directly to the mangled
     // instance function during Core lowering, making these dispatch functions
     // dead code for monomorphic call sites.
-    for ((class_name, method_name), instances) in &dispatch_table {
-        if let Some(class_def) = class_env.lookup_class(*class_name) {
-            let method_sig = class_def.methods.iter().find(|m| m.name == *method_name);
-            let arity = method_sig.map(|m| m.arity).unwrap_or(2);
-
-            if let Some(dispatch_fn) =
-                generate_dispatch_function(*method_name, instances, arity, interner)
-            {
-                generated.push(dispatch_fn);
-            }
+    for (class_name, method_name) in dispatch_table.keys() {
+        if let Some(class_def) = class_env.lookup_class(*class_name)
+            && let Some(method_sig) = class_def.methods.iter().find(|m| m.name == *method_name)
+        {
+            generated.push(generate_polymorphic_stub(
+                *method_name,
+                class_def,
+                method_sig,
+                interner,
+            ));
         }
     }
 
@@ -203,6 +204,80 @@ fn generate_from_statements(
     }
 }
 
+/// Generate a polymorphic type stub for a class method.
+///
+/// Instead of a runtime `type_of()` chain, emits a properly typed polymorphic
+/// function whose body is `panic("No instance")`. HM inference generalizes it
+/// (e.g., `∀a. a -> a -> Bool` for `eq`), so each call site instantiates fresh
+/// type variables. The body is never executed — Core lowering resolves all
+/// monomorphic calls to the mangled instance function at compile time.
+fn generate_polymorphic_stub(
+    method_name: Identifier,
+    class_def: &crate::types::class_env::ClassDef,
+    method_sig: &crate::types::class_env::MethodSig,
+    interner: &mut Interner,
+) -> Statement {
+    // Use the class's type parameter for the dispatch function's generic.
+    let type_params = vec![class_def.type_param];
+
+    // Generate parameter names: __x0, __x1, ...
+    let params: Vec<Identifier> = (0..method_sig.arity)
+        .map(|i| interner.intern(&format!("__x{i}")))
+        .collect();
+
+    // Use the method's parameter types from the class definition.
+    let parameter_types: Vec<Option<crate::syntax::type_expr::TypeExpr>> = method_sig
+        .param_types
+        .iter()
+        .map(|t| Some(t.clone()))
+        .collect();
+
+    let return_type = Some(method_sig.return_type.clone());
+
+    let span = Span::default();
+    let id = ExprId::UNSET;
+
+    // Body: panic("No instance of <Class> for the given type")
+    let class_display = interner.resolve(class_def.name).to_string();
+    let method_display = interner.resolve(method_name).to_string();
+    let panic_sym = interner.intern("panic");
+    let panic_msg = format!("No instance of {class_display}.{method_display} for the given type");
+    let panic_expr = Expression::Call {
+        function: Box::new(Expression::Identifier {
+            name: panic_sym,
+            span,
+            id,
+        }),
+        arguments: vec![Expression::String {
+            value: panic_msg,
+            span,
+            id,
+        }],
+        span,
+        id,
+    };
+
+    Statement::Function {
+        is_public: false,
+        fip: None,
+        name: method_name,
+        type_params,
+        parameters: params,
+        parameter_types,
+        return_type,
+        effects: vec![],
+        body: Block {
+            statements: vec![Statement::Expression {
+                expression: panic_expr,
+                has_semicolon: false,
+                span,
+            }],
+            span,
+        },
+        span,
+    }
+}
+
 /// Generate a dispatch function that routes to the correct instance at runtime.
 ///
 /// For `eq` with instances for Int and String, generates:
@@ -213,6 +288,7 @@ fn generate_from_statements(
 ///     else { panic("No instance for Eq") }
 /// }
 /// ```
+#[allow(dead_code)]
 fn generate_dispatch_function(
     method_name: Identifier,
     instances: &[InstanceMethodInfo],
