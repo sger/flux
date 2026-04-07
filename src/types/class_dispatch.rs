@@ -80,7 +80,7 @@ pub fn generate_dispatch_functions(
 /// instance implementation. E.g., `neq` with default body `{ !eq(x, y) }`.
 fn generate_default_method_functions(
     statements: &[Statement],
-    class_env: &ClassEnv,
+    _class_env: &ClassEnv,
     dispatch_table: &HashMap<(Identifier, Identifier), Vec<InstanceMethodInfo>>,
     generated: &mut Vec<Statement>,
 ) {
@@ -117,7 +117,7 @@ fn generate_default_method_functions(
             Statement::Module { body, .. } => {
                 generate_default_method_functions(
                     &body.statements,
-                    class_env,
+                    _class_env,
                     dispatch_table,
                     generated,
                 );

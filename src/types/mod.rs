@@ -6,6 +6,7 @@
 //! - runtime contract/checking types (`RuntimeType`)
 pub mod class_dispatch;
 pub mod class_env;
+pub mod class_solver;
 pub mod infer_effect_row;
 pub mod infer_type;
 pub mod module_interface;

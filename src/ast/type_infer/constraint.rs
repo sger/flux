@@ -20,7 +20,7 @@ use crate::{
 /// - [`ClassConstraint`](Constraint::ClassConstraint): a type must have a
 ///   type class instance (e.g., `Num<a>` from `x + y`)
 #[derive(Debug, Clone)]
-pub(super) enum Constraint {
+pub enum Constraint {
     /// `t1 = t2` — two types must unify at the given span.
     Unify {
         t1: InferType,

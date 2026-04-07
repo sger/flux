@@ -23,12 +23,13 @@ Last updated: 2026-04-07
 | **1. Parser** | `class` and `instance` keywords, AST types, full pipeline (Core IR, CFG, LIR) | `token_type.rs`, `type_class.rs`, `statement.rs`, `parser/statement.rs`, `core/mod.rs`, `cfg/mod.rs` + 15 match exhaustiveness fixes | Superclass `=>` syntax not yet parsed (no `=>` token) |
 | **2. ClassEnv** | Collect and validate declarations, error codes E440–E443 | `types/class_env.rs`, `compiler_errors.rs`, `registry.rs`, `compiler/mod.rs`, `passes/collection.rs` | Validates: duplicate class, unknown class in instance, missing methods (respects defaults), duplicate instances |
 | **3–5. Dispatch (MVP)** | Instance methods compiled as mangled functions + runtime `type_of()` dispatch | `types/class_dispatch.rs`, `compiler/pipeline.rs` | Works for single-instance per method. Multi-instance in same scope hits HM inference conflict |
+| **3. Constraints** | Emit class constraints during HM inference for operators and class method calls | `constraint.rs`, `operators.rs`, `calls.rs`, `mod.rs` | Constraints recorded + resolved in `InferProgramResult`. Not enforced yet (Step 4). |
 
 ### Remaining
 
 | Step | Feature | Blocker | Difficulty |
 |------|---------|---------|------------|
-| **3. Constraint generation** | Emit `ClassConstraintWanted` during HM inference when class methods are called | None — can start now | Medium |
+| **3. Constraint generation** | Emit `ClassConstraintWanted` during HM inference when class methods are called | None | **Done** |
 | **4. Constraint solving** | Resolve constraints at generalization: concrete types → instance lookup, type variables → add to scheme | Step 3 | Medium-Hard |
 | **5. Dictionary elaboration** | Replace runtime dispatch with dictionary-passing in Core IR; constrained functions get extra dictionary params | Step 4 | Hard |
 | **6. Built-in classes** | Register compiler-provided `Eq`, `Ord`, `Num`, `Show`, `Semigroup`, `Monoid` with instances for `Int`, `Float`, `String`, `Bool` | Step 5 (or can do partially with MVP dispatch) | Medium |
@@ -604,12 +605,17 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] End-to-end: `class Eq<a> { fn eq ... }` + `instance Eq<Int> { ... }` → `eq(1, 2)` works
 - [ ] Multi-instance dispatch in same scope (HM conflict)
 
-### Step 3: Constraint generation — TODO
+### Step 3: Constraint generation — DONE
 
-- [ ] Add `ClassConstraintWanted` data structure to `InferCtx`
-- [ ] When a class method name is called, emit a constraint
-- [ ] Operator desugaring: `+` emits `Num<a>`, `==` emits `Eq<a>`, etc.
-- [ ] Constraints accumulated, not solved yet
+- [x] Add `Constraint::Class` variant and `WantedClassConstraint` to constraint system
+- [x] Pass `ClassEnv` from compiler → `InferProgramConfig` → `InferCtx`
+- [x] Pre-resolve well-known class symbols (Eq, Ord, Num, Semigroup) at inference start
+- [x] Emit `Eq<a>` for `==`, `!=`; `Ord<a>` for `<`, `<=`, `>`, `>=`
+- [x] Emit `Num<a>` for `+`, `-`, `*`, `/`, `%`; `Semigroup<a>` for `++`
+- [x] Emit class constraint when a class method name is called (e.g., `eq(x, y)` → `Eq<typeof(x)>`)
+- [x] Resolved constraints exposed in `InferProgramResult.class_constraints`
+- [x] Generate functions for default class methods (e.g., `neq` from `Eq`)
+- [ ] Constraints recorded but not enforced — Step 4 (solving) will check against instances
 
 ### Step 4: Constraint solving — TODO
 
