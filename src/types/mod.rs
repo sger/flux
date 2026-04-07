@@ -9,6 +9,7 @@ pub mod class_env;
 pub mod class_solver;
 pub mod infer_effect_row;
 pub mod infer_type;
+pub mod kind;
 pub mod module_interface;
 pub mod scheme;
 pub mod type_constructor;

@@ -27,6 +27,9 @@ pub struct ClassConstraint {
 #[derive(Debug, Clone)]
 pub struct ClassMethod {
     pub name: Identifier,
+    /// Per-method type parameters (e.g., `<a, b>` in `fn fmap<a, b>(...)`).
+    /// These are in addition to the class-level type parameters.
+    pub type_params: Vec<Identifier>,
     pub params: Vec<Identifier>,
     pub param_types: Vec<TypeExpr>,
     pub return_type: TypeExpr,

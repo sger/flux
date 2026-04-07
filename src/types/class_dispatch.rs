@@ -24,7 +24,6 @@ use crate::{
 };
 
 /// Information about a single instance method for dispatch generation.
-#[allow(dead_code)]
 struct InstanceMethodInfo {
     /// The mangled function name (e.g., `__tc_Eq_Int_eq`).
     mangled_name: Identifier,
@@ -62,16 +61,24 @@ pub fn generate_dispatch_functions(
     // succeeds (Phase 4 Step 5), calls are rewritten directly to the mangled
     // instance function during Core lowering, making these dispatch functions
     // dead code for monomorphic call sites.
-    for (class_name, method_name) in dispatch_table.keys() {
+    let mut sorted_keys: Vec<_> = dispatch_table.keys().collect();
+    sorted_keys.sort_by_key(|(c, m)| (c.as_u32(), m.as_u32()));
+    for &(class_name, method_name) in &sorted_keys {
         if let Some(class_def) = class_env.lookup_class(*class_name)
             && let Some(method_sig) = class_def.methods.iter().find(|m| m.name == *method_name)
         {
+            // 1. Polymorphic stub: typed params, delegates to __rt_ (for HM inference)
             generated.push(generate_polymorphic_stub(
                 *method_name,
                 class_def,
                 method_sig,
                 interner,
             ));
+
+            // 2. Runtime fallback: Any-typed params, type_of() dispatch body.
+            // TODO: re-enable once __rt_ function type inference issue is fixed.
+            // For now, polymorphic calls that can't be resolved at compile time
+            // will hit the stub's __rt_ delegation which panics if __rt_ doesn't exist.
         }
     }
 
@@ -204,6 +211,112 @@ fn generate_from_statements(
     }
 }
 
+/// Generate a polymorphic dispatch function for a class method.
+///
+/// Combines:
+/// 1. Polymorphic type signature from the class definition (so HM generalizes correctly)
+/// 2. Runtime `type_of()` dispatch body (so bytecode execution resolves to the right instance)
+///
+/// The Core lowering path can further optimize by resolving monomorphic calls at compile time.
+#[allow(dead_code)]
+fn generate_polymorphic_dispatch(
+    method_name: Identifier,
+    class_def: &crate::types::class_env::ClassDef,
+    method_sig: &crate::types::class_env::MethodSig,
+    instances: &[InstanceMethodInfo],
+    interner: &mut Interner,
+) -> Statement {
+    // Type params: class param + method params
+    let mut type_params = vec![class_def.type_param];
+    type_params.extend_from_slice(&method_sig.type_params);
+
+    // Generate parameter names: __x0, __x1, ...
+    let params: Vec<Identifier> = (0..method_sig.arity)
+        .map(|i| interner.intern(&format!("__x{i}")))
+        .collect();
+
+    let parameter_types: Vec<Option<crate::syntax::type_expr::TypeExpr>> = method_sig
+        .param_types
+        .iter()
+        .map(|t| Some(t.clone()))
+        .collect();
+
+    let return_type = Some(method_sig.return_type.clone());
+
+    let span = Span::default();
+    let id = ExprId::UNSET;
+
+    // Build the dispatch body: type_of() chain → mangled function calls → panic fallback
+    let class_display = interner.resolve(class_def.name).to_string();
+    let method_display = interner.resolve(method_name).to_string();
+    let type_of_sym = interner.intern("type_of");
+    let panic_sym = interner.intern("panic");
+    let panic_msg = format!("No instance of {class_display}.{method_display} for the given type");
+
+    let panic_expr = Expression::Call {
+        function: Box::new(Expression::Identifier { name: panic_sym, span, id }),
+        arguments: vec![Expression::String { value: panic_msg, span, id }],
+        span,
+        id,
+    };
+
+    let mut body_expr = panic_expr;
+
+    if !instances.is_empty() && !params.is_empty() {
+        for inst in instances.iter().rev() {
+            let condition = Expression::Infix {
+                left: Box::new(Expression::Call {
+                    function: Box::new(Expression::Identifier { name: type_of_sym, span, id }),
+                    arguments: vec![Expression::Identifier { name: params[0], span, id }],
+                    span,
+                    id,
+                }),
+                operator: "==".to_string(),
+                right: Box::new(Expression::String { value: inst.type_name.clone(), span, id }),
+                span,
+                id,
+            };
+
+            let call_expr = Expression::Call {
+                function: Box::new(Expression::Identifier { name: inst.mangled_name, span, id }),
+                arguments: params.iter().map(|p| Expression::Identifier { name: *p, span, id }).collect(),
+                span,
+                id,
+            };
+
+            body_expr = Expression::If {
+                condition: Box::new(condition),
+                consequence: Block {
+                    statements: vec![Statement::Expression { expression: call_expr, has_semicolon: false, span }],
+                    span,
+                },
+                alternative: Some(Block {
+                    statements: vec![Statement::Expression { expression: body_expr, has_semicolon: false, span }],
+                    span,
+                }),
+                span,
+                id,
+            };
+        }
+    }
+
+    Statement::Function {
+        is_public: false,
+        fip: None,
+        name: method_name,
+        type_params,
+        parameters: params,
+        parameter_types,
+        return_type,
+        effects: vec![],
+        body: Block {
+            statements: vec![Statement::Expression { expression: body_expr, has_semicolon: false, span }],
+            span,
+        },
+        span,
+    }
+}
+
 /// Generate a polymorphic type stub for a class method.
 ///
 /// Instead of a runtime `type_of()` chain, emits a properly typed polymorphic
@@ -217,8 +330,9 @@ fn generate_polymorphic_stub(
     method_sig: &crate::types::class_env::MethodSig,
     interner: &mut Interner,
 ) -> Statement {
-    // Use the class's type parameter for the dispatch function's generic.
-    let type_params = vec![class_def.type_param];
+    // Use the class's type parameter plus any per-method type params.
+    let mut type_params = vec![class_def.type_param];
+    type_params.extend_from_slice(&method_sig.type_params);
 
     // Generate parameter names: __x0, __x1, ...
     let params: Vec<Identifier> = (0..method_sig.arity)
@@ -237,24 +351,29 @@ fn generate_polymorphic_stub(
     let span = Span::default();
     let id = ExprId::UNSET;
 
-    // Body: panic("No instance of <Class> for the given type")
-    let class_display = interner.resolve(class_def.name).to_string();
+    // Body: delegate to __rt_<method>(__x0, __x1, ...) for runtime dispatch
+    // when the __rt_ function exists. Otherwise panic (no instances).
     let method_display = interner.resolve(method_name).to_string();
-    let panic_sym = interner.intern("panic");
-    let panic_msg = format!("No instance of {class_display}.{method_display} for the given type");
-    let panic_expr = Expression::Call {
-        function: Box::new(Expression::Identifier {
-            name: panic_sym,
+    let rt_name_str = format!("__rt_{method_display}");
+    let rt_sym = interner.lookup(&rt_name_str);
+    let body_expr = if let Some(rt_name) = rt_sym {
+        Expression::Call {
+            function: Box::new(Expression::Identifier { name: rt_name, span, id }),
+            arguments: params.iter().map(|p| Expression::Identifier { name: *p, span, id }).collect(),
             span,
             id,
-        }),
-        arguments: vec![Expression::String {
-            value: panic_msg,
-            span,
-            id,
-        }],
-        span,
-        id,
+        }
+    } else {
+        let panic_sym = interner.intern("panic");
+        let class_display = interner.resolve(class_def.name).to_string();
+        Expression::Call {
+            function: Box::new(Expression::Identifier { name: panic_sym, span, id }),
+            arguments: vec![Expression::String {
+                value: format!("No instance of {class_display}.{method_display} for the given type"),
+                span, id,
+            }],
+            span, id,
+        }
     };
 
     Statement::Function {
@@ -268,7 +387,7 @@ fn generate_polymorphic_stub(
         effects: vec![],
         body: Block {
             statements: vec![Statement::Expression {
-                expression: panic_expr,
+                expression: body_expr,
                 has_semicolon: false,
                 span,
             }],
@@ -402,13 +521,21 @@ fn generate_dispatch_function(
         };
     }
 
+    // Annotate parameters as Any to prevent HM from unifying the dispatch
+    // branches' concrete types with each other (e.g., Int vs String).
+    let any_name = interner.intern("Any");
+    let any_type = crate::syntax::type_expr::TypeExpr::Named {
+        name: any_name,
+        args: vec![],
+        span,
+    };
     Some(Statement::Function {
         is_public: false,
         fip: None,
         name: method_name,
         type_params: vec![],
         parameters: params,
-        parameter_types: vec![None; arity],
+        parameter_types: vec![Some(any_type); arity],
         return_type: None,
         effects: vec![],
         body: Block {

@@ -31,6 +31,12 @@ pub enum InferType {
     Fun(Vec<InferType>, Box<InferType>, InferEffectRow),
     /// Tuple type: `(Int, String)`.
     Tuple(Vec<InferType>),
+    /// Higher-kinded type application: `f<a>` where `f` is a type variable.
+    ///
+    /// Distinguished from `App` because the head is an arbitrary `InferType`
+    /// (typically `Var`) rather than a concrete `TypeConstructor`. During
+    /// substitution, `HktApp(Con(tc), args)` collapses to `App(tc, args)`.
+    HktApp(Box<InferType>, Vec<InferType>),
 }
 
 impl InferType {
@@ -58,6 +64,12 @@ impl InferType {
                     e.collect_symbols(out);
                 }
             }
+            InferType::HktApp(head, args) => {
+                head.collect_symbols(out);
+                for arg in args {
+                    arg.collect_symbols(out);
+                }
+            }
         }
     }
 
@@ -78,6 +90,10 @@ impl InferType {
             InferType::Tuple(elems) => {
                 InferType::Tuple(elems.iter().map(|e| e.remap_symbols(remap)).collect())
             }
+            InferType::HktApp(head, args) => InferType::HktApp(
+                Box::new(head.remap_symbols(remap)),
+                args.iter().map(|a| a.remap_symbols(remap)).collect(),
+            ),
         }
     }
 
@@ -117,6 +133,12 @@ impl InferType {
                     element.collect_type_free_vars(acc);
                 }
             }
+            InferType::HktApp(head, args) => {
+                head.collect_type_free_vars(acc);
+                for arg in args {
+                    arg.collect_type_free_vars(acc);
+                }
+            }
         }
     }
 
@@ -130,6 +152,12 @@ impl InferType {
                 acc.extend(effects.free_row_vars());
             }
             InferType::App(_, args) | InferType::Tuple(args) => {
+                for arg in args {
+                    arg.collect_row_free_vars(acc);
+                }
+            }
+            InferType::HktApp(head, args) => {
+                head.collect_row_free_vars(acc);
                 for arg in args {
                     arg.collect_row_free_vars(acc);
                 }
@@ -184,6 +212,19 @@ impl InferType {
                     .map(|e| e.apply_type_subst_with_seen(type_subst, seen_vars))
                     .collect(),
             ),
+            InferType::HktApp(head, args) => {
+                let resolved_head = head.apply_type_subst_with_seen(type_subst, seen_vars);
+                let resolved_args: Vec<InferType> = args
+                    .iter()
+                    .map(|a| a.apply_type_subst_with_seen(type_subst, seen_vars))
+                    .collect();
+                // Beta-reduction: if head resolved to a concrete constructor,
+                // collapse HktApp(Con(tc), args) → App(tc, args).
+                match resolved_head {
+                    InferType::Con(tc) => InferType::App(tc, resolved_args),
+                    other => InferType::HktApp(Box::new(other), resolved_args),
+                }
+            }
         }
     }
 
@@ -206,6 +247,9 @@ impl InferType {
                 params.iter().any(InferType::contains_var)
                     || ret.contains_var()
                     || effects.tail().is_some()
+            }
+            InferType::HktApp(head, args) => {
+                head.contains_var() || args.iter().any(InferType::contains_var)
             }
         }
     }
@@ -235,6 +279,9 @@ impl InferType {
                 params.iter().any(InferType::contains_any) || ret.contains_any()
             }
             InferType::Var(_) | InferType::Con(_) => false,
+            InferType::HktApp(head, args) => {
+                head.contains_any() || args.iter().any(InferType::contains_any)
+            }
         }
     }
 }
@@ -292,6 +339,16 @@ impl fmt::Display for InferType {
                     write!(f, "{e}")?;
                 }
                 write!(f, ")")
+            }
+            InferType::HktApp(head, args) => {
+                write!(f, "{head}<")?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                write!(f, ">")
             }
         }
     }

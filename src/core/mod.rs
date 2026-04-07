@@ -159,6 +159,7 @@ impl CoreType {
             InferType::Tuple(elems) => {
                 CoreType::Tuple(elems.iter().map(CoreType::from_infer).collect())
             }
+            InferType::HktApp(_, _) => CoreType::Any,
         }
     }
 }

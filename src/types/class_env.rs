@@ -38,6 +38,8 @@ pub struct ClassDef {
 #[derive(Debug, Clone)]
 pub struct MethodSig {
     pub name: Identifier,
+    /// Per-method type parameters (e.g., `<a, b>` on `fn fmap<a, b>`).
+    pub type_params: Vec<Identifier>,
     pub param_types: Vec<TypeExpr>,
     pub return_type: TypeExpr,
     pub arity: usize,
@@ -131,6 +133,7 @@ impl ClassEnv {
                         .iter()
                         .map(|m| MethodSig {
                             name: m.name,
+                            type_params: m.type_params.clone(),
                             param_types: m.param_types.clone(),
                             return_type: m.return_type.clone(),
                             arity: m.params.len(),
@@ -383,29 +386,29 @@ impl ClassEnv {
 
         // Eq: eq(a, a) -> Bool
         self.register_builtin_class(eq, a_param, vec![
-            MethodSig { name: eq_method, param_types: vec![], return_type: builtin_type(bool_name), arity: 2 },
+            MethodSig { type_params: vec![], name: eq_method, param_types: vec![], return_type: builtin_type(bool_name), arity: 2 },
         ]);
 
         // Ord: compare(a, a) -> Int
         self.register_builtin_class(ord, a_param, vec![
-            MethodSig { name: compare_method, param_types: vec![], return_type: builtin_type(int_name), arity: 2 },
+            MethodSig { type_params: vec![], name: compare_method, param_types: vec![], return_type: builtin_type(int_name), arity: 2 },
         ]);
 
         // Num: add(a, a) -> a, sub(a, a) -> a, mul(a, a) -> a
         self.register_builtin_class(num, a_param, vec![
-            MethodSig { name: add_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
-            MethodSig { name: sub_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
-            MethodSig { name: mul_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
+            MethodSig { type_params: vec![], name: add_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
+            MethodSig { type_params: vec![], name: sub_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
+            MethodSig { type_params: vec![], name: mul_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
         ]);
 
         // Show: show(a) -> String
         self.register_builtin_class(show, a_param, vec![
-            MethodSig { name: show_method, param_types: vec![], return_type: builtin_type(string_name), arity: 1 },
+            MethodSig { type_params: vec![], name: show_method, param_types: vec![], return_type: builtin_type(string_name), arity: 1 },
         ]);
 
         // Semigroup: append(a, a) -> a
         self.register_builtin_class(semigroup, a_param, vec![
-            MethodSig { name: append_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
+            MethodSig { type_params: vec![], name: append_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
         ]);
 
         // ── Instance definitions ───────────────────────────────────────
