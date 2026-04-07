@@ -1,0 +1,107 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+assertion_line: 27
+---
+Fixture: examples/aoc/2024/Day05Solver.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `parse_sections`.
+
+  examples/aoc/2024/Day05Solver.flx:71:24
+   |
+71 |         parse_sections(to_list(lines), RulesPart, [||], [||])
+   |                        ^^^^^^^^^^^^^^
+   |                        -------------- this argument has type `Array<String>`
+
+Note:
+  expected argument type: List<String>
+  found argument type: Array<String>
+  the actual argument type is inferred from this expression
+
+Help:
+  Pass a `List<String>` value as the 1st argument.
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `any`.
+
+  examples/aoc/2024/Day05Solver.flx:75:9
+   |
+75 |         any(xs, /x -> x == target)
+   |         ^^^
+
+Hint:
+  Define it first: let any = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `filter`.
+
+  examples/aoc/2024/Day05Solver.flx:97:9
+   |
+97 |         filter(rules, /r -> contains_int(xs, r.0) && contains_int(xs, r.1))
+   |         ^^^^^^
+
+Hint:
+  Define it first: let filter = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2024/Day05Solver.flx:101:9
+    |
+101 |         fold(
+    |         ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `filter`.
+
+  examples/aoc/2024/Day05Solver.flx:126:9
+    |
+126 |         filter(xs, /x -> x != target)
+    |         ^^^^^^
+
+Hint:
+  Define it first: let filter = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2024/Day05Solver.flx:153:24
+    |
+153 |                     |> fold(0, /(acc, x) -> acc + x),
+    |                        ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `fold`.
+
+  examples/aoc/2024/Day05Solver.flx:172:24
+    |
+172 |                     |> fold(0, /(acc, x) -> acc + x),
+    |                        ^^^^
+
+Hint:
+  Define it first: let fold = ...;
+
+Found 7 errors.
+== stdout ==
+<not executed>
