@@ -989,15 +989,11 @@ impl Compiler {
     }
 
     fn collect_class_declarations(&mut self, program: &Program) {
-        let (mut env, diagnostics) =
-            crate::types::class_env::ClassEnv::from_statements(
-                &program.statements,
-                &self.interner,
-            );
-        // Register built-in classes (Eq, Ord, Num, Show, Semigroup) with
-        // instances for primitive types. These are checked by the constraint
-        // solver to verify operator usage at compile time.
+        // Register built-in classes first so that `deriving` clauses in the
+        // program can reference them (Eq, Ord, Num, Show, Semigroup).
+        let mut env = crate::types::class_env::ClassEnv::new();
         env.register_builtins(&mut self.interner);
+        let diagnostics = env.collect_from_statements(&program.statements, &self.interner);
         self.class_env = env;
         self.warnings.extend(diagnostics);
     }

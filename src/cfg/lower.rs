@@ -2546,6 +2546,7 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
             type_params,
             variants,
             span,
+            deriving: _,
         } => Ok(IrTopLevelItem::Data {
             name: *name,
             type_params: type_params.clone(),
@@ -2675,6 +2676,7 @@ pub(crate) fn ir_top_level_item_to_statement(
             type_params: type_params.clone(),
             variants: variants.clone(),
             span: *span,
+            deriving: vec![],
         },
         IrTopLevelItem::EffectDecl { name, ops, span } => Statement::EffectDecl {
             name: *name,

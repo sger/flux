@@ -79,15 +79,22 @@ impl ClassEnv {
         interner: &Interner,
     ) -> (Self, Vec<Diagnostic>) {
         let mut env = ClassEnv::new();
-        let mut diagnostics = Vec::new();
-
-        // First pass: collect all class declarations
-        Self::collect_classes(statements, &mut env, &mut diagnostics, interner);
-
-        // Second pass: collect and validate instance declarations
-        Self::collect_instances(statements, &mut env, &mut diagnostics, interner);
-
+        let diagnostics = env.collect_from_statements(statements, interner);
         (env, diagnostics)
+    }
+
+    /// Collect class, instance, and deriving declarations from statements
+    /// into this (possibly pre-populated) environment.
+    pub fn collect_from_statements(
+        &mut self,
+        statements: &[Statement],
+        interner: &Interner,
+    ) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+        Self::collect_classes(statements, self, &mut diagnostics, interner);
+        Self::collect_instances(statements, self, &mut diagnostics, interner);
+        Self::collect_deriving(statements, self, &mut diagnostics, interner);
+        diagnostics
     }
 
     /// Collect class declarations recursively (handles modules).
@@ -244,6 +251,57 @@ impl ClassEnv {
                 }
                 Statement::Module { body, .. } => {
                     Self::collect_instances(&body.statements, env, diagnostics, interner);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Collect derived instances from `deriving` clauses on data declarations.
+    fn collect_deriving(
+        statements: &[Statement],
+        env: &mut ClassEnv,
+        diagnostics: &mut Vec<Diagnostic>,
+        interner: &Interner,
+    ) {
+        for stmt in statements {
+            match stmt {
+                Statement::Data {
+                    name,
+                    deriving,
+                    span,
+                    ..
+                } if !deriving.is_empty() => {
+                    for class_name in deriving {
+                        // Check that the class exists
+                        if !env.classes.contains_key(class_name) {
+                            let class_display = interner.resolve(*class_name);
+                            let type_display = interner.resolve(*name);
+                            diagnostics.push(
+                                diagnostic_for(&INSTANCE_UNKNOWN_CLASS)
+                                    .with_span(*span)
+                                    .with_message(format!(
+                                        "Cannot derive `{class_display}` for `{type_display}`: \
+                                         no class `{class_display}` is defined."
+                                    )),
+                            );
+                            continue;
+                        }
+
+                        // Register a derived instance (no method bodies —
+                        // the constraint solver just needs to know it exists).
+                        let type_arg = builtin_type(*name);
+                        env.instances.push(InstanceDef {
+                            class_name: *class_name,
+                            type_args: vec![type_arg],
+                            context: vec![],
+                            method_names: vec![],
+                            span: *span,
+                        });
+                    }
+                }
+                Statement::Module { body, .. } => {
+                    Self::collect_deriving(&body.statements, env, diagnostics, interner);
                 }
                 _ => {}
             }

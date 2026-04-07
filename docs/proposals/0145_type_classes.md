@@ -30,9 +30,9 @@ Last updated: 2026-04-07
 | Step | Feature | Blocker | Difficulty |
 |------|---------|---------|------------|
 | **3. Constraint generation** | Emit `ClassConstraintWanted` during HM inference when class methods are called | None | **Done** |
-| **4. Constraint solving** | Resolve constraints at generalization: concrete types → instance lookup, type variables → add to scheme | Step 3 | Medium-Hard |
+| **4. Constraint solving** | Resolve constraints at generalization: concrete types → instance lookup | Step 3 | **Done** |
 | **5. Dictionary elaboration** | Replace runtime dispatch with dictionary-passing in Core IR; constrained functions get extra dictionary params | Step 4 | Hard |
-| **6. Built-in classes** | Register compiler-provided `Eq`, `Ord`, `Num`, `Show`, `Semigroup`, `Monoid` with instances for `Int`, `Float`, `String`, `Bool` | Step 5 (or can do partially with MVP dispatch) | Medium |
+| **6. Built-in classes** | Register compiler-provided `Eq`, `Ord`, `Num`, `Show`, `Semigroup` with instances for `Int`, `Float`, `String`, `Bool` | Step 4 | **Done** |
 | **7. Stdlib migration** | Split `Flow.List`/`Flow.Array` into typed modules; eventually `Functor`/`Foldable` | Step 6 + HKTs | Large |
 
 ### Known limitations of current MVP
@@ -617,13 +617,14 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] Generate functions for default class methods (e.g., `neq` from `Eq`)
 - [ ] Constraints recorded but not enforced — Step 4 (solving) will check against instances
 
-### Step 4: Constraint solving — TODO
+### Step 4: Constraint solving — DONE
 
-- [ ] At generalization time, solve accumulated constraints
-- [ ] Concrete type → look up instance → satisfied or error
-- [ ] Type variable → constraint becomes part of the scheme: `forall a. Num<a> => a -> a -> a`
+- [x] After inference, walk `class_constraints` and check concrete types against ClassEnv
+- [x] Concrete type with no instance → E444 "No type class instance"
+- [x] Type variables left unsolved (future: add to scheme)
+- [x] Compiler-generated code (default spans) skipped
+- [x] Only enforced under `--strict-types` (Flow stdlib excluded)
 - [ ] Defaulting: unconstrained `Num` variables default to `Int`
-- [ ] Error messages: "No instance for Num<String> arising from a use of `+`"
 
 ### Step 5: Dictionary elaboration — TODO
 
@@ -634,11 +635,14 @@ instance Monoid<String>      { fn empty() { "" } }
 - [ ] Both VM and LLVM backends receive dictionaries as regular arguments
 - [ ] Remove runtime `type_of()` dispatch — replaced by compile-time dictionaries
 
-### Step 6: Built-in classes — TODO
+### Step 6: Built-in classes — DONE
 
-- [ ] Register `Eq`, `Ord`, `Num`, `Show`, `Semigroup`, `Monoid` in the class environment
-- [ ] Register built-in instances for `Int`, `Float`, `String`, `Bool`
-- [ ] Wire operator desugaring to class methods
+- [x] Register `Eq`, `Ord`, `Num`, `Show`, `Semigroup` in the class environment
+- [x] Register built-in instances: Eq/Show (Int, Float, String, Bool), Ord (Int, Float, String), Num (Int, Float), Semigroup (String)
+- [x] Built-in classes don't override user-declared classes
+- [x] Constraint solver verifies operator usage against built-in instances under `--strict-types`
+- [ ] Register `Monoid` class
+- [ ] Wire operator desugaring to class methods (operators still go through primops)
 - [ ] Remove `Any`-typed primop overloads — replaced by class dispatch
 
 ### Step 7: Flow stdlib migration
