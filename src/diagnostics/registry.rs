@@ -100,6 +100,8 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     TYPE_UNIFICATION_ERROR,
     OCCURS_CHECK_FAILURE,
     UNDEFINED_TYPE_VAR,
+    // Strict-types errors (E430+)
+    STRICT_TYPES_ANY_INFERRED,
     // Runtime errors (E1000+)
     WRONG_NUMBER_OF_ARGUMENTS,
     NOT_A_FUNCTION,
@@ -155,7 +157,7 @@ pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
         "E076" => Some(DiagnosticCategory::ParserDelimiter),
         "E423" => Some(DiagnosticCategory::TypeInference),
         "E426" => Some(DiagnosticCategory::Internal),
-        "E056" | "E300" | "E301" => Some(DiagnosticCategory::TypeInference),
+        "E056" | "E300" | "E301" | "E430" => Some(DiagnosticCategory::TypeInference),
         "E400" | "E401" | "E402" | "E403" | "E404" | "E405" | "E406" | "E407" | "E419" | "E420"
         | "E421" | "E422" | "E425" => Some(DiagnosticCategory::Effects),
         "E1004" => Some(DiagnosticCategory::RuntimeType),
