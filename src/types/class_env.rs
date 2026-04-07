@@ -262,4 +262,135 @@ impl ClassEnv {
             .filter(|i| i.class_name == class_name)
             .collect()
     }
+
+    /// Register built-in type classes and instances.
+    ///
+    /// These are "phantom" entries — no real method bodies. They exist so the
+    /// constraint solver can verify operator usage at compile time without
+    /// users writing explicit class/instance declarations.
+    pub fn register_builtins(&mut self, interner: &mut Interner) {
+        let eq = interner.intern("Eq");
+        let ord = interner.intern("Ord");
+        let num = interner.intern("Num");
+        let show = interner.intern("Show");
+        let semigroup = interner.intern("Semigroup");
+
+        let eq_method = interner.intern("eq");
+        let compare_method = interner.intern("compare");
+        let add_method = interner.intern("add");
+        let sub_method = interner.intern("sub");
+        let mul_method = interner.intern("mul");
+        let show_method = interner.intern("show");
+        let append_method = interner.intern("append");
+
+        let int_name = interner.intern("Int");
+        let float_name = interner.intern("Float");
+        let string_name = interner.intern("String");
+        let bool_name = interner.intern("Bool");
+
+        let a_param = interner.intern("a");
+
+        // ── Class definitions ──────────────────────────────────────────
+
+        // Eq: eq(a, a) -> Bool
+        self.register_builtin_class(eq, a_param, vec![
+            MethodSig { name: eq_method, param_types: vec![], return_type: builtin_type(bool_name), arity: 2 },
+        ]);
+
+        // Ord: compare(a, a) -> Int
+        self.register_builtin_class(ord, a_param, vec![
+            MethodSig { name: compare_method, param_types: vec![], return_type: builtin_type(int_name), arity: 2 },
+        ]);
+
+        // Num: add(a, a) -> a, sub(a, a) -> a, mul(a, a) -> a
+        self.register_builtin_class(num, a_param, vec![
+            MethodSig { name: add_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
+            MethodSig { name: sub_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
+            MethodSig { name: mul_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
+        ]);
+
+        // Show: show(a) -> String
+        self.register_builtin_class(show, a_param, vec![
+            MethodSig { name: show_method, param_types: vec![], return_type: builtin_type(string_name), arity: 1 },
+        ]);
+
+        // Semigroup: append(a, a) -> a
+        self.register_builtin_class(semigroup, a_param, vec![
+            MethodSig { name: append_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
+        ]);
+
+        // ── Instance definitions ───────────────────────────────────────
+
+        // Eq instances: Int, Float, String, Bool
+        for ty in [int_name, float_name, string_name, bool_name] {
+            self.register_builtin_instance(eq, ty);
+        }
+
+        // Ord instances: Int, Float, String
+        for ty in [int_name, float_name, string_name] {
+            self.register_builtin_instance(ord, ty);
+        }
+
+        // Num instances: Int, Float
+        for ty in [int_name, float_name] {
+            self.register_builtin_instance(num, ty);
+        }
+
+        // Show instances: Int, Float, String, Bool
+        for ty in [int_name, float_name, string_name, bool_name] {
+            self.register_builtin_instance(show, ty);
+        }
+
+        // Semigroup instances: String
+        self.register_builtin_instance(semigroup, string_name);
+    }
+
+    /// Register a single built-in class definition.
+    fn register_builtin_class(
+        &mut self,
+        name: Identifier,
+        type_param: Identifier,
+        methods: Vec<MethodSig>,
+    ) {
+        // Don't override user-declared classes.
+        if self.classes.contains_key(&name) {
+            return;
+        }
+        self.classes.insert(name, ClassDef {
+            name,
+            type_param,
+            superclasses: vec![],
+            methods,
+            default_methods: vec![],
+            span: Span::default(),
+        });
+    }
+
+    /// Register a single built-in instance.
+    fn register_builtin_instance(&mut self, class_name: Identifier, type_name: Identifier) {
+        // Don't duplicate if user already declared this instance.
+        let already_exists = self.instances.iter().any(|i| {
+            i.class_name == class_name
+                && i.type_args.first().map(|t| format!("{t:?}")) == Some(format!("{:?}", builtin_type(type_name)))
+        });
+        if already_exists {
+            return;
+        }
+        self.instances.push(InstanceDef {
+            class_name,
+            type_args: vec![builtin_type(type_name)],
+            context: vec![],
+            method_names: vec![],
+            span: Span::default(),
+        });
+    }
+}
+
+/// Create a simple named TypeExpr for built-in type references.
+fn builtin_type(name: Identifier) -> TypeExpr {
+    TypeExpr::Named {
+        name,
+        args: vec![],
+        span: Span::default(),
+    }
 }
