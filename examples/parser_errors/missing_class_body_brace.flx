@@ -1,0 +1,12 @@
+// Missing `{` to begin class body.
+//
+// Expected: E034 Missing Class Body
+//   "Expected `{` to begin class body."
+//   Help: "Class declarations use `class Name<a> { fn method(x: a) -> ReturnType }`."
+
+class Show<a>
+    fn show(x: a) -> String
+
+fn main() {
+    42
+}

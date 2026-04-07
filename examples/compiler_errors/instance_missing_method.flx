@@ -1,0 +1,18 @@
+// Instance that doesn't implement all required class methods.
+//
+// Expected: E442 Missing Instance Method
+//   "Missing method `value` in instance `Describable`."
+//   Hint: "`Describable` requires: fn value(...)"
+
+class Describable<a> {
+    fn name(x: a) -> Int
+    fn value(x: a) -> Int
+}
+
+instance Describable<Int> {
+    fn name(x) { x }
+}
+
+fn main() {
+    42
+}

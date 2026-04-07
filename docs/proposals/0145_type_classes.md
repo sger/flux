@@ -22,32 +22,29 @@ Last updated: 2026-04-07
 |------|---------|-------|-------|
 | **1. Parser** | `class` and `instance` keywords, AST types, full pipeline (Core IR, CFG, LIR) | `token_type.rs`, `type_class.rs`, `statement.rs`, `parser/statement.rs`, `core/mod.rs`, `cfg/mod.rs` + 15 match exhaustiveness fixes | Superclass `=>` syntax not yet parsed (no `=>` token) |
 | **2. ClassEnv** | Collect and validate declarations, error codes E440–E443 | `types/class_env.rs`, `compiler_errors.rs`, `registry.rs`, `compiler/mod.rs`, `passes/collection.rs` | Validates: duplicate class, unknown class in instance, missing methods (respects defaults), duplicate instances |
-| **3–5. Dispatch (MVP)** | Instance methods compiled as mangled functions + runtime `type_of()` dispatch | `types/class_dispatch.rs`, `compiler/pipeline.rs` | Works for single-instance per method. Multi-instance in same scope hits HM inference conflict |
-| **3. Constraints** | Emit class constraints during HM inference for operators and class method calls | `constraint.rs`, `operators.rs`, `calls.rs`, `mod.rs` | Constraints recorded + resolved in `InferProgramResult`. Not enforced yet (Step 4). |
+| **3. Constraints** | Emit class constraints during HM inference for operators and class method calls | `constraint.rs`, `operators.rs`, `calls.rs`, `mod.rs` | Constraints recorded + resolved in `InferProgramResult`. |
+| **4. Constraint solving** | Resolve constraints at generalization: concrete types → instance lookup | `class_solver.rs` | E444 for unsatisfied concrete constraints under `--strict-types`. Type variables left unsolved. |
+| **5. Dispatch** | Compile-time monomorphic resolution + polymorphic `type_of()` dispatch | `class_dispatch.rs`, `compiler/pipeline.rs`, `compiler/mod.rs`, `core/lower_ast/mod.rs` | Mangled instance functions (`__tc_Class_Type_method`). Polymorphic stub for HM inference. Multi-instance in same scope works via fresh type var instantiation. LLVM backend support added (dispatch function generation in `lower_to_lir_llvm_module_per_module`). |
+| **6. Built-in classes** | `Eq`, `Ord`, `Num`, `Show`, `Semigroup` with instances for primitive types | `class_env.rs` | Builtins registered before user classes. Don't override user declarations. |
+| **HKTs** | Higher-kinded types + kind system | `types/kind.rs`, `types/infer_type.rs` (`HktApp`), `types/unify.rs` | `Kind::Type` and `Kind::Arrow`. Per-method type params (`fn fmap<a, b>`). `Functor<List>` works end-to-end. |
 
 ### Remaining
 
 | Step | Feature | Blocker | Difficulty |
 |------|---------|---------|------------|
-| **3. Constraint generation** | Emit `ClassConstraintWanted` during HM inference when class methods are called | None | **Done** |
-| **4. Constraint solving** | Resolve constraints at generalization: concrete types → instance lookup | Step 3 | **Done** |
-| **5. Dictionary elaboration** | Replace runtime dispatch with dictionary-passing in Core IR; constrained functions get extra dictionary params | Step 4 | **Monomorphic done** (compile-time instance resolution during Core lowering); polymorphic dictionary params deferred |
-| **6. Built-in classes** | Register compiler-provided `Eq`, `Ord`, `Num`, `Show`, `Semigroup` with instances for `Int`, `Float`, `String`, `Bool` | Step 4 | **Done** |
-| **7. Stdlib migration** | Split `Flow.List`/`Flow.Array` into typed modules; eventually `Functor`/`Foldable` | Step 6 + HKTs | Large |
+| **5b. Dictionary elaboration** | Replace `type_of()` dispatch with dictionary-passing in Core IR; constrained functions get extra dictionary params | None | Large — see Proposal 0146 Track 1 |
+| **7. Stdlib migration** | Split `Flow.List`/`Flow.Array` into typed modules; `Functor`/`Foldable` | HKTs (done), dictionary elaboration | Large |
+| **Hardening** | Superclass enforcement, structural duplicate detection, extra method validation, multi-param classes | None | See Proposal 0146 Tracks 2–5 |
 
-### Known limitations of current MVP
+### Known limitations
 
-1. **No constraint system** — Steps 3–5 were bypassed with runtime `type_of()` dispatch. This works end-to-end for single-instance cases but is not type-safe at compile time.
+1. **No superclass parsing** — `class Eq<a> => Ord<a>` syntax is not parsed. The lexer has no `=>` token. Needs either a new token or two-token lookahead (`=` + `>`). (Proposal 0146 Track 2)
 
-2. **Multi-instance conflict** — When `Eq<Int>` and `Eq<String>` both exist, calling `eq(1, 1)` then `eq("a", "b")` in the same scope fails because HM inference locks the dispatch function's parameter type from the first call. Fix: dictionary passing (Step 5) or `Any`-typed dispatch params.
+2. **No operator desugaring** — `==` still goes through `CmpEq` primop, not `Eq.eq`. Operators and class methods are independent systems.
 
-3. **No superclass parsing** — `class Eq<a> => Ord<a>` syntax is not parsed. The lexer has no `=>` token. Needs either a new token or two-token lookahead (`=` + `>`).
+3. **Polymorphic dispatch uses `type_of()`** — Works at runtime but not type-safe. Dictionary passing (Step 5b) will replace this with compile-time dictionaries. (Proposal 0146 Track 1)
 
-4. **No operator desugaring** — `==` still goes through `CmpEq` primop, not `Eq.eq`. Operators and class methods are independent systems.
-
-5. **No polymorphic dispatch** — `fn contains<a: Eq>(xs, elem)` can't work because there's no dictionary passing for type-variable cases. Only concrete types are dispatched.
-
-6. **No built-in instances** — Users must write their own `instance Eq<Int> { ... }`. The compiler doesn't pre-register any class/instance definitions.
+4. **Duplicate instance detection fragile** — Uses `format!("{:?}")` comparison including spans. (Proposal 0146 Track 3)
 
 ### Architecture decisions
 
