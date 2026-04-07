@@ -18,6 +18,7 @@ impl Compiler {
         self.infer_unannotated_function_effects(program);
         self.collect_adt_definitions(program);
         self.collect_effect_declarations(program);
+        self.collect_class_declarations(program);
         let main_state = self.validate_main_entrypoint(program);
         self.validate_top_level_effectful_code(program, main_state.has_main);
         self.validate_main_root_effect_discharge(program, main_state);

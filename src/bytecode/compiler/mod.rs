@@ -412,6 +412,8 @@ pub struct Compiler {
     profiling: bool,
     /// Cost centre metadata accumulated during compilation.
     pub cost_centre_infos: Vec<crate::bytecode::vm::profiling::CostCentreInfo>,
+    /// Type class environment — populated during collection phase.
+    pub(super) class_env: crate::types::class_env::ClassEnv,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -488,6 +490,7 @@ impl Compiler {
             type_optimize: false,
             profiling: false,
             cost_centre_infos: Vec::new(),
+            class_env: crate::types::class_env::ClassEnv::new(),
         }
     }
 
@@ -983,6 +986,16 @@ impl Compiler {
             }
             _ => {}
         }
+    }
+
+    fn collect_class_declarations(&mut self, program: &Program) {
+        let (env, diagnostics) =
+            crate::types::class_env::ClassEnv::from_statements(
+                &program.statements,
+                &self.interner,
+            );
+        self.class_env = env;
+        self.warnings.extend(diagnostics);
     }
 
     fn collect_module_contracts(&mut self, program: &Program) {
