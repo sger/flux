@@ -29,8 +29,8 @@ Last updated: 2026-04-07
 
 | Phase | Feature | Status | Blocker |
 |-------|---------|--------|---------|
-| **3** | Type classes (full) | In progress | Proposal 0145 Steps 3–6: constraint generation, solving, dictionary passing, built-in classes |
-| **4** | Constraint solver + dictionaries | Not started | Proposal 0145 Steps 3–5 |
+| **3** | Type classes (full) | In progress | Proposal 0145: Steps 1-4, 6 done. Step 5 (dictionary passing) remaining. |
+| **4** | Constraint solver + dictionaries | **Partially done** | Constraint generation + solving done (0145 Steps 3-4). Dictionary passing (Step 5) remaining. |
 | **5** | Higher-kinded types | Not started | Phase 4 complete; requires kind system |
 | **6** | Deriving (`Eq`, `Ord`, `Show`) | Not started | Phase 3–4 complete |
 | **7** | Typed Core IR (Proposal 0119) | Not started | Phase 1–2 complete (done) |

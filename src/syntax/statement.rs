@@ -99,6 +99,8 @@ pub enum Statement {
         name: Identifier,
         type_params: Vec<Identifier>,
         variants: Vec<DataVariant>,
+        /// Classes to auto-derive: `data Foo { ... } deriving (Eq, Show)`
+        deriving: Vec<Identifier>,
         span: Span,
     },
     /// effect Name { op: Params -> Ret, ... } - declares a user defined effect.

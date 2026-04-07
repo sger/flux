@@ -174,11 +174,13 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             type_params,
             variants,
             span,
+            deriving,
         } => Statement::Data {
             name,
             type_params,
             variants,
             span,
+            deriving,
         },
         Statement::EffectDecl { name, ops, span } => Statement::EffectDecl { name, ops, span },
         Statement::Class { name, type_params, superclasses, methods, span } => {
