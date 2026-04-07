@@ -1137,6 +1137,9 @@ impl Compiler {
                 }
                 // Effect declarations are syntax only for now no bytecode emitted.
                 Statement::EffectDecl { .. } => {}
+                // Type class declarations are syntax only — no bytecode emitted.
+                Statement::Class { .. } => {}
+                Statement::Instance { .. } => {}
             }
             Ok(())
         })();

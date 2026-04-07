@@ -390,7 +390,9 @@ impl<'a> FunctionLoweringContext<'a> {
             | Statement::Module { .. }
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
-            | Statement::LetDestructure { .. } => Ok(None),
+            | Statement::LetDestructure { .. }
+            | Statement::Class { .. }
+            | Statement::Instance { .. } => Ok(None),
         }
     }
 
@@ -2555,6 +2557,20 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
             ops: ops.clone(),
             span: *span,
         }),
+        Statement::Class { name, type_params, superclasses, methods, span } => Ok(IrTopLevelItem::Class {
+            name: *name,
+            type_params: type_params.clone(),
+            superclasses: superclasses.clone(),
+            methods: methods.clone(),
+            span: *span,
+        }),
+        Statement::Instance { class_name, type_args, context, methods, span } => Ok(IrTopLevelItem::Instance {
+            class_name: *class_name,
+            type_args: type_args.clone(),
+            context: context.clone(),
+            methods: methods.clone(),
+            span: *span,
+        }),
     }
 }
 
@@ -2663,6 +2679,20 @@ pub(crate) fn ir_top_level_item_to_statement(
         IrTopLevelItem::EffectDecl { name, ops, span } => Statement::EffectDecl {
             name: *name,
             ops: ops.clone(),
+            span: *span,
+        },
+        IrTopLevelItem::Class { name, type_params, superclasses, methods, span } => Statement::Class {
+            name: *name,
+            type_params: type_params.clone(),
+            superclasses: superclasses.clone(),
+            methods: methods.clone(),
+            span: *span,
+        },
+        IrTopLevelItem::Instance { class_name, type_args, context, methods, span } => Statement::Instance {
+            class_name: *class_name,
+            type_args: type_args.clone(),
+            context: context.clone(),
+            methods: methods.clone(),
             span: *span,
         },
     }

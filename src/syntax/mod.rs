@@ -21,6 +21,7 @@ pub mod statement;
 pub mod symbol;
 pub mod token;
 pub mod token_type;
+pub mod type_class;
 pub mod type_expr;
 
 pub type Identifier = symbol::Symbol;

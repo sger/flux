@@ -143,5 +143,7 @@ define_tokens! {
         Effect => "effect",
         Handle => "handle",
         Perform => "perform",
+        Class => "class",
+        Instance => "instance",
     }
 }
