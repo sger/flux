@@ -149,6 +149,7 @@ impl TypeEnv {
         forall.sort_unstable();
         Scheme {
             forall,
+            constraints: Vec::new(),
             infer_type: ty.clone(),
         }
     }
@@ -481,6 +482,7 @@ mod tests {
             a,
             Scheme {
                 forall: vec![0],
+                constraints: vec![],
                 infer_type: InferType::Fun(
                     vec![infer_var(0)],
                     Box::new(infer_var(1)),

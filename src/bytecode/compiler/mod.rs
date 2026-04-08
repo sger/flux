@@ -1173,7 +1173,7 @@ impl Compiler {
         let mut forall = infer_type.free_vars().into_iter().collect::<Vec<_>>();
         forall.sort_unstable();
         forall.dedup();
-        Some(Scheme { forall, infer_type })
+        Some(Scheme { forall, constraints: Vec::new(), infer_type })
     }
 
     fn native_function_arity(scheme: &Scheme) -> usize {
@@ -1609,7 +1609,7 @@ impl Compiler {
             let mut forall = infer_type.free_vars().into_iter().collect::<Vec<_>>();
             forall.sort_unstable();
             forall.dedup();
-            schemes.insert(sym, Scheme { forall, infer_type });
+            schemes.insert(sym, Scheme { forall, constraints: Vec::new(), infer_type });
         }
     }
 
@@ -3022,6 +3022,24 @@ impl Compiler {
             None,
             class_env_ref,
         );
+
+        // Dictionary elaboration (Proposal 0145, Step 5b):
+        // Emit __dict_* CoreDefs and rewrite constrained function bodies.
+        if !self.class_env.classes.is_empty() {
+            let mut max_id: u32 = 0;
+            for def in &core.defs {
+                max_id = max_id.max(def.binder.id.0);
+            }
+            let mut next_id = max_id + 1;
+            crate::core::passes::elaborate_dictionaries(
+                &mut core,
+                &self.class_env,
+                &self.type_env,
+                &self.interner,
+                &mut next_id,
+            );
+        }
+
         let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
         crate::core::passes::run_core_passes_with_interner_and_registry(
             &mut core,

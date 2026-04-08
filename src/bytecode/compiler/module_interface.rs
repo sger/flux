@@ -330,6 +330,7 @@ mod tests {
             (module, public_name),
             Scheme {
                 forall: vec![0, 1],
+                constraints: vec![],
                 infer_type: InferType::Fun(
                     vec![
                         InferType::App(TypeConstructor::List, vec![InferType::Var(0)]),
@@ -410,6 +411,7 @@ mod tests {
             (module, fn_name),
             Scheme {
                 forall: vec![],
+                constraints: vec![],
                 infer_type: InferType::Fun(
                     vec![InferType::Con(TypeConstructor::Adt(adt_sym))],
                     Box::new(InferType::Con(TypeConstructor::Unit)),
@@ -470,6 +472,7 @@ mod tests {
             (module, fn_name),
             Scheme {
                 forall: vec![0],
+                constraints: vec![],
                 infer_type: InferType::Fun(
                     vec![InferType::Var(0)],
                     Box::new(InferType::Var(0)),

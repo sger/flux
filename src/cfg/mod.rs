@@ -92,6 +92,21 @@ fn lower_program_to_ir_impl(
     let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
         program, hm_expr_types, interner, type_env, None, class_env,
     );
+
+    // Dictionary elaboration (Proposal 0145, Step 5b):
+    // If class_env and type_env are available, run dictionary elaboration
+    // before standard Core passes.
+    if let (Some(ce), Some(te), Some(int)) = (class_env, type_env, interner)
+        && !ce.classes.is_empty()
+    {
+        let mut max_id: u32 = 0;
+        for def in &core.defs {
+            max_id = max_id.max(def.binder.id.0);
+        }
+        let mut next_id = max_id + 1;
+        crate::core::passes::elaborate_dictionaries(&mut core, ce, te, int, &mut next_id);
+    }
+
     let warnings = if let Some(interner) = interner {
         crate::core::passes::run_core_passes_with_interner_and_warnings(
             &mut core, interner, optimize,

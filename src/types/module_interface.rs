@@ -214,6 +214,7 @@ mod tests {
             "map".to_string(),
             Scheme {
                 forall: vec![0, 1],
+                constraints: vec![],
                 infer_type: InferType::Fun(
                     vec![
                         InferType::App(TypeConstructor::List, vec![InferType::Var(0)]),
