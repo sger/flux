@@ -4719,7 +4719,9 @@ impl Compiler {
                 _ => None,
             };
             if let Some(tn) = type_name
-                && let Some(instance) = self.class_env.resolve_instance_for_type(class_name, tn, &self.interner)
+                && let Some(instance) =
+                    self.class_env
+                        .resolve_instance_for_type(class_name, tn, &self.interner)
             {
                 // Build mangled name from all instance type args (multi-param support).
                 let type_key = instance

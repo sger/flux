@@ -48,10 +48,11 @@ impl<'a> InferCtx<'a> {
             // Identifiers
             Expression::Identifier { name, .. } => {
                 if let Some(scheme) = self.env.lookup(*name).cloned() {
-                    let (ty, mapping, _constraints) = scheme.instantiate(&mut self.env.counter);
+                    let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
                     for &fresh in mapping.values() {
                         self.env.record_var_level(fresh);
                     }
+                    self.emit_scheme_constraints(&constraints, expr.span());
                     ty
                 } else {
                     if self.known_flow_names.contains(name) {

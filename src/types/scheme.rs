@@ -87,7 +87,14 @@ impl Scheme {
     ///
     /// The returned mapping is useful for debugging and tests; inference usually
     /// only needs the instantiated type.
-    pub fn instantiate(&self, counter: &mut u32) -> (InferType, HashMap<TypeVarId, TypeVarId>, Vec<SchemeConstraint>) {
+    pub fn instantiate(
+        &self,
+        counter: &mut u32,
+    ) -> (
+        InferType,
+        HashMap<TypeVarId, TypeVarId>,
+        Vec<SchemeConstraint>,
+    ) {
         let mut mapping: HashMap<TypeVarId, TypeVarId> = HashMap::new();
 
         for &v in &self.forall {
@@ -122,11 +129,19 @@ impl Scheme {
             .iter()
             .map(|c| SchemeConstraint {
                 class_name: c.class_name,
-                type_vars: c.type_vars.iter().map(|v| mapping.get(v).copied().unwrap_or(*v)).collect(),
+                type_vars: c
+                    .type_vars
+                    .iter()
+                    .map(|v| mapping.get(v).copied().unwrap_or(*v))
+                    .collect(),
             })
             .collect();
 
-        (self.infer_type.apply_type_subst(&type_subst), mapping, constraints)
+        (
+            self.infer_type.apply_type_subst(&type_subst),
+            mapping,
+            constraints,
+        )
     }
 
     /// Returns free type variables in the body that are not quantified by

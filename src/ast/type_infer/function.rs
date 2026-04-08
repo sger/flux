@@ -23,6 +23,7 @@ impl<'a> InferCtx<'a> {
         // Map explicit type parameters (e.g. `T`, `U`) to fresh type variables.
         let tp_map = self.allocate_type_parameter_vars(input.type_params);
         let mut row_var_env: HashMap<Identifier, TypeVarId> = HashMap::new();
+        self.emit_declared_type_param_constraints(input.type_params, &tp_map, input.fn_span);
 
         self.env.enter_scope();
 
@@ -76,12 +77,33 @@ impl<'a> InferCtx<'a> {
     /// Allocate fresh HM type variables for explicit generic type parameters.
     fn allocate_type_parameter_vars(
         &mut self,
-        type_params: &[Identifier],
+        type_params: &[crate::syntax::statement::FunctionTypeParam],
     ) -> HashMap<Identifier, TypeVarId> {
         type_params
             .iter()
-            .map(|symbol| (*symbol, self.env.alloc_type_var_id()))
+            .map(|param| (param.name, self.env.alloc_type_var_id()))
             .collect()
+    }
+
+    /// Emit class constraints declared inline on function generic parameters.
+    ///
+    /// This reuses the normal wanted-constraint path so explicit bounds like
+    /// `fn f<a: Eq + Show>(...)` flow through solving and scheme generation
+    /// the same way as constraints inferred from operators or method calls.
+    fn emit_declared_type_param_constraints(
+        &mut self,
+        type_params: &[crate::syntax::statement::FunctionTypeParam],
+        tp_map: &HashMap<Identifier, TypeVarId>,
+        span: Span,
+    ) {
+        for type_param in type_params {
+            let Some(type_var) = tp_map.get(&type_param.name).copied() else {
+                continue;
+            };
+            for &constraint in &type_param.constraints {
+                self.emit_class_constraint(constraint, InferType::Var(type_var), span);
+            }
+        }
     }
 
     /// Infer and bind function parameters in the current scope.
@@ -193,7 +215,7 @@ impl<'a> InferCtx<'a> {
         &mut self,
         name: Identifier,
         fn_span: Span,
-        type_params: &[Identifier],
+        type_params: &[crate::syntax::statement::FunctionTypeParam],
         param_tys: &[InferType],
         ret_ty: &InferType,
         declared_effect_row: &InferEffectRow,

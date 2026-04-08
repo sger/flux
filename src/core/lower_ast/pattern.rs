@@ -4,9 +4,7 @@ use crate::{
     types::infer_type::InferType,
 };
 
-use crate::core::{
-    CoreAlt, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat, CoreTag, FluxRep,
-};
+use crate::core::{CoreAlt, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat, CoreTag, FluxRep};
 
 impl<'a> super::AstLowerer<'a> {
     // ── Pattern lowering ─────────────────────────────────────────────────────
@@ -128,11 +126,7 @@ impl<'a> super::AstLowerer<'a> {
     /// When `ty` is `Some`, pattern variable binders get their `FluxRep` from
     /// the decomposed type (mirroring HM inference's `bind_pattern_variables`).
     /// When `ty` is `None`, falls back to `TaggedRep` (the default).
-    pub(super) fn lower_pattern_typed(
-        &mut self,
-        pat: &Pattern,
-        ty: Option<&InferType>,
-    ) -> CorePat {
+    pub(super) fn lower_pattern_typed(&mut self, pat: &Pattern, ty: Option<&InferType>) -> CorePat {
         use crate::types::type_constructor::TypeConstructor;
 
         match pat {
@@ -147,9 +141,7 @@ impl<'a> super::AstLowerer<'a> {
             Pattern::Literal { expression, .. } => match expression {
                 Expression::Integer { value, .. } => CorePat::Lit(CoreLit::Int(*value)),
                 Expression::Float { value, .. } => CorePat::Lit(CoreLit::Float(*value)),
-                Expression::String { value, .. } => {
-                    CorePat::Lit(CoreLit::String(value.clone()))
-                }
+                Expression::String { value, .. } => CorePat::Lit(CoreLit::String(value.clone())),
                 Expression::Boolean { value, .. } => CorePat::Lit(CoreLit::Bool(*value)),
                 _ => CorePat::Wildcard,
             },

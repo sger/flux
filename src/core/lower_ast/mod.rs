@@ -19,7 +19,9 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     ast::free_vars::collect_free_vars_in_function_body,
     diagnostics::position::Span,
-    syntax::{block::Block, expression::ExprId, Identifier, program::Program, statement::Statement},
+    syntax::{
+        Identifier, block::Block, expression::ExprId, program::Program, statement::Statement,
+    },
     types::infer_type::InferType,
 };
 
@@ -102,8 +104,7 @@ pub fn lower_program_ast_with_class_env(
     effect_op_sigs: Option<&EffectOpSigs>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
 ) -> CoreProgram {
-    let mut lowerer =
-        AstLowerer::new(hm_expr_types, interner, type_env, effect_op_sigs, class_env);
+    let mut lowerer = AstLowerer::new(hm_expr_types, interner, type_env, effect_op_sigs, class_env);
     let mut defs = Vec::new();
     let mut top_level_items = Vec::new();
     for stmt in &program.statements {
@@ -283,7 +284,8 @@ impl<'a> AstLowerer<'a> {
         if let Some(first_arg) = arguments.first()
             && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
             && let Some(first_type_name) = Self::infer_type_to_type_name(first_arg_type, interner)
-            && let Some(instance) = class_env.resolve_instance_for_type(class_name, &first_type_name, interner)
+            && let Some(instance) =
+                class_env.resolve_instance_for_type(class_name, &first_type_name, interner)
         {
             // Build mangled name from all instance type args.
             let type_key = instance
@@ -350,11 +352,10 @@ impl<'a> AstLowerer<'a> {
         _call_id: ExprId,
         arguments: &[crate::syntax::expression::Expression],
     ) -> Vec<CoreExpr> {
-        let (type_env, class_env, interner) =
-            match (self.type_env, self.class_env, self.interner) {
-                (Some(te), Some(ce), Some(int)) => (te, ce, int),
-                _ => return Vec::new(),
-            };
+        let (type_env, class_env, interner) = match (self.type_env, self.class_env, self.interner) {
+            (Some(te), Some(ce), Some(int)) => (te, ce, int),
+            _ => return Vec::new(),
+        };
 
         let scheme = match type_env.lookup(callee_name) {
             Some(s) if !s.constraints.is_empty() => s,
@@ -367,12 +368,8 @@ impl<'a> AstLowerer<'a> {
         for constraint in &scheme.constraints {
             // Try to find a concrete type for this constraint's type variable
             // by examining the call-site argument types.
-            let concrete_type = self.resolve_constraint_type(
-                constraint,
-                scheme,
-                arguments,
-                interner,
-            );
+            let concrete_type =
+                self.resolve_constraint_type(constraint, scheme, arguments, interner);
 
             if let Some(type_name) = concrete_type {
                 // Check if an instance exists and a dictionary was pre-interned.
@@ -425,7 +422,11 @@ impl<'a> AstLowerer<'a> {
         if let InferType::Fun(param_tys, _, _) = &scheme.infer_type {
             for (i, param_ty) in param_tys.iter().enumerate() {
                 // Check if this parameter uses the constrained type variable.
-                if constraint.type_vars.iter().any(|v| param_ty.free_vars().contains(v)) {
+                if constraint
+                    .type_vars
+                    .iter()
+                    .any(|v| param_ty.free_vars().contains(v))
+                {
                     // Look at the actual argument's HM type.
                     if let Some(arg) = arguments.get(i)
                         && let Some(arg_ty) = self.hm_expr_types.get(&arg.expr_id())
@@ -438,9 +439,7 @@ impl<'a> AstLowerer<'a> {
                         // the inner type that corresponds to the type variable.
                         if let InferType::App(_, inner_args) = arg_ty {
                             for inner in inner_args {
-                                if let Some(name) =
-                                    Self::infer_type_to_type_name(inner, interner)
-                                {
+                                if let Some(name) = Self::infer_type_to_type_name(inner, interner) {
                                     return Some(name);
                                 }
                             }
@@ -607,8 +606,11 @@ impl<'a> AstLowerer<'a> {
                 self.lower_functions_in_module(&body.statements, out);
             }
 
-            Statement::Import { .. } | Statement::Data { .. } | Statement::EffectDecl { .. }
-            | Statement::Class { .. } | Statement::Instance { .. } => {}
+            Statement::Import { .. }
+            | Statement::Data { .. }
+            | Statement::EffectDecl { .. }
+            | Statement::Class { .. }
+            | Statement::Instance { .. } => {}
         }
     }
 
@@ -656,7 +658,7 @@ impl<'a> AstLowerer<'a> {
             } => Some(CoreTopLevelItem::Function {
                 is_public: *is_public,
                 name: *name,
-                type_params: type_params.clone(),
+                type_params: Statement::function_type_param_names(type_params),
                 parameters: parameters.clone(),
                 parameter_types: parameter_types.clone(),
                 return_type: return_type.clone(),
@@ -702,24 +704,32 @@ impl<'a> AstLowerer<'a> {
                 ops: ops.clone(),
                 span: *span,
             }),
-            Statement::Class { name, type_params, superclasses, methods, span } => {
-                Some(CoreTopLevelItem::Class {
-                    name: *name,
-                    type_params: type_params.clone(),
-                    superclasses: superclasses.clone(),
-                    methods: methods.clone(),
-                    span: *span,
-                })
-            }
-            Statement::Instance { class_name, type_args, context, methods, span } => {
-                Some(CoreTopLevelItem::Instance {
-                    class_name: *class_name,
-                    type_args: type_args.clone(),
-                    context: context.clone(),
-                    methods: methods.clone(),
-                    span: *span,
-                })
-            }
+            Statement::Class {
+                name,
+                type_params,
+                superclasses,
+                methods,
+                span,
+            } => Some(CoreTopLevelItem::Class {
+                name: *name,
+                type_params: type_params.clone(),
+                superclasses: superclasses.clone(),
+                methods: methods.clone(),
+                span: *span,
+            }),
+            Statement::Instance {
+                class_name,
+                type_args,
+                context,
+                methods,
+                span,
+            } => Some(CoreTopLevelItem::Instance {
+                class_name: *class_name,
+                type_args: type_args.clone(),
+                context: context.clone(),
+                methods: methods.clone(),
+                span: *span,
+            }),
             Statement::Let { .. }
             | Statement::LetDestructure { .. }
             | Statement::Return { .. }
