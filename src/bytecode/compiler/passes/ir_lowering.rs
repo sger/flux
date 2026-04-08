@@ -42,6 +42,19 @@ impl Compiler {
         self.ir_function_symbols.clear();
         self.register_ir_function_symbols_from_backend(ir_program.functions());
 
+        // Register dict globals (__dict_*) injected by dictionary elaboration.
+        // These CoreDefs are created during Core-to-Core passes and weren't
+        // predeclared during Phase 2 (which only sees AST function names).
+        for &global_name in &ir_program.globals {
+            let Some(name_str) = self.interner.try_resolve(global_name) else {
+                continue;
+            };
+            if name_str.starts_with("__dict_") && self.symbol_table.resolve(global_name).is_none() {
+                self.symbol_table
+                    .define(global_name, crate::diagnostics::position::Span::default());
+            }
+        }
+
         Ok(ir_program)
     }
 }

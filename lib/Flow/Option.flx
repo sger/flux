@@ -2,7 +2,7 @@
 
 module Flow.Option {
     /// Extract the value from Some, or panic on None.
-    public fn unwrap(opt) {
+    public fn unwrap<a>(opt: Option<a>) -> a {
         match opt {
             Some(v) -> v,
             _ -> panic("unwrap called on None"),
@@ -10,7 +10,7 @@ module Flow.Option {
     }
 
     /// Extract the value from Some, or return a default on None.
-    public fn unwrap_or(opt, default) {
+    public fn unwrap_or<a>(opt: Option<a>, default: a) -> a {
         match opt {
             Some(v) -> v,
             _ -> default,
@@ -18,7 +18,7 @@ module Flow.Option {
     }
 
     /// Apply a function to the value inside Some, or pass None through.
-    public fn map_option(opt, f) {
+    public fn map_option<a, b>(opt: Option<a>, f: (a) -> b) -> Option<b> {
         match opt {
             Some(v) -> Some(f(v)),
             _ -> None,
@@ -26,7 +26,7 @@ module Flow.Option {
     }
 
     /// Apply a function that returns Option to the value inside Some.
-    public fn flat_map_option(opt, f) {
+    public fn flat_map_option<a, b>(opt: Option<a>, f: (a) -> Option<b>) -> Option<b> {
         match opt {
             Some(v) -> f(v),
             _ -> None,
@@ -34,7 +34,7 @@ module Flow.Option {
     }
 
     /// Check if an Option contains a value.
-    public fn is_some(opt) {
+    public fn is_some<a>(opt: Option<a>) -> Bool {
         match opt {
             Some(_) -> true,
             _ -> false,
@@ -42,7 +42,7 @@ module Flow.Option {
     }
 
     /// Check if an Option is None.
-    public fn is_none_opt(opt) {
+    public fn is_none_opt<a>(opt: Option<a>) -> Bool {
         match opt {
             Some(_) -> false,
             _ -> true,
