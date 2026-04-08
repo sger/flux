@@ -112,6 +112,7 @@ define_tokens! {
         Hash      => "#",
         At        => "@",
         Arrow     => "->",
+        FatArrow  => "=>",
         LeftArrow => "<-",
         Backslash => "\\",
         InterpolationStart => "#{",

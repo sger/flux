@@ -852,6 +852,14 @@ pub const NO_INSTANCE: ErrorCode = ErrorCode {
     hint: Some("Add an instance declaration for this type."),
 };
 
+pub const MISSING_SUPERCLASS_INSTANCE: ErrorCode = ErrorCode {
+    code: "E445",
+    title: "MISSING SUPERCLASS INSTANCE",
+    error_type: ErrorType::Compiler,
+    message: "Missing superclass instance `{}`.",
+    hint: Some("Add the required superclass instance before this instance."),
+};
+
 // ============================================================================
 // Error Constructor Functions
 // ============================================================================

@@ -1,0 +1,26 @@
+// Superclass parsing test.
+//
+// Tests that `class Constraint<a> => ClassName<a> { ... }` and
+// `instance Constraint<a> => ClassName<Type> { ... }` parse correctly.
+// Superclass enforcement (checking the constraint exists) is a separate step.
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+class Sizeable<a> => Measurable<a> {
+    fn weight(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Sizeable<Int> => Measurable<Int> {
+    fn weight(x) { x * 100 }
+}
+
+fn main() with IO {
+    print(size(5))
+    print(weight(5))
+}
