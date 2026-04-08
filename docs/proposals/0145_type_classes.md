@@ -39,7 +39,7 @@ Last updated: 2026-04-08
 
 ### Known limitations
 
-1. **No superclass parsing** — `class Eq<a> => Ord<a>` syntax is not parsed. The lexer has no `=>` token. Needs either a new token or two-token lookahead (`=` + `>`). (Proposal 0146 Track 2)
+1. ~~**No superclass parsing**~~ **Done** — `class Eq<a> => Ord<a>` and `instance Eq<a> => Eq<List<a>>` syntax now parses. Added `FatArrow` (`=>`) token to lexer. Superclass **enforcement** (checking the constraint exists) is a separate step.
 
 2. **No operator desugaring** — `==` still goes through `CmpEq` primop, not `Eq.eq`. Operators and class methods are independent systems.
 
@@ -584,7 +584,8 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] Parse class and instance declarations
 - [x] Add `CoreTopLevelItem::Class/Instance` and `IrTopLevelItem::Class/Instance`
 - [x] Handle match exhaustiveness across 15+ files
-- [ ] Parse superclass syntax (`Eq<a> => Ord<a>`) — needs `=>` token
+- [x] Parse superclass syntax (`Eq<a> => Ord<a>`) — `FatArrow` token added
+- [x] Parse instance context syntax (`instance Eq<a> => Eq<List<a>>`)
 
 ### Step 2: Class environment — DONE
 
@@ -594,7 +595,7 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] Validate: instance for unknown class rejected (E441)
 - [x] Validate: instance methods match class (missing required methods: E442)
 - [x] Default methods respected (skipped if class provides default body)
-- [ ] Validate: superclass references exist
+- [x] Validate: superclass instances exist (E445 — checks class-level superclasses)
 - [ ] Validate: method arity matches class signature
 
 ### Step 3–5 MVP: Runtime dispatch — DONE
