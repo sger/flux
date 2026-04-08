@@ -19,12 +19,7 @@ impl AdtRegistry {
         }
     }
 
-    pub fn register_adt(
-        &mut self,
-        name: Symbol,
-        variants: &[DataVariant],
-        interner: &Interner,
-    ) {
+    pub fn register_adt(&mut self, name: Symbol, variants: &[DataVariant], interner: &Interner) {
         let mut constructor_list = Vec::new();
 
         for (idx, variant) in variants.iter().enumerate() {

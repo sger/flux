@@ -57,9 +57,9 @@ impl TypeConstructor {
             | TypeConstructor::Never
             | TypeConstructor::Any => Kind::Type,
 
-            TypeConstructor::List
-            | TypeConstructor::Array
-            | TypeConstructor::Option => Kind::type1(),
+            TypeConstructor::List | TypeConstructor::Array | TypeConstructor::Option => {
+                Kind::type1()
+            }
 
             TypeConstructor::Map | TypeConstructor::Either => Kind::type2(),
 

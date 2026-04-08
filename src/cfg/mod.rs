@@ -1,9 +1,7 @@
 use std::{collections::HashMap, fmt};
 
 use crate::{
-    core::{
-        CoreType, passes::run_core_passes, to_ir::lower_core_to_ir,
-    },
+    core::{CoreType, passes::run_core_passes, to_ir::lower_core_to_ir},
     diagnostics::{Diagnostic, position::Span},
     syntax::{
         Identifier,
@@ -77,7 +75,14 @@ pub fn lower_program_to_ir_typed(
     type_env: Option<&crate::types::type_env::TypeEnv>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize, type_env, class_env)
+    lower_program_to_ir_impl(
+        program,
+        hm_expr_types,
+        interner,
+        optimize,
+        type_env,
+        class_env,
+    )
 }
 
 #[allow(clippy::result_large_err)]
@@ -90,7 +95,12 @@ fn lower_program_to_ir_impl(
     class_env: Option<&crate::types::class_env::ClassEnv>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
     let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
-        program, hm_expr_types, interner, type_env, None, class_env,
+        program,
+        hm_expr_types,
+        interner,
+        type_env,
+        None,
+        class_env,
     );
 
     // Dictionary elaboration (Proposal 0145, Step 5b):

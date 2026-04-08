@@ -23,7 +23,7 @@ use crate::{
         expression::{ExprId, Expression, MatchArm},
         interner::Interner,
         program::Program,
-        statement::Statement,
+        statement::{FunctionTypeParam, Statement},
         type_expr::TypeExpr,
     },
     types::{
@@ -95,7 +95,7 @@ pub enum ReportContext {
 struct FnInferInput<'a> {
     name: Identifier,
     fn_span: Span,
-    type_params: &'a [Identifier],
+    type_params: &'a [FunctionTypeParam],
     parameters: &'a [Identifier],
     parameter_types: &'a [Option<TypeExpr>],
     return_type: &'a Option<TypeExpr>,
@@ -261,22 +261,49 @@ impl<'a> InferCtx<'a> {
     ///
     /// The constraint is recorded for downstream phases (Step 4: solving).
     /// Currently informational — does not affect type inference behavior.
-    fn emit_class_constraint(
-        &mut self,
-        class_name: Identifier,
-        type_arg: InferType,
-        span: Span,
-    ) {
-        self.class_constraints.push(constraint::WantedClassConstraint {
-            class_name,
-            type_args: vec![type_arg.clone()],
-            span,
-        });
+    fn emit_class_constraint(&mut self, class_name: Identifier, type_arg: InferType, span: Span) {
+        self.class_constraints
+            .push(constraint::WantedClassConstraint {
+                class_name,
+                type_args: vec![type_arg.clone()],
+                span,
+            });
         self.record_constraint(constraint::Constraint::Class {
             class_name,
             type_args: vec![type_arg],
             span,
         });
+    }
+
+    /// Re-emit instantiated scheme constraints into the current inference state.
+    ///
+    /// Generalized constraints are attached to schemes at definition sites, and
+    /// this helper materializes them again when a constrained binding is used so
+    /// downstream solving and dictionary elaboration can see the call-site
+    /// obligations.
+    fn emit_scheme_constraints(
+        &mut self,
+        constraints: &[constraint::SchemeConstraint],
+        span: Span,
+    ) {
+        for constraint in constraints {
+            let type_args = constraint
+                .type_vars
+                .iter()
+                .map(|v| InferType::Var(*v))
+                .collect::<Vec<_>>();
+            self.class_constraints
+                .push(constraint::WantedClassConstraint {
+                    class_name: constraint.class_name,
+                    type_args: type_args.clone(),
+                    span,
+                });
+            self.record_constraint(constraint::Constraint::Class {
+                class_name: constraint.class_name,
+                type_args,
+                span,
+            });
+        }
     }
 
     /// Extract `SchemeConstraint`s from the global constraint list for a type
@@ -298,7 +325,13 @@ impl<'a> InferCtx<'a> {
             // All type args must resolve to type variables in the generalizing type.
             let vars: Vec<TypeVarId> = resolved
                 .iter()
-                .filter_map(|t| if let InferType::Var(v) = t { Some(*v) } else { None })
+                .filter_map(|t| {
+                    if let InferType::Var(v) = t {
+                        Some(*v)
+                    } else {
+                        None
+                    }
+                })
                 .collect();
             if vars.len() == resolved.len()
                 && vars.iter().all(|v| ty_free.contains(v))
@@ -412,7 +445,14 @@ fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
             let mut forall = resolved_type.free_vars().into_iter().collect::<Vec<_>>();
             forall.sort_unstable();
             forall.dedup();
-            (key, Scheme { forall, constraints: Vec::new(), infer_type: resolved_type })
+            (
+                key,
+                Scheme {
+                    forall,
+                    constraints: Vec::new(),
+                    infer_type: resolved_type,
+                },
+            )
         })
         .collect();
     let resolved_expr_types: HashMap<ExprId, InferType> = ctx
@@ -424,7 +464,11 @@ fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
         .class_constraints
         .into_iter()
         .map(|mut c| {
-            c.type_args = c.type_args.iter().map(|t| t.apply_type_subst(&ctx.subst)).collect();
+            c.type_args = c
+                .type_args
+                .iter()
+                .map(|t| t.apply_type_subst(&ctx.subst))
+                .collect();
             c
         })
         .collect();

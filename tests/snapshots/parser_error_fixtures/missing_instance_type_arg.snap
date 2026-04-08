@@ -15,18 +15,5 @@ Expected `>` after instance type arguments.
    |                       ^
 
 Hint:
-  
-
-
-error[E034]: Unexpected Closing Delimiter
-
-Unexpected `}` outside of a block.
-
-  examples/parser_errors/missing_instance_type_arg.flx:12:1
-   |
-12 | }
-   | ^
-
-Found 2 errors.
 == stdout ==
 <not executed>

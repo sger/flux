@@ -1,16 +1,9 @@
 use crate::{
     diagnostics::{
-        Diagnostic, DiagnosticBuilder,
-        compiler_errors::STRICT_TYPES_ANY_INFERRED,
-        diagnostic_for,
+        Diagnostic, DiagnosticBuilder, compiler_errors::STRICT_TYPES_ANY_INFERRED, diagnostic_for,
         position::Span,
     },
-    syntax::{
-        Identifier,
-        interner::Interner,
-        program::Program,
-        statement::Statement,
-    },
+    syntax::{Identifier, interner::Interner, program::Program, statement::Statement},
     types::type_env::TypeEnv,
 };
 
@@ -45,14 +38,10 @@ fn validate_statements(
 ) {
     for stmt in statements {
         match stmt {
-            Statement::Function {
-                name, span, ..
-            } => {
+            Statement::Function { name, span, .. } => {
                 check_binding(*name, *span, type_env, interner, diagnostics);
             }
-            Statement::Let {
-                name, span, ..
-            } => {
+            Statement::Let { name, span, .. } => {
                 check_binding(*name, *span, type_env, interner, diagnostics);
             }
             Statement::Module { body, .. } => {
