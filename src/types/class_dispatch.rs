@@ -96,10 +96,15 @@ pub fn generate_dispatch_functions(
 /// which only has `&Interner`) can find these names via `lookup()`.
 fn pre_intern_dict_names(class_env: &ClassEnv, interner: &mut Interner) {
     for instance in &class_env.instances {
-        let type_name = match instance.type_args.first() {
-            Some(first_arg) => first_arg.display_with(interner),
-            None => continue,
-        };
+        if instance.type_args.is_empty() {
+            continue;
+        }
+        let type_name = instance
+            .type_args
+            .iter()
+            .map(|a| a.display_with(interner))
+            .collect::<Vec<_>>()
+            .join("_");
         let class_str = interner.resolve(instance.class_name).to_string();
         let dict_name = format!("__dict_{class_str}_{type_name}");
         interner.intern(&dict_name);
@@ -174,11 +179,16 @@ fn generate_from_statements(
                 span,
                 ..
             } => {
-                // Determine the head type name for mangling
-                let type_name = if let Some(first_arg) = type_args.first() {
-                    first_arg.display_with(interner)
-                } else {
+                // Determine the head type name(s) for mangling.
+                // Multi-param classes join all type args: __tc_Convert_Int_String_convert
+                let type_name = if type_args.is_empty() {
                     "Unknown".to_string()
+                } else {
+                    type_args
+                        .iter()
+                        .map(|a| a.display_with(interner))
+                        .collect::<Vec<_>>()
+                        .join("_")
                 };
 
                 let class_name_str = interner.resolve(*class_name).to_string();
@@ -244,7 +254,7 @@ fn generate_polymorphic_dispatch(
     interner: &mut Interner,
 ) -> Statement {
     // Type params: class param + method params
-    let mut type_params = vec![class_def.type_param];
+    let mut type_params = class_def.type_params.clone();
     type_params.extend_from_slice(&method_sig.type_params);
 
     // Generate parameter names: __x0, __x1, ...
@@ -348,7 +358,7 @@ fn generate_polymorphic_stub(
     interner: &mut Interner,
 ) -> Statement {
     // Use the class's type parameter plus any per-method type params.
-    let mut type_params = vec![class_def.type_param];
+    let mut type_params = class_def.type_params.clone();
     type_params.extend_from_slice(&method_sig.type_params);
 
     // Generate parameter names: __x0, __x1, ...

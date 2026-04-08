@@ -337,7 +337,7 @@ instance Sizeable<Int> {
     );
     let constraint = flux::ast::type_infer::constraint::WantedClassConstraint {
         class_name: sizeable_sym,
-        type_arg: string_type,
+        type_args: vec![string_type],
         span: flux::diagnostics::position::Span {
             start: flux::diagnostics::position::Position { line: 1, column: 0 },
             end: flux::diagnostics::position::Position { line: 1, column: 10 },
@@ -370,7 +370,7 @@ class Sizeable<a> {
     let var_type = flux::types::infer_type::InferType::Var(9999u32);
     let constraint = flux::ast::type_infer::constraint::WantedClassConstraint {
         class_name: sizeable_sym,
-        type_arg: var_type,
+        type_args: vec![var_type],
         span: flux::diagnostics::position::Span {
             start: flux::diagnostics::position::Position { line: 1, column: 0 },
             end: flux::diagnostics::position::Position { line: 1, column: 10 },
