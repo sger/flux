@@ -13,19 +13,24 @@ stderr:
 [4 of 7] Compiling  Numeric
 [5 of 7] Compiling  Option
 [6 of 7] Compiling  String
-[7 of 7] Compiling  primop_string_len_type
-[cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/primop_string_len_type.flx
-error[E1004]: primop string_length expected String, got Int
+error[E300]: Argument Type Mismatch
 
-  examples/runtime_errors/primop_string_len_type.flx:2:19
+I found the wrong type in the 1st argument to `string_len`.
+
+  examples/runtime_errors/primop_string_len_type.flx:2:30
   |
 2 |     let ignored = string_len(1)
-  |                   ^^^^^^^^^^^^^
+  |                              ^
+  |                              - this argument has type `Int`
 
-Stack trace:
-  at main (examples/runtime_errors/primop_string_len_type.flx:2:19)
-  at <main>
+Note:
+  expected argument type: String
+  found argument type: Int
+  the actual argument type is inferred from this expression
+
+Help:
+  Try `to_string(...)` to convert a `Int` into a `String`.
 == jit ==
 status: 1
 stdout:
@@ -37,16 +42,21 @@ stderr:
 [4 of 7] Compiling  Numeric
 [5 of 7] Compiling  Option
 [6 of 7] Compiling  String
-[7 of 7] Compiling  primop_string_len_type
-[cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/primop_string_len_type.flx
-error[E1004]: primop string_length expected String, got Int
+error[E300]: Argument Type Mismatch
 
-  examples/runtime_errors/primop_string_len_type.flx:2:19
+I found the wrong type in the 1st argument to `string_len`.
+
+  examples/runtime_errors/primop_string_len_type.flx:2:30
   |
 2 |     let ignored = string_len(1)
-  |                   ^^^^^^^^^^^^^
+  |                              ^
+  |                              - this argument has type `Int`
 
-Stack trace:
-  at main (examples/runtime_errors/primop_string_len_type.flx:2:19)
-  at <main>
+Note:
+  expected argument type: String
+  found argument type: Int
+  the actual argument type is inferred from this expression
+
+Help:
+  Try `to_string(...)` to convert a `Int` into a `String`.

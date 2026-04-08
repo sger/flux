@@ -388,23 +388,31 @@ fn insert_dict_args_expr(
             args,
             arg_modes,
             span,
-        } => CoreExpr::AetherCall {
-            func: Box::new(insert_dict_args_expr(
-                *func,
-                constrained_fns,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            args: args
-                .into_iter()
-                .map(|a| {
-                    insert_dict_args_expr(a, constrained_fns, caller_dicts, class_env, interner)
-                })
-                .collect(),
-            arg_modes,
-            span,
-        },
+        } => {
+            CoreExpr::AetherCall {
+                func: Box::new(insert_dict_args_expr(
+                    *func,
+                    constrained_fns,
+                    caller_dicts,
+                    class_env,
+                    interner,
+                )),
+                args: args
+                    .into_iter()
+                    .map(|a| {
+                        insert_dict_args_expr(
+                            a,
+                            constrained_fns,
+                            caller_dicts,
+                            class_env,
+                            interner,
+                        )
+                    })
+                    .collect(),
+                arg_modes,
+                span,
+            }
+        }
 
         CoreExpr::Let {
             var,
@@ -781,10 +789,9 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
         // Rewrite: App(Var(eq), args) → App(TupleField(Var(dict), idx), args)
         CoreExpr::App { func, args, span } => {
             if let CoreExpr::Var { ref var, .. } = *func
-                && var.binder.is_none()
                 && let Some(&(dict_binder, index)) = method_map.get(&var.name)
             {
-                // External (unresolved) var — class method found in dict.
+                // Class method reference — extract from dictionary.
                 let dict_ref = CoreExpr::bound_var(dict_binder, span);
                 let method_extract = CoreExpr::TupleField {
                     object: Box::new(dict_ref),
@@ -826,15 +833,39 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
             args,
             arg_modes,
             span,
-        } => CoreExpr::AetherCall {
-            func: Box::new(rewrite_expr(*func, method_map)),
-            args: args
-                .into_iter()
-                .map(|a| rewrite_expr(a, method_map))
-                .collect(),
-            arg_modes,
-            span,
-        },
+        } => {
+            // Same method extraction as the App case — AetherCall is produced
+            // by the Aether RC pass from App nodes.
+            if let CoreExpr::Var { ref var, .. } = *func
+                && let Some(&(dict_binder, index)) = method_map.get(&var.name)
+            {
+                let dict_ref = CoreExpr::bound_var(dict_binder, span);
+                let method_extract = CoreExpr::TupleField {
+                    object: Box::new(dict_ref),
+                    index,
+                    span,
+                };
+                let rewritten_args = args
+                    .into_iter()
+                    .map(|a| rewrite_expr(a, method_map))
+                    .collect();
+                return CoreExpr::AetherCall {
+                    func: Box::new(method_extract),
+                    args: rewritten_args,
+                    arg_modes,
+                    span,
+                };
+            }
+            CoreExpr::AetherCall {
+                func: Box::new(rewrite_expr(*func, method_map)),
+                args: args
+                    .into_iter()
+                    .map(|a| rewrite_expr(a, method_map))
+                    .collect(),
+                arg_modes,
+                span,
+            }
+        }
 
         CoreExpr::Let {
             var,
@@ -1322,8 +1353,11 @@ mod tests {
     }
 
     #[test]
-    fn rewrite_ignores_bound_vars_with_same_name() {
-        // If a local variable shadows a class method name, don't rewrite it.
+    fn rewrite_replaces_bound_vars_matching_method_name() {
+        // Class method references in constrained function bodies are always
+        // rewritten to dict extraction, regardless of binder status.
+        // resolve_program_binders may have set the binder to the polymorphic
+        // stub, but dict elaboration overrides it with TupleField extraction.
         let mut interner = Interner::new();
         let eq_method = interner.intern("eq");
 
@@ -1333,7 +1367,7 @@ mod tests {
         let mut method_map = HashMap::new();
         method_map.insert(eq_method, (dict_binder, 0));
 
-        // App(Var(eq, binder=99), [Lit(1)]) — bound var, not an external ref.
+        // App(Var(eq, binder=99), [Lit(1)]) — bound var with class method name.
         let expr = CoreExpr::App {
             func: Box::new(CoreExpr::bound_var(local_eq, s())),
             args: vec![CoreExpr::Lit(CoreLit::Int(1), s())],
@@ -1342,13 +1376,13 @@ mod tests {
 
         let rewritten = rewrite_body_with_dicts(expr, &method_map);
 
-        // Should NOT be rewritten — local_eq has a binder.
+        // SHOULD be rewritten — dict elaboration rewrites by name match.
         match rewritten {
             CoreExpr::App { func, .. } => match *func {
-                CoreExpr::Var { var, .. } => {
-                    assert_eq!(var.binder, Some(CoreBinderId(99)));
+                CoreExpr::TupleField { index, .. } => {
+                    assert_eq!(index, 0);
                 }
-                other => panic!("expected bound Var, got {other:?}"),
+                other => panic!("expected TupleField, got {other:?}"),
             },
             other => panic!("expected App, got {other:?}"),
         }

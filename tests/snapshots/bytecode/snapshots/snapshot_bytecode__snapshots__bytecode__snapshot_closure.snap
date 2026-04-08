@@ -10,12 +10,12 @@ Constants:
 
 Instructions:
 0000 OpClosure 1 0
-0004 OpSetGlobal 0
-0007 OpGetGlobal 0
+0004 OpSetGlobal 14
+0007 OpGetGlobal 14
 0010 OpConstant 2
 0013 OpCall1 
-0014 OpSetGlobal 1
-0017 OpGetGlobal 1
+0014 OpSetGlobal 15
+0017 OpGetGlobal 15
 0020 OpConstant 3
 0023 OpCall1 
 0024 OpPop

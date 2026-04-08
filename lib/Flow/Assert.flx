@@ -2,7 +2,7 @@
 
 module Flow.Assert {
 
-    fn assert_failed(name) with IO {
+    fn assert_failed(name: String) with IO {
         println("ASSERTION FAILED: " + name)
     }
 
@@ -28,12 +28,12 @@ module Flow.Assert {
         }
     }
 
-    public fn assert_true(x) with IO {
+    public fn assert_true(x: Bool) with IO {
         if x { () }
         else { panic("assert_true failed") }
     }
 
-    public fn assert_false(x) with IO {
+    public fn assert_false(x: Bool) with IO {
         if !x { () }
         else { panic("assert_false failed") }
     }
@@ -74,7 +74,7 @@ module Flow.Assert {
         }
     }
 
-    public fn assert_msg(condition, message) with IO {
+    public fn assert_msg(condition: Bool, message: String) with IO {
         if condition { () }
         else { panic(message) }
     }
