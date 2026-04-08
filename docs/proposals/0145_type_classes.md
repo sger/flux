@@ -33,7 +33,6 @@ Last updated: 2026-04-08
 
 | Step | Feature | Blocker | Difficulty |
 |------|---------|---------|------------|
-| **5b-iii. Remove `type_of()` fallback** | Remove `__rt_*` runtime dispatch functions; polymorphic stubs become dead code after dict elaboration fully handles all call sites | None | Small |
 | **7. Stdlib migration** | Split `Flow.List`/`Flow.Array` into typed modules; `Functor`/`Foldable` | HKTs (done), dictionary elaboration | Large |
 | **Hardening** | Superclass enforcement, structural duplicate detection, extra method validation, multi-param classes | None | See Proposal 0146 Tracks 2–5 |
 
@@ -41,11 +40,11 @@ Last updated: 2026-04-08
 
 1. ~~**No superclass parsing**~~ **Done** — `class Eq<a> => Ord<a>` and `instance Eq<a> => Eq<List<a>>` syntax now parses. Added `FatArrow` (`=>`) token to lexer. Superclass **enforcement** (checking the constraint exists) is a separate step.
 
-2. **No operator desugaring** — `==` still goes through `CmpEq` primop, not `Eq.eq`. Operators and class methods are independent systems.
+2. ~~**No operator desugaring**~~ **Done** — When operand types are polymorphic, operators desugar to class method calls: `==` → `eq` (Eq), `+` → `add` (Num), `++` → `append` (Semigroup), `!=` → `!eq`. Concrete Int/Float operands still use specialized primops (IAdd, ICmpEq, etc.) for performance.
 
-3. **Runtime `type_of()` dispatch still present** — Polymorphic stubs still delegate to `__rt_*` functions as a fallback. These can be removed once all call paths go through dictionary elaboration or monomorphic dispatch.
+3. ~~**Runtime `type_of()` dispatch**~~ **Removed** — `__rt_*` fallback eliminated from Core lowering, bytecode compiler, and polymorphic stubs. All dispatch goes through monomorphic resolution or dictionary elaboration.
 
-4. **Duplicate instance detection fragile** — Uses `format!("{:?}")` comparison including spans. (Proposal 0146 Track 3)
+4. ~~**Duplicate instance detection fragile**~~ **Fixed** — Replaced `format!("{:?}")` with `TypeExpr::structural_eq()` which ignores spans. (Proposal 0146 Track 3)
 
 ### Architecture decisions
 
@@ -627,7 +626,7 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] Only enforced under `--strict-types` (Flow stdlib excluded)
 - [ ] Defaulting: unconstrained `Num` variables default to `Int`
 
-### Step 5: Dictionary elaboration — IN PROGRESS
+### Step 5: Dictionary elaboration — DONE
 
 - [x] Extend `Scheme` with `constraints: Vec<SchemeConstraint>` field
 - [x] Add `SchemeConstraint` type (class_name + type_var)
@@ -647,7 +646,7 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] 18 unit tests for dict construction, body rewriting, method index, integration
 - [x] Concrete call-site resolution: resolve `__dict_{Class}_{Type}` during AST-to-Core lowering via `resolve_dict_args_for_call()`
 - [x] Thread HM type info: `hm_expr_types` + `TypeEnv` used in `resolve_constraint_type()` to match argument types to constraint type vars
-- [ ] Remove runtime `type_of()` dispatch — replaced by compile-time dictionaries
+- [x] Remove runtime `type_of()` dispatch — `__rt_*` fallback removed from Core lowering, bytecode compiler, and polymorphic stubs
 
 ### Step 6: Built-in classes — DONE
 
@@ -655,7 +654,7 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] Register built-in instances: Eq/Show (Int, Float, String, Bool), Ord (Int, Float, String), Num (Int, Float), Semigroup (String)
 - [x] Built-in classes don't override user-declared classes
 - [x] Constraint solver verifies operator usage against built-in instances under `--strict-types`
-- [ ] Register `Monoid` class
+- [ ] Register `Monoid` class (deferred — low value without `Foldable`; `Semigroup` covers `append`)
 - [ ] Wire operator desugaring to class methods (operators still go through primops)
 - [ ] Remove `Any`-typed primop overloads — replaced by class dispatch
 
