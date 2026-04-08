@@ -224,29 +224,35 @@ if type_args.len() != class_def.type_params.len() {
 
 ## Implementation plan
 
-### Step 1: Parse constrained type parameters
+### Step 1: Parse constrained type parameters — DONE
 
-- [ ] Extend `parse_type_params_angle_bracket` to handle `a: Constraint` syntax
-- [ ] Support `+` for multiple constraints: `a: Eq + Show`
-- [ ] Store constraints alongside type params in `Statement::Function`
-- [ ] Thread through Core IR and CFG (match exhaustiveness)
+- [x] Extend `parse_type_params_angle_bracket` to handle `a: Constraint` syntax
+- [x] Support `+` for multiple constraints: `a: Eq + Show` (parses; `show` unavailable because builtin class polymorphic stubs are suppressed — separate issue)
+- [x] Store constraints alongside type params in `Statement::Function` via `FunctionTypeParam { name, constraints }`
+- [x] Thread through Core IR and CFG — dict elaboration handles constrained functions end-to-end
 
-### Step 2: Emit constraints from parsed annotations
+### Step 2: Emit constraints from parsed annotations — DONE
 
-- [ ] During function inference, emit `WantedClassConstraint` for each parsed constraint
-- [ ] Verify these flow through `collect_scheme_constraints` into `Scheme.constraints`
-- [ ] Existing dictionary elaboration handles the rest
+- [x] During function inference, emit `WantedClassConstraint` for each parsed constraint
+- [x] Constraints flow through `collect_scheme_constraints` into `Scheme.constraints`
+- [x] Dictionary elaboration prepends dict params to constrained function bodies
+- [x] Call-site resolution passes concrete dictionaries (`__dict_Eq_Int`, etc.)
 
-### Step 3: Instance context enforcement
+### Step 3: Instance context enforcement — BLOCKED on Proposal 0149
 
 - [ ] Thread context constraints from `InstanceDef.context` into mangled function generation
 - [ ] Add dictionary parameters to contextual instance methods
 - [ ] At call sites, resolve and pass context dictionaries
 
-### Step 4: Instance type argument count validation
+**Current state**: `instance Eq<a> => Eq<List<a>>` parses, and the context `Eq<a>` is stored in `InstanceDef.context`. But the mangled instance method `__tc_Eq_List_eq` doesn't receive a dictionary for `Eq<a>`, so `eq(h1, h2)` (where `h1: a`) panics at runtime with "No instance of Eq.eq for the given type".
 
-- [ ] Add E447 error for mismatched type argument count
-- [ ] Validate during `collect_instances`
+**Dependency on Proposal 0149**: Operators like `==` inside instance bodies need to desugar to class method calls (`eq(h1, h2)`) before dict elaboration can thread the context dictionary. Without early operator desugaring, the `==` goes directly to a generic primop that bypasses the dictionary system entirely.
+
+### Step 4: Instance type argument count validation — DONE
+
+- [x] E447 error for mismatched type argument count
+- [x] E448 error for mismatched method arity
+- [x] Validated during `collect_instances`
 
 ---
 
