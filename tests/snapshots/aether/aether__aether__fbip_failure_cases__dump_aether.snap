@@ -9,53 +9,31 @@ Aether Memory Model Report
   FreshAllocs: 0
   verifier: ok
 λa, b.
-  let typed_eq = (let %t1 = (λ.
-    ICmpEq(a, b))
-  Try(%t1))
-  let %t2 = (let %t3 = (let %t4 = typed_eq.0
-  ICmpEq(%t4, "ok"))
-  let %t5 = typed_eq.1
-  And(%t3, %t5))
-  case %t2 of
+  let %t1 = CmpEq(a, b)
+  case %t1 of
     true →
       MakeTuple()
     _ →
-      let %t6 = CmpEq(a, b)
-      case %t6 of
-        true →
-          MakeTuple()
-        _ →
-          let %t7 = aether_call[borrowed] assert_failed("assert_eq")
-          drop %t7
-          let %t8 = Println(a)
-          drop %t8
-          let %t9 = Println(b)
-          drop %t9
-          Panic("assert_eq failed")
+      let %t2 = aether_call[borrowed] assert_failed("assert_eq")
+      drop %t2
+      let %t3 = Println(a)
+      drop %t3
+      let %t4 = Println(b)
+      drop %t4
+      Panic("assert_eq failed")
 ── fn assert_neq ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
   verifier: ok
 λa, b.
-  let typed_neq = (let %t1 = (λ.
-    NEq(a, b))
-  Try(%t1))
-  let %t2 = (let %t3 = (let %t4 = typed_neq.0
-  Eq(%t4, "ok"))
-  let %t5 = typed_neq.1
-  And(%t3, %t5))
-  case %t2 of
+  let %t1 = CmpNe(a, b)
+  case %t1 of
     true →
       MakeTuple()
     _ →
-      let %t6 = CmpNe(a, b)
-      case %t6 of
-        true →
-          MakeTuple()
-        _ →
-          let %t7 = aether_call[borrowed] assert_failed("assert_neq")
-          drop %t7
-          Panic("assert_neq failed")
+      let %t2 = aether_call[borrowed] assert_failed("assert_neq")
+      drop %t2
+      Panic("assert_neq failed")
 ── fn list_length ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
@@ -853,7 +831,7 @@ Aether Memory Model Report
   FreshAllocs: 0
   verifier: ok
   fbip: NotProvable
-    - calls indirect or opaque callee `Symbol(4000788)` whose FBIP behavior is unknown
+    - calls indirect or opaque callee `Symbol(4000776)` whose FBIP behavior is unknown
 λx.
   let %t1 = Imported.imported_inc
   aether_call[owned] %t1(x)
