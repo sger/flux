@@ -663,7 +663,7 @@ instance Monoid<String>      { fn empty() { "" } }
 - [ ] Wire operator desugaring to class methods — see **Proposal 0149** (early operator desugaring). Desugar polymorphic operators to class method calls during type inference (AST→AST pass before Core IR), so both VM and LLVM backends see the same representation. Concrete Int/Float operators keep using fast-path primops.
 - [ ] Remove `Any`-typed primop overloads — replaced by class dispatch (after Proposal 0149)
 
-### Step 7: Flow stdlib migration
+### Step 7: Flow stdlib migration — DONE (7a complete, 7b blocked on HKTs)
 
 - [x] **Step 7a**: Split `Flow.List` / `Flow.Array` into separate typed modules with full generic signatures
 - [x] **Step 7a**: Add `Eq` constraints to List/Array functions: `contains`, `nub`, `delete`, `is_prefix`, `is_suffix`, `unique_by`
@@ -672,8 +672,8 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] **Step 7a**: Type `Array.range(start: Int, stop: Int) -> Array<Int>`
 - [ ] **Step 7a**: Type `List.first` / `List.last` as `-> Option<a>` (deferred — breaks 31 example files that depend on bare return value; requires migration)
 - [ ] **Step 7a**: Type `List.range` (deferred — cons literal `[start | range(...)]` inference conflicts with return annotation)
-- [ ] **Step 7b**: Add `Foldable` class with `fold`, `length`, `to_list` methods (deferred — requires HKT instance resolution; `class Foldable<f>` parses and the kind system supports `HktApp`, but compile-time instance resolution for HKT type constructors like `Foldable<List>` does not work yet — `try_resolve_class_call` cannot match `List` as an HKT constructor, and runtime `type_of()` dispatch was removed in Step 5)
-- [ ] **Future (HKTs)**: Add `Functor` class, unify `map` across List, Array, Option (same HKT instance resolution blocker — `instance Functor<List>` is parsed but `fmap([1,2,3], f)` panics with "No instance of Functor.fmap" because no `__tc_Functor_List_fmap` is generated)
+- [ ] **Step 7b**: Add `Foldable` class with `fold`, `length`, `to_list` methods — blocked on **Proposal 0150** (HKT instance resolution). `class Foldable<f>` parses and the kind system supports `HktApp`, but `resolve_instance_with_subst` cannot match `List<Int>` against an HKT instance pattern `Foldable<List>` because it compares `App(List, [Int])` (1 arg) against bare `List` (0 args).
+- [ ] **Future (HKTs)**: Add `Functor` class, unify `map` across List, Array, Option — same **Proposal 0150** blocker. Fix is a focused change to `match_instance_type_expr`: decompose `App(List, [Int])` by matching just the constructor `List` against the bare instance pattern.
 
 The Flow standard library (`lib/Flow/*.flx`) currently uses untyped, dynamically-dispatched functions. Type classes enable a clean migration to typed, statically-dispatched modules.
 
