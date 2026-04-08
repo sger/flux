@@ -868,6 +868,14 @@ pub const INSTANCE_TYPE_ARG_ARITY: ErrorCode = ErrorCode {
     hint: Some("Match the number of type arguments declared by the class."),
 };
 
+pub const INSTANCE_METHOD_ARITY: ErrorCode = ErrorCode {
+    code: "E448",
+    title: "INSTANCE METHOD ARITY MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Method `{}` has the wrong number of parameters.",
+    hint: Some("Instance method arity must match the class declaration."),
+};
+
 pub const MISSING_SUPERCLASS_INSTANCE: ErrorCode = ErrorCode {
     code: "E445",
     title: "MISSING SUPERCLASS INSTANCE",

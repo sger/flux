@@ -17,8 +17,9 @@ use crate::{
 };
 
 use super::super::diagnostics::compiler_errors::{
-    DUPLICATE_CLASS, DUPLICATE_INSTANCE, INSTANCE_EXTRA_METHOD, INSTANCE_MISSING_METHOD,
-    INSTANCE_TYPE_ARG_ARITY, INSTANCE_UNKNOWN_CLASS, MISSING_SUPERCLASS_INSTANCE,
+    DUPLICATE_CLASS, DUPLICATE_INSTANCE, INSTANCE_EXTRA_METHOD, INSTANCE_METHOD_ARITY,
+    INSTANCE_MISSING_METHOD, INSTANCE_TYPE_ARG_ARITY, INSTANCE_UNKNOWN_CLASS,
+    MISSING_SUPERCLASS_INSTANCE,
 };
 
 /// A type class definition collected from a `class` declaration.
@@ -287,6 +288,32 @@ impl ClassEnv {
                                         known_methods.join(", ")
                                     )),
                             );
+                        }
+                    }
+
+                    // Validate: method arity matches class signature.
+                    for method in methods {
+                        if let Some(class_method) =
+                            class_def.methods.iter().find(|m| m.name == method.name)
+                        {
+                            if method.params.len() != class_method.arity {
+                                let display_class = interner.resolve(*class_name);
+                                let display_method = interner.resolve(method.name);
+                                diagnostics.push(
+                                    diagnostic_for(&INSTANCE_METHOD_ARITY)
+                                        .with_span(method.span)
+                                        .with_message(format!(
+                                            "Method `{display_method}` in instance `{display_class}` \
+                                             has {} parameter(s), but the class declares {}.",
+                                            method.params.len(),
+                                            class_method.arity
+                                        ))
+                                        .with_hint_text(format!(
+                                            "`{display_class}.{display_method}` expects {} parameter(s).",
+                                            class_method.arity
+                                        )),
+                                );
+                            }
                         }
                     }
 
