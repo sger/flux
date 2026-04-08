@@ -38,7 +38,7 @@ pub fn solve_class_constraints(
 
     for constraint in constraints {
         // Only check concrete types — variables are left unsolved for now.
-        if !is_concrete_type(&constraint.type_arg) {
+        if !constraint.type_args.iter().all(is_concrete_type) {
             continue;
         }
 
@@ -54,17 +54,25 @@ pub fn solve_class_constraints(
             continue;
         }
 
-        // Check if an instance exists for this class + concrete type.
+        // Check if an instance exists for this class + concrete type(s).
         let instances = class_env.instances_for(constraint.class_name);
-        let type_display = display_type(&constraint.type_arg, interner);
+        let type_displays: Vec<String> = constraint
+            .type_args
+            .iter()
+            .map(|t| display_type(t, interner))
+            .collect();
+        let type_display = type_displays.join(", ");
 
         let has_matching_instance = instances.iter().any(|inst| {
-            if let Some(first_arg) = inst.type_args.first() {
-                let inst_type_display = first_arg.display_with(interner);
-                inst_type_display == type_display
-            } else {
-                false
+            if inst.type_args.len() != constraint.type_args.len() {
+                return false;
             }
+            inst.type_args
+                .iter()
+                .zip(type_displays.iter())
+                .all(|(inst_arg, constraint_display)| {
+                    inst_arg.display_with(interner) == *constraint_display
+                })
         });
 
         if !has_matching_instance {

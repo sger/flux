@@ -27,7 +27,7 @@ use super::super::diagnostics::compiler_errors::{
 #[derive(Debug, Clone)]
 pub struct ClassDef {
     pub name: Identifier,
-    pub type_param: Identifier,
+    pub type_params: Vec<Identifier>,
     pub superclasses: Vec<ClassConstraint>,
     pub methods: Vec<MethodSig>,
     /// Methods that have default implementations in the class body.
@@ -128,8 +128,6 @@ impl ClassEnv {
                         continue;
                     }
 
-                    let type_param = type_params.first().copied().unwrap_or(*name);
-
                     let method_sigs: Vec<MethodSig> = methods
                         .iter()
                         .map(|m| MethodSig {
@@ -151,7 +149,7 @@ impl ClassEnv {
                         *name,
                         ClassDef {
                             name: *name,
-                            type_param,
+                            type_params: type_params.clone(),
                             superclasses: superclasses.clone(),
                             methods: method_sigs,
                             default_methods,
@@ -463,29 +461,29 @@ impl ClassEnv {
         // ── Class definitions ──────────────────────────────────────────
 
         // Eq: eq(a, a) -> Bool
-        self.register_builtin_class(eq, a_param, vec![
+        self.register_builtin_class(eq, vec![a_param], vec![
             MethodSig { type_params: vec![], name: eq_method, param_types: vec![], return_type: builtin_type(bool_name), arity: 2 },
         ]);
 
         // Ord: compare(a, a) -> Int
-        self.register_builtin_class(ord, a_param, vec![
+        self.register_builtin_class(ord, vec![a_param], vec![
             MethodSig { type_params: vec![], name: compare_method, param_types: vec![], return_type: builtin_type(int_name), arity: 2 },
         ]);
 
         // Num: add(a, a) -> a, sub(a, a) -> a, mul(a, a) -> a
-        self.register_builtin_class(num, a_param, vec![
+        self.register_builtin_class(num, vec![a_param], vec![
             MethodSig { type_params: vec![], name: add_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
             MethodSig { type_params: vec![], name: sub_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
             MethodSig { type_params: vec![], name: mul_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
         ]);
 
         // Show: show(a) -> String
-        self.register_builtin_class(show, a_param, vec![
+        self.register_builtin_class(show, vec![a_param], vec![
             MethodSig { type_params: vec![], name: show_method, param_types: vec![], return_type: builtin_type(string_name), arity: 1 },
         ]);
 
         // Semigroup: append(a, a) -> a
-        self.register_builtin_class(semigroup, a_param, vec![
+        self.register_builtin_class(semigroup, vec![a_param], vec![
             MethodSig { type_params: vec![], name: append_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
         ]);
 
@@ -519,7 +517,7 @@ impl ClassEnv {
     fn register_builtin_class(
         &mut self,
         name: Identifier,
-        type_param: Identifier,
+        type_params: Vec<Identifier>,
         methods: Vec<MethodSig>,
     ) {
         // Don't override user-declared classes.
@@ -528,7 +526,7 @@ impl ClassEnv {
         }
         self.classes.insert(name, ClassDef {
             name,
-            type_param,
+            type_params,
             superclasses: vec![],
             methods,
             default_methods: vec![],

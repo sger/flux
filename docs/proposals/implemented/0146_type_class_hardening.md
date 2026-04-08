@@ -3,14 +3,28 @@
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0145 (Type Classes MVP)
-- Status: Draft
-- Date: 2026-04-07
+- Status: Complete
+- Date: 2026-04-08
 
 ## Summary
 
 Harden the type class implementation by closing five gaps left open in the MVP (Proposal 0145): runtime dispatch for polymorphic calls, superclass constraint enforcement, structural duplicate instance detection, extra method validation, and multi-parameter type class support.
 
 These are distinct from the dictionary elaboration work (0145 Step 5) — they fix correctness and robustness issues in the existing static dispatch path.
+
+## Implementation status
+
+Last updated: 2026-04-08
+
+All five tracks are complete.
+
+| Track | Feature | Status | Key changes |
+|-------|---------|--------|-------------|
+| **Track 1** | Polymorphic dispatch | **Done** | Dictionary elaboration (0145 Step 5b) — `dict_elaborate.rs` Core-to-Core pass replaces `type_of()` with compile-time dictionary passing. `__rt_*` fallback removed. |
+| **Track 2** | Superclass enforcement | **Done** | `FatArrow` (`=>`) token added to lexer. Parser handles `class Eq<a> => Ord<a>` and `instance Eq<a> => Eq<List<a>>`. E445 validates superclass instances exist in `collect_instances`. |
+| **Track 3** | Structural duplicate detection | **Done** | `TypeExpr::structural_eq()` added — recursive equality ignoring spans. Replaces `format!("{:?}")` in instance duplicate check and builtin instance dedup. |
+| **Track 4** | Extra method validation | **Done** | E446 (`INSTANCE_EXTRA_METHOD`) rejects instance methods not declared in the class. Error lists the class's declared methods. |
+| **Track 5** | Multi-parameter type classes | **Done** | `ClassDef.type_param` → `type_params: Vec<Identifier>`. Mangling uses all type args (`__tc_Convert_Int_String_convert`). `SchemeConstraint.type_var` → `type_vars: Vec<TypeVarId>`. `WantedClassConstraint.type_arg` → `type_args: Vec<InferType>`. Constraint solving matches all type args. |
 
 ---
 
@@ -313,16 +327,15 @@ Additional parameters are silently discarded.
 
 ## Implementation order
 
-| Priority | Track | Effort | Risk |
-|----------|-------|--------|------|
-| **P0** | Track 3: Structural duplicate detection | Small | None — pure bugfix |
-| **P0** | Track 4: Extra method validation | Small | None — additive warning |
-| **P1** | Track 1 Option A: Error on unresolved polymorphic | Small | Low — makes implicit failure explicit |
-| **P1** | Track 2: Superclass enforcement | Medium | Low — parser change + validation |
-| **P2** | Track 5: Multi-param type classes | Large | Medium — touches inference, mangling, resolution |
-| **P3** | Track 1 Option C: Dictionary elaboration | Large | Medium — see 0145 Step 5 |
+All tracks implemented in a single session:
 
-P0 tracks are safe to implement immediately — they fix incorrect behavior without changing any working code paths. P1 tracks improve correctness guarantees. P2/P3 are feature additions.
+| Priority | Track | Effort | Status |
+|----------|-------|--------|--------|
+| **P0** | Track 3: Structural duplicate detection | Small | **Done** |
+| **P0** | Track 4: Extra method validation | Small | **Done** |
+| **P1** | Track 1: Dictionary elaboration | Large | **Done** (0145 Step 5b) |
+| **P1** | Track 2: Superclass enforcement | Medium | **Done** |
+| **P2** | Track 5: Multi-param type classes | Large | **Done** |
 
 ---
 
@@ -354,13 +367,13 @@ P0 tracks are safe to implement immediately — they fix incorrect behavior with
 
 ---
 
-## Unresolved questions
+## Resolved questions
 
-1. Should Track 4 (extra methods) be a warning or error? Under `--strict-types` it could be an error, with a warning in permissive mode.
+1. **Track 4 (extra methods): warning or error?** → Error (E446). Instance methods must match the class declaration.
 
-2. For Track 5, should we require functional dependencies for multi-param classes, or is first-parameter-determines-instance sufficient?
+2. **Track 5: functional dependencies?** → Deferred. First-parameter-determines-instance is sufficient for now. Functional dependencies can be added later when concrete use cases arise.
 
-3. For Track 1 Option A, what's the right error code? E447 is proposed but the existing E444 ("No type class instance") is close — should unresolved-polymorphic be a subcase of E444?
+3. **Track 1: error code for unresolved polymorphic?** → Not needed. Dictionary elaboration (Option C) handles polymorphic dispatch at compile time. The polymorphic stub body is dead code.
 
 ---
 

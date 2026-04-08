@@ -269,12 +269,12 @@ impl<'a> InferCtx<'a> {
     ) {
         self.class_constraints.push(constraint::WantedClassConstraint {
             class_name,
-            type_arg: type_arg.clone(),
+            type_args: vec![type_arg.clone()],
             span,
         });
         self.record_constraint(constraint::Constraint::Class {
             class_name,
-            type_arg,
+            type_args: vec![type_arg],
             span,
         });
     }
@@ -282,23 +282,31 @@ impl<'a> InferCtx<'a> {
     /// Extract `SchemeConstraint`s from the global constraint list for a type
     /// that is about to be generalized.
     ///
-    /// Applies the current substitution to each constraint's `type_arg`, then
-    /// keeps only those whose resolved type is a single type variable. The
-    /// resulting `SchemeConstraint` maps class name → type variable ID, which
-    /// `generalize_with_constraints` will filter to the `forall` set.
+    /// Applies the current substitution to each constraint's type_args, then
+    /// keeps only those whose resolved types are all type variables in the
+    /// type being generalized.
     fn collect_scheme_constraints(&self, ty: &InferType) -> Vec<constraint::SchemeConstraint> {
         let ty_free = ty.free_vars();
         let mut result = Vec::new();
         let mut seen = HashSet::new();
         for wc in &self.class_constraints {
-            let resolved = wc.type_arg.apply_type_subst(&self.subst);
-            if let InferType::Var(v) = resolved
-                && ty_free.contains(&v)
-                && seen.insert((wc.class_name, v))
+            let resolved: Vec<InferType> = wc
+                .type_args
+                .iter()
+                .map(|t| t.apply_type_subst(&self.subst))
+                .collect();
+            // All type args must resolve to type variables in the generalizing type.
+            let vars: Vec<TypeVarId> = resolved
+                .iter()
+                .filter_map(|t| if let InferType::Var(v) = t { Some(*v) } else { None })
+                .collect();
+            if vars.len() == resolved.len()
+                && vars.iter().all(|v| ty_free.contains(v))
+                && seen.insert((wc.class_name, vars.clone()))
             {
                 result.push(constraint::SchemeConstraint {
                     class_name: wc.class_name,
-                    type_var: v,
+                    type_vars: vars,
                 });
             }
         }
@@ -416,7 +424,7 @@ fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
         .class_constraints
         .into_iter()
         .map(|mut c| {
-            c.type_arg = c.type_arg.apply_type_subst(&ctx.subst);
+            c.type_args = c.type_args.iter().map(|t| t.apply_type_subst(&ctx.subst)).collect();
             c
         })
         .collect();

@@ -98,11 +98,17 @@ fn build_instance_dictionaries(
             None => continue,
         };
 
-        // Compute the type name string for this instance (e.g., "Int", "String").
-        let type_name = match instance.type_args.first() {
-            Some(first_arg) => first_arg.display_with(interner),
-            None => continue,
-        };
+        // Compute the type name string for this instance.
+        // Multi-param classes join all type args: "Int_String".
+        if instance.type_args.is_empty() {
+            continue;
+        }
+        let type_name = instance
+            .type_args
+            .iter()
+            .map(|a| a.display_with(interner))
+            .collect::<Vec<_>>()
+            .join("_");
 
         let class_str = interner.resolve(instance.class_name).to_string();
 
@@ -1092,7 +1098,7 @@ mod tests {
 
         let class_def = ClassDef {
             name: eq_sym,
-            type_param: a_sym,
+            type_params: vec![a_sym],
             superclasses: vec![],
             methods: vec![
                 MethodSig {
@@ -1209,7 +1215,7 @@ mod tests {
 
         let class_def = ClassDef {
             name: eq_sym,
-            type_param: a_sym,
+            type_params: vec![a_sym],
             superclasses: vec![],
             methods: vec![MethodSig {
                 name: eq_method,
@@ -1468,7 +1474,7 @@ mod tests {
             forall: vec![0],
             constraints: vec![SchemeConstraint {
                 class_name: eq_sym,
-                type_var: 0,
+                type_vars: vec![0],
             }],
             infer_type: crate::types::infer_type::InferType::Var(0),
         };
@@ -1570,7 +1576,7 @@ mod tests {
             forall: vec![0],
             constraints: vec![SchemeConstraint {
                 class_name: eq_sym,
-                type_var: 0,
+                type_vars: vec![0],
             }],
             infer_type: crate::types::infer_type::InferType::Var(0),
         };
@@ -1580,7 +1586,7 @@ mod tests {
 
         assert_eq!(constraints.len(), 1);
         let new_var = mapping.get(&0).copied().unwrap();
-        assert_eq!(constraints[0].type_var, new_var);
+        assert_eq!(constraints[0].type_vars, vec![new_var]);
         assert_eq!(constraints[0].class_name, eq_sym);
     }
 

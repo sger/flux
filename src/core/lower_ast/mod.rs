@@ -278,15 +278,23 @@ impl<'a> AstLowerer<'a> {
         let (class_name, _class_def) = class_env.method_to_class(name)?;
 
         // Try compile-time resolution: if the first argument's type is concrete,
-        // resolve directly to the mangled instance function.
+        // find the matching instance and build the mangled name from all of
+        // the instance's type args (supporting multi-param classes).
         if let Some(first_arg) = arguments.first()
             && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
-            && let Some(type_name) = Self::infer_type_to_type_name(first_arg_type, interner)
-            && class_env.resolve_instance_for_type(class_name, &type_name, interner).is_some()
+            && let Some(first_type_name) = Self::infer_type_to_type_name(first_arg_type, interner)
+            && let Some(instance) = class_env.resolve_instance_for_type(class_name, &first_type_name, interner)
         {
+            // Build mangled name from all instance type args.
+            let type_key = instance
+                .type_args
+                .iter()
+                .map(|a| a.display_with(interner))
+                .collect::<Vec<_>>()
+                .join("_");
             let class_str = interner.resolve(class_name);
             let method_str = interner.resolve(name);
-            let mangled = format!("__tc_{class_str}_{type_name}_{method_str}");
+            let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
             if let Some(sym) = interner.lookup(&mangled) {
                 return Some(sym);
             }
@@ -417,7 +425,7 @@ impl<'a> AstLowerer<'a> {
         if let InferType::Fun(param_tys, _, _) = &scheme.infer_type {
             for (i, param_ty) in param_tys.iter().enumerate() {
                 // Check if this parameter uses the constrained type variable.
-                if param_ty.free_vars().contains(&constraint.type_var) {
+                if constraint.type_vars.iter().any(|v| param_ty.free_vars().contains(v)) {
                     // Look at the actual argument's HM type.
                     if let Some(arg) = arguments.get(i)
                         && let Some(arg_ty) = self.hm_expr_types.get(&arg.expr_id())
