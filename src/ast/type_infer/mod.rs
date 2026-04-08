@@ -30,7 +30,7 @@ use crate::{
         TypeVarId,
         infer_effect_row::InferEffectRow,
         infer_type::InferType,
-        scheme::{Scheme, generalize},
+        scheme::{Scheme, generalize, generalize_with_constraints},
         type_constructor::TypeConstructor,
         type_env::TypeEnv,
         type_subst::TypeSubst,
@@ -277,6 +277,32 @@ impl<'a> InferCtx<'a> {
             type_arg,
             span,
         });
+    }
+
+    /// Extract `SchemeConstraint`s from the global constraint list for a type
+    /// that is about to be generalized.
+    ///
+    /// Applies the current substitution to each constraint's `type_arg`, then
+    /// keeps only those whose resolved type is a single type variable. The
+    /// resulting `SchemeConstraint` maps class name → type variable ID, which
+    /// `generalize_with_constraints` will filter to the `forall` set.
+    fn collect_scheme_constraints(&self, ty: &InferType) -> Vec<constraint::SchemeConstraint> {
+        let ty_free = ty.free_vars();
+        let mut result = Vec::new();
+        let mut seen = HashSet::new();
+        for wc in &self.class_constraints {
+            let resolved = wc.type_arg.apply_type_subst(&self.subst);
+            if let InferType::Var(v) = resolved
+                && ty_free.contains(&v)
+                && seen.insert((wc.class_name, v))
+            {
+                result.push(constraint::SchemeConstraint {
+                    class_name: wc.class_name,
+                    type_var: v,
+                });
+            }
+        }
+        result
     }
 
     /// Check if a name is a known class method. Returns the class name if so.
