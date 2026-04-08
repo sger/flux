@@ -335,6 +335,16 @@ impl ClassEnv {
         None
     }
 
+    /// Return the positional index of a method within its class definition.
+    ///
+    /// This canonical ordering is used for both dictionary construction
+    /// (which methods go at which tuple position) and method extraction
+    /// (which `TupleField` index to use).
+    pub fn method_index(&self, class_name: Identifier, method_name: Identifier) -> Option<usize> {
+        let class_def = self.classes.get(&class_name)?;
+        class_def.methods.iter().position(|m| m.name == method_name)
+    }
+
     /// Resolve a class instance for a concrete type name (e.g., "Int", "String").
     /// Matches against the first `type_arg` of each instance declaration.
     pub fn resolve_instance_for_type(

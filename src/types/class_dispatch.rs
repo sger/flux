@@ -86,7 +86,27 @@ pub fn generate_dispatch_functions(
     // These are methods with a body in the class declaration (e.g., `neq`).
     generate_default_method_functions(statements, class_env, &dispatch_table, &mut generated);
 
+    // Pre-intern dictionary names (__dict_{Class}_{Type}) for later use
+    // by the dictionary elaboration pass (Proposal 0145, Step 5b).
+    pre_intern_dict_names(class_env, interner);
+
     generated
+}
+
+/// Pre-intern `__dict_{Class}_{Type}` symbols for each concrete instance.
+///
+/// Called during Phase 1b so that the dictionary elaboration pass (Core-to-Core,
+/// which only has `&Interner`) can find these names via `lookup()`.
+fn pre_intern_dict_names(class_env: &ClassEnv, interner: &mut Interner) {
+    for instance in &class_env.instances {
+        let type_name = match instance.type_args.first() {
+            Some(first_arg) => first_arg.display_with(interner),
+            None => continue,
+        };
+        let class_str = interner.resolve(instance.class_name).to_string();
+        let dict_name = format!("__dict_{class_str}_{type_name}");
+        interner.intern(&dict_name);
+    }
 }
 
 /// Generate functions for default class methods that have no explicit

@@ -378,7 +378,7 @@ fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
             let mut forall = resolved_type.free_vars().into_iter().collect::<Vec<_>>();
             forall.sort_unstable();
             forall.dedup();
-            (key, Scheme { forall, infer_type: resolved_type })
+            (key, Scheme { forall, constraints: Vec::new(), infer_type: resolved_type })
         })
         .collect();
     let resolved_expr_types: HashMap<ExprId, InferType> = ctx
