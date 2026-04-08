@@ -20,7 +20,7 @@ use crate::{
 
 use super::super::diagnostics::compiler_errors::{
     DUPLICATE_CLASS, DUPLICATE_INSTANCE, INSTANCE_MISSING_METHOD, INSTANCE_UNKNOWN_CLASS,
-    MISSING_SUPERCLASS_INSTANCE,
+    INSTANCE_EXTRA_METHOD, MISSING_SUPERCLASS_INSTANCE,
 };
 
 /// A type class definition collected from a `class` declaration.
@@ -202,10 +202,16 @@ impl ClassEnv {
                         }
                     };
 
-                    // Check for duplicate instances (same class + same head type)
+                    // Check for duplicate instances (same class + same head type).
+                    // Uses structural equality ignoring source spans.
                     let is_duplicate = env.instances.iter().any(|existing| {
                         existing.class_name == *class_name
-                            && format!("{:?}", existing.type_args) == format!("{:?}", type_args)
+                            && existing.type_args.len() == type_args.len()
+                            && existing
+                                .type_args
+                                .iter()
+                                .zip(type_args.iter())
+                                .all(|(a, b)| a.structural_eq(b))
                     });
                     if is_duplicate {
                         let display_class = interner.resolve(*class_name);
@@ -240,6 +246,31 @@ impl ClassEnv {
                                     ))
                                     .with_hint_text(format!(
                                         "`{display_class}` requires: fn {display_method}(...)"
+                                    )),
+                            );
+                        }
+                    }
+
+                    // Validate: no extra methods beyond what the class declares.
+                    for method in methods {
+                        let is_known = class_def.methods.iter().any(|m| m.name == method.name);
+                        if !is_known {
+                            let display_class = interner.resolve(*class_name);
+                            let display_method = interner.resolve(method.name);
+                            let known_methods: Vec<String> = class_def
+                                .methods
+                                .iter()
+                                .map(|m| interner.resolve(m.name).to_string())
+                                .collect();
+                            diagnostics.push(
+                                diagnostic_for(&INSTANCE_EXTRA_METHOD)
+                                    .with_span(method.span)
+                                    .with_message(format!(
+                                        "`{display_method}` is not a method of class `{display_class}`."
+                                    ))
+                                    .with_hint_text(format!(
+                                        "`{display_class}` declares: {}",
+                                        known_methods.join(", ")
                                     )),
                             );
                         }
@@ -508,9 +539,10 @@ impl ClassEnv {
     /// Register a single built-in instance.
     fn register_builtin_instance(&mut self, class_name: Identifier, type_name: Identifier) {
         // Don't duplicate if user already declared this instance.
+        let expected = builtin_type(type_name);
         let already_exists = self.instances.iter().any(|i| {
             i.class_name == class_name
-                && i.type_args.first().map(|t| format!("{t:?}")) == Some(format!("{:?}", builtin_type(type_name)))
+                && i.type_args.first().is_some_and(|t| t.structural_eq(&expected))
         });
         if already_exists {
             return;

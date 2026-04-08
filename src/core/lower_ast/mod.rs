@@ -292,10 +292,9 @@ impl<'a> AstLowerer<'a> {
             }
         }
 
-        // Fallback: polymorphic call — use runtime dispatch function.
-        let method_str = interner.resolve(name);
-        let rt_name = format!("__rt_{method_str}");
-        interner.lookup(&rt_name)
+        // No compile-time resolution possible — return None.
+        // Dictionary elaboration handles polymorphic calls via dict params.
+        None
     }
 
     /// Convert an `InferType` to a simple type name string (e.g. "Int", "String").

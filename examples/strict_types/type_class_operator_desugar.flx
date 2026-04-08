@@ -1,0 +1,32 @@
+// Operator desugaring test.
+//
+// When operand types are concrete (Int, Float), operators use
+// specialized primops (IAdd, ICmpEq, etc.) for performance.
+//
+// When operand types map to a class method and are resolved at
+// compile time, operators desugar to class method calls:
+//   x == y  →  eq(x, y)    (via Eq class)
+//   x + y   →  add(x, y)   (via Num class)
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Sizeable<String> {
+    fn size(x) { len(x) }
+}
+
+fn main() with IO {
+    // Concrete Int: uses specialized primops (fast path)
+    print(1 == 1)
+    print(2 + 3)
+    print(10 != 20)
+
+    // Class method dispatch
+    print(size(42))
+    print(size("flux"))
+}

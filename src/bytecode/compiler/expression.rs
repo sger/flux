@@ -4730,9 +4730,8 @@ impl Compiler {
             }
         }
 
-        // Fallback: polymorphic call — use runtime dispatch function.
-        let method_str = self.interner.resolve(name);
-        let rt_name = format!("__rt_{method_str}");
-        self.interner.lookup(&rt_name)
+        // No compile-time resolution possible — return None.
+        // Dictionary elaboration handles polymorphic calls via dict params.
+        None
     }
 }
