@@ -204,12 +204,65 @@ fn test_mode_flow_list_module_fixture_passes() {
         text
     );
     assert!(
+        text.contains("PASS  test_list_specific_shape"),
+        "expected list shape test pass, output:\n{}",
+        text
+    );
+    assert!(
         text.contains("PASS  test_set_like_operations"),
         "expected set-like operations test pass, output:\n{}",
         text
     );
     assert!(
-        text.contains("8 tests: 8 passed, 0 failed"),
+        text.contains("9 tests: 9 passed, 0 failed"),
+        "unexpected summary, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_mode_flow_array_module_fixture_passes() {
+    let file = fixture_path("Flow/Array_test.flx");
+    let output = run_flux(&[
+        "--test",
+        file.to_str().unwrap(),
+        "--root",
+        workspace_root().join("lib").to_str().unwrap(),
+    ]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_array_core_hofs"),
+        "expected core HOFs test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_array_accessors_and_predicates"),
+        "expected accessors test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_array_ordering_and_slices"),
+        "expected ordering/slices test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_array_specific_shape"),
+        "expected array shape test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_array_zip_and_updates"),
+        "expected zip/update test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("5 tests: 5 passed, 0 failed"),
         "unexpected summary, output:\n{}",
         text
     );
@@ -264,12 +317,17 @@ fn test_mode_flow_list_module_fixture_passes_on_native_llvm() {
         text
     );
     assert!(
+        text.contains("PASS  test_list_specific_shape"),
+        "expected list shape test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
         text.contains("PASS  test_set_like_operations"),
         "expected set-like operations test pass on native backend, output:\n{}",
         text
     );
     assert!(
-        text.contains("8 tests: 8 passed, 0 failed"),
+        text.contains("9 tests: 9 passed, 0 failed"),
         "unexpected native summary, output:\n{}",
         text
     );
@@ -537,8 +595,8 @@ fn test_mode_base_assertions_all_pass() {
 
     // Verify total count
     assert!(
-        text.contains("37 tests: 37 passed, 0 failed"),
-        "expected 37 tests all passing, output:\n{}",
+        text.contains("40 tests: 40 passed, 0 failed"),
+        "expected 40 tests all passing, output:\n{}",
         text
     );
 }

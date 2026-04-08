@@ -161,7 +161,11 @@ module Flow.Array {
     }
 
     public fn contains(arr, x) {
-        any(arr, fn(item) { cmp_eq(item, x) })
+        any(arr, fn(item) { item == x })
+    }
+
+    public fn length(arr) {
+        len(arr)
     }
 
     public fn reverse(arr) {
