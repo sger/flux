@@ -2,10 +2,16 @@
 
 module Flow.Assert {
 
+    fn assert_failed(name) with IO {
+        println("ASSERTION FAILED: " + name)
+    }
+
     public fn assert_eq(a, b) with IO {
-        if cmp_eq(a, b) { () }
+        let typed_eq = try(\() -> a == b)
+        if typed_eq.0 == "ok" && typed_eq.1 { () }
+        else if cmp_eq(a, b) { () }
         else {
-            println("ASSERTION FAILED: assert_eq")
+            assert_failed("assert_eq")
             println(a)
             println(b)
             panic("assert_eq failed")
@@ -13,9 +19,11 @@ module Flow.Assert {
     }
 
     public fn assert_neq(a, b) with IO {
-        if cmp_ne(a, b) { () }
+        let typed_neq = try(\() -> a != b)
+        if typed_neq.0 == "ok" && typed_neq.1 { () }
+        else if cmp_ne(a, b) { () }
         else {
-            println("ASSERTION FAILED: assert_neq")
+            assert_failed("assert_neq")
             panic("assert_neq failed")
         }
     }
@@ -59,9 +67,9 @@ module Flow.Assert {
 
     public fn assert_len(collection, expected) with IO {
         let actual = if is_list(collection) { list_length(collection, 0) } else { len(collection) }
-        if cmp_eq(actual, expected) { () }
+        if actual == expected { () }
         else {
-            println("ASSERTION FAILED: assert_len")
+            assert_failed("assert_len")
             panic("assert_len failed")
         }
     }

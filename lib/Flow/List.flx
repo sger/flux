@@ -8,72 +8,33 @@
 module Flow.List {
 
     public fn map(xs, f) {
-        if is_array(xs) {
-            fn map_arr(i, acc) {
-                if i >= len(xs) { acc }
-                else {
-                    match xs[i] {
-                        Some(v) -> map_arr(i + 1, push(acc, f(v))),
-                        _ -> map_arr(i + 1, acc)
-                    }
-                }
+        fn map_acc(ys, acc) {
+            match ys {
+                [h | t] -> map_acc(t, [f(h) | acc]),
+                _ -> reverse(acc)
             }
-            map_arr(0, [||])
-        } else {
-            fn map_acc(ys, acc) {
-                match ys {
-                    [h | t] -> map_acc(t, [f(h) | acc]),
-                    _ -> reverse(acc)
-                }
-            }
-            map_acc(xs, [])
         }
+        map_acc(xs, [])
     }
 
     public fn filter(xs, pred) {
-        if is_array(xs) {
-            fn filter_arr(i, acc) {
-                if i >= len(xs) { acc }
-                else {
-                    match xs[i] {
-                        Some(v) -> if pred(v) { filter_arr(i + 1, push(acc, v)) } else { filter_arr(i + 1, acc) },
-                        _ -> filter_arr(i + 1, acc)
-                    }
-                }
+        fn filter_acc(ys, acc) {
+            match ys {
+                [h | t] -> if pred(h) { filter_acc(t, [h | acc]) } else { filter_acc(t, acc) },
+                _ -> reverse(acc)
             }
-            filter_arr(0, [||])
-        } else {
-            fn filter_acc(ys, acc) {
-                match ys {
-                    [h | t] -> if pred(h) { filter_acc(t, [h | acc]) } else { filter_acc(t, acc) },
-                    _ -> reverse(acc)
-                }
-            }
-            filter_acc(xs, [])
         }
+        filter_acc(xs, [])
     }
 
     public fn fold(xs, acc, f) {
-        if is_array(xs) {
-            fn fold_arr(i, a) {
-                if i >= len(xs) { a }
-                else {
-                    match xs[i] {
-                        Some(v) -> fold_arr(i + 1, f(a, v)),
-                        _ -> fold_arr(i + 1, a)
-                    }
-                }
+        fn fold_list(ys, a) {
+            match ys {
+                [h | t] -> fold_list(t, f(a, h)),
+                _ -> a
             }
-            fold_arr(0, acc)
-        } else {
-            fn fold_list(ys, a) {
-                match ys {
-                    [h | t] -> fold_list(t, f(a, h)),
-                    _ -> a
-                }
-            }
-            fold_list(xs, acc)
         }
+        fold_list(xs, acc)
     }
 
     public fn foldr(xs, acc, f) {
@@ -91,49 +52,23 @@ module Flow.List {
     }
 
     public fn flat_map(xs, f) {
-        if is_array(xs) {
-            fn flat_map_arr(i, acc) {
-                if i >= len(xs) { acc }
-                else {
-                    match xs[i] {
-                        Some(v) -> flat_map_arr(i + 1, concat(acc, f(v))),
-                        _ -> flat_map_arr(i + 1, acc)
-                    }
-                }
+        fn flat_map_acc(ys, acc) {
+            match ys {
+                [h | t] -> flat_map_acc(t, append(reverse(f(h)), acc)),
+                _ -> reverse(acc)
             }
-            flat_map_arr(0, [||])
-        } else {
-            fn flat_map_acc(ys, acc) {
-                match ys {
-                    [h | t] -> flat_map_acc(t, append(reverse(f(h)), acc)),
-                    _ -> reverse(acc)
-                }
-            }
-            flat_map_acc(xs, [])
         }
+        flat_map_acc(xs, [])
     }
 
     public fn flatten(xs) {
-        if is_array(xs) {
-            fn flatten_arr(i, acc) {
-                if i >= len(xs) { acc }
-                else {
-                    match xs[i] {
-                        Some(v) -> flatten_arr(i + 1, concat(acc, v)),
-                        _ -> flatten_arr(i + 1, acc)
-                    }
-                }
+        fn flatten_acc(ys, acc) {
+            match ys {
+                [h | t] -> flatten_acc(t, append(reverse(h), acc)),
+                _ -> reverse(acc)
             }
-            flatten_arr(0, [||])
-        } else {
-            fn flatten_acc(ys, acc) {
-                match ys {
-                    [h | t] -> flatten_acc(t, append(reverse(h), acc)),
-                    _ -> reverse(acc)
-                }
-            }
-            flatten_acc(xs, [])
         }
+        flatten_acc(xs, [])
     }
 
     public fn concat(xss) {
@@ -141,111 +76,43 @@ module Flow.List {
     }
 
     public fn any(xs, pred) {
-        if is_array(xs) {
-            fn any_arr(i) {
-                if i >= len(xs) { false }
-                else {
-                    match xs[i] {
-                        Some(v) -> if pred(v) { true } else { any_arr(i + 1) },
-                        _ -> any_arr(i + 1)
-                    }
-                }
-            }
-            any_arr(0)
-        } else {
-            match xs {
-                [h | t] -> if pred(h) { true } else { any(t, pred) },
-                _ -> false
-            }
+        match xs {
+            [h | t] -> if pred(h) { true } else { any(t, pred) },
+            _ -> false
         }
     }
 
     public fn all(xs, pred) {
-        if is_array(xs) {
-            fn all_arr(i) {
-                if i >= len(xs) { true }
-                else {
-                    match xs[i] {
-                        Some(v) -> if pred(v) { all_arr(i + 1) } else { false },
-                        _ -> all_arr(i + 1)
-                    }
-                }
-            }
-            all_arr(0)
-        } else {
-            match xs {
-                [h | t] -> if pred(h) { all(t, pred) } else { false },
-                _ -> true
-            }
+        match xs {
+            [h | t] -> if pred(h) { all(t, pred) } else { false },
+            _ -> true
         }
     }
 
     public fn find(xs, pred) {
-        if is_array(xs) {
-            fn find_arr(i) {
-                if i >= len(xs) { None }
-                else {
-                    match xs[i] {
-                        Some(v) -> if pred(v) { Some(v) } else { find_arr(i + 1) },
-                        _ -> find_arr(i + 1)
-                    }
-                }
-            }
-            find_arr(0)
-        } else {
-            match xs {
-                [h | t] -> if pred(h) { Some(h) } else { find(t, pred) },
-                _ -> None
-            }
+        match xs {
+            [h | t] -> if pred(h) { Some(h) } else { find(t, pred) },
+            _ -> None
         }
     }
 
     public fn count(xs, pred) {
-        if is_array(xs) {
-            fn count_arr(i, n) {
-                if i >= len(xs) { n }
-                else {
-                    match xs[i] {
-                        Some(v) -> if pred(v) { count_arr(i + 1, n + 1) } else { count_arr(i + 1, n) },
-                        _ -> count_arr(i + 1, n)
-                    }
-                }
+        fn count_go(ys, n) {
+            match ys {
+                [h | t] -> if pred(h) { count_go(t, n + 1) } else { count_go(t, n) },
+                _ -> n
             }
-            count_arr(0, 0)
-        } else {
-            fn count_go(ys, n) {
-                match ys {
-                    [h | t] -> if pred(h) { count_go(t, n + 1) } else { count_go(t, n) },
-                    _ -> n
-                }
-            }
-            count_go(xs, 0)
         }
+        count_go(xs, 0)
     }
 
     public fn each(xs, f) with IO {
-        if is_array(xs) {
-            fn each_arr(i) {
-                if i >= len(xs) { () }
-                else {
-                    match xs[i] {
-                        Some(v) -> do {
-                            f(v)
-                            each_arr(i + 1)
-                        },
-                        _ -> each_arr(i + 1)
-                    }
-                }
-            }
-            each_arr(0)
-        } else {
-            match xs {
-                [h | t] -> do {
-                    f(h)
-                    each(t, f)
-                },
-                _ -> ()
-            }
+        match xs {
+            [h | t] -> do {
+                f(h)
+                each(t, f)
+            },
+            _ -> ()
         }
     }
 
@@ -334,38 +201,26 @@ module Flow.List {
     }
 
     public fn first(xs) {
-        if is_array(xs) {
-            if len(xs) == 0 { None } else { match xs[0] { Some(v) -> v, _ -> None } }
-        } else {
-            match xs {
-                [h | t] -> h,
-                _ -> None
-            }
+        match xs {
+            [h | t] -> h,
+            _ -> None
         }
     }
 
     public fn last(xs) {
-        if is_array(xs) {
-            if len(xs) == 0 { None } else { match xs[len(xs) - 1] { Some(v) -> v, _ -> None } }
-        } else {
-            match xs {
-                [h | t] -> match t {
-                    [h2 | t2] -> last(t),
-                    _ -> h
-                },
-                _ -> None
-            }
+        match xs {
+            [h | t] -> match t {
+                [h2 | t2] -> last(t),
+                _ -> h
+            },
+            _ -> None
         }
     }
 
     public fn rest(xs) {
-        if is_array(xs) {
-            if len(xs) <= 1 { [||] } else { slice(xs, 1, len(xs)) }
-        } else {
-            match xs {
-                [h | t] -> t,
-                _ -> []
-            }
+        match xs {
+            [h | t] -> t,
+            _ -> []
         }
     }
 
@@ -402,47 +257,17 @@ module Flow.List {
     }
 
     public fn reverse(xs) {
-        if is_array(xs) {
-            fn rev_arr_go(i, acc) {
-                if i < 0 { acc }
-                else {
-                    match xs[i] {
-                        Some(v) -> rev_arr_go(i - 1, push(acc, v)),
-                        _ -> rev_arr_go(i - 1, acc)
-                    }
-                }
+        fn rev_acc(ys, acc) {
+            match ys {
+                [h | t] -> rev_acc(t, [h | acc]),
+                _ -> acc
             }
-            rev_arr_go(len(xs) - 1, [||])
-        } else {
-            fn rev_acc(ys, acc) {
-                match ys {
-                    [h | t] -> rev_acc(t, [h | acc]),
-                    _ -> acc
-                }
-            }
-            rev_acc(xs, [])
         }
+        rev_acc(xs, [])
     }
 
     public fn zip(xs, ys) {
-        if is_array(xs) {
-            let min_len = if len(xs) < len(ys) { len(xs) } else { len(ys) }
-            fn zip_arr(i, acc) {
-                if i >= min_len { acc }
-                else {
-                    match xs[i] {
-                        Some(va) -> match ys[i] {
-                            Some(vb) -> zip_arr(i + 1, push(acc, (va, vb))),
-                            _ -> acc
-                        },
-                        _ -> acc
-                    }
-                }
-            }
-            zip_arr(0, [||])
-        } else {
-            reverse(zip_go(xs, ys, []))
-        }
+        reverse(zip_go(xs, ys, []))
     }
 
     public fn zip_with(xs, ys, f) {
@@ -464,22 +289,9 @@ module Flow.List {
     }
 
     public fn contains(xs, x) {
-        if is_array(xs) {
-            fn arr_contains_go(i) {
-                if i >= len(xs) { false }
-                else {
-                    match xs[i] {
-                        Some(v) -> if cmp_eq(v, x) { true } else { arr_contains_go(i + 1) },
-                        _ -> arr_contains_go(i + 1)
-                    }
-                }
-            }
-            arr_contains_go(0)
-        } else {
-            match xs {
-                [h | t] -> if cmp_eq(h, x) { true } else { contains(t, x) },
-                _ -> false
-            }
+        match xs {
+            [h | t] -> if h == x { true } else { contains(t, x) },
+            _ -> false
         }
     }
 
@@ -507,7 +319,7 @@ module Flow.List {
 
     fn delete_go_acc(xs, x, acc) {
         match xs {
-            [h | t] -> if cmp_eq(h, x) {
+            [h | t] -> if h == x {
                 append(reverse(acc), clone_list(t))
             } else {
                 delete_go_acc(t, x, [h | acc])
@@ -537,7 +349,7 @@ module Flow.List {
     public fn is_prefix(prefix, xs) {
         match prefix {
             [p | pt] -> match xs {
-                [x | xt] -> if cmp_eq(p, x) { is_prefix(pt, xt) } else { false },
+                [x | xt] -> if p == x { is_prefix(pt, xt) } else { false },
                 _ -> false
             },
             _ -> true
