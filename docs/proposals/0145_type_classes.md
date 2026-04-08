@@ -27,7 +27,7 @@ Last updated: 2026-04-09
 | **5. Dispatch** | Compile-time monomorphic resolution, operator desugaring | `class_dispatch.rs`, `compiler/pipeline.rs`, `core/lower_ast/mod.rs`, `expression.rs` | Mangled instance functions (`__tc_Class_Type1_Type2_method`). Operators desugar to class methods (`==` → `eq`, `+` → `add`, `++` → `append`). `type_of()` fallback removed. |
 | **5b. Dictionary elaboration** | Core-to-Core pass: dict construction, body rewriting, constraint promotion, call-site resolution | `dict_elaborate.rs`, `scheme.rs`, `constraint.rs`, `function.rs`, `statement.rs`, `class_dispatch.rs`, `class_env.rs`, `cfg/mod.rs` | `Scheme.constraints` carries class constraints. `__dict_{Class}_{Type}` CoreDefs as MakeTuple. Constrained Lams get dict params. Class method calls → TupleField. Polymorphic forwarding + concrete call-site resolution via `resolve_dict_args_for_call`. |
 | **6. Built-in classes** | `Eq`, `Ord`, `Num`, `Show`, `Semigroup` with instances for primitive types | `class_env.rs` | Builtins registered before user classes. Don't override user declarations. |
-| **HKTs** | Higher-kinded types + kind system | `types/kind.rs`, `types/infer_type.rs` (`HktApp`), `types/unify.rs` | `Kind::Type` and `Kind::Arrow`. Per-method type params (`fn fmap<a, b>`). `Functor<List>` works end-to-end. |
+| **HKTs** | Higher-kinded types + kind system | `types/kind.rs`, `types/infer_type.rs` (`HktApp`), `types/unify.rs` | `Kind::Type` and `Kind::Arrow`. Per-method type params (`fn fmap<a, b>`). HKT syntax parses (`class Functor<f>`, `instance Functor<List>`) but compile-time instance resolution for HKT type constructors not yet implemented — runtime dispatch panics. |
 | **Hardening** | Superclass enforcement, structural dedup, extra method validation, multi-param classes | Proposal 0146 (complete) | E445 superclass enforcement, `TypeExpr::structural_eq`, E446 extra methods, `ClassDef.type_params: Vec<Identifier>`, multi-arg mangling/constraints. |
 
 ### Remaining
@@ -600,7 +600,7 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] Validate: instance methods match class (missing required methods: E442)
 - [x] Default methods respected (skipped if class provides default body)
 - [x] Validate: superclass instances exist (E445 — checks class-level superclasses)
-- [ ] Validate: method arity matches class signature
+- [x] Validate: method arity matches class signature (E448)
 
 ### Step 3–5 MVP: Runtime dispatch — DONE
 
@@ -629,7 +629,7 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] Type variables left unsolved (future: add to scheme)
 - [x] Compiler-generated code (default spans) skipped
 - [x] Only enforced under `--strict-types` (Flow stdlib excluded)
-- [ ] Defaulting: unconstrained `Num` variables default to `Int`
+- [ ] Defaulting: unconstrained `Num` variables default to `Int` (deferred — Flux integer literals already infer as `Int` directly, unlike Haskell's polymorphic `Num a => a` literals. Defaulting only matters with `fromInteger` or polymorphic numeric constructors, which Flux doesn't have yet)
 
 ### Step 5: Dictionary elaboration — DONE
 
@@ -660,10 +660,20 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] Built-in classes don't override user-declared classes
 - [x] Constraint solver verifies operator usage against built-in instances under `--strict-types`
 - [ ] Register `Monoid` class (deferred — low value without `Foldable`; `Semigroup` covers `append`)
-- [ ] Wire operator desugaring to class methods (operators still go through primops)
-- [ ] Remove `Any`-typed primop overloads — replaced by class dispatch
+- [ ] Wire operator desugaring to class methods — see **Proposal 0149** (early operator desugaring). Desugar polymorphic operators to class method calls during type inference (AST→AST pass before Core IR), so both VM and LLVM backends see the same representation. Concrete Int/Float operators keep using fast-path primops.
+- [ ] Remove `Any`-typed primop overloads — replaced by class dispatch (after Proposal 0149)
 
 ### Step 7: Flow stdlib migration
+
+- [x] **Step 7a**: Split `Flow.List` / `Flow.Array` into separate typed modules with full generic signatures
+- [x] **Step 7a**: Add `Eq` constraints to List/Array functions: `contains`, `nub`, `delete`, `is_prefix`, `is_suffix`, `unique_by`
+- [x] **Step 7a**: Add `Ord` constraints to List/Array functions: `sort`, `sort_by`, `maximum`, `minimum`
+- [x] **Step 7a**: Add `Eq`/`Ord` constraints to Assert functions: `assert_eq`, `assert_neq`, `assert_gt`, `assert_lt`, `assert_gte`, `assert_lte`
+- [x] **Step 7a**: Type `Array.range(start: Int, stop: Int) -> Array<Int>`
+- [ ] **Step 7a**: Type `List.first` / `List.last` as `-> Option<a>` (deferred — breaks 31 example files that depend on bare return value; requires migration)
+- [ ] **Step 7a**: Type `List.range` (deferred — cons literal `[start | range(...)]` inference conflicts with return annotation)
+- [ ] **Step 7b**: Add `Foldable` class with `fold`, `length`, `to_list` methods (deferred — requires HKT instance resolution; `class Foldable<f>` parses and the kind system supports `HktApp`, but compile-time instance resolution for HKT type constructors like `Foldable<List>` does not work yet — `try_resolve_class_call` cannot match `List` as an HKT constructor, and runtime `type_of()` dispatch was removed in Step 5)
+- [ ] **Future (HKTs)**: Add `Functor` class, unify `map` across List, Array, Option (same HKT instance resolution blocker — `instance Functor<List>` is parsed but `fmap([1,2,3], f)` panics with "No instance of Functor.fmap" because no `__tc_Functor_List_fmap` is generated)
 
 The Flow standard library (`lib/Flow/*.flx`) currently uses untyped, dynamically-dispatched functions. Type classes enable a clean migration to typed, statically-dispatched modules.
 
