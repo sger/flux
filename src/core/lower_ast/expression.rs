@@ -154,8 +154,8 @@ impl<'a> super::AstLowerer<'a> {
                 if let Expression::Identifier { name, .. } = function.as_ref()
                     && let Some(mangled) = self.try_resolve_class_call(*name, arguments)
                 {
-                    let args: Vec<CoreExpr> =
-                        arguments.iter().map(|a| self.lower_expr(a)).collect();
+                    let mut args = self.resolve_dict_args_for_call(mangled, ExprId::UNSET, arguments);
+                    args.extend(arguments.iter().map(|a| self.lower_expr(a)));
                     return CoreExpr::App {
                         func: Box::new(CoreExpr::external_var(mangled, *span)),
                         args,
@@ -434,18 +434,21 @@ impl<'a> super::AstLowerer<'a> {
             _ => None,
         };
 
-        if let Some(method_name) = class_method
+            if let Some(method_name) = class_method
             && let Some(interner) = self.interner
             && let Some(method_sym) = interner.lookup(method_name)
         {
             // Try to resolve via the class dispatch pipeline.
             let args_slice = &[left.clone(), right.clone()];
             if let Some(mangled) = self.try_resolve_class_call(method_sym, args_slice) {
+                let mut args = self.resolve_dict_args_for_call(mangled, ExprId::UNSET, args_slice);
                 let l = self.lower_expr(left);
                 let r = self.lower_expr(right);
+                args.push(l);
+                args.push(r);
                 let call = CoreExpr::App {
                     func: Box::new(CoreExpr::external_var(mangled, span)),
-                    args: vec![l, r],
+                    args,
                     span,
                 };
                 // For !=, wrap in Not: !(eq(l, r))

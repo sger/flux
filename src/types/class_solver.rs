@@ -8,11 +8,13 @@
 //!
 //! Unsatisfied concrete constraints produce compile errors.
 
+use std::collections::{HashMap, HashSet};
+
 use crate::{
     ast::type_infer::constraint::WantedClassConstraint,
     diagnostics::position::Span,
     diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for},
-    syntax::interner::Interner,
+    syntax::{Identifier, interner::Interner, type_expr::TypeExpr},
     types::{class_env::ClassEnv, infer_type::InferType, type_constructor::TypeConstructor},
 };
 
@@ -50,8 +52,6 @@ pub fn solve_class_constraints(
             continue;
         }
 
-        // Check if an instance exists for this class + concrete type(s).
-        let instances = class_env.instances_for(constraint.class_name);
         let type_displays: Vec<String> = constraint
             .type_args
             .iter()
@@ -59,17 +59,13 @@ pub fn solve_class_constraints(
             .collect();
         let type_display = type_displays.join(", ");
 
-        let has_matching_instance = instances.iter().any(|inst| {
-            if inst.type_args.len() != constraint.type_args.len() {
-                return false;
-            }
-            inst.type_args
-                .iter()
-                .zip(type_displays.iter())
-                .all(|(inst_arg, constraint_display)| {
-                    inst_arg.display_with(interner) == *constraint_display
-                })
-        });
+        let has_matching_instance = has_satisfied_instance(
+            constraint.class_name,
+            &constraint.type_args,
+            class_env,
+            interner,
+            &mut HashSet::new(),
+        );
 
         if !has_matching_instance {
             let class_display = interner.resolve(constraint.class_name);
@@ -87,6 +83,112 @@ pub fn solve_class_constraints(
     }
 
     diagnostics
+}
+
+fn has_satisfied_instance(
+    class_name: Identifier,
+    type_args: &[InferType],
+    class_env: &ClassEnv,
+    interner: &Interner,
+    seen: &mut HashSet<String>,
+) -> bool {
+    let key = format!(
+        "{}<{}>",
+        interner.resolve(class_name),
+        type_args
+            .iter()
+            .map(|ty| display_type(ty, interner))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    if !seen.insert(key.clone()) {
+        return true;
+    }
+
+    let result = class_env
+        .resolve_instance_with_subst(class_name, type_args, interner)
+        .is_some_and(|(instance, subst)| {
+            instance.context.iter().all(|ctx| {
+                let resolved_args: Option<Vec<InferType>> = ctx
+                    .type_args
+                    .iter()
+                    .map(|arg| instantiate_context_type_expr(arg, &subst, interner))
+                    .collect();
+                resolved_args.is_some_and(|args| {
+                    args.iter().all(is_concrete_type)
+                        && has_satisfied_instance(ctx.class_name, &args, class_env, interner, seen)
+                })
+            })
+        });
+
+    seen.remove(&key);
+    result
+}
+
+fn instantiate_context_type_expr(
+    expr: &TypeExpr,
+    subst: &HashMap<Identifier, InferType>,
+    interner: &Interner,
+) -> Option<InferType> {
+    match expr {
+        TypeExpr::Named { name, args, .. } => {
+            if args.is_empty()
+                && interner
+                    .resolve(*name)
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_lowercase())
+            {
+                return subst.get(name).cloned();
+            }
+
+            let arg_tys: Option<Vec<InferType>> = args
+                .iter()
+                .map(|arg| instantiate_context_type_expr(arg, subst, interner))
+                .collect();
+            let arg_tys = arg_tys?;
+            let tc = match interner.resolve(*name) {
+                "Int" => TypeConstructor::Int,
+                "Float" => TypeConstructor::Float,
+                "Bool" => TypeConstructor::Bool,
+                "String" => TypeConstructor::String,
+                "Unit" | "None" => TypeConstructor::Unit,
+                "Never" => TypeConstructor::Never,
+                "Any" => TypeConstructor::Any,
+                "List" => TypeConstructor::List,
+                "Array" => TypeConstructor::Array,
+                "Map" => TypeConstructor::Map,
+                "Option" => TypeConstructor::Option,
+                "Either" => TypeConstructor::Either,
+                _ => TypeConstructor::Adt(*name),
+            };
+
+            if arg_tys.is_empty() {
+                Some(InferType::Con(tc))
+            } else {
+                Some(InferType::App(tc, arg_tys))
+            }
+        }
+        TypeExpr::Tuple { elements, .. } => Some(InferType::Tuple(
+            elements
+                .iter()
+                .map(|elem| instantiate_context_type_expr(elem, subst, interner))
+                .collect::<Option<Vec<_>>>()?,
+        )),
+        TypeExpr::Function {
+            params,
+            ret,
+            effects: _,
+            ..
+        } => Some(InferType::Fun(
+            params
+                .iter()
+                .map(|param| instantiate_context_type_expr(param, subst, interner))
+                .collect::<Option<Vec<_>>>()?,
+            Box::new(instantiate_context_type_expr(ret, subst, interner)?),
+            crate::types::infer_effect_row::InferEffectRow::closed_empty(),
+        )),
+    }
 }
 
 /// Check if a type is concrete (not a variable, not Any).
