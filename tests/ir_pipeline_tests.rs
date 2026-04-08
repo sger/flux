@@ -61,6 +61,20 @@ fn run_produces_error(input: &str) -> bool {
     compiler.compile(&program).is_err()
 }
 
+fn dump_core(input: &str) -> String {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(input), None)));
+    compiler
+        .dump_core_with_opts(&program, false, flux::core::display::CoreDisplayMode::Readable)
+        .expect("dump_core should succeed")
+}
+
 fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
     let mut out = vec![expr];
     match expr {
@@ -135,6 +149,61 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
         }
     }
     out
+}
+
+#[test]
+fn contextual_list_instance_dispatches_with_element_dictionary() {
+    let value = run(
+        r#"
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+instance Eq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) {
+        match xs {
+            [h1 | _] -> match ys {
+                [h2 | _] -> h1 == h2,
+                _ -> false
+            },
+            _ -> true
+        }
+    }
+}
+
+my_eq([1], [1]);
+"#,
+    );
+
+    assert_eq!(value, Value::Boolean(true));
+}
+
+#[test]
+fn contextual_list_instance_dump_core_shows_mangled_dispatch_call() {
+    let core = dump_core(
+        r#"
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+instance Eq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) {
+        match xs {
+            [h1 | _] -> match ys {
+                [h2 | _] -> h1 == h2,
+                _ -> false
+            },
+            _ -> true
+        }
+    }
+}
+
+my_eq([1], [1]);
+"#,
+    );
+
+    assert!(
+        core.contains("__tc_MyEq_List<a>_my_eq"),
+        "expected contextual mangled function in Core dump:\n{core}"
+    );
 }
 
 fn has_primop(expr: &CoreExpr, target: &CorePrimOp) -> bool {

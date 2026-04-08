@@ -80,6 +80,42 @@ fn build_class_env(source: &str) -> (ClassEnv, Vec<flux::diagnostics::Diagnostic
     (env, diagnostics, interner)
 }
 
+fn infer_with_dispatch(source: &str) -> (InferProgramResult, Program, Interner) {
+    let (program, mut interner) = parse(source);
+    let flow_sym = interner.intern("Flow");
+
+    let mut class_env = ClassEnv::new();
+    class_env.register_builtins(&mut interner);
+    class_env.collect_from_statements(&program.statements, &interner);
+
+    let generated = flux::types::class_dispatch::generate_dispatch_functions(
+        &program.statements,
+        &class_env,
+        &mut interner,
+    );
+    let mut statements = generated;
+    statements.extend(program.statements.iter().cloned());
+    let augmented = Program {
+        statements,
+        span: program.span,
+    };
+
+    let result = infer_program(
+        &augmented,
+        &interner,
+        InferProgramConfig {
+            file_path: Some("<test>".into()),
+            preloaded_base_schemes: HashMap::new(),
+            preloaded_module_member_schemes: HashMap::new(),
+            known_flow_names: HashSet::new(),
+            flow_module_symbol: flow_sym,
+            preloaded_effect_op_signatures: HashMap::new(),
+            class_env: Some(class_env),
+        },
+    );
+    (result, augmented, interner)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // validate_strict_types — E430
 // ─────────────────────────────────────────────────────────────────────────────
@@ -677,6 +713,108 @@ class MyEq<a> {
     );
 }
 
+#[test]
+fn contextual_instance_generated_method_is_specialized() {
+    let (program, mut interner) = parse(
+        r#"
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+instance Eq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) { false }
+}
+"#,
+    );
+    let mut env = ClassEnv::new();
+    env.register_builtins(&mut interner);
+    env.collect_from_statements(&program.statements, &interner);
+
+    let generated = flux::types::class_dispatch::generate_dispatch_functions(
+        &program.statements,
+        &env,
+        &mut interner,
+    );
+
+    let mangled = generated.iter().find_map(|stmt| match stmt {
+        Statement::Function {
+            name,
+            type_params,
+            parameter_types,
+            return_type,
+            ..
+        } if interner.resolve(*name).contains("__tc_MyEq_List<a>_my_eq") => {
+            Some((type_params.clone(), parameter_types.clone(), return_type.clone()))
+        }
+        _ => None,
+    });
+
+    let (type_params, parameter_types, return_type) =
+        mangled.expect("expected contextual mangled function");
+    assert_eq!(type_params.len(), 1, "expected one quantified instance type param");
+    assert_eq!(interner.resolve(type_params[0].name), "a");
+    assert_eq!(
+        parameter_types[0]
+            .as_ref()
+            .expect("first param type")
+            .display_with(&interner),
+        "List<a>"
+    );
+    assert_eq!(
+        parameter_types[1]
+            .as_ref()
+            .expect("second param type")
+            .display_with(&interner),
+        "List<a>"
+    );
+    assert_eq!(
+        return_type
+            .as_ref()
+            .expect("return type")
+            .display_with(&interner),
+        "Bool"
+    );
+}
+
+#[test]
+fn contextual_instance_method_generalizes_body_constraint() {
+    let (result, _program, interner) = infer_with_dispatch(
+        r#"
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+instance Eq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) {
+        match xs {
+            [h1 | _] -> match ys {
+                [h2 | _] -> h1 == h2,
+                _ -> false
+            },
+            _ -> false
+        }
+    }
+}
+"#,
+    );
+
+    let mangled = interner
+        .lookup("__tc_MyEq_List<a>_my_eq")
+        .expect("contextual mangled method should be interned");
+    let scheme = result
+        .type_env
+        .lookup(mangled)
+        .expect("contextual mangled method should have a scheme");
+    let eq = interner.lookup("Eq").expect("Eq interned");
+
+    assert!(
+        scheme
+            .constraints
+            .iter()
+            .any(|constraint| constraint.class_name == eq),
+        "expected contextual mangled method to carry Eq<a> scheme constraint, got: {:?}",
+        scheme.constraints
+    );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Built-in classes
 // ─────────────────────────────────────────────────────────────────────────────
@@ -782,5 +920,24 @@ class Eq<a> {
             .methods
             .iter()
             .any(|m| interner.resolve(m.name) == "eq")
+    );
+}
+
+#[test]
+fn instance_type_arg_arity_mismatch_reports_e447() {
+    let (_env, diags, _interner) = build_class_env(
+        r#"
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool
+}
+instance Eq<Int, String> {
+    fn eq(x, y) { true }
+}
+"#,
+    );
+
+    assert!(
+        diags.iter().any(|diag| diag.code().as_deref() == Some("E447")),
+        "expected E447 for mismatched instance head arity, got: {diags:?}"
     );
 }

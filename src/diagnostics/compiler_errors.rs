@@ -860,6 +860,14 @@ pub const INSTANCE_EXTRA_METHOD: ErrorCode = ErrorCode {
     hint: Some("Instance methods must match the class declaration."),
 };
 
+pub const INSTANCE_TYPE_ARG_ARITY: ErrorCode = ErrorCode {
+    code: "E447",
+    title: "INSTANCE TYPE ARG ARITY MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Instance for `{}` uses the wrong number of type arguments.",
+    hint: Some("Match the number of type arguments declared by the class."),
+};
+
 pub const MISSING_SUPERCLASS_INSTANCE: ErrorCode = ErrorCode {
     code: "E445",
     title: "MISSING SUPERCLASS INSTANCE",
