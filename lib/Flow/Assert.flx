@@ -6,10 +6,10 @@ module Flow.Assert {
         println("ASSERTION FAILED: " + name)
     }
 
-    public fn assert_eq(a, b) with IO {
-        let typed_eq = try(\() -> a == b)
-        if typed_eq.0 == "ok" && typed_eq.1 { () }
-        else if cmp_eq(a, b) { () }
+    // Uses cmp_eq (deep structural comparison) rather than == (Eq class)
+    // so it works for all types including List, Array, tuples, and ADTs.
+    public fn assert_eq<a>(a: a, b: a) with IO {
+        if cmp_eq(a, b) { () }
         else {
             assert_failed("assert_eq")
             println(a)
@@ -18,10 +18,8 @@ module Flow.Assert {
         }
     }
 
-    public fn assert_neq(a, b) with IO {
-        let typed_neq = try(\() -> a != b)
-        if typed_neq.0 == "ok" && typed_neq.1 { () }
-        else if cmp_ne(a, b) { () }
+    public fn assert_neq<a>(a: a, b: a) with IO {
+        if cmp_ne(a, b) { () }
         else {
             assert_failed("assert_neq")
             panic("assert_neq failed")
@@ -38,22 +36,22 @@ module Flow.Assert {
         else { panic("assert_false failed") }
     }
 
-    public fn assert_gt(a, b) with IO {
+    public fn assert_gt<a: Ord>(a: a, b: a) with IO {
         if a > b { () }
         else { panic("assert_gt failed") }
     }
 
-    public fn assert_lt(a, b) with IO {
+    public fn assert_lt<a: Ord>(a: a, b: a) with IO {
         if a < b { () }
         else { panic("assert_lt failed") }
     }
 
-    public fn assert_gte(a, b) with IO {
+    public fn assert_gte<a: Ord>(a: a, b: a) with IO {
         if a >= b { () }
         else { panic("assert_gte failed") }
     }
 
-    public fn assert_lte(a, b) with IO {
+    public fn assert_lte<a: Ord>(a: a, b: a) with IO {
         if a <= b { () }
         else { panic("assert_lte failed") }
     }
@@ -65,7 +63,8 @@ module Flow.Assert {
         }
     }
 
-    public fn assert_len(collection, expected) with IO {
+    // assert_len uses runtime type dispatch (is_list) — leave untyped for now
+    public fn assert_len(collection, expected: Int) with IO {
         let actual = if is_list(collection) { list_length(collection, 0) } else { len(collection) }
         if actual == expected { () }
         else {

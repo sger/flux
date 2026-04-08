@@ -192,16 +192,16 @@ module Flow.List {
         }
     }
 
-    // sort and sort_by use <= on keys — need Ord constraint, skip for now
-    public fn sort(xs) {
+    public fn sort<a: Ord>(xs: List<a>) -> List<a> {
         merge_sort_by(xs, fn(x) { x })
     }
 
-    public fn sort_by(xs, f) {
+    public fn sort_by<a, b: Ord>(xs: List<a>, f: (a) -> b) -> List<a> {
         merge_sort_by(xs, f)
     }
 
-    // first/last return mixed types (value or None) — skip for now
+    // first/last return the value directly or None — mixed return type
+    // prevents full typing. Leave untyped for backward compatibility.
     public fn first(xs) {
         match xs {
             [h | t] -> h,
@@ -253,8 +253,8 @@ module Flow.List {
         }
     }
 
-    // range uses Int literals and operators — concrete type but return type
-    // annotation conflicts with cons literal inference. Leave untyped for now.
+    // range: return type annotation conflicts with cons literal inference —
+    // the [start | range(...)] cons is inferred as Array. Leave untyped.
     public fn range(start, stop) {
         if start >= stop { [] }
         else { [start | range(start + 1, stop)] }
@@ -292,16 +292,14 @@ module Flow.List {
         enumerate_go(xs, 0)
     }
 
-    // contains uses == on generic values — needs Eq constraint, skip for now
-    public fn contains(xs, x) {
+    public fn contains<a: Eq>(xs: List<a>, x: a) -> Bool {
         match xs {
             [h | t] -> if h == x { true } else { contains(t, x) },
             _ -> false
         }
     }
 
-    // nub calls unique_by which uses contains (==) — skip for now
-    public fn nub(xs) {
+    public fn nub<a: Eq>(xs: List<a>) -> List<a> {
         unique_by(xs, fn(x) { x })
     }
 
@@ -315,8 +313,7 @@ module Flow.List {
         }
     }
 
-    // delete uses == on generic values — needs Eq constraint, skip for now
-    public fn delete(xs, x) {
+    public fn delete<a: Eq>(xs: List<a>, x: a) -> List<a> {
         delete_go(xs, x)
     }
 
@@ -353,8 +350,7 @@ module Flow.List {
         concat(intersperse(xss, sep))
     }
 
-    // is_prefix uses == on generic values — needs Eq constraint, skip for now
-    public fn is_prefix(prefix, xs) {
+    public fn is_prefix<a: Eq>(prefix: List<a>, xs: List<a>) -> Bool {
         match prefix {
             [p | pt] -> match xs {
                 [x | xt] -> if p == x { is_prefix(pt, xt) } else { false },
@@ -364,7 +360,7 @@ module Flow.List {
         }
     }
 
-    public fn is_suffix(suffix, xs) {
+    public fn is_suffix<a: Eq>(suffix: List<a>, xs: List<a>) -> Bool {
         is_prefix(reverse(suffix), reverse(xs))
     }
 
@@ -402,20 +398,18 @@ module Flow.List {
         }
     }
 
-    // unique_by calls contains which uses == — skip for now
-    public fn unique_by(xs, f) {
+    public fn unique_by<a, b: Eq>(xs: List<a>, f: (a) -> b) -> List<a> {
         reverse(unique_by_go(xs, f, [], []))
     }
 
-    // maximum/minimum use > / < on generic values — needs Ord, skip for now
-    public fn maximum(xs) {
+    public fn maximum<a: Ord>(xs: List<a>) -> Option<a> {
         match xs {
             [h | t] -> Some(maximum_go(t, h)),
             _ -> None
         }
     }
 
-    public fn minimum(xs) {
+    public fn minimum<a: Ord>(xs: List<a>) -> Option<a> {
         match xs {
             [h | t] -> Some(minimum_go(t, h)),
             _ -> None

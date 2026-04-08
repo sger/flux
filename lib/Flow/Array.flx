@@ -160,8 +160,7 @@ module Flow.Array {
         zip_go(0, [||])
     }
 
-    // contains uses == on generic values — needs Eq constraint, skip for now
-    public fn contains(arr, x) {
+    public fn contains<a: Eq>(arr: Array<a>, x: a) -> Bool {
         any(arr, fn(item) { item == x })
     }
 
@@ -199,8 +198,7 @@ module Flow.Array {
         if n == 0 { None } else { arr[n - 1] }
     }
 
-    // range uses Int operators — leave untyped (same cons literal issue as List.range)
-    public fn range(start, stop) {
+    public fn range(start: Int, stop: Int) -> Array<Int> {
         fn range_go(i, acc) {
             if i >= stop { acc }
             else { range_go(i + 1, push(acc, i)) }
@@ -208,12 +206,11 @@ module Flow.Array {
         range_go(start, [||])
     }
 
-    // sort/sort_by use <= on key values — needs Ord constraint, skip for now
-    public fn sort(arr) {
+    public fn sort<a: Ord>(arr: Array<a>) -> Array<a> {
         sort_by(arr, \v -> v)
     }
 
-    public fn sort_by(arr, f) {
+    public fn sort_by<a, b: Ord>(arr: Array<a>, f: (a) -> b) -> Array<a> {
         fn insert_tagged(sorted, pair, idx) {
             if idx >= len(sorted) {
                 push(sorted, pair)
