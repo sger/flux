@@ -122,7 +122,7 @@ impl Scheme {
             .iter()
             .map(|c| SchemeConstraint {
                 class_name: c.class_name,
-                type_var: mapping.get(&c.type_var).copied().unwrap_or(c.type_var),
+                type_vars: c.type_vars.iter().map(|v| mapping.get(v).copied().unwrap_or(*v)).collect(),
             })
             .collect();
 
@@ -189,7 +189,7 @@ pub fn generalize_with_constraints(
     let forall_set: HashSet<TypeVarId> = free.iter().copied().collect();
     let filtered: Vec<SchemeConstraint> = constraints
         .into_iter()
-        .filter(|c| forall_set.contains(&c.type_var))
+        .filter(|c| c.type_vars.iter().all(|v| forall_set.contains(v)))
         .collect();
     Scheme {
         forall: free,

@@ -49,8 +49,9 @@ pub enum Constraint {
     Class {
         /// The class name (e.g., `Eq`, `Num`, `Show`).
         class_name: Identifier,
-        /// The type that must have an instance.
-        type_arg: InferType,
+        /// The type(s) that must have an instance. Single-param classes have
+        /// one entry; multi-param classes (e.g., `Convert<a, b>`) have multiple.
+        type_args: Vec<InferType>,
         /// Where in the source the constraint arose.
         span: Span,
     },
@@ -64,8 +65,9 @@ pub enum Constraint {
 pub struct WantedClassConstraint {
     /// The class name (e.g., `Eq`, `Num`, `Show`).
     pub class_name: Identifier,
-    /// The type that must have an instance (may be concrete or a variable).
-    pub type_arg: InferType,
+    /// The type(s) that must have an instance. Single-param classes have
+    /// one entry; multi-param classes (e.g., `Convert<a, b>`) have multiple.
+    pub type_args: Vec<InferType>,
     /// Where in the source the constraint arose.
     pub span: Span,
 }
@@ -82,6 +84,7 @@ pub struct WantedClassConstraint {
 pub struct SchemeConstraint {
     /// The class name (e.g., `Eq`, `Num`).
     pub class_name: Identifier,
-    /// The quantified type variable that is constrained.
-    pub type_var: TypeVarId,
+    /// The quantified type variable(s) that are constrained. Single-param
+    /// classes have one entry; multi-param classes have multiple.
+    pub type_vars: Vec<TypeVarId>,
 }

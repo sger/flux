@@ -4719,11 +4719,18 @@ impl Compiler {
                 _ => None,
             };
             if let Some(tn) = type_name
-                && self.class_env.resolve_instance_for_type(class_name, tn, &self.interner).is_some()
+                && let Some(instance) = self.class_env.resolve_instance_for_type(class_name, tn, &self.interner)
             {
+                // Build mangled name from all instance type args (multi-param support).
+                let type_key = instance
+                    .type_args
+                    .iter()
+                    .map(|a| a.display_with(&self.interner))
+                    .collect::<Vec<_>>()
+                    .join("_");
                 let class_str = self.interner.resolve(class_name);
                 let method_str = self.interner.resolve(name);
-                let mangled = format!("__tc_{class_str}_{tn}_{method_str}");
+                let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
                 if let Some(sym) = self.interner.lookup(&mangled) {
                     return Some(sym);
                 }
