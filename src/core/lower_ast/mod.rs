@@ -329,6 +329,123 @@ impl<'a> AstLowerer<'a> {
         }
     }
 
+    /// Resolve concrete dictionary arguments for a call to a constrained function.
+    ///
+    /// Looks up the callee's `Scheme` in the type environment. If it has class
+    /// constraints, determines which concrete dictionaries to pass by examining
+    /// the HM-inferred types at the call site.
+    ///
+    /// Returns a (possibly empty) vector of `CoreExpr::Var(__dict_{Class}_{Type})`
+    /// for each constraint that could be resolved to a concrete dictionary.
+    pub(super) fn resolve_dict_args_for_call(
+        &self,
+        callee_name: Identifier,
+        _call_id: ExprId,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Vec<CoreExpr> {
+        let (type_env, class_env, interner) =
+            match (self.type_env, self.class_env, self.interner) {
+                (Some(te), Some(ce), Some(int)) => (te, ce, int),
+                _ => return Vec::new(),
+            };
+
+        let scheme = match type_env.lookup(callee_name) {
+            Some(s) if !s.constraints.is_empty() => s,
+            _ => return Vec::new(),
+        };
+
+        // For each constraint on the callee, try to determine the concrete type
+        // by looking at the argument types at this call site.
+        let mut dict_args = Vec::new();
+        for constraint in &scheme.constraints {
+            // Try to find a concrete type for this constraint's type variable
+            // by examining the call-site argument types.
+            let concrete_type = self.resolve_constraint_type(
+                constraint,
+                scheme,
+                arguments,
+                interner,
+            );
+
+            if let Some(type_name) = concrete_type {
+                // Check if an instance exists and a dictionary was pre-interned.
+                if class_env
+                    .resolve_instance_for_type(constraint.class_name, &type_name, interner)
+                    .is_some()
+                {
+                    let class_str = interner.resolve(constraint.class_name);
+                    let dict_name_str = format!("__dict_{class_str}_{type_name}");
+                    if let Some(dict_sym) = interner.lookup(&dict_name_str) {
+                        dict_args.push(CoreExpr::external_var(
+                            dict_sym,
+                            crate::diagnostics::position::Span::default(),
+                        ));
+                        continue;
+                    }
+                }
+            }
+
+            // Could not resolve — don't partially apply dictionaries.
+            return Vec::new();
+        }
+
+        dict_args
+    }
+
+    /// Try to determine the concrete type for a constraint's type variable
+    /// by examining the argument types at a call site.
+    ///
+    /// For `fn contains<a: Eq>(xs: List<a>, elem: a)` called with `([1,2,3], 2)`,
+    /// the constraint `Eq<a>` has `type_var` matching `a`. We look at the arguments'
+    /// HM types and find `a = Int`.
+    fn resolve_constraint_type(
+        &self,
+        constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
+        scheme: &crate::types::scheme::Scheme,
+        arguments: &[crate::syntax::expression::Expression],
+        interner: &crate::syntax::interner::Interner,
+    ) -> Option<String> {
+        // Instantiate the scheme to get fresh type vars and the mapping.
+        // Then look at argument types to determine the concrete type for
+        // the constraint's type variable.
+        //
+        // Simpler approach: scan argument HM types for a concrete type.
+        // If any argument's inferred type is concrete and corresponds to
+        // the constrained type variable position, use that.
+        //
+        // We use the function type's parameter list to find which parameter
+        // positions use the constrained type variable.
+        if let InferType::Fun(param_tys, _, _) = &scheme.infer_type {
+            for (i, param_ty) in param_tys.iter().enumerate() {
+                // Check if this parameter uses the constrained type variable.
+                if param_ty.free_vars().contains(&constraint.type_var) {
+                    // Look at the actual argument's HM type.
+                    if let Some(arg) = arguments.get(i)
+                        && let Some(arg_ty) = self.hm_expr_types.get(&arg.expr_id())
+                    {
+                        // Extract the concrete type from the argument.
+                        if let Some(name) = Self::infer_type_to_type_name(arg_ty, interner) {
+                            return Some(name);
+                        }
+                        // If the arg type is an App (e.g., List<Int>), extract
+                        // the inner type that corresponds to the type variable.
+                        if let InferType::App(_, inner_args) = arg_ty {
+                            for inner in inner_args {
+                                if let Some(name) =
+                                    Self::infer_type_to_type_name(inner, interner)
+                                {
+                                    return Some(name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     /// Convert an HM-inferred expression type to a `CoreType`, if available.
     fn infer_core_type(&self, id: ExprId) -> Option<super::CoreType> {
         self.hm_expr_types.get(&id).map(super::CoreType::from_infer)
