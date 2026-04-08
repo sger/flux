@@ -19,6 +19,8 @@ use crate::{
         expression::{ExprId, Expression},
         interner::Interner,
         statement::{FunctionTypeParam, Statement},
+        type_class::ClassConstraint,
+        type_expr::TypeExpr,
     },
     types::class_env::ClassEnv,
 };
@@ -165,7 +167,7 @@ fn generate_default_method_functions(
 /// Recursively walk statements, generating mangled functions for instance methods.
 fn generate_from_statements(
     statements: &[Statement],
-    _class_env: &ClassEnv,
+    class_env: &ClassEnv,
     interner: &mut Interner,
     generated: &mut Vec<Statement>,
     dispatch_table: &mut HashMap<(Identifier, Identifier), Vec<InstanceMethodInfo>>,
@@ -175,10 +177,14 @@ fn generate_from_statements(
             Statement::Instance {
                 class_name,
                 type_args,
+                context,
                 methods,
                 span,
                 ..
             } => {
+                let Some(class_def) = class_env.lookup_class(*class_name) else {
+                    continue;
+                };
                 // Determine the head type name(s) for mangling.
                 // Multi-param classes join all type args: __tc_Convert_Int_String_convert
                 let type_name = if type_args.is_empty() {
@@ -194,20 +200,45 @@ fn generate_from_statements(
                 let class_name_str = interner.resolve(*class_name).to_string();
 
                 for method in methods {
+                    let Some(method_sig) = class_def.methods.iter().find(|sig| sig.name == method.name)
+                    else {
+                        continue;
+                    };
                     // Generate mangled name: __tc_ClassName_TypeName_methodName
                     let method_name_str = interner.resolve(method.name).to_string();
                     let mangled = format!("__tc_{class_name_str}_{type_name}_{method_name_str}");
                     let mangled_sym = interner.intern(&mangled);
+
+                    let parameter_types: Vec<Option<TypeExpr>> = method_sig
+                        .param_types
+                        .iter()
+                        .map(|ty| {
+                            Some(specialize_type_expr(
+                                ty,
+                                &class_def.type_params,
+                                type_args,
+                                interner,
+                            ))
+                        })
+                        .collect();
+                    let return_type = Some(specialize_type_expr(
+                        &method_sig.return_type,
+                        &class_def.type_params,
+                        type_args,
+                        interner,
+                    ));
+                    let type_params =
+                        build_instance_function_type_params(type_args, context, method_sig, interner);
 
                     // Create a regular function statement with the mangled name
                     let fn_stmt = Statement::Function {
                         is_public: false,
                         fip: None,
                         name: mangled_sym,
-                        type_params: vec![],
+                        type_params,
                         parameters: method.params.clone(),
-                        parameter_types: vec![None; method.params.len()],
-                        return_type: None,
+                        parameter_types,
+                        return_type,
                         effects: vec![],
                         body: method.body.clone(),
                         span: *span,
@@ -227,7 +258,7 @@ fn generate_from_statements(
             Statement::Module { body, .. } => {
                 generate_from_statements(
                     &body.statements,
-                    _class_env,
+                    class_env,
                     interner,
                     generated,
                     dispatch_table,
@@ -235,6 +266,142 @@ fn generate_from_statements(
             }
             _ => {}
         }
+    }
+}
+
+fn build_instance_function_type_params(
+    instance_type_args: &[TypeExpr],
+    context: &[ClassConstraint],
+    method_sig: &crate::types::class_env::MethodSig,
+    interner: &Interner,
+) -> Vec<FunctionTypeParam> {
+    let mut ordered = Vec::new();
+    for type_arg in instance_type_args {
+        collect_free_type_params(type_arg, interner, &mut ordered);
+    }
+    for constraint in context {
+        for type_arg in &constraint.type_args {
+            collect_free_type_params(type_arg, interner, &mut ordered);
+        }
+    }
+    for &type_param in &method_sig.type_params {
+        if !ordered.contains(&type_param) {
+            ordered.push(type_param);
+        }
+    }
+    ordered
+        .into_iter()
+        .map(|name| FunctionTypeParam {
+            name,
+            constraints: vec![],
+        })
+        .collect()
+}
+
+fn collect_free_type_params(ty: &TypeExpr, interner: &Interner, out: &mut Vec<Identifier>) {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            if is_type_param_name(*name, interner) && !out.contains(name) {
+                out.push(*name);
+            }
+            for arg in args {
+                collect_free_type_params(arg, interner, out);
+            }
+        }
+        TypeExpr::Tuple { elements, .. } => {
+            for elem in elements {
+                collect_free_type_params(elem, interner, out);
+            }
+        }
+        TypeExpr::Function { params, ret, .. } => {
+            for param in params {
+                collect_free_type_params(param, interner, out);
+            }
+            collect_free_type_params(ret, interner, out);
+        }
+    }
+}
+
+fn is_type_param_name(name: Identifier, interner: &Interner) -> bool {
+    interner
+        .resolve(name)
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_lowercase())
+}
+
+fn specialize_type_expr(
+    ty: &TypeExpr,
+    class_type_params: &[Identifier],
+    instance_type_args: &[TypeExpr],
+    interner: &Interner,
+) -> TypeExpr {
+    let subst: HashMap<Identifier, TypeExpr> = class_type_params
+        .iter()
+        .copied()
+        .zip(instance_type_args.iter().cloned())
+        .collect();
+    substitute_type_expr(ty, &subst, interner)
+}
+
+fn substitute_type_expr(
+    ty: &TypeExpr,
+    subst: &HashMap<Identifier, TypeExpr>,
+    interner: &Interner,
+) -> TypeExpr {
+    match ty {
+        TypeExpr::Named { name, args, span } => {
+            let substituted_args: Vec<TypeExpr> = args
+                .iter()
+                .map(|arg| substitute_type_expr(arg, subst, interner))
+                .collect();
+            if let Some(replacement) = subst.get(name) {
+                match replacement {
+                    TypeExpr::Named {
+                        name: replacement_name,
+                        args: replacement_args,
+                        ..
+                    } => {
+                        let mut merged_args: Vec<TypeExpr> = replacement_args.clone();
+                        merged_args.extend(substituted_args);
+                        TypeExpr::Named {
+                            name: *replacement_name,
+                            args: merged_args,
+                            span: *span,
+                        }
+                    }
+                    other => other.clone(),
+                }
+            } else {
+                let _ = interner;
+                TypeExpr::Named {
+                    name: *name,
+                    args: substituted_args,
+                    span: *span,
+                }
+            }
+        }
+        TypeExpr::Tuple { elements, span } => TypeExpr::Tuple {
+            elements: elements
+                .iter()
+                .map(|elem| substitute_type_expr(elem, subst, interner))
+                .collect(),
+            span: *span,
+        },
+        TypeExpr::Function {
+            params,
+            ret,
+            effects,
+            span,
+        } => TypeExpr::Function {
+            params: params
+                .iter()
+                .map(|param| substitute_type_expr(param, subst, interner))
+                .collect(),
+            ret: Box::new(substitute_type_expr(ret, subst, interner)),
+            effects: effects.clone(),
+            span: *span,
+        },
     }
 }
 

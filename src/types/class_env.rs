@@ -13,11 +13,12 @@ use crate::{
         Identifier, interner::Interner, statement::Statement, type_class::ClassConstraint,
         type_expr::TypeExpr,
     },
+    types::{infer_type::InferType, type_constructor::TypeConstructor},
 };
 
 use super::super::diagnostics::compiler_errors::{
     DUPLICATE_CLASS, DUPLICATE_INSTANCE, INSTANCE_EXTRA_METHOD, INSTANCE_MISSING_METHOD,
-    INSTANCE_UNKNOWN_CLASS, MISSING_SUPERCLASS_INSTANCE,
+    INSTANCE_TYPE_ARG_ARITY, INSTANCE_UNKNOWN_CLASS, MISSING_SUPERCLASS_INSTANCE,
 };
 
 /// A type class definition collected from a `class` declaration.
@@ -196,6 +197,25 @@ impl ClassEnv {
                             continue;
                         }
                     };
+
+                    if type_args.len() != class_def.type_params.len() {
+                        let display_class = interner.resolve(*class_name);
+                        diagnostics.push(
+                            diagnostic_for(&INSTANCE_TYPE_ARG_ARITY)
+                                .with_span(*span)
+                                .with_message(format!(
+                                    "Instance for `{display_class}` uses {} type argument(s), \
+                                     but the class declares {}.",
+                                    type_args.len(),
+                                    class_def.type_params.len()
+                                ))
+                                .with_hint_text(format!(
+                                    "`{display_class}` expects {} type argument(s) in its instance head.",
+                                    class_def.type_params.len()
+                                )),
+                        );
+                        continue;
+                    }
 
                     // Check for duplicate instances (same class + same head type).
                     // Uses structural equality ignoring source spans.
@@ -418,15 +438,46 @@ impl ClassEnv {
         type_name: &str,
         interner: &Interner,
     ) -> Option<&InstanceDef> {
-        self.instances.iter().find(|inst| {
-            inst.class_name == class_name
-                && inst.type_args.first().is_some_and(|ta| {
-                    if let TypeExpr::Named { name, args, .. } = ta {
-                        args.is_empty() && interner.resolve(*name) == type_name
-                    } else {
-                        false
-                    }
-                })
+        let actual = match type_name {
+            "Int" => InferType::Con(TypeConstructor::Int),
+            "Float" => InferType::Con(TypeConstructor::Float),
+            "Bool" => InferType::Con(TypeConstructor::Bool),
+            "String" => InferType::Con(TypeConstructor::String),
+            "Unit" => InferType::Con(TypeConstructor::Unit),
+            "List" => InferType::Con(TypeConstructor::List),
+            "Array" => InferType::Con(TypeConstructor::Array),
+            "Option" => InferType::Con(TypeConstructor::Option),
+            other => InferType::Con(TypeConstructor::Adt(interner.lookup(other)?)),
+        };
+        self.resolve_instance_with_subst(class_name, &[actual], interner)
+            .map(|(inst, _)| inst)
+    }
+
+    /// Resolve an instance against concrete inferred type arguments.
+    ///
+    /// Returns the matched instance and the type-variable substitution induced
+    /// by matching the instance head against the concrete type arguments.
+    pub fn resolve_instance_with_subst(
+        &self,
+        class_name: Identifier,
+        actual_type_args: &[InferType],
+        interner: &Interner,
+    ) -> Option<(&InstanceDef, HashMap<Identifier, InferType>)> {
+        self.instances.iter().find_map(|inst| {
+            if inst.class_name != class_name || inst.type_args.len() != actual_type_args.len() {
+                return None;
+            }
+
+            let mut subst = HashMap::new();
+            let matches = inst
+                .type_args
+                .iter()
+                .zip(actual_type_args.iter())
+                .all(|(pattern, actual)| {
+                    Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+                });
+
+            matches.then_some((inst, subst))
         })
     }
 
@@ -610,6 +661,99 @@ impl ClassEnv {
             method_names: vec![],
             span: Span::default(),
         });
+    }
+}
+
+impl ClassEnv {
+    fn match_instance_type_expr(
+        pattern: &TypeExpr,
+        actual: &InferType,
+        subst: &mut HashMap<Identifier, InferType>,
+        interner: &Interner,
+    ) -> bool {
+        match pattern {
+            TypeExpr::Named { name, args, .. }
+                if args.is_empty() && Self::is_instance_type_var(*name, interner) =>
+            {
+                if let Some(bound) = subst.get(name) {
+                    bound == actual
+                } else {
+                    subst.insert(*name, actual.clone());
+                    true
+                }
+            }
+            TypeExpr::Named { name, args, .. } => match actual {
+                InferType::Con(tc) => {
+                    args.is_empty() && Self::type_constructor_matches(*name, tc, interner)
+                }
+                InferType::App(tc, actual_args) => {
+                    Self::type_constructor_matches(*name, tc, interner)
+                        && args.len() == actual_args.len()
+                        && args.iter().zip(actual_args.iter()).all(|(p, a)| {
+                            Self::match_instance_type_expr(p, a, subst, interner)
+                        })
+                }
+                InferType::HktApp(head, actual_args) => match head.as_ref() {
+                    InferType::Con(tc) => {
+                        Self::type_constructor_matches(*name, tc, interner)
+                            && args.len() == actual_args.len()
+                            && args.iter().zip(actual_args.iter()).all(|(p, a)| {
+                                Self::match_instance_type_expr(p, a, subst, interner)
+                            })
+                    }
+                    _ => false,
+                },
+                _ => false,
+            },
+            TypeExpr::Tuple { elements, .. } => match actual {
+                InferType::Tuple(actual_elems) => {
+                    elements.len() == actual_elems.len()
+                        && elements.iter().zip(actual_elems.iter()).all(|(p, a)| {
+                            Self::match_instance_type_expr(p, a, subst, interner)
+                        })
+                }
+                _ => false,
+            },
+            TypeExpr::Function { params, ret, .. } => match actual {
+                InferType::Fun(actual_params, actual_ret, _) => {
+                    params.len() == actual_params.len()
+                        && params.iter().zip(actual_params.iter()).all(|(p, a)| {
+                            Self::match_instance_type_expr(p, a, subst, interner)
+                        })
+                        && Self::match_instance_type_expr(ret, actual_ret, subst, interner)
+                }
+                _ => false,
+            },
+        }
+    }
+
+    fn is_instance_type_var(name: Identifier, interner: &Interner) -> bool {
+        interner
+            .resolve(name)
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase())
+    }
+
+    fn type_constructor_matches(
+        expected_name: Identifier,
+        actual: &TypeConstructor,
+        interner: &Interner,
+    ) -> bool {
+        match actual {
+            TypeConstructor::Int => interner.resolve(expected_name) == "Int",
+            TypeConstructor::Float => interner.resolve(expected_name) == "Float",
+            TypeConstructor::Bool => interner.resolve(expected_name) == "Bool",
+            TypeConstructor::String => interner.resolve(expected_name) == "String",
+            TypeConstructor::Unit => interner.resolve(expected_name) == "Unit",
+            TypeConstructor::List => interner.resolve(expected_name) == "List",
+            TypeConstructor::Array => interner.resolve(expected_name) == "Array",
+            TypeConstructor::Option => interner.resolve(expected_name) == "Option",
+            TypeConstructor::Map => interner.resolve(expected_name) == "Map",
+            TypeConstructor::Either => interner.resolve(expected_name) == "Either",
+            TypeConstructor::Adt(sym) => *sym == expected_name,
+            _ => false,
+        }
     }
 }
 

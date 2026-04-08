@@ -283,9 +283,8 @@ impl<'a> AstLowerer<'a> {
         // the instance's type args (supporting multi-param classes).
         if let Some(first_arg) = arguments.first()
             && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
-            && let Some(first_type_name) = Self::infer_type_to_type_name(first_arg_type, interner)
-            && let Some(instance) =
-                class_env.resolve_instance_for_type(class_name, &first_type_name, interner)
+            && let Some((instance, _)) =
+                class_env.resolve_instance_with_subst(class_name, std::slice::from_ref(first_arg_type), interner)
         {
             // Build mangled name from all instance type args.
             let type_key = instance

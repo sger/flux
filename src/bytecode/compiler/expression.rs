@@ -4701,28 +4701,12 @@ impl Compiler {
         // resolve directly to the mangled instance function.
         if let Some(first_arg) = arguments.first()
             && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
+            && let Some((instance, _)) = self.class_env.resolve_instance_with_subst(
+                class_name,
+                std::slice::from_ref(first_arg_type),
+                &self.interner,
+            )
         {
-            use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
-            let type_name = match first_arg_type {
-                InferType::Con(tc) | InferType::App(tc, _) => match tc {
-                    TypeConstructor::Int => Some("Int"),
-                    TypeConstructor::Float => Some("Float"),
-                    TypeConstructor::Bool => Some("Bool"),
-                    TypeConstructor::String => Some("String"),
-                    TypeConstructor::Unit => Some("Unit"),
-                    TypeConstructor::List => Some("List"),
-                    TypeConstructor::Array => Some("Array"),
-                    TypeConstructor::Option => Some("Option"),
-                    TypeConstructor::Adt(sym) => Some(self.interner.resolve(*sym)),
-                    _ => None,
-                },
-                _ => None,
-            };
-            if let Some(tn) = type_name
-                && let Some(instance) =
-                    self.class_env
-                        .resolve_instance_for_type(class_name, tn, &self.interner)
-            {
                 // Build mangled name from all instance type args (multi-param support).
                 let type_key = instance
                     .type_args
@@ -4736,7 +4720,6 @@ impl Compiler {
                 if let Some(sym) = self.interner.lookup(&mangled) {
                     return Some(sym);
                 }
-            }
         }
 
         // No compile-time resolution possible — return None.
