@@ -20,31 +20,32 @@ Last updated: 2026-04-08
 
 | Step | Feature | Files | Notes |
 |------|---------|-------|-------|
-| **1. Parser** | `class` and `instance` keywords, AST types, full pipeline (Core IR, CFG, LIR) | `token_type.rs`, `type_class.rs`, `statement.rs`, `parser/statement.rs`, `core/mod.rs`, `cfg/mod.rs` + 15 match exhaustiveness fixes | Superclass `=>` syntax not yet parsed (no `=>` token) |
-| **2. ClassEnv** | Collect and validate declarations, error codes E440–E443 | `types/class_env.rs`, `compiler_errors.rs`, `registry.rs`, `compiler/mod.rs`, `passes/collection.rs` | Validates: duplicate class, unknown class in instance, missing methods (respects defaults), duplicate instances |
-| **3. Constraints** | Emit class constraints during HM inference for operators and class method calls | `constraint.rs`, `operators.rs`, `calls.rs`, `mod.rs` | Constraints recorded + resolved in `InferProgramResult`. |
-| **4. Constraint solving** | Resolve constraints at generalization: concrete types → instance lookup | `class_solver.rs` | E444 for unsatisfied concrete constraints under `--strict-types`. Type variables left unsolved. |
-| **5. Dispatch** | Compile-time monomorphic resolution + polymorphic `type_of()` dispatch | `class_dispatch.rs`, `compiler/pipeline.rs`, `compiler/mod.rs`, `core/lower_ast/mod.rs` | Mangled instance functions (`__tc_Class_Type_method`). Polymorphic stub for HM inference. Multi-instance in same scope works via fresh type var instantiation. LLVM backend support added (dispatch function generation in `lower_to_lir_llvm_module_per_module`). |
-| **5b. Dictionary elaboration** | Core-to-Core pass: dictionary construction, body rewriting, constraint promotion | `dict_elaborate.rs`, `scheme.rs`, `constraint.rs`, `function.rs`, `statement.rs`, `class_dispatch.rs`, `class_env.rs` | `Scheme.constraints` carries class constraints. `__dict_{Class}_{Type}` CoreDefs built as MakeTuple of mangled refs. Constrained Lams get dict params; class method calls rewritten to TupleField extractions. Polymorphic forwarding supported. Concrete call-site dictionary resolution pending (Phase 6+7). |
+| **1. Parser** | `class`/`instance` keywords, AST types, superclass `=>` syntax, instance context syntax | `token_type.rs` (`FatArrow`), `type_class.rs`, `statement.rs`, `parser/statement.rs`, `core/mod.rs`, `cfg/mod.rs` | Full pipeline: Core IR, CFG, LIR. `class Eq<a> => Ord<a>` and `instance Eq<a> => Eq<List<a>>` parse correctly. |
+| **2. ClassEnv** | Collect and validate declarations, error codes E440–E446 | `types/class_env.rs`, `compiler_errors.rs`, `registry.rs` | Validates: duplicate class (E440), unknown class (E441), missing methods (E442), duplicate instances (E443, structural equality), superclass instances (E445), extra methods (E446). |
+| **3. Constraints** | Emit class constraints during HM inference for operators and class method calls | `constraint.rs`, `operators.rs`, `calls.rs`, `mod.rs` | Multi-param support: `type_args: Vec<InferType>`. Constraints recorded + resolved in `InferProgramResult`. |
+| **4. Constraint solving** | Resolve constraints at generalization: concrete types → instance lookup | `class_solver.rs` | E444 for unsatisfied concrete constraints under `--strict-types`. Multi-param matching. Type variables promoted to `Scheme.constraints`. |
+| **5. Dispatch** | Compile-time monomorphic resolution, operator desugaring | `class_dispatch.rs`, `compiler/pipeline.rs`, `core/lower_ast/mod.rs`, `expression.rs` | Mangled instance functions (`__tc_Class_Type1_Type2_method`). Operators desugar to class methods (`==` → `eq`, `+` → `add`, `++` → `append`). `type_of()` fallback removed. |
+| **5b. Dictionary elaboration** | Core-to-Core pass: dict construction, body rewriting, constraint promotion, call-site resolution | `dict_elaborate.rs`, `scheme.rs`, `constraint.rs`, `function.rs`, `statement.rs`, `class_dispatch.rs`, `class_env.rs`, `cfg/mod.rs` | `Scheme.constraints` carries class constraints. `__dict_{Class}_{Type}` CoreDefs as MakeTuple. Constrained Lams get dict params. Class method calls → TupleField. Polymorphic forwarding + concrete call-site resolution via `resolve_dict_args_for_call`. |
 | **6. Built-in classes** | `Eq`, `Ord`, `Num`, `Show`, `Semigroup` with instances for primitive types | `class_env.rs` | Builtins registered before user classes. Don't override user declarations. |
 | **HKTs** | Higher-kinded types + kind system | `types/kind.rs`, `types/infer_type.rs` (`HktApp`), `types/unify.rs` | `Kind::Type` and `Kind::Arrow`. Per-method type params (`fn fmap<a, b>`). `Functor<List>` works end-to-end. |
+| **Hardening** | Superclass enforcement, structural dedup, extra method validation, multi-param classes | Proposal 0146 (complete) | E445 superclass enforcement, `TypeExpr::structural_eq`, E446 extra methods, `ClassDef.type_params: Vec<Identifier>`, multi-arg mangling/constraints. |
 
 ### Remaining
 
 | Step | Feature | Blocker | Difficulty |
 |------|---------|---------|------------|
-| **7. Stdlib migration** | Split `Flow.List`/`Flow.Array` into typed modules; `Functor`/`Foldable` | HKTs (done), dictionary elaboration | Large |
-| **Hardening** | Superclass enforcement, structural duplicate detection, extra method validation, multi-param classes | None | See Proposal 0146 Tracks 2–5 |
+| **7. Stdlib migration** | Split `Flow.List`/`Flow.Array` into typed modules; `Functor`/`Foldable` | None | Large |
+| **Constrained type param syntax** | Parse `fn f<a: Eq>(...)` | None | Medium — see Proposal 0147 |
+| **Instance context enforcement** | `Eq<a>` context provides evidence inside instance body | None | Medium — see Proposal 0147 |
 
-### Known limitations
+### Resolved limitations
 
-1. ~~**No superclass parsing**~~ **Done** — `class Eq<a> => Ord<a>` and `instance Eq<a> => Eq<List<a>>` syntax now parses. Added `FatArrow` (`=>`) token to lexer. Superclass **enforcement** (checking the constraint exists) is a separate step.
+All four original limitations have been addressed:
 
-2. ~~**No operator desugaring**~~ **Done** — When operand types are polymorphic, operators desugar to class method calls: `==` → `eq` (Eq), `+` → `add` (Num), `++` → `append` (Semigroup), `!=` → `!eq`. Concrete Int/Float operands still use specialized primops (IAdd, ICmpEq, etc.) for performance.
-
-3. ~~**Runtime `type_of()` dispatch**~~ **Removed** — `__rt_*` fallback eliminated from Core lowering, bytecode compiler, and polymorphic stubs. All dispatch goes through monomorphic resolution or dictionary elaboration.
-
-4. ~~**Duplicate instance detection fragile**~~ **Fixed** — Replaced `format!("{:?}")` with `TypeExpr::structural_eq()` which ignores spans. (Proposal 0146 Track 3)
+1. **Superclass parsing** — Done. `FatArrow` (`=>`) token added, both class and instance contexts parse.
+2. **Operator desugaring** — Done. Polymorphic operators route through class methods.
+3. **Runtime `type_of()` dispatch** — Removed. All dispatch via monomorphic resolution or dictionaries.
+4. **Duplicate instance detection** — Fixed. `TypeExpr::structural_eq()` replaces `format!("{:?}")`.
 
 ### Architecture decisions
 

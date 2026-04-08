@@ -14,7 +14,7 @@ The transition is incremental — each phase adds type system features while mai
 
 ## Implementation status
 
-Last updated: 2026-04-07 (Phase 7 + HKTs complete)
+Last updated: 2026-04-08 (all phases complete)
 
 ### Completed
 
@@ -35,12 +35,11 @@ Last updated: 2026-04-07 (Phase 7 + HKTs complete)
 | **7f** | Typed Core IR — effect handler binders | **Done** | `lower_handle_arm_typed()` uses `EffectOpSigs` map threaded into `AstLowerer` to type handler param binders from effect op signatures. Resume binder is always `BoxedRep` (closure). New `lower_program_ast_complete()` entry point accepts `EffectOpSigs`. |
 | **7g** | Typed Core IR — ADT field layout metadata | **Done** | `FluxRep::from_type_expr()` converts syntactic field types to reps. `AdtDefinition` and `ConstructorInfo` now store per-constructor `field_reps: Vec<FluxRep>`. LIR `MakeCtor` carries `field_reps`. Infrastructure for future unboxed field storage. |
 
-### Remaining
+| **3–4** | Dictionary elaboration | **Done** | Proposal 0145 Step 5b: Core-to-Core `dict_elaborate.rs` pass. Scheme carries constraints, dictionaries built as MakeTuple, constrained functions get dict params, class method calls rewritten to TupleField extractions. Concrete call-site resolution via `resolve_dict_args_for_call`. `type_of()` runtime fallback removed. |
+| **—** | Type class hardening | **Done** | Proposal 0146 complete: superclass `=>` parsing + E445 enforcement, structural duplicate detection (`TypeExpr::structural_eq`), extra method validation (E446), multi-param type classes (`ClassDef.type_params: Vec`). |
+| **—** | Operator desugaring | **Done** | Polymorphic operators desugar to class methods: `==` → `eq` (Eq), `+` → `add` (Num), `++` → `append` (Semigroup). Concrete Int/Float keep specialized primops. |
 
-| Phase | Feature | Status | Blocker |
-|-------|---------|--------|---------|
-| **3–4** | Dictionary elaboration | Not started | Proposal 0145 Step 5: polymorphic constrained functions need dictionary parameters instead of `type_of()` dispatch. See Proposal 0146 Track 1. |
-| **—** | Type class hardening | Not started | Proposal 0146: superclass enforcement, structural duplicate detection, extra method validation, multi-param classes. |
+All phases complete. Remaining type class work (constrained type param syntax, instance context enforcement, stdlib migration) tracked in Proposals 0145 and 0147.
 
 ### Key files
 
