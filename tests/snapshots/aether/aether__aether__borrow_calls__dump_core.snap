@@ -1,31 +1,58 @@
 ---
 source: tests/aether_cli_snapshots.rs
 ---
+letrec assert_failed =
+λname.
+    let %t1 = Add("ASSERTION FAILED: ", name)
+    Println(%t1)
+
 letrec assert_eq =
 λa, b.
-    let %t1 = CmpEq(a, b)
-    case %t1 of
+    let typed_eq = (let %t2 = (λ.
+      Eq(a, b))
+    Try(%t2))
+    let %t3 = (let %t4 = (let %t5 = typed_eq.0
+    ICmpEq(%t5, "ok"))
+    let %t6 = typed_eq.1
+    And(%t4, %t6))
+    case %t3 of
       true →
         MakeTuple()
       _ →
-        let %t2 = Println("ASSERTION FAILED: assert_eq")
-        drop %t2
-        let %t3 = Println(a)
-        drop %t3
-        let %t4 = Println(b)
-        drop %t4
-        Panic("assert_eq failed")
+        let %t7 = CmpEq(a, b)
+        case %t7 of
+          true →
+            MakeTuple()
+          _ →
+            let %t8 = aether_call[borrowed] assert_failed("assert_eq")
+            drop %t8
+            let %t9 = Println(a)
+            drop %t9
+            let %t10 = Println(b)
+            drop %t10
+            Panic("assert_eq failed")
 
 letrec assert_neq =
 λa, b.
-    let %t5 = CmpNe(a, b)
-    case %t5 of
+    let typed_neq = (let %t11 = (λ.
+      NEq(a, b))
+    Try(%t11))
+    let %t12 = (let %t13 = (let %t14 = typed_neq.0
+    Eq(%t14, "ok"))
+    let %t15 = typed_neq.1
+    And(%t13, %t15))
+    case %t12 of
       true →
         MakeTuple()
       _ →
-        let %t6 = Println("ASSERTION FAILED: assert_neq")
-        drop %t6
-        Panic("assert_neq failed")
+        let %t16 = CmpNe(a, b)
+        case %t16 of
+          true →
+            MakeTuple()
+          _ →
+            let %t17 = aether_call[borrowed] assert_failed("assert_neq")
+            drop %t17
+            Panic("assert_neq failed")
 
 letrec assert_true =
 λx.
@@ -37,8 +64,8 @@ letrec assert_true =
 
 letrec assert_false =
 λx.
-    let %t7 = Not(x)
-    case %t7 of
+    let %t18 = Not(x)
+    case %t18 of
       true →
         MakeTuple()
       _ →
@@ -46,8 +73,8 @@ letrec assert_false =
 
 letrec assert_gt =
 λa, b.
-    let %t8 = Gt(a, b)
-    case %t8 of
+    let %t19 = Gt(a, b)
+    case %t19 of
       true →
         MakeTuple()
       _ →
@@ -55,8 +82,8 @@ letrec assert_gt =
 
 letrec assert_lt =
 λa, b.
-    let %t9 = Lt(a, b)
-    case %t9 of
+    let %t20 = Lt(a, b)
+    case %t20 of
       true →
         MakeTuple()
       _ →
@@ -64,8 +91,8 @@ letrec assert_lt =
 
 letrec assert_gte =
 λa, b.
-    let %t10 = Ge(a, b)
-    case %t10 of
+    let %t21 = Ge(a, b)
+    case %t21 of
       true →
         MakeTuple()
       _ →
@@ -73,8 +100,8 @@ letrec assert_gte =
 
 letrec assert_lte =
 λa, b.
-    let %t11 = Le(a, b)
-    case %t11 of
+    let %t22 = Le(a, b)
+    case %t22 of
       true →
         MakeTuple()
       _ →
@@ -85,26 +112,26 @@ letrec list_length =
     case xs of
       ::(h, t) →
         drop h
-        let %t12 = Add(acc, 1)
-        aether_call[borrowed, owned] list_length(t, %t12)
+        let %t23 = Add(acc, 1)
+        aether_call[borrowed, owned] list_length(t, %t23)
       _ →
         acc
 
 letrec assert_len =
 λcollection, expected.
-    let actual = (let %t13 = IsList(collection)
-    case %t13 of
+    let actual = (let %t24 = IsList(collection)
+    case %t24 of
       true →
         aether_call[borrowed, owned] list_length(collection, 0)
       _ →
         Len(collection))
-    let %t14 = CmpEq(actual, expected)
-    case %t14 of
+    let %t25 = Eq(actual, expected)
+    case %t25 of
       true →
         MakeTuple()
       _ →
-        let %t15 = Println("ASSERTION FAILED: assert_len")
-        drop %t15
+        let %t26 = aether_call[borrowed] assert_failed("assert_len")
+        drop %t26
         Panic("assert_len failed")
 
 letrec assert_msg =
@@ -118,19 +145,19 @@ letrec assert_msg =
 letrec print_all =
 λarr.
     letrec pa_go = (λi.
-      let %t16 = (let %t17 = Len(arr)
-      Lt(i, %t17))
-      case %t16 of
+      let %t27 = (let %t28 = Len(arr)
+      Lt(i, %t28))
+      case %t27 of
         true →
-          let %t18 = (let %t19 = Index(arr, i)
-          case %t19 of
+          let %t29 = (let %t30 = Index(arr, i)
+          case %t30 of
             Some(v) →
               Print(v)
             _ →
               Print(""))
-          drop %t18
-          let %t20 = IAdd(i, 1)
-          aether_call[owned] pa_go(%t20)
+          drop %t29
+          let %t31 = IAdd(i, 1)
+          aether_call[owned] pa_go(%t31)
         _ →
           MakeTuple())
     aether_call[owned] pa_go(0)
@@ -138,19 +165,19 @@ letrec print_all =
 letrec println_all =
 λarr.
     letrec pla_go = (λi.
-      let %t21 = (let %t22 = Len(arr)
-      Lt(i, %t22))
-      case %t21 of
+      let %t32 = (let %t33 = Len(arr)
+      Lt(i, %t33))
+      case %t32 of
         true →
-          let %t23 = (let %t24 = Index(arr, i)
-          case %t24 of
+          let %t34 = (let %t35 = Index(arr, i)
+          case %t35 of
             Some(v) →
               Println(v)
             _ →
               Println(""))
-          drop %t23
-          let %t25 = Add(i, 1)
-          aether_call[owned] pla_go(%t25)
+          drop %t34
+          let %t36 = Add(i, 1)
+          aether_call[owned] pla_go(%t36)
         _ →
           MakeTuple())
     aether_call[owned] pla_go(0)
@@ -163,24 +190,24 @@ letrec read_lines =
 letrec parse_ints =
 λarr.
     letrec pi_go = (λi, result.
-      let %t26 = (let %t27 = Len(arr)
-      Ge(i, %t27))
-      case %t26 of
+      let %t37 = (let %t38 = Len(arr)
+      Ge(i, %t38))
+      case %t37 of
         true →
           result
         _ →
-          let %t28 = Index(arr, i)
-          case %t28 of
+          let %t39 = Index(arr, i)
+          case %t39 of
             Some(s) →
-              let %t29 = Add(i, 1)
-              let %t30 = (let %t31 = ParseInt(s)
-              ArrayPush(result, %t31))
-              aether_call[owned, owned] pi_go(%t29, %t30)
+              let %t40 = Add(i, 1)
+              let %t41 = (let %t42 = ParseInt(s)
+              ArrayPush(result, %t42))
+              aether_call[owned, owned] pi_go(%t40, %t41)
             _ →
-              let %t32 = Add(i, 1)
-              aether_call[owned, owned] pi_go(%t32, result))
-    let %t33 = MakeArray()
-    aether_call[owned, owned] pi_go(0, %t33)
+              let %t43 = Add(i, 1)
+              aether_call[owned, owned] pi_go(%t43, result))
+    let %t44 = MakeArray()
+    aether_call[owned, owned] pi_go(0, %t44)
 
 letrec split_ints =
 λs, sep.
@@ -189,126 +216,53 @@ letrec split_ints =
 
 letrec map =
 λxs, f.
-    let %t34 = IsArray(xs)
-    case %t34 of
-      true →
-        letrec map_arr = (λi, acc.
-          let %t35 = (let %t36 = Len(xs)
-          Ge(i, %t36))
-          case %t35 of
-            true →
-              acc
-            _ →
-              let %t37 = Index(xs, i)
-              case %t37 of
-                Some(v) →
-                  let %t38 = Add(i, 1)
-                  let %t39 = (let %t40 = aether_call[owned] f(v)
-                  ArrayPush(acc, %t40))
-                  aether_call[owned, owned] map_arr(%t38, %t39)
-                _ →
-                  let %t41 = Add(i, 1)
-                  aether_call[owned, owned] map_arr(%t41, acc))
-        let %t42 = MakeArray()
-        aether_call[owned, owned] map_arr(0, %t42)
-      _ →
-        letrec map_acc = (λys, acc.
-          case ys of
-            ::(h, t) →
-              let %t43 = (let %t44 = aether_call[owned] f(h)
-              ::(%t44, acc))
-              aether_call[owned, owned] map_acc(t, %t43)
-            _ →
-              aether_call[owned] reverse(acc))
-        let %t45 = []
-        aether_call[owned, owned] map_acc(xs, %t45)
+    letrec map_acc = (λys, acc.
+      case ys of
+        ::(h, t) →
+          let %t45 = (let %t46 = aether_call[owned] f(h)
+          ::(%t46, acc))
+          aether_call[owned, owned] map_acc(t, %t45)
+        _ →
+          aether_call[owned] reverse(acc))
+    let %t47 = []
+    aether_call[owned, owned] map_acc(xs, %t47)
 
 letrec filter =
 λxs, pred.
-    let %t46 = IsArray(xs)
-    case %t46 of
-      true →
-        letrec filter_arr = (λi, acc.
-          let %t47 = (let %t48 = Len(xs)
-          Ge(i, %t48))
-          case %t47 of
+    letrec filter_acc = (λys, acc.
+      case ys of
+        ::(h, t) →
+          let %t48 = aether_call[owned] pred(dup h
+          h)
+          case %t48 of
             true →
-              acc
+              let %t49 = ::(h, acc)
+              aether_call[owned, owned] filter_acc(t, %t49)
             _ →
-              let %t49 = Index(xs, i)
-              case %t49 of
-                Some(v) →
-                  let %t50 = aether_call[owned] pred(dup v
-                  v)
-                  case %t50 of
-                    true →
-                      let %t51 = Add(i, 1)
-                      let %t52 = ArrayPush(acc, v)
-                      aether_call[owned, owned] filter_arr(%t51, %t52)
-                    _ →
-                      let %t53 = Add(i, 1)
-                      aether_call[owned, owned] filter_arr(%t53, acc)
-                _ →
-                  let %t54 = Add(i, 1)
-                  aether_call[owned, owned] filter_arr(%t54, acc))
-        let %t55 = MakeArray()
-        aether_call[owned, owned] filter_arr(0, %t55)
-      _ →
-        letrec filter_acc = (λys, acc.
-          case ys of
-            ::(h, t) →
-              let %t56 = aether_call[owned] pred(dup h
-              h)
-              case %t56 of
-                true →
-                  let %t57 = ::(h, acc)
-                  aether_call[owned, owned] filter_acc(t, %t57)
-                _ →
-                  drop h
-                  aether_call[owned, owned] filter_acc(t, acc)
-            _ →
-              aether_call[owned] reverse(acc))
-        let %t58 = []
-        aether_call[owned, owned] filter_acc(xs, %t58)
+              drop h
+              aether_call[owned, owned] filter_acc(t, acc)
+        _ →
+          aether_call[owned] reverse(acc))
+    let %t50 = []
+    aether_call[owned, owned] filter_acc(xs, %t50)
 
 letrec fold =
 λxs, acc, f.
-    let %t59 = IsArray(xs)
-    case %t59 of
-      true →
-        letrec fold_arr = (λi, a.
-          let %t60 = (let %t61 = Len(xs)
-          Ge(i, %t61))
-          case %t60 of
-            true →
-              a
-            _ →
-              let %t62 = Index(xs, i)
-              case %t62 of
-                Some(v) →
-                  let %t63 = Add(i, 1)
-                  let %t64 = aether_call[owned, owned] f(a, v)
-                  aether_call[owned, owned] fold_arr(%t63, %t64)
-                _ →
-                  let %t65 = Add(i, 1)
-                  aether_call[owned, owned] fold_arr(%t65, a))
-        aether_call[owned, owned] fold_arr(0, acc)
-      _ →
-        letrec fold_list = (λys, a.
-          case ys of
-            ::(h, t) →
-              let %t66 = aether_call[owned, owned] f(a, h)
-              aether_call[owned, owned] fold_list(t, %t66)
-            _ →
-              a)
-        aether_call[owned, owned] fold_list(xs, acc)
+    letrec fold_list = (λys, a.
+      case ys of
+        ::(h, t) →
+          let %t51 = aether_call[owned, owned] f(a, h)
+          aether_call[owned, owned] fold_list(t, %t51)
+        _ →
+          a)
+    aether_call[owned, owned] fold_list(xs, acc)
 
 letrec foldr =
 λxs, acc, f.
     case xs of
       ::(h, t) →
-        let %t67 = aether_call[borrowed, owned, borrowed] foldr(t, acc, f)
-        aether_call[owned, owned] f(h, %t67)
+        let %t52 = aether_call[borrowed, owned, borrowed] foldr(t, acc, f)
+        aether_call[owned, owned] f(h, %t52)
       _ →
         acc
 
@@ -322,75 +276,30 @@ letrec fold1 =
 
 letrec flat_map =
 λxs, f.
-    let %t68 = IsArray(xs)
-    case %t68 of
-      true →
-        letrec flat_map_arr = (λi, acc.
-          let %t69 = (let %t70 = Len(xs)
-          Ge(i, %t70))
-          case %t69 of
-            true →
-              acc
-            _ →
-              let %t71 = Index(xs, i)
-              case %t71 of
-                Some(v) →
-                  let %t72 = Add(i, 1)
-                  let %t73 = (let %t74 = aether_call[owned] f(v)
-                  ArrayConcat(acc, %t74))
-                  aether_call[owned, owned] flat_map_arr(%t72, %t73)
-                _ →
-                  let %t75 = Add(i, 1)
-                  aether_call[owned, owned] flat_map_arr(%t75, acc))
-        let %t76 = MakeArray()
-        aether_call[owned, owned] flat_map_arr(0, %t76)
-      _ →
-        letrec flat_map_acc = (λys, acc.
-          case ys of
-            ::(h, t) →
-              let %t77 = (let %t78 = (let %t79 = aether_call[owned] f(h)
-              aether_call[owned] reverse(%t79))
-              aether_call[owned, owned] append(%t78, acc))
-              aether_call[owned, owned] flat_map_acc(t, %t77)
-            _ →
-              aether_call[owned] reverse(acc))
-        let %t80 = []
-        aether_call[owned, owned] flat_map_acc(xs, %t80)
+    letrec flat_map_acc = (λys, acc.
+      case ys of
+        ::(h, t) →
+          let %t53 = (let %t54 = (let %t55 = aether_call[owned] f(h)
+          aether_call[owned] reverse(%t55))
+          aether_call[owned, owned] append(%t54, acc))
+          aether_call[owned, owned] flat_map_acc(t, %t53)
+        _ →
+          aether_call[owned] reverse(acc))
+    let %t56 = []
+    aether_call[owned, owned] flat_map_acc(xs, %t56)
 
 letrec flatten =
 λxs.
-    let %t81 = IsArray(xs)
-    case %t81 of
-      true →
-        letrec flatten_arr = (λi, acc.
-          let %t82 = (let %t83 = Len(xs)
-          Ge(i, %t83))
-          case %t82 of
-            true →
-              acc
-            _ →
-              let %t84 = Index(xs, i)
-              case %t84 of
-                Some(v) →
-                  let %t85 = Add(i, 1)
-                  let %t86 = ArrayConcat(acc, v)
-                  aether_call[owned, owned] flatten_arr(%t85, %t86)
-                _ →
-                  let %t87 = Add(i, 1)
-                  aether_call[owned, owned] flatten_arr(%t87, acc))
-        let %t88 = MakeArray()
-        aether_call[owned, owned] flatten_arr(0, %t88)
-      _ →
-        letrec flatten_acc = (λys, acc.
-          case ys of
-            ::(h, t) →
-              let %t89 = (let %t90 = aether_call[owned] reverse(h)
-              aether_call[owned, owned] append(%t90, acc))
-              aether_call[owned, owned] flatten_acc(t, %t89)
-            _ →
-              aether_call[owned] reverse(acc))
-        let %t91 = []
-        aether_call[owned, owned] flatten_acc(xs, %t91)
+    letrec flatten_acc = (λys, acc.
+      case ys of
+        ::(h, t) →
+          let %t57 = (let %t58 = aether_call[owned] reverse(h)
+          aether_call[owned, owned] append(%t58, acc))
+          aether_call[owned, owned] flatten_acc(t, %t57)
+        _ →
+          aether_call[owned] reverse(acc))
+    let %t59 = []
+    aether_call[owned, owned] flatten_acc(xs, %t59)
 
 letrec concat =
 λxss.
@@ -398,237 +307,101 @@ letrec concat =
 
 letrec any =
 λxs, pred.
-    let %t92 = IsArray(xs)
-    case %t92 of
-      true →
-        letrec any_arr = (λi.
-          let %t93 = (let %t94 = Len(xs)
-          Ge(i, %t94))
-          case %t93 of
-            true →
-              false
-            _ →
-              let %t95 = Index(xs, i)
-              case %t95 of
-                Some(v) →
-                  let %t96 = aether_call[owned] pred(v)
-                  case %t96 of
-                    true →
-                      true
-                    _ →
-                      let %t97 = Add(i, 1)
-                      aether_call[owned] any_arr(%t97)
-                _ →
-                  let %t98 = Add(i, 1)
-                  aether_call[owned] any_arr(%t98))
-        aether_call[owned] any_arr(0)
-      _ →
-        case xs of
-          ::(h, t) →
-            let %t99 = aether_call[owned] pred(h)
-            case %t99 of
-              true →
-                true
-              _ →
-                aether_call[borrowed, borrowed] any(t, pred)
+    case xs of
+      ::(h, t) →
+        let %t60 = aether_call[owned] pred(h)
+        case %t60 of
+          true →
+            true
           _ →
-            false
+            aether_call[borrowed, borrowed] any(t, pred)
+      _ →
+        false
 
 letrec all =
 λxs, pred.
-    let %t100 = IsArray(xs)
-    case %t100 of
-      true →
-        letrec all_arr = (λi.
-          let %t101 = (let %t102 = Len(xs)
-          Ge(i, %t102))
-          case %t101 of
-            true →
-              true
-            _ →
-              let %t103 = Index(xs, i)
-              case %t103 of
-                Some(v) →
-                  let %t104 = aether_call[owned] pred(v)
-                  case %t104 of
-                    true →
-                      let %t105 = Add(i, 1)
-                      aether_call[owned] all_arr(%t105)
-                    _ →
-                      false
-                _ →
-                  let %t106 = Add(i, 1)
-                  aether_call[owned] all_arr(%t106))
-        aether_call[owned] all_arr(0)
-      _ →
-        case xs of
-          ::(h, t) →
-            let %t107 = aether_call[owned] pred(h)
-            case %t107 of
-              true →
-                aether_call[borrowed, borrowed] all(t, pred)
-              _ →
-                false
+    case xs of
+      ::(h, t) →
+        let %t61 = aether_call[owned] pred(h)
+        case %t61 of
+          true →
+            aether_call[borrowed, borrowed] all(t, pred)
           _ →
-            true
+            false
+      _ →
+        true
 
 letrec find =
 λxs, pred.
-    let %t108 = IsArray(xs)
-    case %t108 of
-      true →
-        letrec find_arr = (λi.
-          let %t109 = (let %t110 = Len(xs)
-          Ge(i, %t110))
-          case %t109 of
-            true →
-              None
-            _ →
-              let %t111 = Index(xs, i)
-              case %t111 of
-                Some(v) →
-                  drop_spec %t111 {
-                    unique -> let %t112 = aether_call[owned] pred(v)
-                      case %t112 of
-                        true →
-                          reuse %t111 Some(v) @mask=0b0
-                        _ →
-                          drop v
-                          let %t113 = Add(i, 1)
-                          aether_call[owned] find_arr(%t113)
-                    shared -> let %t112 = aether_call[owned] pred(dup v
-                      v)
-                      case %t112 of
-                        true →
-                          Some(v)
-                        _ →
-                          drop v
-                          let %t113 = Add(i, 1)
-                          aether_call[owned] find_arr(%t113)
-                  }
-                _ →
-                  let %t114 = Add(i, 1)
-                  aether_call[owned] find_arr(%t114))
-        aether_call[owned] find_arr(0)
-      _ →
-        case xs of
-          ::(h, t) →
-            let %t115 = aether_call[owned] pred(dup h
-            h)
-            case %t115 of
-              true →
-                Some(h)
-              _ →
-                drop h
-                aether_call[borrowed, borrowed] find(t, pred)
+    case xs of
+      ::(h, t) →
+        let %t62 = aether_call[owned] pred(dup h
+        h)
+        case %t62 of
+          true →
+            Some(h)
           _ →
-            None
+            drop h
+            aether_call[borrowed, borrowed] find(t, pred)
+      _ →
+        None
 
 letrec count =
 λxs, pred.
-    let %t116 = IsArray(xs)
-    case %t116 of
-      true →
-        letrec count_arr = (λi, n.
-          let %t117 = (let %t118 = Len(xs)
-          Ge(i, %t118))
-          case %t117 of
+    letrec count_go = (λys, n.
+      case ys of
+        ::(h, t) →
+          let %t63 = aether_call[owned] pred(h)
+          case %t63 of
             true →
-              n
+              let %t64 = Add(n, 1)
+              aether_call[owned, owned] count_go(t, %t64)
             _ →
-              let %t119 = Index(xs, i)
-              case %t119 of
-                Some(v) →
-                  let %t120 = aether_call[owned] pred(v)
-                  case %t120 of
-                    true →
-                      let %t121 = Add(i, 1)
-                      let %t122 = Add(n, 1)
-                      aether_call[owned, owned] count_arr(%t121, %t122)
-                    _ →
-                      let %t123 = Add(i, 1)
-                      aether_call[owned, owned] count_arr(%t123, n)
-                _ →
-                  let %t124 = Add(i, 1)
-                  aether_call[owned, owned] count_arr(%t124, n))
-        aether_call[owned, owned] count_arr(0, 0)
-      _ →
-        letrec count_go = (λys, n.
-          case ys of
-            ::(h, t) →
-              let %t125 = aether_call[owned] pred(h)
-              case %t125 of
-                true →
-                  let %t126 = Add(n, 1)
-                  aether_call[owned, owned] count_go(t, %t126)
-                _ →
-                  aether_call[owned, owned] count_go(t, n)
-            _ →
-              n)
-        aether_call[owned, owned] count_go(xs, 0)
+              aether_call[owned, owned] count_go(t, n)
+        _ →
+          n)
+    aether_call[owned, owned] count_go(xs, 0)
 
 letrec each =
 λxs, f.
-    let %t127 = IsArray(xs)
-    case %t127 of
-      true →
-        letrec each_arr = (λi.
-          let %t128 = (let %t129 = Len(xs)
-          Ge(i, %t129))
-          case %t128 of
-            true →
-              MakeTuple()
-            _ →
-              let %t130 = Index(xs, i)
-              case %t130 of
-                Some(v) →
-                  let %t131 = aether_call[owned] f(v)
-                  drop %t131
-                  let %t132 = Add(i, 1)
-                  aether_call[owned] each_arr(%t132)
-                _ →
-                  let %t133 = Add(i, 1)
-                  aether_call[owned] each_arr(%t133))
-        aether_call[owned] each_arr(0)
+    case xs of
+      ::(h, t) →
+        let %t65 = aether_call[owned] f(h)
+        drop %t65
+        aether_call[borrowed, borrowed] each(t, f)
       _ →
-        case xs of
-          ::(h, t) →
-            let %t134 = aether_call[owned] f(h)
-            drop %t134
-            aether_call[borrowed, borrowed] each(t, f)
-          _ →
-            MakeTuple()
+        MakeTuple()
 
 letrec take =
 λxs, n.
     letrec take_acc = (λys, remaining, acc.
-      let %t135 = Le(remaining, 0)
-      case %t135 of
+      let %t66 = Le(remaining, 0)
+      case %t66 of
         true →
           aether_call[owned] reverse(acc)
         _ →
           case ys of
             ::(h, t) →
-              let %t136 = Sub(remaining, 1)
-              let %t137 = ::(h, acc)
-              aether_call[owned, owned, owned] take_acc(t, %t136, %t137)
+              let %t67 = Sub(remaining, 1)
+              let %t68 = ::(h, acc)
+              aether_call[owned, owned, owned] take_acc(t, %t67, %t68)
             _ →
               aether_call[owned] reverse(acc))
-    let %t138 = []
-    aether_call[owned, owned, owned] take_acc(xs, n, %t138)
+    let %t69 = []
+    aether_call[owned, owned, owned] take_acc(xs, n, %t69)
 
 letrec drop =
 λxs, n.
-    let %t139 = Le(n, 0)
-    case %t139 of
+    let %t70 = Le(n, 0)
+    case %t70 of
       true →
         xs
       _ →
         case xs of
           ::(h, t) →
             drop h
-            let %t140 = Sub(n, 1)
-            aether_call[owned, borrowed] drop(t, %t140)
+            let %t71 = Sub(n, 1)
+            aether_call[owned, borrowed] drop(t, %t71)
           _ →
             []
 
@@ -637,27 +410,27 @@ letrec take_while =
     letrec take_while_acc = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t141 = aether_call[owned] pred(dup h
+          let %t72 = aether_call[owned] pred(dup h
           h)
-          case %t141 of
+          case %t72 of
             true →
-              let %t142 = ::(h, acc)
-              aether_call[owned, owned] take_while_acc(t, %t142)
+              let %t73 = ::(h, acc)
+              aether_call[owned, owned] take_while_acc(t, %t73)
             _ →
               drop h
               drop t
               aether_call[owned] reverse(acc)
         _ →
           aether_call[owned] reverse(acc))
-    let %t143 = []
-    aether_call[owned, owned] take_while_acc(xs, %t143)
+    let %t74 = []
+    aether_call[owned, owned] take_while_acc(xs, %t74)
 
 letrec drop_while =
 λxs, pred.
     case xs of
       ::(h, t) →
-        let %t144 = aether_call[owned] pred(h)
-        case %t144 of
+        let %t75 = aether_call[owned] pred(h)
+        case %t75 of
           true →
             aether_call[owned, borrowed] drop_while(t, pred)
           _ →
@@ -668,62 +441,62 @@ letrec drop_while =
 
 letrec split_at =
 λxs, n.
-    let %t145 = Le(n, 0)
-    case %t145 of
+    let %t76 = Le(n, 0)
+    case %t76 of
       true →
-        let %t146 = []
-        MakeTuple(%t146, xs)
+        let %t77 = []
+        MakeTuple(%t77, xs)
       _ →
         case xs of
           ::(h, t) →
-            let %t147 = (let %t148 = Sub(n, 1)
-            aether_call[borrowed, borrowed] split_at(t, %t148))
-            case %t147 of
+            let %t78 = (let %t79 = Sub(n, 1)
+            aether_call[borrowed, borrowed] split_at(t, %t79))
+            case %t78 of
               (left, right) →
-                let %t149 = ::(h, left)
-                MakeTuple(%t149, right)
+                let %t80 = ::(h, left)
+                MakeTuple(%t80, right)
               _ →
-                let %t150 = []
-                MakeTuple(%t150, xs)
+                let %t81 = []
+                MakeTuple(%t81, xs)
           _ →
-            let %t151 = []
-            let %t152 = []
-            MakeTuple(%t151, %t152)
+            let %t82 = []
+            let %t83 = []
+            MakeTuple(%t82, %t83)
 
 letrec span =
 λxs, pred.
     case xs of
       ::(h, t) →
-        let %t153 = aether_call[owned] pred(dup h
+        let %t84 = aether_call[owned] pred(dup h
         h)
-        case %t153 of
+        case %t84 of
           true →
-            let %t154 = aether_call[borrowed, borrowed] span(t, pred)
-            case %t154 of
+            let %t85 = aether_call[borrowed, borrowed] span(t, pred)
+            case %t85 of
               (left, right) →
-                let %t155 = ::(h, left)
-                MakeTuple(%t155, right)
+                let %t86 = ::(h, left)
+                MakeTuple(%t86, right)
               _ →
-                let %t156 = []
-                MakeTuple(%t156, xs)
+                let %t87 = []
+                MakeTuple(%t87, xs)
           _ →
-            let %t157 = []
-            MakeTuple(%t157, xs)
+            let %t88 = []
+            MakeTuple(%t88, xs)
       _ →
-        let %t158 = []
-        let %t159 = []
-        MakeTuple(%t158, %t159)
+        let %t89 = []
+        let %t90 = []
+        MakeTuple(%t89, %t90)
 
 letrec scanl =
 λxs, acc, f.
-    let %t160 = aether_call[borrowed, owned, borrowed] scanl_rest(xs, dup acc
+    let %t91 = aether_call[borrowed, owned, borrowed] scanl_rest(xs, dup acc
     acc, f)
-    ::(acc, %t160)
+    ::(acc, %t91)
 
 letrec scanr =
 λxs, acc, f.
-    let %t161 = aether_call[borrowed, borrowed, borrowed] scanr_go(xs, acc, f)
-    case %t161 of
+    let %t92 = aether_call[borrowed, borrowed, borrowed] scanr_go(xs, acc, f)
+    case %t92 of
       (result, last_acc) →
         drop last_acc
         result
@@ -732,9 +505,9 @@ letrec scanr =
 
 letrec sort =
 λxs.
-    let %t162 = (λx.
+    let %t93 = (λx.
       x)
-    aether_call[owned, borrowed] merge_sort_by(xs, %t162)
+    aether_call[owned, borrowed] merge_sort_by(xs, %t93)
 
 letrec sort_by =
 λxs, f.
@@ -742,80 +515,34 @@ letrec sort_by =
 
 letrec first =
 λxs.
-    let %t163 = IsArray(xs)
-    case %t163 of
-      true →
-        let %t164 = (let %t165 = Len(xs)
-        Eq(%t165, 0))
-        case %t164 of
-          true →
-            None
-          _ →
-            let %t166 = Index(xs, 0)
-            case %t166 of
-              Some(v) →
-                v
-              _ →
-                None
+    case xs of
+      ::(h, t) →
+        drop t
+        h
       _ →
-        case xs of
-          ::(h, t) →
-            drop t
-            h
-          _ →
-            None
+        None
 
 letrec last =
 λxs.
-    let %t167 = IsArray(xs)
-    case %t167 of
-      true →
-        let %t168 = (let %t169 = Len(xs)
-        Eq(%t169, 0))
-        case %t168 of
-          true →
-            None
+    case xs of
+      ::(h, t) →
+        case t of
+          ::(h2, t2) →
+            drop h
+            aether_call[borrowed] last(t)
           _ →
-            let %t170 = (let %t171 = (let %t172 = Len(xs)
-            Sub(%t172, 1))
-            Index(xs, %t171))
-            case %t170 of
-              Some(v) →
-                v
-              _ →
-                None
+            h
       _ →
-        case xs of
-          ::(h, t) →
-            case t of
-              ::(h2, t2) →
-                drop h
-                aether_call[borrowed] last(t)
-              _ →
-                h
-          _ →
-            None
+        None
 
 letrec rest =
 λxs.
-    let %t173 = IsArray(xs)
-    case %t173 of
-      true →
-        let %t174 = (let %t175 = Len(xs)
-        Le(%t175, 1))
-        case %t174 of
-          true →
-            MakeArray()
-          _ →
-            let %t176 = Len(xs)
-            ArraySlice(xs, 1, %t176)
+    case xs of
+      ::(h, t) →
+        drop h
+        t
       _ →
-        case xs of
-          ::(h, t) →
-            drop h
-            t
-          _ →
-            []
+        []
 
 letrec length =
 λxs.
@@ -823,8 +550,8 @@ letrec length =
       case ys of
         ::(h, t) →
           drop h
-          let %t177 = Add(acc, 1)
-          aether_call[owned, owned] length_go(t, %t177)
+          let %t94 = Add(acc, 1)
+          aether_call[owned, owned] length_go(t, %t94)
         _ →
           acc)
     aether_call[owned, owned] length_go(xs, 0)
@@ -835,8 +562,8 @@ letrec init =
       ::(h, t) →
         case t of
           ::(h2, t2) →
-            let %t178 = aether_call[owned] init(t)
-            reuse xs ::(h, %t178) @mask=0b10
+            let %t95 = aether_call[owned] init(t)
+            reuse xs ::(h, %t95) @mask=0b10
           _ →
             drop h
             drop t
@@ -857,117 +584,60 @@ letrec null =
 
 letrec range =
 λstart, stop.
-    let %t179 = Ge(start, stop)
-    case %t179 of
+    let %t96 = Ge(start, stop)
+    case %t96 of
       true →
         drop start
         []
       _ →
-        let %t180 = (let %t181 = Add(start, 1)
-        aether_call[owned, borrowed] range(%t181, stop))
-        ::(start, %t180)
+        let %t97 = (let %t98 = Add(start, 1)
+        aether_call[owned, borrowed] range(%t98, stop))
+        ::(start, %t97)
 
 letrec reverse =
 λxs.
-    let %t182 = IsArray(xs)
-    case %t182 of
-      true →
-        letrec rev_arr_go = (λi, acc.
-          let %t183 = Lt(i, 0)
-          case %t183 of
-            true →
-              acc
-            _ →
-              let %t184 = Index(xs, i)
-              case %t184 of
-                Some(v) →
-                  let %t185 = Sub(i, 1)
-                  let %t186 = ArrayPush(acc, v)
-                  aether_call[owned, owned] rev_arr_go(%t185, %t186)
-                _ →
-                  let %t187 = Sub(i, 1)
-                  aether_call[owned, owned] rev_arr_go(%t187, acc))
-        let %t188 = (let %t189 = Len(xs)
-        Sub(%t189, 1))
-        let %t190 = MakeArray()
-        aether_call[owned, owned] rev_arr_go(%t188, %t190)
-      _ →
-        letrec rev_acc = (λys, acc.
-          case ys of
-            ::(h, t) →
-              let %t191 = ::(h, acc)
-              aether_call[owned, owned] rev_acc(t, %t191)
-            _ →
-              acc)
-        let %t192 = []
-        aether_call[owned, owned] rev_acc(xs, %t192)
+    letrec rev_acc = (λys, acc.
+      case ys of
+        ::(h, t) →
+          let %t99 = ::(h, acc)
+          aether_call[owned, owned] rev_acc(t, %t99)
+        _ →
+          acc)
+    let %t100 = []
+    aether_call[owned, owned] rev_acc(xs, %t100)
 
 letrec zip =
 λxs, ys.
-    let %t193 = IsArray(xs)
-    case %t193 of
-      true →
-        let min_len = (let %t194 = (let %t195 = Len(xs)
-        let %t196 = Len(ys)
-        Lt(%t195, %t196))
-        case %t194 of
-          true →
-            Len(xs)
-          _ →
-            Len(ys))
-        letrec zip_arr = (λi, acc.
-          let %t197 = Ge(i, min_len)
-          case %t197 of
-            true →
-              acc
-            _ →
-              let %t198 = Index(xs, i)
-              case %t198 of
-                Some(va) →
-                  let %t199 = Index(ys, i)
-                  case %t199 of
-                    Some(vb) →
-                      let %t200 = Add(i, 1)
-                      let %t201 = (let %t202 = MakeTuple(va, vb)
-                      ArrayPush(acc, %t202))
-                      aether_call[owned, owned] zip_arr(%t200, %t201)
-                    _ →
-                      acc
-                _ →
-                  acc)
-        let %t203 = MakeArray()
-        aether_call[owned, owned] zip_arr(0, %t203)
-      _ →
-        let %t204 = (let %t205 = []
-        aether_call[borrowed, borrowed, owned] zip_go(xs, ys, %t205))
-        aether_call[owned] reverse(%t204)
+    let %t101 = (let %t102 = []
+    aether_call[borrowed, borrowed, owned] zip_go(xs, ys, %t102))
+    aether_call[owned] reverse(%t101)
 
 letrec zip_with =
 λxs, ys, f.
-    let %t206 = (let %t207 = []
-    aether_call[borrowed, borrowed, borrowed, owned] zip_with_go(xs, ys, f, %t207))
-    aether_call[owned] reverse(%t206)
+    let %t103 = (let %t104 = []
+    aether_call[borrowed, borrowed, borrowed, owned] zip_with_go(xs, ys, f, %t104))
+    aether_call[owned] reverse(%t103)
 
 letrec unzip =
 λxs.
     case xs of
       ::((a, b), t) →
-        let %t208 = aether_call[borrowed] unzip(t)
-        case %t208 of
+        let %t105 = aether_call[borrowed] unzip(t)
+        case %t105 of
           (left, right) →
-            let %t209 = ::(a, left)
-            let %t210 = ::(b, right)
-            MakeTuple(%t209, %t210)
+            let %t106 = ::(a, left)
+            let %t107 = ::(b, right)
+            MakeTuple(%t106, %t107)
           _ →
             drop a
             drop b
-            let %t211 = []
-            let %t212 = []
-            MakeTuple(%t211, %t212)
+            let %t108 = []
+            let %t109 = []
+            MakeTuple(%t108, %t109)
       _ →
-        let %t213 = []
-        let %t214 = []
-        MakeTuple(%t213, %t214)
+        let %t110 = []
+        let %t111 = []
+        MakeTuple(%t110, %t111)
 
 letrec enumerate =
 λxs.
@@ -975,73 +645,48 @@ letrec enumerate =
 
 letrec contains =
 λxs, x.
-    let %t215 = IsArray(xs)
-    case %t215 of
-      true →
-        letrec arr_contains_go = (λi.
-          let %t216 = (let %t217 = Len(xs)
-          Ge(i, %t217))
-          case %t216 of
-            true →
-              false
-            _ →
-              let %t218 = Index(xs, i)
-              case %t218 of
-                Some(v) →
-                  let %t219 = CmpEq(v, x)
-                  case %t219 of
-                    true →
-                      true
-                    _ →
-                      let %t220 = Add(i, 1)
-                      aether_call[owned] arr_contains_go(%t220)
-                _ →
-                  let %t221 = Add(i, 1)
-                  aether_call[owned] arr_contains_go(%t221))
-        aether_call[owned] arr_contains_go(0)
-      _ →
-        case xs of
-          ::(h, t) →
-            let %t222 = CmpEq(h, x)
-            case %t222 of
-              true →
-                true
-              _ →
-                aether_call[borrowed, borrowed] contains(t, x)
+    case xs of
+      ::(h, t) →
+        let %t112 = Eq(h, x)
+        case %t112 of
+          true →
+            true
           _ →
-            false
+            aether_call[borrowed, borrowed] contains(t, x)
+      _ →
+        false
 
 letrec nub =
 λxs.
-    let %t223 = (λx.
+    let %t113 = (λx.
       x)
-    aether_call[borrowed, borrowed] unique_by(xs, %t223)
+    aether_call[borrowed, borrowed] unique_by(xs, %t113)
 
 letrec partition =
 λxs, pred.
     case xs of
       ::(h, t) →
-        let %t224 = aether_call[borrowed, borrowed] partition(t, pred)
-        case %t224 of
+        let %t114 = aether_call[borrowed, borrowed] partition(t, pred)
+        case %t114 of
           (yes, no) →
-            let %t225 = aether_call[owned] pred(dup h
+            let %t115 = aether_call[owned] pred(dup h
             h)
-            case %t225 of
+            case %t115 of
               true →
-                let %t226 = ::(h, yes)
-                MakeTuple(%t226, no)
+                let %t116 = ::(h, yes)
+                MakeTuple(%t116, no)
               _ →
-                let %t227 = ::(h, no)
-                MakeTuple(yes, %t227)
+                let %t117 = ::(h, no)
+                MakeTuple(yes, %t117)
           _ →
             drop h
-            let %t228 = []
-            let %t229 = []
-            MakeTuple(%t228, %t229)
+            let %t118 = []
+            let %t119 = []
+            MakeTuple(%t118, %t119)
       _ →
-        let %t230 = []
-        let %t231 = []
-        MakeTuple(%t230, %t231)
+        let %t120 = []
+        let %t121 = []
+        MakeTuple(%t120, %t121)
 
 letrec delete =
 λxs, x.
@@ -1049,23 +694,23 @@ letrec delete =
 
 letrec delete_go =
 λxs, x.
-    let %t232 = []
-    aether_call[borrowed, borrowed, owned] delete_go_acc(xs, x, %t232)
+    let %t122 = []
+    aether_call[borrowed, borrowed, owned] delete_go_acc(xs, x, %t122)
 
 letrec delete_go_acc =
 λxs, x, acc.
     case xs of
       ::(h, t) →
-        let %t233 = CmpEq(h, x)
-        case %t233 of
+        let %t123 = Eq(h, x)
+        case %t123 of
           true →
             drop h
-            let %t234 = aether_call[owned] reverse(acc)
-            let %t235 = aether_call[owned] clone_list(t)
-            aether_call[owned, owned] append(%t234, %t235)
+            let %t124 = aether_call[owned] reverse(acc)
+            let %t125 = aether_call[owned] clone_list(t)
+            aether_call[owned, owned] append(%t124, %t125)
           _ →
-            let %t236 = ::(h, acc)
-            aether_call[borrowed, borrowed, owned] delete_go_acc(t, x, %t236)
+            let %t126 = ::(h, acc)
+            aether_call[borrowed, borrowed, owned] delete_go_acc(t, x, %t126)
       _ →
         aether_call[owned] reverse(acc)
 
@@ -1073,8 +718,8 @@ letrec clone_list =
 λxs.
     case xs of
       ::(h, t) →
-        let %t237 = aether_call[owned] clone_list(t)
-        reuse xs ::(h, %t237) @mask=0b10
+        let %t127 = aether_call[owned] clone_list(t)
+        reuse xs ::(h, %t127) @mask=0b10
       _ →
         []
 
@@ -1082,16 +727,16 @@ letrec intersperse =
 λxs, sep.
     case xs of
       ::(h, t) →
-        let %t238 = aether_call[owned, owned] intersperse_rest(t, sep)
-        reuse xs ::(h, %t238) @mask=0b10
+        let %t128 = aether_call[owned, owned] intersperse_rest(t, sep)
+        reuse xs ::(h, %t128) @mask=0b10
       _ →
         drop sep
         []
 
 letrec intercalate =
 λxss, sep.
-    let %t239 = aether_call[owned, owned] intersperse(xss, sep)
-    aether_call[owned] concat(%t239)
+    let %t129 = aether_call[owned, owned] intersperse(xss, sep)
+    aether_call[owned] concat(%t129)
 
 letrec is_prefix =
 λprefix, xs.
@@ -1099,8 +744,8 @@ letrec is_prefix =
       ::(p, pt) →
         case xs of
           ::(x, xt) →
-            let %t240 = CmpEq(p, x)
-            case %t240 of
+            let %t130 = Eq(p, x)
+            case %t130 of
               true →
                 aether_call[borrowed, borrowed] is_prefix(pt, xt)
               _ →
@@ -1112,66 +757,66 @@ letrec is_prefix =
 
 letrec is_suffix =
 λsuffix, xs.
-    let %t241 = aether_call[owned] reverse(suffix)
-    let %t242 = aether_call[owned] reverse(xs)
-    aether_call[borrowed, borrowed] is_prefix(%t241, %t242)
+    let %t131 = aether_call[owned] reverse(suffix)
+    let %t132 = aether_call[owned] reverse(xs)
+    aether_call[borrowed, borrowed] is_prefix(%t131, %t132)
 
 letrec nth =
 λxs, n.
-    let %t243 = Lt(n, 0)
-    case %t243 of
+    let %t133 = Lt(n, 0)
+    case %t133 of
       true →
         None
       _ →
         case xs of
           ::(h, t) →
-            let %t244 = Eq(n, 0)
-            case %t244 of
+            let %t134 = Eq(n, 0)
+            case %t134 of
               true →
                 Some(h)
               _ →
                 drop h
-                let %t245 = Sub(n, 1)
-                aether_call[borrowed, borrowed] nth(t, %t245)
+                let %t135 = Sub(n, 1)
+                aether_call[borrowed, borrowed] nth(t, %t135)
           _ →
             None
 
 letrec replicate =
 λn, x.
-    let %t246 = Le(n, 0)
-    case %t246 of
+    let %t136 = Le(n, 0)
+    case %t136 of
       true →
         drop x
         []
       _ →
-        let %t247 = (let %t248 = Sub(n, 1)
-        aether_call[borrowed, owned] replicate(%t248, dup x
+        let %t137 = (let %t138 = Sub(n, 1)
+        aether_call[borrowed, owned] replicate(%t138, dup x
         x))
-        ::(x, %t247)
+        ::(x, %t137)
 
 letrec iterate =
 λx, f, n.
-    let %t249 = Le(n, 0)
-    case %t249 of
+    let %t139 = Le(n, 0)
+    case %t139 of
       true →
         drop x
         []
       _ →
-        let %t250 = (let %t251 = aether_call[owned] f(dup x
+        let %t140 = (let %t141 = aether_call[owned] f(dup x
         x)
-        let %t252 = Sub(n, 1)
-        aether_call[owned, borrowed, borrowed] iterate(%t251, f, %t252))
-        ::(x, %t250)
+        let %t142 = Sub(n, 1)
+        aether_call[owned, borrowed, borrowed] iterate(%t141, f, %t142))
+        ::(x, %t140)
 
 letrec unfold =
 λseed, f.
-    let %t253 = aether_call[owned] f(seed)
-    case %t253 of
+    let %t143 = aether_call[owned] f(seed)
+    case %t143 of
       Some(step) →
-        let %t254 = step.0
-        let %t255 = (let %t256 = step.1
-        aether_call[owned, borrowed] unfold(%t256, f))
-        ::(%t254, %t255)
+        let %t144 = step.0
+        let %t145 = (let %t146 = step.1
+        aether_call[owned, borrowed] unfold(%t146, f))
+        ::(%t144, %t145)
       _ →
         []
 
@@ -1185,17 +830,17 @@ letrec group_by =
 
 letrec unique_by =
 λxs, f.
-    let %t257 = (let %t258 = []
-    let %t259 = []
-    aether_call[borrowed, borrowed, owned, owned] unique_by_go(xs, f, %t258, %t259))
-    aether_call[owned] reverse(%t257)
+    let %t147 = (let %t148 = []
+    let %t149 = []
+    aether_call[borrowed, borrowed, owned, owned] unique_by_go(xs, f, %t148, %t149))
+    aether_call[owned] reverse(%t147)
 
 letrec maximum =
 λxs.
     case xs of
       ::(h, t) →
-        let %t260 = aether_call[borrowed, owned] maximum_go(t, h)
-        Some(%t260)
+        let %t150 = aether_call[borrowed, owned] maximum_go(t, h)
+        Some(%t150)
       _ →
         None
 
@@ -1203,8 +848,8 @@ letrec minimum =
 λxs.
     case xs of
       ::(h, t) →
-        let %t261 = aether_call[borrowed, owned] minimum_go(t, h)
-        Some(%t261)
+        let %t151 = aether_call[borrowed, owned] minimum_go(t, h)
+        Some(%t151)
       _ →
         None
 
@@ -1213,8 +858,8 @@ letrec sum =
     letrec sum_go = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t262 = Add(acc, h)
-          aether_call[owned, owned] sum_go(t, %t262)
+          let %t152 = Add(acc, h)
+          aether_call[owned, owned] sum_go(t, %t152)
         _ →
           acc)
     aether_call[owned, owned] sum_go(xs, 0)
@@ -1224,8 +869,8 @@ letrec product =
     letrec product_go = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t263 = Mul(acc, h)
-          aether_call[owned, owned] product_go(t, %t263)
+          let %t153 = Mul(acc, h)
+          aether_call[owned, owned] product_go(t, %t153)
         _ →
           acc)
     aether_call[owned, owned] product_go(xs, 1)
@@ -1234,8 +879,8 @@ letrec append =
 λxs, ys.
     case xs of
       ::(h, t) →
-        let %t264 = aether_call[owned, owned] append(t, ys)
-        reuse xs ::(h, %t264) @mask=0b10
+        let %t154 = aether_call[owned, owned] append(t, ys)
+        reuse xs ::(h, %t154) @mask=0b10
       _ →
         ys
 
@@ -1243,10 +888,10 @@ letrec enumerate_go =
 λxs, i.
     case xs of
       ::(h, t) →
-        let %t265 = MakeTuple(i, h)
-        let %t266 = (let %t267 = Add(i, 1)
-        aether_call[owned, borrowed] enumerate_go(t, %t267))
-        reuse xs ::(%t265, %t266)
+        let %t155 = MakeTuple(i, h)
+        let %t156 = (let %t157 = Add(i, 1)
+        aether_call[owned, borrowed] enumerate_go(t, %t157))
+        reuse xs ::(%t155, %t156)
       _ →
         []
 
@@ -1254,10 +899,10 @@ letrec intersperse_rest =
 λxs, sep.
     case xs of
       ::(h, t) →
-        let %t268 = (let %t269 = aether_call[owned, owned] intersperse_rest(t, dup sep
+        let %t158 = (let %t159 = aether_call[owned, owned] intersperse_rest(t, dup sep
         sep)
-        ::(h, %t269))
-        reuse xs ::(sep, %t268)
+        ::(h, %t159))
+        reuse xs ::(sep, %t158)
       _ →
         drop sep
         []
@@ -1266,9 +911,9 @@ letrec intercalate_rest =
 λxss, sep.
     case xss of
       ::(h, t) →
-        let %t270 = (let %t271 = aether_call[borrowed, borrowed] intercalate_rest(t, sep)
-        aether_call[owned, owned] append(h, %t271))
-        aether_call[owned, owned] append(sep, %t270)
+        let %t160 = (let %t161 = aether_call[borrowed, borrowed] intercalate_rest(t, sep)
+        aether_call[owned, owned] append(h, %t161))
+        aether_call[owned, owned] append(sep, %t160)
       _ →
         drop sep
         []
@@ -1277,51 +922,51 @@ letrec scanl_rest =
 λxs, acc, f.
     case xs of
       ::(h, t) →
-        let %t272 = aether_call[owned, owned] f(acc, h)
-        aether_call[borrowed, owned, borrowed] scanl_emit(t, %t272, f)
+        let %t162 = aether_call[owned, owned] f(acc, h)
+        aether_call[borrowed, owned, borrowed] scanl_emit(t, %t162, f)
       _ →
         drop acc
         []
 
 letrec scanl_emit =
 λxs, next, f.
-    let %t273 = aether_call[borrowed, owned, borrowed] scanl_rest(xs, dup next
+    let %t163 = aether_call[borrowed, owned, borrowed] scanl_rest(xs, dup next
     next, f)
-    ::(next, %t273)
+    ::(next, %t163)
 
 letrec unique_by_go =
 λxs, f, seen, acc.
     case xs of
       ::(h, t) →
-        let %t274 = aether_call[owned] f(dup h
+        let %t164 = aether_call[owned] f(dup h
         h)
-        aether_call[borrowed, owned, owned, borrowed, owned, owned] unique_by_step(t, h, %t274, f, seen, acc)
+        aether_call[borrowed, owned, owned, borrowed, owned, owned] unique_by_step(t, h, %t164, f, seen, acc)
       _ →
         drop seen
         acc
 
 letrec unique_by_step =
 λxs, value, key, f, seen, acc.
-    let %t275 = aether_call[borrowed, borrowed] contains(seen, key)
-    case %t275 of
+    let %t165 = aether_call[borrowed, borrowed] contains(seen, key)
+    case %t165 of
       true →
         drop key
         drop value
         aether_call[borrowed, borrowed, owned, owned] unique_by_go(xs, f, seen, acc)
       _ →
-        let %t276 = ::(key, seen)
-        let %t277 = ::(value, acc)
-        aether_call[borrowed, borrowed, owned, owned] unique_by_go(xs, f, %t276, %t277)
+        let %t166 = ::(key, seen)
+        let %t167 = ::(value, acc)
+        aether_call[borrowed, borrowed, owned, owned] unique_by_go(xs, f, %t166, %t167)
 
 letrec scanr_go =
 λxs, acc, f.
     case xs of
       ::(h, t) →
-        let %t278 = aether_call[borrowed, borrowed, borrowed] scanr_go(t, acc, f)
-        aether_call[owned, borrowed, borrowed, borrowed] scanr_step(h, %t278, acc, f)
+        let %t168 = aether_call[borrowed, borrowed, borrowed] scanr_go(t, acc, f)
+        aether_call[owned, borrowed, borrowed, borrowed] scanr_step(h, %t168, acc, f)
       _ →
-        let %t279 = MakeList(acc)
-        MakeTuple(%t279, acc)
+        let %t169 = MakeList(acc)
+        MakeTuple(%t169, acc)
 
 letrec scanr_step =
 λh, state, acc, f.
@@ -1330,15 +975,15 @@ letrec scanr_step =
         aether_call[owned, owned, owned, borrowed] scanr_finish(rest, next_acc, h, f)
       _ →
         drop h
-        let %t280 = MakeList(acc)
-        MakeTuple(%t280, acc)
+        let %t170 = MakeList(acc)
+        MakeTuple(%t170, acc)
 
 letrec scanr_finish =
 λrest, next_acc, h, f.
     let current = aether_call[owned, owned] f(h, next_acc)
-    let %t281 = ::(dup current
+    let %t171 = ::(dup current
     current, rest)
-    MakeTuple(%t281, current)
+    MakeTuple(%t171, current)
 
 letrec merge_sort_by =
 λxs, key_fn.
@@ -1354,15 +999,15 @@ letrec merge_sort_by =
 
 letrec merge_sort_do =
 λxs, key_fn.
-    let mid = (let %t282 = aether_call[owned] length(dup xs
+    let mid = (let %t172 = aether_call[owned] length(dup xs
     xs)
-    Div(%t282, 2))
-    let %t283 = aether_call[borrowed, borrowed] split_at(xs, mid)
-    case %t283 of
+    Div(%t172, 2))
+    let %t173 = aether_call[borrowed, borrowed] split_at(xs, mid)
+    case %t173 of
       (left, right) →
-        let %t284 = aether_call[owned, borrowed] merge_sort_by(left, key_fn)
-        let %t285 = aether_call[owned, borrowed] merge_sort_by(right, key_fn)
-        aether_call[owned, owned, borrowed] merge_by_key(%t284, %t285, key_fn)
+        let %t174 = aether_call[owned, borrowed] merge_sort_by(left, key_fn)
+        let %t175 = aether_call[owned, borrowed] merge_sort_by(right, key_fn)
+        aether_call[owned, owned, borrowed] merge_by_key(%t174, %t175, key_fn)
       _ →
         []
 
@@ -1372,18 +1017,18 @@ letrec merge_by_key =
       ::(a, at) →
         case right of
           ::(b, bt) →
-            let %t286 = (let %t287 = aether_call[owned] key_fn(dup a
+            let %t176 = (let %t177 = aether_call[owned] key_fn(dup a
             a)
-            let %t288 = aether_call[owned] key_fn(dup b
+            let %t178 = aether_call[owned] key_fn(dup b
             b)
-            Le(%t287, %t288))
-            case %t286 of
+            Le(%t177, %t178))
+            case %t176 of
               true →
-                let %t289 = aether_call[owned, owned, borrowed] merge_by_key(at, right, key_fn)
-                reuse left ::(a, %t289) @mask=0b10
+                let %t179 = aether_call[owned, owned, borrowed] merge_by_key(at, right, key_fn)
+                reuse left ::(a, %t179) @mask=0b10
               _ →
-                let %t290 = aether_call[owned, owned, borrowed] merge_by_key(left, bt, key_fn)
-                reuse right ::(b, %t290) @mask=0b10
+                let %t180 = aether_call[owned, owned, borrowed] merge_by_key(left, bt, key_fn)
+                reuse right ::(b, %t180) @mask=0b10
           _ →
             drop right
             left
@@ -1397,9 +1042,9 @@ letrec zip_go =
       ::(a, at) →
         case ys of
           ::(b, bt) →
-            let %t291 = (let %t292 = MakeTuple(a, b)
-            ::(%t292, acc))
-            aether_call[borrowed, borrowed, owned] zip_go(at, bt, %t291)
+            let %t181 = (let %t182 = MakeTuple(a, b)
+            ::(%t182, acc))
+            aether_call[borrowed, borrowed, owned] zip_go(at, bt, %t181)
           _ →
             acc
       _ →
@@ -1411,9 +1056,9 @@ letrec zip_with_go =
       ::(a, at) →
         case ys of
           ::(b, bt) →
-            let %t293 = (let %t294 = aether_call[owned, owned] f(a, b)
-            ::(%t294, acc))
-            aether_call[borrowed, borrowed, borrowed, owned] zip_with_go(at, bt, f, %t293)
+            let %t183 = (let %t184 = aether_call[owned, owned] f(a, b)
+            ::(%t184, acc))
+            aether_call[borrowed, borrowed, borrowed, owned] zip_with_go(at, bt, f, %t183)
           _ →
             drop a
             acc
@@ -1422,32 +1067,32 @@ letrec zip_with_go =
 
 letrec group_by_head =
 λh, t, eq.
-    let %t295 = (let %t296 = (λx.
+    let %t185 = (let %t186 = (λx.
       aether_call[owned, owned] eq(h, x))
-    aether_call[borrowed, borrowed] span(t, %t296))
-    case %t295 of
+    aether_call[borrowed, borrowed] span(t, %t186))
+    case %t185 of
       (prefix, rest) →
-        let %t297 = ::(h, prefix)
-        let %t298 = aether_call[borrowed, borrowed] group_by(rest, eq)
-        ::(%t297, %t298)
+        let %t187 = ::(h, prefix)
+        let %t188 = aether_call[borrowed, borrowed] group_by(rest, eq)
+        ::(%t187, %t188)
       _ →
-        let %t299 = MakeList(h)
-        let %t300 = aether_call[borrowed, borrowed] group_by(t, eq)
-        ::(%t299, %t300)
+        let %t189 = MakeList(h)
+        let %t190 = aether_call[borrowed, borrowed] group_by(t, eq)
+        ::(%t189, %t190)
 
 letrec maximum_go =
 λxs, best.
     case xs of
       ::(h, t) →
-        let %t301 = (let %t302 = Gt(h, best)
-        case %t302 of
+        let %t191 = (let %t192 = Gt(h, best)
+        case %t192 of
           true →
             drop best
             h
           _ →
             drop h
             best)
-        aether_call[borrowed, owned] maximum_go(t, %t301)
+        aether_call[borrowed, owned] maximum_go(t, %t191)
       _ →
         best
 
@@ -1455,51 +1100,51 @@ letrec minimum_go =
 λxs, best.
     case xs of
       ::(h, t) →
-        let %t303 = (let %t304 = Lt(h, best)
-        case %t304 of
+        let %t193 = (let %t194 = Lt(h, best)
+        case %t194 of
           true →
             drop best
             h
           _ →
             drop h
             best)
-        aether_call[borrowed, owned] minimum_go(t, %t303)
+        aether_call[borrowed, owned] minimum_go(t, %t193)
       _ →
         best
 
 letrec max_list =
 λarr.
     letrec maxl_go = (λi, best.
-      let %t305 = (let %t306 = Len(arr)
-      Ge(i, %t306))
-      case %t305 of
+      let %t195 = (let %t196 = Len(arr)
+      Ge(i, %t196))
+      case %t195 of
         true →
           best
         _ →
-          let %t307 = Index(arr, i)
-          case %t307 of
+          let %t197 = Index(arr, i)
+          case %t197 of
             Some(v) →
-              let %t308 = Add(i, 1)
-              let %t309 = (let %t310 = Gt(v, best)
-              case %t310 of
+              let %t198 = Add(i, 1)
+              let %t199 = (let %t200 = Gt(v, best)
+              case %t200 of
                 true →
                   drop best
                   v
                 _ →
                   drop v
                   best)
-              aether_call[owned, owned] maxl_go(%t308, %t309)
+              aether_call[owned, owned] maxl_go(%t198, %t199)
             _ →
-              let %t311 = Add(i, 1)
-              aether_call[owned, owned] maxl_go(%t311, best))
-    let %t312 = (let %t313 = Len(arr)
-    ICmpEq(%t313, 0))
-    case %t312 of
+              let %t201 = Add(i, 1)
+              aether_call[owned, owned] maxl_go(%t201, best))
+    let %t202 = (let %t203 = Len(arr)
+    ICmpEq(%t203, 0))
+    case %t202 of
       true →
         0
       _ →
-        let %t314 = Index(arr, 0)
-        case %t314 of
+        let %t204 = Index(arr, 0)
+        case %t204 of
           Some(first) →
             aether_call[owned, owned] maxl_go(1, first)
           _ →
@@ -1508,36 +1153,36 @@ letrec max_list =
 letrec min_list =
 λarr.
     letrec minl_go = (λi, best.
-      let %t315 = (let %t316 = Len(arr)
-      Ge(i, %t316))
-      case %t315 of
+      let %t205 = (let %t206 = Len(arr)
+      Ge(i, %t206))
+      case %t205 of
         true →
           best
         _ →
-          let %t317 = Index(arr, i)
-          case %t317 of
+          let %t207 = Index(arr, i)
+          case %t207 of
             Some(v) →
-              let %t318 = Add(i, 1)
-              let %t319 = (let %t320 = Lt(v, best)
-              case %t320 of
+              let %t208 = Add(i, 1)
+              let %t209 = (let %t210 = Lt(v, best)
+              case %t210 of
                 true →
                   drop best
                   v
                 _ →
                   drop v
                   best)
-              aether_call[owned, owned] minl_go(%t318, %t319)
+              aether_call[owned, owned] minl_go(%t208, %t209)
             _ →
-              let %t321 = Add(i, 1)
-              aether_call[owned, owned] minl_go(%t321, best))
-    let %t322 = (let %t323 = Len(arr)
-    Eq(%t323, 0))
-    case %t322 of
+              let %t211 = Add(i, 1)
+              aether_call[owned, owned] minl_go(%t211, best))
+    let %t212 = (let %t213 = Len(arr)
+    Eq(%t213, 0))
+    case %t212 of
       true →
         0
       _ →
-        let %t324 = Index(arr, 0)
-        case %t324 of
+        let %t214 = Index(arr, 0)
+        case %t214 of
           Some(first) →
             aether_call[owned, owned] minl_go(1, first)
           _ →
@@ -1564,8 +1209,8 @@ letrec map_option =
 λopt, f.
     case opt of
       Some(v) →
-        let %t325 = aether_call[owned] f(v)
-        reuse opt Some(%t325)
+        let %t215 = aether_call[owned] f(v)
+        reuse opt Some(%t215)
       _ →
         None
 
@@ -1596,72 +1241,72 @@ letrec is_none_opt =
 letrec starts_with =
 λs, prefix.
     let plen = Len(prefix)
-    let %t326 = (let %t327 = Len(s)
-    Gt(plen, %t327))
-    case %t326 of
+    let %t216 = (let %t217 = Len(s)
+    Gt(plen, %t217))
+    case %t216 of
       true →
         false
       _ →
-        let %t328 = Substring(s, 0, plen)
-        Eq(%t328, prefix)
+        let %t218 = Substring(s, 0, plen)
+        Eq(%t218, prefix)
 
 letrec ends_with =
 λs, suffix.
     let slen = Len(s)
     let plen = Len(suffix)
-    let %t329 = Gt(plen, slen)
-    case %t329 of
+    let %t219 = Gt(plen, slen)
+    case %t219 of
       true →
         false
       _ →
-        let %t330 = (let %t331 = Sub(slen, plen)
-        Substring(s, %t331, slen))
-        Eq(%t330, suffix)
+        let %t220 = (let %t221 = Sub(slen, plen)
+        Substring(s, %t221, slen))
+        Eq(%t220, suffix)
 
 letrec chars =
 λs.
     letrec chars_go = (λi, result.
-      let %t332 = (let %t333 = Len(s)
-      Ge(i, %t333))
-      case %t332 of
+      let %t222 = (let %t223 = Len(s)
+      Ge(i, %t223))
+      case %t222 of
         true →
           result
         _ →
-          let %t334 = Add(i, 1)
-          let %t335 = (let %t336 = (let %t337 = Add(i, 1)
-          Substring(s, i, %t337))
-          ArrayPush(result, %t336))
-          aether_call[owned, owned] chars_go(%t334, %t335))
-    let %t338 = MakeArray()
-    aether_call[owned, owned] chars_go(0, %t338)
+          let %t224 = Add(i, 1)
+          let %t225 = (let %t226 = (let %t227 = Add(i, 1)
+          Substring(s, i, %t227))
+          ArrayPush(result, %t226))
+          aether_call[owned, owned] chars_go(%t224, %t225))
+    let %t228 = MakeArray()
+    aether_call[owned, owned] chars_go(0, %t228)
 
 letrec join =
 λarr, sep.
-    let %t339 = (let %t340 = Len(arr)
-    Eq(%t340, 0))
-    case %t339 of
+    let %t229 = (let %t230 = Len(arr)
+    Eq(%t230, 0))
+    case %t229 of
       true →
         ""
       _ →
         letrec join_go = (λi, result.
-          let %t341 = (let %t342 = Len(arr)
-          Ge(i, %t342))
-          case %t341 of
+          let %t231 = (let %t232 = Len(arr)
+          Ge(i, %t232))
+          case %t231 of
             true →
               result
             _ →
-              let %t343 = Index(arr, i)
-              case %t343 of
+              let %t233 = Index(arr, i)
+              case %t233 of
                 Some(v) →
-                  let %t344 = Add(i, 1)
-                  let %t345 = (let %t346 = Add(result, sep)
-                  Add(%t346, v))
-                  aether_call[owned, owned] join_go(%t344, %t345)
+                  let %t234 = Add(i, 1)
+                  let %t235 = (let %t236 = Add(result, sep)
+                  Add(%t236, v))
+                  aether_call[owned, owned] join_go(%t234, %t235)
                 _ →
-                  let %t347 = Add(i, 1)
-                  aether_call[owned, owned] join_go(%t347, result))
-        let %t348 = Index(arr, 0)
-        case %t348 of
+                  let %t237 = Add(i, 1)
+                  aether_call[owned, owned] join_go(%t237, result))
+        let %t238 = Index(arr, 0)
+        case %t238 of
           Some(first_val) →
             aether_call[owned, owned] join_go(1, first_val)
           _ →
@@ -1675,27 +1320,27 @@ letrec str_contains =
 λs, needle.
     let slen = Len(s)
     let nlen = Len(needle)
-    let %t349 = Gt(nlen, slen)
-    case %t349 of
+    let %t239 = Gt(nlen, slen)
+    case %t239 of
       true →
         false
       _ →
         letrec sc_go = (λi.
-          let %t350 = (let %t351 = Add(i, nlen)
-          Gt(%t351, slen))
-          case %t350 of
+          let %t240 = (let %t241 = Add(i, nlen)
+          Gt(%t241, slen))
+          case %t240 of
             true →
               false
             _ →
-              let %t352 = (let %t353 = (let %t354 = Add(i, nlen)
-              Substring(s, i, %t354))
-              Eq(%t353, needle))
-              case %t352 of
+              let %t242 = (let %t243 = (let %t244 = Add(i, nlen)
+              Substring(s, i, %t244))
+              Eq(%t243, needle))
+              case %t242 of
                 true →
                   true
                 _ →
-                  let %t355 = Add(i, 1)
-                  aether_call[owned] sc_go(%t355))
+                  let %t245 = Add(i, 1)
+                  aether_call[owned] sc_go(%t245))
         aether_call[owned] sc_go(0)
 
 letrec my_len =
@@ -1704,31 +1349,31 @@ letrec my_len =
 
 letrec len_twice =
 λxs.
-    let %t356 = aether_call[borrowed] my_len(xs)
-    let %t357 = aether_call[borrowed] my_len(xs)
-    IAdd(%t356, %t357)
+    let %t246 = aether_call[borrowed] my_len(xs)
+    let %t247 = aether_call[borrowed] my_len(xs)
+    IAdd(%t246, %t247)
 
 letrec borrow_then_return =
 λxs, y.
-    let %t358 = (let %t359 = Len(xs)
-    ICmpGt(%t359, 0))
-    case %t358 of
+    let %t248 = (let %t249 = Len(xs)
+    ICmpGt(%t249, 0))
+    case %t248 of
       true →
         y
       _ →
         y
 
 def main =
-let %t360 = (let %t361 = (let %t362 = MakeList(1, 2, 3)
-  aether_call[borrowed] len_twice(%t362))
-  Print(%t361))
-  drop %t360
-  let %t363 = (let %t364 = MakeList(1, 2, 3)
-  aether_call[borrowed, owned] borrow_then_return(%t364, 42))
-  Print(%t363)
+let %t250 = (let %t251 = (let %t252 = MakeList(1, 2, 3)
+  aether_call[borrowed] len_twice(%t252))
+  Print(%t251))
+  drop %t250
+  let %t253 = (let %t254 = MakeList(1, 2, 3)
+  aether_call[borrowed, owned] borrow_then_return(%t254, 42))
+  Print(%t253)
 
 ── Aether stats ──
-Dups: 17  Drops: 57  Reuses: 10  DropSpecs: 1  FBIP: fbip(32)
+Dups: 15  Drops: 54  Reuses: 9  DropSpecs: 0  FBIP: fbip(31)
 [1 of 7] Compiling  Assert
 [2 of 7] Compiling  IO
 [3 of 7] Compiling  List
