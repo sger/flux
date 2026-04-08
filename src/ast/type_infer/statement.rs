@@ -138,7 +138,12 @@ impl<'a> InferCtx<'a> {
 
         // Generalize the let binding (Hindley-Milner let-polymorphism).
         let env_free = self.env.free_vars();
-        let scheme = generalize(&final_ty, &env_free);
+        let constraints = self.collect_scheme_constraints(&final_ty);
+        let scheme = if constraints.is_empty() {
+            generalize(&final_ty, &env_free)
+        } else {
+            generalize_with_constraints(&final_ty, &env_free, constraints)
+        };
         self.env.bind(name, scheme);
     }
 
