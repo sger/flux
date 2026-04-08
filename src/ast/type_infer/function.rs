@@ -208,7 +208,12 @@ impl<'a> InferCtx<'a> {
         self.env.leave_scope();
 
         let scheme = if !type_params.is_empty() {
-            generalize(&fn_ty, &self.env.free_vars())
+            let constraints = self.collect_scheme_constraints(&fn_ty);
+            if constraints.is_empty() {
+                generalize(&fn_ty, &self.env.free_vars())
+            } else {
+                generalize_with_constraints(&fn_ty, &self.env.free_vars(), constraints)
+            }
         } else {
             Scheme::mono(fn_ty)
         };
