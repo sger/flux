@@ -14,7 +14,7 @@ This proposal covers syntax, parsing, type inference integration, constraint sol
 
 ## Implementation status
 
-Last updated: 2026-04-08
+Last updated: 2026-04-09
 
 ### Completed
 
@@ -34,9 +34,13 @@ Last updated: 2026-04-08
 
 | Step | Feature | Blocker | Difficulty |
 |------|---------|---------|------------|
-| **7. Stdlib migration** | Split `Flow.List`/`Flow.Array` into typed modules; `Functor`/`Foldable` | None | Large |
-| **Constrained type param syntax** | Parse `fn f<a: Eq>(...)` | None | Medium — see Proposal 0147 |
-| **Instance context enforcement** | `Eq<a>` context provides evidence inside instance body | None | Medium — see Proposal 0147 |
+| **2** | Method arity validation (instance vs class signature) | None | Small |
+| **4** | Num defaulting: unconstrained `Num` variables default to `Int` | None | Small |
+| **6** | Register `Monoid` class | `Foldable` | Deferred |
+| **6** | Complete operator desugaring — remove Any-typed primop fallback | None | Medium |
+| **7** | Stdlib migration: split `Flow.List`/`Flow.Array` into typed modules | None | Large |
+| — | Constrained type param syntax: `fn f<a: Eq>(...)` runtime dispatch | None | Medium — see Proposal 0147 |
+| — | Instance context enforcement: evidence inside instance body | None | Medium — see Proposal 0147 |
 
 ### Resolved limitations
 
@@ -604,7 +608,7 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] Generate `type_of()`-based dispatch functions for class method names
 - [x] Inject generated functions into AST before predeclaration (Phase 1b)
 - [x] End-to-end: `class Eq<a> { fn eq ... }` + `instance Eq<Int> { ... }` → `eq(1, 2)` works
-- [ ] Multi-instance dispatch in same scope (HM conflict)
+- [x] Multi-instance dispatch in same scope — each call site instantiates fresh type variables; compile-time resolution selects the correct mangled instance function
 
 ### Step 3: Constraint generation — DONE
 
@@ -616,7 +620,7 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] Emit class constraint when a class method name is called (e.g., `eq(x, y)` → `Eq<typeof(x)>`)
 - [x] Resolved constraints exposed in `InferProgramResult.class_constraints`
 - [x] Generate functions for default class methods (e.g., `neq` from `Eq`)
-- [ ] Constraints recorded but not enforced — Step 4 (solving) will check against instances
+- [x] Constraints enforced under `--strict-types` via `solve_class_constraints` (Step 4)
 
 ### Step 4: Constraint solving — DONE
 
@@ -773,10 +777,10 @@ The untyped versions are deprecated once typed alternatives cover all use cases,
 
 | Feature | Reason |
 |---------|--------|
-| Multi-parameter type classes | Adds ambiguity; single-param covers all current needs |
-| Functional dependencies | Only needed with multi-param classes |
+| Multi-parameter type classes | ~~Adds ambiguity~~ — **Delivered in Proposal 0146** (type class hardening) |
+| Functional dependencies | Only needed with multi-param classes; not yet needed |
 | Associated types / type families | Huge complexity; not needed |
-| Higher-kinded types (`Functor`, `Monad`) | Separate proposal; requires kind system |
+| Higher-kinded types (`Functor`, `Monad`) | ~~Separate proposal~~ — **Delivered** (kind system, `HktApp`, `Functor<List>` works) |
 | Overlapping instances | Source of confusion; PureScript proves they're unnecessary |
 | Deriving | Separate step after core classes work |
 | `SPECIALIZE` / monomorphization | Optimization; dictionaries work first |

@@ -1198,6 +1198,30 @@ impl Compiler {
         self.symbol_table
             .define_function_name(name, definition_span);
 
+        // If the IR function has extra dict params (from dict elaboration),
+        // define them in the scope BEFORE the AST params so they get the
+        // correct local indices matching the VM calling convention.
+        // Only apply to user-defined constrained functions (not __tc_*
+        // mangled instance methods, which may have contextual dict params
+        // handled via a separate mechanism).
+        if let Some(ir_fn) = ir_function {
+            let extra = ir_fn.params.len().saturating_sub(parameters.len());
+            if extra > 0 {
+                let name_str = self.sym(name);
+                let is_mangled_instance = name_str.starts_with("__tc_");
+                let has_scheme_constraints = self
+                    .type_env
+                    .lookup(name)
+                    .is_some_and(|s| !s.constraints.is_empty());
+                if has_scheme_constraints && !is_mangled_instance {
+                    for ir_param in &ir_fn.params[..extra] {
+                        self.symbol_table
+                            .define(ir_param.name, Span::default());
+                    }
+                }
+            }
+        }
+
         for (index, param) in parameters.iter().enumerate() {
             self.symbol_table.define(*param, Span::default());
             if let Some(Some(param_ty)) = parameter_types.get(index)
@@ -1217,6 +1241,10 @@ impl Compiler {
             let cc_idx = self.register_cost_centre(&fn_name, &module_name);
             self.emit(OpCode::OpEnterCC, &[cc_idx as usize]);
         }
+
+        // Track IR param count when CFG path succeeds — dict elaboration may
+        // add extra dictionary parameters that the AST doesn't know about.
+        let cfg_param_count: std::cell::Cell<Option<usize>> = std::cell::Cell::new(None);
 
         let compile_result: CompileResult<()> = (|| {
             // Compile-time return type check: if the declared return type and
@@ -1281,7 +1309,10 @@ impl Compiler {
                 let scope_snapshot = self.scopes[self.scope_index].clone();
                 let const_len = self.constants.len();
                 match self.try_compile_ir_cfg_function_body(ir_function, name) {
-                    Some(Ok(())) => return Ok(()),
+                    Some(Ok(())) => {
+                        cfg_param_count.set(Some(ir_function.params.len()));
+                        return Ok(());
+                    }
                     Some(Err(ref _e)) => {
                         // CFG compilation error (e.g. unresolved name) — roll
                         // back and fall through to AST for proper diagnostics.
@@ -1398,7 +1429,7 @@ impl Compiler {
             CompiledFunction::new(
                 instructions,
                 num_locals,
-                parameters.len(),
+                cfg_param_count.get().unwrap_or(parameters.len()),
                 Some(
                     FunctionDebugInfo::new(Some(self.sym(name).to_string()), files, locations)
                         .with_boundary_location(Some(boundary_location))
