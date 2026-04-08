@@ -3,7 +3,7 @@ source: tests/runtime_error_fixtures_snapshots.rs
 ---
 Fixture: examples/runtime_errors/base_flat_map_return_shape.flx
 == vm ==
-status: 1
+status: 0
 stdout:
 <empty>
 stderr:
@@ -15,20 +15,8 @@ stderr:
 [6 of 7] Compiling  String
 [7 of 7] Compiling  base_flat_map_return_shape
 [cfg→vm] Running via CFG → bytecode VM backend...
-• 1 error • lib/Flow/List.flx
-error[E1004]: primop concat expected Array, got Int
-
-  lib/Flow/List.flx:99:36
-   |
-99 |                         Some(v) -> flat_map_arr(i + 1, concat(acc, f(v))),
-   |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Stack trace:
-  at flat_map_arr (lib/Flow/List.flx:99:36)
-  at main (examples/runtime_errors/base_flat_map_return_shape.flx:2:5)
-  at <main>
 == jit ==
-status: 1
+status: 0
 stdout:
 <empty>
 stderr:
@@ -40,15 +28,3 @@ stderr:
 [6 of 7] Compiling  String
 [7 of 7] Compiling  base_flat_map_return_shape
 [cfg→vm] Running via CFG → bytecode VM backend...
-• 1 error • lib/Flow/List.flx
-error[E1004]: primop concat expected Array, got Int
-
-  lib/Flow/List.flx:99:36
-   |
-99 |                         Some(v) -> flat_map_arr(i + 1, concat(acc, f(v))),
-   |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Stack trace:
-  at flat_map_arr (lib/Flow/List.flx:99:36)
-  at main (examples/runtime_errors/base_flat_map_return_shape.flx:2:5)
-  at <main>
