@@ -852,6 +852,14 @@ pub const NO_INSTANCE: ErrorCode = ErrorCode {
     hint: Some("Add an instance declaration for this type."),
 };
 
+pub const INSTANCE_EXTRA_METHOD: ErrorCode = ErrorCode {
+    code: "E446",
+    title: "UNKNOWN INSTANCE METHOD",
+    error_type: ErrorType::Compiler,
+    message: "`{}` is not a method of this class.",
+    hint: Some("Instance methods must match the class declaration."),
+};
+
 pub const MISSING_SUPERCLASS_INSTANCE: ErrorCode = ErrorCode {
     code: "E445",
     title: "MISSING SUPERCLASS INSTANCE",

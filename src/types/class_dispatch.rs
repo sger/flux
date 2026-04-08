@@ -67,18 +67,15 @@ pub fn generate_dispatch_functions(
         if let Some(class_def) = class_env.lookup_class(*class_name)
             && let Some(method_sig) = class_def.methods.iter().find(|m| m.name == *method_name)
         {
-            // 1. Polymorphic stub: typed params, delegates to __rt_ (for HM inference)
+            // Polymorphic stub: typed params for HM inference. Body is a panic
+            // placeholder — monomorphic calls resolve to __tc_* at compile time,
+            // polymorphic calls go through dictionary elaboration.
             generated.push(generate_polymorphic_stub(
                 *method_name,
                 class_def,
                 method_sig,
                 interner,
             ));
-
-            // 2. Runtime fallback: Any-typed params, type_of() dispatch body.
-            // TODO: re-enable once __rt_ function type inference issue is fixed.
-            // For now, polymorphic calls that can't be resolved at compile time
-            // will hit the stub's __rt_ delegation which panics if __rt_ doesn't exist.
         }
     }
 
@@ -371,29 +368,21 @@ fn generate_polymorphic_stub(
     let span = Span::default();
     let id = ExprId::UNSET;
 
-    // Body: delegate to __rt_<method>(__x0, __x1, ...) for runtime dispatch
-    // when the __rt_ function exists. Otherwise panic (no instances).
+    // Body: panic with a descriptive message. This stub exists only to give
+    // HM inference a properly typed function signature. Monomorphic calls are
+    // resolved directly to __tc_* mangled functions during Core lowering, and
+    // polymorphic calls go through dictionary elaboration. The stub body is
+    // never executed in well-typed programs.
     let method_display = interner.resolve(method_name).to_string();
-    let rt_name_str = format!("__rt_{method_display}");
-    let rt_sym = interner.lookup(&rt_name_str);
-    let body_expr = if let Some(rt_name) = rt_sym {
-        Expression::Call {
-            function: Box::new(Expression::Identifier { name: rt_name, span, id }),
-            arguments: params.iter().map(|p| Expression::Identifier { name: *p, span, id }).collect(),
-            span,
-            id,
-        }
-    } else {
-        let panic_sym = interner.intern("panic");
-        let class_display = interner.resolve(class_def.name).to_string();
-        Expression::Call {
-            function: Box::new(Expression::Identifier { name: panic_sym, span, id }),
-            arguments: vec![Expression::String {
-                value: format!("No instance of {class_display}.{method_display} for the given type"),
-                span, id,
-            }],
+    let class_display = interner.resolve(class_def.name).to_string();
+    let panic_sym = interner.intern("panic");
+    let body_expr = Expression::Call {
+        function: Box::new(Expression::Identifier { name: panic_sym, span, id }),
+        arguments: vec![Expression::String {
+            value: format!("No instance of {class_display}.{method_display} for the given type"),
             span, id,
-        }
+        }],
+        span, id,
     };
 
     Statement::Function {
