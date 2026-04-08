@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{
     ast::type_infer::ReportContext,
     diagnostics::position::Span,
     syntax::Identifier,
-    types::{infer_effect_row::InferEffectRow, infer_type::InferType},
+    types::{TypeVarId, infer_effect_row::InferEffectRow, infer_type::InferType},
 };
 
 /// A type constraint collected during HM inference.
@@ -66,4 +68,20 @@ pub struct WantedClassConstraint {
     pub type_arg: InferType,
     /// Where in the source the constraint arose.
     pub span: Span,
+}
+
+/// A class constraint attached to a type scheme.
+///
+/// Records that a quantified type variable must have a class instance.
+/// For example, `forall a. Eq<a> => a -> a -> Bool` has one `SchemeConstraint`
+/// with `class_name = Eq` and `type_var` pointing to `a`'s `TypeVarId`.
+///
+/// Used by dictionary elaboration (Proposal 0145, Step 5b) to determine
+/// which dictionary parameters a polymorphic function requires.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchemeConstraint {
+    /// The class name (e.g., `Eq`, `Num`).
+    pub class_name: Identifier,
+    /// The quantified type variable that is constrained.
+    pub type_var: TypeVarId,
 }

@@ -345,6 +345,7 @@ fn preload_module_interface_remaps_adt_symbols_across_sessions() {
             "make_color".to_string(),
             Scheme {
                 forall: vec![],
+                constraints: vec![],
                 infer_type: InferType::Con(TypeConstructor::Adt(Symbol::new(old_adt_id))),
             },
         )]),
@@ -399,6 +400,7 @@ fn preload_module_interface_remaps_effect_symbols_across_sessions() {
             "run".to_string(),
             Scheme {
                 forall: vec![],
+                constraints: vec![],
                 infer_type: InferType::Fun(
                     vec![InferType::Con(TypeConstructor::Unit)],
                     Box::new(InferType::Con(TypeConstructor::Unit)),

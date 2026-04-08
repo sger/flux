@@ -64,7 +64,7 @@ impl<'a> InferCtx<'a> {
                 .get(&(*module_name, member))
                 .cloned()
         {
-            let (ty, mapping) = scheme.instantiate(&mut self.env.counter);
+            let (ty, mapping, _constraints) = scheme.instantiate(&mut self.env.counter);
             for &fresh in mapping.values() {
                 self.env.record_var_level(fresh);
             }
