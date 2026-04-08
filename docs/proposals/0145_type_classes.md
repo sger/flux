@@ -14,7 +14,7 @@ This proposal covers syntax, parsing, type inference integration, constraint sol
 
 ## Implementation status
 
-Last updated: 2026-04-07
+Last updated: 2026-04-08
 
 ### Completed
 
@@ -25,6 +25,7 @@ Last updated: 2026-04-07
 | **3. Constraints** | Emit class constraints during HM inference for operators and class method calls | `constraint.rs`, `operators.rs`, `calls.rs`, `mod.rs` | Constraints recorded + resolved in `InferProgramResult`. |
 | **4. Constraint solving** | Resolve constraints at generalization: concrete types → instance lookup | `class_solver.rs` | E444 for unsatisfied concrete constraints under `--strict-types`. Type variables left unsolved. |
 | **5. Dispatch** | Compile-time monomorphic resolution + polymorphic `type_of()` dispatch | `class_dispatch.rs`, `compiler/pipeline.rs`, `compiler/mod.rs`, `core/lower_ast/mod.rs` | Mangled instance functions (`__tc_Class_Type_method`). Polymorphic stub for HM inference. Multi-instance in same scope works via fresh type var instantiation. LLVM backend support added (dispatch function generation in `lower_to_lir_llvm_module_per_module`). |
+| **5b. Dictionary elaboration** | Core-to-Core pass: dictionary construction, body rewriting, constraint promotion | `dict_elaborate.rs`, `scheme.rs`, `constraint.rs`, `function.rs`, `statement.rs`, `class_dispatch.rs`, `class_env.rs` | `Scheme.constraints` carries class constraints. `__dict_{Class}_{Type}` CoreDefs built as MakeTuple of mangled refs. Constrained Lams get dict params; class method calls rewritten to TupleField extractions. Polymorphic forwarding supported. Concrete call-site dictionary resolution pending (Phase 6+7). |
 | **6. Built-in classes** | `Eq`, `Ord`, `Num`, `Show`, `Semigroup` with instances for primitive types | `class_env.rs` | Builtins registered before user classes. Don't override user declarations. |
 | **HKTs** | Higher-kinded types + kind system | `types/kind.rs`, `types/infer_type.rs` (`HktApp`), `types/unify.rs` | `Kind::Type` and `Kind::Arrow`. Per-method type params (`fn fmap<a, b>`). `Functor<List>` works end-to-end. |
 
@@ -32,7 +33,7 @@ Last updated: 2026-04-07
 
 | Step | Feature | Blocker | Difficulty |
 |------|---------|---------|------------|
-| **5b. Dictionary elaboration** | Replace `type_of()` dispatch with dictionary-passing in Core IR; constrained functions get extra dictionary params | None | Large — see Proposal 0146 Track 1 |
+| **5b-iii. Remove `type_of()` fallback** | Remove `__rt_*` runtime dispatch functions; polymorphic stubs become dead code after dict elaboration fully handles all call sites | None | Small |
 | **7. Stdlib migration** | Split `Flow.List`/`Flow.Array` into typed modules; `Functor`/`Foldable` | HKTs (done), dictionary elaboration | Large |
 | **Hardening** | Superclass enforcement, structural duplicate detection, extra method validation, multi-param classes | None | See Proposal 0146 Tracks 2–5 |
 
@@ -42,17 +43,19 @@ Last updated: 2026-04-07
 
 2. **No operator desugaring** — `==` still goes through `CmpEq` primop, not `Eq.eq`. Operators and class methods are independent systems.
 
-3. **Polymorphic dispatch uses `type_of()`** — Works at runtime but not type-safe. Dictionary passing (Step 5b) will replace this with compile-time dictionaries. (Proposal 0146 Track 1)
+3. **Runtime `type_of()` dispatch still present** — Polymorphic stubs still delegate to `__rt_*` functions as a fallback. These can be removed once all call paths go through dictionary elaboration or monomorphic dispatch.
 
 4. **Duplicate instance detection fragile** — Uses `format!("{:?}")` comparison including spans. (Proposal 0146 Track 3)
 
 ### Architecture decisions
 
-- **Runtime dispatch (MVP) vs dictionary passing (target)**: The MVP uses `type_of()` runtime checks to route class method calls to the correct instance. This was chosen for speed of implementation — it compiles through the existing pipeline without backend changes. The target architecture is GHC-style dictionary passing, where each constrained function gets an explicit dictionary argument containing method closures. This eliminates runtime type checks and enables polymorphic dispatch.
+- **Dictionary passing (implemented) + monomorphic dispatch (retained)**: The dictionary elaboration pass (`dict_elaborate.rs`) runs as a Core-to-Core pass (Stage 0.5, before simplification). It follows the evidence pass pattern: constrained functions get dictionary parameters, class method calls become `TupleField` extractions. Monomorphic call sites (where `try_resolve_class_call` resolves to `__tc_*` mangled names during AST-to-Core lowering) are left unchanged — no dictionary overhead. Only truly polymorphic calls pay the indirection cost.
 
-- **AST preprocessing vs Core pass**: Instance methods are injected as regular functions during AST preprocessing (Phase 1b in the pipeline), before type inference. This ensures they go through the full compilation pipeline without special-casing any backend. A future Core-to-Core pass for dictionary elaboration would replace this.
+- **Scheme carries constraints**: `Scheme.constraints: Vec<SchemeConstraint>` records which type variables are class-constrained. Populated during HM generalization via `collect_scheme_constraints()`. The dict elaboration pass reads these to determine which functions need dictionary parameters.
 
-- **Mangled names**: Instance methods use `__tc_ClassName_TypeName_methodName` naming (e.g., `__tc_Eq_Int_eq`). These are internal — users call the class method name (`eq`) which routes through the generated dispatch function.
+- **AST preprocessing retained**: Instance methods are still injected as regular functions during Phase 1b (`generate_dispatch_functions`), before type inference. This ensures mangled functions (`__tc_*`) go through the full pipeline. Phase 1b also pre-interns `__dict_*` names for the dict elaboration pass.
+
+- **Mangled names**: Instance methods use `__tc_ClassName_TypeName_methodName` naming (e.g., `__tc_Eq_Int_eq`). Dictionary values use `__dict_ClassName_TypeName` naming (e.g., `__dict_Eq_Int`). Both are internal — users call the class method name (`eq`).
 
 ---
 
@@ -623,13 +626,26 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] Only enforced under `--strict-types` (Flow stdlib excluded)
 - [ ] Defaulting: unconstrained `Num` variables default to `Int`
 
-### Step 5: Dictionary elaboration — TODO
+### Step 5: Dictionary elaboration — IN PROGRESS
 
-- [ ] Define dictionary ADT for each class (record of closures)
-- [ ] In Core IR, translate class constraints to explicit dictionary arguments
-- [ ] Each constrained function gets extra dictionary parameters
-- [ ] At call sites, insert the appropriate dictionary value
-- [ ] Both VM and LLVM backends receive dictionaries as regular arguments
+- [x] Extend `Scheme` with `constraints: Vec<SchemeConstraint>` field
+- [x] Add `SchemeConstraint` type (class_name + type_var)
+- [x] Add `generalize_with_constraints()` for constraint-aware generalization
+- [x] Wire constraint promotion in function generalization (`function.rs`)
+- [x] Wire constraint promotion in let-binding generalization (`statement.rs`)
+- [x] Add `collect_scheme_constraints()` helper on `InferCtx`
+- [x] Add `method_index()` to `ClassEnv` for canonical method ordering
+- [x] Pre-intern `__dict_*` names during Phase 1b dispatch generation
+- [x] Build `__dict_{Class}_{Type}` CoreDefs as MakeTuple of mangled refs
+- [x] Rewrite constrained function bodies: prepend dict Lam params
+- [x] Rewrite class method calls to `TupleField(dict, index)` extractions
+- [x] Polymorphic forwarding: caller passes its own dict to callee
+- [x] Wire dict elaboration pass into bytecode pipeline (`cfg/mod.rs`)
+- [x] Wire dict elaboration pass into dump-core pipeline (`compiler/mod.rs`)
+- [x] Guard: no-op when no functions have scheme constraints
+- [x] 18 unit tests for dict construction, body rewriting, method index, integration
+- [x] Concrete call-site resolution: resolve `__dict_{Class}_{Type}` during AST-to-Core lowering via `resolve_dict_args_for_call()`
+- [x] Thread HM type info: `hm_expr_types` + `TypeEnv` used in `resolve_constraint_type()` to match argument types to constraint type vars
 - [ ] Remove runtime `type_of()` dispatch — replaced by compile-time dictionaries
 
 ### Step 6: Built-in classes — DONE
