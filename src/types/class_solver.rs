@@ -10,14 +10,10 @@
 
 use crate::{
     ast::type_infer::constraint::WantedClassConstraint,
-    diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for},
     diagnostics::position::Span,
+    diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for},
     syntax::interner::Interner,
-    types::{
-        class_env::ClassEnv,
-        infer_type::InferType,
-        type_constructor::TypeConstructor,
-    },
+    types::{class_env::ClassEnv, infer_type::InferType, type_constructor::TypeConstructor},
 };
 
 use super::super::diagnostics::compiler_errors::NO_INSTANCE;

@@ -32,16 +32,31 @@ impl TypeExpr {
     pub fn structural_eq(&self, other: &TypeExpr) -> bool {
         match (self, other) {
             (
-                TypeExpr::Named { name: n1, args: a1, .. },
-                TypeExpr::Named { name: n2, args: a2, .. },
-            ) => n1 == n2 && a1.len() == a2.len() && a1.iter().zip(a2).all(|(x, y)| x.structural_eq(y)),
+                TypeExpr::Named {
+                    name: n1, args: a1, ..
+                },
+                TypeExpr::Named {
+                    name: n2, args: a2, ..
+                },
+            ) => {
+                n1 == n2
+                    && a1.len() == a2.len()
+                    && a1.iter().zip(a2).all(|(x, y)| x.structural_eq(y))
+            }
+            (TypeExpr::Tuple { elements: e1, .. }, TypeExpr::Tuple { elements: e2, .. }) => {
+                e1.len() == e2.len() && e1.iter().zip(e2).all(|(x, y)| x.structural_eq(y))
+            }
             (
-                TypeExpr::Tuple { elements: e1, .. },
-                TypeExpr::Tuple { elements: e2, .. },
-            ) => e1.len() == e2.len() && e1.iter().zip(e2).all(|(x, y)| x.structural_eq(y)),
-            (
-                TypeExpr::Function { params: p1, ret: r1, .. },
-                TypeExpr::Function { params: p2, ret: r2, .. },
+                TypeExpr::Function {
+                    params: p1,
+                    ret: r1,
+                    ..
+                },
+                TypeExpr::Function {
+                    params: p2,
+                    ret: r2,
+                    ..
+                },
             ) => {
                 p1.len() == p2.len()
                     && p1.iter().zip(p2).all(|(x, y)| x.structural_eq(y))

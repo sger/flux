@@ -159,12 +159,21 @@ pub fn unify_core(
             let head_subst = unify_core(h1, h2, ctx_subst, span, fresh_row_var)?;
             let combined = ctx_subst.clone().compose(&head_subst);
             let mut result = head_subst;
-            let applied_args1: Vec<InferType> =
-                args1.iter().map(|a| a.apply_type_subst(&combined)).collect();
-            let applied_args2: Vec<InferType> =
-                args2.iter().map(|a| a.apply_type_subst(&combined)).collect();
-            let args_subst =
-                unify_many(&applied_args1, &applied_args2, &combined, span, fresh_row_var)?;
+            let applied_args1: Vec<InferType> = args1
+                .iter()
+                .map(|a| a.apply_type_subst(&combined))
+                .collect();
+            let applied_args2: Vec<InferType> = args2
+                .iter()
+                .map(|a| a.apply_type_subst(&combined))
+                .collect();
+            let args_subst = unify_many(
+                &applied_args1,
+                &applied_args2,
+                &combined,
+                span,
+                fresh_row_var,
+            )?;
             result = result.compose(&args_subst);
             Ok(result)
         }
@@ -174,16 +183,30 @@ pub fn unify_core(
         | (InferType::App(tc, args2), InferType::HktApp(head, args1))
             if args1.len() == args2.len() =>
         {
-            let head_subst =
-                unify_core(head, &InferType::Con(tc.clone()), ctx_subst, span, fresh_row_var)?;
+            let head_subst = unify_core(
+                head,
+                &InferType::Con(tc.clone()),
+                ctx_subst,
+                span,
+                fresh_row_var,
+            )?;
             let combined = ctx_subst.clone().compose(&head_subst);
             let mut result = head_subst;
-            let applied_args1: Vec<InferType> =
-                args1.iter().map(|a| a.apply_type_subst(&combined)).collect();
-            let applied_args2: Vec<InferType> =
-                args2.iter().map(|a| a.apply_type_subst(&combined)).collect();
-            let args_subst =
-                unify_many(&applied_args1, &applied_args2, &combined, span, fresh_row_var)?;
+            let applied_args1: Vec<InferType> = args1
+                .iter()
+                .map(|a| a.apply_type_subst(&combined))
+                .collect();
+            let applied_args2: Vec<InferType> = args2
+                .iter()
+                .map(|a| a.apply_type_subst(&combined))
+                .collect();
+            let args_subst = unify_many(
+                &applied_args1,
+                &applied_args2,
+                &combined,
+                span,
+                fresh_row_var,
+            )?;
             result = result.compose(&args_subst);
             Ok(result)
         }

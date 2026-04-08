@@ -208,10 +208,7 @@ impl TypeEnv {
                             )
                         })
                         .collect();
-                    return Some(InferType::HktApp(
-                        Box::new(InferType::Var(v)),
-                        arg_tys?,
-                    ));
+                    return Some(InferType::HktApp(Box::new(InferType::Var(v)), arg_tys?));
                 }
 
                 // Resolve the constructor

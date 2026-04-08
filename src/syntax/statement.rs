@@ -15,6 +15,12 @@ use crate::{
     },
 };
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionTypeParam {
+    pub name: Identifier,
+    pub constraints: Vec<Identifier>,
+}
+
 /// Specifies which members an `import` statement exposes unqualified.
 ///
 /// - `None` — default: members require qualified access (`Module.member`).
@@ -70,7 +76,7 @@ pub enum Statement {
         name: Identifier,
         /// Explicit generic type parameters, e.g. `[T, U]` for `fn f<T, U>(...)`.
         /// Empty for non-generic functions.
-        type_params: Vec<Identifier>,
+        type_params: Vec<FunctionTypeParam>,
         parameters: Vec<Identifier>,
         parameter_types: Vec<Option<TypeExpr>>,
         return_type: Option<TypeExpr>,
@@ -129,6 +135,32 @@ pub enum Statement {
 }
 
 impl Statement {
+    pub fn function_type_param_names(type_params: &[FunctionTypeParam]) -> Vec<Identifier> {
+        type_params.iter().map(|tp| tp.name).collect()
+    }
+
+    fn format_function_type_params(
+        type_params: &[FunctionTypeParam],
+        render_ident: impl Fn(Identifier) -> String,
+    ) -> String {
+        if type_params.is_empty() {
+            return String::new();
+        }
+        let rendered: Vec<String> = type_params
+            .iter()
+            .map(|tp| {
+                if tp.constraints.is_empty() {
+                    render_ident(tp.name)
+                } else {
+                    let constraints: Vec<String> =
+                        tp.constraints.iter().map(|c| render_ident(*c)).collect();
+                    format!("{}: {}", render_ident(tp.name), constraints.join(" + "))
+                }
+            })
+            .collect();
+        format!("<{}>", rendered.join(", "))
+    }
+
     pub fn position(&self) -> Position {
         match self {
             Statement::Let { span, .. } => span.start,
@@ -202,6 +234,7 @@ impl fmt::Display for Statement {
             Statement::Function {
                 is_public,
                 name,
+                type_params,
                 parameters,
                 parameter_types,
                 return_type,
@@ -220,13 +253,16 @@ impl fmt::Display for Statement {
                     )
                     .collect();
                 let fn_kw = if *is_public { "public fn" } else { "fn" };
+                let type_params_text =
+                    Self::format_function_type_params(type_params, |id| id.to_string());
                 if let Some(return_type) = return_type {
                     if effects.is_empty() {
                         write!(
                             f,
-                            "{} {}({}) -> {} {}",
+                            "{} {}{}({}) -> {} {}",
                             fn_kw,
                             name,
+                            type_params_text,
                             params.join(", "),
                             return_type,
                             body
@@ -236,9 +272,10 @@ impl fmt::Display for Statement {
                             effects.iter().map(ToString::to_string).collect();
                         write!(
                             f,
-                            "{} {}({}) -> {} with {} {}",
+                            "{} {}{}({}) -> {} with {} {}",
                             fn_kw,
                             name,
+                            type_params_text,
                             params.join(", "),
                             return_type,
                             effects_text.join(", "),
@@ -246,15 +283,24 @@ impl fmt::Display for Statement {
                         )
                     }
                 } else if effects.is_empty() {
-                    write!(f, "{} {}({}) {}", fn_kw, name, params.join(", "), body)
+                    write!(
+                        f,
+                        "{} {}{}({}) {}",
+                        fn_kw,
+                        name,
+                        type_params_text,
+                        params.join(", "),
+                        body
+                    )
                 } else {
                     let effects_text: Vec<String> =
                         effects.iter().map(ToString::to_string).collect();
                     write!(
                         f,
-                        "{} {}({}) with {} {}",
+                        "{} {}{}({}) with {} {}",
                         fn_kw,
                         name,
+                        type_params_text,
                         params.join(", "),
                         effects_text.join(", "),
                         body
@@ -322,7 +368,15 @@ impl fmt::Display for Statement {
             } => {
                 write!(f, "class {}", name)?;
                 if !type_params.is_empty() {
-                    write!(f, "<{}>", type_params.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", "))?;
+                    write!(
+                        f,
+                        "<{}>",
+                        type_params
+                            .iter()
+                            .map(|p| p.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )?;
                 }
                 write!(f, " {{ {} methods }}", methods.len())
             }
@@ -333,7 +387,15 @@ impl fmt::Display for Statement {
             } => {
                 write!(f, "instance {}", class_name)?;
                 if !type_args.is_empty() {
-                    write!(f, "<{}>", type_args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "))?;
+                    write!(
+                        f,
+                        "<{}>",
+                        type_args
+                            .iter()
+                            .map(|t| t.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )?;
                 }
                 write!(f, " {{ ... }}")
             }
@@ -398,6 +460,7 @@ impl Statement {
             Statement::Function {
                 is_public,
                 name,
+                type_params,
                 parameters,
                 parameter_types,
                 return_type,
@@ -417,12 +480,16 @@ impl Statement {
                     })
                     .collect();
                 let fn_kw = if *is_public { "public fn" } else { "fn" };
+                let type_params_text = Self::format_function_type_params(type_params, |id| {
+                    interner.resolve(id).to_string()
+                });
                 if let Some(return_type) = return_type {
                     if effects.is_empty() {
                         format!(
-                            "{} {}({}) -> {} {}",
+                            "{} {}{}({}) -> {} {}",
                             fn_kw,
                             interner.resolve(*name),
+                            type_params_text,
                             params.join(", "),
                             return_type.display_with(interner),
                             body
@@ -431,9 +498,10 @@ impl Statement {
                         let effects_text: Vec<String> =
                             effects.iter().map(|e| e.display_with(interner)).collect();
                         format!(
-                            "{} {}({}) -> {} with {} {}",
+                            "{} {}{}({}) -> {} with {} {}",
                             fn_kw,
                             interner.resolve(*name),
+                            type_params_text,
                             params.join(", "),
                             return_type.display_with(interner),
                             effects_text.join(", "),
@@ -442,9 +510,10 @@ impl Statement {
                     }
                 } else if effects.is_empty() {
                     format!(
-                        "{} {}({}) {}",
+                        "{} {}{}({}) {}",
                         fn_kw,
                         interner.resolve(*name),
+                        type_params_text,
                         params.join(", "),
                         body
                     )
@@ -452,9 +521,10 @@ impl Statement {
                     let effects_text: Vec<String> =
                         effects.iter().map(|e| e.display_with(interner)).collect();
                     format!(
-                        "{} {}({}) with {} {}",
+                        "{} {}{}({}) with {} {}",
                         fn_kw,
                         interner.resolve(*name),
+                        type_params_text,
                         params.join(", "),
                         effects_text.join(", "),
                         body
@@ -532,8 +602,7 @@ impl Statement {
                 methods,
                 ..
             } => {
-                let params: Vec<&str> =
-                    type_params.iter().map(|p| interner.resolve(*p)).collect();
+                let params: Vec<&str> = type_params.iter().map(|p| interner.resolve(*p)).collect();
                 format!(
                     "class {}<{}> {{ {} methods }}",
                     interner.resolve(*name),

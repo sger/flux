@@ -10,14 +10,11 @@
 use std::collections::{HashMap, HashSet};
 
 use flux::{
-    ast::type_infer::{infer_program, InferProgramConfig, InferProgramResult},
+    ast::type_infer::{InferProgramConfig, InferProgramResult, infer_program},
     syntax::{
         interner::Interner, lexer::Lexer, parser::Parser, program::Program, statement::Statement,
     },
-    types::{
-        class_env::ClassEnv,
-        class_solver::solve_class_constraints,
-    },
+    types::{class_env::ClassEnv, class_solver::solve_class_constraints},
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -39,7 +36,11 @@ fn parse(source: &str) -> (Program, Interner) {
 fn infer(source: &str) -> (InferProgramResult, Program, Interner) {
     let mut parser = Parser::new(Lexer::new(source));
     let program = parser.parse_program();
-    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
     let mut interner = parser.take_interner();
     let flow_sym = interner.intern("Flow");
 
@@ -67,7 +68,11 @@ fn infer(source: &str) -> (InferProgramResult, Program, Interner) {
 fn build_class_env(source: &str) -> (ClassEnv, Vec<flux::diagnostics::Diagnostic>, Interner) {
     let mut parser = Parser::new(Lexer::new(source));
     let program = parser.parse_program();
-    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
     let mut interner = parser.take_interner();
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
@@ -82,25 +87,120 @@ fn build_class_env(source: &str) -> (ClassEnv, Vec<flux::diagnostics::Diagnostic
 #[test]
 fn strict_types_accepts_fully_typed_function() {
     let (result, program, interner) = infer("fn add(x: Int, y: Int) -> Int { x + y }");
-    let diags =
-        flux::ast::type_infer::strict_types::validate_strict_types(&program, &result.type_env, &interner);
-    assert!(diags.is_empty(), "expected no strict-type errors, got: {diags:?}");
+    let diags = flux::ast::type_infer::strict_types::validate_strict_types(
+        &program,
+        &result.type_env,
+        &interner,
+    );
+    assert!(
+        diags.is_empty(),
+        "expected no strict-type errors, got: {diags:?}"
+    );
 }
 
 #[test]
 fn strict_types_accepts_polymorphic_identity() {
     let (result, program, interner) = infer("fn identity(x) { x }");
-    let diags =
-        flux::ast::type_infer::strict_types::validate_strict_types(&program, &result.type_env, &interner);
-    assert!(diags.is_empty(), "identity should infer as a -> a with no Any");
+    let diags = flux::ast::type_infer::strict_types::validate_strict_types(
+        &program,
+        &result.type_env,
+        &interner,
+    );
+    assert!(
+        diags.is_empty(),
+        "identity should infer as a -> a with no Any"
+    );
 }
 
 #[test]
 fn strict_types_accepts_polymorphic_arithmetic() {
     let (result, program, interner) = infer("fn add(x, y) { x + y }");
-    let diags =
-        flux::ast::type_infer::strict_types::validate_strict_types(&program, &result.type_env, &interner);
-    assert!(diags.is_empty(), "add should infer as a -> a -> a with no Any");
+    let diags = flux::ast::type_infer::strict_types::validate_strict_types(
+        &program,
+        &result.type_env,
+        &interner,
+    );
+    assert!(
+        diags.is_empty(),
+        "add should infer as a -> a -> a with no Any"
+    );
+}
+
+#[test]
+fn explicit_type_param_constraint_is_recorded_in_scheme() {
+    let (result, _program, interner) = infer(
+        r#"
+fn contains<A: Eq>(x: A, y: A) -> Bool { eq(x, y) }
+"#,
+    );
+    let contains = interner.lookup("contains").expect("contains interned");
+    let scheme = result
+        .type_env
+        .lookup(contains)
+        .expect("contains scheme should exist");
+    let eq = interner.lookup("Eq").expect("Eq interned");
+    assert_eq!(
+        scheme.constraints.len(),
+        1,
+        "expected one explicit scheme constraint"
+    );
+    assert_eq!(scheme.constraints[0].class_name, eq);
+}
+
+#[test]
+fn explicit_and_inferred_constraints_deduplicate() {
+    let (result, _program, interner) = infer(
+        r#"
+fn same<A: Eq>(x: A, y: A) -> Bool { x == y }
+"#,
+    );
+    let same = interner.lookup("same").expect("same interned");
+    let scheme = result
+        .type_env
+        .lookup(same)
+        .expect("same scheme should exist");
+    assert_eq!(
+        scheme.constraints.len(),
+        1,
+        "explicit and inferred Eq constraints should deduplicate"
+    );
+}
+
+#[test]
+fn explicit_constraint_produces_concrete_obligation_at_call_site() {
+    let (result, program, mut interner) = infer(
+        r#"
+fn same<A: Eq>(x: A, y: A) -> Bool { eq(x, y) }
+fn main() { same(1, 2) }
+"#,
+    );
+    let mut env = ClassEnv::new();
+    env.register_builtins(&mut interner);
+    env.collect_from_statements(&program.statements, &interner);
+    let diags = solve_class_constraints(&result.class_constraints, &env, &interner);
+    assert!(
+        diags.is_empty(),
+        "Int call should satisfy explicit Eq constraint: {diags:?}"
+    );
+}
+
+#[test]
+fn explicit_constraint_missing_instance_reports_e444() {
+    let (result, program, mut interner) = infer(
+        r#"
+data Color { Red, Blue }
+fn same<A: Eq>(x: A, y: A) -> Bool { eq(x, y) }
+fn main() { same(Red, Blue) }
+"#,
+    );
+    let mut env = ClassEnv::new();
+    env.register_builtins(&mut interner);
+    env.collect_from_statements(&program.statements, &interner);
+    let diags = solve_class_constraints(&result.class_constraints, &env, &interner);
+    assert!(
+        diags.iter().any(|d| d.code().as_deref() == Some("E444")),
+        "expected missing Eq<Color> to produce E444, got: {diags:?}"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -119,7 +219,10 @@ instance Sizeable<Int> {
 }
 "#,
     );
-    assert!(diags.is_empty(), "valid class+instance should produce no errors: {diags:?}");
+    assert!(
+        diags.is_empty(),
+        "valid class+instance should produce no errors: {diags:?}"
+    );
     assert_eq!(env.instances.len() > 0, true);
 }
 
@@ -189,18 +292,18 @@ instance MyEq<Int> {
 "#,
     );
     // my_neq has a default — so not implementing it is fine
-    let method_errors: Vec<_> = diags.iter().filter(|d| d.code().as_deref() == Some("E442")).collect();
-    assert!(method_errors.is_empty(), "default method should not trigger E442: {method_errors:?}");
+    let method_errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().as_deref() == Some("E442"))
+        .collect();
+    assert!(
+        method_errors.is_empty(),
+        "default method should not trigger E442: {method_errors:?}"
+    );
 }
 
 #[test]
-fn class_env_duplicate_instance_detection_uses_debug_format() {
-    // Known limitation (Proposal 0146 Track 3): duplicate instance detection
-    // uses format!("{:?}") comparison which includes spans. Two instances
-    // with the same type at different source positions are NOT detected as
-    // duplicates by ClassEnv. The duplicate is instead caught later by the
-    // dispatch function generator as E001 (Duplicate Name) when it tries to
-    // create two functions with the same mangled name.
+fn class_env_duplicate_instance_detection_is_structural() {
     let (_, diags, _) = build_class_env(
         r#"
 class Sizeable<a> {
@@ -214,9 +317,15 @@ instance Sizeable<Int> {
 }
 "#,
     );
-    // E443 is NOT produced due to the Debug-format span mismatch
-    let e443: Vec<_> = diags.iter().filter(|d| d.code().as_deref() == Some("E443")).collect();
-    assert!(e443.is_empty(), "E443 not produced due to known Debug-format span issue");
+    let e443: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().as_deref() == Some("E443"))
+        .collect();
+    assert_eq!(
+        e443.len(),
+        1,
+        "expected structural duplicate instance detection: {diags:?}"
+    );
 }
 
 #[test]
@@ -234,16 +343,24 @@ instance Sizeable<String> {
 }
 "#,
     );
-    let e443: Vec<_> = diags.iter().filter(|d| d.code().as_deref() == Some("E443")).collect();
-    assert!(e443.is_empty(), "different type instances should not conflict: {e443:?}");
+    let e443: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().as_deref() == Some("E443"))
+        .collect();
+    assert!(
+        e443.is_empty(),
+        "different type instances should not conflict: {e443:?}"
+    );
     // Should have instances for both Int and String
     let sizeable_sym = interner.lookup("Sizeable").expect("Sizeable interned");
     assert!(
-        env.resolve_instance_for_type(sizeable_sym, "Int", &interner).is_some(),
+        env.resolve_instance_for_type(sizeable_sym, "Int", &interner)
+            .is_some(),
         "should have Sizeable<Int>"
     );
     assert!(
-        env.resolve_instance_for_type(sizeable_sym, "String", &interner).is_some(),
+        env.resolve_instance_for_type(sizeable_sym, "String", &interner)
+            .is_some(),
         "should have Sizeable<String>"
     );
 }
@@ -278,7 +395,9 @@ instance Sizeable<Int> {
 }
 "#,
     );
-    let sizeable_sym = interner.lookup("Sizeable").expect("Sizeable should be interned");
+    let sizeable_sym = interner
+        .lookup("Sizeable")
+        .expect("Sizeable should be interned");
     let result = env.resolve_instance_for_type(sizeable_sym, "Int", &interner);
     assert!(result.is_some(), "should resolve Sizeable<Int>");
     let no_result = env.resolve_instance_for_type(sizeable_sym, "String", &interner);
@@ -308,8 +427,14 @@ fn main() { size(42) }
     env.collect_from_statements(&program.statements, &interner);
 
     let diags = solve_class_constraints(&result.class_constraints, &env, &interner);
-    let e444: Vec<_> = diags.iter().filter(|d| d.code().as_deref() == Some("E444")).collect();
-    assert!(e444.is_empty(), "satisfied constraint should not produce E444: {e444:?}");
+    let e444: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().as_deref() == Some("E444"))
+        .collect();
+    assert!(
+        e444.is_empty(),
+        "satisfied constraint should not produce E444: {e444:?}"
+    );
 }
 
 #[test]
@@ -340,7 +465,10 @@ instance Sizeable<Int> {
         type_args: vec![string_type],
         span: flux::diagnostics::position::Span {
             start: flux::diagnostics::position::Position { line: 1, column: 0 },
-            end: flux::diagnostics::position::Position { line: 1, column: 10 },
+            end: flux::diagnostics::position::Position {
+                line: 1,
+                column: 10,
+            },
         },
     };
 
@@ -373,12 +501,18 @@ class Sizeable<a> {
         type_args: vec![var_type],
         span: flux::diagnostics::position::Span {
             start: flux::diagnostics::position::Position { line: 1, column: 0 },
-            end: flux::diagnostics::position::Position { line: 1, column: 10 },
+            end: flux::diagnostics::position::Position {
+                line: 1,
+                column: 10,
+            },
         },
     };
 
     let diags = solve_class_constraints(&[constraint], &env, &interner);
-    assert!(diags.is_empty(), "type variable constraints should be skipped: {diags:?}");
+    assert!(
+        diags.is_empty(),
+        "type variable constraints should be skipped: {diags:?}"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -415,7 +549,10 @@ instance Sizeable<Int> {
             false
         }
     });
-    assert!(has_mangled, "expected __tc_Sizeable_Int_size in generated functions");
+    assert!(
+        has_mangled,
+        "expected __tc_Sizeable_Int_size in generated functions"
+    );
 }
 
 #[test]
@@ -448,7 +585,10 @@ instance Sizeable<Int> {
             false
         }
     });
-    assert!(has_stub, "expected polymorphic stub function `size` in generated functions");
+    assert!(
+        has_stub,
+        "expected polymorphic stub function `size` in generated functions"
+    );
 }
 
 #[test]
@@ -481,7 +621,11 @@ instance Sizeable<String> {
         .filter_map(|stmt| {
             if let Statement::Function { name, .. } = stmt {
                 let n = interner.resolve(*name).to_string();
-                if n.starts_with("__tc_") { Some(n) } else { None }
+                if n.starts_with("__tc_") {
+                    Some(n)
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -527,7 +671,10 @@ class MyEq<a> {
             false
         }
     });
-    assert!(has_default, "expected default method function `my_neq` in generated functions");
+    assert!(
+        has_default,
+        "expected default method function `my_neq` in generated functions"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -544,13 +691,30 @@ fn builtin_classes_registered() {
     let ord = interner.lookup("Ord").expect("Ord should be interned");
     let num = interner.lookup("Num").expect("Num should be interned");
     let show = interner.lookup("Show").expect("Show should be interned");
-    let semigroup = interner.lookup("Semigroup").expect("Semigroup should be interned");
+    let semigroup = interner
+        .lookup("Semigroup")
+        .expect("Semigroup should be interned");
 
-    assert!(env.lookup_class(eq).is_some(), "Eq class should be registered");
-    assert!(env.lookup_class(ord).is_some(), "Ord class should be registered");
-    assert!(env.lookup_class(num).is_some(), "Num class should be registered");
-    assert!(env.lookup_class(show).is_some(), "Show class should be registered");
-    assert!(env.lookup_class(semigroup).is_some(), "Semigroup class should be registered");
+    assert!(
+        env.lookup_class(eq).is_some(),
+        "Eq class should be registered"
+    );
+    assert!(
+        env.lookup_class(ord).is_some(),
+        "Ord class should be registered"
+    );
+    assert!(
+        env.lookup_class(num).is_some(),
+        "Num class should be registered"
+    );
+    assert!(
+        env.lookup_class(show).is_some(),
+        "Show class should be registered"
+    );
+    assert!(
+        env.lookup_class(semigroup).is_some(),
+        "Semigroup class should be registered"
+    );
 }
 
 #[test]
@@ -563,15 +727,36 @@ fn builtin_instances_registered() {
     let num = interner.lookup("Num").expect("Num interned");
 
     // Eq should have instances for Int, Float, String, Bool
-    assert!(env.resolve_instance_for_type(eq, "Int", &interner).is_some());
-    assert!(env.resolve_instance_for_type(eq, "Float", &interner).is_some());
-    assert!(env.resolve_instance_for_type(eq, "String", &interner).is_some());
-    assert!(env.resolve_instance_for_type(eq, "Bool", &interner).is_some());
+    assert!(
+        env.resolve_instance_for_type(eq, "Int", &interner)
+            .is_some()
+    );
+    assert!(
+        env.resolve_instance_for_type(eq, "Float", &interner)
+            .is_some()
+    );
+    assert!(
+        env.resolve_instance_for_type(eq, "String", &interner)
+            .is_some()
+    );
+    assert!(
+        env.resolve_instance_for_type(eq, "Bool", &interner)
+            .is_some()
+    );
 
     // Num should have instances for Int, Float but not String
-    assert!(env.resolve_instance_for_type(num, "Int", &interner).is_some());
-    assert!(env.resolve_instance_for_type(num, "Float", &interner).is_some());
-    assert!(env.resolve_instance_for_type(num, "String", &interner).is_none());
+    assert!(
+        env.resolve_instance_for_type(num, "Int", &interner)
+            .is_some()
+    );
+    assert!(
+        env.resolve_instance_for_type(num, "Float", &interner)
+            .is_some()
+    );
+    assert!(
+        env.resolve_instance_for_type(num, "String", &interner)
+            .is_none()
+    );
 }
 
 #[test]
@@ -592,5 +777,10 @@ class Eq<a> {
     let eq = interner.lookup("Eq").expect("Eq interned");
     let class = env.lookup_class(eq).expect("Eq class should exist");
     // Builtin Eq has eq method — it should remain since user's was rejected
-    assert!(class.methods.iter().any(|m| interner.resolve(m.name) == "eq"));
+    assert!(
+        class
+            .methods
+            .iter()
+            .any(|m| interner.resolve(m.name) == "eq")
+    );
 }

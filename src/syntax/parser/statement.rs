@@ -5,8 +5,11 @@ use crate::{
         unexpected_token, unexpected_token_with_details, unknown_keyword, unknown_keyword_alias,
     },
     syntax::{
-        data_variant::DataVariant, effect_ops::EffectOp, precedence::Precedence,
-        statement::Statement, token_type::TokenType,
+        data_variant::DataVariant,
+        effect_ops::EffectOp,
+        precedence::Precedence,
+        statement::{FunctionTypeParam, Statement},
+        token_type::TokenType,
         type_class::{ClassConstraint, ClassMethod, InstanceMethod},
         type_expr::TypeExpr,
     },
@@ -366,42 +369,7 @@ impl Parser {
             .symbol
             .expect("ident token should have symbol");
 
-        // Optional generic type parameters <T, U, ...>
-        let mut type_params = Vec::new();
-        if self.is_peek_token(TokenType::Lt) {
-            self.next_token(); // consume '<'
-
-            loop {
-                if !self.expect_peek_context_with_details(
-                    TokenType::Ident,
-                    "Missing Generic Parameter Name",
-                    DiagnosticCategory::ParserDeclaration,
-                    "Expected generic type parameter name.".to_string(),
-                    "Generic parameters use `fn name<T, U>(...) { ... }`.".to_string(),
-                ) {
-                    return None;
-                }
-                type_params.push(
-                    self.current_token
-                        .symbol
-                        .expect("ident token should have symbol"),
-                );
-                if self.is_peek_token(TokenType::Comma) {
-                    self.next_token(); // consume ','
-                } else {
-                    break;
-                }
-            }
-            if !self.expect_peek_context_with_details(
-                TokenType::Gt,
-                "Missing Generic Parameter List",
-                DiagnosticCategory::ParserDelimiter,
-                "Expected `>` to close generic parameter list.".to_string(),
-                "Generic parameters use `fn name<T, U>(...) { ... }`.".to_string(),
-            ) {
-                return None;
-            }
-        }
+        let type_params = self.parse_function_type_params_angle_bracket()?;
 
         if self.is_peek_token(TokenType::Arrow)
             || (!self.is_peek_token(TokenType::LParen)
@@ -1356,39 +1324,38 @@ impl Parser {
         // Disambiguation: `class Eq<a> => Ord<a> { ... }`
         //   first_name = Eq, first_args = [a] → superclass constraint
         //   then parse Ord<a> as the actual class name
-        let (superclasses, class_name, type_params) =
-            if self.is_peek_token(TokenType::FatArrow) {
-                let constraint_span = self.span_from(start);
-                let superclass = ClassConstraint {
-                    class_name: first_name,
-                    type_args: first_args
-                        .iter()
-                        .map(|&id| TypeExpr::Named {
-                            name: id,
-                            args: vec![],
-                            span: constraint_span,
-                        })
-                        .collect(),
-                    span: constraint_span,
-                };
-                self.next_token(); // consume `=>`
-
-                // Parse the actual class name and type params.
-                if !self.expect_peek_context_with_details(
-                    TokenType::Ident,
-                    "Missing Class Name",
-                    DiagnosticCategory::ParserDeclaration,
-                    "Expected class name after `=>`.".to_string(),
-                    "Superclass syntax: `class Eq<a> => Ord<a> { ... }`.".to_string(),
-                ) {
-                    return None;
-                }
-                let actual_name = self.current_token.symbol.expect("ident should have symbol");
-                let actual_params = self.parse_type_params_angle_bracket();
-                (vec![superclass], actual_name, actual_params)
-            } else {
-                (vec![], first_name, first_args)
+        let (superclasses, class_name, type_params) = if self.is_peek_token(TokenType::FatArrow) {
+            let constraint_span = self.span_from(start);
+            let superclass = ClassConstraint {
+                class_name: first_name,
+                type_args: first_args
+                    .iter()
+                    .map(|&id| TypeExpr::Named {
+                        name: id,
+                        args: vec![],
+                        span: constraint_span,
+                    })
+                    .collect(),
+                span: constraint_span,
             };
+            self.next_token(); // consume `=>`
+
+            // Parse the actual class name and type params.
+            if !self.expect_peek_context_with_details(
+                TokenType::Ident,
+                "Missing Class Name",
+                DiagnosticCategory::ParserDeclaration,
+                "Expected class name after `=>`.".to_string(),
+                "Superclass syntax: `class Eq<a> => Ord<a> { ... }`.".to_string(),
+            ) {
+                return None;
+            }
+            let actual_name = self.current_token.symbol.expect("ident should have symbol");
+            let actual_params = self.parse_type_params_angle_bracket();
+            (vec![superclass], actual_name, actual_params)
+        } else {
+            (vec![], first_name, first_args)
+        };
 
         // Expect `{`
         if !self.expect_peek_context_with_details(
@@ -1583,7 +1550,8 @@ impl Parser {
             "Missing Instance Body",
             DiagnosticCategory::ParserDeclaration,
             "Expected `{` to begin instance body.".to_string(),
-            "Instance declarations use `instance ClassName<Type> { fn method(...) { ... } }`.".to_string(),
+            "Instance declarations use `instance ClassName<Type> { fn method(...) { ... } }`."
+                .to_string(),
         ) {
             return None;
         }
@@ -1739,6 +1707,78 @@ impl Parser {
             }
         }
         type_params
+    }
+
+    fn parse_function_type_params_angle_bracket(&mut self) -> Option<Vec<FunctionTypeParam>> {
+        let mut type_params = Vec::new();
+        if !self.is_peek_token(TokenType::Lt) {
+            return Some(type_params);
+        }
+
+        self.next_token(); // consume `<`
+        loop {
+            if !self.expect_peek_context_with_details(
+                TokenType::Ident,
+                "Missing Generic Parameter Name",
+                DiagnosticCategory::ParserDeclaration,
+                "Expected generic type parameter name.".to_string(),
+                "Generic parameters use `fn name<T, U>(...) { ... }` or `fn name<T: Eq + Show>(...) { ... }`.".to_string(),
+            ) {
+                return None;
+            }
+
+            let name = self
+                .current_token
+                .symbol
+                .expect("ident token should have symbol");
+            let mut constraints = Vec::new();
+
+            if self.is_peek_token(TokenType::Colon) {
+                self.next_token(); // consume `:`
+                loop {
+                    if !self.expect_peek_context_with_details(
+                        TokenType::Ident,
+                        "Missing Generic Constraint",
+                        DiagnosticCategory::ParserDeclaration,
+                        "Expected a type class name after `:` in generic bounds.".to_string(),
+                        "Use `fn name<T: Eq>(...) { ... }` or `fn name<T: Eq + Show>(...) { ... }`.".to_string(),
+                    ) {
+                        return None;
+                    }
+                    constraints.push(
+                        self.current_token
+                            .symbol
+                            .expect("ident token should have symbol"),
+                    );
+
+                    if self.is_peek_token(TokenType::Plus) {
+                        self.next_token(); // consume `+`
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            type_params.push(FunctionTypeParam { name, constraints });
+
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token(); // consume `,`
+            } else {
+                break;
+            }
+        }
+
+        if !self.expect_peek_context_with_details(
+            TokenType::Gt,
+            "Missing Generic Parameter List",
+            DiagnosticCategory::ParserDelimiter,
+            "Expected `>` to close generic parameter list.".to_string(),
+            "Generic parameters use `fn name<T, U>(...) { ... }` or `fn name<T: Eq + Show>(...) { ... }`.".to_string(),
+        ) {
+            return None;
+        }
+
+        Some(type_params)
     }
 
     /// Parses `effect Name { op: TypeExpr, ... }`.

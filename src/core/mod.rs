@@ -244,14 +244,15 @@ impl FluxRep {
                     "Float" => FluxRep::FloatRep,
                     "Bool" => FluxRep::BoolRep,
                     "Unit" | "Never" => FluxRep::UnitRep,
-                    "String" | "Array" | "List" | "Map" | "Option" | "Either" => {
-                        FluxRep::BoxedRep
-                    }
+                    "String" | "Array" | "List" | "Map" | "Option" | "Either" => FluxRep::BoxedRep,
                     _ => {
                         // Named type with no args could be an ADT (boxed) or a
                         // type variable (tagged). Single-char names are likely
                         // type params; anything else is an ADT.
-                        if args.is_empty() && resolved.len() == 1 && resolved.chars().next().is_some_and(|c| c.is_lowercase()) {
+                        if args.is_empty()
+                            && resolved.len() == 1
+                            && resolved.chars().next().is_some_and(|c| c.is_lowercase())
+                        {
                             FluxRep::TaggedRep
                         } else {
                             FluxRep::BoxedRep

@@ -1101,7 +1101,7 @@ impl Compiler {
                             arity: parameters.len(),
                         },
                         FnContract {
-                            type_params: type_params.clone(),
+                            type_params: Statement::function_type_param_names(type_params),
                             params: parameter_types.clone(),
                             ret: return_type.clone(),
                             effects: effects.clone(),
@@ -1173,7 +1173,11 @@ impl Compiler {
         let mut forall = infer_type.free_vars().into_iter().collect::<Vec<_>>();
         forall.sort_unstable();
         forall.dedup();
-        Some(Scheme { forall, constraints: Vec::new(), infer_type })
+        Some(Scheme {
+            forall,
+            constraints: Vec::new(),
+            infer_type,
+        })
     }
 
     fn native_function_arity(scheme: &Scheme) -> usize {
@@ -1450,20 +1454,8 @@ impl Compiler {
             ("to_string", vec![var_a()], con(TC::String), pure(), 0),
             // Numeric
             ("abs", vec![var_a()], var_a(), pure(), 0),
-            (
-                "min",
-                vec![var_a(), var_a()],
-                var_a(),
-                pure(),
-                0,
-            ),
-            (
-                "max",
-                vec![var_a(), var_a()],
-                var_a(),
-                pure(),
-                0,
-            ),
+            ("min", vec![var_a(), var_a()], var_a(), pure(), 0),
+            ("max", vec![var_a(), var_a()], var_a(), pure(), 0),
             ("parse_int", vec![con(TC::String)], con(TC::Int), pure(), 0),
             (
                 "parse_ints",
@@ -1481,20 +1473,8 @@ impl Compiler {
             ),
             // Collection ops
             ("len", vec![var_a()], con(TC::Int), pure(), 0),
-            (
-                "push",
-                vec![var_a(), var_b()],
-                var_a(),
-                pure(),
-                0,
-            ),
-            (
-                "concat",
-                vec![var_a(), var_a()],
-                var_a(),
-                pure(),
-                0,
-            ),
+            ("push", vec![var_a(), var_b()], var_a(), pure(), 0),
+            ("concat", vec![var_a(), var_a()], var_a(), pure(), 0),
             (
                 "slice",
                 vec![var_a(), con(TC::Int), con(TC::Int)],
@@ -1503,13 +1483,7 @@ impl Compiler {
                 0,
             ),
             ("reverse", vec![var_a()], var_a(), pure(), 0),
-            (
-                "contains",
-                vec![var_a(), var_b()],
-                con(TC::Bool),
-                pure(),
-                0,
-            ),
+            ("contains", vec![var_a(), var_b()], con(TC::Bool), pure(), 0),
             (
                 "range",
                 vec![con(TC::Int), con(TC::Int)],
@@ -1535,41 +1509,11 @@ impl Compiler {
             // Map ops
             ("keys", vec![var_a()], var_b(), pure(), 0),
             ("values", vec![var_a()], var_b(), pure(), 0),
-            (
-                "has_key",
-                vec![var_a(), var_b()],
-                con(TC::Bool),
-                pure(),
-                0,
-            ),
-            (
-                "merge",
-                vec![var_a(), var_a()],
-                var_a(),
-                pure(),
-                0,
-            ),
-            (
-                "delete",
-                vec![var_a(), var_b()],
-                var_a(),
-                pure(),
-                0,
-            ),
-            (
-                "put",
-                vec![var_a(), var_b(), var_c()],
-                var_a(),
-                pure(),
-                0,
-            ),
-            (
-                "get",
-                vec![var_a(), var_b()],
-                var_c(),
-                pure(),
-                0,
-            ),
+            ("has_key", vec![var_a(), var_b()], con(TC::Bool), pure(), 0),
+            ("merge", vec![var_a(), var_a()], var_a(), pure(), 0),
+            ("delete", vec![var_a(), var_b()], var_a(), pure(), 0),
+            ("put", vec![var_a(), var_b(), var_c()], var_a(), pure(), 0),
+            ("get", vec![var_a(), var_b()], var_c(), pure(), 0),
             // Time
             ("now_ms", vec![], con(TC::Int), pure(), 0),
             (
@@ -1609,7 +1553,14 @@ impl Compiler {
             let mut forall = infer_type.free_vars().into_iter().collect::<Vec<_>>();
             forall.sort_unstable();
             forall.dedup();
-            schemes.insert(sym, Scheme { forall, constraints: Vec::new(), infer_type });
+            schemes.insert(
+                sym,
+                Scheme {
+                    forall,
+                    constraints: Vec::new(),
+                    infer_type,
+                },
+            );
         }
     }
 
@@ -1651,7 +1602,7 @@ impl Compiler {
                         arity: parameters.len(),
                     },
                     module_name,
-                    type_params: type_params.clone(),
+                    type_params: Statement::function_type_param_names(type_params),
                     parameter_types: parameter_types.clone(),
                     return_type: return_type.clone(),
                     declared_effects,
@@ -3286,7 +3237,11 @@ impl Compiler {
     /// Dump LIR as LLVM IR text (Proposal 0132 Phase 7).
     #[cfg(feature = "core_to_llvm")]
     #[allow(clippy::result_large_err)]
-    pub fn dump_lir_llvm(&mut self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
+    pub fn dump_lir_llvm(
+        &mut self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<String, Diagnostic> {
         let module = self.lower_to_lir_llvm_module(program, optimize)?;
         Ok(crate::core_to_llvm::render_module(&module))
     }

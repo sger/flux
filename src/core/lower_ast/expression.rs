@@ -438,26 +438,26 @@ impl<'a> super::AstLowerer<'a> {
             && let Some(interner) = self.interner
             && let Some(method_sym) = interner.lookup(method_name)
         {
-                // Try to resolve via the class dispatch pipeline.
-                let args_slice = &[left.clone(), right.clone()];
-                if let Some(mangled) = self.try_resolve_class_call(method_sym, args_slice) {
-                    let l = self.lower_expr(left);
-                    let r = self.lower_expr(right);
-                    let call = CoreExpr::App {
-                        func: Box::new(CoreExpr::external_var(mangled, span)),
-                        args: vec![l, r],
+            // Try to resolve via the class dispatch pipeline.
+            let args_slice = &[left.clone(), right.clone()];
+            if let Some(mangled) = self.try_resolve_class_call(method_sym, args_slice) {
+                let l = self.lower_expr(left);
+                let r = self.lower_expr(right);
+                let call = CoreExpr::App {
+                    func: Box::new(CoreExpr::external_var(mangled, span)),
+                    args: vec![l, r],
+                    span,
+                };
+                // For !=, wrap in Not: !(eq(l, r))
+                if operator == "!=" {
+                    return CoreExpr::PrimOp {
+                        op: CorePrimOp::Not,
+                        args: vec![call],
                         span,
                     };
-                    // For !=, wrap in Not: !(eq(l, r))
-                    if operator == "!=" {
-                        return CoreExpr::PrimOp {
-                            op: CorePrimOp::Not,
-                            args: vec![call],
-                            span,
-                        };
-                    }
-                    return call;
                 }
+                return call;
+            }
         }
 
         let op = match operator {

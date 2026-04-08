@@ -18,7 +18,7 @@ use crate::{
         block::Block,
         expression::{ExprId, Expression},
         interner::Interner,
-        statement::Statement,
+        statement::{FunctionTypeParam, Statement},
     },
     types::class_env::ClassEnv,
 };
@@ -254,8 +254,18 @@ fn generate_polymorphic_dispatch(
     interner: &mut Interner,
 ) -> Statement {
     // Type params: class param + method params
-    let mut type_params = class_def.type_params.clone();
-    type_params.extend_from_slice(&method_sig.type_params);
+    let mut type_params: Vec<FunctionTypeParam> = class_def
+        .type_params
+        .iter()
+        .map(|name| FunctionTypeParam {
+            name: *name,
+            constraints: vec![],
+        })
+        .collect();
+    type_params.extend(method_sig.type_params.iter().map(|name| FunctionTypeParam {
+        name: *name,
+        constraints: vec![],
+    }));
 
     // Generate parameter names: __x0, __x1, ...
     let params: Vec<Identifier> = (0..method_sig.arity)
@@ -281,8 +291,16 @@ fn generate_polymorphic_dispatch(
     let panic_msg = format!("No instance of {class_display}.{method_display} for the given type");
 
     let panic_expr = Expression::Call {
-        function: Box::new(Expression::Identifier { name: panic_sym, span, id }),
-        arguments: vec![Expression::String { value: panic_msg, span, id }],
+        function: Box::new(Expression::Identifier {
+            name: panic_sym,
+            span,
+            id,
+        }),
+        arguments: vec![Expression::String {
+            value: panic_msg,
+            span,
+            id,
+        }],
         span,
         id,
     };
@@ -293,20 +311,39 @@ fn generate_polymorphic_dispatch(
         for inst in instances.iter().rev() {
             let condition = Expression::Infix {
                 left: Box::new(Expression::Call {
-                    function: Box::new(Expression::Identifier { name: type_of_sym, span, id }),
-                    arguments: vec![Expression::Identifier { name: params[0], span, id }],
+                    function: Box::new(Expression::Identifier {
+                        name: type_of_sym,
+                        span,
+                        id,
+                    }),
+                    arguments: vec![Expression::Identifier {
+                        name: params[0],
+                        span,
+                        id,
+                    }],
                     span,
                     id,
                 }),
                 operator: "==".to_string(),
-                right: Box::new(Expression::String { value: inst.type_name.clone(), span, id }),
+                right: Box::new(Expression::String {
+                    value: inst.type_name.clone(),
+                    span,
+                    id,
+                }),
                 span,
                 id,
             };
 
             let call_expr = Expression::Call {
-                function: Box::new(Expression::Identifier { name: inst.mangled_name, span, id }),
-                arguments: params.iter().map(|p| Expression::Identifier { name: *p, span, id }).collect(),
+                function: Box::new(Expression::Identifier {
+                    name: inst.mangled_name,
+                    span,
+                    id,
+                }),
+                arguments: params
+                    .iter()
+                    .map(|p| Expression::Identifier { name: *p, span, id })
+                    .collect(),
                 span,
                 id,
             };
@@ -314,11 +351,19 @@ fn generate_polymorphic_dispatch(
             body_expr = Expression::If {
                 condition: Box::new(condition),
                 consequence: Block {
-                    statements: vec![Statement::Expression { expression: call_expr, has_semicolon: false, span }],
+                    statements: vec![Statement::Expression {
+                        expression: call_expr,
+                        has_semicolon: false,
+                        span,
+                    }],
                     span,
                 },
                 alternative: Some(Block {
-                    statements: vec![Statement::Expression { expression: body_expr, has_semicolon: false, span }],
+                    statements: vec![Statement::Expression {
+                        expression: body_expr,
+                        has_semicolon: false,
+                        span,
+                    }],
                     span,
                 }),
                 span,
@@ -337,7 +382,11 @@ fn generate_polymorphic_dispatch(
         return_type,
         effects: vec![],
         body: Block {
-            statements: vec![Statement::Expression { expression: body_expr, has_semicolon: false, span }],
+            statements: vec![Statement::Expression {
+                expression: body_expr,
+                has_semicolon: false,
+                span,
+            }],
             span,
         },
         span,
@@ -358,8 +407,18 @@ fn generate_polymorphic_stub(
     interner: &mut Interner,
 ) -> Statement {
     // Use the class's type parameter plus any per-method type params.
-    let mut type_params = class_def.type_params.clone();
-    type_params.extend_from_slice(&method_sig.type_params);
+    let mut type_params: Vec<FunctionTypeParam> = class_def
+        .type_params
+        .iter()
+        .map(|name| FunctionTypeParam {
+            name: *name,
+            constraints: vec![],
+        })
+        .collect();
+    type_params.extend(method_sig.type_params.iter().map(|name| FunctionTypeParam {
+        name: *name,
+        constraints: vec![],
+    }));
 
     // Generate parameter names: __x0, __x1, ...
     let params: Vec<Identifier> = (0..method_sig.arity)
@@ -387,12 +446,18 @@ fn generate_polymorphic_stub(
     let class_display = interner.resolve(class_def.name).to_string();
     let panic_sym = interner.intern("panic");
     let body_expr = Expression::Call {
-        function: Box::new(Expression::Identifier { name: panic_sym, span, id }),
+        function: Box::new(Expression::Identifier {
+            name: panic_sym,
+            span,
+            id,
+        }),
         arguments: vec![Expression::String {
             value: format!("No instance of {class_display}.{method_display} for the given type"),
-            span, id,
+            span,
+            id,
         }],
-        span, id,
+        span,
+        id,
     };
 
     Statement::Function {
@@ -507,11 +572,7 @@ fn generate_dispatch_function(
             }),
             arguments: params
                 .iter()
-                .map(|p| Expression::Identifier {
-                    name: *p,
-                    span,
-                    id,
-                })
+                .map(|p| Expression::Identifier { name: *p, span, id })
                 .collect(),
             span,
             id,

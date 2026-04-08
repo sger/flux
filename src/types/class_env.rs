@@ -10,17 +10,14 @@ use std::collections::HashMap;
 use crate::{
     diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for, position::Span},
     syntax::{
-        Identifier,
-        interner::Interner,
-        statement::Statement,
-        type_class::ClassConstraint,
+        Identifier, interner::Interner, statement::Statement, type_class::ClassConstraint,
         type_expr::TypeExpr,
     },
 };
 
 use super::super::diagnostics::compiler_errors::{
-    DUPLICATE_CLASS, DUPLICATE_INSTANCE, INSTANCE_MISSING_METHOD, INSTANCE_UNKNOWN_CLASS,
-    INSTANCE_EXTRA_METHOD, MISSING_SUPERCLASS_INSTANCE,
+    DUPLICATE_CLASS, DUPLICATE_INSTANCE, INSTANCE_EXTRA_METHOD, INSTANCE_MISSING_METHOD,
+    INSTANCE_UNKNOWN_CLASS, MISSING_SUPERCLASS_INSTANCE,
 };
 
 /// A type class definition collected from a `class` declaration.
@@ -227,8 +224,7 @@ impl ClassEnv {
                     }
 
                     // Validate: all required methods are implemented
-                    let method_names: Vec<Identifier> =
-                        methods.iter().map(|m| m.name).collect();
+                    let method_names: Vec<Identifier> = methods.iter().map(|m| m.name).collect();
 
                     for required in &class_def.methods {
                         let has_impl = method_names.contains(&required.name);
@@ -288,8 +284,11 @@ impl ClassEnv {
                             if inst.class_name != super_class_name {
                                 return false;
                             }
-                            let inst_types: Vec<String> =
-                                inst.type_args.iter().map(|t| t.display_with(interner)).collect();
+                            let inst_types: Vec<String> = inst
+                                .type_args
+                                .iter()
+                                .map(|t| t.display_with(interner))
+                                .collect();
                             inst_types.join(", ") == type_display_str
                         });
 
@@ -461,31 +460,85 @@ impl ClassEnv {
         // ── Class definitions ──────────────────────────────────────────
 
         // Eq: eq(a, a) -> Bool
-        self.register_builtin_class(eq, vec![a_param], vec![
-            MethodSig { type_params: vec![], name: eq_method, param_types: vec![], return_type: builtin_type(bool_name), arity: 2 },
-        ]);
+        self.register_builtin_class(
+            eq,
+            vec![a_param],
+            vec![MethodSig {
+                type_params: vec![],
+                name: eq_method,
+                param_types: vec![],
+                return_type: builtin_type(bool_name),
+                arity: 2,
+            }],
+        );
 
         // Ord: compare(a, a) -> Int
-        self.register_builtin_class(ord, vec![a_param], vec![
-            MethodSig { type_params: vec![], name: compare_method, param_types: vec![], return_type: builtin_type(int_name), arity: 2 },
-        ]);
+        self.register_builtin_class(
+            ord,
+            vec![a_param],
+            vec![MethodSig {
+                type_params: vec![],
+                name: compare_method,
+                param_types: vec![],
+                return_type: builtin_type(int_name),
+                arity: 2,
+            }],
+        );
 
         // Num: add(a, a) -> a, sub(a, a) -> a, mul(a, a) -> a
-        self.register_builtin_class(num, vec![a_param], vec![
-            MethodSig { type_params: vec![], name: add_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
-            MethodSig { type_params: vec![], name: sub_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
-            MethodSig { type_params: vec![], name: mul_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
-        ]);
+        self.register_builtin_class(
+            num,
+            vec![a_param],
+            vec![
+                MethodSig {
+                    type_params: vec![],
+                    name: add_method,
+                    param_types: vec![],
+                    return_type: builtin_type(a_param),
+                    arity: 2,
+                },
+                MethodSig {
+                    type_params: vec![],
+                    name: sub_method,
+                    param_types: vec![],
+                    return_type: builtin_type(a_param),
+                    arity: 2,
+                },
+                MethodSig {
+                    type_params: vec![],
+                    name: mul_method,
+                    param_types: vec![],
+                    return_type: builtin_type(a_param),
+                    arity: 2,
+                },
+            ],
+        );
 
         // Show: show(a) -> String
-        self.register_builtin_class(show, vec![a_param], vec![
-            MethodSig { type_params: vec![], name: show_method, param_types: vec![], return_type: builtin_type(string_name), arity: 1 },
-        ]);
+        self.register_builtin_class(
+            show,
+            vec![a_param],
+            vec![MethodSig {
+                type_params: vec![],
+                name: show_method,
+                param_types: vec![],
+                return_type: builtin_type(string_name),
+                arity: 1,
+            }],
+        );
 
         // Semigroup: append(a, a) -> a
-        self.register_builtin_class(semigroup, vec![a_param], vec![
-            MethodSig { type_params: vec![], name: append_method, param_types: vec![], return_type: builtin_type(a_param), arity: 2 },
-        ]);
+        self.register_builtin_class(
+            semigroup,
+            vec![a_param],
+            vec![MethodSig {
+                type_params: vec![],
+                name: append_method,
+                param_types: vec![],
+                return_type: builtin_type(a_param),
+                arity: 2,
+            }],
+        );
 
         // ── Instance definitions ───────────────────────────────────────
 
@@ -524,14 +577,17 @@ impl ClassEnv {
         if self.classes.contains_key(&name) {
             return;
         }
-        self.classes.insert(name, ClassDef {
+        self.classes.insert(
             name,
-            type_params,
-            superclasses: vec![],
-            methods,
-            default_methods: vec![],
-            span: Span::default(),
-        });
+            ClassDef {
+                name,
+                type_params,
+                superclasses: vec![],
+                methods,
+                default_methods: vec![],
+                span: Span::default(),
+            },
+        );
     }
 
     /// Register a single built-in instance.
@@ -540,7 +596,9 @@ impl ClassEnv {
         let expected = builtin_type(type_name);
         let already_exists = self.instances.iter().any(|i| {
             i.class_name == class_name
-                && i.type_args.first().is_some_and(|t| t.structural_eq(&expected))
+                && i.type_args
+                    .first()
+                    .is_some_and(|t| t.structural_eq(&expected))
         });
         if already_exists {
             return;

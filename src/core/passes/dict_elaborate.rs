@@ -193,7 +193,9 @@ fn rewrite_constrained_functions(
             // Create a dictionary parameter binder: __dict_{ClassName}
             let class_str = interner.resolve(constraint.class_name);
             let param_name_str = format!("__dict_{class_str}");
-            let param_name = interner.lookup(&param_name_str).unwrap_or(constraint.class_name);
+            let param_name = interner
+                .lookup(&param_name_str)
+                .unwrap_or(constraint.class_name);
             let binder_id = *next_id;
             *next_id += 1;
             let dict_binder =
@@ -211,7 +213,10 @@ fn rewrite_constrained_functions(
         }
 
         // Rewrite the function body to extract methods from dictionaries.
-        let old_expr = std::mem::replace(&mut def.expr, CoreExpr::Lit(crate::core::CoreLit::Unit, Span::default()));
+        let old_expr = std::mem::replace(
+            &mut def.expr,
+            CoreExpr::Lit(crate::core::CoreLit::Unit, Span::default()),
+        );
         let rewritten = rewrite_body_with_dicts(old_expr, &method_map);
 
         // Prepend dictionary params to the function's Lam.
@@ -235,7 +240,10 @@ fn insert_dict_args_at_call_sites(
     interner: &Interner,
 ) {
     // Build a set of function names that have constraints.
-    let constrained_fns: HashMap<Identifier, Vec<crate::ast::type_infer::constraint::SchemeConstraint>> = program
+    let constrained_fns: HashMap<
+        Identifier,
+        Vec<crate::ast::type_infer::constraint::SchemeConstraint>,
+    > = program
         .defs
         .iter()
         .filter_map(|def| {
@@ -256,11 +264,12 @@ fn insert_dict_args_at_call_sites(
     // then walk its body to insert dict args at call sites.
     for def in &mut program.defs {
         // Build the caller's own dict_param map (if it's a constrained function).
-        let caller_dicts: HashMap<Identifier, CoreBinder> = if let Some(scheme) = type_env.lookup(def.name) {
-            build_caller_dict_map(&def.expr, &scheme.constraints)
-        } else {
-            HashMap::new()
-        };
+        let caller_dicts: HashMap<Identifier, CoreBinder> =
+            if let Some(scheme) = type_env.lookup(def.name) {
+                build_caller_dict_map(&def.expr, &scheme.constraints)
+            } else {
+                HashMap::new()
+            };
 
         let old_expr = std::mem::replace(
             &mut def.expr,
@@ -302,7 +311,10 @@ fn build_caller_dict_map(
 
 fn insert_dict_args_expr(
     expr: CoreExpr,
-    constrained_fns: &HashMap<Identifier, Vec<crate::ast::type_infer::constraint::SchemeConstraint>>,
+    constrained_fns: &HashMap<
+        Identifier,
+        Vec<crate::ast::type_infer::constraint::SchemeConstraint>,
+    >,
     caller_dicts: &HashMap<Identifier, CoreBinder>,
     class_env: &ClassEnv,
     interner: &Interner,
@@ -313,38 +325,29 @@ fn insert_dict_args_expr(
             if let CoreExpr::Var { ref var, .. } = *func
                 && let Some(callee_constraints) = constrained_fns.get(&var.name)
             {
-                    // Build dictionary arguments for the callee.
-                    let mut dict_args = Vec::new();
-                    for constraint in callee_constraints {
-                        if let Some(dict_arg) =
-                            resolve_dict_arg(constraint, caller_dicts, class_env, interner, span)
-                        {
-                            dict_args.push(dict_arg);
-                        }
-                    }
-
-                    if !dict_args.is_empty() {
-                        // Prepend dict args before the original args.
-                        let mut all_args = dict_args;
-                        all_args.extend(
-                            args.into_iter()
-                                .map(|a| {
-                                    insert_dict_args_expr(
-                                        a,
-                                        constrained_fns,
-                                        caller_dicts,
-                                        class_env,
-                                        interner,
-                                    )
-                                }),
-                        );
-                        return CoreExpr::App {
-                            func,
-                            args: all_args,
-                            span,
-                        };
+                // Build dictionary arguments for the callee.
+                let mut dict_args = Vec::new();
+                for constraint in callee_constraints {
+                    if let Some(dict_arg) =
+                        resolve_dict_arg(constraint, caller_dicts, class_env, interner, span)
+                    {
+                        dict_args.push(dict_arg);
                     }
                 }
+
+                if !dict_args.is_empty() {
+                    // Prepend dict args before the original args.
+                    let mut all_args = dict_args;
+                    all_args.extend(args.into_iter().map(|a| {
+                        insert_dict_args_expr(a, constrained_fns, caller_dicts, class_env, interner)
+                    }));
+                    return CoreExpr::App {
+                        func,
+                        args: all_args,
+                        span,
+                    };
+                }
+            }
             // Not a constrained call — recurse normally.
             CoreExpr::App {
                 func: Box::new(insert_dict_args_expr(
@@ -357,13 +360,7 @@ fn insert_dict_args_expr(
                 args: args
                     .into_iter()
                     .map(|a| {
-                        insert_dict_args_expr(
-                            a,
-                            constrained_fns,
-                            caller_dicts,
-                            class_env,
-                            interner,
-                        )
+                        insert_dict_args_expr(a, constrained_fns, caller_dicts, class_env, interner)
                     })
                     .collect(),
                 span,
@@ -402,13 +399,7 @@ fn insert_dict_args_expr(
             args: args
                 .into_iter()
                 .map(|a| {
-                    insert_dict_args_expr(
-                        a,
-                        constrained_fns,
-                        caller_dicts,
-                        class_env,
-                        interner,
-                    )
+                    insert_dict_args_expr(a, constrained_fns, caller_dicts, class_env, interner)
                 })
                 .collect(),
             arg_modes,
@@ -516,13 +507,7 @@ fn insert_dict_args_expr(
                         interner,
                     );
                     alt.guard = alt.guard.map(|g| {
-                        insert_dict_args_expr(
-                            g,
-                            constrained_fns,
-                            caller_dicts,
-                            class_env,
-                            interner,
-                        )
+                        insert_dict_args_expr(g, constrained_fns, caller_dicts, class_env, interner)
                     });
                     alt
                 })
@@ -535,13 +520,7 @@ fn insert_dict_args_expr(
             fields: fields
                 .into_iter()
                 .map(|f| {
-                    insert_dict_args_expr(
-                        f,
-                        constrained_fns,
-                        caller_dicts,
-                        class_env,
-                        interner,
-                    )
+                    insert_dict_args_expr(f, constrained_fns, caller_dicts, class_env, interner)
                 })
                 .collect(),
             span,
@@ -552,13 +531,7 @@ fn insert_dict_args_expr(
             args: args
                 .into_iter()
                 .map(|a| {
-                    insert_dict_args_expr(
-                        a,
-                        constrained_fns,
-                        caller_dicts,
-                        class_env,
-                        interner,
-                    )
+                    insert_dict_args_expr(a, constrained_fns, caller_dicts, class_env, interner)
                 })
                 .collect(),
             span,
@@ -586,13 +559,7 @@ fn insert_dict_args_expr(
             args: args
                 .into_iter()
                 .map(|a| {
-                    insert_dict_args_expr(
-                        a,
-                        constrained_fns,
-                        caller_dicts,
-                        class_env,
-                        interner,
-                    )
+                    insert_dict_args_expr(a, constrained_fns, caller_dicts, class_env, interner)
                 })
                 .collect(),
             span,
@@ -664,13 +631,7 @@ fn insert_dict_args_expr(
             fields: fields
                 .into_iter()
                 .map(|f| {
-                    insert_dict_args_expr(
-                        f,
-                        constrained_fns,
-                        caller_dicts,
-                        class_env,
-                        interner,
-                    )
+                    insert_dict_args_expr(f, constrained_fns, caller_dicts, class_env, interner)
                 })
                 .collect(),
             field_mask,
@@ -814,10 +775,7 @@ pub fn rewrite_body_with_dicts(
     rewrite_expr(expr, method_map)
 }
 
-fn rewrite_expr(
-    expr: CoreExpr,
-    method_map: &HashMap<Identifier, (CoreBinder, usize)>,
-) -> CoreExpr {
+fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, usize)>) -> CoreExpr {
     match expr {
         // Key case: App where the function is a class method reference.
         // Rewrite: App(Var(eq), args) → App(TupleField(Var(dict), idx), args)
@@ -826,22 +784,22 @@ fn rewrite_expr(
                 && var.binder.is_none()
                 && let Some(&(dict_binder, index)) = method_map.get(&var.name)
             {
-                    // External (unresolved) var — class method found in dict.
-                        let dict_ref = CoreExpr::bound_var(dict_binder, span);
-                        let method_extract = CoreExpr::TupleField {
-                            object: Box::new(dict_ref),
-                            index,
-                            span,
-                        };
-                        let rewritten_args = args
-                            .into_iter()
-                            .map(|a| rewrite_expr(a, method_map))
-                            .collect();
-                        return CoreExpr::App {
-                            func: Box::new(method_extract),
-                            args: rewritten_args,
-                            span,
-                        };
+                // External (unresolved) var — class method found in dict.
+                let dict_ref = CoreExpr::bound_var(dict_binder, span);
+                let method_extract = CoreExpr::TupleField {
+                    object: Box::new(dict_ref),
+                    index,
+                    span,
+                };
+                let rewritten_args = args
+                    .into_iter()
+                    .map(|a| rewrite_expr(a, method_map))
+                    .collect();
+                return CoreExpr::App {
+                    func: Box::new(method_extract),
+                    args: rewritten_args,
+                    span,
+                };
             }
             // Not a class method — recurse normally.
             CoreExpr::App {
@@ -1221,7 +1179,11 @@ mod tests {
                 name: eq_method,
                 type_params: vec![],
                 param_types: vec![],
-                return_type: TypeExpr::Named { name: a_sym, args: vec![], span: s() },
+                return_type: TypeExpr::Named {
+                    name: a_sym,
+                    args: vec![],
+                    span: s(),
+                },
                 arity: 1,
             }],
             default_methods: vec![],
@@ -1230,7 +1192,11 @@ mod tests {
 
         let instance_def = InstanceDef {
             class_name: eq_sym,
-            type_args: vec![TypeExpr::Named { name: float_sym, args: vec![], span: s() }],
+            type_args: vec![TypeExpr::Named {
+                name: float_sym,
+                args: vec![],
+                span: s(),
+            }],
             context: vec![],
             method_names: vec![eq_method],
             span: s(),
@@ -1242,7 +1208,10 @@ mod tests {
 
         let mut next_id = 0;
         let defs = build_instance_dictionaries(&env, &interner, &mut next_id);
-        assert!(defs.is_empty(), "should skip when __dict_ name not pre-interned");
+        assert!(
+            defs.is_empty(),
+            "should skip when __dict_ name not pre-interned"
+        );
     }
 
     // ── method_index ─────────────────────────────────────────────────────
