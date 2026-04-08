@@ -7,7 +7,8 @@ use crate::{
     syntax::{
         data_variant::DataVariant, effect_ops::EffectOp, precedence::Precedence,
         statement::Statement, token_type::TokenType,
-        type_class::{ClassMethod, InstanceMethod},
+        type_class::{ClassConstraint, ClassMethod, InstanceMethod},
+        type_expr::TypeExpr,
     },
 };
 
@@ -1351,16 +1352,40 @@ impl Parser {
         let first_name = self.current_token.symbol.expect("ident should have symbol");
         let first_args = self.parse_type_params_angle_bracket();
 
-        // Check for `=>` — if present, the first name was a superclass constraint
+        // Check for `=>` — if present, the first name was a superclass constraint.
+        // Disambiguation: `class Eq<a> => Ord<a> { ... }`
+        //   first_name = Eq, first_args = [a] → superclass constraint
+        //   then parse Ord<a> as the actual class name
         let (superclasses, class_name, type_params) =
-            if self.is_peek_token(TokenType::Arrow) && self.peek_token.literal == "=>" {
-                // Actually, `=>` is not a token — let me check for `=` followed by `>`
-                // In Flux, `=>` is parsed as Assign(=) + Gt(>) — but let me check the lexer.
-                // Actually, looking at the token types, there's no `=>` token.
-                // We'll handle this as: if next is `=` and after that `>`, it's a fat arrow.
-                // For now, let's use a simpler approach: no superclass support in first pass.
-                // Just treat it as the class name.
-                (vec![], first_name, first_args)
+            if self.is_peek_token(TokenType::FatArrow) {
+                let constraint_span = self.span_from(start);
+                let superclass = ClassConstraint {
+                    class_name: first_name,
+                    type_args: first_args
+                        .iter()
+                        .map(|&id| TypeExpr::Named {
+                            name: id,
+                            args: vec![],
+                            span: constraint_span,
+                        })
+                        .collect(),
+                    span: constraint_span,
+                };
+                self.next_token(); // consume `=>`
+
+                // Parse the actual class name and type params.
+                if !self.expect_peek_context_with_details(
+                    TokenType::Ident,
+                    "Missing Class Name",
+                    DiagnosticCategory::ParserDeclaration,
+                    "Expected class name after `=>`.".to_string(),
+                    "Superclass syntax: `class Eq<a> => Ord<a> { ... }`.".to_string(),
+                ) {
+                    return None;
+                }
+                let actual_name = self.current_token.symbol.expect("ident should have symbol");
+                let actual_params = self.parse_type_params_angle_bracket();
+                (vec![superclass], actual_name, actual_params)
             } else {
                 (vec![], first_name, first_args)
             };
@@ -1512,7 +1537,7 @@ impl Parser {
     pub(super) fn parse_instance_statement(&mut self) -> Option<Statement> {
         let start = self.current_token.position;
 
-        // Class name
+        // Parse first name + type args. Could be the class name or a context constraint.
         if !self.expect_peek_context_with_details(
             TokenType::Ident,
             "Missing Instance Class Name",
@@ -1522,31 +1547,34 @@ impl Parser {
         ) {
             return None;
         }
-        let class_name = self.current_token.symbol.expect("ident should have symbol");
+        let first_name = self.current_token.symbol.expect("ident should have symbol");
+        let first_type_args = self.parse_instance_type_args();
 
-        // `<TypeArgs>`
-        let type_args = if self.is_peek_token(TokenType::Lt) {
-            self.next_token(); // consume `<`
-            let mut args = Vec::new();
-            loop {
-                self.next_token();
-                args.push(self.parse_type_expr()?);
-                if self.is_peek_token(TokenType::Comma) {
-                    self.next_token(); // consume `,`
-                    continue;
-                }
-                break;
-            }
-            if !self.expect_peek_context(
-                TokenType::Gt,
-                "Expected `>` after instance type arguments.".to_string(),
-                "".to_string(),
+        // Check for `=>` — if present, first_name was a context constraint.
+        let (context, class_name, type_args) = if self.is_peek_token(TokenType::FatArrow) {
+            let constraint_span = self.span_from(start);
+            let ctx_constraint = ClassConstraint {
+                class_name: first_name,
+                type_args: first_type_args,
+                span: constraint_span,
+            };
+            self.next_token(); // consume `=>`
+
+            // Parse the actual class name and type args.
+            if !self.expect_peek_context_with_details(
+                TokenType::Ident,
+                "Missing Instance Class Name",
+                DiagnosticCategory::ParserDeclaration,
+                "Expected class name after `=>`.".to_string(),
+                "Constrained instance syntax: `instance Eq<a> => Eq<List<a>> { ... }`.".to_string(),
             ) {
                 return None;
             }
-            args
+            let actual_name = self.current_token.symbol.expect("ident should have symbol");
+            let actual_type_args = self.parse_instance_type_args();
+            (vec![ctx_constraint], actual_name, actual_type_args)
         } else {
-            vec![]
+            (vec![], first_name, first_type_args)
         };
 
         // Expect `{`
@@ -1574,10 +1602,37 @@ impl Parser {
         Some(Statement::Instance {
             class_name,
             type_args,
-            context: vec![],
+            context,
             methods,
             span: self.span_from(start),
         })
+    }
+
+    /// Parse `<TypeArgs>` for an instance declaration head.
+    fn parse_instance_type_args(&mut self) -> Vec<TypeExpr> {
+        if self.is_peek_token(TokenType::Lt) {
+            self.next_token(); // consume `<`
+            let mut args = Vec::new();
+            loop {
+                self.next_token();
+                if let Some(ty) = self.parse_type_expr() {
+                    args.push(ty);
+                }
+                if self.is_peek_token(TokenType::Comma) {
+                    self.next_token(); // consume `,`
+                    continue;
+                }
+                break;
+            }
+            let _ = self.expect_peek_context(
+                TokenType::Gt,
+                "Expected `>` after instance type arguments.".to_string(),
+                "".to_string(),
+            );
+            args
+        } else {
+            vec![]
+        }
     }
 
     /// Parse a single method inside an instance declaration.

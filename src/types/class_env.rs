@@ -20,6 +20,7 @@ use crate::{
 
 use super::super::diagnostics::compiler_errors::{
     DUPLICATE_CLASS, DUPLICATE_INSTANCE, INSTANCE_MISSING_METHOD, INSTANCE_UNKNOWN_CLASS,
+    MISSING_SUPERCLASS_INSTANCE,
 };
 
 /// A type class definition collected from a `class` declaration.
@@ -239,6 +240,42 @@ impl ClassEnv {
                                     ))
                                     .with_hint_text(format!(
                                         "`{display_class}` requires: fn {display_method}(...)"
+                                    )),
+                            );
+                        }
+                    }
+
+                    // Validate superclass instances exist.
+                    // If class Ord has superclass Eq, then instance Ord<Int>
+                    // requires instance Eq<Int> to already exist.
+                    for superclass in &class_def.superclasses {
+                        let super_class_name = superclass.class_name;
+                        let super_display = interner.resolve(super_class_name);
+                        let type_display: Vec<String> =
+                            type_args.iter().map(|t| t.display_with(interner)).collect();
+                        let type_display_str = type_display.join(", ");
+
+                        let has_super_instance = env.instances.iter().any(|inst| {
+                            if inst.class_name != super_class_name {
+                                return false;
+                            }
+                            let inst_types: Vec<String> =
+                                inst.type_args.iter().map(|t| t.display_with(interner)).collect();
+                            inst_types.join(", ") == type_display_str
+                        });
+
+                        if !has_super_instance {
+                            let display_class = interner.resolve(*class_name);
+                            diagnostics.push(
+                                diagnostic_for(&MISSING_SUPERCLASS_INSTANCE)
+                                    .with_span(*span)
+                                    .with_message(format!(
+                                        "No instance for `{super_display}<{type_display_str}>` \
+                                         (required by `{display_class}<{type_display_str}>`)."
+                                    ))
+                                    .with_hint_text(format!(
+                                        "`{display_class}` requires `{super_display}` as a superclass. \
+                                         Add: `instance {super_display}<{type_display_str}> {{ ... }}`"
                                     )),
                             );
                         }
