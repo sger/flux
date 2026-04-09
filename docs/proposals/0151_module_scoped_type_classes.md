@@ -1367,7 +1367,7 @@ Phase 0 was executed and resolved all three spikes. Summary below; each spike's 
 
 **Landed when.**
 - ✅ **`instance C<T>` in a third module (neither class's nor type's owning module) is rejected with `E449`.** *(landed 2026-04-09)*
-- A `public instance` of a private class is rejected with `E450`.
+- ✅ **A `public instance` of a private class is rejected with `E450`.** *(landed 2026-04-09)*
 - A `public class` whose signature mentions a private type is rejected with `E451`.
 - A `public instance` of a `public class` for a private ADT is rejected with `E455`.
 - Two `public instance`s of the same `(ClassId, head_type)` in different modules are rejected as duplicates (`E443` extended).
