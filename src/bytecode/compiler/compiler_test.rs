@@ -222,11 +222,11 @@ fn infer_expr_types_for_program_keeps_borrowed_program_when_untransformed() {
     let (program, interner) = parse_program("fn f() { 1 }");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
 
-    compiler.infer_expr_types_for_program(&program);
+    let prepared = compiler.prepare_program_for_lowering(&program);
 
     assert!(
-        compiler.last_inferred_program.is_none(),
-        "expected no owned final AST on the no-op inference path"
+        matches!(prepared.effective_program, std::borrow::Cow::Borrowed(_)),
+        "expected borrowed final AST on the no-op inference path"
     );
 }
 
@@ -259,10 +259,10 @@ fn different<A: Eq>(x: A, y: A) -> Bool {
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
 
-    compiler.infer_expr_types_for_program(&program);
+    let prepared = compiler.prepare_program_for_lowering(&program);
 
     assert!(
-        compiler.last_inferred_program.is_some(),
+        matches!(prepared.effective_program, std::borrow::Cow::Owned(_)),
         "expected desugaring to materialize an owned final AST"
     );
 }
@@ -832,6 +832,35 @@ fn main() { first(1, 2) }
     assert!(report.contains("reuse:"));
     assert!(report.contains("first"));
     assert!(report.contains("line"));
+}
+
+#[test]
+fn dump_core_with_opts_does_not_depend_on_prior_compiler_state() {
+    let (program, interner) = parse_program(
+        r#"
+fn sum(x) { x + 1 }
+"#,
+    );
+    let mut warmed = Compiler::new_with_interner("<test>", interner.clone());
+    warmed.compile(&program).expect("program should compile");
+    let warmed_dump = warmed
+        .dump_core_with_opts(
+            &program,
+            false,
+            crate::core::display::CoreDisplayMode::Readable,
+        )
+        .expect("dump_core should succeed after compile");
+
+    let mut fresh = Compiler::new_with_interner("<test>", interner);
+    let fresh_dump = fresh
+        .dump_core_with_opts(
+            &program,
+            false,
+            crate::core::display::CoreDisplayMode::Readable,
+        )
+        .expect("dump_core should succeed without prior compile");
+
+    assert_eq!(fresh_dump, warmed_dump);
 }
 
 #[test]

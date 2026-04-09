@@ -19,7 +19,6 @@ impl Compiler {
         self.static_type_scopes.push(HashMap::new());
         self.effect_alias_scopes.clear();
         self.effect_alias_scopes.push(HashMap::new());
-        self.last_inferred_program = None;
         #[cfg(test)]
         {
             self.hm_infer_runs = 0;

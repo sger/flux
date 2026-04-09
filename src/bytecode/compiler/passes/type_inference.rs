@@ -24,7 +24,7 @@ impl Compiler {
         program: &'a Program,
     ) -> TypeInferenceResult<'a> {
         let final_inference = self.infer_final_program(program);
-        let final_program = final_inference.final_program;
+        let final_program = final_inference.effective_program;
         let hm_final = final_inference.hm_final;
         self.type_env = hm_final.type_env;
         self.hm_expr_types = hm_final.expr_types;
