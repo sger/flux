@@ -898,6 +898,34 @@ pub const PUBLIC_INSTANCE_OF_PRIVATE_CLASS: ErrorCode = ErrorCode {
     ),
 };
 
+/// Proposal 0151, Phase 2: a `public class` signature must not mention a
+/// private type — otherwise importers see a class method whose parameter
+/// or return type they cannot name.
+pub const PUBLIC_CLASS_LEAKS_PRIVATE_TYPE: ErrorCode = ErrorCode {
+    code: "E451",
+    title: "PUBLIC CLASS LEAKS PRIVATE TYPE",
+    error_type: ErrorType::Compiler,
+    message: "`public class` `{}` mentions a private type `{}`.",
+    hint: Some(
+        "Either mark the type `public data` or remove `public` from \
+         this class.",
+    ),
+};
+
+/// Proposal 0151, Phase 2: a `public instance` of a `public class` must
+/// not have a private head ADT — downstream importers cannot name the
+/// type to actually use the dispatch.
+pub const PUBLIC_INSTANCE_HAS_PRIVATE_HEAD: ErrorCode = ErrorCode {
+    code: "E455",
+    title: "PUBLIC INSTANCE HAS PRIVATE HEAD TYPE",
+    error_type: ErrorType::Compiler,
+    message: "`public instance` `{}` has a private head type `{}`.",
+    hint: Some(
+        "Either mark the head type `public data` or remove `public` \
+         from this instance.",
+    ),
+};
+
 /// Proposal 0151, Phase 2: orphan instance rejection.
 ///
 /// An `instance C<T>` is "orphan" when neither the class `C` nor the head

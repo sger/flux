@@ -62,7 +62,7 @@ impl Parser {
             TokenType::Let => self.parse_let_statement(),
             TokenType::Return => self.parse_return_statement(),
             TokenType::Type => self.parse_type_adt_statement(),
-            TokenType::Data => self.parse_data_statement(),
+            TokenType::Data => self.parse_data_statement(false),
             TokenType::Effect => self.parse_effect_statement(),
             TokenType::Class => self.parse_class_statement(false),
             TokenType::Instance => self.parse_instance_statement(false),
@@ -81,6 +81,11 @@ impl Parser {
             TokenType::Public if self.is_peek_token(TokenType::Instance) => {
                 self.next_token(); // instance
                 self.parse_instance_statement(true)
+            }
+            // Proposal 0151, Phase 2: `public data` declarations.
+            TokenType::Public if self.is_peek_token(TokenType::Data) => {
+                self.next_token(); // data
+                self.parse_data_statement(true)
             }
             TokenType::At => self.parse_annotated_function(),
             TokenType::Ident if self.current_token.literal == "fn" => {
@@ -930,7 +935,7 @@ impl Parser {
 
     /// Parses a `data` declaration with optional type parameters and constructor
     /// variants, for example `data Option<T> { Some(T), None }`.
-    pub(super) fn parse_data_statement(&mut self) -> Option<Statement> {
+    pub(super) fn parse_data_statement(&mut self, is_public: bool) -> Option<Statement> {
         let context_name = if self.is_peek_token(TokenType::Ident) {
             Some(self.peek_token.literal.to_string())
         } else {
@@ -1106,6 +1111,7 @@ impl Parser {
         };
 
         Some(Statement::Data {
+            is_public,
             name,
             type_params,
             variants,
@@ -1299,6 +1305,9 @@ impl Parser {
         }
 
         Some(Statement::Data {
+            // `type Foo = ...` form is the legacy ADT syntax — defaults
+            // to private under the new visibility model.
+            is_public: false,
             name,
             type_params,
             variants,
