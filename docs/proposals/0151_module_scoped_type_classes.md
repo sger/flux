@@ -1305,16 +1305,33 @@ Phase 0 was executed and resolved all three spikes. Summary below; each spike's 
 
 ---
 
-### Phase 1 — Foundation
+### Phase 1 — Foundation ✅ COMPLETE (2026-04-09)
+
+**Status.** Phase 1 landed in 9 incremental commits across two sub-phases (1a and 1b), driven by the call-site count from Spike 0.2:
+
+- **Phase 1a (commits #1–#6)** — surface-level work: module-body validator whitelist, `ModulePath`/`ClassId` types and parallel `ClassEnv` API, `is_public` field on `Statement::Class`/`Instance`, end-to-end runtime smoke test, `public class`/`public instance` parsing, qualified `Module.method(...)` dispatch through the bytecode compiler.
+- **Phase 1b (commits #1–#4)** — internal storage refactor: `ClassDef.module` populated during collection, `InstanceDef.instance_module` and `InstanceDef.class_id` populated during `collect_instances` and `collect_deriving`, **storage flipped to `HashMap<ClassId, ClassDef>`**, disambiguation rule (`lookup_class_in_module_or_global`) for same-named classes, tightened `instances_for_id` and `resolve_instance_with_subst_by_id` to filter by `class_id`.
+
+**Test count delta.** Suite grew from 1805 to 1830 over the nine commits (**+25 tests, 0 regressions**), including these load-bearing proof tests:
+
+- `module_scoped_class_with_int_instance_runs_via_existing_dispatch` — runtime end-to-end smoke
+- `qualified_call_full_dotted_form` and `qualified_call_via_import_alias` — qualified resolution headline
+- `two_classes_with_same_short_name_in_different_modules_coexist` — Phase 1b Step 3 storage flip proof
+- `instances_for_id_returns_disjoint_buckets_for_same_named_classes` and `resolve_instance_with_subst_by_id_respects_class_id` — Phase 1b Step 4 ClassId-keyed lookup proof
+- `module_scoped_deriving_records_owning_module` — `deriving` clauses inherit owning module
+
+**Deferred to later phases.** The originally-listed `src/types/mangle.rs` extraction did not happen — mangled name construction still uses ad-hoc `format!` strings in `class_dispatch.rs` and `expression.rs`. This is orthogonal to the rest of Phase 1 and can be folded into Phase 6 (stdlib migration) or done as a standalone refactor. The `ClassConstraint` and IR-type migrations to `ClassId` were also deferred — they're not load-bearing for Phase 2 work because the existing `class_id`-keyed lookups on `ClassEnv` already disambiguate at the resolution boundary.
+
+---
 
 **Goal.** Make module-body `class` / `instance` declarations parse, infer, and lower, with globally unique class identity and the new symbol mangling. No semantic enforcement yet — you can write an orphan instance and it will compile.
 
 **Landed when.**
-- `module M { public class C<a> { ... } public instance C<T> { ... } }` parses and compiles.
-- `Alias.method(...)` qualified calls resolve.
-- Two different modules can each declare a class called `Foldable` without colliding mangled names.
-- `import` at both file level and module body works.
-- Top-level legacy `class` / `instance` still works unchanged.
+- `module M { public class C<a> { ... } public instance C<T> { ... } }` parses and compiles. ✅
+- `Alias.method(...)` qualified calls resolve. ✅
+- Two different modules can each declare a class called `Foldable` without colliding mangled names. ✅ (proof test: `two_classes_with_same_short_name_in_different_modules_coexist`)
+- `import` at both file level and module body works. ✅
+- Top-level legacy `class` / `instance` still works unchanged. ✅
 
 **Files touched.**
 - [src/syntax/parser/statement.rs](src/syntax/parser/statement.rs) — accept `class` / `instance` with optional `public` inside module bodies.
@@ -1521,16 +1538,16 @@ Phase 0 was executed and resolved all three spikes. Summary below; each spike's 
 
 ### Summary of landable checkpoints
 
-| Phase | Ships | Users can... |
-|-------|-------|--------------|
-| 0 | Preflight spike findings | — (internal de-risking only) |
-| 1 | Foundation + mangling + ClassId | write module-scoped classes, call via `Alias.method(...)`, have two classes with the same short name |
-| 2 | Coherence + ADTs + `.flxi` | rely on orphan rule, incremental cache stays sound, `deriving` works under new rules |
-| 3 | `exposing` | opt into unqualified calls, use inside-module shadowing in default methods |
-| 4 | Effects | write effectful instance methods, pin instances to concrete rows |
-| 5 | Aether | no perf regression on polymorphic dispatch |
-| 6 | Stdlib migration + warning | use a fully-migrated stdlib; see deprecation warnings on legacy code |
-| 7 | Hard deprecation | — (removal only) |
+| Phase | Status | Ships | Users can... |
+|-------|--------|-------|--------------|
+| 0 | ✅ done | Preflight spike findings | — (internal de-risking only) |
+| 1 | ✅ done | Foundation + ClassId-keyed storage | write module-scoped classes, call via `Alias.method(...)`, have two classes with the same short name in different modules |
+| 2 | ⏳ next | Coherence + ADTs + `.flxi` | rely on orphan rule, incremental cache stays sound, `deriving` works under new rules |
+| 3 | ⏳ pending | `exposing` | opt into unqualified calls, use inside-module shadowing in default methods |
+| 4 | ⏳ pending | Effects | write effectful instance methods, pin instances to concrete rows |
+| 5 | ⏳ pending | Aether | no perf regression on polymorphic dispatch |
+| 6 | ⏳ pending | Stdlib migration + warning | use a fully-migrated stdlib; see deprecation warnings on legacy code |
+| 7 | ⏳ pending | Hard deprecation | — (removal only) |
 
 Each row is a release-shippable checkpoint. If scheduling pressure forces a cut, the minimum viable slice for the proposal is **phases 1 + 2 + 6**: those three alone deliver module-scoped classes with coherence guarantees and a migrated stdlib. Phases 3, 4, 5, 7 are all genuine improvements but are not load-bearing for the core story.
 
