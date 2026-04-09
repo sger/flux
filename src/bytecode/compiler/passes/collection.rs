@@ -19,6 +19,9 @@ impl Compiler {
         self.collect_adt_definitions(program);
         self.collect_effect_declarations(program);
         self.collect_class_declarations(program);
+        // Proposal 0151, Phase 3: catch import-collision diagnostics
+        // (E457, E458) introduced by `exposing (...)` clauses.
+        self.validate_import_collisions(program);
         let main_state = self.validate_main_entrypoint(program);
         self.validate_top_level_effectful_code(program, main_state.has_main);
         self.validate_main_root_effect_discharge(program, main_state);

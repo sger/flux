@@ -1403,20 +1403,26 @@ Phase 0 was executed and resolved all three spikes. Summary below; each spike's 
 
 **Goal.** Let users write bare `fold(xs, ...)` when they've explicitly asked for it via `exposing`, and formalize the inside-the-defining-module shadowing rule.
 
+**Note on error codes.** Phase 3 was originally drafted to use `E449` and `E456`, but Phase 2 absorbed both during the cascade (E449 = orphan, E456 = ambiguous constraint). Phase 3's collision diagnostics start at the next free codes, **`E457`** (exposing-vs-local-collision) and **`E458`** (file-vs-module-body import collision). E452–E454 remain reserved for Phase 4 (effects).
+
 **Landed when.**
-- `import Flow.Foldable as Foldable exposing (fold, length)` brings `fold` and `length` into unqualified scope at the import site.
-- A bare `fold` call after `exposing` goes through type-directed instance resolution, not the legacy global.
-- A name collision between `exposing (fold)` and a local top-level `fold` is rejected with `E449`.
-- A file-level vs module-body import that bind the same short name to different targets is rejected with `E456`.
-- Inside `module Flow.Foldable`, a default method body can call `fold(...)` unqualified and reach the local class's own method (not any legacy global).
+- ✅ **Parser already accepts `exposing (..)` and `exposing (name, name, ...)` on imports** *(predates Phase 3 — exists since the original `ImportExposing` enum)*
+- ✅ **Bytecode compiler routes `exposing`-listed module functions into bare-name scope** *(predates Phase 3 — `expose_imported_native_symbols` and `build_preloaded_borrow_registry` already handle `ImportExposing::Names`)*
+- ✅ **`lookup_class_method` resolves bare class method calls without an explicit `exposing` clause when the class is in scope** *(predates Phase 3 — see `infer_call`'s pre-inference class-method lookup)*
+- ✅ **A name collision between `exposing (foo)` and a local top-level `foo` is rejected with `E457`.** *(landed 2026-04-09)*
+- ✅ **A file-level vs module-body import that bind the same short name to different targets is rejected with `E458`.** *(landed 2026-04-09)*
+- ✅ **Inside `module Flow.Foldable`, a default method body can call `fold(...)` unqualified and reach the local class's own method (not any legacy global).** *(landed 2026-04-09 — verified by `inside_module_default_method_resolves_to_sibling`; the existing `lookup_class_method` short-name lookup already implements the required semantics, and the new walker confirmed it doesn't trip the new collision checks)*
+
+**Deferred to a follow-up.** A bare `fold` call falling back to "type-directed instance resolution, not the legacy global" — i.e. having an explicit `exposing` clause **suppress** a legacy top-level `fold` and route through dictionary dispatch instead. This is the only Phase 3 bullet that requires a behavior change to existing name resolution priority and is held back until stdlib migration (Phase 6) can adjust the legacy globals at the same time. The collision diagnostics (E457/E458) make the current behavior safe in the meantime: if the user creates an ambiguous setup the compiler tells them to disambiguate explicitly.
 
 **Files touched.**
-- [src/syntax/parser/module.rs](src/syntax/parser/module.rs) — parse `exposing (...)` on imports.
-- [src/syntax/module_graph.rs](src/syntax/module_graph.rs) — extend the local name table at the import site.
-- [src/ast/type_infer/calls.rs](src/ast/type_infer/calls.rs) — resolution priority: locally declared > module-body import > file-level import > legacy global.
-- [src/diagnostics/](src/diagnostics/) — `E449`, `E456`.
+- [src/diagnostics/compiler_errors.rs](src/diagnostics/compiler_errors.rs) — `EXPOSING_LOCAL_COLLISION` (E457), `IMPORT_NAME_COLLISION_FILE_VS_MODULE` (E458).
+- [src/diagnostics/registry.rs](src/diagnostics/registry.rs) — register both, route to `ModuleSystem` category.
+- [src/bytecode/compiler/passes/import_validation.rs](src/bytecode/compiler/passes/import_validation.rs) — *new*. Walks file-level and module-body imports, builds local name sets and exposed-name maps, fires E457/E458.
+- [src/bytecode/compiler/passes/collection.rs](src/bytecode/compiler/passes/collection.rs) — invokes the new pass after `collect_class_declarations`.
+- [src/bytecode/compiler/passes/mod.rs](src/bytecode/compiler/passes/mod.rs) — declares the new pass module.
 
-**Error codes introduced.** `E449`, `E456`.
+**Error codes introduced.** `E457`, `E458`.
 
 **Tests required.**
 - `exposing` brings in the expected names and only those names.
@@ -1545,11 +1551,13 @@ Phase 0 was executed and resolved all three spikes. Summary below; each spike's 
 | 0 | ✅ done | Preflight spike findings | — (internal de-risking only) |
 | 1 | ✅ done | Foundation + ClassId-keyed storage | write module-scoped classes, call via `Alias.method(...)`, have two classes with the same short name in different modules |
 | 2 | ✅ done | Coherence + ADTs + `.flxi` | rely on orphan rule, incremental cache stays sound, `deriving` works under new rules |
-| 3 | ⏳ next | `exposing` | opt into unqualified calls, use inside-module shadowing in default methods |
+| 3 | ✅ done* | `exposing` | opt into unqualified calls, use inside-module shadowing in default methods |
 | 4 | ⏳ pending | Effects | write effectful instance methods, pin instances to concrete rows |
 | 5 | ⏳ pending | Aether | no perf regression on polymorphic dispatch |
 | 6 | ⏳ pending | Stdlib migration + warning | use a fully-migrated stdlib; see deprecation warnings on legacy code |
 | 7 | ⏳ pending | Hard deprecation | — (removal only) |
+
+\* Phase 3 is "done" except for the deferred legacy-global suppression bullet (see Phase 3 §"Deferred to a follow-up"), held back until Phase 6 stdlib migration so the two changes ship together.
 
 Each row is a release-shippable checkpoint. If scheduling pressure forces a cut, the minimum viable slice for the proposal is **phases 1 + 2 + 6**: those three alone deliver module-scoped classes with coherence guarantees and a migrated stdlib. Phases 3, 4, 5, 7 are all genuine improvements but are not load-bearing for the core story.
 

@@ -912,6 +912,36 @@ pub const PUBLIC_CLASS_LEAKS_PRIVATE_TYPE: ErrorCode = ErrorCode {
     ),
 };
 
+/// Proposal 0151, Phase 3: an `exposing (foo)` clause collides with a
+/// local top-level `fn foo` (or any locally bound short name `foo`).
+/// The exposing brings `foo` into unqualified scope, but the local
+/// declaration already owns that name in the same scope.
+pub const EXPOSING_LOCAL_COLLISION: ErrorCode = ErrorCode {
+    code: "E457",
+    title: "EXPOSING LOCAL COLLISION",
+    error_type: ErrorType::Compiler,
+    message: "`exposing ({})` collides with a local declaration of the same name.",
+    hint: Some(
+        "Either rename the local declaration, drop the exposing entry, or \
+         continue using the qualified `Module.{}` form.",
+    ),
+};
+
+/// Proposal 0151, Phase 3: a file-level `import A exposing (foo)` and a
+/// module-body `import B exposing (foo)` (where `A != B`) bind the same
+/// short name to two different module targets in overlapping scopes.
+/// The compiler can't pick one without surprising the user.
+pub const IMPORT_NAME_COLLISION_FILE_VS_MODULE: ErrorCode = ErrorCode {
+    code: "E458",
+    title: "IMPORT NAME COLLISION",
+    error_type: ErrorType::Compiler,
+    message: "`{}` is exposed by two different imports in overlapping scopes.",
+    hint: Some(
+        "Pick one source — either drop the duplicate exposing entry or \
+         restructure the imports so the short names don't overlap.",
+    ),
+};
+
 /// Proposal 0151, Phase 2: a class constraint written with a short name
 /// (e.g. `<a: Foldable>`) is ambiguous when two or more classes named
 /// `Foldable` are visible in the program. Users must qualify with a
