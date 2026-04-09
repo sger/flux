@@ -46,12 +46,16 @@ use crate::{
         block::Block,
         effect_expr::EffectExpr,
         expression::{Expression, HandleArm, MatchArm, Pattern, StringPart},
+        interner::Interner,
         module_graph::is_valid_module_name,
         statement::Statement,
         symbol::Symbol,
         type_expr::TypeExpr,
     },
-    types::{infer_type::InferType, type_env::TypeEnv, type_subst::TypeSubst, unify::unify},
+    types::{
+        infer_type::InferType, type_constructor::TypeConstructor, type_env::TypeEnv,
+        type_subst::TypeSubst, unify::unify,
+    },
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
@@ -849,6 +853,9 @@ impl Compiler {
                 if let Expression::Identifier { name, .. } = function.as_ref()
                     && let Some(mangled) = self.try_resolve_class_method_call(*name, arguments)
                 {
+                    let mut resolved_args =
+                        self.resolve_dict_args_for_call_ast(mangled, arguments, function.span());
+                    resolved_args.extend(arguments.clone());
                     let mangled_expr = Expression::Identifier {
                         name: mangled,
                         span: function.span(),
@@ -856,11 +863,20 @@ impl Compiler {
                     };
                     let call = Expression::Call {
                         function: Box::new(mangled_expr),
-                        arguments: arguments.clone(),
+                        arguments: resolved_args,
                         span: expression.span(),
                         id: crate::syntax::expression::ExprId::UNSET,
                     };
                     self.compile_non_tail_expression(&call)?;
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
+
+                if let Expression::Identifier { name, span, .. } = function.as_ref()
+                    && let Some(dict_call) =
+                        self.try_build_dict_class_method_call(*name, *span, arguments, expression.span())
+                {
+                    self.compile_non_tail_expression(&dict_call)?;
                     self.current_span = previous_span;
                     return Ok(());
                 }
@@ -4725,5 +4741,158 @@ impl Compiler {
         // No compile-time resolution possible — return None.
         // Dictionary elaboration handles polymorphic calls via dict params.
         None
+    }
+
+    fn try_build_dict_class_method_call(
+        &mut self,
+        name: crate::syntax::Identifier,
+        function_span: Span,
+        arguments: &[Expression],
+        call_span: Span,
+    ) -> Option<Expression> {
+        if self.class_env.classes.is_empty() {
+            return None;
+        }
+        let (class_name, _) = self.class_env.method_to_class(name)?;
+        let method_index = self.class_env.method_index(class_name, name)?;
+        let class_str = self.interner.resolve(class_name);
+        let dict_name = format!("__dict_{class_str}");
+        let dict_sym = self.interner.lookup(&dict_name)?;
+        self.symbol_table.resolve(dict_sym)?;
+
+        Some(Expression::Call {
+            function: Box::new(Expression::TupleFieldAccess {
+                object: Box::new(Expression::Identifier {
+                    name: dict_sym,
+                    span: function_span,
+                    id: crate::syntax::expression::ExprId::UNSET,
+                }),
+                index: method_index,
+                span: function_span,
+                id: crate::syntax::expression::ExprId::UNSET,
+            }),
+            arguments: arguments.to_vec(),
+            span: call_span,
+            id: crate::syntax::expression::ExprId::UNSET,
+        })
+    }
+
+    fn resolve_dict_args_for_call_ast(
+        &mut self,
+        callee_name: crate::syntax::Identifier,
+        arguments: &[Expression],
+        span: Span,
+    ) -> Vec<Expression> {
+        let Some(scheme) = self.type_env.lookup(callee_name) else {
+            return Vec::new();
+        };
+        if scheme.constraints.is_empty() {
+            return Vec::new();
+        }
+
+        let mut dict_args = Vec::new();
+        for constraint in &scheme.constraints {
+            let Some(type_name) =
+                self.resolve_constraint_type_name_ast(constraint, scheme, arguments)
+            else {
+                return Vec::new();
+            };
+            if self
+                .class_env
+                .resolve_instance_for_type(constraint.class_name, &type_name, &self.interner)
+                .is_none()
+            {
+                return Vec::new();
+            }
+            let class_str = self.interner.resolve(constraint.class_name);
+            let dict_name = format!("__dict_{class_str}_{type_name}");
+            let Some(dict_sym) = self.interner.lookup(&dict_name) else {
+                return Vec::new();
+            };
+            dict_args.push(Expression::Identifier {
+                name: dict_sym,
+                span,
+                id: crate::syntax::expression::ExprId::UNSET,
+            });
+        }
+        dict_args
+    }
+
+    fn resolve_constraint_type_name_ast(
+        &self,
+        constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
+        scheme: &crate::types::scheme::Scheme,
+        arguments: &[Expression],
+    ) -> Option<String> {
+        let crate::types::infer_type::InferType::Fun(param_tys, _, _) = &scheme.infer_type else {
+            return None;
+        };
+        for (index, param_ty) in param_tys.iter().enumerate() {
+            let arg_ty = self.hm_expr_types.get(&arguments.get(index)?.expr_id())?;
+            for type_var in &constraint.type_vars {
+                if let Some(name) =
+                    Self::match_constraint_type_var(param_ty, arg_ty, *type_var, &self.interner)
+                {
+                    return Some(name);
+                }
+            }
+        }
+        None
+    }
+
+    fn infer_type_to_type_name(ty: &InferType, interner: &Interner) -> Option<String> {
+        match ty {
+            InferType::Con(TypeConstructor::Int) => Some("Int".to_string()),
+            InferType::Con(TypeConstructor::Float) => Some("Float".to_string()),
+            InferType::Con(TypeConstructor::Bool) => Some("Bool".to_string()),
+            InferType::Con(TypeConstructor::String) => Some("String".to_string()),
+            InferType::Con(TypeConstructor::Unit) => Some("Unit".to_string()),
+            InferType::Con(TypeConstructor::Adt(name)) => Some(interner.resolve(*name).to_string()),
+            InferType::App(TypeConstructor::List, _) => Some("List".to_string()),
+            InferType::App(TypeConstructor::Array, _) => Some("Array".to_string()),
+            InferType::App(TypeConstructor::Option, _) => Some("Option".to_string()),
+            InferType::App(TypeConstructor::Either, _) => Some("Either".to_string()),
+            _ => None,
+        }
+    }
+
+    fn match_constraint_type_var(
+        pattern: &InferType,
+        actual: &InferType,
+        target: crate::types::TypeVarId,
+        interner: &Interner,
+    ) -> Option<String> {
+        match pattern {
+            InferType::Var(var) if *var == target => Self::infer_type_to_type_name(actual, interner),
+            InferType::App(pattern_ctor, pattern_args) => {
+                let InferType::App(actual_ctor, actual_args) = actual else {
+                    return None;
+                };
+                if pattern_ctor != actual_ctor || pattern_args.len() != actual_args.len() {
+                    return None;
+                }
+                pattern_args
+                    .iter()
+                    .zip(actual_args.iter())
+                    .find_map(|(pattern_arg, actual_arg)| {
+                        Self::match_constraint_type_var(pattern_arg, actual_arg, target, interner)
+                    })
+            }
+            InferType::Tuple(pattern_elems) => {
+                let InferType::Tuple(actual_elems) = actual else {
+                    return None;
+                };
+                if pattern_elems.len() != actual_elems.len() {
+                    return None;
+                }
+                pattern_elems
+                    .iter()
+                    .zip(actual_elems.iter())
+                    .find_map(|(pattern_elem, actual_elem)| {
+                        Self::match_constraint_type_var(pattern_elem, actual_elem, target, interner)
+                    })
+            }
+            _ => None,
+        }
     }
 }

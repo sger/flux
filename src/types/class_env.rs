@@ -220,7 +220,7 @@ impl ClassEnv {
 
                     // Check for duplicate instances (same class + same head type).
                     // Uses structural equality ignoring source spans.
-                    let is_duplicate = env.instances.iter().any(|existing| {
+                    let duplicate_idx = env.instances.iter().position(|existing| {
                         existing.class_name == *class_name
                             && existing.type_args.len() == type_args.len()
                             && existing
@@ -229,7 +229,13 @@ impl ClassEnv {
                                 .zip(type_args.iter())
                                 .all(|(a, b)| a.structural_eq(b))
                     });
-                    if is_duplicate {
+                    if let Some(idx) = duplicate_idx {
+                        let existing = &env.instances[idx];
+                        let is_builtin_placeholder =
+                            existing.span == Span::default() && existing.method_names.is_empty();
+                        if is_builtin_placeholder {
+                            env.instances.remove(idx);
+                        } else {
                         let display_class = interner.resolve(*class_name);
                         let display_type: Vec<String> =
                             type_args.iter().map(|t| t.display_with(interner)).collect();
@@ -242,6 +248,7 @@ impl ClassEnv {
                                 )),
                         );
                         continue;
+                        }
                     }
 
                     // Validate: all required methods are implemented
@@ -521,10 +528,16 @@ impl ClassEnv {
         let semigroup = interner.intern("Semigroup");
 
         let eq_method = interner.intern("eq");
+        let neq_method = interner.intern("neq");
         let compare_method = interner.intern("compare");
+        let lt_method = interner.intern("lt");
+        let lte_method = interner.intern("lte");
+        let gt_method = interner.intern("gt");
+        let gte_method = interner.intern("gte");
         let add_method = interner.intern("add");
         let sub_method = interner.intern("sub");
         let mul_method = interner.intern("mul");
+        let div_method = interner.intern("div");
         let show_method = interner.intern("show");
         let append_method = interner.intern("append");
 
@@ -537,33 +550,77 @@ impl ClassEnv {
 
         // ── Class definitions ──────────────────────────────────────────
 
-        // Eq: eq(a, a) -> Bool
+        let a_ty = builtin_type(a_param);
+        let bool_ty = builtin_type(bool_name);
+        let int_ty = builtin_type(int_name);
+        let string_ty = builtin_type(string_name);
+
+        // Eq: eq(a, a) -> Bool, neq(a, a) -> Bool
         self.register_builtin_class(
             eq,
             vec![a_param],
-            vec![MethodSig {
-                type_params: vec![],
-                name: eq_method,
-                param_types: vec![],
-                return_type: builtin_type(bool_name),
-                arity: 2,
-            }],
+            vec![
+                MethodSig {
+                    type_params: vec![],
+                    name: eq_method,
+                    param_types: vec![a_ty.clone(), a_ty.clone()],
+                    return_type: bool_ty.clone(),
+                    arity: 2,
+                },
+                MethodSig {
+                    type_params: vec![],
+                    name: neq_method,
+                    param_types: vec![a_ty.clone(), a_ty.clone()],
+                    return_type: bool_ty.clone(),
+                    arity: 2,
+                },
+            ],
         );
 
-        // Ord: compare(a, a) -> Int
+        // Ord: compare(a, a) -> Int plus relational helpers.
         self.register_builtin_class(
             ord,
             vec![a_param],
-            vec![MethodSig {
-                type_params: vec![],
-                name: compare_method,
-                param_types: vec![],
-                return_type: builtin_type(int_name),
-                arity: 2,
-            }],
+            vec![
+                MethodSig {
+                    type_params: vec![],
+                    name: compare_method,
+                    param_types: vec![a_ty.clone(), a_ty.clone()],
+                    return_type: int_ty.clone(),
+                    arity: 2,
+                },
+                MethodSig {
+                    type_params: vec![],
+                    name: lt_method,
+                    param_types: vec![a_ty.clone(), a_ty.clone()],
+                    return_type: bool_ty.clone(),
+                    arity: 2,
+                },
+                MethodSig {
+                    type_params: vec![],
+                    name: lte_method,
+                    param_types: vec![a_ty.clone(), a_ty.clone()],
+                    return_type: bool_ty.clone(),
+                    arity: 2,
+                },
+                MethodSig {
+                    type_params: vec![],
+                    name: gt_method,
+                    param_types: vec![a_ty.clone(), a_ty.clone()],
+                    return_type: bool_ty.clone(),
+                    arity: 2,
+                },
+                MethodSig {
+                    type_params: vec![],
+                    name: gte_method,
+                    param_types: vec![a_ty.clone(), a_ty.clone()],
+                    return_type: bool_ty.clone(),
+                    arity: 2,
+                },
+            ],
         );
 
-        // Num: add(a, a) -> a, sub(a, a) -> a, mul(a, a) -> a
+        // Num: add/sub/mul/div.
         self.register_builtin_class(
             num,
             vec![a_param],
@@ -571,22 +628,29 @@ impl ClassEnv {
                 MethodSig {
                     type_params: vec![],
                     name: add_method,
-                    param_types: vec![],
-                    return_type: builtin_type(a_param),
+                    param_types: vec![a_ty.clone(), a_ty.clone()],
+                    return_type: a_ty.clone(),
                     arity: 2,
                 },
                 MethodSig {
                     type_params: vec![],
                     name: sub_method,
-                    param_types: vec![],
-                    return_type: builtin_type(a_param),
+                    param_types: vec![a_ty.clone(), a_ty.clone()],
+                    return_type: a_ty.clone(),
                     arity: 2,
                 },
                 MethodSig {
                     type_params: vec![],
                     name: mul_method,
-                    param_types: vec![],
-                    return_type: builtin_type(a_param),
+                    param_types: vec![a_ty.clone(), a_ty.clone()],
+                    return_type: a_ty.clone(),
+                    arity: 2,
+                },
+                MethodSig {
+                    type_params: vec![],
+                    name: div_method,
+                    param_types: vec![a_ty.clone(), a_ty.clone()],
+                    return_type: a_ty.clone(),
                     arity: 2,
                 },
             ],
@@ -599,8 +663,8 @@ impl ClassEnv {
             vec![MethodSig {
                 type_params: vec![],
                 name: show_method,
-                param_types: vec![],
-                return_type: builtin_type(string_name),
+                param_types: vec![a_ty.clone()],
+                return_type: string_ty,
                 arity: 1,
             }],
         );
@@ -612,7 +676,7 @@ impl ClassEnv {
             vec![MethodSig {
                 type_params: vec![],
                 name: append_method,
-                param_types: vec![],
+                param_types: vec![a_ty.clone(), a_ty],
                 return_type: builtin_type(a_param),
                 arity: 2,
             }],

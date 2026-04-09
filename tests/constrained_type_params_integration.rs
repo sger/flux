@@ -104,3 +104,70 @@ fn main() {
         "expected missing explicit-bound instance to report E444, got: {diags:?}"
     );
 }
+
+#[test]
+fn generic_ord_operator_compiles_without_strict_types() {
+    let (program, mut compiler) = compiler_for(
+        r#"
+fn max_of<A: Ord>(x: A, y: A) -> A {
+    if x > y { x } else { y }
+}
+
+fn main() {
+    max_of(3, 7)
+}
+"#,
+    );
+
+    compiler
+        .compile_with_opts(&program, false, false)
+        .expect("generic Ord operator should compile without strict-types");
+}
+
+#[test]
+fn generic_eq_and_num_operators_compile_without_strict_types() {
+    let (program, mut compiler) = compiler_for(
+        r#"
+fn different<A: Eq>(x: A, y: A) -> Bool {
+    x != y
+}
+
+fn half<A: Num>(x: A, y: A) -> A {
+    x / y
+}
+
+fn main() {
+    if different(10, 20) { half(8, 2) } else { 0 }
+}
+"#,
+    );
+
+    compiler
+        .compile_with_opts(&program, false, false)
+        .expect("generic Eq/Num operators should compile without strict-types");
+}
+
+#[test]
+fn constrained_operator_missing_instance_fails_without_strict_types() {
+    let (program, mut compiler) = compiler_for(
+        r#"
+data Color { Red, Blue }
+
+fn same<A: Eq>(x: A, y: A) -> Bool {
+    x == y
+}
+
+fn main() {
+    same(Red, Blue)
+}
+"#,
+    );
+
+    let diags = compiler
+        .compile_with_opts(&program, false, false)
+        .expect_err("missing instance should fail even without strict-types");
+    assert!(
+        diags.iter().any(|d| d.code().as_deref() == Some("E444")),
+        "expected non-strict missing instance to report E444, got: {diags:?}"
+    );
+}

@@ -1207,13 +1207,11 @@ impl Compiler {
         if let Some(ir_fn) = ir_function {
             let extra = ir_fn.params.len().saturating_sub(parameters.len());
             if extra > 0 {
-                let name_str = self.sym(name);
-                let is_mangled_instance = name_str.starts_with("__tc_");
                 let has_scheme_constraints = self
                     .type_env
                     .lookup(name)
                     .is_some_and(|s| !s.constraints.is_empty());
-                if has_scheme_constraints && !is_mangled_instance {
+                if has_scheme_constraints {
                     for ir_param in &ir_fn.params[..extra] {
                         self.symbol_table
                             .define(ir_param.name, Span::default());
@@ -1245,6 +1243,9 @@ impl Compiler {
         // Track IR param count when CFG path succeeds — dict elaboration may
         // add extra dictionary parameters that the AST doesn't know about.
         let cfg_param_count: std::cell::Cell<Option<usize>> = std::cell::Cell::new(None);
+        if let Some(ir_function) = ir_function {
+            cfg_param_count.set(Some(ir_function.params.len()));
+        }
 
         let compile_result: CompileResult<()> = (|| {
             // Compile-time return type check: if the declared return type and

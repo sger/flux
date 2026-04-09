@@ -421,48 +421,6 @@ impl<'a> super::AstLowerer<'a> {
         let operands_float = matches!(left_ty, Some(InferType::Con(TypeConstructor::Float)))
             && matches!(right_ty, Some(InferType::Con(TypeConstructor::Float)));
 
-        // Try desugaring to a class method call when the operator maps to a
-        // type class and the operand types are not concretely known.
-        // For concrete Int/Float types, keep using specialized primops (faster).
-        let class_method = match operator {
-            "+" if !is_int && !is_float => Some("add"),
-            "-" if !is_int && !is_float => Some("sub"),
-            "*" if !is_int && !is_float => Some("mul"),
-            "==" if !operands_int && !operands_float => Some("eq"),
-            "!=" if !operands_int && !operands_float => Some("eq"), // desugar to !eq(l, r)
-            "++" => Some("append"),
-            _ => None,
-        };
-
-            if let Some(method_name) = class_method
-            && let Some(interner) = self.interner
-            && let Some(method_sym) = interner.lookup(method_name)
-        {
-            // Try to resolve via the class dispatch pipeline.
-            let args_slice = &[left.clone(), right.clone()];
-            if let Some(mangled) = self.try_resolve_class_call(method_sym, args_slice) {
-                let mut args = self.resolve_dict_args_for_call(mangled, ExprId::UNSET, args_slice);
-                let l = self.lower_expr(left);
-                let r = self.lower_expr(right);
-                args.push(l);
-                args.push(r);
-                let call = CoreExpr::App {
-                    func: Box::new(CoreExpr::external_var(mangled, span)),
-                    args,
-                    span,
-                };
-                // For !=, wrap in Not: !(eq(l, r))
-                if operator == "!=" {
-                    return CoreExpr::PrimOp {
-                        op: CorePrimOp::Not,
-                        args: vec![call],
-                        span,
-                    };
-                }
-                return call;
-            }
-        }
-
         let op = match operator {
             // Arithmetic — specialized by result type when known.
             "+" if is_int => CorePrimOp::IAdd,

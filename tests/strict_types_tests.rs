@@ -506,6 +506,8 @@ instance Sizeable<Int> {
                 column: 10,
             },
         },
+        origin: flux::ast::type_infer::constraint::WantedClassConstraintOrigin::ExplicitBound,
+        originated_from_concrete_type: true,
     };
 
     let diags = solve_class_constraints(&[constraint], &env, &interner);
@@ -542,6 +544,8 @@ class Sizeable<a> {
                 column: 10,
             },
         },
+        origin: flux::ast::type_infer::constraint::WantedClassConstraintOrigin::ExplicitBound,
+        originated_from_concrete_type: false,
     };
 
     let diags = solve_class_constraints(&[constraint], &env, &interner);
@@ -711,6 +715,46 @@ class MyEq<a> {
         has_default,
         "expected default method function `my_neq` in generated functions"
     );
+}
+
+#[test]
+fn builtin_dispatch_generates_extended_operator_methods() {
+    let (program, mut interner) = parse(
+        r#"
+fn needs<A: Eq + Ord + Num>(x: A, y: A) -> A {
+    x
+}
+"#,
+    );
+    let mut env = ClassEnv::new();
+    env.register_builtins(&mut interner);
+
+    let generated = flux::types::class_dispatch::generate_dispatch_functions(
+        &program.statements,
+        &env,
+        &mut interner,
+    );
+
+    let generated_names: Vec<String> = generated
+        .iter()
+        .filter_map(|stmt| match stmt {
+            Statement::Function { name, .. } => Some(interner.resolve(*name).to_string()),
+            _ => None,
+        })
+        .collect();
+
+    for expected in [
+        "__tc_Eq_Int_neq",
+        "__tc_Ord_Int_gt",
+        "__tc_Ord_Int_lte",
+        "__tc_Num_Int_div",
+        "__tc_Semigroup_String_append",
+    ] {
+        assert!(
+            generated_names.iter().any(|name| name == expected),
+            "expected generated builtin dispatch function {expected}, got: {generated_names:?}"
+        );
+    }
 }
 
 #[test]
