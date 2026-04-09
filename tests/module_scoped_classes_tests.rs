@@ -634,6 +634,168 @@ module Phase3.Shadow {
     );
 }
 
+// ── Phase 4a: instance-method effect floor (E452) ────────────────────
+
+/// Returns `true` if any rendered diagnostic carries the E452 code.
+fn has_e452(diags: &[flux::diagnostics::Diagnostic]) -> bool {
+    let rendered = render_diagnostics(diags, None, None);
+    rendered.contains("E452")
+}
+
+#[test]
+fn instance_method_missing_class_effect_fires_e452() {
+    // The class declares `with IO` on `eq`, but the instance method drops
+    // it. Floor semantics: instance row must be a superset of class row.
+    let source = r#"
+effect IO {
+    log: String -> ()
+}
+
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool with IO
+}
+
+instance Eq<Int> {
+    fn eq(x, y) { x == y }
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        has_e452(&diags),
+        "instance method dropping a class-declared effect must fire E452, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+#[test]
+fn instance_method_matching_class_effect_does_not_fire_e452() {
+    // Both class and instance declare `with IO` — floor is satisfied.
+    let source = r#"
+effect IO {
+    log: String -> ()
+}
+
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool with IO
+}
+
+instance Eq<Int> {
+    fn eq(x, y) with IO { x == y }
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        !has_e452(&diags),
+        "matching effect rows must not fire E452, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+#[test]
+fn instance_method_adding_extra_effect_does_not_fire_e452() {
+    // Floor semantics: instance may declare *more* effects than the
+    // class. Class declares `with IO`, instance declares `with IO, Audit`.
+    let source = r#"
+effect IO {
+    log: String -> ()
+}
+
+effect Audit {
+    audit: String -> ()
+}
+
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool with IO
+}
+
+instance Eq<Int> {
+    fn eq(x, y) with IO, Audit { x == y }
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        !has_e452(&diags),
+        "instance adding effects beyond the class floor must not fire E452, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+#[test]
+fn class_with_no_effect_clause_imposes_no_floor() {
+    // Class method has no `with` clause. Instance is free to declare
+    // anything, including a `with` clause — no E452.
+    let source = r#"
+effect IO {
+    log: String -> ()
+}
+
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool
+}
+
+instance Eq<Int> {
+    fn eq(x, y) with IO { x == y }
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        !has_e452(&diags),
+        "no class floor means no E452 regardless of instance effects, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+#[test]
+fn module_scoped_class_with_effect_floor_violation_fires_e452() {
+    // Same rule must hold inside a module body — the walker recurses.
+    let source = r#"
+module Phase4.Floor {
+    effect IO {
+        log: String -> ()
+    }
+
+    class Eq<a> {
+        fn eq(x: a, y: a) -> Bool with IO
+    }
+
+    instance Eq<Int> {
+        fn eq(x, y) { x == y }
+    }
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        has_e452(&diags),
+        "floor violation inside a module body must still fire E452, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+#[test]
+fn module_scoped_class_with_effect_floor_satisfied_does_not_fire_e452() {
+    let source = r#"
+module Phase4.FloorOk {
+    effect IO {
+        log: String -> ()
+    }
+
+    class Eq<a> {
+        fn eq(x: a, y: a) -> Bool with IO
+    }
+
+    instance Eq<Int> {
+        fn eq(x, y) with IO { x == y }
+    }
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        !has_e452(&diags),
+        "module-scoped class with satisfied floor must not fire E452, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
 #[test]
 fn module_body_still_rejects_unsupported_statements() {
     // Negative regression: a return statement at module body level is still
