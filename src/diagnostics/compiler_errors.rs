@@ -898,6 +898,21 @@ pub const PUBLIC_INSTANCE_OF_PRIVATE_CLASS: ErrorCode = ErrorCode {
     ),
 };
 
+/// Proposal 0151, Phase 4a: floor-semantics violation. An `instance`
+/// method declares an effect row that is *narrower* than the class
+/// method's declared row. The class row is a *floor*: implementing
+/// methods must declare at least every effect the class declared.
+pub const INSTANCE_METHOD_EFFECT_FLOOR: ErrorCode = ErrorCode {
+    code: "E452",
+    title: "INSTANCE METHOD MISSING CLASS EFFECT",
+    error_type: ErrorType::Compiler,
+    message: "Instance method `{}` is missing class-declared effect `{}`.",
+    hint: Some(
+        "Add the missing effect to the instance method's `with` clause, \
+         or remove it from the class declaration if it should not be required.",
+    ),
+};
+
 /// Proposal 0151, Phase 2: a `public class` signature must not mention a
 /// private type — otherwise importers see a class method whose parameter
 /// or return type they cannot name.
