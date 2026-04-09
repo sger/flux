@@ -134,6 +134,81 @@ module Phase1.SmokeImport {
     );
 }
 
+/// Proposal 0151, Phase 4a-prereq: an `effect` declaration is allowed
+/// inside a `module { ... }` block. Before this prereq landed the
+/// validator rejected the form with `INVALID_MODULE_CONTENT` because
+/// only `Function`/`Let`/`Data`/`Class`/`Instance`/`Import` were on the
+/// whitelist. Phase 4 needs effect declarations inside modules so each
+/// of the four worked examples (Console, AuditLog, Clock, Tracer) can
+/// live in its own dedicated module the same way classes do.
+#[test]
+fn module_body_accepts_effect_declaration() {
+    let source = r#"
+module Flow.Console {
+    effect Console {
+        print: String -> ()
+    }
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        !has_invalid_module_content(&diags),
+        "module-body effect should not produce INVALID_MODULE_CONTENT, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+/// Module-body `effect` with multiple operations parses too — the
+/// validator must not narrow on operation count.
+#[test]
+fn module_body_accepts_effect_declaration_with_multiple_ops() {
+    let source = r#"
+module Flow.State {
+    effect State {
+        get: () -> Int
+        put: Int -> ()
+    }
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        !has_invalid_module_content(&diags),
+        "module-body effect with multiple ops should not produce INVALID_MODULE_CONTENT, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+/// Sanity check: a module containing an effect declaration *and* a
+/// class declaration coexists without either form interfering with the
+/// other. This is closer to the shape of the Phase 4 worked examples
+/// where effects and classes live in their own dedicated modules and
+/// get imported together.
+///
+/// Note: the class method's parameter is named `hnd` rather than
+/// `handle` because `handle` is a reserved keyword in Flux's effect
+/// handler syntax (`expr handle Effect { ... }`). The Phase 4 worked
+/// examples use this convention.
+#[test]
+fn module_body_accepts_effect_and_class_together() {
+    let source = r#"
+module Phase4.SmokeMixed {
+    effect Console {
+        print: String -> ()
+    }
+
+    class Logger<h> {
+        fn log(hnd: h, msg: String) -> Bool
+    }
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        !has_invalid_module_content(&diags),
+        "module-body effect + class should not produce INVALID_MODULE_CONTENT, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
 /// End-to-end exploratory test for the surprise win discovered in commit #3:
 ///
 /// `class_env::collect_classes`, `class_env::collect_instances`, and
