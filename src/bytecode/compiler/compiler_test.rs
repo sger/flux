@@ -471,6 +471,8 @@ fn preload_module_interface_remaps_adt_symbols_across_sessions() {
         borrow_signatures: std::collections::HashMap::new(),
         dependency_fingerprints: Vec::new(),
         symbol_table: std::collections::HashMap::from([(old_adt_id, "Color".to_string())]),
+        public_classes: Vec::new(),
+        public_instances: Vec::new(),
     };
 
     // Session 2: fresh compiler. "Color" will get a different symbol ID.
@@ -530,6 +532,8 @@ fn preload_module_interface_remaps_effect_symbols_across_sessions() {
         borrow_signatures: std::collections::HashMap::new(),
         dependency_fingerprints: Vec::new(),
         symbol_table: std::collections::HashMap::from([(old_effect_id, "IO".to_string())]),
+        public_classes: Vec::new(),
+        public_instances: Vec::new(),
     };
 
     let mut compiler = Compiler::new();
@@ -575,6 +579,8 @@ fn preload_module_interface_inserts_cached_public_schemes() {
         borrow_signatures: std::collections::HashMap::new(),
         dependency_fingerprints: Vec::new(),
         symbol_table: std::collections::HashMap::new(),
+        public_classes: Vec::new(),
+        public_instances: Vec::new(),
     };
 
     compiler.preload_module_interface(&interface);
@@ -609,6 +615,8 @@ fn preload_module_interface_inserts_cached_borrow_signatures() {
         )]),
         dependency_fingerprints: Vec::new(),
         symbol_table: std::collections::HashMap::new(),
+        public_classes: Vec::new(),
+        public_instances: Vec::new(),
     };
 
     compiler.preload_module_interface(&interface);
