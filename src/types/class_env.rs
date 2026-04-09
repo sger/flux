@@ -950,21 +950,31 @@ impl ClassEnv {
                     args.is_empty() && Self::type_constructor_matches(*name, tc, interner)
                 }
                 InferType::App(tc, actual_args) => {
-                    Self::type_constructor_matches(*name, tc, interner)
-                        && args.len() == actual_args.len()
-                        && args
-                            .iter()
-                            .zip(actual_args.iter())
-                            .all(|(p, a)| Self::match_instance_type_expr(p, a, subst, interner))
-                }
-                InferType::HktApp(head, actual_args) => match head.as_ref() {
-                    InferType::Con(tc) => {
+                    if args.is_empty() {
+                        Self::type_constructor_matches(*name, tc, interner)
+                    } else {
                         Self::type_constructor_matches(*name, tc, interner)
                             && args.len() == actual_args.len()
                             && args
                                 .iter()
                                 .zip(actual_args.iter())
                                 .all(|(p, a)| Self::match_instance_type_expr(p, a, subst, interner))
+                    }
+                }
+                InferType::HktApp(head, actual_args) => match head.as_ref() {
+                    InferType::Con(tc) => {
+                        if args.is_empty() {
+                            Self::type_constructor_matches(*name, tc, interner)
+                        } else {
+                            Self::type_constructor_matches(*name, tc, interner)
+                                && args.len() == actual_args.len()
+                                && args
+                                    .iter()
+                                    .zip(actual_args.iter())
+                                    .all(|(p, a)| {
+                                        Self::match_instance_type_expr(p, a, subst, interner)
+                                    })
+                        }
                     }
                     _ => false,
                 },
@@ -1030,5 +1040,142 @@ fn builtin_type(name: Identifier) -> TypeExpr {
         name,
         args: vec![],
         span: Span::default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ClassEnv, InstanceDef, builtin_type};
+    use crate::{
+        diagnostics::position::Span,
+        syntax::interner::Interner,
+        types::{infer_type::InferType, type_constructor::TypeConstructor},
+    };
+
+    fn s() -> Span {
+        Span::default()
+    }
+
+    fn env_with_instance(
+        interner: &mut Interner,
+        class_name: &str,
+        type_args: Vec<crate::syntax::type_expr::TypeExpr>,
+    ) -> (ClassEnv, crate::syntax::Identifier) {
+        let class_sym = interner.intern(class_name);
+        let mut env = ClassEnv::new();
+        env.instances.push(InstanceDef {
+            class_name: class_sym,
+            type_args,
+            context: vec![],
+            method_names: vec![],
+            span: s(),
+        });
+        (env, class_sym)
+    }
+
+    #[test]
+    fn resolve_instance_matches_bare_hkt_constructor_against_applied_list() {
+        let mut interner = Interner::new();
+        let list = interner.intern("List");
+        let (env, functor) = env_with_instance(&mut interner, "Functor", vec![builtin_type(list)]);
+
+        let actual = InferType::App(
+            TypeConstructor::List,
+            vec![InferType::Con(TypeConstructor::Int)],
+        );
+
+        assert!(
+            env.resolve_instance_with_subst(functor, &[actual], &interner)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn resolve_instance_matches_bare_hkt_constructor_against_hkt_app() {
+        let mut interner = Interner::new();
+        let list = interner.intern("List");
+        let (env, functor) = env_with_instance(&mut interner, "Functor", vec![builtin_type(list)]);
+
+        let actual = InferType::HktApp(
+            Box::new(InferType::Con(TypeConstructor::List)),
+            vec![InferType::Con(TypeConstructor::Int)],
+        );
+
+        assert!(
+            env.resolve_instance_with_subst(functor, &[actual], &interner)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn resolve_instance_matches_multi_arg_constructor_against_applied_either() {
+        let mut interner = Interner::new();
+        let either = interner.intern("Either");
+        let (env, bifunctor) =
+            env_with_instance(&mut interner, "Bifunctor", vec![builtin_type(either)]);
+
+        let actual = InferType::App(
+            TypeConstructor::Either,
+            vec![
+                InferType::Con(TypeConstructor::String),
+                InferType::Con(TypeConstructor::Int),
+            ],
+        );
+
+        assert!(
+            env.resolve_instance_with_subst(bifunctor, &[actual], &interner)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn resolve_instance_rejects_different_constructor_for_bare_hkt_pattern() {
+        let mut interner = Interner::new();
+        let list = interner.intern("List");
+        let (env, functor) = env_with_instance(&mut interner, "Functor", vec![builtin_type(list)]);
+
+        let actual = InferType::App(
+            TypeConstructor::Option,
+            vec![InferType::Con(TypeConstructor::Int)],
+        );
+
+        assert!(
+            env.resolve_instance_with_subst(functor, &[actual], &interner)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn resolve_instance_preserves_structural_matching_for_explicit_args() {
+        let mut interner = Interner::new();
+        let list = interner.intern("List");
+        let int = interner.intern("Int");
+        let (env, eq) = env_with_instance(
+            &mut interner,
+            "Eq",
+            vec![crate::syntax::type_expr::TypeExpr::Named {
+                name: list,
+                args: vec![builtin_type(int)],
+                span: s(),
+            }],
+        );
+
+        let matches = InferType::App(
+            TypeConstructor::List,
+            vec![InferType::Con(TypeConstructor::Int)],
+        );
+        let does_not_match = InferType::App(
+            TypeConstructor::List,
+            vec![InferType::Con(TypeConstructor::String)],
+        );
+
+        assert!(
+            env.resolve_instance_with_subst(eq, &[matches], &interner)
+                .is_some()
+        );
+        assert!(
+            env.resolve_instance_with_subst(eq, &[does_not_match], &interner)
+                .is_none()
+        );
     }
 }
