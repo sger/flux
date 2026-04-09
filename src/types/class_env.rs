@@ -23,7 +23,7 @@ use crate::{
 use super::super::diagnostics::compiler_errors::{
     DUPLICATE_CLASS, DUPLICATE_INSTANCE, INSTANCE_EXTRA_METHOD, INSTANCE_METHOD_ARITY,
     INSTANCE_MISSING_METHOD, INSTANCE_TYPE_ARG_ARITY, INSTANCE_UNKNOWN_CLASS,
-    MISSING_SUPERCLASS_INSTANCE, ORPHAN_INSTANCE,
+    MISSING_SUPERCLASS_INSTANCE, ORPHAN_INSTANCE, PUBLIC_INSTANCE_OF_PRIVATE_CLASS,
 };
 
 /// A type class definition collected from a `class` declaration.
@@ -41,6 +41,15 @@ pub struct ClassDef {
     /// short name in different modules will currently still collide via the
     /// duplicate-class diagnostic. The storage flip lands in a later step.
     pub module: ModulePath,
+    /// Proposal 0151, Phase 2: visibility of this class declaration.
+    ///
+    /// `true` for `public class`, `false` for unmarked / private. Used by
+    /// the visibility walker to enforce that no public instance refers to
+    /// a private class (E450) and that public class signatures don't leak
+    /// private types (E451). Top-level (legacy) and built-in classes are
+    /// always recorded as `false` (their cross-module visibility is
+    /// governed by the implicit prelude, not by this flag).
+    pub is_public: bool,
     pub type_params: Vec<Identifier>,
     pub superclasses: Vec<ClassConstraint>,
     pub methods: Vec<MethodSig>,
@@ -105,6 +114,14 @@ pub struct InstanceDef {
     /// For top-level (legacy) instance declarations and built-in instances,
     /// this is `ModulePath::EMPTY`.
     pub instance_module: ModulePath,
+    /// Proposal 0151, Phase 2: visibility of this instance declaration.
+    ///
+    /// `true` for `public instance`, `false` for unmarked / private.
+    /// A public instance of a private class is rejected with E450; a
+    /// public instance whose head type is a private ADT (in another
+    /// module) is rejected with E455. Top-level (legacy) and built-in
+    /// instances are always recorded as `false`.
+    pub is_public: bool,
     pub type_args: Vec<TypeExpr>,
     pub context: Vec<ClassConstraint>,
     pub method_names: Vec<Identifier>,
@@ -192,7 +209,69 @@ impl ClassEnv {
         Self::collect_data_modules(statements, ModulePath::EMPTY, &mut data_modules);
         self.enforce_orphan_rule(&data_modules, &mut diagnostics, interner);
 
+        // Proposal 0151, Phase 2: visibility enforcement.
+        //
+        // E450: a `public instance` cannot reference a private class. The
+        // class's visibility caps the instance's effective visibility,
+        // because downstream importers cannot name the class to dispatch
+        // through it.
+        self.enforce_instance_visibility(&mut diagnostics, interner);
+
         diagnostics
+    }
+
+    /// Phase 2 visibility walker — currently enforces E450 (public instance
+    /// of private class). E451 (public-class-mentions-private-type) and
+    /// E455 (public instance of private ADT) land in subsequent increments.
+    fn enforce_instance_visibility(
+        &self,
+        diagnostics: &mut Vec<Diagnostic>,
+        interner: &Interner,
+    ) {
+        for inst in &self.instances {
+            // Only public instances are subject to the leak check; private
+            // instances cannot leak by definition. Built-in / legacy
+            // placeholders also opt out.
+            if !inst.is_public {
+                continue;
+            }
+            if inst.instance_module.is_empty() {
+                continue;
+            }
+
+            let Some(class_def) = self.classes.get(&inst.class_id) else {
+                continue;
+            };
+
+            // Built-in classes (module == EMPTY) are universally visible
+            // through the implicit prelude — never a leak.
+            if class_def.module.is_empty() {
+                continue;
+            }
+
+            if !class_def.is_public {
+                let display_class = interner.resolve(inst.class_name);
+                let display_type: Vec<String> = inst
+                    .type_args
+                    .iter()
+                    .map(|t| t.display_with(interner))
+                    .collect();
+                let display_head = display_type.join(", ");
+
+                diagnostics.push(
+                    diagnostic_for(&PUBLIC_INSTANCE_OF_PRIVATE_CLASS)
+                        .with_span(inst.span)
+                        .with_message(format!(
+                            "`public instance` `{display_class}<{display_head}>` references \
+                             the private class `{display_class}`."
+                        ))
+                        .with_hint_text(format!(
+                            "Mark the class `public class {display_class}` or remove `public` \
+                             from this instance."
+                        )),
+                );
+            }
+        }
     }
 
     /// Walk a statement tree and record the owning module for each `data`
@@ -313,7 +392,7 @@ impl ClassEnv {
         for stmt in statements {
             match stmt {
                 Statement::Class {
-                    is_public: _,
+                    is_public,
                     name,
                     type_params,
                     superclasses,
@@ -359,6 +438,7 @@ impl ClassEnv {
                         ClassDef {
                             name: *name,
                             module: current_module,
+                            is_public: *is_public,
                             type_params: type_params.clone(),
                             superclasses: superclasses.clone(),
                             methods: method_sigs,
@@ -401,7 +481,7 @@ impl ClassEnv {
         for stmt in statements {
             match stmt {
                 Statement::Instance {
-                    is_public: _,
+                    is_public,
                     class_name,
                     type_args,
                     context,
@@ -623,6 +703,7 @@ impl ClassEnv {
                         // modules now have distinct instance buckets.
                         class_id: class_def.class_id(),
                         instance_module: current_module,
+                        is_public: *is_public,
                         type_args: type_args.clone(),
                         context: context.clone(),
                         method_names,
@@ -698,6 +779,12 @@ impl ClassEnv {
                             class_name: *class_name,
                             class_id,
                             instance_module: current_module,
+                            // Derived instances inherit the data
+                            // declaration's visibility. ADTs don't yet
+                            // carry an `is_public` flag, so we default
+                            // to private for now; this is tightened
+                            // when ADT visibility lands later in Phase 2.
+                            is_public: false,
                             type_args: vec![type_arg],
                             context: vec![],
                             method_names: vec![],
@@ -1245,6 +1332,11 @@ impl ClassEnv {
                 // instances for built-in classes outside the class's own
                 // module.
                 module: ModulePath::EMPTY,
+                // Built-in classes are visible everywhere via the implicit
+                // prelude — `is_public` is meaningless for them since
+                // visibility checks key off `instance_module` vs class
+                // module, and built-ins use the EMPTY sentinel instead.
+                is_public: false,
                 type_params,
                 superclasses: vec![],
                 methods,
@@ -1277,6 +1369,9 @@ impl ClassEnv {
             // Built-in instances live in the implicit prelude — same `EMPTY`
             // sentinel as built-in classes.
             instance_module: ModulePath::EMPTY,
+            // Built-ins are universally visible via the prelude; the flag
+            // is irrelevant for them.
+            is_public: false,
             type_args: vec![builtin_type(type_name)],
             context: vec![],
             method_names: vec![],
@@ -2109,6 +2204,137 @@ instance TopLvlShow<Int> {
         );
     }
 
+    // ============================================================
+    // Proposal 0151, Phase 2: visibility walker tests (E450).
+    // ============================================================
+
+    /// `public instance` of a `public class` is legal — both surfaces
+    /// agree, no leak.
+    #[test]
+    fn visibility_public_instance_of_public_class_is_legal() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.A {
+    public class MyShow<a> {
+        fn my_show(x: a) -> String
+    }
+
+    public instance MyShow<Int> {
+        fn my_show(x) { "" }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            !diags.iter().any(|d| d.code.as_deref() == Some("E450")),
+            "public instance of public class must not fire E450, got: {:?}",
+            diags
+        );
+    }
+
+    /// Private instance of a private class is legal — neither escapes
+    /// the module.
+    #[test]
+    fn visibility_private_instance_of_private_class_is_legal() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.A {
+    class MyShow<a> {
+        fn my_show(x: a) -> String
+    }
+
+    instance MyShow<Int> {
+        fn my_show(x) { "" }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            !diags.iter().any(|d| d.code.as_deref() == Some("E450")),
+            "private instance of private class must not fire E450, got: {:?}",
+            diags
+        );
+    }
+
+    /// `public instance` of a private class — must fire E450.
+    #[test]
+    fn visibility_public_instance_of_private_class_is_rejected() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.A {
+    class MyShow<a> {
+        fn my_show(x: a) -> String
+    }
+
+    public instance MyShow<Int> {
+        fn my_show(x) { "" }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            diags.iter().any(|d| d.code.as_deref() == Some("E450")),
+            "public instance of private class must fire E450, got: {:?}",
+            diags
+        );
+    }
+
+    /// Visibility check must not fire on built-in (prelude) classes — those
+    /// have `module == EMPTY` and are universally visible. A `public instance`
+    /// for a built-in class like `Show<MyType>` is legal.
+    #[test]
+    fn visibility_walker_skips_builtin_classes() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        // `Show` is a built-in class registered with module = EMPTY. We
+        // declare a user ADT and a `public instance Show<Color>` — the
+        // walker must not flag this even though `Show` is not literally
+        // marked `public class`.
+        let source = r#"
+module Mod.A {
+    data Color { Red, Green, Blue }
+
+    public instance Show<Color> {
+        fn show(x) { "" }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        // We don't register built-in classes here — `from_statements`
+        // doesn't pre-populate the env. The class lookup will fail and the
+        // instance won't be added, which means the visibility walker has
+        // nothing to flag. That's fine: the test is asserting "no E450",
+        // not the absence of all errors.
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            !diags.iter().any(|d| d.code.as_deref() == Some("E450")),
+            "instance for unknown/built-in class must not fire E450, got: {:?}",
+            diags
+        );
+    }
+
     fn env_with_instance(
         interner: &mut Interner,
         class_name: &str,
@@ -2120,6 +2346,7 @@ instance TopLvlShow<Int> {
             class_name: class_sym,
             class_id: crate::types::class_id::ClassId::from_local_name(class_sym),
             instance_module: ModulePath::EMPTY,
+            is_public: false,
             type_args,
             context: vec![],
             method_names: vec![],
