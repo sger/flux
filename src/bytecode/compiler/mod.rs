@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use crate::aether::borrow_infer::{BorrowRegistry, BorrowSignature};
@@ -9,7 +10,12 @@ use crate::syntax::expression::ExprId;
 use crate::types::infer_effect_row::InferEffectRow;
 use crate::types::{TypeVarId, infer_type::InferType, scheme::Scheme};
 use crate::{
-    ast::{TailCall, collect_free_vars_in_program, type_infer::infer_program},
+    ast::{
+        TailCall, collect_free_vars_in_program,
+        desugar_operators_if_needed,
+        type_infer::{InferProgramResult, infer_program},
+        type_informed_fold::type_informed_fold,
+    },
     bytecode::{
         binding::Binding,
         bytecode::Bytecode,
@@ -554,6 +560,37 @@ impl Compiler {
         self.current_module_kind = kind;
     }
 
+    fn infer_final_program<'a>(
+        &mut self,
+        program: &'a Program,
+    ) -> (Cow<'a, Program>, InferProgramResult) {
+        let hm_config = self.build_infer_config(program);
+        let hm = infer_program(program, &self.interner, hm_config);
+        let pre_desugar_program = if self.type_optimize {
+            Cow::Owned(type_informed_fold(program, &hm.type_env, &self.interner))
+        } else {
+            Cow::Borrowed(program)
+        };
+        let pre_desugar_expr_types = if self.type_optimize {
+            let hm_config2 = self.build_infer_config(pre_desugar_program.as_ref());
+            infer_program(pre_desugar_program.as_ref(), &self.interner, hm_config2).expr_types
+        } else {
+            hm.expr_types
+        };
+        let final_program = if self.is_flow_library_file() {
+            pre_desugar_program
+        } else {
+            desugar_operators_if_needed(
+                pre_desugar_program,
+                &pre_desugar_expr_types,
+                &mut self.interner,
+            )
+        };
+        let hm_config3 = self.build_infer_config(final_program.as_ref());
+        let hm_final = infer_program(final_program.as_ref(), &self.interner, hm_config3);
+        (final_program, hm_final)
+    }
+
     /// Auto-expose all public members of Flow library modules.
     ///
     /// Replaces the old base function registry — every compilation unit
@@ -629,6 +666,7 @@ impl Compiler {
         &mut self,
         program: &Program,
     ) -> HashMap<ExprId, InferType> {
+        let source_program = program;
         self.file_scope_symbols.clear();
         self.imported_modules.clear();
         self.import_aliases.clear();
@@ -676,37 +714,14 @@ impl Compiler {
             program
         };
 
-        let hm_config = self.build_infer_config(program);
-        let hm = infer_program(program, &self.interner, hm_config);
-        let pre_desugar_program = if self.type_optimize {
-            crate::ast::type_informed_fold::type_informed_fold(
-                program,
-                &hm.type_env,
-                &self.interner,
-            )
-        } else {
-            program.clone()
-        };
-        let pre_desugar_expr_types = if self.type_optimize {
-            let hm_config2 = self.build_infer_config(&pre_desugar_program);
-            infer_program(&pre_desugar_program, &self.interner, hm_config2).expr_types
-        } else {
-            hm.expr_types
-        };
-        let final_program = if self.is_flow_library_file() {
-            pre_desugar_program
-        } else {
-            crate::ast::desugar_operators(
-                pre_desugar_program,
-                &pre_desugar_expr_types,
-                &mut self.interner,
-            )
-        };
-        let hm_config3 = self.build_infer_config(&final_program);
-        let hm_final = infer_program(&final_program, &self.interner, hm_config3);
+        let (final_program, hm_final) = self.infer_final_program(program);
         self.type_env = hm_final.type_env;
         self.hm_expr_types = hm_final.expr_types;
-        self.last_inferred_program = Some(final_program);
+        self.last_inferred_program = match final_program {
+            Cow::Owned(program) => Some(program),
+            Cow::Borrowed(_) if !std::ptr::eq(program, source_program) => Some(program.clone()),
+            Cow::Borrowed(_) => None,
+        };
         self.hm_expr_types.clone()
     }
 
@@ -714,6 +729,7 @@ impl Compiler {
         &mut self,
         program: &Program,
     ) -> HashMap<ExprId, InferType> {
+        let source_program = program;
         let preloaded_contracts = self.module_contracts.clone();
         let preloaded_visibility = self.module_function_visibility.clone();
         let preloaded_adt_ctors = self.module_adt_constructors.clone();
@@ -767,37 +783,14 @@ impl Compiler {
             program
         };
 
-        let hm_config = self.build_infer_config(program);
-        let hm = infer_program(program, &self.interner, hm_config);
-        let pre_desugar_program = if self.type_optimize {
-            crate::ast::type_informed_fold::type_informed_fold(
-                program,
-                &hm.type_env,
-                &self.interner,
-            )
-        } else {
-            program.clone()
-        };
-        let pre_desugar_expr_types = if self.type_optimize {
-            let hm_config2 = self.build_infer_config(&pre_desugar_program);
-            infer_program(&pre_desugar_program, &self.interner, hm_config2).expr_types
-        } else {
-            hm.expr_types
-        };
-        let final_program = if self.is_flow_library_file() {
-            pre_desugar_program
-        } else {
-            crate::ast::desugar_operators(
-                pre_desugar_program,
-                &pre_desugar_expr_types,
-                &mut self.interner,
-            )
-        };
-        let hm_config3 = self.build_infer_config(&final_program);
-        let hm_final = infer_program(&final_program, &self.interner, hm_config3);
+        let (final_program, hm_final) = self.infer_final_program(program);
         self.type_env = hm_final.type_env;
         self.hm_expr_types = hm_final.expr_types;
-        self.last_inferred_program = Some(final_program);
+        self.last_inferred_program = match final_program {
+            Cow::Owned(program) => Some(program),
+            Cow::Borrowed(_) if !std::ptr::eq(program, source_program) => Some(program.clone()),
+            Cow::Borrowed(_) => None,
+        };
         self.hm_expr_types.clone()
     }
 
