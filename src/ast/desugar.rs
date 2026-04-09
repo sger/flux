@@ -158,6 +158,17 @@ impl OperatorDesugarPass<'_> {
         }
     }
 
+    // Decision order matters here:
+    // 1. Never rewrite non-overloadable operators.
+    // 2. Preserve infix when either operand is dynamic (`Any` / missing HM type),
+    //    because downstream runtime semantics still own those cases.
+    // 3. Outside an explicit class-constraint context, keep arithmetic,
+    //    comparisons, and type-variable operands infix so unconstrained code
+    //    does not pick up synthetic class-method calls.
+    // 4. Preserve clearly concrete non-`Any` pairs, then use the narrower
+    //    Int/Float/String fast-path checks below to keep primitive lowering for
+    //    the operator/type combinations we specialize.
+    // 5. Everything else rewrites to the corresponding class method.
     fn should_keep_infix(&self, left: &Expression, operator: &str, right: &Expression) -> bool {
         if matches!(operator, "&&" | "||" | "|>" | "%") {
             return true;
