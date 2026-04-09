@@ -884,6 +884,23 @@ pub const MISSING_SUPERCLASS_INSTANCE: ErrorCode = ErrorCode {
     hint: Some("Add the required superclass instance before this instance."),
 };
 
+/// Proposal 0151, Phase 2: orphan instance rejection.
+///
+/// An `instance C<T>` is "orphan" when neither the class `C` nor the head
+/// type `T` is defined in the module where the instance lives. The orphan
+/// rule keeps the dictionary lookup table coherent in the presence of
+/// separate compilation and incremental caching.
+pub const ORPHAN_INSTANCE: ErrorCode = ErrorCode {
+    code: "E449",
+    title: "ORPHAN INSTANCE",
+    error_type: ErrorType::Compiler,
+    message: "Orphan instance `{}` is not allowed.",
+    hint: Some(
+        "An instance must be declared in the module that defines the class \
+         or in the module that defines the head type.",
+    ),
+};
+
 // ============================================================================
 // Error Constructor Functions
 // ============================================================================
