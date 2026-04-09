@@ -699,14 +699,47 @@ impl ClassEnv {
                             let display_class = interner.resolve(*class_name);
                             let display_type: Vec<String> =
                                 type_args.iter().map(|t| t.display_with(interner)).collect();
-                            diagnostics.push(
-                                diagnostic_for(&DUPLICATE_INSTANCE)
-                                    .with_span(*span)
-                                    .with_message(format!(
-                                        "Duplicate instance for `{display_class}<{}>`.",
-                                        display_type.join(", ")
-                                    )),
+
+                            // Proposal 0151, Phase 2: E443 extended.
+                            //
+                            // The dedup gate matches on `class_id` +
+                            // structural type_args, so it already
+                            // catches duplicates regardless of which
+                            // module hosts each instance. When the
+                            // existing instance lives in a different
+                            // module than the new one, surface that
+                            // in the diagnostic so users can find
+                            // the conflicting site.
+                            let existing_module = existing
+                                .instance_module
+                                .as_identifier()
+                                .map(|id| interner.resolve(id).to_string());
+                            let new_module = current_module
+                                .as_identifier()
+                                .map(|id| interner.resolve(id).to_string());
+                            let cross_module = matches!(
+                                (&existing_module, &new_module),
+                                (Some(a), Some(b)) if a != b
                             );
+
+                            let mut diag = diagnostic_for(&DUPLICATE_INSTANCE)
+                                .with_span(*span)
+                                .with_message(format!(
+                                    "Duplicate instance for `{display_class}<{}>`.",
+                                    display_type.join(", ")
+                                ));
+                            if cross_module {
+                                let existing_mod = existing_module.as_deref().unwrap_or("?");
+                                let new_mod = new_module.as_deref().unwrap_or("?");
+                                diag = diag.with_hint_text(format!(
+                                    "Another instance of `{display_class}<{}>` already lives \
+                                     in module `{existing_mod}`; this one is in `{new_mod}`. \
+                                     Each `(class, head type)` may have at most one instance \
+                                     across the whole program.",
+                                    display_type.join(", ")
+                                ));
+                            }
+                            diagnostics.push(diag);
                             continue;
                         }
                     }
@@ -2703,6 +2736,217 @@ module Mod.A {
         assert!(
             !diags.iter().any(|d| d.code.as_deref() == Some("E451")),
             "private class is allowed to mention private types, got: {:?}",
+            diags
+        );
+    }
+
+    // ============================================================
+    // Proposal 0151, Phase 2: E443 extended (cross-module duplicate
+    // public instances of the same `(ClassId, head_type)`).
+    // ============================================================
+
+    /// Cross-module duplicate: `Mod.Class` declares the class, two
+    /// different ADT-owning modules each declare a `public instance`
+    /// of `Mod.Class.Foo<X>` for the SAME structural head type. Both
+    /// instances pass the orphan rule (each has a local head type),
+    /// but together they create a coherence violation. The walker
+    /// must reject the second one with E443.
+    #[test]
+    fn e443_extended_cross_module_duplicate_public_instances_rejected() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        // Both modules implement `MyShow<Int>`. The class lives in
+        // `Mod.Class`, so `Mod.Class`'s own instance is class-local
+        // and the second one in `Mod.Other` is rejected as orphan
+        // first... but if BOTH are in the class's own module they
+        // collide directly. Use the simpler same-module form to
+        // exercise the dedup, since the cross-module case for a
+        // shared head type is already covered by the orphan walker.
+        //
+        // The harder cross-module case (instance Cls<MyAdt> in two
+        // different modules where both are legal under the orphan
+        // rule) requires a SHARED ADT, which means the head type is
+        // owned by exactly one of the two modules — only that module
+        // can host an instance under the orphan rule. So the only
+        // way two cross-module instances of the same (ClassId,
+        // head_type) can coexist post-orphan-rule is if they BOTH
+        // live in the class's own module — i.e. same module. This
+        // confirms the dedup check is the right gate.
+        let source = r#"
+module Mod.Class {
+    public class MyShow<a> {
+        fn my_show(x: a) -> Int
+    }
+
+    public instance MyShow<Int> {
+        fn my_show(x) { 1 }
+    }
+
+    public instance MyShow<Int> {
+        fn my_show(x) { 2 }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            diags.iter().any(|d| d.code.as_deref() == Some("E443")),
+            "duplicate public instance must fire E443, got: {:?}",
+            diags
+        );
+    }
+
+    /// Cross-module dedup: two `public instance`s of `Mod.Class.MyShow<MyAdt>`,
+    /// where the ADT lives in the class's own module so both placements
+    /// pass the orphan rule. The dedup check must collapse them into a
+    /// single E443.
+    ///
+    /// In practice the only way to construct this (post-orphan-rule) is
+    /// for both instances to live in the same module — see the comment
+    /// in the previous test. This test exercises the same path with an
+    /// ADT head type instead of `Int`.
+    #[test]
+    fn e443_extended_duplicate_public_instances_for_adt_rejected() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.Class {
+    public class MyShow<a> {
+        fn my_show(x: a) -> Int
+    }
+
+    public data Color { Red, Green, Blue }
+
+    public instance MyShow<Color> {
+        fn my_show(x) { 1 }
+    }
+
+    public instance MyShow<Color> {
+        fn my_show(x) { 2 }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            diags.iter().any(|d| d.code.as_deref() == Some("E443")),
+            "duplicate public ADT instance must fire E443, got: {:?}",
+            diags
+        );
+    }
+
+    /// Genuinely cross-module dedup: a third module attempts to add a
+    /// `public instance Mod.Class.MyShow<Int>` that already exists in
+    /// `Mod.Class`. The orphan walker (E449) will fire on the third
+    /// module too because neither the class nor the head is local to
+    /// it — but the dedup gate's diagnostic is the relevant one for
+    /// the *coherence* story, and its hint must mention the other
+    /// owning module so users see "extended cross-module" coverage in
+    /// the message.
+    ///
+    /// We bypass the orphan walker by hand-constructing the env: we
+    /// register a class in `Mod.Class`, then push two `InstanceDef`s
+    /// with different `instance_module`s and structurally identical
+    /// type args, and verify that re-running the dedup logic via a
+    /// fresh source-driven collection still catches it. The simpler
+    /// way to assert the cross-module diagnostic message itself is to
+    /// make both modules add an instance for an ADT they don't own —
+    /// the dedup fires before E449 within `collect_instances`, so the
+    /// hint text is observable.
+    #[test]
+    fn e443_extended_diagnostic_mentions_other_owning_module() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        // Mod.Class owns both the class and the head ADT. Mod.Other
+        // illegally adds the same instance — orphan rule rejects it,
+        // and the dedup ALSO rejects it (since the in-program env
+        // already contains the legal Mod.Class instance). The dedup
+        // diagnostic's hint text should mention `Mod.Class` as the
+        // existing instance's module.
+        let source = r#"
+module Mod.Class {
+    public class MyShow<a> {
+        fn my_show(x: a) -> Int
+    }
+
+    public data Color { Red, Green, Blue }
+
+    public instance MyShow<Color> {
+        fn my_show(x) { 1 }
+    }
+}
+
+module Mod.Other {
+    public instance MyShow<Color> {
+        fn my_show(x) { 2 }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+
+        // The duplicate-instance gate must fire (E443).
+        let dupe = diags
+            .iter()
+            .find(|d| d.code.as_deref() == Some("E443"))
+            .expect("expected E443 to fire on cross-module duplicate instance");
+
+        // The hint must mention BOTH module names so users can find
+        // the existing colliding declaration.
+        let hint_text = dupe
+            .hints
+            .iter()
+            .map(|h| h.text.clone())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            hint_text.contains("Mod.Class") && hint_text.contains("Mod.Other"),
+            "E443 hint must mention both owning modules, got: {hint_text:?}"
+        );
+    }
+
+    /// Negative: two `public instance`s for *different* head types of
+    /// the same class are NOT duplicates and must not fire E443.
+    #[test]
+    fn e443_extended_distinct_head_types_are_not_duplicates() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.Class {
+    public class MyShow<a> {
+        fn my_show(x: a) -> Int
+    }
+
+    public instance MyShow<Int> {
+        fn my_show(x) { 1 }
+    }
+
+    public instance MyShow<Bool> {
+        fn my_show(x) { 0 }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            !diags.iter().any(|d| d.code.as_deref() == Some("E443")),
+            "distinct head types must not fire E443, got: {:?}",
             diags
         );
     }
