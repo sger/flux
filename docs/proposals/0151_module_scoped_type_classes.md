@@ -1363,16 +1363,18 @@ Phase 0 was executed and resolved all three spikes. Summary below; each spike's 
 
 **Goal.** Make the semantic rules that protect the cache actually fire. After this phase, the `.fxc` cache is sound under module-scoped classes, and orphan instances are rejected.
 
+**Note on error codes.** Phase 2 was originally drafted to use `E447`, `E448`, ..., but `E447` and `E448` were already taken in `compiler_errors.rs` by `INSTANCE_TYPE_ARG_ARITY` / `INSTANCE_METHOD_ARITY`. Phase 2's new diagnostics start at the first free code, `E449` (orphan), and the visibility / ambiguity / private-leak diagnostics shift up accordingly: `E450` (visibility-public-of-private-class), `E451` (public-class-mentions-private-type), `E455` (public-instance-for-private-ADT), `E456` (short-name constraint ambiguity).
+
 **Landed when.**
-- `instance C<T>` in a third module (neither class's nor type's owning module) is rejected with `E447`.
+- ✅ **`instance C<T>` in a third module (neither class's nor type's owning module) is rejected with `E449`.** *(landed 2026-04-09)*
 - A `public instance` of a private class is rejected with `E450`.
 - A `public class` whose signature mentions a private type is rejected with `E451`.
 - A `public instance` of a `public class` for a private ADT is rejected with `E455`.
 - Two `public instance`s of the same `(ClassId, head_type)` in different modules are rejected as duplicates (`E443` extended).
 - `.flxi` round-trips `public class` and `public instance` entries with `ClassId`, superclasses, and pinned rows placeholder.
 - `.fxc` cache hash changes when a directly-imported module adds/removes/modifies a `public class` or `public instance`, and does *not* change on private additions.
-- Short-name constraint ambiguity (`<a: Foldable>` when two `Foldable`s are in scope) fires `E448`.
-- `deriving` clauses on `data` generate instances in the data's own module (trivially orphan-compliant) using the new `ClassId`.
+- Short-name constraint ambiguity (`<a: Foldable>` when two `Foldable`s are in scope) fires `E456`.
+- ✅ **`deriving` clauses on `data` generate instances in the data's own module (trivially orphan-compliant) using the new `ClassId`.** *(orphan-walker exemption verified 2026-04-09)*
 
 **Files touched.**
 - [src/types/class_env.rs](src/types/class_env.rs) — orphan rule walker, visibility fields enforced on lookups.
@@ -1380,9 +1382,9 @@ Phase 0 was executed and resolved all three spikes. Summary below; each spike's 
 - [src/bytecode/compiler/](src/bytecode/compiler/) — `.fxc` hash inputs include the class/instance table.
 - [src/ast/type_infer/class_solver.rs](src/ast/type_infer/class_solver.rs) — ambiguity diagnostic `E448`.
 - [src/types/class_dispatch.rs](src/types/class_dispatch.rs) — `deriving` emits under the new `ClassId` and respects ADT visibility.
-- [src/diagnostics/](src/diagnostics/) — `E447`, `E450`, `E451`, `E455`.
+- [src/diagnostics/](src/diagnostics/) — `E449`, `E450`, `E451`, `E455`, `E456`.
 
-**Error codes introduced.** `E447`, `E448`, `E450`, `E451`, `E455`.
+**Error codes introduced.** `E449`, `E450`, `E451`, `E455`, `E456`.
 
 **Tests required.**
 - Orphan rule: positive and negative cases for each of "class-local", "type-local", "third-module" placements, for both hand-written and `deriving`-generated instances.
