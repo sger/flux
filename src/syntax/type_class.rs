@@ -1,6 +1,6 @@
 use crate::{
     diagnostics::position::Span,
-    syntax::{Identifier, block::Block, type_expr::TypeExpr},
+    syntax::{Identifier, block::Block, effect_expr::EffectExpr, type_expr::TypeExpr},
 };
 
 /// A type class constraint like `Eq<a>` or `Ord<a>`.
@@ -33,6 +33,10 @@ pub struct ClassMethod {
     pub params: Vec<Identifier>,
     pub param_types: Vec<TypeExpr>,
     pub return_type: TypeExpr,
+    /// Declared effect row for the method (Proposal 0151, Phase 4a).
+    /// Empty when no `with` clause is present. Acts as a *floor* on
+    /// what implementing instances may declare.
+    pub effects: Vec<EffectExpr>,
     pub default_body: Option<Block>,
     pub span: Span,
 }
@@ -48,6 +52,10 @@ pub struct ClassMethod {
 pub struct InstanceMethod {
     pub name: Identifier,
     pub params: Vec<Identifier>,
+    /// Declared effect row for the instance method (Proposal 0151,
+    /// Phase 4a). Must be a *superset* of the class method's declared
+    /// row (floor semantics) — checked by the E452 walker.
+    pub effects: Vec<EffectExpr>,
     pub body: Block,
     pub span: Span,
 }
