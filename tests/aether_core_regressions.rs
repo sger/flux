@@ -163,6 +163,7 @@ fn compile_fixture_warnings(rel: &str) -> Vec<Diagnostic> {
     let mut compiler = Compiler::new_with_interner(rel, graph.interner);
     for node in graph.graph.topo_order() {
         compiler.set_file_path(node.path.to_string_lossy().to_string());
+        compiler.set_current_module_kind(node.kind);
         if let Err(diags) = compiler.compile(&node.program) {
             panic!("expected fixture `{rel}` to compile, got diagnostics: {diags:?}");
         }

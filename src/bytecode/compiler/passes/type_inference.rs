@@ -45,7 +45,11 @@ impl Compiler {
         let final_program = if self.is_flow_library_file() {
             pre_desugar_program
         } else {
-            desugar_operators(pre_desugar_program, &pre_desugar_expr_types, &mut self.interner)
+            desugar_operators(
+                pre_desugar_program,
+                &pre_desugar_expr_types,
+                &mut self.interner,
+            )
         };
         let hm_config3 = self.build_infer_config(&final_program);
         let hm_final = infer_program(&final_program, &self.interner, hm_config3);

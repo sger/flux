@@ -1213,8 +1213,7 @@ impl Compiler {
                     .is_some_and(|s| !s.constraints.is_empty());
                 if has_scheme_constraints {
                     for ir_param in &ir_fn.params[..extra] {
-                        self.symbol_table
-                            .define(ir_param.name, Span::default());
+                        self.symbol_table.define(ir_param.name, Span::default());
                     }
                 }
             }

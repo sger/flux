@@ -116,20 +116,26 @@ fn has_satisfied_instance(
 
     let result = has_structural_builtin_instance(class_name, type_args, class_env, interner, seen)
         || class_env
-        .resolve_instance_with_subst(class_name, type_args, interner)
-        .is_some_and(|(instance, subst)| {
-            instance.context.iter().all(|ctx| {
-                let resolved_args: Option<Vec<InferType>> = ctx
-                    .type_args
-                    .iter()
-                    .map(|arg| instantiate_context_type_expr(arg, &subst, interner))
-                    .collect();
-                resolved_args.is_some_and(|args| {
-                    args.iter().all(is_concrete_type)
-                        && has_satisfied_instance(ctx.class_name, &args, class_env, interner, seen)
+            .resolve_instance_with_subst(class_name, type_args, interner)
+            .is_some_and(|(instance, subst)| {
+                instance.context.iter().all(|ctx| {
+                    let resolved_args: Option<Vec<InferType>> = ctx
+                        .type_args
+                        .iter()
+                        .map(|arg| instantiate_context_type_expr(arg, &subst, interner))
+                        .collect();
+                    resolved_args.is_some_and(|args| {
+                        args.iter().all(is_concrete_type)
+                            && has_satisfied_instance(
+                                ctx.class_name,
+                                &args,
+                                class_env,
+                                interner,
+                                seen,
+                            )
+                    })
                 })
-            })
-        });
+            });
 
     seen.remove(&key);
     result
@@ -148,17 +154,17 @@ fn has_structural_builtin_instance(
     }
 
     match &type_args[0] {
-        InferType::Tuple(elements) => elements
-            .iter()
-            .all(|elem| has_satisfied_instance_for_single(class_name, elem, class_env, interner, seen)),
+        InferType::Tuple(elements) => elements.iter().all(|elem| {
+            has_satisfied_instance_for_single(class_name, elem, class_env, interner, seen)
+        }),
         InferType::App(TypeConstructor::Option, args)
         | InferType::App(TypeConstructor::List, args)
-        | InferType::App(TypeConstructor::Array, args) => args
-            .first()
-            .is_some_and(|arg| has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)),
-        InferType::App(TypeConstructor::Either, args) => args
-            .iter()
-            .all(|arg| has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)),
+        | InferType::App(TypeConstructor::Array, args) => args.first().is_some_and(|arg| {
+            has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)
+        }),
+        InferType::App(TypeConstructor::Either, args) => args.iter().all(|arg| {
+            has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)
+        }),
         _ => false,
     }
 }
@@ -170,9 +176,15 @@ fn has_satisfied_instance_for_single(
     interner: &Interner,
     seen: &mut HashSet<String>,
 ) -> bool {
-    interner
-        .lookup(class_name)
-        .is_some_and(|class_id| has_satisfied_instance(class_id, std::slice::from_ref(ty), class_env, interner, seen))
+    interner.lookup(class_name).is_some_and(|class_id| {
+        has_satisfied_instance(
+            class_id,
+            std::slice::from_ref(ty),
+            class_env,
+            interner,
+            seen,
+        )
+    })
 }
 
 fn instantiate_context_type_expr(

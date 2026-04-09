@@ -236,18 +236,18 @@ impl ClassEnv {
                         if is_builtin_placeholder {
                             env.instances.remove(idx);
                         } else {
-                        let display_class = interner.resolve(*class_name);
-                        let display_type: Vec<String> =
-                            type_args.iter().map(|t| t.display_with(interner)).collect();
-                        diagnostics.push(
-                            diagnostic_for(&DUPLICATE_INSTANCE)
-                                .with_span(*span)
-                                .with_message(format!(
-                                    "Duplicate instance for `{display_class}<{}>`.",
-                                    display_type.join(", ")
-                                )),
-                        );
-                        continue;
+                            let display_class = interner.resolve(*class_name);
+                            let display_type: Vec<String> =
+                                type_args.iter().map(|t| t.display_with(interner)).collect();
+                            diagnostics.push(
+                                diagnostic_for(&DUPLICATE_INSTANCE)
+                                    .with_span(*span)
+                                    .with_message(format!(
+                                        "Duplicate instance for `{display_class}<{}>`.",
+                                        display_type.join(", ")
+                                    )),
+                            );
+                            continue;
                         }
                     }
 
@@ -503,13 +503,13 @@ impl ClassEnv {
             }
 
             let mut subst = HashMap::new();
-            let matches = inst
-                .type_args
-                .iter()
-                .zip(actual_type_args.iter())
-                .all(|(pattern, actual)| {
-                    Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
-                });
+            let matches =
+                inst.type_args
+                    .iter()
+                    .zip(actual_type_args.iter())
+                    .all(|(pattern, actual)| {
+                        Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+                    });
 
             matches.then_some((inst, subst))
         })
@@ -780,17 +780,19 @@ impl ClassEnv {
                 InferType::App(tc, actual_args) => {
                     Self::type_constructor_matches(*name, tc, interner)
                         && args.len() == actual_args.len()
-                        && args.iter().zip(actual_args.iter()).all(|(p, a)| {
-                            Self::match_instance_type_expr(p, a, subst, interner)
-                        })
+                        && args
+                            .iter()
+                            .zip(actual_args.iter())
+                            .all(|(p, a)| Self::match_instance_type_expr(p, a, subst, interner))
                 }
                 InferType::HktApp(head, actual_args) => match head.as_ref() {
                     InferType::Con(tc) => {
                         Self::type_constructor_matches(*name, tc, interner)
                             && args.len() == actual_args.len()
-                            && args.iter().zip(actual_args.iter()).all(|(p, a)| {
-                                Self::match_instance_type_expr(p, a, subst, interner)
-                            })
+                            && args
+                                .iter()
+                                .zip(actual_args.iter())
+                                .all(|(p, a)| Self::match_instance_type_expr(p, a, subst, interner))
                     }
                     _ => false,
                 },
@@ -799,18 +801,20 @@ impl ClassEnv {
             TypeExpr::Tuple { elements, .. } => match actual {
                 InferType::Tuple(actual_elems) => {
                     elements.len() == actual_elems.len()
-                        && elements.iter().zip(actual_elems.iter()).all(|(p, a)| {
-                            Self::match_instance_type_expr(p, a, subst, interner)
-                        })
+                        && elements
+                            .iter()
+                            .zip(actual_elems.iter())
+                            .all(|(p, a)| Self::match_instance_type_expr(p, a, subst, interner))
                 }
                 _ => false,
             },
             TypeExpr::Function { params, ret, .. } => match actual {
                 InferType::Fun(actual_params, actual_ret, _) => {
                     params.len() == actual_params.len()
-                        && params.iter().zip(actual_params.iter()).all(|(p, a)| {
-                            Self::match_instance_type_expr(p, a, subst, interner)
-                        })
+                        && params
+                            .iter()
+                            .zip(actual_params.iter())
+                            .all(|(p, a)| Self::match_instance_type_expr(p, a, subst, interner))
                         && Self::match_instance_type_expr(ret, actual_ret, subst, interner)
                 }
                 _ => false,

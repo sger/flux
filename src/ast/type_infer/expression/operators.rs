@@ -24,7 +24,12 @@ impl<'a> InferCtx<'a> {
     }
 
     /// Infer equality/inequality operators and emit `Eq` obligations when declared.
-    fn infer_eq_operator(&mut self, left_ty: &InferType, right_ty: &InferType, span: Span) -> InferType {
+    fn infer_eq_operator(
+        &mut self,
+        left_ty: &InferType,
+        right_ty: &InferType,
+        span: Span,
+    ) -> InferType {
         self.unify_reporting(left_ty, right_ty, span);
         self.emit_operator_constraint(self.class_sym_eq, left_ty, span);
         InferType::Con(TypeConstructor::Bool)
@@ -69,7 +74,12 @@ impl<'a> InferCtx<'a> {
     }
 
     /// Resolve the operand type and emit an inferred operator class constraint.
-    fn emit_operator_constraint(&mut self, class_sym: Option<Identifier>, ty: &InferType, span: Span) {
+    fn emit_operator_constraint(
+        &mut self,
+        class_sym: Option<Identifier>,
+        ty: &InferType,
+        span: Span,
+    ) {
         let resolved = ty.apply_type_subst(&self.subst);
         self.emit_operator_constraint_for_type(class_sym, resolved, span);
     }
@@ -104,7 +114,11 @@ impl<'a> InferCtx<'a> {
             InferType::Con(TypeConstructor::Int)
             | InferType::Con(TypeConstructor::Float)
             | InferType::Var(_) => {
-                self.emit_operator_constraint_for_type(self.class_sym_num, substituted.clone(), span);
+                self.emit_operator_constraint_for_type(
+                    self.class_sym_num,
+                    substituted.clone(),
+                    span,
+                );
                 substituted
             }
             InferType::Con(TypeConstructor::String) => substituted,

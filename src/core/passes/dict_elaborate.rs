@@ -388,31 +388,23 @@ fn insert_dict_args_expr(
             args,
             arg_modes,
             span,
-        } => {
-            CoreExpr::AetherCall {
-                func: Box::new(insert_dict_args_expr(
-                    *func,
-                    constrained_fns,
-                    caller_dicts,
-                    class_env,
-                    interner,
-                )),
-                args: args
-                    .into_iter()
-                    .map(|a| {
-                        insert_dict_args_expr(
-                            a,
-                            constrained_fns,
-                            caller_dicts,
-                            class_env,
-                            interner,
-                        )
-                    })
-                    .collect(),
-                arg_modes,
-                span,
-            }
-        }
+        } => CoreExpr::AetherCall {
+            func: Box::new(insert_dict_args_expr(
+                *func,
+                constrained_fns,
+                caller_dicts,
+                class_env,
+                interner,
+            )),
+            args: args
+                .into_iter()
+                .map(|a| {
+                    insert_dict_args_expr(a, constrained_fns, caller_dicts, class_env, interner)
+                })
+                .collect(),
+            arg_modes,
+            span,
+        },
 
         CoreExpr::Let {
             var,
