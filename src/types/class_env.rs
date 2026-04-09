@@ -40,6 +40,10 @@ pub struct MethodSig {
     pub name: Identifier,
     /// Per-method type parameters (e.g., `<a, b>` on `fn fmap<a, b>`).
     pub type_params: Vec<Identifier>,
+    /// Value-parameter types in source order.
+    ///
+    /// Invariant: this should contain one entry per value parameter, while
+    /// `arity` remains the canonical call arity used by downstream consumers.
     pub param_types: Vec<TypeExpr>,
     pub return_type: TypeExpr,
     pub arity: usize,

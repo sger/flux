@@ -755,6 +755,42 @@ fn needs<A: Eq + Ord + Num>(x: A, y: A) -> A {
             "expected generated builtin dispatch function {expected}, got: {generated_names:?}"
         );
     }
+
+    for stmt in &generated {
+        if let Statement::Function {
+            name,
+            parameters,
+            parameter_types,
+            ..
+        } = stmt
+        {
+            let display_name = interner.resolve(*name);
+            if display_name.starts_with("__tc_")
+                || matches!(
+                    display_name,
+                    "eq"
+                        | "neq"
+                        | "compare"
+                        | "lt"
+                        | "lte"
+                        | "gt"
+                        | "gte"
+                        | "add"
+                        | "sub"
+                        | "mul"
+                        | "div"
+                        | "show"
+                        | "append"
+                )
+            {
+                assert_eq!(
+                    parameter_types.len(),
+                    parameters.len(),
+                    "generated method {display_name} should carry one parameter type per parameter"
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -903,6 +939,18 @@ fn builtin_classes_registered() {
         env.lookup_class(semigroup).is_some(),
         "Semigroup class should be registered"
     );
+
+    for class_name in [eq, ord, num, show, semigroup] {
+        let class_def = env.lookup_class(class_name).expect("class should exist");
+        for method in &class_def.methods {
+            assert_eq!(
+                method.param_types.len(),
+                method.arity,
+                "builtin method {} should have one param type per parameter",
+                interner.resolve(method.name)
+            );
+        }
+    }
 }
 
 #[test]
