@@ -13,6 +13,7 @@ use crate::{
     ast::{
         TailCall, collect_free_vars_in_program,
         desugar_operators_if_needed,
+        operator_desugaring_needed,
         type_infer::{InferProgramResult, infer_program},
         type_informed_fold::type_informed_fold,
     },
@@ -423,6 +424,8 @@ pub struct Compiler {
     pub cost_centre_infos: Vec<crate::bytecode::vm::profiling::CostCentreInfo>,
     /// Type class environment — populated during collection phase.
     pub(super) class_env: crate::types::class_env::ClassEnv,
+    #[cfg(test)]
+    pub(super) hm_infer_runs: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -430,6 +433,11 @@ pub struct ModuleCacheSnapshot {
     constants_len: usize,
     instructions_len: usize,
     global_definitions_len: usize,
+}
+
+struct FinalInferenceResult<'a> {
+    final_program: Cow<'a, Program>,
+    hm_final: InferProgramResult,
 }
 
 #[cfg(test)]
@@ -506,6 +514,8 @@ impl Compiler {
             profiling: false,
             cost_centre_infos: Vec::new(),
             class_env: crate::types::class_env::ClassEnv::new(),
+            #[cfg(test)]
+            hm_infer_runs: 0,
         }
     }
 
@@ -560,35 +570,56 @@ impl Compiler {
         self.current_module_kind = kind;
     }
 
+    fn run_hm_infer(&mut self, program: &Program) -> InferProgramResult {
+        #[cfg(test)]
+        {
+            self.hm_infer_runs += 1;
+        }
+        let hm_config = self.build_infer_config(program);
+        infer_program(program, &self.interner, hm_config)
+    }
+
     fn infer_final_program<'a>(
         &mut self,
         program: &'a Program,
-    ) -> (Cow<'a, Program>, InferProgramResult) {
-        let hm_config = self.build_infer_config(program);
-        let hm = infer_program(program, &self.interner, hm_config);
+    ) -> FinalInferenceResult<'a> {
+        let hm = self.run_hm_infer(program);
         let pre_desugar_program = if self.type_optimize {
             Cow::Owned(type_informed_fold(program, &hm.type_env, &self.interner))
         } else {
             Cow::Borrowed(program)
         };
-        let pre_desugar_expr_types = if self.type_optimize {
-            let hm_config2 = self.build_infer_config(pre_desugar_program.as_ref());
-            infer_program(pre_desugar_program.as_ref(), &self.interner, hm_config2).expr_types
+        let hm_pre_desugar = if self.type_optimize {
+            self.run_hm_infer(pre_desugar_program.as_ref())
         } else {
-            hm.expr_types
+            hm
         };
-        let final_program = if self.is_flow_library_file() {
-            pre_desugar_program
-        } else {
+        let pre_desugar_expr_types = hm_pre_desugar.expr_types.clone();
+        let desugar_changed_program = !self.is_flow_library_file()
+            && operator_desugaring_needed(
+                pre_desugar_program.as_ref(),
+                &pre_desugar_expr_types,
+                &self.interner,
+            );
+        let final_program = if desugar_changed_program {
             desugar_operators_if_needed(
                 pre_desugar_program,
                 &pre_desugar_expr_types,
                 &mut self.interner,
             )
+        } else {
+            pre_desugar_program
         };
-        let hm_config3 = self.build_infer_config(final_program.as_ref());
-        let hm_final = infer_program(final_program.as_ref(), &self.interner, hm_config3);
-        (final_program, hm_final)
+        #[cfg(test)]
+        let desugar_changed_program = desugar_changed_program;
+        let hm_final = match &final_program {
+            _ if !desugar_changed_program => hm_pre_desugar,
+            Cow::Owned(_) | Cow::Borrowed(_) => self.run_hm_infer(final_program.as_ref()),
+        };
+        FinalInferenceResult {
+            final_program,
+            hm_final,
+        }
     }
 
     /// Auto-expose all public members of Flow library modules.
@@ -667,6 +698,10 @@ impl Compiler {
         program: &Program,
     ) -> HashMap<ExprId, InferType> {
         let source_program = program;
+        #[cfg(test)]
+        {
+            self.hm_infer_runs = 0;
+        }
         self.file_scope_symbols.clear();
         self.imported_modules.clear();
         self.import_aliases.clear();
@@ -714,7 +749,9 @@ impl Compiler {
             program
         };
 
-        let (final_program, hm_final) = self.infer_final_program(program);
+        let final_inference = self.infer_final_program(program);
+        let final_program = final_inference.final_program;
+        let hm_final = final_inference.hm_final;
         self.type_env = hm_final.type_env;
         self.hm_expr_types = hm_final.expr_types;
         self.last_inferred_program = match final_program {
@@ -730,6 +767,10 @@ impl Compiler {
         program: &Program,
     ) -> HashMap<ExprId, InferType> {
         let source_program = program;
+        #[cfg(test)]
+        {
+            self.hm_infer_runs = 0;
+        }
         let preloaded_contracts = self.module_contracts.clone();
         let preloaded_visibility = self.module_function_visibility.clone();
         let preloaded_adt_ctors = self.module_adt_constructors.clone();
@@ -783,7 +824,9 @@ impl Compiler {
             program
         };
 
-        let (final_program, hm_final) = self.infer_final_program(program);
+        let final_inference = self.infer_final_program(program);
+        let final_program = final_inference.final_program;
+        let hm_final = final_inference.hm_final;
         self.type_env = hm_final.type_env;
         self.hm_expr_types = hm_final.expr_types;
         self.last_inferred_program = match final_program {
