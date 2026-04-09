@@ -1211,6 +1211,7 @@ mod tests {
                     param_types: vec![a_type.clone(), a_type.clone()],
                     return_type: bool_type.clone(),
                     arity: 2,
+                    effects: vec![],
                 },
                 MethodSig {
                     name: neq_method,
@@ -1218,6 +1219,7 @@ mod tests {
                     param_types: vec![a_type.clone(), a_type],
                     return_type: bool_type,
                     arity: 2,
+                    effects: vec![],
                 },
             ],
             default_methods: vec![neq_method],
@@ -1339,6 +1341,7 @@ mod tests {
                     span: s(),
                 },
                 arity: 1,
+                effects: vec![],
             }],
             default_methods: vec![],
             span: s(),
