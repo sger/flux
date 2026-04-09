@@ -37,8 +37,7 @@ pub fn generate_dispatch_functions(
     let mut reserved_names = collect_existing_function_names(statements);
 
     // Collect instance method info grouped by (class_name, method_name)
-    let mut dispatch_table: HashSet<(Identifier, Identifier)> =
-        HashSet::new();
+    let mut dispatch_table: HashSet<(Identifier, Identifier)> = HashSet::new();
 
     generate_from_statements(
         statements,
@@ -108,10 +107,7 @@ fn collect_existing_function_names(statements: &[Statement]) -> HashSet<Identifi
     names
 }
 
-fn collect_existing_function_names_into(
-    statements: &[Statement],
-    names: &mut HashSet<Identifier>,
-) {
+fn collect_existing_function_names_into(statements: &[Statement], names: &mut HashSet<Identifier>) {
     for stmt in statements {
         match stmt {
             Statement::Function { name, body, .. } => {
@@ -129,7 +125,9 @@ fn collect_existing_function_names_into(
 fn needs_builtin_dispatch_support(statements: &[Statement]) -> bool {
     statements.iter().any(|stmt| match stmt {
         Statement::Class { .. } | Statement::Instance { .. } => true,
-        Statement::Function { type_params, body, .. } => {
+        Statement::Function {
+            type_params, body, ..
+        } => {
             type_params.iter().any(|tp| !tp.constraints.is_empty())
                 || needs_builtin_dispatch_support(&body.statements)
         }
@@ -162,12 +160,9 @@ fn generate_builtin_instance_functions(
 
         for method_sig in &class_def.methods {
             let method_name_str = interner.resolve(method_sig.name).to_string();
-            let Some(body) = builtin_method_body(
-                interner,
-                &class_name_str,
-                &type_name,
-                &method_name_str,
-            ) else {
+            let Some(body) =
+                builtin_method_body(interner, &class_name_str, &type_name, &method_name_str)
+            else {
                 continue;
             };
 
@@ -324,7 +319,8 @@ fn generate_from_statements(
                 let class_name_str = interner.resolve(*class_name).to_string();
 
                 for method in methods {
-                    let Some(method_sig) = class_def.methods.iter().find(|sig| sig.name == method.name)
+                    let Some(method_sig) =
+                        class_def.methods.iter().find(|sig| sig.name == method.name)
                     else {
                         continue;
                     };
@@ -355,8 +351,9 @@ fn generate_from_statements(
                         type_args,
                         interner,
                     ));
-                    let type_params =
-                        build_instance_function_type_params(type_args, context, method_sig, interner);
+                    let type_params = build_instance_function_type_params(
+                        type_args, context, method_sig, interner,
+                    );
 
                     // Create a regular function statement with the mangled name
                     let fn_stmt = Statement::Function {

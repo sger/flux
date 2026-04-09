@@ -71,7 +71,11 @@ fn dump_core(input: &str) -> String {
         .compile(&program)
         .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(input), None)));
     compiler
-        .dump_core_with_opts(&program, false, flux::core::display::CoreDisplayMode::Readable)
+        .dump_core_with_opts(
+            &program,
+            false,
+            flux::core::display::CoreDisplayMode::Readable,
+        )
         .expect("dump_core should succeed")
 }
 
@@ -153,8 +157,7 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
 
 #[test]
 fn contextual_list_instance_dispatches_with_element_dictionary() {
-    let value = run(
-        r#"
+    let value = run(r#"
 class MyEq<a> {
     fn my_eq(x: a, y: a) -> Bool
 }
@@ -171,8 +174,7 @@ instance Eq<a> => MyEq<List<a>> {
 }
 
 my_eq([1], [1]);
-"#,
-    );
+"#);
 
     assert_eq!(value, Value::Boolean(true));
 }
@@ -231,7 +233,7 @@ fn main() {
         );
     }
 
-    for primop_name in ["NEq(x, y)", "Gt(x, y)", "Div(x, y)"] {
+    for primop_name in ["NEq(__x0, __x1)", "Gt(__x0, __x1)", "Div(__x0, __x1)"] {
         assert!(
             core.contains(primop_name),
             "expected Core dump to contain specialized primop {primop_name}, got:\n{core}"

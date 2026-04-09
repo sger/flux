@@ -117,17 +117,26 @@ impl OperatorDesugarPass<'_> {
             && matches!(right_ty, Some(InferType::Con(TypeConstructor::Float)));
         let numeric = matches!(
             left_ty,
-            Some(InferType::Con(TypeConstructor::Int | TypeConstructor::Float))
+            Some(InferType::Con(
+                TypeConstructor::Int | TypeConstructor::Float
+            ))
         ) && matches!(
             right_ty,
-            Some(InferType::Con(TypeConstructor::Int | TypeConstructor::Float))
+            Some(InferType::Con(
+                TypeConstructor::Int | TypeConstructor::Float
+            ))
         );
         (ints, floats, numeric)
     }
 
     fn concrete_string_operands(&self, left: &Expression, right: &Expression) -> bool {
-        matches!(self.operand_type(left), Some(InferType::Con(TypeConstructor::String)))
-            && matches!(self.operand_type(right), Some(InferType::Con(TypeConstructor::String)))
+        matches!(
+            self.operand_type(left),
+            Some(InferType::Con(TypeConstructor::String))
+        ) && matches!(
+            self.operand_type(right),
+            Some(InferType::Con(TypeConstructor::String))
+        )
     }
 
     fn operator_method_name(&self, operator: &str) -> Option<&'static str> {
@@ -154,9 +163,7 @@ impl OperatorDesugarPass<'_> {
         if self.is_dynamic_operand(left) || self.is_dynamic_operand(right) {
             return true;
         }
-        if !self.in_explicit_constraint_context
-            && matches!(operator, "+" | "-" | "*" | "/")
-        {
+        if !self.in_explicit_constraint_context && matches!(operator, "+" | "-" | "*" | "/") {
             return true;
         }
         if !self.in_explicit_constraint_context
@@ -187,7 +194,10 @@ impl OperatorDesugarPass<'_> {
 }
 
 impl Folder for OperatorDesugarPass<'_> {
-    fn fold_stmt(&mut self, stmt: crate::syntax::statement::Statement) -> crate::syntax::statement::Statement {
+    fn fold_stmt(
+        &mut self,
+        stmt: crate::syntax::statement::Statement,
+    ) -> crate::syntax::statement::Statement {
         match stmt {
             crate::syntax::statement::Statement::Function {
                 is_public,
@@ -203,7 +213,8 @@ impl Folder for OperatorDesugarPass<'_> {
             } => {
                 let prev_generated = self.in_generated_instance_method;
                 let prev_constraint_context = self.in_explicit_constraint_context;
-                self.in_generated_instance_method = self.interner.resolve(name).starts_with("__tc_");
+                self.in_generated_instance_method =
+                    self.interner.resolve(name).starts_with("__tc_");
                 self.in_explicit_constraint_context = type_params
                     .iter()
                     .any(|param| !param.constraints.is_empty());

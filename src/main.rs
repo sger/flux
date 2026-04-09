@@ -30,7 +30,7 @@ use flux::{
         formatter::format_source,
         lexer::Lexer,
         linter::Linter,
-        module_graph::{ModuleGraph, ModuleNode},
+        module_graph::{ModuleGraph, ModuleKind, ModuleNode},
         parser::Parser,
     },
 };
@@ -109,11 +109,6 @@ struct NativeParallelModuleResult {
     miss_reason: Option<String>,
 }
 
-fn is_flow_library_path(path: &Path) -> bool {
-    let text = path.to_string_lossy();
-    text.contains("lib/Flow/") || text.contains("lib\\Flow\\")
-}
-
 #[cfg(feature = "core_to_llvm")]
 fn program_has_user_adt_declarations(program: &Program) -> bool {
     fn block_has_user_adt_declarations(block: &flux::syntax::block::Block) -> bool {
@@ -161,9 +156,10 @@ fn build_module_compiler(
         node.path.to_string_lossy().to_string(),
         base_interner.clone(),
     );
+    compiler.set_current_module_kind(node.kind);
     compiler.set_strict_require_main(is_entry_module);
-    compiler.set_strict_mode(!is_flow_library_path(&node.path) && strict_mode);
-    compiler.set_strict_types(!is_flow_library_path(&node.path) && strict_types);
+    compiler.set_strict_mode(node.kind != ModuleKind::FlowStdlib && strict_mode);
+    compiler.set_strict_types(node.kind != ModuleKind::FlowStdlib && strict_types);
     for dep in &node.imports {
         if let Some(interface) = loaded_interfaces.get(&dep.target_path) {
             compiler.preload_module_interface(interface);
@@ -177,23 +173,25 @@ fn build_module_compiler(
     // The sequential (--no-cache) path achieves this via a shared compiler
     // instance; the parallel path needs explicit preloading.
     // Flow-to-Flow dependencies must use explicit imports.
-    if !is_flow_library_path(&node.path) {
+    if node.kind != ModuleKind::FlowStdlib {
         for (path, interface) in loaded_interfaces {
             if !node.imports.iter().any(|dep| &dep.target_path == path)
-                && is_flow_library_path(path)
+                && nodes_by_path
+                    .get(path)
+                    .is_some_and(|dep_node| dep_node.kind == ModuleKind::FlowStdlib)
             {
                 compiler.preload_module_interface(interface);
             }
         }
         for (path, dep_node) in nodes_by_path {
             if !node.imports.iter().any(|dep| &dep.target_path == path)
-                && is_flow_library_path(path)
+                && dep_node.kind == ModuleKind::FlowStdlib
             {
                 compiler.preload_dependency_program(&dep_node.program);
             }
         }
     }
-    if is_flow_library_path(&node.path) {
+    if node.kind == ModuleKind::FlowStdlib {
         compiler.set_strict_mode(false);
         compiler.set_strict_types(false);
     }
@@ -249,10 +247,10 @@ fn compile_parallel_module(
     let source_hash = hash_bytes(module_source.as_bytes());
     let semantic_config_hash =
         flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
-            !is_flow_library_path(&node.path) && strict_mode,
+            node.kind != ModuleKind::FlowStdlib && strict_mode,
             enable_optimize,
         );
-    let strict_hash = if is_flow_library_path(&node.path) {
+    let strict_hash = if node.kind == ModuleKind::FlowStdlib {
         hash_bytes(b"strict=0")
     } else {
         hash_bytes(if strict_mode {
@@ -519,7 +517,7 @@ fn compile_vm_modules_parallel(
         // have no explicit import edges to them in the module graph.
         let (flow_nodes, user_nodes): (Vec<_>, Vec<_>) = ready
             .iter()
-            .partition(|node| is_flow_library_path(&node.path));
+            .partition(|node| node.kind == ModuleKind::FlowStdlib);
 
         // Sub-batches to process: Flow first, then user modules.
         let batches: Vec<Vec<&ModuleNode>> = if flow_nodes.is_empty() {
@@ -797,7 +795,7 @@ fn compile_parallel_native_module(
     base_interner: &flux::syntax::interner::Interner,
     export_user_ctor_name_helper: bool,
 ) -> NativeParallelModuleResult {
-    let is_flow_library = is_flow_library_path(&node.path);
+    let is_flow_library = node.kind == ModuleKind::FlowStdlib;
     let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
     let source_hash = hash_bytes(module_source.as_bytes());
     let semantic_config_hash =
@@ -827,7 +825,7 @@ fn compile_parallel_native_module(
                 .ok();
                 // Library modules require a valid interface to be cached;
                 // entry modules (non-library) can be cached without one.
-                if interface.is_some() || !is_flow_library_path(&node.path) {
+                if interface.is_some() || node.kind != ModuleKind::FlowStdlib {
                     return NativeParallelModuleResult {
                         path: node.path.clone(),
                         object_path,
@@ -1066,7 +1064,7 @@ fn compile_native_modules_parallel(
         // available for user modules via auto-prelude.
         let (flow_nodes, user_nodes): (Vec<_>, Vec<_>) = level
             .iter()
-            .partition(|node| is_flow_library_path(&node.path));
+            .partition(|node| node.kind == ModuleKind::FlowStdlib);
         let batches: Vec<Vec<&ModuleNode>> = if flow_nodes.is_empty() {
             vec![user_nodes]
         } else if user_nodes.is_empty() {
@@ -1920,11 +1918,18 @@ fn run_file(
             // Sort topo_order to compile Flow library modules first.
             // This ensures all modules can access Flow functions (map, filter, etc.)
             // without explicit imports — like Haskell's implicit Prelude.
+            let nodes_by_path: HashMap<PathBuf, ModuleNode> = graph
+                .topo_order()
+                .iter()
+                .map(|node| (node.path.clone(), (*node).clone()))
+                .collect();
             let mut ordered_nodes = graph.topo_order();
             ordered_nodes.sort_by_key(|node| {
-                let is_flow = node.path.to_string_lossy().contains("lib/Flow/")
-                    || node.path.to_string_lossy().contains("lib\\Flow\\");
-                if is_flow { 0 } else { 1 }
+                if node.kind == ModuleKind::FlowStdlib {
+                    0
+                } else {
+                    1
+                }
             });
 
             let seq_total = ordered_nodes.len();
@@ -1980,9 +1985,9 @@ fn run_file(
                             }
                             continue;
                         };
-                        let dep_is_flow_library =
-                            dep.target_path.to_string_lossy().contains("lib/Flow/")
-                                || dep.target_path.to_string_lossy().contains("lib\\Flow\\");
+                        let dep_is_flow_library = nodes_by_path
+                            .get(&dep.target_path)
+                            .is_some_and(|dep_node| dep_node.kind == ModuleKind::FlowStdlib);
                         let dep_semantic_config_hash =
                             flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
                                 !dep_is_flow_library && strict_mode,
@@ -2019,9 +2024,9 @@ fn run_file(
                 }
 
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
+                compiler.set_current_module_kind(node.kind);
                 let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
-                let is_flow_library = node.path.to_string_lossy().contains("lib/Flow/")
-                    || node.path.to_string_lossy().contains("lib\\Flow\\");
+                let is_flow_library = node.kind == ModuleKind::FlowStdlib;
                 let module_semantic_config_hash =
                     flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
                         !is_flow_library && strict_mode,
@@ -2681,7 +2686,7 @@ fn run_file(
                 let flow_object_paths: HashSet<PathBuf> = graph
                     .topo_order()
                     .iter()
-                    .filter(|node| is_flow_library_path(&node.path))
+                    .filter(|node| node.kind == ModuleKind::FlowStdlib)
                     .filter_map(|node| {
                         // Find the corresponding .o in object_paths by matching the module name
                         // embedded in the object filename (e.g., "Array-a732...o" for Flow.Array).
@@ -3044,9 +3049,11 @@ fn run_test_file(
     // without explicit imports — like Haskell's implicit Prelude.
     let mut ordered_nodes = graph.topo_order();
     ordered_nodes.sort_by_key(|node| {
-        let is_flow = node.path.to_string_lossy().contains("lib/Flow/")
-            || node.path.to_string_lossy().contains("lib\\Flow\\");
-        if is_flow { 0 } else { 1 }
+        if node.kind == ModuleKind::FlowStdlib {
+            0
+        } else {
+            1
+        }
     });
 
     for node in ordered_nodes {
@@ -3054,9 +3061,9 @@ fn run_test_file(
             continue;
         }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
+        compiler.set_current_module_kind(node.kind);
         let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
-        let is_flow_library = node.path.to_string_lossy().contains("lib/Flow/")
-            || node.path.to_string_lossy().contains("lib\\Flow\\");
+        let is_flow_library = node.kind == ModuleKind::FlowStdlib;
         compiler.set_strict_require_main(is_entry_module);
         if is_flow_library {
             compiler.set_strict_mode(false);

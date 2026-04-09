@@ -36,12 +36,12 @@ fn main() with IO {
     print(concat(a, b));  // [|1, 2, 3, 4, 5, 6|]
 
     // reverse - reverse array order
-    print(reverse(arr));  // [|5, 4, 3, 2, 1|]
+    print(Array.reverse(arr));  // [|5, 4, 3, 2, 1|]
 
     // contains - check if element exists
     let fruits = [|"apple", "banana", "cherry"|];
-    print(contains(fruits, "banana"));  // true
-    print(contains(fruits, "grape"));   // false
+    print(Array.contains(fruits, "banana"));  // true
+    print(Array.contains(fruits, "grape"));   // false
 
     // slice - extract portion of array (start inclusive, end exclusive)
     let items = [|10, 20, 30, 40, 50|];
@@ -58,12 +58,12 @@ fn main() with IO {
     // sort with floats
     let floats = [|3.14, 1.41, 2.71|];
     print(Array.sort(floats));           // [|1.41, 2.71, 3.14|]
-    print(reverse(Array.sort(floats)));   // [|3.14, 2.71, 1.41|]
+    print(Array.reverse(Array.sort(floats)));   // [|3.14, 2.71, 1.41|]
 
     // Practical example: Get top 3 scores
     fn topThree(scores) {
         let sorted = Array.sort_by(scores, \x -> 0 - x);
-        slice(sorted, 0, 3);
+        slice(sorted, 0, 3)
     }
 
     let scores = [|85, 92, 78, 95, 88, 91|];
