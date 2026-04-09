@@ -1674,6 +1674,15 @@ impl Compiler {
                 }
                 // ADT type declarations are allowed inside modules
                 Statement::Data { .. } => {}
+                // Type class declarations are allowed inside modules (Proposal 0151).
+                // Semantic processing happens in the class collection pipeline; the
+                // bytecode compiler treats them as transparent here.
+                Statement::Class { .. } => {}
+                Statement::Instance { .. } => {}
+                // Imports inside module bodies are allowed (Proposal 0151 §5a).
+                // Resolution happens via the module graph; the bytecode compiler
+                // ignores them at this site.
+                Statement::Import { .. } => {}
                 _ => {
                     let pos = statement.position();
                     return Err(Self::boxed(Diagnostic::make_error(
