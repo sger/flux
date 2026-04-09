@@ -439,6 +439,12 @@ struct FinalInferenceResult<'a> {
     hm_final: InferProgramResult,
 }
 
+#[derive(Clone, Copy)]
+enum LoweringPreparationMode {
+    Fresh,
+    WithPreloaded,
+}
+
 #[cfg(test)]
 mod compiler_test;
 
@@ -701,11 +707,33 @@ impl Compiler {
         self.lower_core_from_program(prepared.effective_program.as_ref(), false, false)
     }
 
-    fn prepare_program_for_lowering<'a>(&mut self, program: &'a Program) -> FinalInferenceResult<'a> {
+    fn prepare_program_for_lowering_internal<'a>(
+        &mut self,
+        program: &'a Program,
+        mode: LoweringPreparationMode,
+    ) -> FinalInferenceResult<'a> {
         #[cfg(test)]
         {
             self.hm_infer_runs = 0;
         }
+        let (preloaded_contracts, preloaded_visibility, preloaded_adt_ctors, preloaded_effect_ops, preloaded_effect_sigs) =
+            match mode {
+                LoweringPreparationMode::Fresh => (
+                    HashMap::new(),
+                    HashMap::new(),
+                    HashMap::new(),
+                    HashMap::new(),
+                    HashMap::new(),
+                ),
+                LoweringPreparationMode::WithPreloaded => (
+                    self.module_contracts.clone(),
+                    self.module_function_visibility.clone(),
+                    self.module_adt_constructors.clone(),
+                    self.effect_ops_registry.clone(),
+                    self.effect_op_signatures.clone(),
+                ),
+            };
+
         self.file_scope_symbols.clear();
         self.imported_modules.clear();
         self.import_aliases.clear();
@@ -717,15 +745,18 @@ impl Compiler {
         self.static_type_scopes.push(HashMap::new());
         self.effect_alias_scopes.clear();
         self.effect_alias_scopes.push(HashMap::new());
-        self.module_contracts.clear();
-        self.module_function_visibility.clear();
-        self.module_adt_constructors.clear();
+        self.module_contracts = preloaded_contracts;
+        self.module_function_visibility = preloaded_visibility;
+        self.module_adt_constructors = preloaded_adt_ctors;
         self.type_env = TypeEnv::new();
         self.hm_expr_types.clear();
-        self.effect_ops_registry.clear();
-        self.effect_op_signatures.clear();
+        self.effect_ops_registry = preloaded_effect_ops;
+        self.effect_op_signatures = preloaded_effect_sigs;
 
         self.collect_module_function_visibility(program);
+        if matches!(mode, LoweringPreparationMode::WithPreloaded) {
+            self.collect_module_adt_constructors(program);
+        }
         self.collect_module_contracts(program);
         self.collect_effect_declarations(program);
         self.auto_expose_flow_modules();
@@ -756,69 +787,15 @@ impl Compiler {
         }
     }
 
+    fn prepare_program_for_lowering<'a>(&mut self, program: &'a Program) -> FinalInferenceResult<'a> {
+        self.prepare_program_for_lowering_internal(program, LoweringPreparationMode::Fresh)
+    }
+
     fn prepare_program_for_lowering_with_preloaded<'a>(
         &mut self,
         program: &'a Program,
     ) -> FinalInferenceResult<'a> {
-        #[cfg(test)]
-        {
-            self.hm_infer_runs = 0;
-        }
-        let preloaded_contracts = self.module_contracts.clone();
-        let preloaded_visibility = self.module_function_visibility.clone();
-        let preloaded_adt_ctors = self.module_adt_constructors.clone();
-        let preloaded_effect_ops = self.effect_ops_registry.clone();
-        let preloaded_effect_sigs = self.effect_op_signatures.clone();
-
-        self.file_scope_symbols.clear();
-        self.imported_modules.clear();
-        self.import_aliases.clear();
-        self.imported_module_exclusions.clear();
-        self.exposed_bindings.clear();
-        self.current_module_prefix = None;
-        self.current_span = None;
-        self.static_type_scopes.clear();
-        self.static_type_scopes.push(HashMap::new());
-        self.effect_alias_scopes.clear();
-        self.effect_alias_scopes.push(HashMap::new());
-        self.module_contracts = preloaded_contracts;
-        self.module_function_visibility = preloaded_visibility;
-        self.module_adt_constructors = preloaded_adt_ctors;
-        self.type_env = TypeEnv::new();
-        self.hm_expr_types.clear();
-        self.effect_ops_registry = preloaded_effect_ops;
-        self.effect_op_signatures = preloaded_effect_sigs;
-
-        self.collect_module_function_visibility(program);
-        self.collect_module_adt_constructors(program);
-        self.collect_module_contracts(program);
-        self.collect_effect_declarations(program);
-        self.auto_expose_flow_modules();
-
-        if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
-            let extra = crate::types::class_dispatch::generate_dispatch_functions(
-                &program.statements,
-                &self.class_env,
-                &mut self.interner,
-            );
-            if extra.is_empty() {
-                self.infer_final_program(program)
-            } else {
-                let mut statements = extra;
-                statements.extend(program.statements.iter().cloned());
-                let class_augmented = Program {
-                    statements,
-                    span: program.span,
-                };
-                let final_inference = self.infer_final_program(&class_augmented);
-                FinalInferenceResult {
-                    effective_program: Cow::Owned(final_inference.effective_program.into_owned()),
-                    hm_final: final_inference.hm_final,
-                }
-            }
-        } else {
-            self.infer_final_program(program)
-        }
+        self.prepare_program_for_lowering_internal(program, LoweringPreparationMode::WithPreloaded)
     }
 
     /// Auto-expose all public members of Flow library modules.
