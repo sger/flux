@@ -199,7 +199,9 @@ fn generate_builtin_instance_functions(
                     &instance.type_args,
                     interner,
                 )),
-                effects: vec![],
+                // Built-in instance bodies are pure intrinsics today; if a
+                // built-in class ever gains a `with` clause, this carries it.
+                effects: method_sig.effects.clone(),
                 body,
                 span: Span::default(),
             });
@@ -260,7 +262,7 @@ fn generate_default_method_functions(
                                 parameters: method.params.clone(),
                                 parameter_types: vec![None; method.params.len()],
                                 return_type: None,
-                                effects: vec![],
+                                effects: method.effects.clone(),
                                 body: default_body.clone(),
                                 span: *span,
                             });
@@ -360,7 +362,11 @@ fn generate_from_statements(
                         type_args, context, method_sig, interner,
                     );
 
-                    // Create a regular function statement with the mangled name
+                    // Create a regular function statement with the mangled name.
+                    // Proposal 0151, Phase 4a: forward the instance method's
+                    // declared effect row so the synthesized function's
+                    // inferred type carries it, and so callers that resolve
+                    // through this instance see the row.
                     let fn_stmt = Statement::Function {
                         is_public: false,
                         fip: None,
@@ -369,7 +375,7 @@ fn generate_from_statements(
                         parameters,
                         parameter_types,
                         return_type,
-                        effects: vec![],
+                        effects: method.effects.clone(),
                         body: method.body.clone(),
                         span: Span::default(),
                     };

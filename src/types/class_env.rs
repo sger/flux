@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use crate::{
     diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for, position::Span},
     syntax::{
-        Identifier, interner::Interner, statement::Statement, type_class::ClassConstraint,
-        type_expr::TypeExpr,
+        Identifier, effect_expr::EffectExpr, interner::Interner, statement::Statement,
+        type_class::ClassConstraint, type_expr::TypeExpr,
     },
     types::{
         class_id::{ClassId, ModulePath},
@@ -93,6 +93,10 @@ pub struct MethodSig {
     pub param_types: Vec<TypeExpr>,
     pub return_type: TypeExpr,
     pub arity: usize,
+    /// Declared effect row for the method (Proposal 0151, Phase 4a).
+    /// Acts as a *floor*: implementing instances must declare a row that
+    /// is a superset of this one (validated by the E452 walker).
+    pub effects: Vec<EffectExpr>,
 }
 
 /// An instance definition collected from an `instance` declaration.
@@ -554,6 +558,7 @@ impl ClassEnv {
                             param_types: m.param_types.clone(),
                             return_type: m.return_type.clone(),
                             arity: m.params.len(),
+                            effects: m.effects.clone(),
                         })
                         .collect();
 
@@ -1327,6 +1332,7 @@ impl ClassEnv {
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: bool_ty.clone(),
                     arity: 2,
+                    effects: vec![],
                 },
                 MethodSig {
                     type_params: vec![],
@@ -1334,6 +1340,7 @@ impl ClassEnv {
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: bool_ty.clone(),
                     arity: 2,
+                    effects: vec![],
                 },
             ],
         );
@@ -1349,6 +1356,7 @@ impl ClassEnv {
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: int_ty.clone(),
                     arity: 2,
+                    effects: vec![],
                 },
                 MethodSig {
                     type_params: vec![],
@@ -1356,6 +1364,7 @@ impl ClassEnv {
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: bool_ty.clone(),
                     arity: 2,
+                    effects: vec![],
                 },
                 MethodSig {
                     type_params: vec![],
@@ -1363,6 +1372,7 @@ impl ClassEnv {
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: bool_ty.clone(),
                     arity: 2,
+                    effects: vec![],
                 },
                 MethodSig {
                     type_params: vec![],
@@ -1370,6 +1380,7 @@ impl ClassEnv {
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: bool_ty.clone(),
                     arity: 2,
+                    effects: vec![],
                 },
                 MethodSig {
                     type_params: vec![],
@@ -1377,6 +1388,7 @@ impl ClassEnv {
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: bool_ty.clone(),
                     arity: 2,
+                    effects: vec![],
                 },
             ],
         );
@@ -1392,6 +1404,7 @@ impl ClassEnv {
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: a_ty.clone(),
                     arity: 2,
+                    effects: vec![],
                 },
                 MethodSig {
                     type_params: vec![],
@@ -1399,6 +1412,7 @@ impl ClassEnv {
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: a_ty.clone(),
                     arity: 2,
+                    effects: vec![],
                 },
                 MethodSig {
                     type_params: vec![],
@@ -1406,6 +1420,7 @@ impl ClassEnv {
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: a_ty.clone(),
                     arity: 2,
+                    effects: vec![],
                 },
                 MethodSig {
                     type_params: vec![],
@@ -1413,6 +1428,7 @@ impl ClassEnv {
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: a_ty.clone(),
                     arity: 2,
+                    effects: vec![],
                 },
             ],
         );
@@ -1427,6 +1443,7 @@ impl ClassEnv {
                 param_types: vec![a_ty.clone()],
                 return_type: string_ty,
                 arity: 1,
+                effects: vec![],
             }],
         );
 
@@ -1440,6 +1457,7 @@ impl ClassEnv {
                 param_types: vec![a_ty.clone(), a_ty],
                 return_type: builtin_type(a_param),
                 arity: 2,
+                effects: vec![],
             }],
         );
 
