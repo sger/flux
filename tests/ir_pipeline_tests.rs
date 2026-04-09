@@ -180,6 +180,63 @@ my_eq([1], [1]);
 }
 
 #[test]
+fn hkt_functor_list_dispatches_at_runtime() {
+    let value = run(
+        r#"
+class Functor<f> {
+    fn fmap<a, b>(x: f<a>, func: (a) -> b): f<b>
+}
+
+instance Functor<List> {
+    fn fmap(xs, func) {
+        fn go(ys) {
+            match ys {
+                [] -> [],
+                [h | t] -> [func(h) | go(t)]
+            }
+        }
+        go(xs)
+    }
+}
+
+to_string(fmap([1, 2, 3], \x -> x * 2));
+"#,
+    );
+
+    assert_eq!(value, Value::String("[2, 4, 6]".to_string().into()));
+}
+
+#[test]
+fn hkt_functor_list_dump_core_uses_mangled_dispatch_call() {
+    let core = dump_core(
+        r#"
+class Functor<f> {
+    fn fmap<a, b>(x: f<a>, func: (a) -> b): f<b>
+}
+
+instance Functor<List> {
+    fn fmap(xs, func) {
+        fn go(ys) {
+            match ys {
+                [] -> [],
+                [h | t] -> [func(h) | go(t)]
+            }
+        }
+        go(xs)
+    }
+}
+
+fmap([1, 2, 3], \x -> x * 2);
+"#,
+    );
+
+    assert!(
+        core.contains("__tc_Functor_List_fmap"),
+        "expected HKT class call to lower to the mangled instance method, got:\n{core}"
+    );
+}
+
+#[test]
 fn contextual_list_instance_dump_core_shows_mangled_dispatch_call() {
     let core = dump_core(
         r#"

@@ -3,10 +3,22 @@
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0145 Steps 1–5 (done), HKT kind system (done)
+- Status: Complete
+- Date: 2026-04-09
 
 ## Summary
 
 Enable compile-time instance resolution for higher-kinded type class parameters. `instance Functor<List>` should resolve when `fmap` is called with a `List<Int>` argument. This unblocks `Functor`, `Foldable`, and other HKT type classes.
+
+## Implementation status
+
+Last updated: 2026-04-09
+
+Proposal 0150 is complete.
+
+- `ClassEnv::match_instance_type_expr` now treats a bare constructor instance head like `List` as a match for `Con(List)`, `App(List, [...])`, and `HktApp(Con(List), [...])`.
+- Focused resolver unit tests cover applied-list matching, `HktApp`, multi-argument constructors, mismatch rejection, and explicit-argument structural matching.
+- End-to-end IR pipeline tests prove `Functor<List>` both lowers to `__tc_Functor_List_fmap` and executes successfully at runtime.
 
 ## Motivation
 
@@ -16,7 +28,7 @@ Flux already has the infrastructure for higher-kinded types:
 - `class Functor<f>` and `instance Functor<List>` parse correctly
 - The `__tc_Functor_List_fmap` mangled function is generated from the instance declaration
 
-But instance resolution fails at runtime:
+Before this proposal, instance resolution failed at runtime:
 
 ```flux
 class Functor<f> {
@@ -33,7 +45,7 @@ fn main() with IO {
 }
 ```
 
-The panic occurs because `try_resolve_class_call` cannot match the call-site argument type `List<Int>` against the instance type parameter `List`.
+The failure occurred because `try_resolve_class_call` could not match the call-site argument type `List<Int>` against the instance type parameter `List`.
 
 ### Root cause
 
@@ -42,9 +54,9 @@ The instance resolver (`resolve_instance_with_subst` in `class_env.rs`) compares
 - **Instance pattern**: `Functor<List>` — type arg is `TypeExpr::Named { name: "List", args: [] }`
 - **Actual type**: first arg of `fmap([1,2,3], ...)` has HM type `App(List, [Int])`
 
-The matcher at `match_instance_type_expr` (line ~712) checks `args.len() == actual_args.len()` — but the instance pattern has 0 args (`List` bare) while the actual has 1 (`List<Int>` applied). This length mismatch causes the match to fail.
+The old matcher at `match_instance_type_expr` checked `args.len() == actual_args.len()` — but the instance pattern had 0 args (`List` bare) while the actual had 1 (`List<Int>` applied). This length mismatch caused the match to fail.
 
-The resolver doesn't understand that `List` as a **kind `Type → Type`** parameter should match the **constructor** of `App(List, [Int])`, not the fully-applied type.
+The resolver did not understand that `List` as a **kind `Type → Type`** parameter should match the **constructor** of `App(List, [Int])`, not the fully-applied type.
 
 ### What this unblocks
 
@@ -87,7 +99,7 @@ The compiler resolves `fmap([1, 2, 3], ...)` by:
 
 **File**: `src/types/class_env.rs`, function `match_instance_type_expr`
 
-Current code (line ~712) handles `TypeExpr::Named { name, args: [] }` (bare constructor like `List`) matched against `InferType::App(tc, actual_args)`:
+The old code handled `TypeExpr::Named { name, args: [] }` (bare constructor like `List`) matched against `InferType::App(tc, actual_args)` like this:
 
 ```rust
 // Current: requires args.len() == actual_args.len()
@@ -113,23 +125,19 @@ TypeExpr::Named { name, args, .. } if args.is_empty() => match actual {
 
 This is safe because the kind system already ensures that `Functor<List>` is well-kinded — `f` has kind `Type → Type`, and `List` has kind `Type → Type`. The match only needs to verify the constructor identity.
 
-### Change 2: Type argument stripping in `try_resolve_class_call`
+### Change 2: No caller-side stripping needed
 
 **File**: `src/core/lower_ast/mod.rs`, function `try_resolve_class_call`
 
-Currently (line ~286), the first argument's full type `App(List, [Int])` is passed to `resolve_instance_with_subst`. For HKT instances, the resolver needs the **constructor** (`List`), not the applied type (`List<Int>`).
+`try_resolve_class_call` continues to pass the first argument's full type `App(List, [Int])` to `resolve_instance_with_subst`. The resolver now handles the decomposition internally, so no caller-side stripping is needed.
 
-**Option A**: Handle in `resolve_instance_with_subst` (preferred — the fix in Change 1 already does this).
-
-**Option B**: Strip type applications before calling, passing `Con(List)` instead of `App(List, [Int])`. This requires detecting when the class parameter is HKT (kind `Type → Type`).
-
-Change 1 alone should be sufficient — the matcher decomposes `App(List, [Int])` by matching just the constructor against the bare `List` pattern.
+This keeps the change localized to the instance resolver and preserves existing mangling and dictionary lookup behavior.
 
 ### Change 3: Dictionary construction for HKT instances
 
 **File**: `src/core/passes/dict_elaborate.rs`
 
-The dictionary elaboration pass constructs `__dict_Functor_List` as `MakeTuple(__tc_Functor_List_fmap)`. This should already work since the `__tc_*` functions are generated by the normal instance dispatch pipeline. Verify that `pre_intern_dict_names` handles HKT instance type args correctly (the type key would be `"List"`, not `"List_Int"`).
+The dictionary elaboration pass constructs `__dict_Functor_List` as `MakeTuple(__tc_Functor_List_fmap)`. This already works because mangling and dictionary naming continue to derive their key from the matched instance declaration's type args (`List`, not `List_Int`).
 
 ### What does NOT change
 
@@ -149,7 +157,7 @@ The dictionary elaboration pass constructs `__dict_Functor_List` as `MakeTuple(_
 
 ### Why this design?
 
-The fix is minimal — one `match` arm change in `match_instance_type_expr`. It leverages the existing infrastructure (kind system, HktApp, mangled name generation) without architectural changes.
+The shipped fix is minimal — one focused matcher change in `match_instance_type_expr` plus regression coverage. It leverages the existing infrastructure (kind system, HktApp, mangled name generation) without architectural changes.
 
 ### Alternatives
 
