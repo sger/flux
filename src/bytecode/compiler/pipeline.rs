@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::diagnostics::Diagnostic;
 use crate::syntax::program::Program;
 use crate::types::class_dispatch::generate_dispatch_functions;
@@ -10,8 +12,8 @@ pub(super) struct CollectionResult {
 }
 
 /// Result of Phase 3 (type inference), consumed by Phases 4–6.
-pub(super) struct TypeInferenceResult {
-    pub(super) final_program: Program,
+pub(super) struct TypeInferenceResult<'a> {
+    pub(super) final_program: Cow<'a, Program>,
     pub(super) hm_diagnostics: Vec<Diagnostic>,
 }
 
@@ -21,6 +23,7 @@ impl Compiler {
     /// Phases are executed in order; inter-phase data flows through
     /// [`CollectionResult`] and [`TypeInferenceResult`] structs.
     pub(super) fn run_pipeline(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
+        let source_program = program;
         // Phase 0: Reset per-file state
         self.phase_reset();
 
@@ -59,9 +62,14 @@ impl Compiler {
 
         // Phase 3: Type inference
         let ti = self.phase_type_inference(program);
+        self.last_inferred_program = match &ti.final_program {
+            Cow::Owned(program) => Some(program.clone()),
+            Cow::Borrowed(_) if !std::ptr::eq(program, source_program) => Some(program.clone()),
+            Cow::Borrowed(_) => None,
+        };
 
         // Phase 4: IR lowering (uses the possibly-optimized program)
-        let effective_program = &ti.final_program;
+        let effective_program = ti.final_program.as_ref();
         let ir_program = self.phase_ir_lowering(effective_program)?;
 
         // Phase 5: Code generation
