@@ -23,7 +23,7 @@ use crate::{
 use super::super::diagnostics::compiler_errors::{
     DUPLICATE_CLASS, DUPLICATE_INSTANCE, INSTANCE_EXTRA_METHOD, INSTANCE_METHOD_ARITY,
     INSTANCE_MISSING_METHOD, INSTANCE_TYPE_ARG_ARITY, INSTANCE_UNKNOWN_CLASS,
-    MISSING_SUPERCLASS_INSTANCE,
+    MISSING_SUPERCLASS_INSTANCE, ORPHAN_INSTANCE,
 };
 
 /// A type class definition collected from a `class` declaration.
@@ -179,7 +179,121 @@ impl ClassEnv {
         Self::collect_classes(statements, ModulePath::EMPTY, self, &mut diagnostics, interner);
         Self::collect_instances(statements, ModulePath::EMPTY, self, &mut diagnostics, interner);
         Self::collect_deriving(statements, ModulePath::EMPTY, self, &mut diagnostics, interner);
+
+        // Proposal 0151, Phase 2: orphan rule enforcement.
+        //
+        // Build a map of user-defined ADT name -> owning module by walking
+        // the program's `data` declarations, then check every collected
+        // instance against the relaxed orphan rule (instance is legal iff
+        // either the class or the head type is local to the instance's
+        // owning module). Legacy top-level instances (instance_module ==
+        // EMPTY) are grandfathered.
+        let mut data_modules: HashMap<Identifier, ModulePath> = HashMap::new();
+        Self::collect_data_modules(statements, ModulePath::EMPTY, &mut data_modules);
+        self.enforce_orphan_rule(&data_modules, &mut diagnostics, interner);
+
         diagnostics
+    }
+
+    /// Walk a statement tree and record the owning module for each `data`
+    /// declaration. Used by the orphan rule walker (Phase 2).
+    fn collect_data_modules(
+        statements: &[Statement],
+        current_module: ModulePath,
+        out: &mut HashMap<Identifier, ModulePath>,
+    ) {
+        for stmt in statements {
+            match stmt {
+                Statement::Data { name, .. } => {
+                    // First-wins: if the same ADT name appears twice (which
+                    // would be flagged elsewhere), keep the first sighting.
+                    out.entry(*name).or_insert(current_module);
+                }
+                Statement::Module { name, body, .. } => {
+                    let module_path = ModulePath::from_identifier(*name);
+                    Self::collect_data_modules(&body.statements, module_path, out);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Enforce the orphan rule on every collected instance.
+    ///
+    /// An instance `instance C<T>` declared in module `M` is legal iff:
+    ///   * `M == class_module(C)`, or
+    ///   * `M == head_module(T)`.
+    ///
+    /// Legacy top-level instances (where `instance_module == EMPTY`) are
+    /// grandfathered: they participate in the implicit prelude and predate
+    /// module-scoped classes. Built-in placeholder instances (with empty
+    /// `method_names` and a default span) are also skipped.
+    fn enforce_orphan_rule(
+        &self,
+        data_modules: &HashMap<Identifier, ModulePath>,
+        diagnostics: &mut Vec<Diagnostic>,
+        interner: &Interner,
+    ) {
+        for inst in &self.instances {
+            // Skip legacy / built-in placeholder instances.
+            if inst.instance_module.is_empty() {
+                continue;
+            }
+            if inst.method_names.is_empty() && inst.span == Span::default() {
+                continue;
+            }
+
+            let class_module = inst.class_id.module;
+            let head_module = Self::head_type_owning_module(&inst.type_args, data_modules);
+
+            let class_local = inst.instance_module == class_module;
+            let head_local = match head_module {
+                Some(m) => inst.instance_module == m,
+                None => false,
+            };
+
+            if class_local || head_local {
+                continue;
+            }
+
+            let display_class = interner.resolve(inst.class_name);
+            let display_type: Vec<String> = inst
+                .type_args
+                .iter()
+                .map(|t| t.display_with(interner))
+                .collect();
+            let display_head = display_type.join(", ");
+
+            diagnostics.push(
+                diagnostic_for(&ORPHAN_INSTANCE)
+                    .with_span(inst.span)
+                    .with_message(format!(
+                        "Orphan instance `{display_class}<{display_head}>` is not allowed."
+                    ))
+                    .with_hint_text(format!(
+                        "Move this instance into the module that defines `{display_class}` \
+                         or the module that defines its head type."
+                    )),
+            );
+        }
+    }
+
+    /// Compute the owning module of an instance's head type.
+    ///
+    /// Returns `Some(module)` when the head type is a user-defined ADT
+    /// recorded in `data_modules`, or `None` for built-in head types
+    /// (`Int`, `List`, `Option`, ...) and structural types (tuple,
+    /// function). A `None` result means "not owned by any user module",
+    /// so the instance is only legal if its class is local.
+    fn head_type_owning_module(
+        type_args: &[TypeExpr],
+        data_modules: &HashMap<Identifier, ModulePath>,
+    ) -> Option<ModulePath> {
+        let head = type_args.first()?;
+        let TypeExpr::Named { name, .. } = head else {
+            return None;
+        };
+        data_modules.get(name).copied()
     }
 
     /// Collect class declarations recursively (handles modules).
@@ -1831,6 +1945,168 @@ module Outer.Inner.Deep {
 
         let expected = interner.lookup("Outer.Inner.Deep").unwrap();
         assert_eq!(class_def.module, ModulePath::from_identifier(expected));
+    }
+
+    // ============================================================
+    // Proposal 0151, Phase 2: orphan rule walker tests (E449).
+    // ============================================================
+
+    /// Class is local: instance lives in the same module as the class.
+    /// Head type is foreign (Int). Must NOT be flagged as orphan.
+    #[test]
+    fn orphan_rule_class_local_is_legal() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.A {
+    class MyShow<a> {
+        fn my_show(x: a) -> String
+    }
+
+    instance MyShow<Int> {
+        fn my_show(x) { "" }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            !diags.iter().any(|d| d.code.as_deref() == Some("E449")),
+            "instance in class's own module must not be orphan, got: {:?}",
+            diags
+        );
+    }
+
+    /// Head type is local: data declared in the same module as the
+    /// instance, class is foreign. Must NOT be flagged as orphan.
+    #[test]
+    fn orphan_rule_head_type_local_is_legal() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.Class {
+    class MyShow<a> {
+        fn my_show(x: a) -> String
+    }
+}
+
+module Mod.Type {
+    data Color { Red, Green, Blue }
+
+    instance MyShow<Color> {
+        fn my_show(x) { "" }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            !diags.iter().any(|d| d.code.as_deref() == Some("E449")),
+            "instance in head type's own module must not be orphan, got: {:?}",
+            diags
+        );
+    }
+
+    /// Third-module orphan: neither the class nor the head type lives in
+    /// the instance's module. Must fire E449.
+    #[test]
+    fn orphan_rule_third_module_is_rejected() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.Class {
+    class MyShow<a> {
+        fn my_show(x: a) -> String
+    }
+}
+
+module Mod.Type {
+    data Color { Red, Green, Blue }
+}
+
+module Mod.Third {
+    instance MyShow<Color> {
+        fn my_show(x) { "" }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            diags.iter().any(|d| d.code.as_deref() == Some("E449")),
+            "third-module instance should be rejected as orphan, got: {:?}",
+            diags
+        );
+    }
+
+    /// `deriving` instances are always trivially legal because they live
+    /// in the data declaration's own module — head type is local.
+    #[test]
+    fn orphan_rule_deriving_is_legal() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.Class {
+    class MyShow<a> {
+        fn my_show(x: a) -> String
+    }
+}
+
+module Mod.Type {
+    data Color { Red, Green, Blue } deriving (MyShow)
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            !diags.iter().any(|d| d.code.as_deref() == Some("E449")),
+            "deriving instance lives in the data's module — must not be orphan, got: {:?}",
+            diags
+        );
+    }
+
+    /// Legacy top-level instances (instance_module == EMPTY) are
+    /// grandfathered: the orphan walker must not flag them.
+    #[test]
+    fn orphan_rule_grandfathers_top_level_instances() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+class TopLvlShow<a> {
+    fn doit(x: a) -> String
+}
+
+instance TopLvlShow<Int> {
+    fn doit(x) { "" }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            !diags.iter().any(|d| d.code.as_deref() == Some("E449")),
+            "legacy top-level instances must be grandfathered, got: {:?}",
+            diags
+        );
     }
 
     fn env_with_instance(
