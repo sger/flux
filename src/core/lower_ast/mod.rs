@@ -728,6 +728,11 @@ impl<'a> AstLowerer<'a> {
                 span: *span,
             }),
             Statement::Class {
+                // Proposal 0151: Core IR is currently visibility-blind. Phase
+                // 2 will revisit whether `CoreTopLevelItem::Class` needs to
+                // carry visibility for `.flxi` serialization; until then we
+                // drop the field at the AST→Core boundary.
+                is_public: _,
                 name,
                 type_params,
                 superclasses,
@@ -741,6 +746,7 @@ impl<'a> AstLowerer<'a> {
                 span: *span,
             }),
             Statement::Instance {
+                is_public: _,
                 class_name,
                 type_args,
                 context,
