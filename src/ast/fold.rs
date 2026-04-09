@@ -170,12 +170,14 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             span,
         },
         Statement::Data {
+            is_public,
             name,
             type_params,
             variants,
             span,
             deriving,
         } => Statement::Data {
+            is_public,
             name,
             type_params,
             variants,

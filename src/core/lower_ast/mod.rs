@@ -711,6 +711,9 @@ impl<'a> AstLowerer<'a> {
                 span: *span,
             }),
             Statement::Data {
+                // Proposal 0151: ADT visibility is enforced at the class
+                // visibility walker; Core IR is visibility-blind.
+                is_public: _,
                 name,
                 type_params,
                 variants,
