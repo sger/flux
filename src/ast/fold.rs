@@ -184,12 +184,14 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
         },
         Statement::EffectDecl { name, ops, span } => Statement::EffectDecl { name, ops, span },
         Statement::Class {
+            is_public,
             name,
             type_params,
             superclasses,
             methods,
             span,
         } => Statement::Class {
+            is_public,
             name,
             type_params,
             superclasses,
@@ -197,12 +199,14 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             span,
         },
         Statement::Instance {
+            is_public,
             class_name,
             type_args,
             context,
             methods,
             span,
         } => Statement::Instance {
+            is_public,
             class_name,
             type_args,
             context,
