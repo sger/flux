@@ -2559,6 +2559,10 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
             span: *span,
         }),
         Statement::Class {
+            // Proposal 0151: visibility is enforced in higher-level passes
+            // (class collection, name resolution). The cfg/IR layer is
+            // visibility-blind, so we drop the field here.
+            is_public: _,
             name,
             type_params,
             superclasses,
@@ -2572,6 +2576,7 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
             span: *span,
         }),
         Statement::Instance {
+            is_public: _,
             class_name,
             type_args,
             context,
@@ -2708,6 +2713,12 @@ pub(crate) fn ir_top_level_item_to_statement(
             methods,
             span,
         } => Statement::Class {
+            // Proposal 0151: cfg/IR is visibility-blind, so the round-trip
+            // through IR loses the original `is_public` value. This function
+            // is `#[allow(dead_code)]` and reserved for future use; if it
+            // becomes load-bearing for visibility-sensitive paths, the IR
+            // type must grow an `is_public` field too.
+            is_public: false,
             name: *name,
             type_params: type_params.clone(),
             superclasses: superclasses.clone(),
@@ -2721,6 +2732,7 @@ pub(crate) fn ir_top_level_item_to_statement(
             methods,
             span,
         } => Statement::Instance {
+            is_public: false,
             class_name: *class_name,
             type_args: type_args.clone(),
             context: context.clone(),
