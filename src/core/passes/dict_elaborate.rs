@@ -1201,6 +1201,7 @@ mod tests {
             name: eq_sym,
             // Test fixture: synthetic built-in-style class with no owning module.
             module: crate::types::class_id::ModulePath::EMPTY,
+            is_public: false,
             type_params: vec![a_sym],
             superclasses: vec![],
             methods: vec![
@@ -1227,6 +1228,7 @@ mod tests {
             class_name: eq_sym,
             class_id: crate::types::class_id::ClassId::from_local_name(eq_sym),
             instance_module: crate::types::class_id::ModulePath::EMPTY,
+            is_public: false,
             type_args: vec![TypeExpr::Named {
                 name: int_sym,
                 args: vec![],
@@ -1324,6 +1326,7 @@ mod tests {
         let class_def = ClassDef {
             name: eq_sym,
             module: crate::types::class_id::ModulePath::EMPTY,
+            is_public: false,
             type_params: vec![a_sym],
             superclasses: vec![],
             methods: vec![MethodSig {
@@ -1345,6 +1348,7 @@ mod tests {
             class_name: eq_sym,
             class_id: crate::types::class_id::ClassId::from_local_name(eq_sym),
             instance_module: crate::types::class_id::ModulePath::EMPTY,
+            is_public: false,
             type_args: vec![TypeExpr::Named {
                 name: float_sym,
                 args: vec![],

@@ -884,6 +884,20 @@ pub const MISSING_SUPERCLASS_INSTANCE: ErrorCode = ErrorCode {
     hint: Some("Add the required superclass instance before this instance."),
 };
 
+/// Proposal 0151, Phase 2: a `public instance` cannot reference a private
+/// class. The class's visibility caps the instance's effective visibility,
+/// because downstream importers cannot name the class to dispatch through.
+pub const PUBLIC_INSTANCE_OF_PRIVATE_CLASS: ErrorCode = ErrorCode {
+    code: "E450",
+    title: "PUBLIC INSTANCE OF PRIVATE CLASS",
+    error_type: ErrorType::Compiler,
+    message: "`public instance` `{}` references a private class.",
+    hint: Some(
+        "Either mark the class `public class` or remove `public` from \
+         this instance.",
+    ),
+};
+
 /// Proposal 0151, Phase 2: orphan instance rejection.
 ///
 /// An `instance C<T>` is "orphan" when neither the class `C` nor the head
