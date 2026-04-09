@@ -1494,6 +1494,10 @@ impl Parser {
             }
         };
 
+        // Optional `with EffectA, EffectB` clause (Proposal 0151, Phase 4a).
+        // Class-method effects act as a *floor* on conforming instances.
+        let effects = self.parse_effect_list()?;
+
         // Optional default body `{ ... }`
         let default_body = if self.is_peek_token(TokenType::LBrace) {
             self.next_token(); // move current to `{`
@@ -1516,6 +1520,7 @@ impl Parser {
             params,
             param_types,
             return_type,
+            effects,
             default_body,
             span: self.span_from(start),
         })
@@ -1682,6 +1687,11 @@ impl Parser {
             return None;
         }
 
+        // Optional `with EffectA, EffectB` clause (Proposal 0151, Phase 4a).
+        // Instance-method effects must be a *superset* of the class method's
+        // declared row (floor semantics) — checked by the E452 walker.
+        let effects = self.parse_effect_list()?;
+
         // `{` body `}`
         if !self.expect_peek_context_with_details(
             TokenType::LBrace,
@@ -1700,6 +1710,7 @@ impl Parser {
         Some(InstanceMethod {
             name,
             params,
+            effects,
             body,
             span: self.span_from(start),
         })
