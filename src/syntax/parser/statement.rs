@@ -64,14 +64,23 @@ impl Parser {
             TokenType::Type => self.parse_type_adt_statement(),
             TokenType::Data => self.parse_data_statement(),
             TokenType::Effect => self.parse_effect_statement(),
-            TokenType::Class => self.parse_class_statement(),
-            TokenType::Instance => self.parse_instance_statement(),
+            TokenType::Class => self.parse_class_statement(false),
+            TokenType::Instance => self.parse_instance_statement(false),
             TokenType::Fn if self.is_peek_token(TokenType::Ident) => {
                 self.parse_function_statement(false, None)
             }
             TokenType::Public if self.is_peek_token(TokenType::Fn) => {
                 self.next_token(); // fn
                 self.parse_function_statement(true, None)
+            }
+            // Proposal 0151: `public class` and `public instance` declarations.
+            TokenType::Public if self.is_peek_token(TokenType::Class) => {
+                self.next_token(); // class
+                self.parse_class_statement(true)
+            }
+            TokenType::Public if self.is_peek_token(TokenType::Instance) => {
+                self.next_token(); // instance
+                self.parse_instance_statement(true)
             }
             TokenType::At => self.parse_annotated_function(),
             TokenType::Ident if self.current_token.literal == "fn" => {
@@ -1301,8 +1310,10 @@ impl Parser {
     // ── Type class declarations ──────────────────────────────────────────────
 
     /// Parses `class [Constraint =>] Name<params> { methods... }`.
-    /// current_token is `class` on entry.
-    pub(super) fn parse_class_statement(&mut self) -> Option<Statement> {
+    /// current_token is `class` on entry. The `is_public` parameter is set
+    /// by the dispatcher in `parse_statement` based on whether `public`
+    /// preceded `class` (Proposal 0151).
+    pub(super) fn parse_class_statement(&mut self, is_public: bool) -> Option<Statement> {
         let start = self.current_token.position;
 
         // Parse the head: either `Name<a>` or `Constraint<a> => Name<a>`
@@ -1381,6 +1392,8 @@ impl Parser {
         }
 
         Some(Statement::Class {
+            // Proposal 0151: populated from the dispatcher in `parse_statement`.
+            is_public,
             name: class_name,
             type_params,
             superclasses,
@@ -1500,8 +1513,10 @@ impl Parser {
     }
 
     /// Parses `instance [Constraint =>] ClassName<TypeArgs> { methods... }`.
-    /// current_token is `instance` on entry.
-    pub(super) fn parse_instance_statement(&mut self) -> Option<Statement> {
+    /// current_token is `instance` on entry. The `is_public` parameter is set
+    /// by the dispatcher in `parse_statement` based on whether `public`
+    /// preceded `instance` (Proposal 0151).
+    pub(super) fn parse_instance_statement(&mut self, is_public: bool) -> Option<Statement> {
         let start = self.current_token.position;
 
         // Parse first name + type args. Could be the class name or a context constraint.
@@ -1568,6 +1583,8 @@ impl Parser {
         }
 
         Some(Statement::Instance {
+            // Proposal 0151: populated from the dispatcher in `parse_statement`.
+            is_public,
             class_name,
             type_args,
             context,
