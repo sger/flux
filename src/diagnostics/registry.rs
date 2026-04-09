@@ -117,6 +117,8 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     PUBLIC_CLASS_LEAKS_PRIVATE_TYPE,
     PUBLIC_INSTANCE_HAS_PRIVATE_HEAD,
     AMBIGUOUS_CLASS_CONSTRAINT,
+    EXPOSING_LOCAL_COLLISION,
+    IMPORT_NAME_COLLISION_FILE_VS_MODULE,
     // Runtime errors (E1000+)
     WRONG_NUMBER_OF_ARGUMENTS,
     NOT_A_FUNCTION,
@@ -176,6 +178,7 @@ pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
         | "E446" | "E447" | "E448" | "E449" | "E450" | "E451" | "E455" | "E456" => {
             Some(DiagnosticCategory::TypeInference)
         }
+        "E457" | "E458" => Some(DiagnosticCategory::ModuleSystem),
         "E400" | "E401" | "E402" | "E403" | "E404" | "E405" | "E406" | "E407" | "E419" | "E420"
         | "E421" | "E422" | "E425" => Some(DiagnosticCategory::Effects),
         "E1004" => Some(DiagnosticCategory::RuntimeType),
