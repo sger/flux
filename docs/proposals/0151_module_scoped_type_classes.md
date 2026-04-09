@@ -1370,7 +1370,7 @@ Phase 0 was executed and resolved all three spikes. Summary below; each spike's 
 - ✅ **A `public instance` of a private class is rejected with `E450`.** *(landed 2026-04-09)*
 - ✅ **A `public class` whose signature mentions a private type is rejected with `E451`.** *(landed 2026-04-09)*
 - ✅ **A `public instance` of a `public class` for a private ADT is rejected with `E455`.** *(landed 2026-04-09)*
-- Two `public instance`s of the same `(ClassId, head_type)` in different modules are rejected as duplicates (`E443` extended).
+- ✅ **Two `public instance`s of the same `(ClassId, head_type)` in different modules are rejected as duplicates (`E443` extended).** *(landed 2026-04-09 — the existing dedup gate already keys on `class_id` + structural type args, which is module-blind by design; the diagnostic now adds a hint surfacing the existing instance's owning module when it differs from the new one)*
 - ✅ **`.flxi` round-trips `public class` and `public instance` entries with `ClassId`, superclasses, and pinned rows placeholder.** *(landed 2026-04-09)*
 - ✅ **`.fxc` cache hash changes when a directly-imported module adds/removes/modifies a `public class` or `public instance`, and does *not* change on private additions.** *(landed 2026-04-09 — same commit as `.flxi`; the fingerprint computation now folds the public-class/instance tables in)*
 - ✅ **Short-name constraint ambiguity (`<a: Foldable>` when two `Foldable`s are in scope) fires `E456`.** *(landed 2026-04-09)*
@@ -1544,8 +1544,8 @@ Phase 0 was executed and resolved all three spikes. Summary below; each spike's 
 |-------|--------|-------|--------------|
 | 0 | ✅ done | Preflight spike findings | — (internal de-risking only) |
 | 1 | ✅ done | Foundation + ClassId-keyed storage | write module-scoped classes, call via `Alias.method(...)`, have two classes with the same short name in different modules |
-| 2 | ⏳ next | Coherence + ADTs + `.flxi` | rely on orphan rule, incremental cache stays sound, `deriving` works under new rules |
-| 3 | ⏳ pending | `exposing` | opt into unqualified calls, use inside-module shadowing in default methods |
+| 2 | ✅ done | Coherence + ADTs + `.flxi` | rely on orphan rule, incremental cache stays sound, `deriving` works under new rules |
+| 3 | ⏳ next | `exposing` | opt into unqualified calls, use inside-module shadowing in default methods |
 | 4 | ⏳ pending | Effects | write effectful instance methods, pin instances to concrete rows |
 | 5 | ⏳ pending | Aether | no perf regression on polymorphic dispatch |
 | 6 | ⏳ pending | Stdlib migration + warning | use a fully-migrated stdlib; see deprecation warnings on legacy code |
