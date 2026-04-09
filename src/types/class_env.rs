@@ -23,8 +23,20 @@ use crate::{
 use super::super::diagnostics::compiler_errors::{
     DUPLICATE_CLASS, DUPLICATE_INSTANCE, INSTANCE_EXTRA_METHOD, INSTANCE_METHOD_ARITY,
     INSTANCE_MISSING_METHOD, INSTANCE_TYPE_ARG_ARITY, INSTANCE_UNKNOWN_CLASS,
-    MISSING_SUPERCLASS_INSTANCE, ORPHAN_INSTANCE, PUBLIC_INSTANCE_OF_PRIVATE_CLASS,
+    MISSING_SUPERCLASS_INSTANCE, ORPHAN_INSTANCE, PUBLIC_CLASS_LEAKS_PRIVATE_TYPE,
+    PUBLIC_INSTANCE_HAS_PRIVATE_HEAD, PUBLIC_INSTANCE_OF_PRIVATE_CLASS,
 };
+
+/// Proposal 0151, Phase 2: per-ADT bookkeeping used by the orphan and
+/// visibility walkers. Built once per `collect_from_statements` call by
+/// walking `Statement::Data` declarations across all module bodies.
+#[derive(Debug, Clone, Copy)]
+struct DataInfo {
+    /// Owning module of the data declaration.
+    module: ModulePath,
+    /// `true` for `public data`, `false` otherwise.
+    is_public: bool,
+}
 
 /// A type class definition collected from a `class` declaration.
 #[derive(Debug, Clone)]
@@ -205,26 +217,28 @@ impl ClassEnv {
         // either the class or the head type is local to the instance's
         // owning module). Legacy top-level instances (instance_module ==
         // EMPTY) are grandfathered.
-        let mut data_modules: HashMap<Identifier, ModulePath> = HashMap::new();
-        Self::collect_data_modules(statements, ModulePath::EMPTY, &mut data_modules);
-        self.enforce_orphan_rule(&data_modules, &mut diagnostics, interner);
+        let mut data_info: HashMap<Identifier, DataInfo> = HashMap::new();
+        Self::collect_data_info(statements, ModulePath::EMPTY, &mut data_info);
+        self.enforce_orphan_rule(&data_info, &mut diagnostics, interner);
 
         // Proposal 0151, Phase 2: visibility enforcement.
         //
-        // E450: a `public instance` cannot reference a private class. The
-        // class's visibility caps the instance's effective visibility,
-        // because downstream importers cannot name the class to dispatch
-        // through it.
-        self.enforce_instance_visibility(&mut diagnostics, interner);
+        // E450: a `public instance` cannot reference a private class.
+        // E451: a `public class` signature must not mention a private type.
+        // E455: a `public instance` of a public class must not have a
+        //       private head ADT.
+        self.enforce_instance_visibility(&data_info, &mut diagnostics, interner);
+        self.enforce_class_signature_visibility(&data_info, &mut diagnostics, interner);
 
         diagnostics
     }
 
-    /// Phase 2 visibility walker — currently enforces E450 (public instance
-    /// of private class). E451 (public-class-mentions-private-type) and
-    /// E455 (public instance of private ADT) land in subsequent increments.
+    /// Phase 2 instance-visibility walker — enforces E450 (public instance
+    /// of private class) and E455 (public instance of public class with
+    /// private head ADT). E451 lives in `enforce_class_signature_visibility`.
     fn enforce_instance_visibility(
         &self,
+        data_info: &HashMap<Identifier, DataInfo>,
         diagnostics: &mut Vec<Diagnostic>,
         interner: &Interner,
     ) {
@@ -243,21 +257,18 @@ impl ClassEnv {
                 continue;
             };
 
+            let display_class = interner.resolve(inst.class_name);
+            let display_type: Vec<String> = inst
+                .type_args
+                .iter()
+                .map(|t| t.display_with(interner))
+                .collect();
+            let display_head = display_type.join(", ");
+
+            // E450: public instance of a private (non-built-in) class.
             // Built-in classes (module == EMPTY) are universally visible
-            // through the implicit prelude — never a leak.
-            if class_def.module.is_empty() {
-                continue;
-            }
-
-            if !class_def.is_public {
-                let display_class = interner.resolve(inst.class_name);
-                let display_type: Vec<String> = inst
-                    .type_args
-                    .iter()
-                    .map(|t| t.display_with(interner))
-                    .collect();
-                let display_head = display_type.join(", ");
-
+            // through the implicit prelude and never count as a leak.
+            if !class_def.module.is_empty() && !class_def.is_public {
                 diagnostics.push(
                     diagnostic_for(&PUBLIC_INSTANCE_OF_PRIVATE_CLASS)
                         .with_span(inst.span)
@@ -270,27 +281,136 @@ impl ClassEnv {
                              from this instance."
                         )),
                 );
+                // Don't double-report E455 on the same instance — E450 is
+                // the more fundamental leak.
+                continue;
+            }
+
+            // E455: public instance of a public class with a private head
+            // ADT. Only fires when the head type is a user-defined ADT
+            // present in `data_info`. Built-ins (Int, List, ...) are
+            // treated as universally visible (same as built-in classes).
+            if let Some(head_name) = Self::head_type_name(&inst.type_args)
+                && let Some(head_info) = data_info.get(&head_name)
+                && !head_info.is_public
+            {
+                let head_display = interner.resolve(head_name);
+                diagnostics.push(
+                    diagnostic_for(&PUBLIC_INSTANCE_HAS_PRIVATE_HEAD)
+                        .with_span(inst.span)
+                        .with_message(format!(
+                            "`public instance` `{display_class}<{display_head}>` has the \
+                             private head type `{head_display}`."
+                        ))
+                        .with_hint_text(format!(
+                            "Mark the head type `public data {head_display}` or remove \
+                             `public` from this instance."
+                        )),
+                );
             }
         }
     }
 
-    /// Walk a statement tree and record the owning module for each `data`
-    /// declaration. Used by the orphan rule walker (Phase 2).
-    fn collect_data_modules(
+    /// Phase 2 class-signature visibility walker — enforces E451
+    /// (`public class` mentions a private type in any of its method
+    /// signatures, including the return type, parameter types, and the
+    /// class's own type parameter constraints).
+    ///
+    /// "Private" here means: a user-defined ADT in `data_info` whose
+    /// `is_public == false`. Built-in types (Int, List, ...) are treated
+    /// as universally visible.
+    fn enforce_class_signature_visibility(
+        &self,
+        data_info: &HashMap<Identifier, DataInfo>,
+        diagnostics: &mut Vec<Diagnostic>,
+        interner: &Interner,
+    ) {
+        for class_def in self.classes.values() {
+            if !class_def.is_public {
+                continue;
+            }
+            if class_def.module.is_empty() {
+                // Built-in / legacy class — visibility check is moot.
+                continue;
+            }
+
+            for method in &class_def.methods {
+                let mut leaks: Vec<Identifier> = Vec::new();
+                for ty in &method.param_types {
+                    Self::collect_named_types(ty, &mut leaks);
+                }
+                Self::collect_named_types(&method.return_type, &mut leaks);
+
+                for ty_name in leaks {
+                    if let Some(info) = data_info.get(&ty_name)
+                        && !info.is_public
+                    {
+                        let display_class = interner.resolve(class_def.name);
+                        let display_type = interner.resolve(ty_name);
+                        diagnostics.push(
+                            diagnostic_for(&PUBLIC_CLASS_LEAKS_PRIVATE_TYPE)
+                                .with_span(class_def.span)
+                                .with_message(format!(
+                                    "`public class` `{display_class}` mentions the \
+                                     private type `{display_type}` in method `{}`.",
+                                    interner.resolve(method.name)
+                                ))
+                                .with_hint_text(format!(
+                                    "Mark the type `public data {display_type}` or remove \
+                                     `public` from this class."
+                                )),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Recursively collect every `Named { name }` identifier from a TypeExpr
+    /// into `out`. Used by the class-signature visibility walker.
+    fn collect_named_types(ty: &TypeExpr, out: &mut Vec<Identifier>) {
+        match ty {
+            TypeExpr::Named { name, args, .. } => {
+                out.push(*name);
+                for arg in args {
+                    Self::collect_named_types(arg, out);
+                }
+            }
+            TypeExpr::Tuple { elements, .. } => {
+                for el in elements {
+                    Self::collect_named_types(el, out);
+                }
+            }
+            TypeExpr::Function { params, ret, .. } => {
+                for p in params {
+                    Self::collect_named_types(p, out);
+                }
+                Self::collect_named_types(ret, out);
+            }
+        }
+    }
+
+    /// Walk a statement tree and record the owning module and visibility
+    /// for each `data` declaration. Used by the orphan rule walker (Phase 2)
+    /// and the visibility walkers (E451, E455).
+    fn collect_data_info(
         statements: &[Statement],
         current_module: ModulePath,
-        out: &mut HashMap<Identifier, ModulePath>,
+        out: &mut HashMap<Identifier, DataInfo>,
     ) {
         for stmt in statements {
             match stmt {
-                Statement::Data { name, .. } => {
+                Statement::Data { is_public, name, .. } => {
                     // First-wins: if the same ADT name appears twice (which
                     // would be flagged elsewhere), keep the first sighting.
-                    out.entry(*name).or_insert(current_module);
+                    out.entry(*name).or_insert(DataInfo {
+                        module: current_module,
+                        is_public: *is_public,
+                    });
                 }
                 Statement::Module { name, body, .. } => {
                     let module_path = ModulePath::from_identifier(*name);
-                    Self::collect_data_modules(&body.statements, module_path, out);
+                    Self::collect_data_info(&body.statements, module_path, out);
                 }
                 _ => {}
             }
@@ -309,7 +429,7 @@ impl ClassEnv {
     /// `method_names` and a default span) are also skipped.
     fn enforce_orphan_rule(
         &self,
-        data_modules: &HashMap<Identifier, ModulePath>,
+        data_info: &HashMap<Identifier, DataInfo>,
         diagnostics: &mut Vec<Diagnostic>,
         interner: &Interner,
     ) {
@@ -323,7 +443,7 @@ impl ClassEnv {
             }
 
             let class_module = inst.class_id.module;
-            let head_module = Self::head_type_owning_module(&inst.type_args, data_modules);
+            let head_module = Self::head_type_owning_module(&inst.type_args, data_info);
 
             let class_local = inst.instance_module == class_module;
             let head_local = match head_module {
@@ -366,13 +486,23 @@ impl ClassEnv {
     /// so the instance is only legal if its class is local.
     fn head_type_owning_module(
         type_args: &[TypeExpr],
-        data_modules: &HashMap<Identifier, ModulePath>,
+        data_info: &HashMap<Identifier, DataInfo>,
     ) -> Option<ModulePath> {
         let head = type_args.first()?;
         let TypeExpr::Named { name, .. } = head else {
             return None;
         };
-        data_modules.get(name).copied()
+        data_info.get(name).map(|info| info.module)
+    }
+
+    /// Extract the head ADT identifier from `type_args[0]` if it's a
+    /// named type. Returns `None` for built-ins, tuples, and functions.
+    fn head_type_name(type_args: &[TypeExpr]) -> Option<Identifier> {
+        let head = type_args.first()?;
+        let TypeExpr::Named { name, .. } = head else {
+            return None;
+        };
+        Some(*name)
     }
 
     /// Collect class declarations recursively (handles modules).
@@ -2331,6 +2461,248 @@ module Mod.A {
         assert!(
             !diags.iter().any(|d| d.code.as_deref() == Some("E450")),
             "instance for unknown/built-in class must not fire E450, got: {:?}",
+            diags
+        );
+    }
+
+    // ============================================================
+    // Proposal 0151, Phase 2: E455 (public instance, private head ADT).
+    // ============================================================
+
+    /// Public instance of a public class with a public ADT head — legal.
+    #[test]
+    fn e455_public_instance_public_head_is_legal() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.A {
+    public class MyShow<a> {
+        fn my_show(x: a) -> String
+    }
+
+    public data Color { Red, Green, Blue }
+
+    public instance MyShow<Color> {
+        fn my_show(x) { "" }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            !diags.iter().any(|d| d.code.as_deref() == Some("E455")),
+            "public instance with public head must not fire E455, got: {:?}",
+            diags
+        );
+    }
+
+    /// Public instance of a public class with a *private* ADT head — E455.
+    #[test]
+    fn e455_public_instance_private_head_is_rejected() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.A {
+    public class MyShow<a> {
+        fn my_show(x: a) -> String
+    }
+
+    data Color { Red, Green, Blue }
+
+    public instance MyShow<Color> {
+        fn my_show(x) { "" }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            diags.iter().any(|d| d.code.as_deref() == Some("E455")),
+            "public instance with private head must fire E455, got: {:?}",
+            diags
+        );
+    }
+
+    /// Private instance with private head — E455 must NOT fire (private
+    /// instances cannot leak).
+    #[test]
+    fn e455_private_instance_private_head_is_legal() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.A {
+    public class MyShow<a> {
+        fn my_show(x: a) -> String
+    }
+
+    data Color { Red, Green, Blue }
+
+    instance MyShow<Color> {
+        fn my_show(x) { "" }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            !diags.iter().any(|d| d.code.as_deref() == Some("E455")),
+            "private instance must not fire E455, got: {:?}",
+            diags
+        );
+    }
+
+    /// Public instance of a public class with a built-in head (Int) — E455
+    /// must NOT fire because built-in types are universally visible.
+    #[test]
+    fn e455_public_instance_builtin_head_is_legal() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.A {
+    public class MyShow<a> {
+        fn my_show(x: a) -> String
+    }
+
+    public instance MyShow<Int> {
+        fn my_show(x) { "" }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            !diags.iter().any(|d| d.code.as_deref() == Some("E455")),
+            "public instance with built-in head must not fire E455, got: {:?}",
+            diags
+        );
+    }
+
+    // ============================================================
+    // Proposal 0151, Phase 2: E451 (public class leaks private type).
+    // ============================================================
+
+    /// Public class signature mentions a private ADT in a method parameter
+    /// — E451.
+    #[test]
+    fn e451_public_class_param_mentions_private_type_is_rejected() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.A {
+    data Secret { Hidden }
+
+    public class Reveal<a> {
+        fn show_secret(x: a, s: Secret) -> String
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            diags.iter().any(|d| d.code.as_deref() == Some("E451")),
+            "public class with private type in method param must fire E451, got: {:?}",
+            diags
+        );
+    }
+
+    /// Public class signature mentions a private ADT in the return type — E451.
+    #[test]
+    fn e451_public_class_return_mentions_private_type_is_rejected() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.A {
+    data Secret { Hidden }
+
+    public class Maker<a> {
+        fn make(x: a) -> Secret
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            diags.iter().any(|d| d.code.as_deref() == Some("E451")),
+            "public class with private return type must fire E451, got: {:?}",
+            diags
+        );
+    }
+
+    /// Public class signature mentions only public ADTs — E451 must NOT fire.
+    #[test]
+    fn e451_public_class_with_public_types_is_legal() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.A {
+    public data Color { Red, Green, Blue }
+
+    public class Painter<a> {
+        fn paint(x: a, c: Color) -> Color
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            !diags.iter().any(|d| d.code.as_deref() == Some("E451")),
+            "public class with all-public ADTs must not fire E451, got: {:?}",
+            diags
+        );
+    }
+
+    /// Private class with private types — E451 must NOT fire (private
+    /// classes can mention anything they want).
+    #[test]
+    fn e451_private_class_with_private_types_is_legal() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+module Mod.A {
+    data Secret { Hidden }
+
+    class Reveal<a> {
+        fn show_secret(x: a, s: Secret) -> Secret
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        let interner = parser.take_interner();
+
+        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            !diags.iter().any(|d| d.code.as_deref() == Some("E451")),
+            "private class is allowed to mention private types, got: {:?}",
             diags
         );
     }

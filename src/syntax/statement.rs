@@ -102,6 +102,13 @@ pub enum Statement {
         span: Span,
     },
     Data {
+        /// Proposal 0151, Phase 2: visibility of this data declaration.
+        ///
+        /// `true` for `public data Foo`, `false` for unmarked / private.
+        /// Used by the visibility walker to enforce that no `public class`
+        /// signature names a private type (E451) and that no `public
+        /// instance` of a public class has a private head ADT (E455).
+        is_public: bool,
         name: Identifier,
         type_params: Vec<Identifier>,
         variants: Vec<DataVariant>,

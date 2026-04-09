@@ -2542,6 +2542,9 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
             span: *span,
         }),
         Statement::Data {
+            // Proposal 0151: ADT visibility is enforced at the class
+            // visibility walker; the IR layer is visibility-blind.
+            is_public: _,
             name,
             type_params,
             variants,
@@ -2695,6 +2698,10 @@ pub(crate) fn ir_top_level_item_to_statement(
             variants,
             span,
         } => Statement::Data {
+            // IR layer doesn't carry ADT visibility — defaults to private
+            // when reconstructing the AST. Visibility checks happen before
+            // IR lowering, so this is safe.
+            is_public: false,
             name: *name,
             type_params: type_params.clone(),
             variants: variants.clone(),

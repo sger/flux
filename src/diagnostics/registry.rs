@@ -114,6 +114,8 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     MISSING_SUPERCLASS_INSTANCE,
     ORPHAN_INSTANCE,
     PUBLIC_INSTANCE_OF_PRIVATE_CLASS,
+    PUBLIC_CLASS_LEAKS_PRIVATE_TYPE,
+    PUBLIC_INSTANCE_HAS_PRIVATE_HEAD,
     // Runtime errors (E1000+)
     WRONG_NUMBER_OF_ARGUMENTS,
     NOT_A_FUNCTION,
@@ -170,7 +172,7 @@ pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
         "E423" => Some(DiagnosticCategory::TypeInference),
         "E426" => Some(DiagnosticCategory::Internal),
         "E056" | "E300" | "E301" | "E430" | "E440" | "E441" | "E442" | "E443" | "E444" | "E445"
-        | "E446" | "E447" | "E448" | "E449" | "E450" => {
+        | "E446" | "E447" | "E448" | "E449" | "E450" | "E451" | "E455" => {
             Some(DiagnosticCategory::TypeInference)
         }
         "E400" | "E401" | "E402" | "E403" | "E404" | "E405" | "E406" | "E407" | "E419" | "E420"
