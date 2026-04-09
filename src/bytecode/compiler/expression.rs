@@ -871,6 +871,38 @@ impl Compiler {
                     return Ok(());
                 }
 
+                // Proposal 0151, Phase 1a (commit #6): module-qualified class
+                // method dispatch. `Module.method(...)` where `Module` resolves
+                // to a module and `method` is a class method should lower to
+                // the same mangled `__tc_*` call as the bare-name form. The
+                // class environment is global (not yet keyed on `ClassId`), so
+                // we only need the method name to find the mangled function.
+                if let Expression::MemberAccess { object, member, .. } = function.as_ref()
+                    && self.resolve_module_name_from_expr(object).is_some()
+                    && let Some(mangled) = self.try_resolve_class_method_call(*member, arguments)
+                {
+                    let mut resolved_args = self.resolve_direct_class_call_dict_args_ast(
+                        *member,
+                        arguments,
+                        function.span(),
+                    );
+                    resolved_args.extend(arguments.clone());
+                    let mangled_expr = Expression::Identifier {
+                        name: mangled,
+                        span: function.span(),
+                        id: crate::syntax::expression::ExprId::UNSET,
+                    };
+                    let call = Expression::Call {
+                        function: Box::new(mangled_expr),
+                        arguments: resolved_args,
+                        span: expression.span(),
+                        id: crate::syntax::expression::ExprId::UNSET,
+                    };
+                    self.compile_non_tail_expression(&call)?;
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
+
                 if let Expression::Identifier { name, span, .. } = function.as_ref()
                     && let Some(dict_call) = self.try_build_dict_class_method_call(
                         *name,

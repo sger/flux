@@ -171,6 +171,98 @@ fn main() {
     );
 }
 
+/// Proposal 0151, Phase 1a, commit #6: short-form qualified call.
+///
+/// `Quall.size_of2(...)` — referring to a same-file `module Phase1.Quall` by
+/// the last segment of its dotted name — does NOT work today. The resolver
+/// at `resolve_module_name_from_expr` looks up `Quall` in `imported_modules`,
+/// which stores the full dotted name `Phase1.Quall`, so the short form misses.
+///
+/// This is **Gap B** in commit #6. The user-facing workaround is the explicit
+/// `import Phase1.Quall as Quall` form, which is exercised by
+/// `qualified_call_via_import_alias` below and works today.
+///
+/// Closing Gap B requires either: (a) inserting last-segment aliases into
+/// `imported_modules` for every same-file `module` declaration, or
+/// (b) extending `resolve_module_name_from_expr` to fall back to a
+/// last-segment match. Both are out of scope for commit #6 because the
+/// import-alias workaround is sufficient and matches the §5a precedence
+/// rules of Proposal 0151 (explicit imports beat implicit shortening).
+#[test]
+#[ignore = "Gap B: short-form qualified call without explicit import; commit #6 leaves this for a follow-up"]
+fn qualified_call_short_form_fails_today() {
+    let source = r#"
+module Phase1.Quall {
+    public class Sizeable2<a> {
+        fn size_of2(x: a) -> Int
+    }
+
+    public instance Sizeable2<Int> {
+        fn size_of2(x) { x }
+    }
+}
+
+fn main() {
+    Quall.size_of2(42)
+}
+"#;
+    let result = compile_and_run(source);
+    assert_eq!(result, Value::Integer(42));
+}
+
+/// Proposal 0151, Phase 1a, commit #6: explicit `import ... as Alias` form.
+///
+/// The standard user-facing way to call a module-scoped class method via a
+/// short alias. Works today thanks to the dispatch fix in commit #6.
+#[test]
+fn qualified_call_via_import_alias() {
+    let source = r#"
+module Phase1.QuallAlias {
+    public class Sizeable3<a> {
+        fn size_of3(x: a) -> Int
+    }
+
+    public instance Sizeable3<Int> {
+        fn size_of3(x) { x }
+    }
+}
+
+import Phase1.QuallAlias as Quall
+
+fn main() {
+    Quall.size_of3(42)
+}
+"#;
+    let result = compile_and_run(source);
+    assert_eq!(result, Value::Integer(42));
+}
+
+/// Proposal 0151, Phase 1a, commit #6: full-dotted qualified call.
+///
+/// Calling a module-scoped class method through the full dotted module path
+/// (`Phase1.Quall.size_of2(42)`). This is the qualified-resolution headline
+/// feature of commit #6.
+#[test]
+fn qualified_call_full_dotted_form() {
+    let source = r#"
+module Phase1.Quall {
+    public class Sizeable2<a> {
+        fn size_of2(x: a) -> Int
+    }
+
+    public instance Sizeable2<Int> {
+        fn size_of2(x) { x }
+    }
+}
+
+fn main() {
+    Phase1.Quall.size_of2(42)
+}
+"#;
+    let result = compile_and_run(source);
+    assert_eq!(result, Value::Integer(42));
+}
+
 /// Walks a parsed program and returns `Some(is_public)` for the first
 /// `Statement::Class` it finds (recursing into module bodies). Used by the
 /// `public class` parser tests.

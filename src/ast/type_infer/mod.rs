@@ -362,9 +362,11 @@ impl<'a> InferCtx<'a> {
     /// Check if a name is a known class method. Returns the class name if so.
     fn lookup_class_method(&self, name: Identifier) -> Option<Identifier> {
         let class_env = self.class_env.as_ref()?;
-        for (class_name, class_def) in &class_env.classes {
+        // Phase 1b Step 3: storage is keyed on ClassId now, but this lookup
+        // only needs the class's short name. Iterate values directly.
+        for class_def in class_env.classes.values() {
             if class_def.methods.iter().any(|m| m.name == name) {
-                return Some(*class_name);
+                return Some(class_def.name);
             }
         }
         None
@@ -504,12 +506,14 @@ fn init_class_env(
 ) {
     ctx.class_env = class_env;
     if let Some(ref env) = ctx.class_env {
-        for class_name in env.classes.keys() {
-            match interner.resolve(*class_name) {
-                "Eq" => ctx.class_sym_eq = Some(*class_name),
-                "Ord" => ctx.class_sym_ord = Some(*class_name),
-                "Num" => ctx.class_sym_num = Some(*class_name),
-                "Semigroup" => ctx.class_sym_semigroup = Some(*class_name),
+        // Phase 1b Step 3: keys are ClassId now; project to the short name.
+        for class_id in env.classes.keys() {
+            let class_name = class_id.name;
+            match interner.resolve(class_name) {
+                "Eq" => ctx.class_sym_eq = Some(class_name),
+                "Ord" => ctx.class_sym_ord = Some(class_name),
+                "Num" => ctx.class_sym_num = Some(class_name),
+                "Semigroup" => ctx.class_sym_semigroup = Some(class_name),
                 _ => {}
             }
         }
