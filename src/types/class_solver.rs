@@ -11,7 +11,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    ast::type_infer::constraint::WantedClassConstraint,
+    ast::type_infer::constraint::{WantedClassConstraint, WantedClassConstraintOrigin},
     diagnostics::position::Span,
     diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for},
     syntax::{Identifier, interner::Interner, type_expr::TypeExpr},
@@ -35,6 +35,15 @@ pub fn solve_class_constraints(
     let mut diagnostics = Vec::new();
 
     for constraint in constraints {
+        // Operator constraints that originated from unresolved type variables
+        // should not become standalone missing-instance diagnostics just
+        // because later inference happened to concretize them.
+        if constraint.origin == WantedClassConstraintOrigin::InferredOperator
+            && !constraint.originated_from_concrete_type
+        {
+            continue;
+        }
+
         // Only check concrete types — variables are left unsolved for now.
         if !constraint.type_args.iter().all(is_concrete_type) {
             continue;
@@ -105,7 +114,8 @@ fn has_satisfied_instance(
         return true;
     }
 
-    let result = class_env
+    let result = has_structural_builtin_instance(class_name, type_args, class_env, interner, seen)
+        || class_env
         .resolve_instance_with_subst(class_name, type_args, interner)
         .is_some_and(|(instance, subst)| {
             instance.context.iter().all(|ctx| {
@@ -123,6 +133,46 @@ fn has_satisfied_instance(
 
     seen.remove(&key);
     result
+}
+
+fn has_structural_builtin_instance(
+    class_name: Identifier,
+    type_args: &[InferType],
+    class_env: &ClassEnv,
+    interner: &Interner,
+    seen: &mut HashSet<String>,
+) -> bool {
+    let class_name = interner.resolve(class_name);
+    if !matches!(class_name, "Eq" | "Ord") || type_args.len() != 1 {
+        return false;
+    }
+
+    match &type_args[0] {
+        InferType::Tuple(elements) => elements
+            .iter()
+            .all(|elem| has_satisfied_instance_for_single(class_name, elem, class_env, interner, seen)),
+        InferType::App(TypeConstructor::Option, args)
+        | InferType::App(TypeConstructor::List, args)
+        | InferType::App(TypeConstructor::Array, args) => args
+            .first()
+            .is_some_and(|arg| has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)),
+        InferType::App(TypeConstructor::Either, args) => args
+            .iter()
+            .all(|arg| has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)),
+        _ => false,
+    }
+}
+
+fn has_satisfied_instance_for_single(
+    class_name: &str,
+    ty: &InferType,
+    class_env: &ClassEnv,
+    interner: &Interner,
+    seen: &mut HashSet<String>,
+) -> bool {
+    interner
+        .lookup(class_name)
+        .is_some_and(|class_id| has_satisfied_instance(class_id, std::slice::from_ref(ty), class_env, interner, seen))
 }
 
 fn instantiate_context_type_expr(

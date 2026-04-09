@@ -101,7 +101,12 @@ impl<'a> InferCtx<'a> {
                 continue;
             };
             for &constraint in &type_param.constraints {
-                self.emit_class_constraint(constraint, InferType::Var(type_var), span);
+                self.emit_class_constraint(
+                    constraint,
+                    InferType::Var(type_var),
+                    span,
+                    constraint::WantedClassConstraintOrigin::ExplicitBound,
+                );
             }
         }
     }

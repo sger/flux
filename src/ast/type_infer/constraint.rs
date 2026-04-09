@@ -61,6 +61,14 @@ pub enum Constraint {
 ///
 /// This is the public version of `Constraint::ClassConstraint`, suitable
 /// for inclusion in `InferProgramResult`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WantedClassConstraintOrigin {
+    ExplicitBound,
+    InferredOperator,
+    MethodCall,
+    SchemeUse,
+}
+
 #[derive(Debug, Clone)]
 pub struct WantedClassConstraint {
     /// The class name (e.g., `Eq`, `Num`, `Show`).
@@ -70,6 +78,10 @@ pub struct WantedClassConstraint {
     pub type_args: Vec<InferType>,
     /// Where in the source the constraint arose.
     pub span: Span,
+    /// Why this constraint was emitted.
+    pub origin: WantedClassConstraintOrigin,
+    /// Whether the constraint was emitted from an already-concrete type.
+    pub originated_from_concrete_type: bool,
 }
 
 /// A class constraint attached to a type scheme.

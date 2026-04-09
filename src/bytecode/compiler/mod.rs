@@ -400,6 +400,7 @@ pub struct Compiler {
     /// True when HM type inference produced diagnostics. Used to block CFG path
     /// for functions in files with type errors (the Core IR may be degenerate).
     pub(super) has_hm_diagnostics: bool,
+    pub(super) last_inferred_program: Option<Program>,
     pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
     pub(super) inferred_function_effects: HashMap<ContractKey, HashSet<Symbol>>,
     strict_mode: bool,
@@ -427,6 +428,12 @@ pub struct ModuleCacheSnapshot {
 mod compiler_test;
 
 impl Compiler {
+    fn is_flow_library_file(&self) -> bool {
+        self.file_path.contains("lib/Flow/")
+            || self.file_path.contains("lib\\Flow\\")
+            || self.file_path.contains("/Flow/")
+    }
+
     pub fn new() -> Self {
         Self::new_with_file_path("<unknown>")
     }
@@ -482,6 +489,7 @@ impl Compiler {
             cached_member_schemes: HashMap::new(),
             cached_member_borrow_signatures: HashMap::new(),
             has_hm_diagnostics: false,
+            last_inferred_program: None,
             ir_function_symbols: HashMap::new(),
             inferred_function_effects: HashMap::new(),
             strict_mode: false,
@@ -533,6 +541,7 @@ impl Compiler {
         self.effect_alias_scopes.push(HashMap::new());
         self.type_env = TypeEnv::new();
         self.hm_expr_types.clear();
+        self.last_inferred_program = None;
         self.function_effects.clear();
         self.function_param_effect_rows.clear();
         self.handled_effects.clear();
@@ -640,10 +649,55 @@ impl Compiler {
         // Auto-expose Flow library modules so HM can resolve Flow functions.
         self.auto_expose_flow_modules();
 
+        let class_augmented;
+        let program = if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
+            let extra = crate::types::class_dispatch::generate_dispatch_functions(
+                &program.statements,
+                &self.class_env,
+                &mut self.interner,
+            );
+            if extra.is_empty() {
+                program
+            } else {
+                let mut statements = extra;
+                statements.extend(program.statements.iter().cloned());
+                class_augmented = Program {
+                    statements,
+                    span: program.span,
+                };
+                &class_augmented
+            }
+        } else {
+            program
+        };
+
         let hm_config = self.build_infer_config(program);
         let hm = infer_program(program, &self.interner, hm_config);
-        self.type_env = hm.type_env;
-        self.hm_expr_types = hm.expr_types;
+        let pre_desugar_program = if self.type_optimize {
+            crate::ast::type_informed_fold::type_informed_fold(program, &hm.type_env, &self.interner)
+        } else {
+            program.clone()
+        };
+        let pre_desugar_expr_types = if self.type_optimize {
+            let hm_config2 = self.build_infer_config(&pre_desugar_program);
+            infer_program(&pre_desugar_program, &self.interner, hm_config2).expr_types
+        } else {
+            hm.expr_types
+        };
+        let final_program = if self.is_flow_library_file() {
+            pre_desugar_program
+        } else {
+            crate::ast::desugar_operators(
+                pre_desugar_program,
+                &pre_desugar_expr_types,
+                &mut self.interner,
+            )
+        };
+        let hm_config3 = self.build_infer_config(&final_program);
+        let hm_final = infer_program(&final_program, &self.interner, hm_config3);
+        self.type_env = hm_final.type_env;
+        self.hm_expr_types = hm_final.expr_types;
+        self.last_inferred_program = Some(final_program);
         self.hm_expr_types.clone()
     }
 
@@ -682,10 +736,55 @@ impl Compiler {
         self.collect_effect_declarations(program);
         self.auto_expose_flow_modules();
 
+        let class_augmented;
+        let program = if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
+            let extra = crate::types::class_dispatch::generate_dispatch_functions(
+                &program.statements,
+                &self.class_env,
+                &mut self.interner,
+            );
+            if extra.is_empty() {
+                program
+            } else {
+                let mut statements = extra;
+                statements.extend(program.statements.iter().cloned());
+                class_augmented = Program {
+                    statements,
+                    span: program.span,
+                };
+                &class_augmented
+            }
+        } else {
+            program
+        };
+
         let hm_config = self.build_infer_config(program);
         let hm = infer_program(program, &self.interner, hm_config);
-        self.type_env = hm.type_env;
-        self.hm_expr_types = hm.expr_types;
+        let pre_desugar_program = if self.type_optimize {
+            crate::ast::type_informed_fold::type_informed_fold(program, &hm.type_env, &self.interner)
+        } else {
+            program.clone()
+        };
+        let pre_desugar_expr_types = if self.type_optimize {
+            let hm_config2 = self.build_infer_config(&pre_desugar_program);
+            infer_program(&pre_desugar_program, &self.interner, hm_config2).expr_types
+        } else {
+            hm.expr_types
+        };
+        let final_program = if self.is_flow_library_file() {
+            pre_desugar_program
+        } else {
+            crate::ast::desugar_operators(
+                pre_desugar_program,
+                &pre_desugar_expr_types,
+                &mut self.interner,
+            )
+        };
+        let hm_config3 = self.build_infer_config(&final_program);
+        let hm_final = infer_program(&final_program, &self.interner, hm_config3);
+        self.type_env = hm_final.type_env;
+        self.hm_expr_types = hm_final.expr_types;
+        self.last_inferred_program = Some(final_program);
         self.hm_expr_types.clone()
     }
 
@@ -1390,7 +1489,7 @@ impl Compiler {
                 io(),
                 0,
             ),
-            ("panic", vec![var_a()], var_b(), pure(), 0),
+            ("panic", vec![var_a()], var_b(), pure(), 2),
             // String ops
             (
                 "split",
@@ -3078,30 +3177,6 @@ impl Compiler {
         program: &Program,
         optimize: bool,
     ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
-        // Inject mangled type class instance methods so Core IR sees their
-        // definitions (mirrors the VM pipeline's Phase 1b).
-        let class_augmented;
-        let program = if !self.class_env.classes.is_empty() {
-            let extra = crate::types::class_dispatch::generate_dispatch_functions(
-                &program.statements,
-                &self.class_env,
-                &mut self.interner,
-            );
-            if !extra.is_empty() {
-                let mut stmts = extra;
-                stmts.extend(program.statements.iter().cloned());
-                class_augmented = Program {
-                    statements: stmts,
-                    span: program.span,
-                };
-                &class_augmented
-            } else {
-                program
-            }
-        } else {
-            program
-        };
-
         let program_to_lower = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
@@ -3150,37 +3225,15 @@ impl Compiler {
         optimize: bool,
         export_user_ctor_name_helper: bool,
     ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
-        // Inject mangled type class instance methods so Core IR sees their
-        // definitions (mirrors the VM pipeline's Phase 1b).
-        let class_augmented;
-        let program = if !self.class_env.classes.is_empty() {
-            let extra = crate::types::class_dispatch::generate_dispatch_functions(
-                &program.statements,
-                &self.class_env,
-                &mut self.interner,
-            );
-            if !extra.is_empty() {
-                let mut stmts = extra;
-                stmts.extend(program.statements.iter().cloned());
-                class_augmented = Program {
-                    statements: stmts,
-                    span: program.span,
-                };
-                &class_augmented
-            } else {
-                program
-            }
+        let program_to_lower = if !optimize {
+            self.last_inferred_program
+                .clone()
+                .unwrap_or_else(|| program.clone())
         } else {
-            program
-        };
-
-        let program_to_lower = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
             rename(optimized, HashMap::new())
-        } else {
-            program.clone()
         };
 
         let class_env_ref = if self.class_env.classes.is_empty() {

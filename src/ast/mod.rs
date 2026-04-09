@@ -11,7 +11,7 @@ pub mod visit;
 
 pub use complexity::analyze_complexity;
 pub use constant_fold::{constant_fold, constant_fold_with_interner};
-pub use desugar::desugar;
+pub use desugar::{desugar, desugar_operators};
 pub use fold::{
     Folder, fold_block, fold_expr, fold_match_arm, fold_pat, fold_program, fold_stmt,
     fold_string_part,
