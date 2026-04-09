@@ -1435,32 +1435,422 @@ Phase 0 was executed and resolved all three spikes. Summary below; each spike's 
 
 ### Phase 4 — Effects on instance methods
 
-**Goal.** Make class methods effect-polymorphic and let instances pin concrete rows. This is the biggest user-visible win of the proposal after phase 1.
+**Status as of 2026-04-09:** 🟡 **in progress** — pre-phase spike + Phase 4a-prereq landed, Phase 4a (parser hooks + Rule 1 walker) is the next sub-commit.
 
-**Landed when.**
-- `public class Foldable<f> { fn fold<a,b>(x: f<a>, init: b, func: (b,a) -> b): b }` desugars to a row-polymorphic `with _` method.
-- `public class Eq<a> { fn eq(x: a, y: a) -> Bool with <> }` rejects instance bodies that perform effects (`E452`).
-- `public instance Logger<StdoutHandle> with <IO> { ... }` parses, type-checks, and propagates `<IO>` to call sites.
-- Pinning a row on a `with <>` class fires `E453`.
-- Pinning a row that does not satisfy a `with <E, ..>` minimum fires `E454`.
-- Row-polymorphic constraint `fn f<a: Foldable, e>(xs: a<Int>) -> Int with e` propagates the row through `try_resolve_class_call`.
+| Sub-commit | Description | Status |
+|---|---|---|
+| **Pre-phase spike** | Three parallel investigations (Flux effect system audit, Koka effect-on-class semantics, Haskell mtl/polysemy patterns). Conclusion: existing effect-row grammar is sufficient, no new syntax required. | ✅ done 2026-04-09 |
+| **Phase 4a-prereq** | Whitelist `Statement::EffectDecl` in the module-body validator at [src/bytecode/compiler/statement.rs:1685](src/bytecode/compiler/statement.rs#L1685). Lets `effect Foo { ... }` declarations live inside `module { ... }` blocks. | ✅ done 2026-04-09 (1-line change + 3 integration tests, all green) |
+| **Phase 4a** | `ClassMethod.effects` + `InstanceMethod.effects` AST fields, 2 `parse_effect_list()` calls, `MethodSig.effects`, Phase 1b mangling-pass field assignment, Rule 1 walker (E452). | ⏳ next |
+| **Phase 4b** | `try_resolve_class_call` propagates the resolved instance's effect row into the caller's ambient row. | ⏳ pending |
+| **Phase 4c** | Row-polymorphic class methods (`with \|e`) end-to-end. | ⏳ pending |
 
-**Files touched.**
-- [src/syntax/parser/type_class.rs](src/syntax/parser/type_class.rs) — parse `with <row>` on class methods and on `instance` headers.
-- [src/types/class_env.rs](src/types/class_env.rs) — `MethodSig.effect_row`, `InstanceDef.pinned_row`.
-- [src/ast/type_infer/constraint.rs](src/ast/type_infer/constraint.rs) — unify instance body row with class row; apply pinning.
-- [src/core/lower_ast/mod.rs](src/core/lower_ast/mod.rs) — `try_resolve_class_call` propagates the resolved instance's row into the caller.
-- [src/types/module_interface.rs](src/types/module_interface.rs) — `.flxi` records pinned rows so downstream modules see them.
-- [src/diagnostics/](src/diagnostics/) — `E452`, `E453`, `E454`.
+**Side discoveries from Phase 4a-prereq.** `handle` is a reserved keyword in Flux's effect handler postfix syntax (`expr handle Effect { ... }`) and cannot be used as a parameter name. The four worked examples below have been updated to use `hnd: h` rather than `handle: h`. Other reserved-keyword parameter names to avoid in tests: likely `effect`, `perform`, `resume` — to be verified incrementally as they're encountered.
 
-**Error codes introduced.** `E452`, `E453`, `E454`.
+**Goal.** Let class methods and instance methods carry the **same effect-row syntax that regular Flux functions already use**, with the resolved instance's effect row propagating to call sites via type-directed dispatch. This is the biggest user-visible win of the proposal after Phase 1.
 
-**Tests required.**
-- All positive and negative cases from the main test plan's §Effects on instance methods section.
-- Stdlib built-in classes continue to type-check unchanged (`Eq`, `Ord`, `Show`, `Num`, `Semigroup` stay `with <>`).
-- A new example under [examples/classes/effects/](examples/classes/effects/) showing a row-polymorphic `Foldable` and a row-pinned `Logger`.
+**Pre-phase spike findings (2026-04-09).** Three parallel investigations of (a) Flux's existing effect machinery, (b) Koka's effect-on-class story, (c) Haskell's mtl/polysemy patterns concluded that **Flux's existing function-level effect-row grammar is sufficient for class methods — no new syntax, tokens, or keywords are required**. Earlier drafts of this proposal used fictional notation (`with <>` / `with _` / `with <E, ..>`); those forms do not parse and have been removed.
 
-**Risk.** Medium-high. This is the most type-system-invasive phase. The row-polymorphism-by-default decision needs careful integration with 0145's existing constraint generation. Mitigation: land the `with <>` case first (trivial — just annotation), then `with _` (one desugaring step), then pinning (unification with a concrete row).
+#### The seven real Flux effect forms (Phase 4 reuses *all* of them verbatim)
+
+Defined by `EffectExpr` in [src/syntax/effect_expr.rs](src/syntax/effect_expr.rs) and parsed by `parse_effect_list()` in [src/syntax/parser/helpers.rs:730](src/syntax/parser/helpers.rs#L730):
+
+| # | Form | Meaning | Where it appears today |
+|---|---|---|---|
+| 1 | (omit `with`) | Pure — closed empty row | `fn add(x, y) { x + y }` |
+| 2 | `with IO` | Single concrete effect | [lib/Flow/IO.flx](lib/Flow/IO.flx) |
+| 3 | `with IO, Time` | Multiple concrete (comma-separated) | [examples/aoc/2024/day03.flx](examples/aoc/2024/day03.flx) |
+| 4 | `with IO + Time` | Multiple concrete (`+` operator, equivalent to comma) | [examples/type_system/32_effect_poly_mixed_io_time_ok.flx](examples/type_system/32_effect_poly_mixed_io_time_ok.flx) |
+| 5 | `with \|e` | Row-polymorphic — named row tail variable | [examples/guide_type_system/06_hof_with_e_compose.flx](examples/guide_type_system/06_hof_with_e_compose.flx) |
+| 6 | `with IO \| e` | Lower bound — concrete labels followed by row tail | [examples/type_system/32_effect_poly_mixed_io_time_ok.flx](examples/type_system/32_effect_poly_mixed_io_time_ok.flx) |
+| 7 | `with \|e - IO` | Row subtraction — "any row that excludes IO" | [examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx](examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx) |
+
+`unify_effect_rows` in [src/types/unify.rs:312](src/types/unify.rs#L312) already implements Rémy-style row unification across all seven forms. **No new tokens, no new keywords, no new AST variants.**
+
+#### Semantic model — the class declaration is a *floor*, not a ceiling
+
+This is the load-bearing design choice. When a class method declares an effect row `C` and an instance method declares row `I`, the relationship is:
+
+> **`C ⊆ I`** — the instance must include every effect the class promises, and may add more.
+
+The class's declared row is a **floor**, not a ceiling. Consequences:
+
+- **Pure-by-default everywhere.** Omit `with` on a class method → floor is `<>` (closed empty), so any instance row is allowed (since `<>` is a subset of every row).
+- **Instances may add effects** beyond what the class declares, **but must annotate them explicitly**. Silent inference is *not* allowed for instance methods that exceed the class's row.
+- **Callers see the resolved instance's row, not the class's row.** When `eq(user1, user2)` resolves via type-directed dispatch to `Eq<UserId>::eq`, the caller's ambient effect row gains whatever effects that specific instance declares — not the class's row. The class is just a method-shape contract; the actual effects come from the instance.
+- **No "sealed class" syntax in this phase.** If users later want "this class is locked pure forever, no instance may ever add effects", that's a Phase 4d follow-up (perhaps `sealed class Eq<a> { ... }`). For now the floor model gives strictly more flexibility, and pure-by-default still makes the common case ergonomic.
+
+#### The two checks Phase 4 introduces
+
+| Check | Rule | Diagnostic | Where it runs |
+|---|---|---|---|
+| **Rule 1** | Class method's declared row `C` is a subset of the instance method's declared row `I`. | `E452` — "instance method `Class<T>::method` is missing effects required by the class declaration" | `class_env::collect_instances` walker (no inference needed — pure annotation-vs-annotation comparison) |
+| **Rule 2** | Instance method's body has inferred row `B`, and `B ⊆ I`. | Reuses Flux's existing function-effect-mismatch error (no new code, just runs `__tc_*` mangled instance methods through the same check that already runs on top-level functions) | `phase_type_inference` — automatic, since instance methods become mangled top-level functions after Phase 1b dispatch generation |
+
+**Rule 1** is the new piece: it catches `class Logger<h> { fn log(h: h, msg: String) with IO | e }` paired with an instance whose method declares `with Time` only (missing `IO`).
+
+**Rule 2** comes free: the `__tc_Eq_UserId_eq` mangled function already flows through HM inference, and any body whose effects exceed its declared `with` clause already fires Flux's standard E400-series effect-mismatch diagnostic.
+
+#### Landed when
+
+- A class method may carry any of the seven `with` forms, parsed by reusing `parse_effect_list()`.
+- An instance method may carry any of the seven `with` forms, parsed by the same helper.
+- Rule 1 (class row ⊆ instance row) fires `E452` at instance-collection time when violated.
+- Rule 2 (instance body row ⊆ instance declared row) fires the existing function-effect-mismatch diagnostic.
+- Calling `eq(user1, user2)` resolves to `Eq<UserId>::eq` and propagates **that instance's** declared effect row into the caller's ambient row, via `try_resolve_class_call`.
+- Built-in stdlib classes (`Eq`, `Ord`, `Show`, `Num`, `Semigroup`) continue to type-check unchanged because their methods carry no `with` clause (floor = `<>`, instances default to pure).
+- Two instances of the same class in two different modules with **different effect signatures** are both legal and produce different caller-side effect rows when dispatched (e.g. `Logger<StdoutHandle>` with `with IO` and `Logger<NullHandle>` with no `with`).
+
+#### Deferred
+
+- **Head-level `instance Foo<X> with IO { ... }`** (per-instance pinning at the head, applying to every method) is a convenience deferred until users complain about repeating `with IO` on each method. The per-method form is already grammatical and fully expressive.
+- **`sealed class` / explicit ceiling syntax** — see "no sealed class" note above. Add only if a real use case appears.
+
+#### Phase 4a prerequisite — whitelist `effect` declarations in module bodies
+
+The module-body validator at [src/bytecode/compiler/statement.rs:1685](src/bytecode/compiler/statement.rs#L1685) currently allows `Function`, `Let`, `Data`, `Class`, `Instance`, and `Import` inside `module { ... }` blocks but **does not** allow `Statement::EffectDecl`. This means `effect Console { print: String -> () }` declared inside a `module` block is rejected with `INVALID_MODULE_CONTENT`.
+
+The four worked examples below all live in module form, and several of them put `effect` declarations inside their own modules (e.g. `module Flow.Console { effect Console { ... } }`). For those examples to parse, the module-body whitelist must learn one new arm:
+
+```rust
+Statement::EffectDecl { .. } => {}
+```
+
+This is a **1-line change** following the same pattern as Phase 1's whitelist extension for `Class`/`Instance`/`Import`. It ships as the **first commit** of Phase 4 (Phase 4a-prereq), independent of any parser or walker work.
+
+#### Module-scoped effect names — known limitation, deferred
+
+Effects in Flux today are a **global namespace**: `EffectExpr::Named { name: Identifier }` ([src/syntax/effect_expr.rs:12](src/syntax/effect_expr.rs#L12)) stores a single bare identifier with no module path. Two modules cannot both declare `effect Console` without colliding on the bare name `Console` — analogous to the pre-Phase-1 problem with classes that ClassId resolved.
+
+This is **not a Phase 4 blocker**. The four examples use distinct effect names (`Console`, `Clock`, `AuditLog`, etc.) and reference them by bare name from any module, exactly as effects work today. The only thing that's *new* is that the `effect` declaration itself can live inside a `module { ... }` block (per the prereq above).
+
+A full fix — module-scoped effect identity (`EffectId = (ModulePath, Identifier)`, mirroring `ClassId`) — is parked for a Phase 4d-or-later follow-up if anyone hits a real collision. Until then, the convention is "one effect per dedicated `module Flow.X` file", same as the stdlib pattern.
+
+#### Files touched
+
+- **[src/bytecode/compiler/statement.rs](src/bytecode/compiler/statement.rs)** — *Phase 4a-prereq*: 1-line whitelist for `Statement::EffectDecl` in the module-body validator.
+- [src/syntax/type_class.rs](src/syntax/type_class.rs) — `ClassMethod.effects: Vec<EffectExpr>` and `InstanceMethod.effects: Vec<EffectExpr>`. Same field type as `Statement::Function.effects` already has.
+- [src/syntax/parser/statement.rs](src/syntax/parser/statement.rs) — call `parse_effect_list()` after a class-method return type and after an instance-method parameter list. One-line additions in two places.
+- [src/types/class_env.rs](src/types/class_env.rs) — `MethodSig.effects`, propagated from `ClassMethod`. New `enforce_class_method_effect_floor` walker fires `E452` when Rule 1 is violated.
+- [src/types/class_dispatch.rs](src/types/class_dispatch.rs) — Phase 1b mangling pass now carries `instance_method.effects` into the synthesized top-level `Statement::Function.effects` instead of the current hardcoded `vec![]`. **One field assignment.**
+- [src/ast/type_infer/expression/calls.rs](src/ast/type_infer/expression/calls.rs) — `try_resolve_class_call` looks up the *resolved instance's* mangled scheme in `cached_member_schemes`, extracts the `Fun(_, _, effect_row)`, and unifies that row into the caller's ambient row. Same code path as `infer_call` for regular `Fun(...)` callees.
+- [src/types/module_interface.rs](src/types/module_interface.rs) — populate the `pinned_row_placeholder` field on `PublicClassEntry` / `PublicInstanceEntry` (added in Phase 2 specifically to absorb Phase 4 rows without a cache format bump).
+- [src/diagnostics/](src/diagnostics/) — `E452`.
+
+#### Complete Phase 4 surface area
+
+Every piece, where it comes from, what's new vs. what already exists. This makes the "no new syntax" claim verifiable line by line.
+
+| Piece | Source | Status |
+|---|---|---|
+| `module Foo.Bar { ... }` | Phase 1 | ✅ ships |
+| `import Flow.X as Alias` (file scope) | predates Phase 1 | ✅ ships |
+| `import Flow.X as Alias` (inside module body) | Phase 1 | ✅ ships |
+| `public class` / `public instance` / `public data` | Phase 2 | ✅ ships |
+| `class Foo<a> { fn m(x: a) -> T }` | Proposal 0145 | ✅ ships |
+| `instance Foo<X> { fn m(x) { body } }` | Proposal 0145 | ✅ ships |
+| `effect Foo { op: T -> U }` (top-level) | existing | ✅ ships |
+| `effect Foo { op: T -> U }` (inside `module { ... }`) | **Phase 4a-prereq** | ⚠️ 1-line whitelist add |
+| `with Effect` after a class method return type | **Phase 4a** | ⚠️ 1 `parse_effect_list()` call |
+| `with Effect` between an instance method's params and body | **Phase 4a** | ⚠️ 1 `parse_effect_list()` call |
+| `with \|e` row variable on a class method | reuses 4a parser hook | ✅ same code path |
+| `with E1, E2` comma-separated on a class method | reuses 4a parser hook | ✅ same code path |
+| `with E \| e` lower bound on a class method | reuses 4a parser hook | ✅ same code path |
+| `perform Effect.op(args)` (inside instance body) | existing | ✅ no change |
+| `expr handle Effect { op(resume, ...) -> ... }` | existing | ✅ no change |
+| Qualified class method call `Module.method(args)` | Phase 1 | ✅ ships |
+| Type-directed dispatch propagating effects to caller | **Phase 4b** | row from the resolved instance's mangled scheme flows through `try_resolve_class_call` |
+| Row-polymorphic class methods end-to-end | **Phase 4c** | row variable in class signature instantiates per call site |
+
+**Total Phase 4 code delta** (excluding tests): the 1-line prereq + 2 `parse_effect_list()` calls + 2 AST fields + 1 `MethodSig` field + 1 mangling-pass assignment + 1 walker (Rule 1 / E452) + the `try_resolve_class_call` row-propagation step. Estimate: **~60 lines of compiler code** spread across the three sub-phases.
+
+#### Error codes introduced
+
+`E452` only. The original proposal's `E453` (pinning a row on a `with <>` class) and `E454` (pinning a row that doesn't satisfy a `with <E, ..>` minimum) collapse into `E452` because under the floor model both are the same rule: instance row must be a superset of class row.
+
+#### Tests required
+
+Each of the four worked examples below becomes an integration test in [tests/module_scoped_classes_tests.rs](tests/module_scoped_classes_tests.rs), invoked through `compile_source` and asserted against expected diagnostics. Plus:
+
+- `Eq<UserId>` with `fn eq(a, b) with AuditLog { perform AuditLog.record(...); ... }` — **valid**: class row `<>` ⊆ instance row `<AuditLog>`. Caller of `Eq.eq(u1, u2)` gains `AuditLog`.
+- `Eq<UserId>` with `fn eq(a, b) { perform AuditLog.record(...); ... }` (no `with` clause) — rejected by Rule 2 (body has effects, declaration is pure). Standard function-effect-mismatch diagnostic.
+- `Logger<h>` declared as `fn log(...) with IO | e`, instance with `fn log(...) with Time` only — rejected by Rule 1 (instance is missing `IO`). E452.
+- `Foldable<f>` with `fn fold(..., step: (b, a) -> b with |e) -> b with |e`, instance `Foldable<List>` with the standard recursive body — caller passing a closure that performs `Console` has `Console` propagated to its ambient row via the row variable `e`.
+- Built-in `Eq`, `Ord`, `Show`, `Num`, `Semigroup` continue to type-check (no `with` clauses anywhere in their declarations).
+
+#### Risk
+
+Low-to-medium. The original proposal estimated medium-high based on the assumption of new syntax; the Spike A finding that all seven effect forms are already GREEN cuts the risk substantially. Reading 2 (floor semantics) further reduces risk by avoiding the need for a post-inference walker — Rule 1 is a pure annotation-vs-annotation check, and Rule 2 falls out of the existing function-effect-mismatch machinery.
+
+**Mitigation:** ship in four small commits.
+
+- **Commit 1 — Phase 4a-prereq.** 1-line whitelist for `Statement::EffectDecl` in the module-body validator + 1 integration test. Independent of all the parser/walker work below.
+- **Commit 2 — Phase 4a.** `ClassMethod.effects` + `InstanceMethod.effects` AST fields + 2 `parse_effect_list()` calls + Rule 1 walker (E452) + Phase 1b mangling-pass field assignment. No row propagation to callers yet — class-method calls still resolve through the existing path. The smallest commit that makes the seven `with` forms parse on classes.
+- **Commit 3 — Phase 4b.** `try_resolve_class_call` propagates the resolved instance's row into the caller's ambient row. `Eq<UserId>` with `with AuditLog` callers now actually need `AuditLog` in their signature.
+- **Commit 4 — Phase 4c.** `Foldable` with `with |e` end-to-end. The row variable in the class declaration instantiates freshly per call site and unifies with the closure's row.
+
+Each commit is independently shippable.
+
+#### Worked examples
+
+All four examples use Flux's existing effect-system syntax (`effect` / `perform` / `handle` / `with` / `|e`) and the existing module/class/instance syntax from Phases 1–3. Every token in user-facing position is something that already parses today, with the sole exception of `with` after a class-method return type and `with` between an instance-method parameter list and its body — both of which are added by Phase 4a's two `parse_effect_list()` calls.
+
+> **Note on parameter naming.** `handle` is a reserved keyword in Flux's effect handler syntax (`expr handle Effect { op(resume, args) -> ... }`) and cannot be used as a parameter name. The examples below use `hnd` for any parameter that would otherwise be named `handle` — discovered while writing the Phase 4a-prereq integration tests.
+
+```rust
+// ─── Example 1: Console effect + Logger class across four modules ────
+//
+// User-defined effect, class method that declares it, instance that
+// performs it, caller that handles it. Same effect/perform/handle
+// pattern as examples/type_system/22_handle_discharges_effect.flx,
+// but with the effectful function moved into a class.
+
+module Flow.Console {
+    effect Console {
+        print: String -> ()
+    }
+}
+
+module Flow.Logger {
+    import Flow.Console as Console
+
+    public class Logger<h> {
+        fn log(hnd: h, msg: String) -> Unit with Console
+    }
+}
+
+module App.StdLog {
+    import Flow.Logger as Logger
+    import Flow.Console as Console
+
+    public data StdoutHandle { Stdout }
+
+    public instance Logger<StdoutHandle> {
+        fn log(hnd, msg) {
+            perform Console.print(msg)
+        }
+    }
+}
+
+module App.Main {
+    import App.StdLog as StdLog
+    import Flow.Logger as Logger
+    import Flow.Console as Console
+
+    public fn run() -> Int {
+        Logger.log(StdLog.Stdout, "ok") handle Console {
+            print(resume, _msg) -> resume(())
+        }
+        1
+    }
+}
+
+fn main() with IO {
+    print(to_string(App.Main.run()))
+}
+```
+
+```rust
+// ─── Example 2: Eq<UserId> with custom AuditLog effect ───────────────
+//
+// The class is pure (floor = empty). Eq<Int> stays pure. Eq<UserId>
+// adds an audit-log effect by declaring it explicitly on the instance
+// method and performing it in the body. Type-directed dispatch routes
+// each caller to the right instance, and the effect propagates only
+// when the audit instance is selected.
+
+module Flow.Eq {
+    public class Eq<a> {
+        fn eq(x: a, y: a) -> Bool
+    }
+
+    public instance Eq<Int> {
+        fn eq(x, y) { x == y }
+    }
+}
+
+module Flow.AuditLog {
+    effect AuditLog {
+        record: String -> ()
+    }
+}
+
+module App.Users {
+    import Flow.Eq as Eq
+    import Flow.AuditLog as AuditLog
+
+    public data UserId { Id(Int) }
+
+    public instance Eq<UserId> {
+        fn eq(a, b) with AuditLog {
+            perform AuditLog.record("comparing users")
+            match (a, b) {
+                (Id(x), Id(y)) -> x == y
+            }
+        }
+    }
+}
+
+module App.Service {
+    import Flow.Eq as Eq
+    import Flow.AuditLog as AuditLog
+    import App.Users as Users
+
+    // Dispatches to Eq<Int> — pure because that instance has no `with`.
+    public fn ints_equal(x: Int, y: Int) -> Bool {
+        Eq.eq(x, y)
+    }
+
+    // Dispatches to Eq<UserId> — gains AuditLog from the resolved instance.
+    public fn users_equal(a: Users.UserId, b: Users.UserId) -> Bool with AuditLog {
+        Eq.eq(a, b)
+    }
+}
+
+fn main() with IO {
+    let result = App.Service.users_equal(App.Users.Id(1), App.Users.Id(2))
+        handle AuditLog {
+            record(resume, msg) -> {
+                print(msg)
+                resume(())
+            }
+        }
+    print(to_string(result))
+}
+```
+
+```rust
+// ─── Example 3: Foldable with row-polymorphic step callback ──────────
+//
+// The class method's `step` callback may carry any row `|e`. The result
+// inherits the same row. The instance body itself is pure — the row
+// variable is bound at the call site, not at the instance.
+
+module Flow.Foldable {
+    public class Foldable<f> {
+        fn fold<a, b>(
+            xs: f<a>,
+            init: b,
+            step: (b, a) -> b with |e,
+        ) -> b with |e
+    }
+
+    public instance Foldable<List> {
+        fn fold(xs, init, step) {
+            match xs {
+                Nil        -> init,
+                Cons(h, t) -> Foldable.fold(t, step(init, h), step),
+            }
+        }
+    }
+}
+
+module Flow.Console {
+    effect Console {
+        print: String -> ()
+    }
+}
+
+module App.Reports {
+    import Flow.Foldable as Foldable
+    import Flow.Console as Console
+
+    // Effectful caller: |e instantiates to <Console> at this call site,
+    // and the caller's signature must therefore include Console.
+    public fn print_all(lines: List<String>) -> Int with Console {
+        Foldable.fold(lines, 0, fn(count, line) {
+            perform Console.print(line)
+            count + 1
+        })
+    }
+
+    // Same class, same instance, pure caller. The row variable
+    // instantiates to <> at this call site.
+    public fn count_lines(lines: List<String>) -> Int {
+        Foldable.fold(lines, 0, fn(count, _) { count + 1 })
+    }
+}
+
+fn main() with IO {
+    let n = App.Reports.print_all(["a", "b", "c"]) handle Console {
+        print(resume, msg) -> {
+            print(msg)
+            resume(())
+        }
+    }
+    print(to_string(n))
+}
+```
+
+```rust
+// ─── Example 4: Multiple effects on one class method, handled separately
+//
+// Comma-separated effect list on a class method. Two `perform` calls in
+// the instance body. Two stacked `handle` blocks at the call site
+// discharging both effects.
+
+module Flow.Console {
+    effect Console {
+        print: String -> ()
+    }
+}
+
+module Flow.Clock {
+    effect Clock {
+        now: () -> Int
+    }
+}
+
+module Flow.Tracer {
+    import Flow.Console as Console
+    import Flow.Clock as Clock
+
+    public class Tracer<h> {
+        fn trace(hnd: h, msg: String) -> Unit with Console, Clock
+    }
+}
+
+module App.SimpleTracer {
+    import Flow.Tracer as Tracer
+    import Flow.Console as Console
+    import Flow.Clock as Clock
+
+    public data Handle { H }
+
+    public instance Tracer<Handle> {
+        fn trace(hnd, msg) {
+            let t = perform Clock.now()
+            perform Console.print("[" ++ to_string(t) ++ "] " ++ msg)
+        }
+    }
+}
+
+module App.Main {
+    import App.SimpleTracer as SimpleTracer
+    import Flow.Tracer as Tracer
+    import Flow.Console as Console
+    import Flow.Clock as Clock
+
+    public fn run() with IO {
+        Tracer.trace(SimpleTracer.H, "starting up")
+            handle Clock {
+                now(resume) -> resume(0)
+            }
+            handle Console {
+                print(resume, msg) -> {
+                    print(msg)
+                    resume(())
+                }
+            }
+    }
+}
+
+fn main() with IO {
+    App.Main.run()
+}
+```
+
+**The novel Flux feature**, illustrated by Examples 2 and 3: two instances of the same class with **different effect signatures**, both selected by type-directed dispatch, with the per-instance row flowing into the caller's ambient row. Koka has no classes; Haskell would need to encode it via fundeps or higher-rank types (per Spike C). Flux gets it for free because effect rows are already first-class and the resolved instance's mangled scheme already carries the correct row — Phase 4 just teaches the parser to accept the seven existing `with` forms in two new positions and teaches `try_resolve_class_call` to read the resolved instance's row into the caller's ambient row.
 
 ---
 
@@ -1552,12 +1942,14 @@ Phase 0 was executed and resolved all three spikes. Summary below; each spike's 
 | 1 | ✅ done | Foundation + ClassId-keyed storage | write module-scoped classes, call via `Alias.method(...)`, have two classes with the same short name in different modules |
 | 2 | ✅ done | Coherence + ADTs + `.flxi` | rely on orphan rule, incremental cache stays sound, `deriving` works under new rules |
 | 3 | ✅ done* | `exposing` | opt into unqualified calls, use inside-module shadowing in default methods |
-| 4 | ⏳ pending | Effects | write effectful instance methods, pin instances to concrete rows |
+| 4 | 🟡 in progress | Effects | write effectful instance methods, pin instances to concrete rows |
 | 5 | ⏳ pending | Aether | no perf regression on polymorphic dispatch |
 | 6 | ⏳ pending | Stdlib migration + warning | use a fully-migrated stdlib; see deprecation warnings on legacy code |
 | 7 | ⏳ pending | Hard deprecation | — (removal only) |
 
 \* Phase 3 is "done" except for the deferred legacy-global suppression bullet (see Phase 3 §"Deferred to a follow-up"), held back until Phase 6 stdlib migration so the two changes ship together.
+
+🟡 Phase 4 is in progress: the pre-phase spike and Phase 4a-prereq (the 1-line whitelist for `effect` declarations in module bodies) have landed. The next sub-commit is Phase 4a (parser hooks + Rule 1 walker). See the Phase 4 §"Status" block above for the full sub-commit breakdown.
 
 Each row is a release-shippable checkpoint. If scheduling pressure forces a cut, the minimum viable slice for the proposal is **phases 1 + 2 + 6**: those three alone deliver module-scoped classes with coherence guarantees and a migrated stdlib. Phases 3, 4, 5, 7 are all genuine improvements but are not load-bearing for the core story.
 
