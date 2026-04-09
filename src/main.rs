@@ -386,6 +386,7 @@ fn compile_parallel_module(
                         &core,
                         compiler.cached_member_schemes(),
                         &compiler.module_function_visibility,
+                        Some(compiler.class_env()),
                         dependency_fingerprints,
                         &compiler.interner,
                     )
@@ -987,6 +988,7 @@ fn compile_parallel_native_module(
                         &core,
                         compiler.cached_member_schemes(),
                         &compiler.module_function_visibility,
+                        Some(compiler.class_env()),
                         dependency_fingerprints,
                         &compiler.interner,
                     )
@@ -2316,6 +2318,7 @@ fn run_file(
                                     &core,
                                     compiler.cached_member_schemes(),
                                     &compiler.module_function_visibility,
+                                    Some(compiler.class_env()),
                                     dependency_fingerprints,
                                     &compiler.interner,
                                 );

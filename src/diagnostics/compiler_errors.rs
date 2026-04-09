@@ -912,6 +912,21 @@ pub const PUBLIC_CLASS_LEAKS_PRIVATE_TYPE: ErrorCode = ErrorCode {
     ),
 };
 
+/// Proposal 0151, Phase 2: a class constraint written with a short name
+/// (e.g. `<a: Foldable>`) is ambiguous when two or more classes named
+/// `Foldable` are visible in the program. Users must qualify with a
+/// module path or rely on `import ... as Alias` to disambiguate.
+pub const AMBIGUOUS_CLASS_CONSTRAINT: ErrorCode = ErrorCode {
+    code: "E456",
+    title: "AMBIGUOUS CLASS CONSTRAINT",
+    error_type: ErrorType::Compiler,
+    message: "Class constraint `{}` is ambiguous: multiple classes have this short name.",
+    hint: Some(
+        "Qualify the class with its module path, or use `import ... as Alias` \
+         to bring exactly one into scope.",
+    ),
+};
+
 /// Proposal 0151, Phase 2: a `public instance` of a `public class` must
 /// not have a private head ADT — downstream importers cannot name the
 /// type to actually use the dispatch.

@@ -101,6 +101,14 @@ impl<'a> InferCtx<'a> {
                 continue;
             };
             for &constraint in &type_param.constraints {
+                // Proposal 0151, Phase 2: short-name constraint ambiguity (E456).
+                //
+                // If two or more classes share the same short name in
+                // `class_env`, an explicit bound `<a: Foo>` is ambiguous
+                // because the constraint solver cannot pick which class
+                // the user meant. Fire E456 once per ambiguous bound.
+                self.report_ambiguous_class_constraint(constraint, span);
+
                 self.emit_class_constraint(
                     constraint,
                     InferType::Var(type_var),
@@ -109,6 +117,46 @@ impl<'a> InferCtx<'a> {
                 );
             }
         }
+    }
+
+    /// Phase 2 helper: scan the class environment for classes sharing
+    /// `short_name`. If two or more matches exist, emit E456 with a
+    /// hint listing the conflicting owning modules.
+    fn report_ambiguous_class_constraint(&mut self, short_name: Identifier, span: Span) {
+        let Some(class_env) = self.class_env.as_ref() else {
+            return;
+        };
+        let matches: Vec<_> = class_env
+            .classes
+            .values()
+            .filter(|def| def.name == short_name)
+            .collect();
+        if matches.len() < 2 {
+            return;
+        }
+
+        let display_class = self.interner.resolve(short_name);
+        let modules: Vec<String> = matches
+            .iter()
+            .map(|def| match def.module.as_identifier() {
+                Some(id) => self.interner.resolve(id).to_string(),
+                None => "<prelude>".to_string(),
+            })
+            .collect();
+        let modules_display = modules.join(", ");
+
+        let diagnostic = crate::diagnostics::diagnostic_for(
+            &crate::diagnostics::compiler_errors::AMBIGUOUS_CLASS_CONSTRAINT,
+        )
+        .with_span(span)
+        .with_message(format!(
+            "Class constraint `{display_class}` is ambiguous: matches classes in {modules_display}."
+        ))
+        .with_hint_text(format!(
+            "Two or more classes named `{display_class}` are visible. Qualify with the \
+             owning module or use `import ... as Alias`."
+        ));
+        self.errors.push(diagnostic);
     }
 
     /// Infer and bind function parameters in the current scope.
