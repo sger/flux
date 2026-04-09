@@ -1683,6 +1683,12 @@ impl Compiler {
                 // Resolution happens via the module graph; the bytecode compiler
                 // ignores them at this site.
                 Statement::Import { .. } => {}
+                // Effect declarations are allowed inside modules (Proposal 0151
+                // Phase 4a-prereq). Semantic processing happens in the existing
+                // effect-handling pipeline; the bytecode compiler treats the
+                // declaration as transparent here, identical to how it treats
+                // top-level `effect` declarations.
+                Statement::EffectDecl { .. } => {}
                 _ => {
                     let pos = statement.position();
                     return Err(Self::boxed(Diagnostic::make_error(
