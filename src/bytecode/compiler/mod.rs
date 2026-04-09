@@ -409,7 +409,6 @@ pub struct Compiler {
     /// True when HM type inference produced diagnostics. Used to block CFG path
     /// for functions in files with type errors (the Core IR may be degenerate).
     pub(super) has_hm_diagnostics: bool,
-    pub(super) last_inferred_program: Option<Program>,
     pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
     pub(super) inferred_function_effects: HashMap<ContractKey, HashSet<Symbol>>,
     strict_mode: bool,
@@ -436,7 +435,7 @@ pub struct ModuleCacheSnapshot {
 }
 
 struct FinalInferenceResult<'a> {
-    final_program: Cow<'a, Program>,
+    effective_program: Cow<'a, Program>,
     hm_final: InferProgramResult,
 }
 
@@ -504,7 +503,6 @@ impl Compiler {
             cached_member_schemes: HashMap::new(),
             cached_member_borrow_signatures: HashMap::new(),
             has_hm_diagnostics: false,
-            last_inferred_program: None,
             ir_function_symbols: HashMap::new(),
             inferred_function_effects: HashMap::new(),
             strict_mode: false,
@@ -558,7 +556,6 @@ impl Compiler {
         self.effect_alias_scopes.push(HashMap::new());
         self.type_env = TypeEnv::new();
         self.hm_expr_types.clear();
-        self.last_inferred_program = None;
         self.function_effects.clear();
         self.function_param_effect_rows.clear();
         self.handled_effects.clear();
@@ -601,7 +598,7 @@ impl Compiler {
                 &pre_desugar_expr_types,
                 &self.interner,
             );
-        let final_program = if desugar_changed_program {
+        let effective_program = if desugar_changed_program {
             desugar_operators_if_needed(
                 pre_desugar_program,
                 &pre_desugar_expr_types,
@@ -612,13 +609,215 @@ impl Compiler {
         };
         #[cfg(test)]
         let desugar_changed_program = desugar_changed_program;
-        let hm_final = match &final_program {
+        let hm_final = match &effective_program {
             _ if !desugar_changed_program => hm_pre_desugar,
-            Cow::Owned(_) | Cow::Borrowed(_) => self.run_hm_infer(final_program.as_ref()),
+            Cow::Owned(_) | Cow::Borrowed(_) => self.run_hm_infer(effective_program.as_ref()),
         };
         FinalInferenceResult {
-            final_program,
+            effective_program,
             hm_final,
+        }
+    }
+
+    fn apply_hm_final(&mut self, hm_final: &InferProgramResult) {
+        self.type_env = hm_final.type_env.clone();
+        self.hm_expr_types = hm_final.expr_types.clone();
+    }
+
+    fn lower_core_from_program(
+        &self,
+        program_to_lower: &Program,
+        optimize: bool,
+        elaborate_dictionaries: bool,
+    ) -> Result<crate::core::CoreProgram, Diagnostic> {
+        let class_env_ref = if self.class_env.classes.is_empty() {
+            None
+        } else {
+            Some(&self.class_env)
+        };
+        let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
+            program_to_lower,
+            &self.hm_expr_types,
+            Some(&self.interner),
+            None,
+            None,
+            class_env_ref,
+        );
+
+        if elaborate_dictionaries && !self.class_env.classes.is_empty() {
+            let mut max_id: u32 = 0;
+            for def in &core.defs {
+                max_id = max_id.max(def.binder.id.0);
+            }
+            let mut next_id = max_id + 1;
+            crate::core::passes::elaborate_dictionaries(
+                &mut core,
+                &self.class_env,
+                &self.type_env,
+                &self.interner,
+                &mut next_id,
+            );
+        }
+
+        let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
+        crate::core::passes::run_core_passes_with_interner_and_registry(
+            &mut core,
+            &self.interner,
+            optimize,
+            preloaded_registry,
+        )?;
+        Ok(core)
+    }
+
+    fn prepare_core_program(
+        &mut self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<crate::core::CoreProgram, Diagnostic> {
+        if optimize {
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
+            let program_to_lower = rename(optimized, HashMap::new());
+            return self.lower_core_from_program(&program_to_lower, true, false);
+        }
+
+        let prepared = self.prepare_program_for_lowering(program);
+        self.apply_hm_final(&prepared.hm_final);
+        self.lower_core_from_program(prepared.effective_program.as_ref(), false, false)
+    }
+
+    fn prepare_core_program_with_preloaded(
+        &mut self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<crate::core::CoreProgram, Diagnostic> {
+        if optimize {
+            return self.prepare_core_program(program, true);
+        }
+
+        let prepared = self.prepare_program_for_lowering_with_preloaded(program);
+        self.apply_hm_final(&prepared.hm_final);
+        self.lower_core_from_program(prepared.effective_program.as_ref(), false, false)
+    }
+
+    fn prepare_program_for_lowering<'a>(&mut self, program: &'a Program) -> FinalInferenceResult<'a> {
+        #[cfg(test)]
+        {
+            self.hm_infer_runs = 0;
+        }
+        self.file_scope_symbols.clear();
+        self.imported_modules.clear();
+        self.import_aliases.clear();
+        self.imported_module_exclusions.clear();
+        self.exposed_bindings.clear();
+        self.current_module_prefix = None;
+        self.current_span = None;
+        self.static_type_scopes.clear();
+        self.static_type_scopes.push(HashMap::new());
+        self.effect_alias_scopes.clear();
+        self.effect_alias_scopes.push(HashMap::new());
+        self.module_contracts.clear();
+        self.module_function_visibility.clear();
+        self.module_adt_constructors.clear();
+        self.type_env = TypeEnv::new();
+        self.hm_expr_types.clear();
+        self.effect_ops_registry.clear();
+        self.effect_op_signatures.clear();
+
+        self.collect_module_function_visibility(program);
+        self.collect_module_contracts(program);
+        self.collect_effect_declarations(program);
+        self.auto_expose_flow_modules();
+
+        if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
+            let extra = crate::types::class_dispatch::generate_dispatch_functions(
+                &program.statements,
+                &self.class_env,
+                &mut self.interner,
+            );
+            if extra.is_empty() {
+                self.infer_final_program(program)
+            } else {
+                let mut statements = extra;
+                statements.extend(program.statements.iter().cloned());
+                let class_augmented = Program {
+                    statements,
+                    span: program.span,
+                };
+                let final_inference = self.infer_final_program(&class_augmented);
+                FinalInferenceResult {
+                    effective_program: Cow::Owned(final_inference.effective_program.into_owned()),
+                    hm_final: final_inference.hm_final,
+                }
+            }
+        } else {
+            self.infer_final_program(program)
+        }
+    }
+
+    fn prepare_program_for_lowering_with_preloaded<'a>(
+        &mut self,
+        program: &'a Program,
+    ) -> FinalInferenceResult<'a> {
+        #[cfg(test)]
+        {
+            self.hm_infer_runs = 0;
+        }
+        let preloaded_contracts = self.module_contracts.clone();
+        let preloaded_visibility = self.module_function_visibility.clone();
+        let preloaded_adt_ctors = self.module_adt_constructors.clone();
+        let preloaded_effect_ops = self.effect_ops_registry.clone();
+        let preloaded_effect_sigs = self.effect_op_signatures.clone();
+
+        self.file_scope_symbols.clear();
+        self.imported_modules.clear();
+        self.import_aliases.clear();
+        self.imported_module_exclusions.clear();
+        self.exposed_bindings.clear();
+        self.current_module_prefix = None;
+        self.current_span = None;
+        self.static_type_scopes.clear();
+        self.static_type_scopes.push(HashMap::new());
+        self.effect_alias_scopes.clear();
+        self.effect_alias_scopes.push(HashMap::new());
+        self.module_contracts = preloaded_contracts;
+        self.module_function_visibility = preloaded_visibility;
+        self.module_adt_constructors = preloaded_adt_ctors;
+        self.type_env = TypeEnv::new();
+        self.hm_expr_types.clear();
+        self.effect_ops_registry = preloaded_effect_ops;
+        self.effect_op_signatures = preloaded_effect_sigs;
+
+        self.collect_module_function_visibility(program);
+        self.collect_module_adt_constructors(program);
+        self.collect_module_contracts(program);
+        self.collect_effect_declarations(program);
+        self.auto_expose_flow_modules();
+
+        if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
+            let extra = crate::types::class_dispatch::generate_dispatch_functions(
+                &program.statements,
+                &self.class_env,
+                &mut self.interner,
+            );
+            if extra.is_empty() {
+                self.infer_final_program(program)
+            } else {
+                let mut statements = extra;
+                statements.extend(program.statements.iter().cloned());
+                let class_augmented = Program {
+                    statements,
+                    span: program.span,
+                };
+                let final_inference = self.infer_final_program(&class_augmented);
+                FinalInferenceResult {
+                    effective_program: Cow::Owned(final_inference.effective_program.into_owned()),
+                    hm_final: final_inference.hm_final,
+                }
+            }
+        } else {
+            self.infer_final_program(program)
         }
     }
 
@@ -697,68 +896,8 @@ impl Compiler {
         &mut self,
         program: &Program,
     ) -> HashMap<ExprId, InferType> {
-        let source_program = program;
-        #[cfg(test)]
-        {
-            self.hm_infer_runs = 0;
-        }
-        self.file_scope_symbols.clear();
-        self.imported_modules.clear();
-        self.import_aliases.clear();
-        self.imported_module_exclusions.clear();
-        self.exposed_bindings.clear();
-        self.current_module_prefix = None;
-        self.current_span = None;
-        self.static_type_scopes.clear();
-        self.static_type_scopes.push(HashMap::new());
-        self.effect_alias_scopes.clear();
-        self.effect_alias_scopes.push(HashMap::new());
-        self.module_contracts.clear();
-        self.module_function_visibility.clear();
-        self.module_adt_constructors.clear();
-        self.type_env = TypeEnv::new();
-        self.hm_expr_types.clear();
-        self.effect_ops_registry.clear();
-        self.effect_op_signatures.clear();
-
-        self.collect_module_function_visibility(program);
-        self.collect_module_contracts(program);
-        self.collect_effect_declarations(program);
-        // Auto-expose Flow library modules so HM can resolve Flow functions.
-        self.auto_expose_flow_modules();
-
-        let class_augmented;
-        let program = if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
-            let extra = crate::types::class_dispatch::generate_dispatch_functions(
-                &program.statements,
-                &self.class_env,
-                &mut self.interner,
-            );
-            if extra.is_empty() {
-                program
-            } else {
-                let mut statements = extra;
-                statements.extend(program.statements.iter().cloned());
-                class_augmented = Program {
-                    statements,
-                    span: program.span,
-                };
-                &class_augmented
-            }
-        } else {
-            program
-        };
-
-        let final_inference = self.infer_final_program(program);
-        let final_program = final_inference.final_program;
-        let hm_final = final_inference.hm_final;
-        self.type_env = hm_final.type_env;
-        self.hm_expr_types = hm_final.expr_types;
-        self.last_inferred_program = match final_program {
-            Cow::Owned(program) => Some(program),
-            Cow::Borrowed(_) if !std::ptr::eq(program, source_program) => Some(program.clone()),
-            Cow::Borrowed(_) => None,
-        };
+        let prepared = self.prepare_program_for_lowering(program);
+        self.apply_hm_final(&prepared.hm_final);
         self.hm_expr_types.clone()
     }
 
@@ -766,74 +905,8 @@ impl Compiler {
         &mut self,
         program: &Program,
     ) -> HashMap<ExprId, InferType> {
-        let source_program = program;
-        #[cfg(test)]
-        {
-            self.hm_infer_runs = 0;
-        }
-        let preloaded_contracts = self.module_contracts.clone();
-        let preloaded_visibility = self.module_function_visibility.clone();
-        let preloaded_adt_ctors = self.module_adt_constructors.clone();
-        let preloaded_effect_ops = self.effect_ops_registry.clone();
-        let preloaded_effect_sigs = self.effect_op_signatures.clone();
-
-        self.file_scope_symbols.clear();
-        self.imported_modules.clear();
-        self.import_aliases.clear();
-        self.imported_module_exclusions.clear();
-        self.exposed_bindings.clear();
-        self.current_module_prefix = None;
-        self.current_span = None;
-        self.static_type_scopes.clear();
-        self.static_type_scopes.push(HashMap::new());
-        self.effect_alias_scopes.clear();
-        self.effect_alias_scopes.push(HashMap::new());
-        self.module_contracts = preloaded_contracts;
-        self.module_function_visibility = preloaded_visibility;
-        self.module_adt_constructors = preloaded_adt_ctors;
-        self.type_env = TypeEnv::new();
-        self.hm_expr_types.clear();
-        self.effect_ops_registry = preloaded_effect_ops;
-        self.effect_op_signatures = preloaded_effect_sigs;
-
-        self.collect_module_function_visibility(program);
-        self.collect_module_adt_constructors(program);
-        self.collect_module_contracts(program);
-        self.collect_effect_declarations(program);
-        self.auto_expose_flow_modules();
-
-        let class_augmented;
-        let program = if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
-            let extra = crate::types::class_dispatch::generate_dispatch_functions(
-                &program.statements,
-                &self.class_env,
-                &mut self.interner,
-            );
-            if extra.is_empty() {
-                program
-            } else {
-                let mut statements = extra;
-                statements.extend(program.statements.iter().cloned());
-                class_augmented = Program {
-                    statements,
-                    span: program.span,
-                };
-                &class_augmented
-            }
-        } else {
-            program
-        };
-
-        let final_inference = self.infer_final_program(program);
-        let final_program = final_inference.final_program;
-        let hm_final = final_inference.hm_final;
-        self.type_env = hm_final.type_env;
-        self.hm_expr_types = hm_final.expr_types;
-        self.last_inferred_program = match final_program {
-            Cow::Owned(program) => Some(program),
-            Cow::Borrowed(_) if !std::ptr::eq(program, source_program) => Some(program.clone()),
-            Cow::Borrowed(_) => None,
-        };
+        let prepared = self.prepare_program_for_lowering_with_preloaded(program);
+        self.apply_hm_final(&prepared.hm_final);
         self.hm_expr_types.clone()
     }
 
@@ -3094,60 +3167,22 @@ impl Compiler {
     /// compile configuration. Call this after a successful `compile_with_opts`.
     #[allow(clippy::result_large_err)]
     pub fn dump_core_with_opts(
-        &self,
+        &mut self,
         program: &Program,
         optimize: bool,
         mode: crate::core::display::CoreDisplayMode,
     ) -> Result<String, Diagnostic> {
-        let program_to_lower = if !optimize {
-            self.last_inferred_program
-                .clone()
-                .unwrap_or_else(|| program.clone())
-        } else {
+        let core = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
-            rename(optimized, HashMap::new())
-        };
-
-        let class_env_ref = if self.class_env.classes.is_empty() {
-            None
+            let program_to_lower = rename(optimized, HashMap::new());
+            self.lower_core_from_program(&program_to_lower, true, true)?
         } else {
-            Some(&self.class_env)
+            let prepared = self.prepare_program_for_lowering(program);
+            self.apply_hm_final(&prepared.hm_final);
+            self.lower_core_from_program(prepared.effective_program.as_ref(), false, true)?
         };
-        let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
-            &program_to_lower,
-            &self.hm_expr_types,
-            Some(&self.interner),
-            None,
-            None,
-            class_env_ref,
-        );
-
-        // Dictionary elaboration (Proposal 0145, Step 5b):
-        // Emit __dict_* CoreDefs and rewrite constrained function bodies.
-        if !self.class_env.classes.is_empty() {
-            let mut max_id: u32 = 0;
-            for def in &core.defs {
-                max_id = max_id.max(def.binder.id.0);
-            }
-            let mut next_id = max_id + 1;
-            crate::core::passes::elaborate_dictionaries(
-                &mut core,
-                &self.class_env,
-                &self.type_env,
-                &self.interner,
-                &mut next_id,
-            );
-        }
-
-        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
-        crate::core::passes::run_core_passes_with_interner_and_registry(
-            &mut core,
-            &self.interner,
-            optimize,
-            preloaded_registry,
-        )?;
 
         // Collect Aether stats across all definitions
         let mut total_stats = crate::aether::AetherStats::default();
@@ -3178,39 +3213,8 @@ impl Compiler {
 
     /// Lower to Core IR, then to LIR, and return a human-readable dump.
     #[allow(clippy::result_large_err)]
-    pub fn dump_lir(&self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
-        let program_to_lower = if !optimize {
-            self.last_inferred_program
-                .clone()
-                .unwrap_or_else(|| program.clone())
-        } else {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(program.clone());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            rename(optimized, HashMap::new())
-        };
-
-        let class_env_ref = if self.class_env.classes.is_empty() {
-            None
-        } else {
-            Some(&self.class_env)
-        };
-        let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
-            &program_to_lower,
-            &self.hm_expr_types,
-            Some(&self.interner),
-            None,
-            None,
-            class_env_ref,
-        );
-        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
-        crate::core::passes::run_core_passes_with_interner_and_registry(
-            &mut core,
-            &self.interner,
-            optimize,
-            preloaded_registry,
-        )?;
-
+    pub fn dump_lir(&mut self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
+        let core = self.prepare_core_program(program, optimize)?;
         let globals_map = self.build_globals_map();
         let lir = crate::lir::lower::lower_program_with_interner(
             &core,
@@ -3230,35 +3234,7 @@ impl Compiler {
         program: &Program,
         optimize: bool,
     ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
-        let program_to_lower = if optimize {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(program.clone());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            rename(optimized, HashMap::new())
-        } else {
-            program.clone()
-        };
-
-        let class_env_ref = if self.class_env.classes.is_empty() {
-            None
-        } else {
-            Some(&self.class_env)
-        };
-        let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
-            &program_to_lower,
-            &self.hm_expr_types,
-            Some(&self.interner),
-            None,
-            None,
-            class_env_ref,
-        );
-        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
-        crate::core::passes::run_core_passes_with_interner_and_registry(
-            &mut core,
-            &self.interner,
-            optimize,
-            preloaded_registry,
-        )?;
+        let core = self.prepare_core_program(program, optimize)?;
 
         // Pass None for globals_map so ALL functions are lowered to LIR
         // functions (no GetGlobal). In native mode there's no VM globals
@@ -3278,40 +3254,22 @@ impl Compiler {
         optimize: bool,
         export_user_ctor_name_helper: bool,
     ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
-        let program_to_lower = if !optimize {
-            self.last_inferred_program
-                .clone()
-                .unwrap_or_else(|| program.clone())
-        } else {
+        let (effective_program, core) = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
-            rename(optimized, HashMap::new())
-        };
-
-        let class_env_ref = if self.class_env.classes.is_empty() {
-            None
+            let program_to_lower = rename(optimized, HashMap::new());
+            let core = self.lower_core_from_program(&program_to_lower, true, false)?;
+            (Cow::Owned(program_to_lower), core)
         } else {
-            Some(&self.class_env)
+            let prepared = self.prepare_program_for_lowering_with_preloaded(program);
+            self.apply_hm_final(&prepared.hm_final);
+            let core = self.lower_core_from_program(prepared.effective_program.as_ref(), false, false)?;
+            (prepared.effective_program, core)
         };
-        let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
-            &program_to_lower,
-            &self.hm_expr_types,
-            Some(&self.interner),
-            None,
-            None,
-            class_env_ref,
-        );
-        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
-        crate::core::passes::run_core_passes_with_interner_and_registry(
-            &mut core,
-            &self.interner,
-            optimize,
-            preloaded_registry,
-        )?;
 
-        let extern_symbols = self.build_native_extern_symbols(&program_to_lower);
-        let emit_main = program_to_lower.statements.iter().any(|statement| {
+        let extern_symbols = self.build_native_extern_symbols(effective_program.as_ref());
+        let emit_main = effective_program.statements.iter().any(|statement| {
             matches!(
                 statement,
                 Statement::Function { name, .. } if self.sym(*name) == "main"
@@ -3424,48 +3382,17 @@ impl Compiler {
 
     #[allow(clippy::result_large_err)]
     pub fn lower_aether_report_program(
-        &self,
+        &mut self,
         program: &Program,
         optimize: bool,
     ) -> Result<crate::core::CoreProgram, Diagnostic> {
-        let program_to_lower = if !optimize {
-            self.last_inferred_program
-                .clone()
-                .unwrap_or_else(|| program.clone())
-        } else {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(program.clone());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            rename(optimized, HashMap::new())
-        };
-
-        let class_env_ref = if self.class_env.classes.is_empty() {
-            None
-        } else {
-            Some(&self.class_env)
-        };
-        let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
-            &program_to_lower,
-            &self.hm_expr_types,
-            Some(&self.interner),
-            None,
-            None,
-            class_env_ref,
-        );
-        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
-        crate::core::passes::run_core_passes_with_interner_and_registry(
-            &mut core,
-            &self.interner,
-            optimize,
-            preloaded_registry,
-        )?;
-        Ok(core)
+        self.prepare_core_program_with_preloaded(program, optimize)
     }
 
     /// Render an Aether memory model report showing per-function optimization decisions.
     #[allow(clippy::result_large_err)]
     pub fn render_aether_report(
-        &self,
+        &mut self,
         program: &Program,
         optimize: bool,
         debug: bool,
@@ -3580,7 +3507,7 @@ impl Compiler {
     /// Dump an Aether memory model report showing per-function optimization decisions.
     #[allow(clippy::result_large_err)]
     pub fn dump_aether_report(
-        &self,
+        &mut self,
         program: &Program,
         optimize: bool,
         debug: bool,
