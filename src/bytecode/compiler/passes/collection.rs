@@ -22,6 +22,9 @@ impl Compiler {
         // Proposal 0151, Phase 3: catch import-collision diagnostics
         // (E457, E458) introduced by `exposing (...)` clauses.
         self.validate_import_collisions(program);
+        // Proposal 0151, Phase 4a: enforce floor semantics on
+        // `with`-annotated class methods (E452).
+        self.validate_class_method_effect_floor(program);
         let main_state = self.validate_main_entrypoint(program);
         self.validate_top_level_effectful_code(program, main_state.has_main);
         self.validate_main_root_effect_discharge(program, main_state);
