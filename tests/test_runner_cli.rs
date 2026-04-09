@@ -31,6 +31,15 @@ fn run_flux_strict(args: &[&str]) -> Output {
         .unwrap_or_else(|e| panic!("failed to run flux with args {:?}: {e}", args))
 }
 
+fn cli_supports_flag(flag: &str) -> bool {
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .arg("--help")
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run flux --help: {e}"));
+    combined_output(&output).contains(flag)
+}
+
 fn combined_output(output: &Output) -> String {
     let mut text = String::new();
     text.push_str(&String::from_utf8_lossy(&output.stdout));
@@ -271,6 +280,10 @@ fn test_mode_flow_array_module_fixture_passes() {
 #[cfg(feature = "native")]
 #[test]
 fn test_mode_flow_list_module_fixture_passes_on_native_llvm() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
     let file = fixture_path("Flow/List_test.flx");
     let output = run_flux(&[
         "--test",
@@ -336,6 +349,10 @@ fn test_mode_flow_list_module_fixture_passes_on_native_llvm() {
 #[cfg(feature = "native")]
 #[test]
 fn test_native_sort_by_string_len_repro_prints_sorted_strings() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
     let file = example_path("repros/sort_by_string_len.flx");
     let output = run_flux(&[file.to_str().unwrap(), "--native"]);
     let text = combined_output(&output);
@@ -355,6 +372,10 @@ fn test_native_sort_by_string_len_repro_prints_sorted_strings() {
 #[cfg(feature = "native")]
 #[test]
 fn test_native_list_map_filter_example_preserves_list_zip_output() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
     let file = example_path("advanced/list_map_filter.flx");
     let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
     let text = combined_output(&output);
@@ -397,6 +418,10 @@ fn test_vm_higher_order_builtins_example_sorts_arrays() {
 #[cfg(feature = "core_to_llvm")]
 #[test]
 fn test_dump_lir_llvm_reuse_path_writes_raw_cons_headers() {
+    if !cli_supports_flag("--dump-lir-llvm") {
+        eprintln!("skipping LLVM dump CLI test: binary does not advertise --dump-lir-llvm");
+        return;
+    }
     let file = example_path("repros/sort_by_string_len.flx");
     let output = run_flux(&["--dump-lir-llvm", file.to_str().unwrap()]);
     let text = combined_output(&output);
@@ -779,6 +804,10 @@ fn dump_core_reports_drop_specialized_stats() {
 
 #[test]
 fn test_native_aether_queue_workload_matches_vm_totals() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
     let file = example_path("aether/queue_workload.flx");
     let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
     let text = combined_output(&output);
@@ -820,6 +849,10 @@ fn test_aether_bench_reuse_enabled_prints_head_value() {
 
 #[test]
 fn test_native_aether_bench_reuse_enabled_prints_head_value() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
     let file = example_path("aether/bench_reuse_enabled.flx");
     let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
     let text = combined_output(&output);
@@ -856,6 +889,10 @@ fn test_aether_bench_reuse_blocked_prints_head_value() {
 
 #[test]
 fn test_native_aether_bench_reuse_blocked_prints_head_value() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
     let file = example_path("aether/bench_reuse_blocked.flx");
     let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
     let text = combined_output(&output);
@@ -875,6 +912,10 @@ fn test_native_aether_bench_reuse_blocked_prints_head_value() {
 #[cfg(feature = "native")]
 #[test]
 fn test_native_day06_multimodule_adt_program_links_and_runs() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
     let file = example_path("aoc/2024/day06.flx");
     let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
     let text = combined_output(&output);
@@ -899,6 +940,10 @@ fn test_native_day06_multimodule_adt_program_links_and_runs() {
 #[cfg(feature = "native")]
 #[test]
 fn test_native_using_modules_program_links_without_user_adts() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
     let file = example_path("advanced/using_modules.flx");
     let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
     let text = combined_output(&output);

@@ -6,7 +6,15 @@ class Functor<f> {
 }
 
 instance Functor<List> {
-    fn fmap(xs, func) { map(xs, func) }
+    fn fmap(xs, func) {
+        fn go(ys) {
+            match ys {
+                [] -> [],
+                [h | t] -> [func(h) | go(t)]
+            }
+        }
+        go(xs)
+    }
 }
 
 fn main() with IO {
