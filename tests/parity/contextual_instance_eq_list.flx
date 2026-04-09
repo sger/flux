@@ -1,0 +1,23 @@
+// parity: vm, llvm
+// expect: success
+
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+
+instance Eq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) {
+        match xs {
+            [h1 | t1] -> match ys {
+                [h2 | t2] -> h1 == h2 && my_eq(t1, t2),
+                _ -> false
+            },
+            _ -> true
+        }
+    }
+}
+
+fn main() with IO {
+    print(my_eq([1, 2, 3], [1, 2, 3]))
+    print(my_eq([1, 2, 3], [1, 2, 4]))
+}

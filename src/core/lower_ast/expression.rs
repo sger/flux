@@ -154,8 +154,7 @@ impl<'a> super::AstLowerer<'a> {
                 if let Expression::Identifier { name, .. } = function.as_ref()
                     && let Some(mangled) = self.try_resolve_class_call(*name, arguments)
                 {
-                    let mut args =
-                        self.resolve_dict_args_for_call(mangled, ExprId::UNSET, arguments);
+                    let mut args = self.resolve_direct_class_call_dict_args(*name, arguments);
                     args.extend(arguments.iter().map(|a| self.lower_expr(a)));
                     return CoreExpr::App {
                         func: Box::new(CoreExpr::external_var(mangled, *span)),

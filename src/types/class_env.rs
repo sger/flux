@@ -72,6 +72,17 @@ pub struct ClassEnv {
     pub instances: Vec<InstanceDef>,
 }
 
+/// A resolved dictionary reference for a concrete class application.
+///
+/// `dict_name` identifies the dictionary global or dictionary-constructor
+/// function for the matched instance head. `context_args` recursively describes
+/// the dictionaries that must be supplied to contextual instances.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedDictionaryRef {
+    pub dict_name: Identifier,
+    pub context_args: Vec<ResolvedDictionaryRef>,
+}
+
 impl ClassEnv {
     /// Create a new empty class environment.
     pub fn new() -> Self {
@@ -519,6 +530,108 @@ impl ClassEnv {
         })
     }
 
+    /// Resolve the dictionary reference needed for a concrete class application.
+    ///
+    /// For plain instances this returns a leaf `ResolvedDictionaryRef` pointing
+    /// at `__dict_{Class}_{Type}`. For contextual instances it recursively
+    /// resolves the dictionaries required by the instance context so callers can
+    /// either capture them (dictionary construction) or pass them as arguments.
+    pub fn resolve_dictionary_ref(
+        &self,
+        class_name: Identifier,
+        actual_type_args: &[InferType],
+        interner: &Interner,
+    ) -> Option<ResolvedDictionaryRef> {
+        let (instance, subst) =
+            self.resolve_instance_with_subst(class_name, actual_type_args, interner)?;
+        let class_str = interner.resolve(class_name);
+        let type_name = instance
+            .type_args
+            .iter()
+            .map(|arg| arg.display_with(interner))
+            .collect::<Vec<_>>()
+            .join("_");
+        let dict_name = interner.lookup(&format!("__dict_{class_str}_{type_name}"))?;
+        let context_args = instance
+            .context
+            .iter()
+            .map(|constraint| {
+                let concrete_args = constraint
+                    .type_args
+                    .iter()
+                    .map(|arg| instantiate_instance_type_expr(arg, &subst, interner))
+                    .collect::<Option<Vec<_>>>()?;
+                self.resolve_dictionary_ref(constraint.class_name, &concrete_args, interner)
+            })
+            .collect::<Option<Vec<_>>>()?;
+
+        Some(ResolvedDictionaryRef {
+            dict_name,
+            context_args,
+        })
+    }
+
+    /// Resolve only the context dictionaries required by the matched instance.
+    ///
+    /// This is used by direct monomorphic calls to a mangled `__tc_*` method:
+    /// the caller needs the instance context arguments, not the whole instance
+    /// dictionary constructor.
+    pub fn resolve_instance_context_dictionaries(
+        &self,
+        class_name: Identifier,
+        actual_type_args: &[InferType],
+        interner: &Interner,
+    ) -> Option<Vec<ResolvedDictionaryRef>> {
+        let (instance, subst) =
+            self.resolve_instance_with_subst(class_name, actual_type_args, interner)?;
+        instance
+            .context
+            .iter()
+            .map(|constraint| {
+                let concrete_args = constraint
+                    .type_args
+                    .iter()
+                    .map(|arg| instantiate_instance_type_expr(arg, &subst, interner))
+                    .collect::<Option<Vec<_>>>()?;
+                self.resolve_dictionary_ref(constraint.class_name, &concrete_args, interner)
+            })
+            .collect()
+    }
+
+    /// Expand a pre-interned `__dict_{Class}_{Type}` name into the ordered
+    /// mangled method symbols that make up the dictionary tuple, if this name
+    /// corresponds to a known instance.
+    pub fn dictionary_method_symbols(
+        &self,
+        dict_name: Identifier,
+        interner: &Interner,
+    ) -> Option<Vec<Identifier>> {
+        let dict_name_str = interner.resolve(dict_name);
+        self.instances.iter().find_map(|instance| {
+            let class_def = self.lookup_class(instance.class_name)?;
+            let class_str = interner.resolve(instance.class_name);
+            let type_name = instance
+                .type_args
+                .iter()
+                .map(|arg| arg.display_with(interner))
+                .collect::<Vec<_>>()
+                .join("_");
+            let expected = format!("__dict_{class_str}_{type_name}");
+            if dict_name_str != expected {
+                return None;
+            }
+
+            class_def
+                .methods
+                .iter()
+                .map(|method_sig| {
+                    let method_str = interner.resolve(method_sig.name);
+                    interner.lookup(&format!("__tc_{class_str}_{type_name}_{method_str}"))
+                })
+                .collect()
+        })
+    }
+
     /// Register built-in type classes and instances.
     ///
     /// These are "phantom" entries — no real method bodies. They exist so the
@@ -756,6 +869,61 @@ impl ClassEnv {
             method_names: vec![],
             span: Span::default(),
         });
+    }
+}
+
+fn instantiate_instance_type_expr(
+    ty: &TypeExpr,
+    subst: &HashMap<Identifier, InferType>,
+    interner: &Interner,
+) -> Option<InferType> {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            if args.is_empty()
+                && let Some(mapped) = subst.get(name)
+            {
+                return Some(mapped.clone());
+            }
+
+            let resolved_args = args
+                .iter()
+                .map(|arg| instantiate_instance_type_expr(arg, subst, interner))
+                .collect::<Option<Vec<_>>>()?;
+
+            Some(match interner.resolve(*name) {
+                "Int" => InferType::Con(TypeConstructor::Int),
+                "Float" => InferType::Con(TypeConstructor::Float),
+                "Bool" => InferType::Con(TypeConstructor::Bool),
+                "String" => InferType::Con(TypeConstructor::String),
+                "Unit" => InferType::Con(TypeConstructor::Unit),
+                "List" => InferType::App(TypeConstructor::List, resolved_args),
+                "Array" => InferType::App(TypeConstructor::Array, resolved_args),
+                "Option" => InferType::App(TypeConstructor::Option, resolved_args),
+                "Either" => InferType::App(TypeConstructor::Either, resolved_args),
+                "Map" => InferType::App(TypeConstructor::Map, resolved_args),
+                _ => {
+                    if resolved_args.is_empty() {
+                        InferType::Con(TypeConstructor::Adt(*name))
+                    } else {
+                        InferType::App(TypeConstructor::Adt(*name), resolved_args)
+                    }
+                }
+            })
+        }
+        TypeExpr::Tuple { elements, .. } => Some(InferType::Tuple(
+            elements
+                .iter()
+                .map(|elem| instantiate_instance_type_expr(elem, subst, interner))
+                .collect::<Option<Vec<_>>>()?,
+        )),
+        TypeExpr::Function { params, ret, .. } => Some(InferType::Fun(
+            params
+                .iter()
+                .map(|param| instantiate_instance_type_expr(param, subst, interner))
+                .collect::<Option<Vec<_>>>()?,
+            Box::new(instantiate_instance_type_expr(ret, subst, interner)?),
+            crate::types::infer_effect_row::InferEffectRow::closed_empty(),
+        )),
     }
 }
 

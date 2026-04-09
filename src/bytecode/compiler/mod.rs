@@ -11,8 +11,7 @@ use crate::types::infer_effect_row::InferEffectRow;
 use crate::types::{TypeVarId, infer_type::InferType, scheme::Scheme};
 use crate::{
     ast::{
-        TailCall, collect_free_vars_in_program,
-        desugar_operators_if_needed,
+        TailCall, collect_free_vars_in_program, desugar_operators_if_needed,
         operator_desugaring_needed,
         type_infer::{InferProgramResult, infer_program},
         type_informed_fold::type_informed_fold,
@@ -582,10 +581,7 @@ impl Compiler {
         infer_program(program, &self.interner, hm_config)
     }
 
-    fn infer_final_program<'a>(
-        &mut self,
-        program: &'a Program,
-    ) -> FinalInferenceResult<'a> {
+    fn infer_final_program<'a>(&mut self, program: &'a Program) -> FinalInferenceResult<'a> {
         let hm = self.run_hm_infer(program);
         let pre_desugar_program = if self.type_optimize {
             Cow::Owned(type_informed_fold(program, &hm.type_env, &self.interner))
@@ -716,23 +712,28 @@ impl Compiler {
         {
             self.hm_infer_runs = 0;
         }
-        let (preloaded_contracts, preloaded_visibility, preloaded_adt_ctors, preloaded_effect_ops, preloaded_effect_sigs) =
-            match mode {
-                LoweringPreparationMode::Fresh => (
-                    HashMap::new(),
-                    HashMap::new(),
-                    HashMap::new(),
-                    HashMap::new(),
-                    HashMap::new(),
-                ),
-                LoweringPreparationMode::WithPreloaded => (
-                    self.module_contracts.clone(),
-                    self.module_function_visibility.clone(),
-                    self.module_adt_constructors.clone(),
-                    self.effect_ops_registry.clone(),
-                    self.effect_op_signatures.clone(),
-                ),
-            };
+        let (
+            preloaded_contracts,
+            preloaded_visibility,
+            preloaded_adt_ctors,
+            preloaded_effect_ops,
+            preloaded_effect_sigs,
+        ) = match mode {
+            LoweringPreparationMode::Fresh => (
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+            ),
+            LoweringPreparationMode::WithPreloaded => (
+                self.module_contracts.clone(),
+                self.module_function_visibility.clone(),
+                self.module_adt_constructors.clone(),
+                self.effect_ops_registry.clone(),
+                self.effect_op_signatures.clone(),
+            ),
+        };
 
         self.file_scope_symbols.clear();
         self.imported_modules.clear();
@@ -787,7 +788,10 @@ impl Compiler {
         }
     }
 
-    fn prepare_program_for_lowering<'a>(&mut self, program: &'a Program) -> FinalInferenceResult<'a> {
+    fn prepare_program_for_lowering<'a>(
+        &mut self,
+        program: &'a Program,
+    ) -> FinalInferenceResult<'a> {
         self.prepare_program_for_lowering_internal(program, LoweringPreparationMode::Fresh)
     }
 
@@ -3241,7 +3245,8 @@ impl Compiler {
         } else {
             let prepared = self.prepare_program_for_lowering_with_preloaded(program);
             self.apply_hm_final(&prepared.hm_final);
-            let core = self.lower_core_from_program(prepared.effective_program.as_ref(), false, false)?;
+            let core =
+                self.lower_core_from_program(prepared.effective_program.as_ref(), false, false)?;
             (prepared.effective_program, core)
         };
 

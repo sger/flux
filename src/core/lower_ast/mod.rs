@@ -309,35 +309,33 @@ impl<'a> AstLowerer<'a> {
         None
     }
 
-    /// Convert an `InferType` to a simple type name string (e.g. "Int", "String").
-    /// Returns `None` for type variables, function types, or complex types.
-    pub fn infer_type_to_type_name(
-        ty: &InferType,
-        interner: &crate::syntax::interner::Interner,
-    ) -> Option<String> {
-        use crate::types::type_constructor::TypeConstructor;
-        match ty {
-            InferType::Con(tc) => match tc {
-                TypeConstructor::Int => Some("Int".to_string()),
-                TypeConstructor::Float => Some("Float".to_string()),
-                TypeConstructor::Bool => Some("Bool".to_string()),
-                TypeConstructor::String => Some("String".to_string()),
-                TypeConstructor::Unit => Some("Unit".to_string()),
-                TypeConstructor::List => Some("List".to_string()),
-                TypeConstructor::Array => Some("Array".to_string()),
-                TypeConstructor::Option => Some("Option".to_string()),
-                TypeConstructor::Adt(sym) => Some(interner.resolve(*sym).to_string()),
-                _ => None,
-            },
-            InferType::App(tc, _) => match tc {
-                TypeConstructor::Adt(sym) => Some(interner.resolve(*sym).to_string()),
-                TypeConstructor::List => Some("List".to_string()),
-                TypeConstructor::Array => Some("Array".to_string()),
-                TypeConstructor::Option => Some("Option".to_string()),
-                _ => None,
-            },
-            _ => None, // Type variables, functions, tuples — can't resolve
-        }
+    pub(super) fn resolve_direct_class_call_dict_args(
+        &self,
+        method_name: Identifier,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Vec<CoreExpr> {
+        let (class_env, interner) = match (self.class_env, self.interner) {
+            (Some(class_env), Some(interner)) => (class_env, interner),
+            _ => return Vec::new(),
+        };
+        let Some((class_name, _)) = class_env.method_to_class(method_name) else {
+            return Vec::new();
+        };
+        let Some(first_arg) = arguments.first() else {
+            return Vec::new();
+        };
+        let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id()) else {
+            return Vec::new();
+        };
+
+        class_env
+            .resolve_instance_context_dictionaries(
+                class_name,
+                std::slice::from_ref(first_arg_type),
+                interner,
+            )
+            .map(|dicts| dicts.iter().map(Self::lower_dictionary_ref).collect())
+            .unwrap_or_default()
     }
 
     /// Resolve concrete dictionary arguments for a call to a constrained function.
@@ -368,27 +366,16 @@ impl<'a> AstLowerer<'a> {
         // by looking at the argument types at this call site.
         let mut dict_args = Vec::new();
         for constraint in &scheme.constraints {
-            // Try to find a concrete type for this constraint's type variable
-            // by examining the call-site argument types.
-            let concrete_type =
-                self.resolve_constraint_type(constraint, scheme, arguments, interner);
-
-            if let Some(type_name) = concrete_type {
-                // Check if an instance exists and a dictionary was pre-interned.
-                if class_env
-                    .resolve_instance_for_type(constraint.class_name, &type_name, interner)
-                    .is_some()
-                {
-                    let class_str = interner.resolve(constraint.class_name);
-                    let dict_name_str = format!("__dict_{class_str}_{type_name}");
-                    if let Some(dict_sym) = interner.lookup(&dict_name_str) {
-                        dict_args.push(CoreExpr::external_var(
-                            dict_sym,
-                            crate::diagnostics::position::Span::default(),
-                        ));
-                        continue;
-                    }
-                }
+            if let Some(actual_type_args) =
+                self.resolve_constraint_type_args(constraint, scheme, arguments)
+                && let Some(dict_ref) = class_env.resolve_dictionary_ref(
+                    constraint.class_name,
+                    &actual_type_args,
+                    interner,
+                )
+            {
+                dict_args.push(Self::lower_dictionary_ref(&dict_ref));
+                continue;
             }
 
             // Could not resolve — don't partially apply dictionaries.
@@ -404,37 +391,30 @@ impl<'a> AstLowerer<'a> {
     /// For `fn contains<a: Eq>(xs: List<a>, elem: a)` called with `([1,2,3], 2)`,
     /// the constraint `Eq<a>` has `type_var` matching `a`. We look at the arguments'
     /// HM types and find `a = Int`.
-    fn resolve_constraint_type(
+    fn resolve_constraint_type_args(
         &self,
         constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
         scheme: &crate::types::scheme::Scheme,
         arguments: &[crate::syntax::expression::Expression],
-        interner: &crate::syntax::interner::Interner,
-    ) -> Option<String> {
-        // Instantiate the scheme to get fresh type vars and the mapping.
-        // Then look at argument types to determine the concrete type for
-        // the constraint's type variable.
-        //
-        // Simpler approach: scan argument HM types for a concrete type.
-        // If any argument's inferred type is concrete and corresponds to
-        // the constrained type variable position, use that.
-        //
-        // We use the function type's parameter list to find which parameter
-        // positions use the constrained type variable.
+    ) -> Option<Vec<InferType>> {
         if let InferType::Fun(param_tys, _, _) = &scheme.infer_type {
-            for (i, param_ty) in param_tys.iter().enumerate() {
-                if let Some(arg) = arguments.get(i)
-                    && let Some(arg_ty) = self.hm_expr_types.get(&arg.expr_id())
-                {
-                    for type_var in &constraint.type_vars {
-                        if let Some(name) =
-                            Self::match_constraint_type_var(param_ty, arg_ty, *type_var, interner)
-                        {
-                            return Some(name);
-                        }
+            let param_offset = param_tys.len().saturating_sub(arguments.len());
+            let mut resolved = Vec::with_capacity(constraint.type_vars.len());
+            for type_var in &constraint.type_vars {
+                let mut found = None;
+                for (i, param_ty) in param_tys.iter().enumerate().skip(param_offset) {
+                    if let Some(arg) = arguments.get(i - param_offset)
+                        && let Some(arg_ty) = self.hm_expr_types.get(&arg.expr_id())
+                        && let Some(actual) =
+                            Self::match_constraint_type_var(param_ty, arg_ty, *type_var)
+                    {
+                        found = Some(actual);
+                        break;
                     }
                 }
+                resolved.push(found?);
             }
+            return Some(resolved);
         }
 
         None
@@ -444,12 +424,9 @@ impl<'a> AstLowerer<'a> {
         pattern: &InferType,
         actual: &InferType,
         target: crate::types::TypeVarId,
-        interner: &crate::syntax::interner::Interner,
-    ) -> Option<String> {
+    ) -> Option<InferType> {
         match pattern {
-            InferType::Var(var) if *var == target => {
-                Self::infer_type_to_type_name(actual, interner)
-            }
+            InferType::Var(var) if *var == target => Some(actual.clone()),
             InferType::App(pattern_ctor, pattern_args) => {
                 let InferType::App(actual_ctor, actual_args) = actual else {
                     return None;
@@ -461,7 +438,7 @@ impl<'a> AstLowerer<'a> {
                     .iter()
                     .zip(actual_args.iter())
                     .find_map(|(pattern_arg, actual_arg)| {
-                        Self::match_constraint_type_var(pattern_arg, actual_arg, target, interner)
+                        Self::match_constraint_type_var(pattern_arg, actual_arg, target)
                     })
             }
             InferType::Tuple(pattern_elems) => {
@@ -473,11 +450,28 @@ impl<'a> AstLowerer<'a> {
                 }
                 pattern_elems.iter().zip(actual_elems.iter()).find_map(
                     |(pattern_elem, actual_elem)| {
-                        Self::match_constraint_type_var(pattern_elem, actual_elem, target, interner)
+                        Self::match_constraint_type_var(pattern_elem, actual_elem, target)
                     },
                 )
             }
             _ => None,
+        }
+    }
+
+    fn lower_dictionary_ref(dict_ref: &crate::types::class_env::ResolvedDictionaryRef) -> CoreExpr {
+        let span = crate::diagnostics::position::Span::default();
+        if dict_ref.context_args.is_empty() {
+            return CoreExpr::external_var(dict_ref.dict_name, span);
+        }
+
+        CoreExpr::App {
+            func: Box::new(CoreExpr::external_var(dict_ref.dict_name, span)),
+            args: dict_ref
+                .context_args
+                .iter()
+                .map(Self::lower_dictionary_ref)
+                .collect(),
+            span,
         }
     }
 
