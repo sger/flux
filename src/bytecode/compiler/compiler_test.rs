@@ -231,6 +231,16 @@ fn infer_expr_types_for_program_keeps_borrowed_program_when_untransformed() {
 }
 
 #[test]
+fn infer_expr_types_for_program_skips_final_hm_pass_without_type_optimization() {
+    let (program, interner) = parse_program("fn f() { 1 }");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+
+    compiler.infer_expr_types_for_program(&program);
+
+    assert_eq!(compiler.hm_infer_runs, 1, "expected a single HM pass");
+}
+
+#[test]
 fn infer_expr_types_for_program_stores_owned_program_when_desugared() {
     let (program, interner) = parse_program(
         r#"
@@ -254,6 +264,75 @@ fn different<A: Eq>(x: A, y: A) -> Bool {
     assert!(
         compiler.last_inferred_program.is_some(),
         "expected desugaring to materialize an owned final AST"
+    );
+}
+
+#[test]
+fn infer_expr_types_for_program_runs_final_hm_pass_when_desugared() {
+    let (program, interner) = parse_program(
+        r#"
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool
+}
+
+instance Eq<Int> {
+    fn eq(x, y) { true }
+}
+
+fn different<A: Eq>(x: A, y: A) -> Bool {
+    x != y
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+
+    compiler.infer_expr_types_for_program(&program);
+
+    assert_eq!(
+        compiler.hm_infer_runs, 2,
+        "expected the final HM pass after operator desugaring"
+    );
+}
+
+#[test]
+fn infer_expr_types_for_program_skips_final_hm_pass_when_type_optimized_but_unchanged() {
+    let (program, interner) = parse_program("fn f() { 1 }");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.type_optimize = true;
+
+    compiler.infer_expr_types_for_program(&program);
+
+    assert_eq!(
+        compiler.hm_infer_runs, 2,
+        "expected only original and post-fold HM passes"
+    );
+}
+
+#[test]
+fn infer_expr_types_for_program_runs_three_hm_passes_when_type_optimized_and_desugared() {
+    let (program, interner) = parse_program(
+        r#"
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool
+}
+
+instance Eq<Int> {
+    fn eq(x, y) { true }
+}
+
+fn different<A: Eq>(x: A, y: A) -> Bool {
+    x != y
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.type_optimize = true;
+
+    compiler.infer_expr_types_for_program(&program);
+
+    assert_eq!(
+        compiler.hm_infer_runs, 3,
+        "expected original, post-fold, and post-desugar HM passes"
     );
 }
 

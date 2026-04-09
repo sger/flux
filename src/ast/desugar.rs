@@ -475,23 +475,28 @@ pub fn desugar_operators(
     pass.fold_program(program)
 }
 
+pub fn operator_desugaring_needed(
+    program: &Program,
+    hm_expr_types: &HashMap<crate::syntax::expression::ExprId, InferType>,
+    interner: &Interner,
+) -> bool {
+    let mut detector = OperatorDesugarDetector {
+        hm_expr_types,
+        interner,
+        in_generated_instance_method: false,
+        in_explicit_constraint_context: false,
+        found_rewrite: false,
+    };
+    detector.visit_program(program);
+    detector.found_rewrite
+}
+
 pub fn desugar_operators_if_needed<'a>(
     program: Cow<'a, Program>,
     hm_expr_types: &HashMap<crate::syntax::expression::ExprId, InferType>,
     interner: &mut Interner,
 ) -> Cow<'a, Program> {
-    let needs_desugar = {
-        let mut detector = OperatorDesugarDetector {
-            hm_expr_types,
-            interner,
-            in_generated_instance_method: false,
-            in_explicit_constraint_context: false,
-            found_rewrite: false,
-        };
-        detector.visit_program(program.as_ref());
-        detector.found_rewrite
-    };
-
+    let needs_desugar = operator_desugaring_needed(program.as_ref(), hm_expr_types, interner);
     if needs_desugar {
         Cow::Owned(desugar_operators(program.into_owned(), hm_expr_types, interner))
     } else {
