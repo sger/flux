@@ -117,7 +117,13 @@ pub enum Statement {
         span: Span,
     },
     /// Type class declaration: class Eq<a> => Ord<a> { methods... }
+    ///
+    /// Proposal 0151: `is_public` controls whether the class name and its
+    /// methods are exported through the owning module's surface. For top-level
+    /// (non-module-scoped) declarations and during Phase 1a, this field is
+    /// always `false`; visibility enforcement begins in Phase 2.
     Class {
+        is_public: bool,
         name: Identifier,
         type_params: Vec<Identifier>,
         superclasses: Vec<ClassConstraint>,
@@ -125,7 +131,13 @@ pub enum Statement {
         span: Span,
     },
     /// Instance declaration: instance Eq<a> => Eq<List<a>> { methods... }
+    ///
+    /// Proposal 0151: `is_public` controls whether other modules can resolve
+    /// against this instance via type-directed lookup. Private instances are
+    /// only visible inside their defining module. During Phase 1a this field
+    /// is always `false`; visibility enforcement begins in Phase 2.
     Instance {
+        is_public: bool,
         class_name: Identifier,
         type_args: Vec<TypeExpr>,
         context: Vec<ClassConstraint>,
