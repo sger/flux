@@ -1,3 +1,4 @@
+mod class_method_effects;
 mod codegen;
 mod collection;
 mod finalization;
