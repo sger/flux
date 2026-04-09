@@ -38,6 +38,18 @@ const FLUX_OBJ_FLOAT: i64 = 0xF8;
 // ADT constructor tag IDs (must match lir/lower.rs and core_to_llvm/codegen/adt.rs)
 const SOME_TAG: i32 = 1;
 const LEFT_TAG: i32 = 2;
+
+fn sanitize_llvm_symbol_fragment(name: &str) -> String {
+    name.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
 const RIGHT_TAG: i32 = 3;
 const CONS_TAG: i32 = 4;
 
@@ -394,8 +406,9 @@ pub fn emit_llvm_ir(program: &LirProgram) -> String {
 /// The wrapper has signature `(i64, ptr, i32) → i64` and unpacks args from
 /// the args array, then calls the direct function with individual params.
 fn emit_closure_wrapper(func: &LirFunction, linkage: Linkage) -> LlvmFunction {
-    let direct_name = format!("flux_{}", func.qualified_name);
-    let wrapper_name = format!("flux_{}.closure_entry", func.qualified_name);
+    let sanitized = sanitize_llvm_symbol_fragment(&func.qualified_name);
+    let direct_name = format!("flux_{sanitized}");
+    let wrapper_name = format!("flux_{sanitized}.closure_entry");
 
     let closure_param = LlvmLocal("closure_raw".into());
     let args_param = LlvmLocal("args_ptr".into());
@@ -551,12 +564,13 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn func_name(&self) -> GlobalId {
+        let sanitized = sanitize_llvm_symbol_fragment(&self.func.qualified_name);
         if self.is_main {
             GlobalId("flux_main".to_string())
         } else if self.worker_mode {
-            GlobalId(format!("flux_{}$w", self.func.qualified_name))
+            GlobalId(format!("flux_{sanitized}$w"))
         } else {
-            GlobalId(format!("flux_{}", self.func.qualified_name))
+            GlobalId(format!("flux_{sanitized}"))
         }
     }
 
@@ -1667,17 +1681,18 @@ impl<'a> FnEmitter<'a> {
             .func_by_id(func_id)
             .expect("MakeClosure references unknown LirFuncId");
         let arity = target.params.len();
+        let sanitized_target = sanitize_llvm_symbol_fragment(&target.qualified_name);
 
         // For direct-convention functions (no captures), the closure must
         // reference the closure-convention WRAPPER, not the direct function.
         // The wrapper unpacks args and calls the direct function.
         let fn_ptr_name = if target.capture_vars.is_empty() && target.qualified_name != "main" {
             self.closure_wrappers_needed.insert(func_id);
-            format!("flux_{}.closure_entry", target.qualified_name)
+            format!("flux_{sanitized_target}.closure_entry")
         } else if target.qualified_name == "main" {
             "flux_main".to_string()
         } else {
-            format!("flux_{}", target.qualified_name)
+            format!("flux_{sanitized_target}")
         };
 
         // flux_make_closure(ptr fn_ptr, i32 arity, ptr captures, i32 cap_count,
@@ -1730,7 +1745,7 @@ impl<'a> FnEmitter<'a> {
                 vec![
                     (
                         LlvmType::Ptr,
-                        LlvmOperand::Global(GlobalId(format!("flux_{}", target.qualified_name))),
+                        LlvmOperand::Global(GlobalId(format!("flux_{sanitized_target}"))),
                     ),
                     (LlvmType::i32(), self.i32_const(arity as i32)),
                     (LlvmType::Ptr, LlvmOperand::Local(arr)),
@@ -2143,10 +2158,12 @@ impl<'a> FnEmitter<'a> {
                         // In worker mode, if the callee is also worker-eligible,
                         // call the worker variant directly to bypass tag/untag.
                         let use_worker = self.worker_mode && self.worker_eligible.contains(func_id);
+                        let sanitized_target =
+                            sanitize_llvm_symbol_fragment(&target.qualified_name);
                         let target_name = if use_worker {
-                            format!("flux_{}$w", target.qualified_name)
+                            format!("flux_{sanitized_target}$w")
                         } else {
-                            format!("flux_{}", target.qualified_name)
+                            format!("flux_{sanitized_target}")
                         };
                         let call_args: Vec<(LlvmType, LlvmOperand)> = args
                             .iter()
@@ -2201,10 +2218,12 @@ impl<'a> FnEmitter<'a> {
                             .func_by_id(*func_id)
                             .expect("Direct tail call references unknown LirFuncId");
                         let use_worker = self.worker_mode && self.worker_eligible.contains(func_id);
+                        let sanitized_target =
+                            sanitize_llvm_symbol_fragment(&target.qualified_name);
                         let target_name = if use_worker {
-                            format!("flux_{}$w", target.qualified_name)
+                            format!("flux_{sanitized_target}$w")
                         } else {
-                            format!("flux_{}", target.qualified_name)
+                            format!("flux_{sanitized_target}")
                         };
                         let call_args: Vec<(LlvmType, LlvmOperand)> = args
                             .iter()

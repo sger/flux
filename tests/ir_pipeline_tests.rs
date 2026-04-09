@@ -209,6 +209,44 @@ my_eq([1], [1]);
 }
 
 #[test]
+fn nested_contextual_list_instance_dump_core_threads_context_dictionary() {
+    let core = dump_core(
+        r#"
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+instance MyEq<Int> {
+    fn my_eq(x, y) { x == y }
+}
+instance MyEq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) {
+        match (xs, ys) {
+            ([], []) -> true,
+            ([h1 | t1], [h2 | t2]) -> my_eq(h1, h2) && my_eq(t1, t2),
+            _ -> false
+        }
+    }
+}
+
+my_eq([[1], [2]], [[1], [2]]);
+"#,
+    );
+
+    assert!(
+        core.contains("__dict_MyEq_Int"),
+        "expected contextual Core dump to reference the captured MyEq<Int> dictionary, got:\n{core}"
+    );
+    assert!(
+        core.contains("__tc_MyEq_List<a>_my_eq"),
+        "expected nested contextual call to lower to the mangled instance method, got:\n{core}"
+    );
+    assert!(
+        core.contains("__dict_MyEq_List<a>(__dict_MyEq_Int)"),
+        "expected nested contextual call site to build the recursive dictionary constructor, got:\n{core}"
+    );
+}
+
+#[test]
 fn polymorphic_operator_dump_core_uses_named_class_methods() {
     let core = dump_core(
         r#"

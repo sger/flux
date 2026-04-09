@@ -768,8 +768,7 @@ fn needs<A: Eq + Ord + Num>(x: A, y: A) -> A {
             if display_name.starts_with("__tc_")
                 || matches!(
                     display_name,
-                    "eq"
-                        | "neq"
+                    "eq" | "neq"
                         | "compare"
                         | "lt"
                         | "lte"
@@ -819,18 +818,20 @@ instance Eq<a> => MyEq<List<a>> {
         Statement::Function {
             name,
             type_params,
+            parameters,
             parameter_types,
             return_type,
             ..
         } if interner.resolve(*name).contains("__tc_MyEq_List<a>_my_eq") => Some((
             type_params.clone(),
+            parameters.clone(),
             parameter_types.clone(),
             return_type.clone(),
         )),
         _ => None,
     });
 
-    let (type_params, parameter_types, return_type) =
+    let (type_params, parameters, parameter_types, return_type) =
         mangled.expect("expected contextual mangled function");
     assert_eq!(
         type_params.len(),
@@ -839,16 +840,26 @@ instance Eq<a> => MyEq<List<a>> {
     );
     assert_eq!(interner.resolve(type_params[0].name), "a");
     assert_eq!(
-        parameter_types[0]
+        interner.resolve(parameters[0]),
+        "__dict_Eq",
+        "expected contextual mangled method to take the instance context dictionary first"
+    );
+    assert!(
+        parameter_types[0].is_none(),
+        "context dictionary params are implicit runtime values, not source type annotations"
+    );
+    assert_eq!(parameter_types[0].as_ref(), None,);
+    assert_eq!(
+        parameter_types[1]
             .as_ref()
-            .expect("first param type")
+            .expect("first value param type")
             .display_with(&interner),
         "List<a>"
     );
     assert_eq!(
-        parameter_types[1]
+        parameter_types[2]
             .as_ref()
-            .expect("second param type")
+            .expect("second value param type")
             .display_with(&interner),
         "List<a>"
     );

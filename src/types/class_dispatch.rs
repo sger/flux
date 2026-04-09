@@ -333,18 +333,23 @@ fn generate_from_statements(
                         continue;
                     }
 
-                    let parameter_types: Vec<Option<TypeExpr>> = method_sig
-                        .param_types
-                        .iter()
-                        .map(|ty| {
-                            Some(specialize_type_expr(
-                                ty,
-                                &class_def.type_params,
-                                type_args,
-                                interner,
-                            ))
-                        })
-                        .collect();
+                    let mut parameters = context_dict_param_names(context, interner);
+                    parameters.extend(method.params.clone());
+                    let mut parameter_types: Vec<Option<TypeExpr>> = vec![None; context.len()];
+                    parameter_types.extend(
+                        method_sig
+                            .param_types
+                            .iter()
+                            .map(|ty| {
+                                Some(specialize_type_expr(
+                                    ty,
+                                    &class_def.type_params,
+                                    type_args,
+                                    interner,
+                                ))
+                            })
+                            .collect::<Vec<_>>(),
+                    );
                     let return_type = Some(specialize_type_expr(
                         &method_sig.return_type,
                         &class_def.type_params,
@@ -361,7 +366,7 @@ fn generate_from_statements(
                         fip: None,
                         name: mangled_sym,
                         type_params,
-                        parameters: method.params.clone(),
+                        parameters,
                         parameter_types,
                         return_type,
                         effects: vec![],
@@ -392,6 +397,27 @@ fn generate_from_statements(
 fn builtin_param_names(arity: usize, interner: &mut Interner) -> Vec<Identifier> {
     (0..arity)
         .map(|idx| interner.intern(&format!("__x{idx}")))
+        .collect()
+}
+
+fn context_dict_param_names(
+    context: &[ClassConstraint],
+    interner: &mut Interner,
+) -> Vec<Identifier> {
+    let mut seen: HashMap<Identifier, usize> = HashMap::new();
+    context
+        .iter()
+        .map(|constraint| {
+            let class_name = interner.resolve(constraint.class_name);
+            let count = seen.entry(constraint.class_name).or_insert(0);
+            let suffix = if *count == 0 {
+                String::new()
+            } else {
+                format!("_{}", *count)
+            };
+            *count += 1;
+            interner.intern(&format!("__dict_{class_name}{suffix}"))
+        })
         .collect()
 }
 

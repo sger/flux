@@ -3,10 +3,36 @@
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0145 Steps 1–5 (done)
+- Status: Implemented
+- Date: 2026-04-09
 
 ## Summary
 
 Desugar overloadable operators (`+`, `-`, `*`, `/`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `++`) to class method calls **during type inference**, before Core IR lowering. This eliminates the dual-path compilation problem where the bytecode AST path and the Core/CFG path disagree on dictionary parameters.
+
+## Implementation status
+
+**Implemented** in [src/ast/desugar.rs](../../src/ast/desugar.rs) (`desugar_operators`, `OperatorDesugarPass`) and integrated into [phase_type_inference](../../src/bytecode/compiler/passes/type_inference.rs).
+
+Notable deviations from the original design as written here:
+
+1. **Scoping by explicit constraint context (not just operand types).** The proposal as drafted said "desugar when operands are not concrete Int/Float." That rule alone causes catastrophic namespace pollution: every untyped `fn f(a, b) { a + b }` rewrites to `add(a, b)` and resolves against polymorphic stubs that shadow runtime arithmetic. The actual implementation only rewrites operators **inside functions whose type parameters carry explicit class constraints** (`<A: Ord>`, `<A: Num + Eq>`, etc.). Unconstrained code stays as `Expression::Infix` and lowers through the existing primop path. See `OperatorDesugarPass::in_explicit_constraint_context` in [src/ast/desugar.rs](../../src/ast/desugar.rs).
+
+2. **Flow stdlib is excluded via `ModuleKind::FlowStdlib`.** The auto-prelude Flow modules cannot tolerate operator desugaring (they predate type classes and define the prelude functions the desugaring would call). [`ModuleKind`](../../src/syntax/module_graph/mod.rs) is attached to every `ModuleNode` during graph construction and threaded into the compiler so the desugaring pass can skip Flow stdlib files structurally rather than via path heuristics.
+
+3. **Constraint origin tracking (`WantedClassConstraintOrigin`).** Operators emit `Eq`/`Ord`/`Num`/`Semigroup` constraints during HM inference, but those constraints must not leak into generalized schemes — otherwise every function that happens to compare two integers picks up a phantom `Eq` constraint. The implementation tags each constraint with an origin (`ExplicitBound`, `InferredOperator`, `MethodCall`, `SchemeUse`) and the scheme generalizer drops `InferredOperator` constraints during promotion. See [src/ast/type_infer/constraint.rs](../../src/ast/type_infer/constraint.rs).
+
+4. **`originated_from_concrete_type` flag.** Operator constraints emitted from a still-unresolved type variable should not become missing-instance diagnostics if later inference happens to concretize the variable. The class solver in [src/types/class_solver.rs](../../src/types/class_solver.rs) skips constraints with `origin == InferredOperator && !originated_from_concrete_type`.
+
+5. **AST-path dictionary resolution.** The proposal assumed Core lowering would handle desugared calls uniformly through `try_resolve_class_call` + dict elaboration. In practice the AST bytecode fallback path also has to resolve dictionaries for desugared `add(x, y)` / `gt(x, y)` calls so its arity matches the CFG path. [`try_build_dict_class_method_call`](../../src/bytecode/compiler/expression.rs) and `resolve_dict_args_for_call_ast` perform AST-level dict insertion using `match_constraint_type_var` to peel `List<Int>`-style applications into the right concrete type name.
+
+6. **Builtin instance functions are generated as real `Statement::Function`s.** [`generate_builtin_instance_functions`](../../src/types/class_dispatch.rs) synthesizes `__tc_Eq_Int_neq`, `__tc_Ord_Int_gt`, `__tc_Num_Float_div`, `__tc_Semigroup_String_append`, etc. with concrete-typed parameters and bodies that use the corresponding native operator (or `string_concat` for `Semigroup.append`, since `++` cannot appear in synthesized AST inside the desugaring window). Generation only fires when `needs_builtin_dispatch_support` returns true (i.e., the program actually has classes/instances or constrained type params), and it shares a `reserved_names` set with `generate_dispatch_functions` to avoid duplicating user-provided instances.
+
+7. **Structural builtin instances.** The class solver gained `has_structural_builtin_instance` so that `Eq<(Int, Int)>`, `Ord<List<Int>>`, `Eq<Option<Int>>`, etc. are satisfied without forcing users to register one instance per shape.
+
+8. **Triple inference is avoided via a detector pass.** Phase 3 runs HM, optionally `type_informed_fold`, then `OperatorDesugarDetector` (a read-only walk) checks whether any operator would actually be rewritten. Only when the detector reports `true` does the pipeline run the rewriter and a third HM pass; otherwise the post-fold HM result is reused. The final program is threaded through the pipeline as `Cow<'a, Program>` so unchanged programs stay borrowed end-to-end.
+
+9. **`MethodSig::param_types` is now populated.** The class registry was previously storing empty `param_types` for builtin classes; the desugaring work needs the real signatures for specialization, so all five builtin classes (`Eq`, `Ord`, `Num`, `Show`, `Semigroup`) now carry full parameter type vectors. The invariant ("`param_types.len()` agrees with `arity`") is documented and tested.
 
 ## Motivation
 
@@ -104,19 +130,19 @@ Concrete operators (`1 + 2`, `3.0 < 4.0`) remain as `Expression::Infix` and hit 
 
 | Operator | Class | Method | Condition for desugaring |
 |----------|-------|--------|------------------------|
-| `+` | `Num` | `add` | operands not concrete Int/Float |
-| `-` | `Num` | `sub` | operands not concrete Int/Float |
-| `*` | `Num` | `mul` | operands not concrete Int/Float |
-| `/` | `Num` | `div` | operands not concrete Int/Float |
-| `==` | `Eq` | `eq` | operands not concrete Int/Float |
-| `!=` | `Eq` | `neq` | operands not concrete Int/Float |
-| `<` | `Ord` | `lt` | operands not concrete Int/Float |
-| `<=` | `Ord` | `lte` | operands not concrete Int/Float |
-| `>` | `Ord` | `gt` | operands not concrete Int/Float |
-| `>=` | `Ord` | `gte` | operands not concrete Int/Float |
-| `++` | `Semigroup` | `append` | always |
+| `+` | `Num` | `add` | enclosing fn has explicit class constraint, operands not concrete Int/Float |
+| `-` | `Num` | `sub` | enclosing fn has explicit class constraint, operands not concrete Int/Float |
+| `*` | `Num` | `mul` | enclosing fn has explicit class constraint, operands not concrete Int/Float |
+| `/` | `Num` | `div` | enclosing fn has explicit class constraint, operands not concrete Int/Float |
+| `==` | `Eq` | `eq` | enclosing fn has explicit class constraint, operands not concrete Int/Float |
+| `!=` | `Eq` | `neq` | enclosing fn has explicit class constraint, operands not concrete Int/Float |
+| `<` | `Ord` | `lt` | enclosing fn has explicit class constraint, operands not concrete Int/Float |
+| `<=` | `Ord` | `lte` | enclosing fn has explicit class constraint, operands not concrete Int/Float |
+| `>` | `Ord` | `gt` | enclosing fn has explicit class constraint, operands not concrete Int/Float |
+| `>=` | `Ord` | `gte` | enclosing fn has explicit class constraint, operands not concrete Int/Float |
+| `++` | `Semigroup` | `append` | enclosing fn has explicit class constraint, operands not concrete String |
 
-Operators not in this table (`&&`, `||`, `|>`, `%`) are not overloadable and remain as `Expression::Infix` always.
+Operators not in this table (`&&`, `||`, `|>`, `%`) are not overloadable and remain as `Expression::Infix` always. **The "enclosing fn has explicit class constraint" condition is critical and is the difference between a working implementation and one that pollutes the namespace** — see the implementation status section above.
 
 ### New class methods required
 

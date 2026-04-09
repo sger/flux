@@ -46,16 +46,12 @@ use crate::{
         block::Block,
         effect_expr::EffectExpr,
         expression::{Expression, HandleArm, MatchArm, Pattern, StringPart},
-        interner::Interner,
         module_graph::is_valid_module_name,
         statement::Statement,
         symbol::Symbol,
         type_expr::TypeExpr,
     },
-    types::{
-        infer_type::InferType, type_constructor::TypeConstructor, type_env::TypeEnv,
-        type_subst::TypeSubst, unify::unify,
-    },
+    types::{infer_type::InferType, type_env::TypeEnv, type_subst::TypeSubst, unify::unify},
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
@@ -853,8 +849,11 @@ impl Compiler {
                 if let Expression::Identifier { name, .. } = function.as_ref()
                     && let Some(mangled) = self.try_resolve_class_method_call(*name, arguments)
                 {
-                    let mut resolved_args =
-                        self.resolve_dict_args_for_call_ast(mangled, arguments, function.span());
+                    let mut resolved_args = self.resolve_direct_class_call_dict_args_ast(
+                        *name,
+                        arguments,
+                        function.span(),
+                    );
                     resolved_args.extend(arguments.clone());
                     let mangled_expr = Expression::Identifier {
                         name: mangled,
@@ -4796,80 +4795,103 @@ impl Compiler {
 
         let mut dict_args = Vec::new();
         for constraint in &scheme.constraints {
-            let Some(type_name) =
-                self.resolve_constraint_type_name_ast(constraint, scheme, arguments)
-            else {
-                return Vec::new();
-            };
-            if self
-                .class_env
-                .resolve_instance_for_type(constraint.class_name, &type_name, &self.interner)
-                .is_none()
+            if let Some(actual_type_args) =
+                self.resolve_constraint_type_args_ast(constraint, scheme, arguments)
+                && let Some(dict_ref) = self.class_env.resolve_dictionary_ref(
+                    constraint.class_name,
+                    &actual_type_args,
+                    &self.interner,
+                )
             {
-                return Vec::new();
+                dict_args.push(self.lower_dictionary_ref_ast(&dict_ref, span));
+                continue;
             }
+
             let class_str = self.interner.resolve(constraint.class_name);
-            let dict_name = format!("__dict_{class_str}_{type_name}");
+            let dict_name = format!("__dict_{class_str}");
             let Some(dict_sym) = self.interner.lookup(&dict_name) else {
                 return Vec::new();
             };
-            dict_args.push(Expression::Identifier {
-                name: dict_sym,
-                span,
-                id: crate::syntax::expression::ExprId::UNSET,
-            });
+            if self.symbol_table.resolve(dict_sym).is_some() {
+                dict_args.push(Expression::Identifier {
+                    name: dict_sym,
+                    span,
+                    id: crate::syntax::expression::ExprId::UNSET,
+                });
+                continue;
+            }
+
+            return Vec::new();
         }
         dict_args
     }
 
-    fn resolve_constraint_type_name_ast(
+    fn resolve_direct_class_call_dict_args_ast(
+        &self,
+        method_name: crate::syntax::Identifier,
+        arguments: &[Expression],
+        span: Span,
+    ) -> Vec<Expression> {
+        let Some((class_name, _)) = self.class_env.method_to_class(method_name) else {
+            return Vec::new();
+        };
+        let Some(first_arg) = arguments.first() else {
+            return Vec::new();
+        };
+        let Some(first_arg_ty) = self.hm_expr_types.get(&first_arg.expr_id()) else {
+            return Vec::new();
+        };
+
+        self.class_env
+            .resolve_instance_context_dictionaries(
+                class_name,
+                std::slice::from_ref(first_arg_ty),
+                &self.interner,
+            )
+            .map(|dicts| {
+                dicts
+                    .iter()
+                    .map(|dict_ref| self.lower_dictionary_ref_ast(dict_ref, span))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn resolve_constraint_type_args_ast(
         &self,
         constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
         scheme: &crate::types::scheme::Scheme,
         arguments: &[Expression],
-    ) -> Option<String> {
+    ) -> Option<Vec<InferType>> {
         let crate::types::infer_type::InferType::Fun(param_tys, _, _) = &scheme.infer_type else {
             return None;
         };
-        for (index, param_ty) in param_tys.iter().enumerate() {
-            let arg_ty = self.hm_expr_types.get(&arguments.get(index)?.expr_id())?;
-            for type_var in &constraint.type_vars {
-                if let Some(name) =
-                    Self::match_constraint_type_var(param_ty, arg_ty, *type_var, &self.interner)
-                {
-                    return Some(name);
+
+        let param_offset = param_tys.len().saturating_sub(arguments.len());
+        let mut resolved = Vec::with_capacity(constraint.type_vars.len());
+        for type_var in &constraint.type_vars {
+            let mut found = None;
+            for (index, param_ty) in param_tys.iter().enumerate().skip(param_offset) {
+                let arg_ty = self
+                    .hm_expr_types
+                    .get(&arguments.get(index - param_offset)?.expr_id())?;
+                if let Some(actual) = Self::match_constraint_type_var(param_ty, arg_ty, *type_var) {
+                    found = Some(actual);
+                    break;
                 }
             }
+            resolved.push(found?);
         }
-        None
-    }
-
-    fn infer_type_to_type_name(ty: &InferType, interner: &Interner) -> Option<String> {
-        match ty {
-            InferType::Con(TypeConstructor::Int) => Some("Int".to_string()),
-            InferType::Con(TypeConstructor::Float) => Some("Float".to_string()),
-            InferType::Con(TypeConstructor::Bool) => Some("Bool".to_string()),
-            InferType::Con(TypeConstructor::String) => Some("String".to_string()),
-            InferType::Con(TypeConstructor::Unit) => Some("Unit".to_string()),
-            InferType::Con(TypeConstructor::Adt(name)) => Some(interner.resolve(*name).to_string()),
-            InferType::App(TypeConstructor::List, _) => Some("List".to_string()),
-            InferType::App(TypeConstructor::Array, _) => Some("Array".to_string()),
-            InferType::App(TypeConstructor::Option, _) => Some("Option".to_string()),
-            InferType::App(TypeConstructor::Either, _) => Some("Either".to_string()),
-            _ => None,
-        }
+        Some(resolved)
     }
 
     fn match_constraint_type_var(
         pattern: &InferType,
         actual: &InferType,
         target: crate::types::TypeVarId,
-        interner: &Interner,
-    ) -> Option<String> {
+    ) -> Option<InferType> {
         match pattern {
-            InferType::Var(var) if *var == target => {
-                Self::infer_type_to_type_name(actual, interner)
-            }
+            InferType::Var(var) if *var == target => Some(actual.clone()),
             InferType::App(pattern_ctor, pattern_args) => {
                 let InferType::App(actual_ctor, actual_args) = actual else {
                     return None;
@@ -4881,7 +4903,7 @@ impl Compiler {
                     .iter()
                     .zip(actual_args.iter())
                     .find_map(|(pattern_arg, actual_arg)| {
-                        Self::match_constraint_type_var(pattern_arg, actual_arg, target, interner)
+                        Self::match_constraint_type_var(pattern_arg, actual_arg, target)
                     })
             }
             InferType::Tuple(pattern_elems) => {
@@ -4893,11 +4915,57 @@ impl Compiler {
                 }
                 pattern_elems.iter().zip(actual_elems.iter()).find_map(
                     |(pattern_elem, actual_elem)| {
-                        Self::match_constraint_type_var(pattern_elem, actual_elem, target, interner)
+                        Self::match_constraint_type_var(pattern_elem, actual_elem, target)
                     },
                 )
             }
             _ => None,
+        }
+    }
+
+    fn lower_dictionary_ref_ast(
+        &self,
+        dict_ref: &crate::types::class_env::ResolvedDictionaryRef,
+        span: Span,
+    ) -> Expression {
+        if dict_ref.context_args.is_empty() {
+            if let Some(methods) = self
+                .class_env
+                .dictionary_method_symbols(dict_ref.dict_name, &self.interner)
+            {
+                return Expression::TupleLiteral {
+                    elements: methods
+                        .into_iter()
+                        .map(|name| Expression::Identifier {
+                            name,
+                            span,
+                            id: crate::syntax::expression::ExprId::UNSET,
+                        })
+                        .collect(),
+                    span,
+                    id: crate::syntax::expression::ExprId::UNSET,
+                };
+            }
+            return Expression::Identifier {
+                name: dict_ref.dict_name,
+                span,
+                id: crate::syntax::expression::ExprId::UNSET,
+            };
+        }
+
+        Expression::Call {
+            function: Box::new(Expression::Identifier {
+                name: dict_ref.dict_name,
+                span,
+                id: crate::syntax::expression::ExprId::UNSET,
+            }),
+            arguments: dict_ref
+                .context_args
+                .iter()
+                .map(|arg| self.lower_dictionary_ref_ast(arg, span))
+                .collect(),
+            span,
+            id: crate::syntax::expression::ExprId::UNSET,
         }
     }
 }

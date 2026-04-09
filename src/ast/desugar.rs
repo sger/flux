@@ -509,7 +509,11 @@ pub fn desugar_operators_if_needed<'a>(
 ) -> Cow<'a, Program> {
     let needs_desugar = operator_desugaring_needed(program.as_ref(), hm_expr_types, interner);
     if needs_desugar {
-        Cow::Owned(desugar_operators(program.into_owned(), hm_expr_types, interner))
+        Cow::Owned(desugar_operators(
+            program.into_owned(),
+            hm_expr_types,
+            interner,
+        ))
     } else {
         program
     }
