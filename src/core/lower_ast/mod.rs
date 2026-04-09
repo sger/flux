@@ -283,8 +283,11 @@ impl<'a> AstLowerer<'a> {
         // the instance's type args (supporting multi-param classes).
         if let Some(first_arg) = arguments.first()
             && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
-            && let Some((instance, _)) =
-                class_env.resolve_instance_with_subst(class_name, std::slice::from_ref(first_arg_type), interner)
+            && let Some((instance, _)) = class_env.resolve_instance_with_subst(
+                class_name,
+                std::slice::from_ref(first_arg_type),
+                interner,
+            )
         {
             // Build mangled name from all instance type args.
             let type_key = instance
@@ -444,7 +447,9 @@ impl<'a> AstLowerer<'a> {
         interner: &crate::syntax::interner::Interner,
     ) -> Option<String> {
         match pattern {
-            InferType::Var(var) if *var == target => Self::infer_type_to_type_name(actual, interner),
+            InferType::Var(var) if *var == target => {
+                Self::infer_type_to_type_name(actual, interner)
+            }
             InferType::App(pattern_ctor, pattern_args) => {
                 let InferType::App(actual_ctor, actual_args) = actual else {
                     return None;
@@ -466,12 +471,11 @@ impl<'a> AstLowerer<'a> {
                 if pattern_elems.len() != actual_elems.len() {
                     return None;
                 }
-                pattern_elems
-                    .iter()
-                    .zip(actual_elems.iter())
-                    .find_map(|(pattern_elem, actual_elem)| {
+                pattern_elems.iter().zip(actual_elems.iter()).find_map(
+                    |(pattern_elem, actual_elem)| {
                         Self::match_constraint_type_var(pattern_elem, actual_elem, target, interner)
-                    })
+                    },
+                )
             }
             _ => None,
         }

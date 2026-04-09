@@ -35,6 +35,7 @@ use crate::{
         effect_expr::EffectExpr,
         expression::{Expression, StringPart},
         interner::Interner,
+        module_graph::ModuleKind,
         program::Program,
         statement::Statement,
         symbol::Symbol,
@@ -343,6 +344,7 @@ pub struct Compiler {
     pub errors: Vec<Diagnostic>,
     pub warnings: Vec<Diagnostic>,
     pub(super) file_path: String,
+    pub(super) current_module_kind: ModuleKind,
     imported_files: HashSet<String>,
     pub(super) file_scope_symbols: HashSet<Symbol>,
     pub(super) imported_modules: HashSet<Symbol>,
@@ -429,9 +431,7 @@ mod compiler_test;
 
 impl Compiler {
     fn is_flow_library_file(&self) -> bool {
-        self.file_path.contains("lib/Flow/")
-            || self.file_path.contains("lib\\Flow\\")
-            || self.file_path.contains("/Flow/")
+        self.current_module_kind == ModuleKind::FlowStdlib
     }
 
     pub fn new() -> Self {
@@ -453,6 +453,7 @@ impl Compiler {
             errors: Vec::new(),
             warnings: Vec::new(),
             file_path: file_path.into(),
+            current_module_kind: ModuleKind::User,
             imported_files: HashSet::new(),
             file_scope_symbols: HashSet::new(),
             imported_modules: HashSet::new(),
@@ -547,6 +548,10 @@ impl Compiler {
         self.handled_effects.clear();
         self.effect_ops_registry.clear();
         self.effect_op_signatures.clear();
+    }
+
+    pub fn set_current_module_kind(&mut self, kind: ModuleKind) {
+        self.current_module_kind = kind;
     }
 
     /// Auto-expose all public members of Flow library modules.
@@ -674,7 +679,11 @@ impl Compiler {
         let hm_config = self.build_infer_config(program);
         let hm = infer_program(program, &self.interner, hm_config);
         let pre_desugar_program = if self.type_optimize {
-            crate::ast::type_informed_fold::type_informed_fold(program, &hm.type_env, &self.interner)
+            crate::ast::type_informed_fold::type_informed_fold(
+                program,
+                &hm.type_env,
+                &self.interner,
+            )
         } else {
             program.clone()
         };
@@ -761,7 +770,11 @@ impl Compiler {
         let hm_config = self.build_infer_config(program);
         let hm = infer_program(program, &self.interner, hm_config);
         let pre_desugar_program = if self.type_optimize {
-            crate::ast::type_informed_fold::type_informed_fold(program, &hm.type_env, &self.interner)
+            crate::ast::type_informed_fold::type_informed_fold(
+                program,
+                &hm.type_env,
+                &self.interner,
+            )
         } else {
             program.clone()
         };
@@ -3050,13 +3063,15 @@ impl Compiler {
         optimize: bool,
         mode: crate::core::display::CoreDisplayMode,
     ) -> Result<String, Diagnostic> {
-        let program_to_lower = if optimize {
+        let program_to_lower = if !optimize {
+            self.last_inferred_program
+                .clone()
+                .unwrap_or_else(|| program.clone())
+        } else {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
             rename(optimized, HashMap::new())
-        } else {
-            program.clone()
         };
 
         let class_env_ref = if self.class_env.classes.is_empty() {
@@ -3128,13 +3143,15 @@ impl Compiler {
     /// Lower to Core IR, then to LIR, and return a human-readable dump.
     #[allow(clippy::result_large_err)]
     pub fn dump_lir(&self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
-        let program_to_lower = if optimize {
+        let program_to_lower = if !optimize {
+            self.last_inferred_program
+                .clone()
+                .unwrap_or_else(|| program.clone())
+        } else {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
             rename(optimized, HashMap::new())
-        } else {
-            program.clone()
         };
 
         let class_env_ref = if self.class_env.classes.is_empty() {
@@ -3375,13 +3392,15 @@ impl Compiler {
         program: &Program,
         optimize: bool,
     ) -> Result<crate::core::CoreProgram, Diagnostic> {
-        let program_to_lower = if optimize {
+        let program_to_lower = if !optimize {
+            self.last_inferred_program
+                .clone()
+                .unwrap_or_else(|| program.clone())
+        } else {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
             rename(optimized, HashMap::new())
-        } else {
-            program.clone()
         };
 
         let class_env_ref = if self.class_env.classes.is_empty() {

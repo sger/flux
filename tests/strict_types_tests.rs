@@ -786,15 +786,21 @@ instance Eq<a> => MyEq<List<a>> {
             parameter_types,
             return_type,
             ..
-        } if interner.resolve(*name).contains("__tc_MyEq_List<a>_my_eq") => {
-            Some((type_params.clone(), parameter_types.clone(), return_type.clone()))
-        }
+        } if interner.resolve(*name).contains("__tc_MyEq_List<a>_my_eq") => Some((
+            type_params.clone(),
+            parameter_types.clone(),
+            return_type.clone(),
+        )),
         _ => None,
     });
 
     let (type_params, parameter_types, return_type) =
         mangled.expect("expected contextual mangled function");
-    assert_eq!(type_params.len(), 1, "expected one quantified instance type param");
+    assert_eq!(
+        type_params.len(),
+        1,
+        "expected one quantified instance type param"
+    );
     assert_eq!(interner.resolve(type_params[0].name), "a");
     assert_eq!(
         parameter_types[0]
@@ -981,7 +987,9 @@ instance Eq<Int, String> {
     );
 
     assert!(
-        diags.iter().any(|diag| diag.code().as_deref() == Some("E447")),
+        diags
+            .iter()
+            .any(|diag| diag.code().as_deref() == Some("E447")),
         "expected E447 for mismatched instance head arity, got: {diags:?}"
     );
 }

@@ -873,8 +873,12 @@ impl Compiler {
                 }
 
                 if let Expression::Identifier { name, span, .. } = function.as_ref()
-                    && let Some(dict_call) =
-                        self.try_build_dict_class_method_call(*name, *span, arguments, expression.span())
+                    && let Some(dict_call) = self.try_build_dict_class_method_call(
+                        *name,
+                        *span,
+                        arguments,
+                        expression.span(),
+                    )
                 {
                     self.compile_non_tail_expression(&dict_call)?;
                     self.current_span = previous_span;
@@ -4723,19 +4727,19 @@ impl Compiler {
                 &self.interner,
             )
         {
-                // Build mangled name from all instance type args (multi-param support).
-                let type_key = instance
-                    .type_args
-                    .iter()
-                    .map(|a| a.display_with(&self.interner))
-                    .collect::<Vec<_>>()
-                    .join("_");
-                let class_str = self.interner.resolve(class_name);
-                let method_str = self.interner.resolve(name);
-                let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
-                if let Some(sym) = self.interner.lookup(&mangled) {
-                    return Some(sym);
-                }
+            // Build mangled name from all instance type args (multi-param support).
+            let type_key = instance
+                .type_args
+                .iter()
+                .map(|a| a.display_with(&self.interner))
+                .collect::<Vec<_>>()
+                .join("_");
+            let class_str = self.interner.resolve(class_name);
+            let method_str = self.interner.resolve(name);
+            let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+            if let Some(sym) = self.interner.lookup(&mangled) {
+                return Some(sym);
+            }
         }
 
         // No compile-time resolution possible — return None.
@@ -4863,7 +4867,9 @@ impl Compiler {
         interner: &Interner,
     ) -> Option<String> {
         match pattern {
-            InferType::Var(var) if *var == target => Self::infer_type_to_type_name(actual, interner),
+            InferType::Var(var) if *var == target => {
+                Self::infer_type_to_type_name(actual, interner)
+            }
             InferType::App(pattern_ctor, pattern_args) => {
                 let InferType::App(actual_ctor, actual_args) = actual else {
                     return None;
@@ -4885,12 +4891,11 @@ impl Compiler {
                 if pattern_elems.len() != actual_elems.len() {
                     return None;
                 }
-                pattern_elems
-                    .iter()
-                    .zip(actual_elems.iter())
-                    .find_map(|(pattern_elem, actual_elem)| {
+                pattern_elems.iter().zip(actual_elems.iter()).find_map(
+                    |(pattern_elem, actual_elem)| {
                         Self::match_constraint_type_var(pattern_elem, actual_elem, target, interner)
-                    })
+                    },
+                )
             }
             _ => None,
         }
