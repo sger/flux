@@ -158,3 +158,35 @@ fn main() {
         "expected __tc_Measurable_Int_count in LLVM IR"
     );
 }
+
+#[test]
+fn contextual_type_class_instance_emits_mangled_method_through_native_lowering() {
+    let rendered = compile_per_module_llvm_ir_with_classes(
+        r#"
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+
+instance Eq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) {
+        match xs {
+            [h1 | _] -> match ys {
+                [h2 | _] -> h1 == h2,
+                _ -> false
+            },
+            _ -> true
+        }
+    }
+}
+
+fn main() {
+    my_eq([1], [1])
+}
+"#,
+    );
+
+    assert!(
+        rendered.contains("tc_MyEq_List"),
+        "expected contextual mangled method in LLVM IR"
+    );
+}

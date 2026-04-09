@@ -120,24 +120,26 @@ fn build_instance_dictionaries(
             None => continue, // Not pre-interned — skip this instance.
         };
 
-        // Build tuple fields: one reference per class method (in declaration order).
-        let mut tuple_fields = Vec::new();
-        for method_sig in &class_def.methods {
-            let method_str = interner.resolve(method_sig.name).to_string();
-            let mangled_str = format!("__tc_{class_str}_{type_name}_{method_str}");
-            let mangled_sym = match interner.lookup(&mangled_str) {
-                Some(sym) => sym,
-                None => continue, // Method not interned — skip.
-            };
+        let dict_expr = if instance.context.is_empty() {
+            let mut tuple_fields = Vec::new();
+            for method_sig in &class_def.methods {
+                let method_str = interner.resolve(method_sig.name).to_string();
+                let mangled_str = format!("__tc_{class_str}_{type_name}_{method_str}");
+                let mangled_sym = match interner.lookup(&mangled_str) {
+                    Some(sym) => sym,
+                    None => continue,
+                };
 
-            tuple_fields.push(CoreExpr::external_var(mangled_sym, span));
-        }
+                tuple_fields.push(CoreExpr::external_var(mangled_sym, span));
+            }
 
-        // Build the dictionary value: MakeTuple(method_refs...)
-        let dict_expr = CoreExpr::PrimOp {
-            op: CorePrimOp::MakeTuple,
-            args: tuple_fields,
-            span,
+            CoreExpr::PrimOp {
+                op: CorePrimOp::MakeTuple,
+                args: tuple_fields,
+                span,
+            }
+        } else {
+            build_contextual_dictionary_expr(instance, class_def, interner, next_id)
         };
 
         // Create the CoreDef for this dictionary.
@@ -161,6 +163,104 @@ fn build_instance_dictionaries(
     defs
 }
 
+fn build_contextual_dictionary_expr(
+    instance: &crate::types::class_env::InstanceDef,
+    class_def: &crate::types::class_env::ClassDef,
+    interner: &Interner,
+    next_id: &mut u32,
+) -> CoreExpr {
+    let span = Span::default();
+    let class_str = interner.resolve(instance.class_name).to_string();
+    let type_name = instance
+        .type_args
+        .iter()
+        .map(|a| a.display_with(interner))
+        .collect::<Vec<_>>()
+        .join("_");
+
+    let context_binders: Vec<CoreBinder> = instance
+        .context
+        .iter()
+        .enumerate()
+        .map(|(idx, constraint)| {
+            let class_name = interner.resolve(constraint.class_name);
+            let label = if idx == 0 {
+                format!("__dict_{class_name}")
+            } else {
+                format!("__dict_{class_name}_{idx}")
+            };
+            let binder_id = *next_id;
+            *next_id += 1;
+            let binder_name = interner.lookup(&label).unwrap_or(constraint.class_name);
+            CoreBinder::with_rep(CoreBinderId(binder_id), binder_name, FluxRep::BoxedRep)
+        })
+        .collect();
+
+    let tuple_fields = class_def
+        .methods
+        .iter()
+        .filter_map(|method_sig| {
+            let method_str = interner.resolve(method_sig.name).to_string();
+            let mangled_str = format!("__tc_{class_str}_{type_name}_{method_str}");
+            let mangled_sym = interner.lookup(&mangled_str)?;
+            Some(build_contextual_dictionary_method_closure(
+                mangled_sym,
+                method_sig.arity,
+                &context_binders,
+                interner,
+                next_id,
+            ))
+        })
+        .collect();
+
+    let tuple = CoreExpr::PrimOp {
+        op: CorePrimOp::MakeTuple,
+        args: tuple_fields,
+        span,
+    };
+
+    prepend_lam_params(tuple, context_binders)
+}
+
+fn build_contextual_dictionary_method_closure(
+    mangled_sym: Identifier,
+    arity: usize,
+    context_binders: &[CoreBinder],
+    interner: &Interner,
+    next_id: &mut u32,
+) -> CoreExpr {
+    let span = Span::default();
+    let user_params: Vec<CoreBinder> = (0..arity)
+        .map(|idx| {
+            let binder_id = *next_id;
+            *next_id += 1;
+            CoreBinder::with_rep(
+                CoreBinderId(binder_id),
+                interner.lookup(&format!("__x{idx}")).unwrap_or(mangled_sym),
+                FluxRep::TaggedRep,
+            )
+        })
+        .collect();
+    let mut args: Vec<CoreExpr> = context_binders
+        .iter()
+        .map(|binder| CoreExpr::bound_var(*binder, span))
+        .collect();
+    args.extend(
+        user_params
+            .iter()
+            .map(|binder| CoreExpr::bound_var(*binder, span)),
+    );
+    CoreExpr::Lam {
+        params: user_params,
+        body: Box::new(CoreExpr::App {
+            func: Box::new(CoreExpr::external_var(mangled_sym, span)),
+            args,
+            span,
+        }),
+        span,
+    }
+}
+
 /// Rewrite constrained functions to accept dictionary parameters and
 /// extract methods from them instead of calling polymorphic stubs.
 fn rewrite_constrained_functions(
@@ -180,27 +280,43 @@ fn rewrite_constrained_functions(
             continue;
         }
 
+        let existing_dict_params = match &def.expr {
+            CoreExpr::Lam { params, .. }
+                if params.len() >= scheme.constraints.len()
+                    && params[..scheme.constraints.len()]
+                        .iter()
+                        .all(|binder| interner.resolve(binder.name).starts_with("__dict_")) =>
+            {
+                params[..scheme.constraints.len()].to_vec()
+            }
+            _ => Vec::new(),
+        };
+
         // Build dictionary parameters and method map for this function.
         let mut dict_params: Vec<CoreBinder> = Vec::new();
         let mut method_map: HashMap<Identifier, (CoreBinder, usize)> = HashMap::new();
 
-        for constraint in &scheme.constraints {
+        for (index, constraint) in scheme.constraints.iter().enumerate() {
             let class_def = match class_env.lookup_class(constraint.class_name) {
                 Some(c) => c,
                 None => continue,
             };
 
-            // Create a dictionary parameter binder: __dict_{ClassName}
-            let class_str = interner.resolve(constraint.class_name);
-            let param_name_str = format!("__dict_{class_str}");
-            let param_name = interner
-                .lookup(&param_name_str)
-                .unwrap_or(constraint.class_name);
-            let binder_id = *next_id;
-            *next_id += 1;
-            let dict_binder =
-                CoreBinder::with_rep(CoreBinderId(binder_id), param_name, FluxRep::BoxedRep);
-            dict_params.push(dict_binder);
+            let dict_binder = if let Some(existing) = existing_dict_params.get(index).copied() {
+                existing
+            } else {
+                let class_str = interner.resolve(constraint.class_name);
+                let param_name_str = format!("__dict_{class_str}");
+                let param_name = interner
+                    .lookup(&param_name_str)
+                    .unwrap_or(constraint.class_name);
+                let binder_id = *next_id;
+                *next_id += 1;
+                let binder =
+                    CoreBinder::with_rep(CoreBinderId(binder_id), param_name, FluxRep::BoxedRep);
+                dict_params.push(binder);
+                binder
+            };
 
             // Map each method of this class to its tuple index + dict binder.
             for (idx, method_sig) in class_def.methods.iter().enumerate() {
@@ -219,8 +335,12 @@ fn rewrite_constrained_functions(
         );
         let rewritten = rewrite_body_with_dicts(old_expr, &method_map);
 
-        // Prepend dictionary params to the function's Lam.
-        def.expr = prepend_lam_params(rewritten, dict_params);
+        if dict_params.is_empty() {
+            def.expr = rewritten;
+        } else {
+            // Prepend dictionary params to the function's Lam.
+            def.expr = prepend_lam_params(rewritten, dict_params);
+        }
     }
 }
 
