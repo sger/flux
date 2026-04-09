@@ -398,6 +398,57 @@ module Phase1.PublicCheck {
     assert_eq!(first_instance_visibility(&program), Some(true));
 }
 
+/// Proposal 0151, Phase 2: short-name constraint ambiguity (E456).
+///
+/// When two classes named `Foldable` are visible (one in `Mod.A`, one in
+/// `Mod.B`), an explicit constraint `<a: Foldable>` cannot be resolved.
+/// The constraint solver fires E456 for each ambiguous bound.
+#[test]
+fn ambiguous_short_name_constraint_fires_e456() {
+    let source = r#"
+module Mod.A {
+    public class Bag<a> {
+        fn pack(x: a) -> a
+    }
+}
+
+module Mod.B {
+    public class Bag<a> {
+        fn pack(x: a) -> a
+    }
+}
+
+fn use_bag<a: Bag>(x: a) -> a { x }
+"#;
+    let diags = compile_source(source);
+    let rendered = render_diagnostics(&diags, Some(source), None);
+    assert!(
+        rendered.contains("E456"),
+        "ambiguous short-name constraint should fire E456, got:\n{rendered}"
+    );
+}
+
+/// Negative test: a single visible class with the constraint name must
+/// not fire E456.
+#[test]
+fn unambiguous_short_name_constraint_does_not_fire_e456() {
+    let source = r#"
+module Mod.Only {
+    public class Bag<a> {
+        fn pack(x: a) -> a
+    }
+}
+
+fn use_bag<a: Bag>(x: a) -> a { x }
+"#;
+    let diags = compile_source(source);
+    let rendered = render_diagnostics(&diags, Some(source), None);
+    assert!(
+        !rendered.contains("E456"),
+        "single-class constraint must not fire E456, got:\n{rendered}"
+    );
+}
+
 #[test]
 fn module_body_still_rejects_unsupported_statements() {
     // Negative regression: a return statement at module body level is still

@@ -899,6 +899,13 @@ impl Compiler {
         &self.cached_member_schemes
     }
 
+    /// Proposal 0151, Phase 2: read-only access to the collected class
+    /// environment so that `build_interface` can extract `public class`
+    /// and `public instance` entries owned by the current module.
+    pub fn class_env(&self) -> &crate::types::class_env::ClassEnv {
+        &self.class_env
+    }
+
     pub fn preload_module_interface(
         &mut self,
         interface: &crate::types::module_interface::ModuleInterface,

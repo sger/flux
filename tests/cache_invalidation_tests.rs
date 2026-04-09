@@ -36,6 +36,7 @@ fn compile_and_build_interface(source: &str) -> ModuleInterface {
         &core,
         compiler.cached_member_schemes(),
         &compiler.module_function_visibility,
+        Some(compiler.class_env()),
         Vec::new(),
         &compiler.interner,
     )
