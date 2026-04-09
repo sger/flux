@@ -261,12 +261,20 @@ impl<'a> InferCtx<'a> {
     ///
     /// The constraint is recorded for downstream phases (Step 4: solving).
     /// Currently informational — does not affect type inference behavior.
-    fn emit_class_constraint(&mut self, class_name: Identifier, type_arg: InferType, span: Span) {
+    fn emit_class_constraint(
+        &mut self,
+        class_name: Identifier,
+        type_arg: InferType,
+        span: Span,
+        origin: constraint::WantedClassConstraintOrigin,
+    ) {
         self.class_constraints
             .push(constraint::WantedClassConstraint {
                 class_name,
                 type_args: vec![type_arg.clone()],
                 span,
+                origin,
+                originated_from_concrete_type: Self::is_concrete_non_any(&type_arg),
             });
         self.record_constraint(constraint::Constraint::Class {
             class_name,
@@ -297,6 +305,8 @@ impl<'a> InferCtx<'a> {
                     class_name: constraint.class_name,
                     type_args: type_args.clone(),
                     span,
+                    origin: constraint::WantedClassConstraintOrigin::SchemeUse,
+                    originated_from_concrete_type: true,
                 });
             self.record_constraint(constraint::Constraint::Class {
                 class_name: constraint.class_name,
@@ -317,6 +327,9 @@ impl<'a> InferCtx<'a> {
         let mut result = Vec::new();
         let mut seen = HashSet::new();
         for wc in &self.class_constraints {
+            if wc.origin == constraint::WantedClassConstraintOrigin::InferredOperator {
+                continue;
+            }
             let resolved: Vec<InferType> = wc
                 .type_args
                 .iter()

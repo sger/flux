@@ -34,6 +34,7 @@ pub fn generate_dispatch_functions(
     interner: &mut Interner,
 ) -> Vec<Statement> {
     let mut generated = Vec::new();
+    let mut reserved_names = collect_existing_function_names(statements);
 
     // Collect instance method info grouped by (class_name, method_name)
     let mut dispatch_table: HashSet<(Identifier, Identifier)> =
@@ -45,7 +46,17 @@ pub fn generate_dispatch_functions(
         interner,
         &mut generated,
         &mut dispatch_table,
+        &mut reserved_names,
     );
+    if needs_builtin_dispatch_support(statements) {
+        generate_builtin_instance_functions(
+            class_env,
+            interner,
+            &mut generated,
+            &mut dispatch_table,
+            &mut reserved_names,
+        );
+    }
 
     // Generate dispatch functions for each class method.
     // These provide name resolution for the type checker and serve as fallback
@@ -59,6 +70,9 @@ pub fn generate_dispatch_functions(
         if let Some(class_def) = class_env.lookup_class(*class_name)
             && let Some(method_sig) = class_def.methods.iter().find(|m| m.name == *method_name)
         {
+            if !reserved_names.insert(*method_name) {
+                continue;
+            }
             // Polymorphic stub: typed params for HM inference. Body is a panic
             // placeholder — monomorphic calls resolve to __tc_* at compile time,
             // polymorphic calls go through dictionary elaboration.
@@ -73,13 +87,130 @@ pub fn generate_dispatch_functions(
 
     // Generate functions for default methods that have no instance override.
     // These are methods with a body in the class declaration (e.g., `neq`).
-    generate_default_method_functions(statements, class_env, &dispatch_table, &mut generated);
+    generate_default_method_functions(
+        statements,
+        class_env,
+        &dispatch_table,
+        &mut generated,
+        &mut reserved_names,
+    );
 
     // Pre-intern dictionary names (__dict_{Class}_{Type}) for later use
     // by the dictionary elaboration pass (Proposal 0145, Step 5b).
     pre_intern_dict_names(class_env, interner);
 
     generated
+}
+
+fn collect_existing_function_names(statements: &[Statement]) -> HashSet<Identifier> {
+    let mut names = HashSet::new();
+    collect_existing_function_names_into(statements, &mut names);
+    names
+}
+
+fn collect_existing_function_names_into(
+    statements: &[Statement],
+    names: &mut HashSet<Identifier>,
+) {
+    for stmt in statements {
+        match stmt {
+            Statement::Function { name, body, .. } => {
+                names.insert(*name);
+                collect_existing_function_names_into(&body.statements, names);
+            }
+            Statement::Module { body, .. } => {
+                collect_existing_function_names_into(&body.statements, names);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn needs_builtin_dispatch_support(statements: &[Statement]) -> bool {
+    statements.iter().any(|stmt| match stmt {
+        Statement::Class { .. } | Statement::Instance { .. } => true,
+        Statement::Function { type_params, body, .. } => {
+            type_params.iter().any(|tp| !tp.constraints.is_empty())
+                || needs_builtin_dispatch_support(&body.statements)
+        }
+        Statement::Module { body, .. } => needs_builtin_dispatch_support(&body.statements),
+        _ => false,
+    })
+}
+
+fn generate_builtin_instance_functions(
+    class_env: &ClassEnv,
+    interner: &mut Interner,
+    generated: &mut Vec<Statement>,
+    dispatch_table: &mut HashSet<(Identifier, Identifier)>,
+    reserved_names: &mut HashSet<Identifier>,
+) {
+    for instance in &class_env.instances {
+        if instance.span != Span::default() || !instance.method_names.is_empty() {
+            continue;
+        }
+        let Some(class_def) = class_env.lookup_class(instance.class_name) else {
+            continue;
+        };
+        let type_name = instance
+            .type_args
+            .iter()
+            .map(|a| a.display_with(interner))
+            .collect::<Vec<_>>()
+            .join("_");
+        let class_name_str = interner.resolve(instance.class_name).to_string();
+
+        for method_sig in &class_def.methods {
+            let method_name_str = interner.resolve(method_sig.name).to_string();
+            let Some(body) = builtin_method_body(
+                interner,
+                &class_name_str,
+                &type_name,
+                &method_name_str,
+            ) else {
+                continue;
+            };
+
+            let mangled = format!("__tc_{class_name_str}_{type_name}_{method_name_str}");
+            let mangled_sym = interner.intern(&mangled);
+            if !reserved_names.insert(mangled_sym) {
+                dispatch_table.insert((instance.class_name, method_sig.name));
+                continue;
+            }
+            let parameter_types = method_sig
+                .param_types
+                .iter()
+                .map(|ty| {
+                    Some(specialize_type_expr(
+                        ty,
+                        &class_def.type_params,
+                        &instance.type_args,
+                        interner,
+                    ))
+                })
+                .collect::<Vec<_>>();
+            let params = builtin_param_names(method_sig.arity, interner);
+
+            generated.push(Statement::Function {
+                is_public: false,
+                fip: None,
+                name: mangled_sym,
+                type_params: vec![],
+                parameters: params,
+                parameter_types,
+                return_type: Some(specialize_type_expr(
+                    &method_sig.return_type,
+                    &class_def.type_params,
+                    &instance.type_args,
+                    interner,
+                )),
+                effects: vec![],
+                body,
+                span: Span::default(),
+            });
+            dispatch_table.insert((instance.class_name, method_sig.name));
+        }
+    }
 }
 
 /// Pre-intern `__dict_{Class}_{Type}` symbols for each concrete instance.
@@ -110,6 +241,7 @@ fn generate_default_method_functions(
     _class_env: &ClassEnv,
     dispatch_table: &HashSet<(Identifier, Identifier)>,
     generated: &mut Vec<Statement>,
+    reserved_names: &mut HashSet<Identifier>,
 ) {
     for stmt in statements {
         match stmt {
@@ -123,7 +255,7 @@ fn generate_default_method_functions(
                     // Only generate for methods with a default body that have NO instance overrides.
                     if let Some(ref default_body) = method.default_body {
                         let has_instances = dispatch_table.contains(&(*name, method.name));
-                        if !has_instances {
+                        if !has_instances && reserved_names.insert(method.name) {
                             // Generate a regular function from the default body.
                             generated.push(Statement::Function {
                                 is_public: false,
@@ -147,6 +279,7 @@ fn generate_default_method_functions(
                     _class_env,
                     dispatch_table,
                     generated,
+                    reserved_names,
                 );
             }
             _ => {}
@@ -161,6 +294,7 @@ fn generate_from_statements(
     interner: &mut Interner,
     generated: &mut Vec<Statement>,
     dispatch_table: &mut HashSet<(Identifier, Identifier)>,
+    reserved_names: &mut HashSet<Identifier>,
 ) {
     for stmt in statements {
         match stmt {
@@ -169,7 +303,7 @@ fn generate_from_statements(
                 type_args,
                 context,
                 methods,
-                span,
+                span: _,
                 ..
             } => {
                 let Some(class_def) = class_env.lookup_class(*class_name) else {
@@ -198,6 +332,10 @@ fn generate_from_statements(
                     let method_name_str = interner.resolve(method.name).to_string();
                     let mangled = format!("__tc_{class_name_str}_{type_name}_{method_name_str}");
                     let mangled_sym = interner.intern(&mangled);
+                    if !reserved_names.insert(mangled_sym) {
+                        dispatch_table.insert((*class_name, method.name));
+                        continue;
+                    }
 
                     let parameter_types: Vec<Option<TypeExpr>> = method_sig
                         .param_types
@@ -231,7 +369,7 @@ fn generate_from_statements(
                         return_type,
                         effects: vec![],
                         body: method.body.clone(),
-                        span: *span,
+                        span: Span::default(),
                     };
                     generated.push(fn_stmt);
 
@@ -246,11 +384,89 @@ fn generate_from_statements(
                     interner,
                     generated,
                     dispatch_table,
+                    reserved_names,
                 );
             }
             _ => {}
         }
     }
+}
+
+fn builtin_param_names(arity: usize, interner: &mut Interner) -> Vec<Identifier> {
+    (0..arity)
+        .map(|idx| interner.intern(&format!("__x{idx}")))
+        .collect()
+}
+
+fn builtin_method_body(
+    interner: &mut Interner,
+    class_name: &str,
+    type_name: &str,
+    method_name: &str,
+) -> Option<Block> {
+    let span = Span::default();
+    let x = interner.intern("__x0");
+    let y = interner.intern("__x1");
+    let id = ExprId::UNSET;
+
+    let var = |name: Identifier| Expression::Identifier { name, span, id };
+    let int = |value| Expression::Integer { value, span, id };
+    let infix = |left, operator: &str, right| Expression::Infix {
+        left: Box::new(left),
+        operator: operator.to_string(),
+        right: Box::new(right),
+        span,
+        id,
+    };
+    let mut call = |name: &str, arguments: Vec<Expression>| Expression::Call {
+        function: Box::new(Expression::Identifier {
+            name: interner.intern(name),
+            span,
+            id,
+        }),
+        arguments,
+        span,
+        id,
+    };
+    let ret = |expression| Block {
+        statements: vec![Statement::Expression {
+            expression,
+            has_semicolon: false,
+            span,
+        }],
+        span,
+    };
+
+    let expression = match (class_name, type_name, method_name) {
+        ("Eq", _, "eq") => infix(var(x), "==", var(y)),
+        ("Eq", _, "neq") => infix(var(x), "!=", var(y)),
+        ("Ord", _, "compare") => Expression::If {
+            condition: Box::new(infix(var(x), "<", var(y))),
+            consequence: ret(int(-1)),
+            alternative: Some(ret(Expression::If {
+                condition: Box::new(infix(var(x), ">", var(y))),
+                consequence: ret(int(1)),
+                alternative: Some(ret(int(0))),
+                span,
+                id,
+            })),
+            span,
+            id,
+        },
+        ("Ord", _, "lt") => infix(var(x), "<", var(y)),
+        ("Ord", _, "lte") => infix(var(x), "<=", var(y)),
+        ("Ord", _, "gt") => infix(var(x), ">", var(y)),
+        ("Ord", _, "gte") => infix(var(x), ">=", var(y)),
+        ("Num", _, "add") => infix(var(x), "+", var(y)),
+        ("Num", _, "sub") => infix(var(x), "-", var(y)),
+        ("Num", _, "mul") => infix(var(x), "*", var(y)),
+        ("Num", _, "div") => infix(var(x), "/", var(y)),
+        ("Show", _, "show") => call("to_string", vec![var(x)]),
+        ("Semigroup", "String", "append") => call("string_concat", vec![var(x), var(y)]),
+        _ => return None,
+    };
+
+    Some(ret(expression))
 }
 
 fn build_instance_function_type_params(
@@ -277,9 +493,38 @@ fn build_instance_function_type_params(
         .into_iter()
         .map(|name| FunctionTypeParam {
             name,
-            constraints: vec![],
+            constraints: context
+                .iter()
+                .filter(|constraint| {
+                    constraint
+                        .type_args
+                        .iter()
+                        .any(|arg| type_expr_mentions_type_param(arg, name, interner))
+                })
+                .map(|constraint| constraint.class_name)
+                .collect(),
         })
         .collect()
+}
+
+fn type_expr_mentions_type_param(ty: &TypeExpr, target: Identifier, interner: &Interner) -> bool {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            (*name == target && is_type_param_name(*name, interner))
+                || args
+                    .iter()
+                    .any(|arg| type_expr_mentions_type_param(arg, target, interner))
+        }
+        TypeExpr::Tuple { elements, .. } => elements
+            .iter()
+            .any(|elem| type_expr_mentions_type_param(elem, target, interner)),
+        TypeExpr::Function { params, ret, .. } => {
+            params
+                .iter()
+                .any(|param| type_expr_mentions_type_param(param, target, interner))
+                || type_expr_mentions_type_param(ret, target, interner)
+        }
+    }
 }
 
 fn collect_free_type_params(ty: &TypeExpr, interner: &Interner, out: &mut Vec<Identifier>) {
@@ -478,4 +723,3 @@ fn generate_polymorphic_stub(
         span,
     }
 }
-

@@ -61,7 +61,11 @@ impl<'a> InferCtx<'a> {
 
         // Check if callee is a class method (for post-inference constraint emission).
         let class_method_info = if let Expression::Identifier { name, .. } = input.function {
-            self.lookup_class_method(*name).map(|c| (c, input.span))
+            if self.env.lookup_span(*name).is_none() {
+                self.lookup_class_method(*name).map(|c| (c, input.span))
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -83,7 +87,12 @@ impl<'a> InferCtx<'a> {
                     .first()
                     .map(|t| t.apply_type_subst(&self.subst))
                     .unwrap_or(result.apply_type_subst(&self.subst));
-                self.emit_class_constraint(class_name, constrained_ty, span);
+                self.emit_class_constraint(
+                    class_name,
+                    constrained_ty,
+                    span,
+                    constraint::WantedClassConstraintOrigin::MethodCall,
+                );
             }
             return result;
         }

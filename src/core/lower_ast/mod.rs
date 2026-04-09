@@ -420,28 +420,14 @@ impl<'a> AstLowerer<'a> {
         // positions use the constrained type variable.
         if let InferType::Fun(param_tys, _, _) = &scheme.infer_type {
             for (i, param_ty) in param_tys.iter().enumerate() {
-                // Check if this parameter uses the constrained type variable.
-                if constraint
-                    .type_vars
-                    .iter()
-                    .any(|v| param_ty.free_vars().contains(v))
+                if let Some(arg) = arguments.get(i)
+                    && let Some(arg_ty) = self.hm_expr_types.get(&arg.expr_id())
                 {
-                    // Look at the actual argument's HM type.
-                    if let Some(arg) = arguments.get(i)
-                        && let Some(arg_ty) = self.hm_expr_types.get(&arg.expr_id())
-                    {
-                        // Extract the concrete type from the argument.
-                        if let Some(name) = Self::infer_type_to_type_name(arg_ty, interner) {
+                    for type_var in &constraint.type_vars {
+                        if let Some(name) =
+                            Self::match_constraint_type_var(param_ty, arg_ty, *type_var, interner)
+                        {
                             return Some(name);
-                        }
-                        // If the arg type is an App (e.g., List<Int>), extract
-                        // the inner type that corresponds to the type variable.
-                        if let InferType::App(_, inner_args) = arg_ty {
-                            for inner in inner_args {
-                                if let Some(name) = Self::infer_type_to_type_name(inner, interner) {
-                                    return Some(name);
-                                }
-                            }
                         }
                     }
                 }
@@ -449,6 +435,46 @@ impl<'a> AstLowerer<'a> {
         }
 
         None
+    }
+
+    fn match_constraint_type_var(
+        pattern: &InferType,
+        actual: &InferType,
+        target: crate::types::TypeVarId,
+        interner: &crate::syntax::interner::Interner,
+    ) -> Option<String> {
+        match pattern {
+            InferType::Var(var) if *var == target => Self::infer_type_to_type_name(actual, interner),
+            InferType::App(pattern_ctor, pattern_args) => {
+                let InferType::App(actual_ctor, actual_args) = actual else {
+                    return None;
+                };
+                if pattern_ctor != actual_ctor || pattern_args.len() != actual_args.len() {
+                    return None;
+                }
+                pattern_args
+                    .iter()
+                    .zip(actual_args.iter())
+                    .find_map(|(pattern_arg, actual_arg)| {
+                        Self::match_constraint_type_var(pattern_arg, actual_arg, target, interner)
+                    })
+            }
+            InferType::Tuple(pattern_elems) => {
+                let InferType::Tuple(actual_elems) = actual else {
+                    return None;
+                };
+                if pattern_elems.len() != actual_elems.len() {
+                    return None;
+                }
+                pattern_elems
+                    .iter()
+                    .zip(actual_elems.iter())
+                    .find_map(|(pattern_elem, actual_elem)| {
+                        Self::match_constraint_type_var(pattern_elem, actual_elem, target, interner)
+                    })
+            }
+            _ => None,
+        }
     }
 
     /// Convert an HM-inferred expression type to a `CoreType`, if available.

@@ -206,6 +206,60 @@ my_eq([1], [1]);
     );
 }
 
+#[test]
+fn polymorphic_operator_dump_core_uses_named_class_methods() {
+    let core = dump_core(
+        r#"
+fn choose<A: Ord + Eq + Num>(x: A, y: A) -> A {
+    if x != y {
+        if x > y { x / y } else { y / x }
+    } else {
+        x
+    }
+}
+
+fn main() {
+    choose(8, 2)
+}
+"#,
+    );
+
+    for dict_name in ["__dict_Ord_Int", "__dict_Eq_Int", "__dict_Num_Int"] {
+        assert!(
+            core.contains(dict_name),
+            "expected Core dump to contain {dict_name}, got:\n{core}"
+        );
+    }
+
+    for primop_name in ["NEq(x, y)", "Gt(x, y)", "Div(x, y)"] {
+        assert!(
+            core.contains(primop_name),
+            "expected Core dump to contain specialized primop {primop_name}, got:\n{core}"
+        );
+    }
+}
+
+#[test]
+fn concrete_int_comparison_keeps_specialized_primop() {
+    let (program, hm_expr_types, _interner) = parse_and_infer(
+        r#"
+fn main() {
+    7 > 3
+}
+"#,
+    );
+
+    let core = lower_program_ast(&program, &hm_expr_types);
+    let has_icmp_gt = core
+        .defs
+        .iter()
+        .any(|def| has_primop(&def.expr, &CorePrimOp::ICmpGt));
+    assert!(
+        has_icmp_gt,
+        "expected concrete Int comparison to lower to ICmpGt, got: {core:#?}"
+    );
+}
+
 fn has_primop(expr: &CoreExpr, target: &CorePrimOp) -> bool {
     collect_core_exprs(expr)
         .iter()
@@ -269,8 +323,8 @@ fn main() {
 #[test]
 fn backend_ir_lowering_is_core_backed() {
     let src = r#"
-fn add(a: Int, b: Int) -> Int { a + b }
-fn main() { add(3, 4) }
+fn sum_ints(a: Int, b: Int) -> Int { a + b }
+fn main() { sum_ints(3, 4) }
 "#;
     let (program, types, _interner) = parse_and_infer(src);
     let ir = lower_program_to_ir(&program, &types).expect("backend lowering should succeed");
@@ -309,8 +363,8 @@ fn main() {
 #[test]
 fn pipeline_typed_arithmetic_emits_iadd() {
     let src = r#"
-fn add(a: Int, b: Int) -> Int { a + b }
-fn main() { add(3, 4) }
+fn sum_ints(a: Int, b: Int) -> Int { a + b }
+fn main() { sum_ints(3, 4) }
 "#;
     let (program, types, _interner) = parse_and_infer(src);
     let core = lower_program_ast(&program, &types);
