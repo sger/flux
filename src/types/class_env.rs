@@ -13,7 +13,7 @@ use crate::{
         Identifier, interner::Interner, statement::Statement, type_class::ClassConstraint,
         type_expr::TypeExpr,
     },
-    types::{infer_type::InferType, type_constructor::TypeConstructor},
+    types::{class_id::ClassId, infer_type::InferType, type_constructor::TypeConstructor},
 };
 
 use super::super::diagnostics::compiler_errors::{
@@ -124,6 +124,7 @@ impl ClassEnv {
         for stmt in statements {
             match stmt {
                 Statement::Class {
+                    is_public: _,
                     name,
                     type_params,
                     superclasses,
@@ -189,6 +190,7 @@ impl ClassEnv {
         for stmt in statements {
             match stmt {
                 Statement::Instance {
+                    is_public: _,
                     class_name,
                     type_args,
                     context,
@@ -456,6 +458,63 @@ impl ClassEnv {
             .iter()
             .filter(|i| i.class_name == class_name)
             .collect()
+    }
+
+    // ========================================================================
+    // Proposal 0151 — Phase 1a: parallel ClassId-keyed API.
+    //
+    // The methods below are functionally equivalent to their `Identifier`
+    // counterparts above, accepting a `ClassId` instead of a bare class name.
+    // Phase 1a still stores classes keyed by `Identifier`, so the new methods
+    // ignore the `module` field of the `ClassId` and proxy through to the
+    // legacy lookup. Phase 1b will flip the storage to `HashMap<ClassId, _>`
+    // and these methods will become the canonical entry points.
+    //
+    // Adding the API early lets later commits migrate call sites incrementally
+    // without churning the public surface twice.
+    // ========================================================================
+
+    /// Look up a class definition by `ClassId`.
+    ///
+    /// In Phase 1a the `module` field of `id` is ignored — only `id.name` is
+    /// used to find the class in the legacy `Identifier`-keyed storage. Two
+    /// `ClassId`s with the same `name` and different `module`s currently
+    /// resolve to the same `ClassDef`; Phase 1b makes them distinct.
+    pub fn lookup_class_by_id(&self, id: ClassId) -> Option<&ClassDef> {
+        self.classes.get(&id.name)
+    }
+
+    /// Find all instances for a given class identified by `ClassId`.
+    ///
+    /// Phase 1a behavior: ignores `id.module`, proxies to `instances_for(id.name)`.
+    pub fn instances_for_id(&self, id: ClassId) -> Vec<&InstanceDef> {
+        self.instances_for(id.name)
+    }
+
+    /// Return the positional index of a method within its class definition,
+    /// using a `ClassId` to identify the class.
+    ///
+    /// Phase 1a behavior: ignores `id.module`, proxies to `method_index(id.name, method_name)`.
+    pub fn method_index_by_id(
+        &self,
+        id: ClassId,
+        method_name: Identifier,
+    ) -> Option<usize> {
+        self.method_index(id.name, method_name)
+    }
+
+    /// Resolve an instance against concrete inferred type arguments, using a
+    /// `ClassId` to identify the class.
+    ///
+    /// Phase 1a behavior: ignores `id.module`, proxies to
+    /// `resolve_instance_with_subst(id.name, ...)`.
+    pub fn resolve_instance_with_subst_by_id(
+        &self,
+        id: ClassId,
+        actual_type_args: &[InferType],
+        interner: &Interner,
+    ) -> Option<(&InstanceDef, HashMap<Identifier, InferType>)> {
+        self.resolve_instance_with_subst(id.name, actual_type_args, interner)
     }
 
     /// Given a method name, find which class it belongs to.
