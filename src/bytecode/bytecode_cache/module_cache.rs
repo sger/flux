@@ -200,7 +200,11 @@ impl ModuleBytecodeCache {
     ) -> std::io::Result<()> {
         fs::create_dir_all(&self.dir)?;
         let path = self.cache_path(source_path, cache_key);
-        let mut file = File::create(path)?;
+        let tmp_path = path.with_extension(format!(
+            "{}.tmp",
+            path.extension().and_then(|ext| ext.to_str()).unwrap_or("fxm")
+        ));
+        let mut file = File::create(&tmp_path)?;
 
         file.write_all(MAGIC)?;
         write_u16(&mut file, FORMAT_VERSION)?;
@@ -226,6 +230,9 @@ impl ModuleBytecodeCache {
         write_u32(&mut file, bytecode.instructions.len() as u32)?;
         file.write_all(&bytecode.instructions)?;
         write_function_debug_info(&mut file, Some(&bytecode.debug_info))?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(tmp_path, path)?;
 
         Ok(())
     }
@@ -400,7 +407,11 @@ mod tests {
             debug_info::{EffectSummary, FunctionDebugInfo, InstructionLocation, Location},
         },
         diagnostics::position::{Position, Span},
-        runtime::value::Value,
+        runtime::{
+            handler_descriptor::HandlerDescriptor, perform_descriptor::PerformDescriptor,
+            value::Value,
+        },
+        syntax::Identifier,
         types::module_interface::ModuleInterface,
     };
 
@@ -569,6 +580,52 @@ mod tests {
             reason.contains("dependency mismatch"),
             "expected dependency mismatch reason, got: {reason}"
         );
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn module_cache_roundtrips_effect_descriptor_constants() {
+        let dir = temp_dir("effect_descriptors");
+        let cache = ModuleBytecodeCache::new(&dir);
+        let source_path = PathBuf::from("Effects.flx");
+        let source_hash = hash_bytes(b"module Effects {}");
+        let config_hash = hash_bytes(b"strict=0");
+        let cache_key = hash_cache_key(&source_hash, &config_hash);
+        let payload = CachedModuleBytecode {
+            globals: vec![],
+            constants: vec![
+                Value::HandlerDescriptor(std::rc::Rc::new(HandlerDescriptor {
+                    effect: Identifier::new(10),
+                    ops: vec![Identifier::new(11), Identifier::new(12)],
+                    is_discard: true,
+                })),
+                Value::PerformDescriptor(std::rc::Rc::new(PerformDescriptor {
+                    effect: Identifier::new(10),
+                    op: Identifier::new(11),
+                    effect_name: "Console".into(),
+                    op_name: "print".into(),
+                })),
+            ],
+            instructions: vec![1, 2, 3],
+            debug_info: FunctionDebugInfo::default(),
+        };
+
+        cache
+            .store(
+                &source_path,
+                &cache_key,
+                env!("CARGO_PKG_VERSION"),
+                &payload,
+                &[],
+            )
+            .expect("store");
+
+        let loaded = cache
+            .load(&source_path, &cache_key, env!("CARGO_PKG_VERSION"), &dir)
+            .expect("expected module cache hit");
+
+        assert_eq!(loaded, payload);
 
         std::fs::remove_dir_all(dir).ok();
     }

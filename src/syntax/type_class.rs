@@ -2,12 +2,13 @@ use crate::{
     diagnostics::position::Span,
     syntax::{Identifier, block::Block, effect_expr::EffectExpr, type_expr::TypeExpr},
 };
+use serde::{Deserialize, Serialize};
 
 /// A type class constraint like `Eq<a>` or `Ord<a>`.
 ///
 /// Used in superclass declarations (`class Eq<a> => Ord<a>`) and instance
 /// contexts (`instance Eq<a> => Eq<List<a>>`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClassConstraint {
     pub class_name: Identifier,
     pub type_args: Vec<TypeExpr>,

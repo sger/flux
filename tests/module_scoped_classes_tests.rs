@@ -246,6 +246,65 @@ fn main() {
     );
 }
 
+#[test]
+fn imported_public_class_with_downstream_public_instance_runs_end_to_end() {
+    let source = r#"
+module PhaseX.Api {
+    public class Tagger<a> {
+        fn tag(x: a) -> Int
+    }
+}
+
+module PhaseX.Impl {
+    import PhaseX.Api as Api
+
+    public instance Tagger<Int> {
+        fn tag(x) { x + 1 }
+    }
+}
+
+import PhaseX.Api as Api
+
+fn main() {
+    Api.tag(41)
+}
+"#;
+    let result = compile_and_run(source);
+    assert_eq!(
+        result,
+        Value::Integer(42),
+        "imported public class with downstream public instance should resolve end-to-end; got {:?}",
+        result
+    );
+}
+
+#[test]
+fn module_scoped_multi_parameter_class_method_compiles_without_missing_instance() {
+    let source = r#"
+module PhaseX.Convert {
+    public class Convert<a, b> {
+        fn convert(x: a) -> b
+    }
+
+    public instance Convert<Int, String> {
+        fn convert(x) { "ok" }
+    }
+}
+
+import PhaseX.Convert as Convert
+
+fn main() {
+    Convert.convert(42)
+}
+"#;
+    let diags = compile_source(source);
+    let rendered = render_diagnostics(&diags, Some(source), None);
+    assert!(
+        !rendered.contains("E444"),
+        "multi-parameter module-scoped class method should not collapse to a missing-instance error, got:\n{rendered}"
+    );
+}
+
 /// Proposal 0151, Phase 1a, commit #6: short-form qualified call.
 ///
 /// `Quall.size_of2(...)` — referring to a same-file `module Phase1.Quall` by
@@ -856,6 +915,291 @@ fn caller() -> Bool with Audit {
         !has_e400(&diags),
         "caller declaring the resolved instance effect row should not fire E400, got: {}",
         render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+#[test]
+fn module_scoped_class_with_custom_handled_effects_runs_via_vm() {
+    let source = r#"
+module PhaseX.Clock {
+    effect Clock {
+        now: () -> Int
+    }
+}
+
+module PhaseX.Console {
+    effect Console {
+        print: String -> ()
+    }
+}
+
+module PhaseX.Tracer {
+    class Tracer<h> {
+        fn trace(hnd: h, msg: String) -> Int with Console, Clock
+    }
+}
+
+module PhaseX.Impl {
+    import PhaseX.Console as Console
+    import PhaseX.Clock as Clock
+
+    data Handle {
+        Handle
+    }
+
+    public fn default_handle() -> Handle {
+        Handle
+    }
+
+    public instance Tracer<Handle> {
+        fn trace(_hnd, msg) with Console, Clock {
+            let t = perform Clock.now()
+            perform Console.print(msg)
+            t + 1
+        }
+    }
+}
+
+import PhaseX.Impl as Impl
+import PhaseX.Tracer as Tracer
+import PhaseX.Console as Console
+import PhaseX.Clock as Clock
+
+fn main() {
+    let h = Impl.default_handle()
+    Tracer.trace(h, "hi")
+        handle Clock {
+            now(resume) -> resume(0)
+        }
+        handle Console {
+            print(resume, _msg) -> resume(())
+        }
+}
+"#;
+    let result = compile_and_run(source);
+    assert_eq!(
+        result,
+        Value::Integer(1),
+        "custom handled effects through a module-scoped class should run on the VM; got {:?}",
+        result
+    );
+}
+
+#[test]
+fn row_polymorphic_class_method_pure_callback_stays_pure() {
+    let source = r#"
+data Box<a> {
+    Box(a)
+}
+
+module Flow.Foldable {
+    public class Foldable<f> {
+        fn fold<a, b>(
+            xs: f<a>,
+            init: b,
+            step: (b, a) -> b with |e
+        ) -> b with |e
+    }
+
+    public instance Foldable<Box> {
+        fn fold(xs, init, step) {
+            match xs {
+                Box(x) -> step(init, x)
+            }
+        }
+    }
+}
+
+import Flow.Foldable as Foldable
+
+fn count_box() -> Int {
+    Foldable.fold(Box(2), 40, fn(acc, x) { acc + x })
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        !has_e400(&diags) && !has_e452(&diags),
+        "pure callback should keep the class method call pure, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+#[test]
+fn row_polymorphic_class_method_missing_caller_effect_fires_e400() {
+    let source = r#"
+data Box<a> {
+    Box(a)
+}
+
+module Flow.Foldable {
+    public class Foldable<f> {
+        fn fold<a, b>(
+            xs: f<a>,
+            init: b,
+            step: (b, a) -> b with |e
+        ) -> b with |e
+    }
+
+    public instance Foldable<Box> {
+        fn fold(xs, init, step) {
+            match xs {
+                Box(x) -> step(init, x)
+            }
+        }
+    }
+}
+
+module Flow.Console {
+    effect Console {
+        print: String -> ()
+    }
+}
+
+import Flow.Foldable as Foldable
+import Flow.Console as Console
+
+fn print_box() -> Int {
+    Foldable.fold(Box("a"), 0, fn(count, line) {
+        perform Console.print(line)
+        count + 1
+    })
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        has_e400(&diags),
+        "effectful callback should require the caller to declare the resolved row, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+#[test]
+fn row_polymorphic_class_method_freshens_row_per_call_site() {
+    let source = r#"
+data Box<a> {
+    Box(a)
+}
+
+module Flow.Foldable {
+    public class Foldable<f> {
+        fn fold<a, b>(
+            xs: f<a>,
+            init: b,
+            step: (b, a) -> b with |e
+        ) -> b with |e
+    }
+
+    public instance Foldable<Box> {
+        fn fold(xs, init, step) {
+            match xs {
+                Box(x) -> step(init, x)
+            }
+        }
+    }
+}
+
+module Flow.Console {
+    effect Console {
+        print: String -> ()
+    }
+}
+
+import Flow.Foldable as Foldable
+import Flow.Console as Console
+
+fn count_box() -> Int {
+    Foldable.fold(Box(2), 40, fn(acc, x) { acc + x })
+}
+
+fn print_step(count: Int, line: String) -> Int with Console {
+    perform Console.print(line)
+    count + 1
+}
+
+fn print_box() -> Int with Console {
+    Foldable.fold(Box("a"), 0, print_step)
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        !has_e400(&diags) && !has_e452(&diags),
+        "each call site should get a fresh row instantiation, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+#[test]
+fn phase4_module_scoped_type_classes_acceptance_bar() {
+    let source = r#"
+data Box<a> {
+    Box(a)
+}
+
+module Flow.Console {
+    effect Console {
+        print: String -> ()
+    }
+}
+
+module Flow.Foldable {
+    public class Foldable<f> {
+        fn fold<a, b>(
+            xs: f<a>,
+            init: b,
+            step: (b, a) -> b with |e
+        ) -> b with |e
+    }
+
+    public instance Foldable<Box> {
+        fn fold(xs, init, step) {
+            match xs {
+                Box(x) -> step(init, x)
+            }
+        }
+    }
+}
+
+import Flow.Foldable as Foldable
+import Flow.Console as Console
+
+module App.Reporting {
+    fn pure_total() -> Int {
+        Foldable.fold(Box(2), 40, fn(acc, x) { acc + x })
+    }
+
+    fn print_step(count: Int, line: String) -> Int with Console {
+        perform Console.print(line)
+        count + 1
+    }
+
+    public fn run() -> Int with Console {
+        let pure = pure_total()
+        let effectful = Foldable.fold(Box("a"), 0, print_step)
+        pure + effectful
+    }
+}
+
+import App.Reporting as Reporting
+
+fn main() {
+    Reporting.run()
+        handle Console {
+            print(resume, _msg) -> resume(())
+        }
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        !has_e400(&diags) && !has_e452(&diags),
+        "Phase 4 acceptance program should compile cleanly for module-scoped type classes, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+    let result = compile_and_run(source);
+    assert_eq!(
+        result,
+        Value::Integer(43),
+        "Phase 4 acceptance program should run and preserve pure + effectful module-scoped class behavior; got {:?}",
+        result
     );
 }
 

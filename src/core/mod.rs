@@ -668,7 +668,7 @@ impl CorePrimOp {
             YieldTo => 3,
             EvvInsert => 4,
             YieldPrompt => 3,
-            PerformDirect => 4,
+            PerformDirect => 5,
         }
     }
 

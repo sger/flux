@@ -2,7 +2,11 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{aether::borrow_infer::BorrowSignature, syntax::symbol::Symbol, types::scheme::Scheme};
+use crate::{
+    aether::borrow_infer::BorrowSignature,
+    syntax::{Identifier, effect_expr::EffectExpr, symbol::Symbol, type_class::ClassConstraint, type_expr::TypeExpr},
+    types::scheme::Scheme,
+};
 
 pub const MODULE_INTERFACE_FORMAT_VERSION: u16 = crate::cache_paths::CACHE_EPOCH;
 
@@ -27,11 +31,36 @@ pub struct DependencyFingerprint {
 /// schema now so that pre-Phase-4 interfaces can be reloaded post-Phase-4
 /// without a cache format bump for this single field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicClassMethodEntry {
+    pub name: Identifier,
+    pub type_params: Vec<Identifier>,
+    pub param_types: Vec<TypeExpr>,
+    pub return_type: TypeExpr,
+    #[serde(default)]
+    pub effects: Vec<EffectExpr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicInstanceMethodEntry {
+    pub name: Identifier,
+    #[serde(default)]
+    pub effects: Vec<EffectExpr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PublicClassEntry {
     pub class_module: String,
     pub name: String,
     pub type_param_arity: usize,
-    pub superclasses: Vec<String>,
+    #[serde(default)]
+    pub type_params: Vec<Identifier>,
+    #[serde(default)]
+    pub superclasses: Vec<ClassConstraint>,
+    #[serde(default)]
+    pub methods: Vec<PublicClassMethodEntry>,
+    #[serde(default)]
+    pub default_methods: Vec<Identifier>,
+    #[serde(default)]
     pub method_names: Vec<String>,
     #[serde(default)]
     pub pinned_row_placeholder: Option<String>,
@@ -54,6 +83,12 @@ pub struct PublicInstanceEntry {
     pub class_name: String,
     pub instance_module: String,
     pub head_type_repr: String,
+    #[serde(default)]
+    pub type_args: Vec<TypeExpr>,
+    #[serde(default)]
+    pub context: Vec<ClassConstraint>,
+    #[serde(default)]
+    pub methods: Vec<PublicInstanceMethodEntry>,
     #[serde(default)]
     pub pinned_row_placeholder: Option<String>,
 }

@@ -3,9 +3,17 @@ use crate::{
     bytecode::op_code::{OpCode, disassemble},
     diagnostics::render_diagnostics,
     runtime::value::Value,
-    syntax::{interner::Interner, lexer::Lexer, parser::Parser},
+    syntax::{
+        effect_expr::EffectExpr, interner::Interner, lexer::Lexer, parser::Parser,
+        statement::Statement,
+        type_expr::TypeExpr,
+    },
     types::{
-        infer_effect_row::InferEffectRow, infer_type::InferType, module_interface::ModuleInterface,
+        infer_effect_row::InferEffectRow, infer_type::InferType,
+        module_interface::{
+            ModuleInterface, PublicClassEntry, PublicClassMethodEntry, PublicInstanceEntry,
+            PublicInstanceMethodEntry,
+        },
         scheme::Scheme, type_constructor::TypeConstructor,
     },
 };
@@ -37,6 +45,16 @@ fn parse_program_with_interner(
     );
     let interner = parser.take_interner();
     (program, interner)
+}
+
+fn top_level_has_function(statements: &[Statement], name: &str, interner: &Interner) -> bool {
+    statements.iter().any(|statement| {
+        match statement {
+            Statement::Function { name: sym, .. } => interner.try_resolve(*sym) == Some(name),
+            Statement::Module { body, .. } => top_level_has_function(&body.statements, name, interner),
+            _ => false,
+        }
+    })
 }
 
 fn find_compiled_function(
@@ -627,6 +645,280 @@ fn preload_module_interface_inserts_cached_borrow_signatures() {
     assert_eq!(
         registry.lookup_member_access(module_binding, member),
         Some(&signature)
+    );
+}
+
+#[test]
+fn preload_module_interface_allows_imported_public_class_in_instance_head() {
+    let (program, interner) = parse_program(
+        r#"
+import Example.Logger as Logger
+
+module Local {
+    public data StdoutHandle { Stdout }
+
+    public instance Logger<StdoutHandle> {
+        fn log(hnd, msg) { None }
+    }
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let logger_h = compiler.interner.intern("h");
+    let logger_name = compiler.interner.intern("Logger");
+    let log_name = compiler.interner.intern("log");
+    let string_name = compiler.interner.intern("String");
+
+    let interface = ModuleInterface {
+        module_name: "Example.Logger".to_string(),
+        source_hash: "hash".to_string(),
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
+        schemes: std::collections::HashMap::new(),
+        borrow_signatures: std::collections::HashMap::new(),
+        dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::new(),
+        public_classes: vec![PublicClassEntry {
+            class_module: "Example.Logger".to_string(),
+            name: "Logger".to_string(),
+            type_param_arity: 1,
+            type_params: vec![logger_h],
+            superclasses: vec![],
+            methods: vec![PublicClassMethodEntry {
+                name: log_name,
+                type_params: vec![],
+                param_types: vec![
+                    TypeExpr::Named {
+                        name: logger_h,
+                        args: vec![],
+                        span: Default::default(),
+                    },
+                    TypeExpr::Named {
+                        name: string_name,
+                        args: vec![],
+                        span: Default::default(),
+                    },
+                ],
+                return_type: TypeExpr::Tuple {
+                    elements: vec![],
+                    span: Default::default(),
+                },
+                effects: vec![],
+            }],
+            default_methods: vec![],
+            method_names: vec!["log".to_string()],
+            pinned_row_placeholder: None,
+        }],
+        public_instances: Vec::new(),
+    };
+
+    compiler.preload_module_interface(&interface);
+    compiler
+        .compile(&program)
+        .expect("imported public class should be usable in downstream instance heads");
+
+    assert!(
+        compiler
+            .class_env()
+            .instances
+            .iter()
+            .any(|inst| inst.class_name == logger_name),
+        "local instance should resolve against the imported class env"
+    );
+}
+
+#[test]
+fn preload_module_interface_propagates_imported_instance_effect_row() {
+    let (_program, interner) = parse_program(
+        r#"
+import Example.Logger as Logger
+import Example.StdLog as StdLog
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let logger_h = compiler.interner.intern("h");
+    let log_name = compiler.interner.intern("log");
+    let string_name = compiler.interner.intern("String");
+    let int_name = compiler.interner.intern("Int");
+    let console_name = compiler.interner.intern("Console");
+
+    let class_interface = ModuleInterface {
+        module_name: "Example.Logger".to_string(),
+        source_hash: "hash".to_string(),
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
+        schemes: std::collections::HashMap::new(),
+        borrow_signatures: std::collections::HashMap::new(),
+        dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::new(),
+        public_classes: vec![PublicClassEntry {
+            class_module: "Example.Logger".to_string(),
+            name: "Logger".to_string(),
+            type_param_arity: 1,
+            type_params: vec![logger_h],
+            superclasses: vec![],
+            methods: vec![PublicClassMethodEntry {
+                name: log_name,
+                type_params: vec![],
+                param_types: vec![
+                    TypeExpr::Named {
+                        name: logger_h,
+                        args: vec![],
+                        span: Default::default(),
+                    },
+                    TypeExpr::Named {
+                        name: string_name,
+                        args: vec![],
+                        span: Default::default(),
+                    },
+                ],
+                return_type: TypeExpr::Tuple {
+                    elements: vec![],
+                    span: Default::default(),
+                },
+                effects: vec![],
+            }],
+            default_methods: vec![],
+            method_names: vec!["log".to_string()],
+            pinned_row_placeholder: None,
+        }],
+        public_instances: Vec::new(),
+    };
+    let instance_interface = ModuleInterface {
+        module_name: "Example.StdLog".to_string(),
+        source_hash: "hash".to_string(),
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
+        schemes: std::collections::HashMap::new(),
+        borrow_signatures: std::collections::HashMap::new(),
+        dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::new(),
+        public_classes: Vec::new(),
+        public_instances: vec![PublicInstanceEntry {
+            class_module: "Example.Logger".to_string(),
+            class_name: "Logger".to_string(),
+            instance_module: "Example.StdLog".to_string(),
+            head_type_repr: "Int".to_string(),
+            type_args: vec![TypeExpr::Named {
+                name: int_name,
+                args: vec![],
+                span: Default::default(),
+            }],
+            context: vec![],
+            methods: vec![PublicInstanceMethodEntry {
+                name: log_name,
+                effects: vec![EffectExpr::Named {
+                    name: console_name,
+                    span: Default::default(),
+                }],
+            }],
+            pinned_row_placeholder: None,
+        }],
+    };
+
+    compiler.preload_module_interface(&class_interface);
+    compiler.preload_module_interface(&instance_interface);
+    let mangled = compiler.interner.intern("__tc_Logger_Int_log");
+    let scheme = compiler
+        .imported_instance_method_schemes
+        .get(&mangled)
+        .expect("expected imported instance method scheme to be preloaded");
+    match &scheme.infer_type {
+        InferType::Fun(_, _, effects) => {
+            assert!(
+                effects.concrete().contains(&console_name),
+                "expected imported instance row to include Console, got: {:?}",
+                effects
+            );
+        }
+        other => panic!("expected function scheme for imported instance method, got {other:?}"),
+    }
+}
+
+#[test]
+fn prepare_program_for_lowering_synthesizes_imported_class_instance_dispatch_after_compile() {
+    let (program, interner) = parse_program(
+        r#"
+import Example.Logger as Logger
+
+module Local {
+    public data StdoutHandle { Stdout }
+
+    public instance Logger<StdoutHandle> {
+        fn log(hnd, msg) { None }
+    }
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let logger_h = compiler.interner.intern("h");
+    let log_name = compiler.interner.intern("log");
+    let string_name = compiler.interner.intern("String");
+
+    let interface = ModuleInterface {
+        module_name: "Example.Logger".to_string(),
+        source_hash: "hash".to_string(),
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
+        schemes: std::collections::HashMap::new(),
+        borrow_signatures: std::collections::HashMap::new(),
+        dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::new(),
+        public_classes: vec![PublicClassEntry {
+            class_module: "Example.Logger".to_string(),
+            name: "Logger".to_string(),
+            type_param_arity: 1,
+            type_params: vec![logger_h],
+            superclasses: vec![],
+            methods: vec![PublicClassMethodEntry {
+                name: log_name,
+                type_params: vec![],
+                param_types: vec![
+                    TypeExpr::Named {
+                        name: logger_h,
+                        args: vec![],
+                        span: Default::default(),
+                    },
+                    TypeExpr::Named {
+                        name: string_name,
+                        args: vec![],
+                        span: Default::default(),
+                    },
+                ],
+                return_type: TypeExpr::Tuple {
+                    elements: vec![],
+                    span: Default::default(),
+                },
+                effects: vec![],
+            }],
+            default_methods: vec![],
+            method_names: vec!["log".to_string()],
+            pinned_row_placeholder: None,
+        }],
+        public_instances: Vec::new(),
+    };
+
+    compiler.preload_module_interface(&interface);
+    compiler
+        .compile(&program)
+        .expect("program with imported public class instance should compile");
+
+    let prepared = compiler.prepare_program_for_lowering_with_preloaded(&program);
+    assert!(
+        top_level_has_function(
+            &prepared.effective_program.statements,
+            "__tc_Logger_StdoutHandle_log",
+            &compiler.interner,
+        ),
+        "expected imported-class instance dispatch to be synthesized in the effective program"
     );
 }
 

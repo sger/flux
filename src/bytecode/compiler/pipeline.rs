@@ -34,20 +34,19 @@ impl Compiler {
         // program AST so they compile through the normal pipeline.
         let class_augmented;
         let program = if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
+            let additional_reserved_names = self
+                .symbol_table
+                .all_symbol_names()
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>();
             let extra = generate_dispatch_functions(
                 &program.statements,
                 &self.class_env,
                 &mut self.interner,
+                &additional_reserved_names,
             );
             if !extra.is_empty() {
-                // Prepend generated functions so their polymorphic type stubs
-                // are inferred before user code that calls them (Phase A/B order).
-                let mut stmts = extra;
-                stmts.extend(program.statements.iter().cloned());
-                class_augmented = Program {
-                    statements: stmts,
-                    span: program.span,
-                };
+                class_augmented = self.inject_generated_dispatch_functions(program, extra);
                 &class_augmented
             } else {
                 program

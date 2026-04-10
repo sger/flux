@@ -1,0 +1,5 @@
+module MultiEffectTracerExample.Flow.Console {
+    effect Console {
+        print: String -> ()
+    }
+}

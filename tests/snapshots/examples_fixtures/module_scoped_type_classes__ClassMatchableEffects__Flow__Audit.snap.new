@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+assertion_line: 27
+---
+Fixture: examples/module_scoped_type_classes/ClassMatchableEffects/Flow/Audit.flx
+== compile ==
+failed (module)
+== diagnostics ==
+error[E024]: Module Path Mismatch
+
+Module name `ClassMatchableEffects.Flow.Audit` doesn't match file path `examples/module_scoped_type_classes/ClassMatchableEffects/Flow/Audit.flx`.
+
+  examples/module_scoped_type_classes/ClassMatchableEffects/Flow/Audit.flx:1:1
+  |
+1 | module ClassMatchableEffects.Flow.Audit {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>
