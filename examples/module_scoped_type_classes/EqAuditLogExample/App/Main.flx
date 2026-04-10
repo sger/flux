@@ -1,13 +1,16 @@
 import EqAuditLogExample.App.Users as Users
-import EqAuditLogExample.Flow.Comparable as Comparable
+import EqAuditLogExample.App.Service as Service
 import EqAuditLogExample.Flow.AuditLog as AuditLog
 
 module EqAuditLogExample.App.Main {
     public fn run() with IO {
-        let result = Comparable.same(Users.id(1), Users.id(2))
+        let int_result = Service.ints_equal(1, 2)
+        print(to_string(int_result))
+
+        let user_result = Users.users_equal(Users.id(1), Users.id(2))
             handle AuditLog {
                 record(resume, _msg) -> resume(())
             }
-        print(to_string(result))
+        print(to_string(user_result))
     }
 }

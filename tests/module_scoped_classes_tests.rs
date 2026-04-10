@@ -919,6 +919,57 @@ fn caller() -> Bool with Audit {
 }
 
 #[test]
+fn resolved_class_call_propagates_instance_effect_row_through_intermediate_functions() {
+    let source = r#"
+effect AuditLog {
+    record: String -> ()
+}
+
+data UserId {
+    UserId(Int)
+}
+
+class Comparable<a> {
+    fn same(x: a, y: a) -> Bool
+}
+
+instance Comparable<Int> {
+    fn same(x, y) { x == y }
+}
+
+instance Comparable<UserId> {
+    fn same(a, b) with AuditLog {
+        perform AuditLog.record("compare users")
+        match (a, b) {
+            (UserId(x), UserId(y)) -> x == y,
+            _ -> false
+        }
+    }
+}
+
+fn ints_equal(x: Int, y: Int) -> Bool {
+    same(x, y)
+}
+
+fn users_equal(a: UserId, b: UserId) -> Bool with AuditLog {
+    same(a, b)
+}
+
+fn main() -> Bool with AuditLog {
+    let int_ok = ints_equal(1, 2)
+    let user_ok = users_equal(UserId(1), UserId(2))
+    int_ok == user_ok
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        !has_e400(&diags) && !has_e452(&diags),
+        "pure and effectful intermediate helpers should compile side-by-side, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+#[test]
 fn module_scoped_class_with_custom_handled_effects_runs_via_vm() {
     let source = r#"
 module PhaseX.Clock {

@@ -4607,6 +4607,67 @@ impl Compiler {
         }
     }
 
+    fn remap_cached_constant_symbols(&mut self, value: &Value) -> Value {
+        match value {
+            Value::HandlerDescriptor(desc) => Value::HandlerDescriptor(std::rc::Rc::new(
+                crate::runtime::handler_descriptor::HandlerDescriptor {
+                    effect: self.interner.intern(&desc.effect_name),
+                    effect_name: desc.effect_name.clone(),
+                    ops: desc
+                        .op_names
+                        .iter()
+                        .map(|name| self.interner.intern(name))
+                        .collect(),
+                    op_names: desc.op_names.clone(),
+                    is_discard: desc.is_discard,
+                },
+            )),
+            Value::PerformDescriptor(desc) => Value::PerformDescriptor(std::rc::Rc::new(
+                crate::runtime::perform_descriptor::PerformDescriptor {
+                    effect: self.interner.intern(&desc.effect_name),
+                    op: self.interner.intern(&desc.op_name),
+                    effect_name: desc.effect_name.clone(),
+                    op_name: desc.op_name.clone(),
+                },
+            )),
+            Value::Array(values) => Value::Array(std::rc::Rc::new(
+                values
+                    .iter()
+                    .map(|value| self.remap_cached_constant_symbols(value))
+                    .collect(),
+            )),
+            Value::Tuple(values) => Value::Tuple(std::rc::Rc::new(
+                values
+                    .iter()
+                    .map(|value| self.remap_cached_constant_symbols(value))
+                    .collect(),
+            )),
+            Value::Some(value) => Value::Some(std::rc::Rc::new(
+                self.remap_cached_constant_symbols(value),
+            )),
+            Value::Left(value) => Value::Left(std::rc::Rc::new(
+                self.remap_cached_constant_symbols(value),
+            )),
+            Value::Right(value) => Value::Right(std::rc::Rc::new(
+                self.remap_cached_constant_symbols(value),
+            )),
+            Value::Cons(cell) => crate::runtime::cons_cell::ConsCell::cons(
+                self.remap_cached_constant_symbols(&cell.head),
+                self.remap_cached_constant_symbols(&cell.tail),
+            ),
+            Value::Adt(adt) => Value::Adt(std::rc::Rc::new(crate::runtime::value::AdtValue {
+                constructor: adt.constructor.clone(),
+                fields: crate::runtime::value::AdtFields::from_vec(
+                    adt.fields
+                        .iter()
+                        .map(|value| self.remap_cached_constant_symbols(value))
+                        .collect(),
+                ),
+            })),
+            _ => value.clone(),
+        }
+    }
+
     pub fn hydrate_cached_module_bytecode(&mut self, cached: &CachedModuleBytecode) {
         for binding in &cached.globals {
             let symbol = self.interner.intern(&binding.name);
@@ -4625,7 +4686,12 @@ impl Compiler {
             self.file_scope_symbols.insert(symbol);
         }
 
-        self.constants.extend(cached.constants.iter().cloned());
+        let remapped_constants = cached
+            .constants
+            .iter()
+            .map(|value| self.remap_cached_constant_symbols(value))
+            .collect::<Vec<_>>();
+        self.constants.extend(remapped_constants);
 
         let base_offset = self.scopes[self.scope_index].instructions.len();
         self.scopes[self.scope_index]
