@@ -4812,52 +4812,6 @@ impl Compiler {
         })
     }
 
-    fn resolve_dict_args_for_call_ast(
-        &mut self,
-        callee_name: crate::syntax::Identifier,
-        arguments: &[Expression],
-        span: Span,
-    ) -> Vec<Expression> {
-        let Some(scheme) = self.type_env.lookup(callee_name) else {
-            return Vec::new();
-        };
-        if scheme.constraints.is_empty() {
-            return Vec::new();
-        }
-
-        let mut dict_args = Vec::new();
-        for constraint in &scheme.constraints {
-            if let Some(actual_type_args) =
-                self.resolve_constraint_type_args_ast(constraint, scheme, arguments)
-                && let Some(dict_ref) = self.class_env.resolve_dictionary_ref(
-                    constraint.class_name,
-                    &actual_type_args,
-                    &self.interner,
-                )
-            {
-                dict_args.push(self.lower_dictionary_ref_ast(&dict_ref, span));
-                continue;
-            }
-
-            let class_str = self.interner.resolve(constraint.class_name);
-            let dict_name = format!("__dict_{class_str}");
-            let Some(dict_sym) = self.interner.lookup(&dict_name) else {
-                return Vec::new();
-            };
-            if self.symbol_table.resolve(dict_sym).is_some() {
-                dict_args.push(Expression::Identifier {
-                    name: dict_sym,
-                    span,
-                    id: crate::syntax::expression::ExprId::UNSET,
-                });
-                continue;
-            }
-
-            return Vec::new();
-        }
-        dict_args
-    }
-
     fn resolve_direct_class_call_dict_args_ast(
         &self,
         method_name: crate::syntax::Identifier,
@@ -4887,72 +4841,6 @@ impl Compiler {
                     .collect()
             })
             .unwrap_or_default()
-    }
-
-    fn resolve_constraint_type_args_ast(
-        &self,
-        constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
-        scheme: &crate::types::scheme::Scheme,
-        arguments: &[Expression],
-    ) -> Option<Vec<InferType>> {
-        let crate::types::infer_type::InferType::Fun(param_tys, _, _) = &scheme.infer_type else {
-            return None;
-        };
-
-        let param_offset = param_tys.len().saturating_sub(arguments.len());
-        let mut resolved = Vec::with_capacity(constraint.type_vars.len());
-        for type_var in &constraint.type_vars {
-            let mut found = None;
-            for (index, param_ty) in param_tys.iter().enumerate().skip(param_offset) {
-                let arg_ty = self
-                    .hm_expr_types
-                    .get(&arguments.get(index - param_offset)?.expr_id())?;
-                if let Some(actual) = Self::match_constraint_type_var(param_ty, arg_ty, *type_var) {
-                    found = Some(actual);
-                    break;
-                }
-            }
-            resolved.push(found?);
-        }
-        Some(resolved)
-    }
-
-    fn match_constraint_type_var(
-        pattern: &InferType,
-        actual: &InferType,
-        target: crate::types::TypeVarId,
-    ) -> Option<InferType> {
-        match pattern {
-            InferType::Var(var) if *var == target => Some(actual.clone()),
-            InferType::App(pattern_ctor, pattern_args) => {
-                let InferType::App(actual_ctor, actual_args) = actual else {
-                    return None;
-                };
-                if pattern_ctor != actual_ctor || pattern_args.len() != actual_args.len() {
-                    return None;
-                }
-                pattern_args
-                    .iter()
-                    .zip(actual_args.iter())
-                    .find_map(|(pattern_arg, actual_arg)| {
-                        Self::match_constraint_type_var(pattern_arg, actual_arg, target)
-                    })
-            }
-            InferType::Tuple(pattern_elems) => {
-                let InferType::Tuple(actual_elems) = actual else {
-                    return None;
-                };
-                if pattern_elems.len() != actual_elems.len() {
-                    return None;
-                }
-                pattern_elems.iter().zip(actual_elems.iter()).find_map(
-                    |(pattern_elem, actual_elem)| {
-                        Self::match_constraint_type_var(pattern_elem, actual_elem, target)
-                    },
-                )
-            }
-            _ => None,
-        }
     }
 
     fn lower_dictionary_ref_ast(

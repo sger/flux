@@ -642,6 +642,11 @@ fn has_e452(diags: &[flux::diagnostics::Diagnostic]) -> bool {
     rendered.contains("E452")
 }
 
+fn has_e400(diags: &[flux::diagnostics::Diagnostic]) -> bool {
+    let rendered = render_diagnostics(diags, None, None);
+    rendered.contains("E400")
+}
+
 #[test]
 fn instance_method_missing_class_effect_fires_e452() {
     // The class declares `with IO` on `eq`, but the instance method drops
@@ -792,6 +797,64 @@ module Phase4.FloorOk {
     assert!(
         !has_e452(&diags),
         "module-scoped class with satisfied floor must not fire E452, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+#[test]
+fn resolved_class_call_propagates_instance_effect_row_to_caller() {
+    let source = r#"
+effect Audit {
+    record: String -> ()
+}
+
+effect Time {
+    now: () -> Int
+}
+
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool
+}
+
+instance Eq<Int> {
+    fn eq(x, y) with Audit { x == y }
+}
+
+fn caller() -> Bool with Time {
+    eq(1, 2)
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        has_e400(&diags),
+        "resolved class call should propagate the instance effect row to the caller, got: {}",
+        render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+#[test]
+fn resolved_class_call_succeeds_when_caller_declares_instance_effect() {
+    let source = r#"
+effect Audit {
+    record: String -> ()
+}
+
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool
+}
+
+instance Eq<Int> {
+    fn eq(x, y) with Audit { x == y }
+}
+
+fn caller() -> Bool with Audit {
+    eq(1, 2)
+}
+"#;
+    let diags = compile_source(source);
+    assert!(
+        !has_e400(&diags),
+        "caller declaring the resolved instance effect row should not fire E400, got: {}",
         render_diagnostics(&diags, Some(source), None)
     );
 }

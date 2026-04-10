@@ -12,6 +12,14 @@ struct CallTypedCalleeSpec<'a> {
     ambient_effect_row: InferEffectRow,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ResolvedClassMethodCall {
+    class_name: Identifier,
+    method_name: Identifier,
+    first_arg_id: ExprId,
+    span: Span,
+}
+
 impl<'a> InferCtx<'a> {
     /// Infer a call expression, routing constructor calls to ADT-specific inference.
     ///
@@ -60,15 +68,7 @@ impl<'a> InferCtx<'a> {
         };
 
         // Check if callee is a class method (for post-inference constraint emission).
-        let class_method_info = if let Expression::Identifier { name, .. } = input.function {
-            if self.env.lookup_span(*name).is_none() {
-                self.lookup_class_method(*name).map(|c| (c, input.span))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let class_method_info = self.class_method_call_info(input.function, input.arguments, input.span);
 
         if let InferType::Fun(param_tys, ret_ty, fn_effects) = fn_ty_resolved {
             let result = self.infer_call_typed_callee(CallTypedCalleeSpec {
@@ -82,17 +82,27 @@ impl<'a> InferCtx<'a> {
                 ambient_effect_row,
             });
             // Emit class constraint after inference resolves argument types.
-            if let Some((class_name, span)) = class_method_info {
-                let constrained_ty = param_tys
-                    .first()
-                    .map(|t| t.apply_type_subst(&self.subst))
-                    .unwrap_or(result.apply_type_subst(&self.subst));
-                self.emit_class_constraint(
-                    class_name,
-                    constrained_ty,
-                    span,
-                    constraint::WantedClassConstraintOrigin::MethodCall,
-                );
+            if let Some(info) = class_method_info {
+                let resolved_type_args = self.propagate_resolved_class_call_effects(info);
+                if let Some(type_args) = resolved_type_args {
+                    self.emit_class_constraint_args(
+                        info.class_name,
+                        type_args,
+                        info.span,
+                        constraint::WantedClassConstraintOrigin::MethodCall,
+                    );
+                } else {
+                    let constrained_ty = param_tys
+                        .first()
+                        .map(|t| t.apply_type_subst(&self.subst))
+                        .unwrap_or(result.apply_type_subst(&self.subst));
+                    self.emit_class_constraint(
+                        info.class_name,
+                        constrained_ty,
+                        info.span,
+                        constraint::WantedClassConstraintOrigin::MethodCall,
+                    );
+                }
             }
             return result;
         }
@@ -235,5 +245,98 @@ impl<'a> InferCtx<'a> {
             },
         );
         ret_var.apply_type_subst(&self.subst)
+    }
+
+    /// Recognize a direct bare-name class-method call candidate.
+    ///
+    /// Returns the class/method identity plus the first argument expression id,
+    /// which is later used to resolve the concrete instance selected at the
+    /// call site.
+    fn class_method_call_info(
+        &self,
+        function: &Expression,
+        arguments: &[Expression],
+        span: Span,
+    ) -> Option<ResolvedClassMethodCall> {
+        let Expression::Identifier { name, .. } = function else {
+            return None;
+        };
+        if self
+            .env
+            .lookup_span(*name)
+            .is_some_and(|def_span| def_span != Span::default())
+        {
+            return None;
+        }
+        let class_name = self.lookup_class_method(*name)?;
+        let first_arg_id = arguments.first()?.expr_id();
+        Some(ResolvedClassMethodCall {
+            class_name,
+            method_name: *name,
+            first_arg_id,
+            span,
+        })
+    }
+
+    /// Resolve a direct class-method call to its concrete instance effects.
+    ///
+    /// When the first argument type selects a unique instance, this looks up
+    /// the generated mangled `__tc_*` function scheme, constrains the caller's
+    /// ambient effect row against that function's effect row, and returns the
+    /// full concrete class head for method-call constraint emission.
+    fn propagate_resolved_class_call_effects(
+        &mut self,
+        info: ResolvedClassMethodCall,
+    ) -> Option<Vec<InferType>> {
+        let Some(first_arg_ty) = self
+            .expr_types
+            .get(&info.first_arg_id)
+            .map(|ty| ty.apply_type_subst(&self.subst))
+        else {
+            return None;
+        };
+
+        let Some((resolved_type_args, scheme)) = ({
+            let Some(class_env) = self.class_env.as_ref() else {
+                return None;
+            };
+            let Some((instance, concrete_type_args)) = class_env.resolve_method_call_instance_from_first_arg(
+                info.class_name,
+                &first_arg_ty,
+                self.interner,
+            ) else {
+                return None;
+            };
+
+            let type_key = instance
+                .type_args
+                .iter()
+                .map(|arg| arg.display_with(self.interner))
+                .collect::<Vec<_>>()
+                .join("_");
+            let class_str = self.interner.resolve(info.class_name);
+            let method_str = self.interner.resolve(info.method_name);
+            let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+            let Some(mangled_sym) = self.interner.lookup(&mangled) else {
+                return None;
+            };
+            Some((concrete_type_args, self.env.lookup(mangled_sym).cloned()?))
+        }) else {
+            return None;
+        };
+
+        let (resolved_fn_ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
+        for &fresh in mapping.values() {
+            self.env.record_var_level(fresh);
+        }
+        self.emit_scheme_constraints(&constraints, info.span);
+
+        if let InferType::Fun(_, _, effect_row) = resolved_fn_ty.apply_type_subst(&self.subst) {
+            let ambient_effect_row = self
+                .current_ambient_effect_row()
+                .apply_row_subst(&self.subst);
+            self.constrain_call_effects(&effect_row, &ambient_effect_row, info.span);
+        }
+        Some(resolved_type_args)
     }
 }
