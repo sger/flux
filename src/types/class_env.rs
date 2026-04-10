@@ -141,6 +141,12 @@ pub struct InstanceDef {
     pub type_args: Vec<TypeExpr>,
     pub context: Vec<ClassConstraint>,
     pub method_names: Vec<Identifier>,
+    /// Declared effect rows for methods implemented by this instance.
+    ///
+    /// Used when imported public instances are reconstructed from module
+    /// interfaces and downstream callers need the resolved instance row
+    /// without re-parsing the defining source module.
+    pub method_effects: Vec<(Identifier, Vec<EffectExpr>)>,
     pub span: Span,
 }
 
@@ -751,6 +757,10 @@ impl ClassEnv {
 
                     // Validate: all required methods are implemented
                     let method_names: Vec<Identifier> = methods.iter().map(|m| m.name).collect();
+                    let method_effects: Vec<(Identifier, Vec<EffectExpr>)> = methods
+                        .iter()
+                        .map(|m| (m.name, m.effects.clone()))
+                        .collect();
 
                     for required in &class_def.methods {
                         let has_impl = method_names.contains(&required.name);
@@ -875,6 +885,7 @@ impl ClassEnv {
                         type_args: type_args.clone(),
                         context: context.clone(),
                         method_names,
+                        method_effects,
                         span: *span,
                     });
                 }
@@ -956,6 +967,7 @@ impl ClassEnv {
                             type_args: vec![type_arg],
                             context: vec![],
                             method_names: vec![],
+                            method_effects: vec![],
                             span: *span,
                         });
                     }
@@ -1597,6 +1609,7 @@ impl ClassEnv {
             type_args: vec![builtin_type(type_name)],
             context: vec![],
             method_names: vec![],
+            method_effects: vec![],
             span: Span::default(),
         });
     }
@@ -3025,6 +3038,7 @@ module Mod.Class {
             type_args,
             context: vec![],
             method_names: vec![],
+            method_effects: vec![],
             span: s(),
         });
         (env, class_sym)

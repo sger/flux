@@ -688,8 +688,16 @@ fn compile_vm_modules_parallel(
                         cache_layout.root(),
                     )
                     .ok_or_else(|| {
+                        let reason = module_cache
+                            .load_failure_reason(
+                                &result.path,
+                                &result.cache_key,
+                                env!("CARGO_PKG_VERSION"),
+                                cache_layout.root(),
+                            )
+                            .unwrap_or_else(|| "unknown".to_string());
                         format!(
-                            "could not load module artifact for {}",
+                            "could not load module artifact for {} ({reason})",
                             result.path.display()
                         )
                     })?;
@@ -1963,64 +1971,79 @@ fn run_file(
                     continue;
                 }
 
-                if !no_cache {
-                    for dep in &node.imports {
-                        if let Some(interface) = loaded_interfaces.get(&dep.target_path) {
-                            if preloaded_interfaces.insert(dep.target_path.clone()) {
-                                compiler.preload_module_interface(interface);
-                                if verbose {
-                                    eprintln!(
-                                        "interface: hit {} [abi:{}]",
-                                        interface.module_name,
-                                        short_hash(&interface.interface_fingerprint)
-                                    );
-                                }
-                            }
-                            continue;
-                        }
-                        let Ok(dep_source) = std::fs::read_to_string(&dep.target_path) else {
+                for dep in &node.imports {
+                    if let Some(interface) = loaded_interfaces.get(&dep.target_path) {
+                        if preloaded_interfaces.insert(dep.target_path.clone()) {
+                            compiler.preload_module_interface(interface);
                             if verbose {
                                 eprintln!(
-                                    "interface: miss {} (reason: source not readable)",
-                                    dep.target_path.display()
+                                    "interface: hit {} [abi:{}]",
+                                    interface.module_name,
+                                    short_hash(&interface.interface_fingerprint)
                                 );
                             }
-                            continue;
-                        };
-                        let dep_is_flow_library = nodes_by_path
-                            .get(&dep.target_path)
-                            .is_some_and(|dep_node| dep_node.kind == ModuleKind::FlowStdlib);
-                        let dep_semantic_config_hash =
-                            flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
-                                !dep_is_flow_library && strict_mode,
-                                enable_optimize,
+                        }
+                        continue;
+                    }
+                    if no_cache {
+                        continue;
+                    }
+                    let Ok(dep_source) = std::fs::read_to_string(&dep.target_path) else {
+                        if verbose {
+                            eprintln!(
+                                "interface: miss {} (reason: source not readable)",
+                                dep.target_path.display()
                             );
-                        match flux::bytecode::compiler::module_interface::load_valid_interface(
-                            cache_layout.root(),
-                            &dep.target_path,
-                            &dep_source,
-                            &dep_semantic_config_hash,
-                        ) {
-                            Ok(interface) => {
-                                compiler.preload_module_interface(&interface);
-                                preloaded_interfaces.insert(dep.target_path.clone());
-                                if verbose {
-                                    eprintln!(
-                                        "interface: hit {} [abi:{}]",
-                                        interface.module_name,
-                                        short_hash(&interface.interface_fingerprint)
-                                    );
-                                }
-                                loaded_interfaces.insert(dep.target_path.clone(), interface);
-                            }
-                            Err(err) if verbose => {
+                        }
+                        continue;
+                    };
+                    let dep_is_flow_library = nodes_by_path
+                        .get(&dep.target_path)
+                        .is_some_and(|dep_node| dep_node.kind == ModuleKind::FlowStdlib);
+                    let dep_semantic_config_hash =
+                        flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
+                            !dep_is_flow_library && strict_mode,
+                            enable_optimize,
+                        );
+                    match flux::bytecode::compiler::module_interface::load_valid_interface(
+                        cache_layout.root(),
+                        &dep.target_path,
+                        &dep_source,
+                        &dep_semantic_config_hash,
+                    ) {
+                        Ok(interface) => {
+                            compiler.preload_module_interface(&interface);
+                            preloaded_interfaces.insert(dep.target_path.clone());
+                            if verbose {
                                 eprintln!(
-                                    "interface: miss {} (reason: {})",
-                                    dep.target_path.display(),
-                                    err.message()
+                                    "interface: hit {} [abi:{}]",
+                                    interface.module_name,
+                                    short_hash(&interface.interface_fingerprint)
                                 );
                             }
-                            Err(_) => {}
+                            loaded_interfaces.insert(dep.target_path.clone(), interface);
+                        }
+                        Err(err) if verbose => {
+                            eprintln!(
+                                "interface: miss {} (reason: {})",
+                                dep.target_path.display(),
+                                err.message()
+                            );
+                        }
+                        Err(_) => {}
+                    }
+                }
+                for dep in &node.imports {
+                    if let Some(dep_node) = nodes_by_path.get(&dep.target_path) {
+                        compiler.preload_dependency_program(&dep_node.program);
+                    }
+                }
+                if node.kind != ModuleKind::FlowStdlib {
+                    for (path, dep_node) in &nodes_by_path {
+                        if !node.imports.iter().any(|dep| &dep.target_path == path)
+                            && dep_node.kind == ModuleKind::FlowStdlib
+                        {
+                            compiler.preload_dependency_program(&dep_node.program);
                         }
                     }
                 }
@@ -2285,9 +2308,8 @@ fn run_file(
                 // Entry modules have no `module` declaration, so
                 // `extract_module_name_and_sym` returns None — the block
                 // naturally won't execute for them.
-                if !no_cache
-                    && let Some((module_name, module_sym)) =
-                        extract_module_name_and_sym(&node.program, &compiler.interner)
+                if let Some((module_name, module_sym)) =
+                    extract_module_name_and_sym(&node.program, &compiler.interner)
                 {
                     match compiler.lower_aether_report_program(&node.program, enable_optimize) {
                         Ok(core) => {
@@ -2351,29 +2373,31 @@ fn run_file(
                                     skipped: false,
                                 },
                             );
-                            let iface_path =
-                                flux::bytecode::compiler::module_interface::interface_path(
-                                    cache_layout.root(),
-                                    &node.path,
-                                );
-                            if let Err(e) =
-                                flux::bytecode::compiler::module_interface::save_interface(
-                                    &iface_path,
-                                    &interface,
-                                )
-                            {
-                                if verbose {
+                            if !no_cache {
+                                let iface_path =
+                                    flux::bytecode::compiler::module_interface::interface_path(
+                                        cache_layout.root(),
+                                        &node.path,
+                                    );
+                                if let Err(e) =
+                                    flux::bytecode::compiler::module_interface::save_interface(
+                                        &iface_path,
+                                        &interface,
+                                    )
+                                {
+                                    if verbose {
+                                        eprintln!(
+                                            "warning: could not write interface file {}: {e}",
+                                            iface_path.display()
+                                        );
+                                    }
+                                } else if verbose {
                                     eprintln!(
-                                        "warning: could not write interface file {}: {e}",
-                                        iface_path.display()
+                                        "interface: stored {} [abi:{}]",
+                                        interface.module_name,
+                                        short_hash(&interface.interface_fingerprint)
                                     );
                                 }
-                            } else if verbose {
-                                eprintln!(
-                                    "interface: stored {} [abi:{}]",
-                                    interface.module_name,
-                                    short_hash(&interface.interface_fingerprint)
-                                );
                             }
                         }
                         Err(e) if verbose => {

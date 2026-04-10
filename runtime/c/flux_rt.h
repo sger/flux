@@ -358,7 +358,7 @@ int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handl
 
 /* Yield operations. */
 int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg);
-int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t resume);
+int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t resume, int64_t arity);
 int64_t flux_yield_extend(int64_t cont);
 int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result);
 int64_t flux_compose_conts(void);

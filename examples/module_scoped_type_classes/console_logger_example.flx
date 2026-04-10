@@ -1,0 +1,5 @@
+import ConsoleLoggerExample.App.Main as Main
+
+fn main() with IO {
+    print(to_string(Main.run()))
+}

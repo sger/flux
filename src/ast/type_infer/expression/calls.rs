@@ -247,35 +247,56 @@ impl<'a> InferCtx<'a> {
         ret_var.apply_type_subst(&self.subst)
     }
 
-    /// Recognize a direct bare-name class-method call candidate.
+    /// Recognize a direct class-method call candidate.
     ///
     /// Returns the class/method identity plus the first argument expression id,
     /// which is later used to resolve the concrete instance selected at the
-    /// call site.
+    /// call site. Supports both bare calls (`eq(x, y)`) and imported
+    /// module-qualified calls (`Foldable.fold(xs, init, step)`).
     fn class_method_call_info(
         &self,
         function: &Expression,
         arguments: &[Expression],
         span: Span,
     ) -> Option<ResolvedClassMethodCall> {
-        let Expression::Identifier { name, .. } = function else {
-            return None;
-        };
-        if self
-            .env
-            .lookup_span(*name)
-            .is_some_and(|def_span| def_span != Span::default())
-        {
-            return None;
-        }
-        let class_name = self.lookup_class_method(*name)?;
         let first_arg_id = arguments.first()?.expr_id();
-        Some(ResolvedClassMethodCall {
-            class_name,
-            method_name: *name,
-            first_arg_id,
-            span,
-        })
+        match function {
+            Expression::Identifier { name, .. } => {
+                if self
+                    .env
+                    .lookup_span(*name)
+                    .is_some_and(|def_span| def_span != Span::default())
+                {
+                    return None;
+                }
+                let class_name = self.lookup_class_method(*name)?;
+                Some(ResolvedClassMethodCall {
+                    class_name,
+                    method_name: *name,
+                    first_arg_id,
+                    span,
+                })
+            }
+            Expression::MemberAccess { object, member, .. } => {
+                let Expression::Identifier {
+                    name: module_name, ..
+                } = object.as_ref()
+                else {
+                    return None;
+                };
+                if !self.module_member_schemes.contains_key(&(*module_name, *member)) {
+                    return None;
+                }
+                let class_name = self.lookup_class_method(*member)?;
+                Some(ResolvedClassMethodCall {
+                    class_name,
+                    method_name: *member,
+                    first_arg_id,
+                    span,
+                })
+            }
+            _ => None,
+        }
     }
 
     /// Resolve a direct class-method call to its concrete instance effects.

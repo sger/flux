@@ -222,16 +222,16 @@ fn patch_constant_operand(
             replace_instruction(instructions, ip, op, &make(op, &[local, idx, target]));
         }
         OpCode::OpHandle | OpCode::OpHandleDirect => {
-            let idx = instructions[ip + 1] as usize + constant_base;
-            let idx = u8::try_from(idx)
+            let idx = read_u16(instructions, ip + 1) as usize + constant_base;
+            let idx = u16::try_from(idx)
                 .map_err(|_| format!("constant index overflow for {op:?}: {idx}"))?;
             replace_instruction(instructions, ip, op, &make(op, &[idx as usize]));
         }
         OpCode::OpPerform | OpCode::OpPerformDirect => {
-            let idx = instructions[ip + 1] as usize + constant_base;
-            let idx = u8::try_from(idx)
+            let idx = read_u16(instructions, ip + 1) as usize + constant_base;
+            let idx = u16::try_from(idx)
                 .map_err(|_| format!("constant index overflow for {op:?}: {idx}"))?;
-            let arity = instructions[ip + 2] as usize;
+            let arity = instructions[ip + 3] as usize;
             replace_instruction(instructions, ip, op, &make(op, &[idx as usize, arity]));
         }
         OpCode::OpConstantAdd => {

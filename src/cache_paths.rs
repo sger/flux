@@ -16,7 +16,14 @@ use sha2::{Digest, Sha256};
 /// Epoch 1: initial unified epoch (replaces FXBC=11, FXMC=2, flxi=3, native=2).
 /// Epoch 2: fix parse_int HM signature (String -> Int, was String -> Option<Int>).
 /// Epoch 3: portable symbol table in .flxi (re-intern Symbols across sessions).
-pub const CACHE_EPOCH: u16 = 3;
+/// Epoch 4: relocatable module bytecode round-trips effect descriptors.
+/// Epoch 5: generated class-dispatch functions are injected into module bodies
+/// for cached VM assembly, preserving `Module.member` exports.
+/// Epoch 6: cached module artifacts omit unreferenced imported globals, so
+/// interface-only preloads do not become bogus linker dependencies.
+/// Epoch 7: cached class dispatch splits module-member stubs from global
+/// `__tc_*` instance functions, preserving both export conventions.
+pub const CACHE_EPOCH: u16 = 7;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

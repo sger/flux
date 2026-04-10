@@ -20,7 +20,8 @@ use crate::{
         class_env::ClassEnv,
         module_interface::{
             DependencyFingerprint, DependencyMissReason, MODULE_INTERFACE_FORMAT_VERSION,
-            ModuleInterface, PublicClassEntry, PublicInstanceEntry,
+            ModuleInterface, PublicClassEntry, PublicClassMethodEntry, PublicInstanceEntry,
+            PublicInstanceMethodEntry,
         },
         scheme::Scheme,
     },
@@ -128,6 +129,8 @@ pub fn build_interface(
     for scheme in interface.schemes.values() {
         scheme.collect_symbols(&mut symbols);
     }
+    collect_symbols_from_public_classes(&interface.public_classes, &mut symbols);
+    collect_symbols_from_public_instances(&interface.public_instances, &mut symbols);
     for &sym in &symbols {
         interface
             .symbol_table
@@ -158,11 +161,6 @@ fn collect_public_class_entries(
                 .as_identifier()
                 .map(|id| interner.resolve(id).to_string())
                 .unwrap_or_default();
-            let superclasses = def
-                .superclasses
-                .iter()
-                .map(|sc| interner.resolve(sc.class_name).to_string())
-                .collect();
             let method_names = def
                 .methods
                 .iter()
@@ -172,7 +170,20 @@ fn collect_public_class_entries(
                 class_module,
                 name: interner.resolve(def.name).to_string(),
                 type_param_arity: def.type_params.len(),
-                superclasses,
+                type_params: def.type_params.clone(),
+                superclasses: def.superclasses.clone(),
+                methods: def
+                    .methods
+                    .iter()
+                    .map(|method| PublicClassMethodEntry {
+                        name: method.name,
+                        type_params: method.type_params.clone(),
+                        param_types: method.param_types.clone(),
+                        return_type: method.return_type.clone(),
+                        effects: method.effects.clone(),
+                    })
+                    .collect(),
+                default_methods: def.default_methods.clone(),
                 method_names,
                 pinned_row_placeholder: None,
             }
@@ -217,6 +228,16 @@ fn collect_public_instance_entries(
                 class_name: interner.resolve(inst.class_name).to_string(),
                 instance_module,
                 head_type_repr: head_type_repr.join(", "),
+                type_args: inst.type_args.clone(),
+                context: inst.context.clone(),
+                methods: inst
+                    .method_effects
+                    .iter()
+                    .map(|(name, effects)| PublicInstanceMethodEntry {
+                        name: *name,
+                        effects: effects.clone(),
+                    })
+                    .collect(),
                 pinned_row_placeholder: None,
             }
         })
@@ -229,6 +250,113 @@ fn collect_public_instance_entries(
         ))
     });
     entries
+}
+
+fn collect_symbols_from_public_classes(entries: &[PublicClassEntry], out: &mut HashSet<Symbol>) {
+    for entry in entries {
+        for &type_param in &entry.type_params {
+            out.insert(type_param);
+        }
+        for superclass in &entry.superclasses {
+            collect_symbols_from_class_constraint(superclass, out);
+        }
+        for &default_method in &entry.default_methods {
+            out.insert(default_method);
+        }
+        for method in &entry.methods {
+            out.insert(method.name);
+            for &type_param in &method.type_params {
+                out.insert(type_param);
+            }
+            for param in &method.param_types {
+                collect_symbols_from_type_expr(param, out);
+            }
+            collect_symbols_from_type_expr(&method.return_type, out);
+            for effect in &method.effects {
+                collect_symbols_from_effect_expr(effect, out);
+            }
+        }
+    }
+}
+
+fn collect_symbols_from_public_instances(
+    entries: &[PublicInstanceEntry],
+    out: &mut HashSet<Symbol>,
+) {
+    for entry in entries {
+        for ty in &entry.type_args {
+            collect_symbols_from_type_expr(ty, out);
+        }
+        for constraint in &entry.context {
+            collect_symbols_from_class_constraint(constraint, out);
+        }
+        for method in &entry.methods {
+            out.insert(method.name);
+            for effect in &method.effects {
+                collect_symbols_from_effect_expr(effect, out);
+            }
+        }
+    }
+}
+
+fn collect_symbols_from_class_constraint(
+    constraint: &crate::syntax::type_class::ClassConstraint,
+    out: &mut HashSet<Symbol>,
+) {
+    out.insert(constraint.class_name);
+    for ty in &constraint.type_args {
+        collect_symbols_from_type_expr(ty, out);
+    }
+}
+
+fn collect_symbols_from_type_expr(
+    ty: &crate::syntax::type_expr::TypeExpr,
+    out: &mut HashSet<Symbol>,
+) {
+    match ty {
+        crate::syntax::type_expr::TypeExpr::Named { name, args, .. } => {
+            out.insert(*name);
+            for arg in args {
+                collect_symbols_from_type_expr(arg, out);
+            }
+        }
+        crate::syntax::type_expr::TypeExpr::Tuple { elements, .. } => {
+            for elem in elements {
+                collect_symbols_from_type_expr(elem, out);
+            }
+        }
+        crate::syntax::type_expr::TypeExpr::Function {
+            params,
+            ret,
+            effects,
+            ..
+        } => {
+            for param in params {
+                collect_symbols_from_type_expr(param, out);
+            }
+            collect_symbols_from_type_expr(ret, out);
+            for effect in effects {
+                collect_symbols_from_effect_expr(effect, out);
+            }
+        }
+    }
+}
+
+fn collect_symbols_from_effect_expr(
+    effect: &crate::syntax::effect_expr::EffectExpr,
+    out: &mut HashSet<Symbol>,
+) {
+    match effect {
+        crate::syntax::effect_expr::EffectExpr::Named { name, .. }
+        | crate::syntax::effect_expr::EffectExpr::RowVar { name, .. } => {
+            out.insert(*name);
+        }
+        crate::syntax::effect_expr::EffectExpr::Add { left, right, .. }
+        | crate::syntax::effect_expr::EffectExpr::Subtract { left, right, .. } => {
+            collect_symbols_from_effect_expr(left, out);
+            collect_symbols_from_effect_expr(right, out);
+        }
+    }
 }
 
 pub fn compute_semantic_config_hash(strict_mode: bool, optimize_mode: bool) -> [u8; 32] {
@@ -714,7 +842,10 @@ mod tests {
             class_module: "Mod.A".to_string(),
             name: "MyShow".to_string(),
             type_param_arity: 1,
+            type_params: vec![],
             superclasses: vec![],
+            methods: vec![],
+            default_methods: vec![],
             method_names: vec!["my_show".to_string()],
             pinned_row_placeholder: None,
         });
@@ -723,6 +854,9 @@ mod tests {
             class_name: "MyShow".to_string(),
             instance_module: "Mod.A".to_string(),
             head_type_repr: "Int".to_string(),
+            type_args: vec![],
+            context: vec![],
+            methods: vec![],
             pinned_row_placeholder: None,
         });
 
@@ -768,7 +902,10 @@ mod tests {
             class_module: "Mod.A".to_string(),
             name: "MyShow".to_string(),
             type_param_arity: 1,
+            type_params: vec![],
             superclasses: vec![],
+            methods: vec![],
+            default_methods: vec![],
             method_names: vec!["my_show".to_string()],
             pinned_row_placeholder: None,
         });
@@ -792,6 +929,9 @@ mod tests {
             class_name: "MyShow".to_string(),
             instance_module: "Mod.A".to_string(),
             head_type_repr: "Int".to_string(),
+            type_args: vec![],
+            context: vec![],
+            methods: vec![],
             pinned_row_placeholder: None,
         });
 
