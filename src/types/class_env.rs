@@ -1179,6 +1179,47 @@ impl ClassEnv {
         })
     }
 
+    /// Resolve a unique instance candidate for a direct class-method call
+    /// using the method receiver / first argument type alone.
+    ///
+    /// This preserves the current "dispatch from the first value argument"
+    /// behavior used by monomorphic class-method calls while still allowing
+    /// callers to recover the full concrete class head for multi-parameter
+    /// classes such as `Convert<a, b>`.
+    ///
+    /// Returns `None` when no instance matches the first argument, or when the
+    /// first argument is ambiguous across multiple instances.
+    pub fn resolve_method_call_instance_from_first_arg(
+        &self,
+        class_name: Identifier,
+        first_actual_type: &InferType,
+        interner: &Interner,
+    ) -> Option<(&InstanceDef, Vec<InferType>)> {
+        let mut matches = self.instances.iter().filter_map(|inst| {
+            if inst.class_name != class_name {
+                return None;
+            }
+            let first_pattern = inst.type_args.first()?;
+            let mut subst = HashMap::new();
+            if !Self::match_instance_type_expr(first_pattern, first_actual_type, &mut subst, interner)
+            {
+                return None;
+            }
+            let concrete_type_args = inst
+                .type_args
+                .iter()
+                .map(|arg| instantiate_instance_type_expr(arg, &subst, interner))
+                .collect::<Option<Vec<_>>>()?;
+            Some((inst, concrete_type_args))
+        });
+
+        let first = matches.next()?;
+        if matches.next().is_some() {
+            return None;
+        }
+        Some(first)
+    }
+
     /// Resolve the dictionary reference needed for a concrete class application.
     ///
     /// For plain instances this returns a leaf `ResolvedDictionaryRef` pointing

@@ -268,17 +268,31 @@ impl<'a> InferCtx<'a> {
         span: Span,
         origin: constraint::WantedClassConstraintOrigin,
     ) {
+        self.emit_class_constraint_args(class_name, vec![type_arg], span, origin);
+    }
+
+    /// Emit a type class constraint with the full resolved class head.
+    ///
+    /// This is used for multi-parameter classes such as `Convert<a, b>`,
+    /// where a method call may constrain more than one type argument.
+    fn emit_class_constraint_args(
+        &mut self,
+        class_name: Identifier,
+        type_args: Vec<InferType>,
+        span: Span,
+        origin: constraint::WantedClassConstraintOrigin,
+    ) {
         self.class_constraints
             .push(constraint::WantedClassConstraint {
                 class_name,
-                type_args: vec![type_arg.clone()],
+                type_args: type_args.clone(),
                 span,
                 origin,
-                originated_from_concrete_type: Self::is_concrete_non_any(&type_arg),
+                originated_from_concrete_type: type_args.iter().all(Self::is_concrete_non_any),
             });
         self.record_constraint(constraint::Constraint::Class {
             class_name,
-            type_args: vec![type_arg],
+            type_args,
             span,
         });
     }
