@@ -597,7 +597,9 @@ mod tests {
             constants: vec![
                 Value::HandlerDescriptor(std::rc::Rc::new(HandlerDescriptor {
                     effect: Identifier::new(10),
+                    effect_name: "Console".into(),
                     ops: vec![Identifier::new(11), Identifier::new(12)],
+                    op_names: vec!["print".into(), "flush".into()],
                     is_discard: true,
                 })),
                 Value::PerformDescriptor(std::rc::Rc::new(PerformDescriptor {

@@ -3425,7 +3425,12 @@ impl Compiler {
 
         let desc = Value::HandlerDescriptor(Rc::new(HandlerDescriptor {
             effect,
+            effect_name: self.interner.resolve(effect).to_string().into_boxed_str(),
             ops: operations,
+            op_names: scope_ops
+                .iter()
+                .map(|op| self.interner.resolve(*op).to_string().into_boxed_str())
+                .collect(),
             is_discard,
         }));
 
