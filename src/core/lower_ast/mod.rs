@@ -309,6 +309,26 @@ impl<'a> AstLowerer<'a> {
         None
     }
 
+    pub(super) fn try_resolve_class_call_expr(
+        &self,
+        function: &crate::syntax::expression::Expression,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Option<Identifier> {
+        match function {
+            crate::syntax::expression::Expression::Identifier { name, .. } => {
+                self.try_resolve_class_call(*name, arguments)
+            }
+            crate::syntax::expression::Expression::MemberAccess { object, member, .. } => {
+                let crate::syntax::expression::Expression::Identifier { .. } = object.as_ref()
+                else {
+                    return None;
+                };
+                self.try_resolve_class_call(*member, arguments)
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn resolve_direct_class_call_dict_args(
         &self,
         method_name: Identifier,

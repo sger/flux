@@ -1,0 +1,5 @@
+import ClassMatchableEffects.App.Main
+
+fn main() with IO {
+    ClassMatchableEffects.App.Main.run()
+}

@@ -1,0 +1,8 @@
+import CustomHandledTracerExample.Flow.Console as Console
+import CustomHandledTracerExample.Flow.Clock as Clock
+
+module CustomHandledTracerExample.Flow.Tracer {
+    public class Tracer<h> {
+        fn trace(hnd: h, msg: String) -> Unit with Console, Clock
+    }
+}

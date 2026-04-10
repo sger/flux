@@ -9,8 +9,11 @@ use crate::{
     runtime::{
         compiled_function::CompiledFunction,
         cons_cell::ConsCell,
+        handler_descriptor::HandlerDescriptor,
+        perform_descriptor::PerformDescriptor,
         value::{AdtFields, AdtValue, Value},
     },
+    syntax::Identifier,
 };
 
 pub(super) fn write_u16(writer: &mut File, value: u16) -> std::io::Result<()> {
@@ -27,6 +30,10 @@ fn write_i64(writer: &mut File, value: i64) -> std::io::Result<()> {
 
 fn write_f64(writer: &mut File, value: f64) -> std::io::Result<()> {
     writer.write_all(&value.to_le_bytes())
+}
+
+fn write_symbol(writer: &mut File, value: Identifier) -> std::io::Result<()> {
+    write_u32(writer, value.as_u32())
 }
 
 pub(super) fn write_string(writer: &mut File, value: &str) -> std::io::Result<()> {
@@ -57,6 +64,10 @@ fn read_f64(reader: &mut File) -> Option<f64> {
     let mut buf = [0u8; 8];
     reader.read_exact(&mut buf).ok()?;
     Some(f64::from_le_bytes(buf))
+}
+
+fn read_symbol(reader: &mut File) -> Option<Identifier> {
+    Some(Identifier::new(read_u32(reader)?))
 }
 
 pub(super) fn read_string(reader: &mut File) -> Option<String> {
@@ -141,6 +152,22 @@ pub(super) fn write_object(writer: &mut File, obj: &Value) -> std::io::Result<()
             }
             Ok(())
         }
+        Value::HandlerDescriptor(desc) => {
+            writer.write_all(&[16])?;
+            write_symbol(writer, desc.effect)?;
+            write_u32(writer, desc.ops.len() as u32)?;
+            for op in &desc.ops {
+                write_symbol(writer, *op)?;
+            }
+            writer.write_all(&[u8::from(desc.is_discard)])
+        }
+        Value::PerformDescriptor(desc) => {
+            writer.write_all(&[17])?;
+            write_symbol(writer, desc.effect)?;
+            write_symbol(writer, desc.op)?;
+            write_string(writer, &desc.effect_name)?;
+            write_string(writer, &desc.op_name)
+        }
         _ => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!("unsupported constant type: {}", obj.type_name()),
@@ -219,6 +246,31 @@ pub(super) fn read_object(reader: &mut File) -> Option<Value> {
                 fields: AdtFields::from_vec(fields),
             })))
         }
+        16 => {
+            let effect = read_symbol(reader)?;
+            let len = read_u32(reader)? as usize;
+            let mut ops = Vec::with_capacity(len);
+            for _ in 0..len {
+                ops.push(read_symbol(reader)?);
+            }
+            let mut is_discard = [0u8; 1];
+            reader.read_exact(&mut is_discard).ok()?;
+            Some(Value::HandlerDescriptor(std::rc::Rc::new(
+                HandlerDescriptor {
+                    effect,
+                    ops,
+                    is_discard: is_discard[0] != 0,
+                },
+            )))
+        }
+        17 => Some(Value::PerformDescriptor(std::rc::Rc::new(
+            PerformDescriptor {
+                effect: read_symbol(reader)?,
+                op: read_symbol(reader)?,
+                effect_name: read_string(reader)?.into_boxed_str(),
+                op_name: read_string(reader)?.into_boxed_str(),
+            },
+        ))),
         _ => None,
     }
 }

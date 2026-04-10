@@ -32,9 +32,11 @@ pub fn generate_dispatch_functions(
     statements: &[Statement],
     class_env: &ClassEnv,
     interner: &mut Interner,
+    additional_reserved_names: &HashSet<Identifier>,
 ) -> Vec<Statement> {
     let mut generated = Vec::new();
     let mut reserved_names = collect_existing_function_names(statements);
+    reserved_names.extend(additional_reserved_names.iter().copied());
 
     // Collect instance method info grouped by (class_name, method_name)
     let mut dispatch_table: HashSet<(Identifier, Identifier)> = HashSet::new();
@@ -293,6 +295,36 @@ fn generate_from_statements(
     dispatch_table: &mut HashSet<(Identifier, Identifier)>,
     reserved_names: &mut HashSet<Identifier>,
 ) {
+    fn resolve_instance_class_def<'a>(
+        class_env: &'a ClassEnv,
+        class_name: Identifier,
+        interner: &Interner,
+    ) -> Option<&'a crate::types::class_env::ClassDef> {
+        if let Some(class_def) = class_env.lookup_class(class_name) {
+            return Some(class_def);
+        }
+
+        let wanted = interner.try_resolve(class_name)?;
+        let wanted_short = wanted.rsplit('.').next().unwrap_or(wanted);
+
+        class_env.classes.values().find(|class_def| {
+            let Some(candidate_short) = interner.try_resolve(class_def.name) else {
+                return false;
+            };
+            if candidate_short == wanted || candidate_short == wanted_short {
+                return true;
+            }
+
+            class_def
+                .module
+                .as_identifier()
+                .and_then(|module| interner.try_resolve(module))
+                .is_some_and(|module| {
+                    module == wanted || format!("{module}.{candidate_short}") == wanted
+                })
+        })
+    }
+
     for stmt in statements {
         match stmt {
             Statement::Instance {
@@ -303,7 +335,8 @@ fn generate_from_statements(
                 span: _,
                 ..
             } => {
-                let Some(class_def) = class_env.lookup_class(*class_name) else {
+                let Some(class_def) = resolve_instance_class_def(class_env, *class_name, interner)
+                else {
                     continue;
                 };
                 // Determine the head type name(s) for mangling.
@@ -318,7 +351,8 @@ fn generate_from_statements(
                         .join("_")
                 };
 
-                let class_name_str = interner.resolve(*class_name).to_string();
+                let resolved_class_name = class_def.name;
+                let class_name_str = interner.resolve(resolved_class_name).to_string();
 
                 for method in methods {
                     let Some(method_sig) =
@@ -330,10 +364,6 @@ fn generate_from_statements(
                     let method_name_str = interner.resolve(method.name).to_string();
                     let mangled = format!("__tc_{class_name_str}_{type_name}_{method_name_str}");
                     let mangled_sym = interner.intern(&mangled);
-                    if !reserved_names.insert(mangled_sym) {
-                        dispatch_table.insert((*class_name, method.name));
-                        continue;
-                    }
 
                     let mut parameters = context_dict_param_names(context, interner);
                     parameters.extend(method.params.clone());
@@ -367,6 +397,12 @@ fn generate_from_statements(
                     // declared effect row so the synthesized function's
                     // inferred type carries it, and so callers that resolve
                     // through this instance see the row.
+                    let inferred_effects = if method.effects.is_empty() {
+                        method_sig.effects.clone()
+                    } else {
+                        method.effects.clone()
+                    };
+
                     let fn_stmt = Statement::Function {
                         is_public: false,
                         fip: None,
@@ -375,14 +411,14 @@ fn generate_from_statements(
                         parameters,
                         parameter_types,
                         return_type,
-                        effects: method.effects.clone(),
+                        effects: inferred_effects,
                         body: method.body.clone(),
                         span: Span::default(),
                     };
                     generated.push(fn_stmt);
 
                     // Record that this (class, method) pair has an instance.
-                    dispatch_table.insert((*class_name, method.name));
+                    dispatch_table.insert((resolved_class_name, method.name));
                 }
             }
             Statement::Module { body, .. } => {
@@ -740,7 +776,7 @@ fn generate_polymorphic_stub(
         parameters: params,
         parameter_types,
         return_type,
-        effects: vec![],
+        effects: method_sig.effects.clone(),
         body: Block {
             statements: vec![Statement::Expression {
                 expression: body_expr,

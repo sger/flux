@@ -2961,6 +2961,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
                 LlvmType::i64(),
                 LlvmType::i64(),
                 LlvmType::i64(),
+                LlvmType::i64(),
             ],
         ),
         // Float boxing/unboxing wrappers (Phase 9 pointer tagging)

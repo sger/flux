@@ -1,0 +1,5 @@
+module FoldableRowPolyExample.Flow.Console {
+    effect Console {
+        print: String -> ()
+    }
+}

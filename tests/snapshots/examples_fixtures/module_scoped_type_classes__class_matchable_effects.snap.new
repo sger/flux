@@ -1,0 +1,38 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+assertion_line: 32
+---
+Fixture: examples/module_scoped_type_classes/class_matchable_effects.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E407]: Unknown Effect
+
+Function effect annotation references unknown effect `Audit`.
+
+  examples/module_scoped_type_classes/ClassMatchableEffects/Flow/Matchable.flx:5:42
+  |
+5 |         fn same(x: a, y: a) -> Bool with Audit
+  |                                          ^^^^^
+  |                                          ----- unknown effect in function annotation
+
+Hint:
+  Use a declared effect name in `with ...` or declare the effect first.
+
+
+error[E407]: Unknown Effect
+
+Function effect annotation references unknown effect `Audit`.
+
+  examples/module_scoped_type_classes/ClassMatchableEffects/Flow/Matchable.flx:9:28
+  |
+9 |         fn same(x, y) with Audit {
+  |                            ^^^^^
+  |                            ----- unknown effect in function annotation
+
+Hint:
+  Use a declared effect name in `with ...` or declare the effect first.
+
+Found 2 errors.
+== stdout ==
+<not executed>

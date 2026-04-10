@@ -92,6 +92,7 @@ fn infer_with_dispatch(source: &str) -> (InferProgramResult, Program, Interner) 
         &program.statements,
         &class_env,
         &mut interner,
+        &std::collections::HashSet::new(),
     );
     let mut statements = generated;
     statements.extend(program.statements.iter().cloned());
@@ -579,6 +580,7 @@ instance Sizeable<Int> {
         &program.statements,
         &env,
         &mut interner,
+        &std::collections::HashSet::new(),
     );
 
     // Should generate at least the mangled instance function
@@ -615,6 +617,7 @@ instance Sizeable<Int> {
         &program.statements,
         &env,
         &mut interner,
+        &std::collections::HashSet::new(),
     );
 
     // Should generate a polymorphic stub named `size` (the class method name)
@@ -654,6 +657,7 @@ instance Sizeable<String> {
         &program.statements,
         &env,
         &mut interner,
+        &std::collections::HashSet::new(),
     );
 
     let mangled_names: Vec<String> = generated
@@ -683,6 +687,95 @@ instance Sizeable<String> {
 }
 
 #[test]
+fn dispatch_generates_mangled_function_for_local_instance_of_imported_class() {
+    let (program, mut interner) = parse(
+        r#"
+module Local {
+    public data StdoutHandle { Stdout }
+
+    public instance Logger<StdoutHandle> {
+        fn log(hnd, msg) { () }
+    }
+}
+"#,
+    );
+    let logger = interner.intern("Logger");
+    let log = interner.intern("log");
+    let h = interner.intern("h");
+    let string = interner.intern("String");
+    let unit = interner.intern("Unit");
+    let mut env = ClassEnv::new();
+    env.register_builtins(&mut interner);
+    env.classes.insert(
+        flux::types::class_id::ClassId::new(
+            flux::types::class_id::ModulePath::from_identifier(interner.intern("Example.Logger")),
+            logger,
+        ),
+        flux::types::class_env::ClassDef {
+            name: logger,
+            module: flux::types::class_id::ModulePath::from_identifier(
+                interner.intern("Example.Logger"),
+            ),
+            is_public: true,
+            type_params: vec![h],
+            superclasses: vec![],
+            methods: vec![flux::types::class_env::MethodSig {
+                name: log,
+                type_params: vec![],
+                param_types: vec![
+                    flux::syntax::type_expr::TypeExpr::Named {
+                        name: h,
+                        args: vec![],
+                        span: Default::default(),
+                    },
+                    flux::syntax::type_expr::TypeExpr::Named {
+                        name: string,
+                        args: vec![],
+                        span: Default::default(),
+                    },
+                ],
+                return_type: flux::syntax::type_expr::TypeExpr::Named {
+                    name: unit,
+                    args: vec![],
+                    span: Default::default(),
+                },
+                arity: 2,
+                effects: vec![],
+            }],
+            default_methods: vec![],
+            span: Default::default(),
+        },
+    );
+    env.collect_from_statements(&program.statements, &interner);
+
+    let generated = flux::types::class_dispatch::generate_dispatch_functions(
+        &program.statements,
+        &env,
+        &mut interner,
+        &HashSet::new(),
+    );
+
+    let generated_names: Vec<String> = generated
+        .iter()
+        .filter_map(|stmt| match stmt {
+            Statement::Function { name, .. } => Some(interner.resolve(*name).to_string()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        generated_names
+            .iter()
+            .any(|name| name == "__tc_Logger_StdoutHandle_log"),
+        "expected local imported-class instance dispatch, got: {generated_names:?}"
+    );
+    assert!(
+        generated_names.iter().any(|name| name == "log"),
+        "expected polymorphic stub for imported class method, got: {generated_names:?}"
+    );
+}
+
+#[test]
 fn dispatch_generates_default_method_function() {
     let (program, mut interner) = parse(
         r#"
@@ -700,6 +793,7 @@ class MyEq<a> {
         &program.statements,
         &env,
         &mut interner,
+        &std::collections::HashSet::new(),
     );
 
     // Default method `my_neq` should be generated as a regular function
@@ -733,6 +827,7 @@ fn needs<A: Eq + Ord + Num>(x: A, y: A) -> A {
         &program.statements,
         &env,
         &mut interner,
+        &std::collections::HashSet::new(),
     );
 
     let generated_names: Vec<String> = generated
@@ -812,6 +907,7 @@ instance Eq<a> => MyEq<List<a>> {
         &program.statements,
         &env,
         &mut interner,
+        &std::collections::HashSet::new(),
     );
 
     let mangled = generated.iter().find_map(|stmt| match stmt {

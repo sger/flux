@@ -18,5 +18,22 @@ Duplicate instance for `Sizeable<Int>`.
    | ^^^^^^^^^^^^^^^^^^^^^^^^
 17 | }
    | ^
+
+
+error[E001]: Duplicate Name
+
+Duplicate binding: `__tc_Sizeable_Int_size` is already defined.
+
+  examples/compiler_errors/duplicate_instance.flx:0:1
+  |
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  examples/compiler_errors/duplicate_instance.flx:0:1
+  |
+
+Found 2 errors.
 == stdout ==
 <not executed>

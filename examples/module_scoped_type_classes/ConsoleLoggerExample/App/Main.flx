@@ -1,0 +1,12 @@
+import ConsoleLoggerExample.App.StdLog as StdLog
+import ConsoleLoggerExample.Flow.Logger as Logger
+import ConsoleLoggerExample.Flow.Console as Console
+
+module ConsoleLoggerExample.App.Main {
+    public fn run() -> Int {
+        Logger.log(StdLog.stdout(), "ok") handle Console {
+            print(resume, _msg) -> resume(())
+        }
+        1
+    }
+}

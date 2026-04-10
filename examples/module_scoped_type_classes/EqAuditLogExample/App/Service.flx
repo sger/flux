@@ -1,0 +1,9 @@
+import EqAuditLogExample.Flow.Comparable as Comparable
+import EqAuditLogExample.Flow.AuditLog as AuditLog
+import EqAuditLogExample.App.Users as Users
+
+module EqAuditLogExample.App.Service {
+    public fn ints_equal(x: Int, y: Int) -> Bool {
+        Comparable.same(x, y)
+    }
+}

@@ -1238,6 +1238,7 @@ mod tests {
             }],
             context: vec![],
             method_names: vec![eq_method, neq_method],
+            method_effects: vec![],
             span: s(),
         };
 
@@ -1359,6 +1360,7 @@ mod tests {
             }],
             context: vec![],
             method_names: vec![eq_method],
+            method_effects: vec![],
             span: s(),
         };
 

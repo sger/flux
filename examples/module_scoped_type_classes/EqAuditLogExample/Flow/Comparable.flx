@@ -1,0 +1,9 @@
+module EqAuditLogExample.Flow.Comparable {
+    public class Comparable<a> {
+        fn same(x: a, y: a) -> Bool
+    }
+
+    public instance Comparable<Int> {
+        fn same(x, y) { x == y }
+    }
+}

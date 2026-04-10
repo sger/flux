@@ -196,6 +196,7 @@ fn build_qualified_names(
                 .map(|i| i.resolve(def.name).to_string())
                 .unwrap_or_else(|| format!("def_{}", def.binder.id.0));
             match entry_qualifier {
+                Some(_) if bare.starts_with("__tc_") || bare.starts_with("__dict_") => bare,
                 Some(qual) if !bare.starts_with("lambda_") && !bare.starts_with("letrec_") => {
                     format!("{qual}_{bare}")
                 }
@@ -1928,12 +1929,18 @@ impl<'a> FnLower<'a> {
             value: LirConst::Tagged(crate::lir::nanbox_tag_int(operation.as_u32() as i64)),
         });
 
-        // Direct perform: calls handler inline with (resume, arg).
+        let arity = self.fresh_var();
+        self.emit(LirInstr::Const {
+            dst: arity,
+            value: LirConst::Int(args.len() as i64),
+        });
+
+        // Direct perform: calls handler inline with (resume, arg0, ..., argN).
         let result = self.fresh_var();
         self.emit(LirInstr::PrimCall {
             dst: Some(result),
             op: CorePrimOp::PerformDirect,
-            args: vec![htag, optag, arg, resume],
+            args: vec![htag, optag, arg, resume, arity],
         });
 
         result

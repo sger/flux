@@ -1,11 +1,12 @@
 use core::fmt;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     diagnostics::position::Span,
     syntax::{Identifier, effect_expr::EffectExpr, interner::Interner},
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TypeExpr {
     Named {
         name: Identifier,
