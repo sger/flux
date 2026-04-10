@@ -155,9 +155,11 @@ pub(super) fn write_object(writer: &mut File, obj: &Value) -> std::io::Result<()
         Value::HandlerDescriptor(desc) => {
             writer.write_all(&[16])?;
             write_symbol(writer, desc.effect)?;
+            write_string(writer, &desc.effect_name)?;
             write_u32(writer, desc.ops.len() as u32)?;
-            for op in &desc.ops {
+            for (op, op_name) in desc.ops.iter().zip(desc.op_names.iter()) {
                 write_symbol(writer, *op)?;
+                write_string(writer, op_name)?;
             }
             writer.write_all(&[u8::from(desc.is_discard)])
         }
@@ -248,17 +250,22 @@ pub(super) fn read_object(reader: &mut File) -> Option<Value> {
         }
         16 => {
             let effect = read_symbol(reader)?;
+            let effect_name = read_string(reader)?.into_boxed_str();
             let len = read_u32(reader)? as usize;
             let mut ops = Vec::with_capacity(len);
+            let mut op_names = Vec::with_capacity(len);
             for _ in 0..len {
                 ops.push(read_symbol(reader)?);
+                op_names.push(read_string(reader)?.into_boxed_str());
             }
             let mut is_discard = [0u8; 1];
             reader.read_exact(&mut is_discard).ok()?;
             Some(Value::HandlerDescriptor(std::rc::Rc::new(
                 HandlerDescriptor {
                     effect,
+                    effect_name,
                     ops,
+                    op_names,
                     is_discard: is_discard[0] != 0,
                 },
             )))

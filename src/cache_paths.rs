@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 /// interface-only preloads do not become bogus linker dependencies.
 /// Epoch 7: cached class dispatch splits module-member stubs from global
 /// `__tc_*` instance functions, preserving both export conventions.
-pub const CACHE_EPOCH: u16 = 7;
+pub const CACHE_EPOCH: u16 = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
