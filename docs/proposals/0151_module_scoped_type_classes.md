@@ -1435,13 +1435,13 @@ Phase 0 was executed and resolved all three spikes. Summary below; each spike's 
 
 ### Phase 4 — Effects on instance methods
 
-**Status as of 2026-04-09:** 🟡 **in progress** — pre-phase spike + Phase 4a-prereq landed, Phase 4a (parser hooks + Rule 1 walker) is the next sub-commit.
+**Status as of 2026-04-10:** 🟡 **in progress** — pre-phase spike, Phase 4a-prereq, and Phase 4a have landed. Phase 4b (caller row propagation) is the next sub-commit.
 
 | Sub-commit | Description | Status |
 |---|---|---|
 | **Pre-phase spike** | Three parallel investigations (Flux effect system audit, Koka effect-on-class semantics, Haskell mtl/polysemy patterns). Conclusion: existing effect-row grammar is sufficient, no new syntax required. | ✅ done 2026-04-09 |
 | **Phase 4a-prereq** | Whitelist `Statement::EffectDecl` in the module-body validator at [src/bytecode/compiler/statement.rs:1685](src/bytecode/compiler/statement.rs#L1685). Lets `effect Foo { ... }` declarations live inside `module { ... }` blocks. | ✅ done 2026-04-09 (1-line change + 3 integration tests, all green) |
-| **Phase 4a** | `ClassMethod.effects` + `InstanceMethod.effects` AST fields, 2 `parse_effect_list()` calls, `MethodSig.effects`, Phase 1b mangling-pass field assignment, Rule 1 walker (E452). | ⏳ next |
+| **Phase 4a** | `ClassMethod.effects` + `InstanceMethod.effects` AST fields, 2 `parse_effect_list()` calls, `MethodSig.effects`, Phase 1b mangling-pass field assignment, Rule 1 walker (E452). | ✅ done 2026-04-10 |
 | **Phase 4b** | `try_resolve_class_call` propagates the resolved instance's effect row into the caller's ambient row. | ⏳ pending |
 | **Phase 4c** | Row-polymorphic class methods (`with \|e`) end-to-end. | ⏳ pending |
 
