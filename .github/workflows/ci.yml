@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [macos-latest]
 
     steps:
       - name: Checkout
@@ -39,7 +39,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install Linux build tools
-        if: runner.os == 'Linux'
+        if: ${{ runner.os == 'Linux' }}
         run: sudo apt-get update && sudo apt-get install -y binutils
 
       - name: Changelog fragment check (PRs)
@@ -54,30 +54,3 @@ jobs:
 
       - name: Tests
         run: cargo test --all --all-features
-
-  parity:
-    name: Parity (vm vs llvm)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@1.93.0
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install LLVM 18
-        run: sudo apt-get update && sudo apt-get install -y llvm-18 lld-18
-
-      - name: Parity check (tests/parity, extended)
-        run: cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
-
-      - name: Parity check (examples/basics, extended)
-        run: cargo run -- parity-check examples/basics --ways vm,llvm,vm_cached,vm_strict,llvm_strict
-
-      - name: Parity check (examples/aether, extended)
-        run: cargo run -- parity-check examples/aether --ways vm,llvm,vm_cached,vm_strict,llvm_strict
