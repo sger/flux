@@ -3,8 +3,37 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day1_timed.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `reverse`.
+
+  examples/aoc/2025/aoc_day1_timed.flx:36:14
+   |
+36 |         _ -> reverse(acc),
+   |              ^^^^^^^
+
+Hint:
+  Define it first: let reverse = ...;
+
+
+error[E001]: Duplicate Name
+
+Duplicate binding: `lines` is already defined.
+
+  examples/aoc/2025/aoc_day1_timed.flx:57:5
+   |
+57 |     let lines = to_list(read_lines("examples/aoc/2025/aoc_day1.txt"))
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  examples/aoc/2025/aoc_day1_timed.flx:0:1
+  |
+
+Found 2 errors.
 == stdout ==
 <not executed>

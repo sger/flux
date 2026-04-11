@@ -1,14 +1,13 @@
 fn main() with IO {
-    print("== PrimOp and base bridge ==");
+    print("== PrimOp explicit surface ==");
 
     let arr = [|10, 20, 30|];
     print(array_len(arr));
     print(len(arr)); // base name lowered to PrimOp::Len
 
-    let m = put({}, "lang", "flux");
+    let m = map_set({}, "lang", "flux");
     print(map_get(m, "lang")); // canonical primop name
-    print(get(m, "lang"));     // base alias lowered to same PrimOp
-    print(has_key(m, "lang")); // base alias lowered to same PrimOp as map_has
+    print(map_has(m, "lang"));
 
     print(type_of(arr));
     print(is_array(arr));

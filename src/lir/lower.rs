@@ -1599,6 +1599,7 @@ impl<'a> FnLower<'a> {
         };
         if let Some(ref name) = resolved_name
             && let Some(op) = resolve_library_primop(name, args.len())
+                .or_else(|| CorePrimOp::from_name(name, args.len()))
         {
             let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
             self.dup_owned_call_args(&arg_vars, arg_modes);
@@ -1728,6 +1729,7 @@ impl<'a> FnLower<'a> {
         let func_var = self.lower_expr(func);
         if let Some(name) = self.global_var_names.get(&func_var).cloned()
             && let Some(op) = resolve_library_primop(&name, arg_vars.len())
+                .or_else(|| CorePrimOp::from_name(&name, arg_vars.len()))
         {
             let dst = self.fresh_var();
             self.emit(LirInstr::PrimCall {

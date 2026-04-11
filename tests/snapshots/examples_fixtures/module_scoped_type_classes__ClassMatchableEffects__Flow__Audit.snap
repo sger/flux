@@ -1,6 +1,5 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
-assertion_line: 27
 ---
 Fixture: examples/module_scoped_type_classes/ClassMatchableEffects/Flow/Audit.flx
 == compile ==

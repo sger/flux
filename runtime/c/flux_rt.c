@@ -10,6 +10,7 @@
 #endif
 
 #include "flux_rt.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +28,9 @@
 extern const char *flux_string_data(int64_t s);
 extern uint32_t    flux_string_len(int64_t s);
 extern int64_t     flux_string_new(const char *data, uint32_t len);
+extern int64_t     flux_string_concat(int64_t a, int64_t b);
+
+int64_t flux_type_of(int64_t val);
 
 /* Default constructor-name hook for native builds.
  * Programs with user ADTs provide a strong definition from generated LLVM.
@@ -255,32 +259,80 @@ int64_t flux_read_line(void) {
 int64_t flux_read_file(int64_t path) {
     const char *path_str = flux_string_data(path);
     uint32_t    path_len = flux_string_len(path);
+    char        err_buf[256];
+
+    /* Build a VM-style error message and abort through the runtime panic path. */
+    #define FLUX_READ_FILE_PANIC(fmt, ...)                                           \
+        do {                                                                         \
+            int written = snprintf(err_buf, sizeof(err_buf), fmt, __VA_ARGS__);      \
+            if (written < 0) {                                                       \
+                flux_panic(flux_string_new("read_file failed", 16));                 \
+            }                                                                        \
+            size_t msg_len = (size_t)written;                                        \
+            if (msg_len >= sizeof(err_buf)) msg_len = sizeof(err_buf) - 1;           \
+            flux_panic(flux_string_new(err_buf, (uint32_t)msg_len));                 \
+        } while (0)
 
     /* Null-terminate the path (it may not be). */
     char *cpath = (char *)malloc(path_len + 1);
-    if (!cpath) return flux_make_none();
+    if (!cpath) {
+        FLUX_READ_FILE_PANIC("read_file failed for '%.*s': out of memory", (int)path_len, path_str);
+    }
     memcpy(cpath, path_str, path_len);
     cpath[path_len] = '\0';
 
     FILE *f = fopen(cpath, "rb");
-    free(cpath);
-    if (!f) return flux_make_none();
+    if (!f) {
+        int saved_errno = errno;
+        FLUX_READ_FILE_PANIC(
+            "read_file failed for '%s': %s (os error %d)",
+            cpath,
+            strerror(saved_errno),
+            saved_errno
+        );
+    }
 
     fseek(f, 0, SEEK_END);
     long fsize = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    if (fsize < 0) { fclose(f); return flux_make_none(); }
+    if (fsize < 0) {
+        int saved_errno = errno;
+        fclose(f);
+        FLUX_READ_FILE_PANIC(
+            "read_file failed for '%s': %s (os error %d)",
+            cpath,
+            strerror(saved_errno),
+            saved_errno
+        );
+    }
 
     char *contents = (char *)malloc((size_t)fsize);
-    if (!contents) { fclose(f); return flux_make_none(); }
+    if (!contents) {
+        fclose(f);
+        FLUX_READ_FILE_PANIC("read_file failed for '%s': out of memory", cpath);
+    }
 
     size_t nread = fread(contents, 1, (size_t)fsize, f);
+    int read_error = ferror(f);
+    int saved_errno = errno;
     fclose(f);
+    if (nread != (size_t)fsize) {
+        free(contents);
+        FLUX_READ_FILE_PANIC(
+            "read_file failed for '%s': %s (os error %d)",
+            cpath,
+            read_error ? strerror(saved_errno) : "short read",
+            read_error ? saved_errno : 0
+        );
+    }
 
     int64_t result = flux_string_new(contents, (uint32_t)nread);
+    free(cpath);
     free(contents);
     return result;
+
+    #undef FLUX_READ_FILE_PANIC
 }
 
 int64_t flux_write_file(int64_t path, int64_t content) {
@@ -552,9 +604,16 @@ int64_t flux_rt_ge(int64_t a, int64_t b) {
 
 /* ── Runtime-dispatching index ──────────────────────────────────────── */
 
+static int64_t flux_index_unsupported(int64_t collection) {
+    int64_t prefix = flux_string_new("index operator not supported: ", 30);
+    int64_t ty = flux_type_of(collection);
+    flux_panic(flux_string_concat(prefix, ty));
+    return FLUX_NONE;
+}
+
 int64_t flux_rt_index(int64_t collection, int64_t key) {
     if (!flux_is_ptr(collection)) {
-        return flux_make_none();
+        return flux_index_unsupported(collection);
     }
     void *ptr = flux_untag_ptr(collection);
     uint8_t tag = flux_obj_tag(ptr);
@@ -574,6 +633,9 @@ int64_t flux_rt_index(int64_t collection, int64_t key) {
         return flux_wrap_some(elems[idx]);
     }
     case FLUX_OBJ_ADT: {
+        if (flux_is_hamt(ptr)) {
+            return flux_hamt_get_option(collection, key);
+        }
         /* Cons list: ctor_tag=4, traverse to nth element. */
         int32_t ctor_tag = *(int32_t *)ptr;
         if (ctor_tag == 4) {
@@ -593,12 +655,13 @@ int64_t flux_rt_index(int64_t collection, int64_t key) {
             }
             return flux_make_none();
         }
-        /* Non-list ADT: fall through to HAMT check. */
-        return flux_hamt_get_option(collection, key);
+        return flux_index_unsupported(collection);
     }
     default: {
-        /* Assume HAMT for any other boxed value. */
-        return flux_hamt_get_option(collection, key);
+        if (flux_is_hamt(ptr)) {
+            return flux_hamt_get_option(collection, key);
+        }
+        return flux_index_unsupported(collection);
     }
     }
 }

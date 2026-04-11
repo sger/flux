@@ -43,6 +43,45 @@ I can't find a value named `rest`.
 Hint:
   Define it first: let rest = ...;
 
-Found 3 errors.
+
+error[E004]: Undefined Variable
+
+I can't find a value named `reverse`.
+
+  examples/basics/list_basic.flx:59:11
+   |
+59 |     print(reverse(xs))
+   |           ^^^^^^^
+
+Hint:
+  Define it first: let reverse = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `contains`.
+
+  examples/basics/list_basic.flx:62:11
+   |
+62 |     print(contains(xs, 2))
+   |           ^^^^^^^^
+
+Hint:
+  Define it first: let contains = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `contains`.
+
+  examples/basics/list_basic.flx:63:11
+   |
+63 |     print(contains(xs, 9))
+   |           ^^^^^^^^
+
+Hint:
+  Define it first: let contains = ...;
+
+Found 6 errors.
 == stdout ==
 <not executed>

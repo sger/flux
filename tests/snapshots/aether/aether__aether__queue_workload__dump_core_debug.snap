@@ -423,8 +423,8 @@ letrec parse_ints =
           case #4000745[synthetic]#745 of
             Some(s#200) →
               let %t36 = Add(i#198, 1)
-              let %t37 = (let %t38 = ParseInt(s#200)
-              aether_call[owned, owned] push#683(result#199, #4000747[synthetic]#747))
+              let %t37:Box = (let %t38 = ParseInt(s#200)
+              ArrayPush(result#199, #4000747[synthetic]#747))
               aether_call[owned, owned] pi_go#197(#4000746[synthetic]#746, #4000748[synthetic]#748)
             _ →
               let %t39:Int = IAdd(i#198, 1)
@@ -1496,9 +1496,9 @@ letrec chars =
           result#657
         _ →
           let %t220:Int = IAdd(i#656, 1)
-          let %t221 = (let %t222:Box = (let %t223 = Add(i#656, 1)
+          let %t221:Box = (let %t222:Box = (let %t223 = Add(i#656, 1)
           Substring(s#654, i#656, #4000930[synthetic]#930))
-          aether_call[owned, owned] push#683(result#657, #4000931[synthetic]#931))
+          ArrayPush(result#657, #4000931[synthetic]#931))
           aether_call[owned, owned] chars_go#655(#4000929[synthetic]#929, #4000932[synthetic]#932))
     let %t224:Box = MakeArray()
     aether_call[owned, owned] chars_go#655(0, #4000933[synthetic]#933)

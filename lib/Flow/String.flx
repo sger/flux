@@ -18,7 +18,7 @@ module Flow.String {
     public fn chars(s: String) -> Array<String> {
         fn chars_go(i, result) {
             if i >= len(s) { result }
-            else { chars_go(i + 1, push(result, substring(s, i, i + 1))) }
+            else { chars_go(i + 1, array_push(result, substring(s, i, i + 1))) }
         }
         chars_go(0, [||])
     }

@@ -38,6 +38,44 @@ fn run_native(fixture: &str) -> (String, bool) {
     (stdout, output.status.success())
 }
 
+fn run_native_full(fixture: &str) -> (String, String, bool) {
+    let path = workspace_root().join("tests").join("parity").join(fixture);
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run flux --native on {fixture}: {e}"));
+
+    let stdout = String::from_utf8_lossy(&output.stdout)
+        .replace("\r\n", "\n")
+        .trim()
+        .to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr)
+        .replace("\r\n", "\n")
+        .trim()
+        .to_string();
+    (stdout, stderr, output.status.success())
+}
+
+fn run_vm_full(fixture: &str) -> (String, String, bool) {
+    let path = workspace_root().join("tests").join("parity").join(fixture);
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args([path.to_str().unwrap(), "--no-cache"])
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run flux on {fixture}: {e}"));
+
+    let stdout = String::from_utf8_lossy(&output.stdout)
+        .replace("\r\n", "\n")
+        .trim()
+        .to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr)
+        .replace("\r\n", "\n")
+        .trim()
+        .to_string();
+    (stdout, stderr, output.status.success())
+}
+
 fn normalized_lines(output: &str) -> Vec<&str> {
     output
         .lines()
@@ -79,4 +117,25 @@ fn representation_fixtures_hold_vm_native_parity() {
             "VM and native output differ for {fixture}"
         );
     }
+}
+
+#[test]
+fn invalid_index_target_fails_consistently_on_vm_and_native() {
+    let fixture = "index_none_runtime_error.flx";
+    let (_vm_stdout, vm_stderr, vm_success) = run_vm_full(fixture);
+    let (_native_stdout, native_stderr, native_success) = run_native_full(fixture);
+
+    assert!(!vm_success, "VM unexpectedly succeeded:\n{vm_stderr}");
+    assert!(
+        !native_success,
+        "native backend unexpectedly succeeded:\n{native_stderr}"
+    );
+    assert!(
+        vm_stderr.contains("index operator not supported: None"),
+        "expected VM index error, got:\n{vm_stderr}"
+    );
+    assert!(
+        native_stderr.contains("index operator not supported: None"),
+        "expected native index error, got:\n{native_stderr}"
+    );
 }

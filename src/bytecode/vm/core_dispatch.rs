@@ -562,56 +562,20 @@ pub fn execute_core_primop(
             other => Err(terr("len", "String, Array, Tuple, or Map", other)),
         },
 
-        // ── Collection helpers (promoted for both VM and native) ──────
-        Reverse => match &args[0] {
+        // ── Array helpers promoted through explicit builtin names ──────
+        ArrayReverse => match &args[0] {
             Value::Array(arr) => {
                 let mut v: Vec<Value> = arr.iter().cloned().collect();
                 v.reverse();
                 Ok(Value::Array(Rc::new(v)))
             }
-            Value::Cons(_) => {
-                let mut elems = Vec::new();
-                let mut cur = args[0].clone();
-                loop {
-                    match &cur {
-                        Value::None | Value::EmptyList => break,
-                        Value::Cons(cell) => {
-                            elems.push(cell.head.clone());
-                            cur = cell.tail.clone();
-                        }
-                        _ => break,
-                    }
-                }
-                let mut list = Value::EmptyList;
-                for e in &elems {
-                    list = ConsCell::cons(e.clone(), list);
-                }
-                Ok(list)
-            }
-            Value::None | Value::EmptyList => Ok(Value::EmptyList),
-            other => Err(terr("reverse", "Array or List", other)),
+            other => Err(terr("array_reverse", "Array", other)),
         },
-        Contains => {
+        ArrayContains => {
             let (collection, target) = (&args[0], &args[1]);
             match collection {
                 Value::Array(arr) => Ok(Value::Boolean(arr.iter().any(|e| e == target))),
-                Value::Cons(_) => {
-                    let mut cur = collection.clone();
-                    loop {
-                        match &cur {
-                            Value::None | Value::EmptyList => break Ok(Value::Boolean(false)),
-                            Value::Cons(cell) => {
-                                if &cell.head == target {
-                                    break Ok(Value::Boolean(true));
-                                }
-                                cur = cell.tail.clone();
-                            }
-                            _ => break Ok(Value::Boolean(false)),
-                        }
-                    }
-                }
-                Value::None | Value::EmptyList => Ok(Value::Boolean(false)),
-                other => Err(terr("contains", "Array or List", other)),
+                other => Err(terr("array_contains", "Array", other)),
             }
         }
         Sort => sort_collection(&args[0]),
