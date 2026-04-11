@@ -100,7 +100,7 @@ fn main() {
         .compile_with_opts(&program, false, false)
         .expect_err("missing explicit-bound instance should fail compilation");
     assert!(
-        diags.iter().any(|d| d.code().as_deref() == Some("E444")),
+        diags.iter().any(|d| d.code() == Some("E444")),
         "expected missing explicit-bound instance to report E444, got: {diags:?}"
     );
 }
@@ -167,7 +167,7 @@ fn main() {
         .compile_with_opts(&program, false, false)
         .expect_err("missing instance should fail even without strict-types");
     assert!(
-        diags.iter().any(|d| d.code().as_deref() == Some("E444")),
+        diags.iter().any(|d| d.code() == Some("E444")),
         "expected non-strict missing instance to report E444, got: {diags:?}"
     );
 }

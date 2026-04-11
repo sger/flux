@@ -64,10 +64,7 @@ pub fn insert_dup_drop_with_registry(expr: CoreExpr, registry: &BorrowRegistry) 
 
 /// Insert Dup/Drop annotations into a backend-only Aether expression,
 /// consulting the borrow registry to skip unnecessary clones.
-pub fn insert_dup_drop_with_registry_aether(
-    expr: CoreExpr,
-    registry: &BorrowRegistry,
-) -> CoreExpr {
+pub fn insert_dup_drop_with_registry_aether(expr: CoreExpr, registry: &BorrowRegistry) -> CoreExpr {
     insert_dup_drop_with_registry(expr, registry)
 }
 
@@ -1070,7 +1067,9 @@ fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::aether::borrow_infer::{BorrowMode, BorrowRegistry};
-    use crate::aether::{AetherAlt as CoreAlt, AetherExpr as CoreExpr, AetherHandler as CoreHandler};
+    use crate::aether::{
+        AetherAlt as CoreAlt, AetherExpr as CoreExpr, AetherHandler as CoreHandler,
+    };
     use crate::core::{CoreBinder, CoreBinderId, CoreLit, CorePat, CorePrimOp, CoreVarRef};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;

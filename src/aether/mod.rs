@@ -223,7 +223,11 @@ impl AetherProgram {
         self.core
     }
 
-    pub fn new(core: CoreProgram, defs: Vec<AetherDef>, top_level_items: Vec<CoreTopLevelItem>) -> Self {
+    pub fn new(
+        core: CoreProgram,
+        defs: Vec<AetherDef>,
+        top_level_items: Vec<CoreTopLevelItem>,
+    ) -> Self {
         Self {
             core,
             defs,
@@ -542,7 +546,6 @@ impl AetherAlt {
             span: self.span,
         }
     }
-
 }
 
 impl AetherHandler {
@@ -565,7 +568,6 @@ impl AetherHandler {
             span: self.span,
         }
     }
-
 }
 
 pub fn builtin_effect_for_name(name: &str) -> Option<AetherBuiltinEffect> {
@@ -917,8 +919,11 @@ pub fn lower_core_to_aether_program(
 ) -> Result<(AetherProgram, Vec<crate::diagnostics::Diagnostic>), crate::diagnostics::Diagnostic> {
     let mut warnings = Vec::new();
     let mut semantic_core = core.clone();
-    let borrow_registry =
-        borrow_infer::infer_borrow_modes_with_preloaded(&mut semantic_core, interner, preloaded_registry);
+    let borrow_registry = borrow_infer::infer_borrow_modes_with_preloaded(
+        &mut semantic_core,
+        interner,
+        preloaded_registry,
+    );
 
     let defs = semantic_core
         .defs
@@ -946,5 +951,8 @@ pub fn lower_core_to_aether_program(
     }
 
     let top_level_items = semantic_core.top_level_items.clone();
-    Ok((AetherProgram::new(semantic_core, defs, top_level_items), warnings))
+    Ok((
+        AetherProgram::new(semantic_core, defs, top_level_items),
+        warnings,
+    ))
 }

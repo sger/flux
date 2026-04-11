@@ -47,7 +47,6 @@ pub fn generate_dispatch_functions(
         interner,
         &mut generated,
         &mut dispatch_table,
-        &mut reserved_names,
     );
     if needs_builtin_dispatch_support(statements) {
         generate_builtin_instance_functions(
@@ -293,7 +292,6 @@ fn generate_from_statements(
     interner: &mut Interner,
     generated: &mut Vec<Statement>,
     dispatch_table: &mut HashSet<(Identifier, Identifier)>,
-    reserved_names: &mut HashSet<Identifier>,
 ) {
     fn resolve_instance_class_def<'a>(
         class_env: &'a ClassEnv,
@@ -428,7 +426,6 @@ fn generate_from_statements(
                     interner,
                     generated,
                     dispatch_table,
-                    reserved_names,
                 );
             }
             _ => {}

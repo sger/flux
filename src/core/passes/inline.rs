@@ -21,8 +21,9 @@ pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
         CoreExpr::Let { var, rhs, body, .. } => {
             let rhs = inline_trivial_lets(*rhs);
             let body = inline_trivial_lets(*body);
-            let preserves_call_boundary = matches!(rhs, CoreExpr::Var { .. } | CoreExpr::Lam { .. })
-                && occurs_as_callee(var.id, &body);
+            let preserves_call_boundary =
+                matches!(rhs, CoreExpr::Var { .. } | CoreExpr::Lam { .. })
+                    && occurs_as_callee(var.id, &body);
             if is_trivially_pure(&rhs) && !preserves_call_boundary {
                 // Substitute and continue — may unlock further inlining.
                 inline_trivial_lets(subst(body, var.id, &rhs))
@@ -99,16 +100,19 @@ fn occurs_as_callee(var: crate::core::CoreBinderId, expr: &CoreExpr) -> bool {
                     || occurs_as_callee(var, body)
             }
         }
-        CoreExpr::Case { scrutinee, alts, .. } => {
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
             occurs_as_callee(var, scrutinee)
                 || alts.iter().any(|alt| {
                     let shadowed = pattern_binds(var, &alt.pat);
-                    (!shadowed
-                        && alt
-                            .guard
-                            .as_ref()
-                            .is_some_and(|guard| occurs_as_callee(var, guard)))
-                        || (!shadowed && occurs_as_callee(var, &alt.rhs))
+                    if shadowed {
+                        return false;
+                    }
+                    alt.guard
+                        .as_ref()
+                        .is_some_and(|guard| occurs_as_callee(var, guard))
+                        || occurs_as_callee(var, &alt.rhs)
                 })
         }
         CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {

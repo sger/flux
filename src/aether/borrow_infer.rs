@@ -296,13 +296,13 @@ fn register_explicit_named_fallbacks(
     // prevents the Unknown classification when their Var appears in Core IR.
     if let Some(interner) = interner {
         for def in &program.defs {
-            if let Some(name_str) = interner.try_resolve(def.name) {
-                if name_str.starts_with("__dict_") {
-                    registry.insert_named_if_absent(
-                        def.name,
-                        BorrowSignature::new(Vec::new(), BorrowProvenance::Inferred),
-                    );
-                }
+            if let Some(name_str) = interner.try_resolve(def.name)
+                && name_str.starts_with("__dict_")
+            {
+                registry.insert_named_if_absent(
+                    def.name,
+                    BorrowSignature::new(Vec::new(), BorrowProvenance::Inferred),
+                );
             }
         }
     }

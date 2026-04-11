@@ -376,7 +376,11 @@ fn dump_aether_and_trace_aether_share_report_content() {
     let normalized_report = normalize::normalize_aether_dump(&shared_report);
     let normalized_stderr = normalize::normalize_aether_dump(&stderr);
 
-    for needle in ["── fn my_map @fip ──", "── fn option_map @fip ──", "── fn main ──"] {
+    for needle in [
+        "── fn my_map @fip ──",
+        "── fn option_map @fip ──",
+        "── fn main ──",
+    ] {
         assert!(
             normalized_report.contains(needle) && normalized_stderr.contains(needle),
             "trace stderr should include the fixture-local dump-aether sections\nmissing `{needle}`\n== report ==\n{shared_report}\n== stderr ==\n{stderr}"

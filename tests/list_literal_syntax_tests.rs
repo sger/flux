@@ -40,8 +40,7 @@ fn prefixed_array_literal_supports_indexing() {
 
 #[test]
 fn local_map_on_list_literal_returns_mapped_head() {
-    let value = run(
-        r#"
+    let value = run(r#"
 fn fmap(xs, f) {
     match xs {
         [h | t] -> [f(h) | fmap(t, f)],
@@ -55,7 +54,6 @@ match ys {
     [h | _] -> h,
     _ -> 0
 };
-"#,
-    );
+"#);
     assert_eq!(value, Value::Integer(2));
 }

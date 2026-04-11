@@ -7,6 +7,11 @@ use std::{
 
 use rayon::prelude::*;
 
+#[cfg(feature = "core_to_llvm")]
+use flux::diagnostics::{
+    position::{Position, Span},
+    quality::render_runtime_diagnostic,
+};
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
@@ -23,8 +28,7 @@ use flux::{
     cache_paths::{self, CacheLayout},
     diagnostics::{
         DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticPhase, DiagnosticsAggregator,
-        quality::module_skipped_note,
-        render_diagnostics_json, render_display_path,
+        quality::module_skipped_note, render_diagnostics_json, render_display_path,
     },
     runtime::value::Value,
     syntax::{
@@ -34,11 +38,6 @@ use flux::{
         module_graph::{ModuleGraph, ModuleKind, ModuleNode},
         parser::Parser,
     },
-};
-#[cfg(feature = "core_to_llvm")]
-use flux::diagnostics::{
-    position::{Position, Span},
-    quality::render_runtime_diagnostic,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,11 +189,7 @@ fn parse_native_trace_frames(stderr: &str) -> Vec<NativeTraceFrame> {
 }
 
 #[cfg(feature = "core_to_llvm")]
-fn infer_native_runtime_span(
-    path: &str,
-    message: &str,
-    frames: &[NativeTraceFrame],
-) -> Span {
+fn infer_native_runtime_span(path: &str, message: &str, frames: &[NativeTraceFrame]) -> Span {
     let Ok(source) = std::fs::read_to_string(path) else {
         return Span::new(Position::default(), Position::default());
     };
@@ -202,7 +197,8 @@ fn infer_native_runtime_span(
     let preferred_line = frames
         .first()
         .and_then(|frame| {
-            frame.file
+            frame
+                .file
                 .as_deref()
                 .filter(|file| *file == path)
                 .and(frame.line)
@@ -266,7 +262,11 @@ fn infer_native_runtime_span(
                             .position(|c| !c.is_whitespace())
                             .map(|off| eq_col + 1 + off)
                     })
-                    .unwrap_or_else(|| line.chars().position(|c| !c.is_whitespace()).unwrap_or(op_col));
+                    .unwrap_or_else(|| {
+                        line.chars()
+                            .position(|c| !c.is_whitespace())
+                            .unwrap_or(op_col)
+                    });
                 let end = line.trim_end().trim_end_matches(';').len();
                 return Some(Span::new(
                     Position::new(idx + 1, start),
@@ -324,7 +324,9 @@ fn infer_native_runtime_span(
             return span;
         }
     }
-    if message.contains("modulo by zero") && let Some(span) = find_rhs_span('%') {
+    if message.contains("modulo by zero")
+        && let Some(span) = find_rhs_span('%')
+    {
         return span;
     }
 
@@ -384,12 +386,7 @@ fn infer_native_source_frames(path: &str, span: Span) -> Vec<String> {
             })
             .map(|(idx, line)| {
                 let col = line.find(&top_frame).unwrap_or(0) + 1;
-                format!(
-                    "<main> ({}:{}:{})",
-                    render_display_path(path),
-                    idx + 1,
-                    col
-                )
+                format!("<main> ({}:{}:{})", render_display_path(path), idx + 1, col)
             })
             .unwrap_or_else(|| "<main>".to_string());
         frames.push(call_site);
@@ -3111,11 +3108,7 @@ fn run_file(
                     };
                 let native_modules_ms = native_modules_start.elapsed().as_secs_f64() * 1000.0;
                 let support_start = Instant::now();
-                match compile_native_support_object(
-                    &cache_layout,
-                    no_cache,
-                    enable_optimize,
-                ) {
+                match compile_native_support_object(&cache_layout, no_cache, enable_optimize) {
                     Ok(support_object) => {
                         object_paths.insert(0, support_object);
                     }

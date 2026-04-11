@@ -192,7 +192,8 @@ pub fn normalize_aether_dump(raw: &str) -> String {
         }
 
         // Skip title and separator lines
-        if trimmed == "Aether Memory Model Report" || trimmed == "Aether Ownership Report"
+        if trimmed == "Aether Memory Model Report"
+            || trimmed == "Aether Ownership Report"
             || trimmed.chars().all(|c| c == '=')
             || trimmed.is_empty()
         {
@@ -296,7 +297,11 @@ fn normalize_debug_ids(line: &str) -> String {
     let mut i = 0;
 
     while i < chars.len() {
-        if chars[i] == '%' && i + 2 < chars.len() && chars[i + 1] == 't' && chars[i + 2].is_ascii_digit() {
+        if chars[i] == '%'
+            && i + 2 < chars.len()
+            && chars[i + 1] == 't'
+            && chars[i + 2].is_ascii_digit()
+        {
             out.push('%');
             out.push('t');
             out.push('N');
@@ -489,8 +494,7 @@ b12(v3):
 
     #[test]
     fn aether_strips_title() {
-        let input =
-            "Aether Ownership Report\n=======================\n── fn foo ──\n  Dups: 0\n";
+        let input = "Aether Ownership Report\n=======================\n── fn foo ──\n  Dups: 0\n";
         let result = normalize_aether_dump(input);
         assert!(result.starts_with("── fn foo ──"));
         assert!(!result.contains("Aether Memory Model Report"));

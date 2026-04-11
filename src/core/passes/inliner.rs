@@ -310,10 +310,7 @@ fn occurs_as_callee(var: CoreBinderId, expr: &CoreExpr) -> bool {
             occurs_as_callee(var, scrutinee)
                 || alts.iter().any(|alt| {
                     !pat_binds_var(&alt.pat, var)
-                        && (alt
-                            .guard
-                            .as_ref()
-                            .is_some_and(|g| occurs_as_callee(var, g))
+                        && (alt.guard.as_ref().is_some_and(|g| occurs_as_callee(var, g))
                             || occurs_as_callee(var, &alt.rhs))
                 })
         }

@@ -313,27 +313,19 @@ impl<'a> InferCtx<'a> {
         &mut self,
         info: ResolvedClassMethodCall,
     ) -> Option<Vec<InferType>> {
-        let Some(first_arg_ty) = self
+        let first_arg_ty = self
             .expr_types
             .get(&info.first_arg_id)
-            .map(|ty| ty.apply_type_subst(&self.subst))
-        else {
-            return None;
-        };
+            .map(|ty| ty.apply_type_subst(&self.subst))?;
 
-        let Some((resolved_type_args, scheme)) = ({
-            let Some(class_env) = self.class_env.as_ref() else {
-                return None;
-            };
-            let Some((instance, concrete_type_args)) = class_env
+        let (resolved_type_args, scheme) = {
+            let class_env = self.class_env.as_ref()?;
+            let (instance, concrete_type_args) = class_env
                 .resolve_method_call_instance_from_first_arg(
                     info.class_name,
                     &first_arg_ty,
                     self.interner,
-                )
-            else {
-                return None;
-            };
+                )?;
 
             let type_key = instance
                 .type_args
@@ -344,13 +336,10 @@ impl<'a> InferCtx<'a> {
             let class_str = self.interner.resolve(info.class_name);
             let method_str = self.interner.resolve(info.method_name);
             let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
-            let Some(mangled_sym) = self.interner.lookup(&mangled) else {
-                return None;
-            };
-            Some((concrete_type_args, self.env.lookup(mangled_sym).cloned()?))
-        }) else {
-            return None;
-        };
+            let mangled_sym = self.interner.lookup(&mangled)?;
+            let scheme = self.env.lookup(mangled_sym).cloned()?;
+            Some((concrete_type_args, scheme))
+        }?;
 
         let (resolved_fn_ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
         for &fresh in mapping.values() {
