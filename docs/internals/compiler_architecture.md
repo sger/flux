@@ -451,5 +451,5 @@ If you need a compact rule for the current compiler:
 Core is meaning.
 CFG is the production VM backend IR.
 LIR is the native LLVM backend IR.
-Aether rewrites Core before either backend path.
+Aether lowers clean Core into the backend-only RC ownership form consumed by the maintained backends.
 ```

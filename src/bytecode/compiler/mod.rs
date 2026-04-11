@@ -645,7 +645,7 @@ fn collect_aether_debug_details(
                 details.call_sites.push(format!(
                     "line {}: {} [{}]",
                     span.start.line,
-                    single_line_aether_expr(func, interner),
+                    crate::aether::display::single_line_expr(func, interner),
                     arg_modes
                         .iter()
                         .map(format_borrow_mode)
@@ -701,7 +701,7 @@ fn collect_aether_debug_details(
                 details.dups.push(format!(
                     "line {}: dup {}",
                     span.start.line,
-                    format_var_ref(var, interner)
+                    crate::aether::display::format_var_ref(var, interner)
                 ));
                 walk(body, interner, details);
             }
@@ -709,7 +709,7 @@ fn collect_aether_debug_details(
                 details.drops.push(format!(
                     "line {}: drop {}",
                     span.start.line,
-                    format_var_ref(var, interner)
+                    crate::aether::display::format_var_ref(var, interner)
                 ));
                 walk(body, interner, details);
             }
@@ -723,8 +723,8 @@ fn collect_aether_debug_details(
                 details.reuses.push(format!(
                     "line {}: reuse {} as {}{}",
                     span.start.line,
-                    format_var_ref(token, interner),
-                    tag_label(tag, interner),
+                    crate::aether::display::format_var_ref(token, interner),
+                    crate::aether::display::tag_label(tag, interner),
                     field_mask
                         .map(|mask| format!(" mask=0x{mask:x}"))
                         .unwrap_or_default()
@@ -742,7 +742,7 @@ fn collect_aether_debug_details(
                 details.reuses.push(format!(
                     "line {}: drop-specialized {}",
                     span.start.line,
-                    format_var_ref(scrutinee, interner)
+                    crate::aether::display::format_var_ref(scrutinee, interner)
                 ));
                 walk(unique_body, interner, details);
                 walk(shared_body, interner, details);
@@ -766,41 +766,6 @@ fn render_debug_lines(label: &str, lines: &[String]) -> String {
         }
     }
     out
-}
-
-fn single_line_aether_expr(expr: &crate::aether::AetherExpr, interner: &Interner) -> String {
-    let _ = interner;
-    format!("{expr:?}")
-        .replace('\n', " ")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn format_var_ref(var: &crate::core::CoreVarRef, interner: &Interner) -> String {
-    let name = interner
-        .try_resolve(var.name)
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("<sym:{}>", var.name.as_u32()));
-    match var.binder {
-        Some(binder) => format!("{name}#{}", binder.0),
-        None => name,
-    }
-}
-
-fn tag_label(tag: &crate::core::CoreTag, interner: &Interner) -> String {
-    match tag {
-        crate::core::CoreTag::Nil => "Nil".to_string(),
-        crate::core::CoreTag::Cons => "Cons".to_string(),
-        crate::core::CoreTag::None => "None".to_string(),
-        crate::core::CoreTag::Some => "Some".to_string(),
-        crate::core::CoreTag::Left => "Left".to_string(),
-        crate::core::CoreTag::Right => "Right".to_string(),
-        crate::core::CoreTag::Named(name) => interner
-            .try_resolve(*name)
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("<sym:{}>", name.as_u32())),
-    }
 }
 
 fn format_borrow_mode(mode: &crate::aether::borrow_infer::BorrowMode) -> &'static str {
@@ -4210,7 +4175,7 @@ impl Compiler {
         self.prepare_backend_core_program_with_preloaded(program, optimize)
     }
 
-    /// Render an Aether memory model report showing per-function optimization decisions.
+    /// Render an Aether-native ownership report showing per-function lowering decisions.
     #[allow(clippy::result_large_err)]
     pub fn render_aether_report(
         &mut self,
@@ -4219,7 +4184,7 @@ impl Compiler {
         debug: bool,
     ) -> Result<String, Diagnostic> {
         let aether = self.lower_aether_report_program(program, optimize)?;
-        let fbip_diags = crate::aether::check_fbip::check_fbip(aether.as_core(), &self.interner);
+        let fbip_diags = crate::aether::check_fbip::check_fbip_aether(&aether, &self.interner);
         let fbip_by_name = fbip_diags
             .diagnostics
             .iter()
@@ -4227,8 +4192,8 @@ impl Compiler {
             .collect::<HashMap<_, _>>();
 
         let mut out = String::new();
-        out.push_str("Aether Memory Model Report\n");
-        out.push_str("==========================\n\n");
+        out.push_str("Aether Ownership Report\n");
+        out.push_str("=======================\n\n");
 
         let mut total = crate::aether::AetherStats::default();
 
@@ -4307,10 +4272,8 @@ impl Compiler {
                 out.push_str(&render_debug_lines("reuse", &debug_details.reuses));
             }
 
-            let displayed = crate::core::display::display_expr_readable(
-                &def.expr.clone().erase_to_core(),
-                &self.interner,
-            );
+            let displayed =
+                crate::aether::display::display_expr_readable(&def.expr, &self.interner);
             out.push_str(&displayed);
             out.push('\n');
 
@@ -4328,7 +4291,7 @@ impl Compiler {
         Ok(out)
     }
 
-    /// Dump an Aether memory model report showing per-function optimization decisions.
+    /// Dump an Aether-native ownership report showing per-function lowering decisions.
     #[allow(clippy::result_large_err)]
     pub fn dump_aether_report(
         &mut self,
