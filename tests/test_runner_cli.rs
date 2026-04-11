@@ -810,10 +810,7 @@ fn dump_cfg_prints_cfg_ir_and_exits_before_execution() {
 }
 
 #[test]
-fn dump_core_reports_drop_specialized_stats() {
-    // Phase 7e: typed pattern binders make DropSpecialized unnecessary for
-    // integer list patterns (h in [h|t] is IntRep — no dup/drop divergence).
-    // The fixture may still emit DropSpecialized for boxed ADT patterns.
+fn dump_core_debug_excludes_aether_stats() {
     let file = example_path("aether/verify_aether.flx");
     let output = run_flux(&["--dump-core=debug", file.to_str().unwrap()]);
     let text = combined_output(&output);
@@ -824,8 +821,13 @@ fn dump_core_reports_drop_specialized_stats() {
         text
     );
     assert!(
-        text.contains("DropSpecs: "),
-        "expected Aether stats to include DropSpecs line, output:\n{}",
+        !text.contains("── Aether stats ──"),
+        "dump-core debug should stay semantic-only, output:\n{}",
+        text
+    );
+    assert!(
+        !text.contains("DropSpecs: "),
+        "dump-core debug should not include Aether stats, output:\n{}",
         text
     );
 }

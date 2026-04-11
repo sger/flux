@@ -246,11 +246,10 @@ fn import_cycle_is_error() {
 }
 
 #[test]
-#[ignore = "uses base functions (Flow.len) not in standalone compiler"]
 fn synthetic_flow_import_with_except_does_not_require_file_module() {
     let root = temp_root("flow_import");
     let entry_path = root.join("Main.flx");
-    let entry_source = "import Flow except [print]\nFlow.len([1, 2, 3]);";
+    let entry_source = "import Flow except [print]\nlen([1, 2, 3]);";
     write_file(&entry_path, entry_source);
     let (program, interner) = parse_program(entry_source);
 

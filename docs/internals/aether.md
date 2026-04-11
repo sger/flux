@@ -14,20 +14,22 @@ For the reduced formal proof target, see:
 
 For practical dump-reading and backend-debugging guidance, see:
 - `docs/internals/aether_debugging.md`
+- `docs/internals/core_aether_backend_boundaries.md`
 
 ---
 
 ## What Aether is
 
-Aether is Flux's compile-time ownership, duplication, drop, reuse, and FBIP
-pipeline.
+Aether is Flux's backend-only ownership, duplication, drop, reuse, and FBIP
+lowering layer for maintained RC backends.
 
-It is not a separate language IR. It is a set of analyses and transforms that
-run on **Core IR** after the standard Core passes and before lowering to CFG.
+It is not a separate semantic language IR. It is a backend-only lowering
+product derived from clean **Core IR** after the standard Core passes and
+before lowering to CFG/LIR.
 
 At a high level, Aether:
 
-- makes ownership operations explicit in Core
+- materializes ownership operations in Aether
 - distinguishes borrowed versus owned call behavior
 - inserts `Dup` and `Drop`
 - recognizes legal in-place reuse opportunities and emits `Reuse`
@@ -39,15 +41,15 @@ At a high level, Aether:
 
 ## Purpose
 
-Flux is a pure language at the source level, but its implementation still needs
-an efficient memory-management strategy.
+Flux is a pure language at the source level, but its maintained RC backends
+still need an efficient memory-management strategy.
 
 Aether exists to give Flux:
 
 - one coherent ownership/runtime story across VM, JIT, and LLVM
 - compile-time control over reference-count churn
 - zero-allocation functional updates when uniqueness makes them safe
-- a backend-neutral place to reason about memory-management behavior
+- a shared RC-backend place to reason about memory-management behavior
 - a semantic foundation for `@fip` / `@fbip`
 
 In short:
@@ -61,17 +63,17 @@ In short:
 
 ## Pipeline Position
 
-Aether runs after the standard Core passes and before CFG lowering:
+Aether runs after the standard Core passes and before backend IR lowering:
 
 ```text
 AST
   -> HM type inference
   -> Core lowering
   -> Core passes
-  -> Aether passes
-  -> Core verification / FBIP checking
-  -> CFG lowering
-  -> VM bytecode / Cranelift JIT / LLVM
+  -> Aether lowering
+  -> Aether verification / FBIP checking
+  -> CFG or LIR lowering
+  -> VM bytecode / LLVM
 ```
 
 This placement matters:
@@ -79,19 +81,20 @@ This placement matters:
 - earlier would be wrong because Core passes still reshape variable use
 - later would force ownership reasoning into backend-specific CFG/dataflow code
 
-The main production entry point is:
-- `src/core/passes/mod.rs`
+The main production boundary is:
+- `src/aether/mod.rs`
+- `lower_core_to_aether_program(...)`
 
-That module runs the standard Core passes, then Aether, then verifier/FBIP
-checks before Core is lowered to CFG.
+`run_core_passes*` remains semantic-only. Aether lowering happens after that
+clean Core boundary.
 
 ---
 
-## Core Representation
+## Aether Representation
 
-Aether is represented directly in `CoreExpr`, not as backend-only metadata.
+Aether is represented directly in Aether-owned types.
 
-Key Aether-related Core nodes:
+Key Aether-related nodes:
 
 - `AetherCall`
 - `Dup`
@@ -100,12 +103,13 @@ Key Aether-related Core nodes:
 - `DropSpecialized`
 
 Relevant definitions:
-- `src/core/mod.rs`
+- `src/aether/mod.rs`
 
-This is one of the main design choices of Flux's implementation:
+This is the current design choice:
 
-- Aether decisions are explicit in shared semantic IR
-- VM, JIT, and LLVM all lower the same Aether-shaped Core
+- semantic Core stays clean
+- Aether decisions are explicit in `AetherExpr`
+- VM and LLVM lower the same Aether product
 - backend code realizes Aether decisions but does not invent competing ones
 
 ---
@@ -118,7 +122,7 @@ The Aether implementation lives in:
 Important modules:
 
 - `analysis.rs`
-  - ownership-demand analysis over Core expressions
+  - ownership-demand analysis over Aether expressions
 - `borrow_infer.rs`
   - inferred borrow signatures and interprocedural borrow registry
 - `insert.rs`
@@ -149,7 +153,7 @@ The rough pass shape is:
 5. recognize `DropSpecialized`
 6. recognize `Reuse`
 7. specialize some reuse writes with `field_mask`
-8. verify the resulting Aether Core
+8. verify the resulting Aether form
 9. run semantic FBIP checks
 
 ---
@@ -204,7 +208,7 @@ Important implementation details:
 - selective writes are encoded explicitly with `field_mask`
 
 At runtime this lowers to backend-specific reuse helpers/opcodes, but the
-decision to reuse is made in Core.
+decision to reuse is made in Aether after semantic Core is already fixed.
 
 ---
 
@@ -225,7 +229,7 @@ Conceptually:
 - if unique, run a specialized body that can drop less and/or reuse more
 - if shared, run a conservative body
 
-`DropSpecialized` remains a first-class Core node until CFG lowering.
+`DropSpecialized` remains a first-class Aether node until backend IR lowering.
 
 ---
 
@@ -346,7 +350,7 @@ optimize: off
 strict: on
 modules: 1
 ────────────────────────
-Aether Memory Model Report
+Aether Ownership Report
 ==========================
 
 ── fn main ──

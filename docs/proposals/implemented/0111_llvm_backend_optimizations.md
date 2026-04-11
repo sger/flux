@@ -108,7 +108,8 @@ Complete the ahead-of-time compilation pipeline for standalone binary output:
 
 ```bash
 cargo test --all --all-features
-scripts/release/check_parity.sh examples/basics examples/advanced  # VM/LLVM parity
+cargo run -- parity-check examples/basics
+cargo run -- parity-check examples/advanced
 # Benchmark specific programs with --llvm vs --jit vs VM:
 cargo run --features llvm -- --llvm --stats examples/perf/binarytrees.flx
 cargo run --features jit -- --jit --stats examples/perf/binarytrees.flx

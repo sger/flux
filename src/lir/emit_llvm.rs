@@ -2189,11 +2189,11 @@ impl<'a> FnEmitter<'a> {
                         );
                     }
                     CallKind::Indirect => {
-                        // Closure dispatch: flux_call_closure(closure, args_array, nargs)
+                        // User-visible indirect calls must validate target kind and exact arity.
                         let llvm_args = self.build_call_args(args);
-                        self.call_fastcc(
+                        self.call_c(
                             Some(self.var_local(*dst)),
-                            "flux_call_closure",
+                            "flux_call_closure_exact",
                             vec![
                                 (LlvmType::i64(), self.var(*func)),
                                 (LlvmType::Ptr, LlvmOperand::Local(llvm_args.0)),
@@ -2261,12 +2261,11 @@ impl<'a> FnEmitter<'a> {
                         });
                     }
                     CallKind::Indirect => {
-                        // Indirect calls go through flux_call_closure which has
-                        // a different prototype — do NOT mark as tail call.
+                        // User-visible indirect calls must validate target kind and exact arity.
                         let llvm_args = self.build_call_args(args);
-                        self.call_fastcc(
+                        self.call_c(
                             Some(result.clone()),
-                            "flux_call_closure",
+                            "flux_call_closure_exact",
                             vec![
                                 (LlvmType::i64(), self.var(*func)),
                                 (LlvmType::Ptr, LlvmOperand::Local(llvm_args.0)),
@@ -3024,6 +3023,10 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
                 LlvmType::i64(),
                 LlvmType::i64(),
             ],
+        ),
+        "flux_call_closure_exact" => (
+            LlvmType::i64(),
+            vec![LlvmType::i64(), LlvmType::ptr(), LlvmType::i32()],
         ),
         // Float boxing/unboxing wrappers (Phase 9 pointer tagging)
         "flux_box_float_rt" => (LlvmType::i64(), vec![LlvmType::Double]),

@@ -99,7 +99,7 @@ The harness must check both.
 Add a parity harness entry point:
 
 ```text
-scripts/check_core_to_llvm_parity.sh [dir] [--root dir ...]
+cargo run -- parity-check [dir] [--root dir ...]
 
   [dir]            Single .flx file or directory of .flx files
 
@@ -245,8 +245,8 @@ Recommended CI steps:
 
 ```text
 1. cargo test --all --all-features
-2. scripts/check_core_to_llvm_parity.sh tests/parity
-3. scripts/check_core_to_llvm_parity.sh examples/advanced
+2. cargo run -- parity-check tests/parity
+3. cargo run -- parity-check examples/advanced
 ```
 
 ## Proposed implementation

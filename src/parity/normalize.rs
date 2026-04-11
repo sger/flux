@@ -20,29 +20,15 @@ pub fn normalize(raw: &str) -> String {
     for line in raw.lines() {
         let trimmed = line.trim_start();
 
-        // Strip backend banners
-        if trimmed.starts_with("[cfg\u{2192}vm]")
-            || trimmed.starts_with("[lir\u{2192}llvm]")
-            || trimmed.starts_with("[cfg->vm]")
-            || trimmed.starts_with("[lir->llvm]")
-        {
+        if should_strip_build_progress_line(trimmed) || trimmed.starts_with("Downloading ") {
             continue;
         }
 
-        // Strip cargo progress lines
-        if trimmed.starts_with("Compiling ")
-            || trimmed.starts_with("Finished ")
-            || trimmed.starts_with("Running ")
-            || trimmed.starts_with("Downloading ")
-        {
-            continue;
-        }
-
-        lines.push(line);
+        lines.push(line.trim_end());
     }
 
     let joined = lines.join("\n");
-    normalize_temp_paths(&joined)
+    normalize_temp_paths(&joined).trim().to_string()
 }
 
 /// Replace absolute temp paths from native compilation with a placeholder.
@@ -79,6 +65,10 @@ pub fn normalize_core_dump(raw: &str) -> String {
     for line in raw.lines() {
         let trimmed_start = line.trim_start();
 
+        if should_strip_build_progress_line(trimmed_start) {
+            continue;
+        }
+
         // Strip Aether stats lines (e.g., "Aether: 3 dups, 2 drops, 1 reuse")
         if trimmed_start.starts_with("Aether:") || trimmed_start.starts_with("── Aether") {
             continue;
@@ -96,8 +86,9 @@ pub fn normalize_core_dump(raw: &str) -> String {
             continue;
         }
 
+        let normalized = normalize_debug_ids(line);
         // Trim trailing whitespace but preserve leading indentation
-        lines.push(line.trim_end().to_string());
+        lines.push(normalized.trim_end().to_string());
     }
 
     // Sort consecutive drop-only lines to normalize Aether insertion order.
@@ -196,8 +187,12 @@ pub fn normalize_aether_dump(raw: &str) -> String {
     for line in raw.lines() {
         let trimmed = line.trim_start();
 
+        if should_strip_build_progress_line(trimmed) {
+            continue;
+        }
+
         // Skip title and separator lines
-        if trimmed == "Aether Memory Model Report"
+        if trimmed == "Aether Memory Model Report" || trimmed == "Aether Ownership Report"
             || trimmed.chars().all(|c| c == '=')
             || trimmed.is_empty()
         {
@@ -208,6 +203,8 @@ pub fn normalize_aether_dump(raw: &str) -> String {
         let normalized = normalize_line_numbers(line);
         // Normalize symbol IDs: "<sym:2000002>#5" → "<sym>#N"
         let normalized = normalize_sym_ids(&normalized);
+        // Normalize debug-only temp and binder numbering.
+        let normalized = normalize_debug_ids(&normalized);
 
         lines.push(normalized.trim_end().to_string());
     }
@@ -247,18 +244,25 @@ fn normalize_backend_ir_dump(raw: &str) -> String {
     raw.lines()
         .map(str::trim_end)
         .filter(|line| !line.trim().is_empty())
-        .filter(|line| {
-            let trimmed = line.trim_start();
-            !trimmed.starts_with("Finished ")
-                && !trimmed.starts_with("Running ")
-                && !trimmed.starts_with("Blocking waiting for file lock")
-                && !trimmed.starts_with("Compiling ")
-                && !trimmed.starts_with("[cfg")
-                && !trimmed.starts_with("[lir")
-        })
+        .filter(|line| !should_strip_build_progress_line(line.trim_start()))
         .map(normalize_cfg_like_ids)
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn should_strip_build_progress_line(trimmed: &str) -> bool {
+    trimmed.starts_with("Finished ")
+        || trimmed.starts_with("Running ")
+        || trimmed.starts_with("Blocking waiting for file lock")
+        || trimmed.starts_with("Compiling ")
+        || trimmed.starts_with("[cfg")
+        || trimmed.starts_with("[lir")
+        || trimmed.starts_with('[')
+            && trimmed.contains(" of ")
+            && (trimmed.contains("Compiling")
+                || trimmed.contains("Cached")
+                || trimmed.contains("Linking")
+                || trimmed.contains("Checking"))
 }
 
 fn normalize_cfg_like_ids(line: &str) -> String {
@@ -283,6 +287,40 @@ fn normalize_cfg_like_ids(line: &str) -> String {
         }
         out.push(ch);
     }
+    out
+}
+
+fn normalize_debug_ids(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i] == '%' && i + 2 < chars.len() && chars[i + 1] == 't' && chars[i + 2].is_ascii_digit() {
+            out.push('%');
+            out.push('t');
+            out.push('N');
+            i += 3;
+            while i < chars.len() && chars[i].is_ascii_digit() {
+                i += 1;
+            }
+            continue;
+        }
+
+        if chars[i] == '#' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit() {
+            out.push('#');
+            out.push('N');
+            i += 2;
+            while i < chars.len() && chars[i].is_ascii_digit() {
+                i += 1;
+            }
+            continue;
+        }
+
+        out.push(chars[i]);
+        i += 1;
+    }
+
     out
 }
 
@@ -435,12 +473,28 @@ b12(v3):
     }
 
     #[test]
+    fn core_dump_strips_build_progress_noise() {
+        let input = "Finished `dev` profile\n[1 of 7] Compiling  Assert\n[2 of 7] Cached     Flow.IO\n[3 of 7] Linking    forward_reference\nlet x = 1\n";
+        assert_eq!(normalize_core_dump(input), "let x = 1");
+    }
+
+    #[test]
+    fn core_dump_normalizes_debug_ids() {
+        let input = "letrec main#538 =\nλ.\n    let %t261 = foo#686(#4000931[synthetic]#931)\n";
+        assert_eq!(
+            normalize_core_dump(input),
+            "letrec main#N =\nλ.\n    let %tN = foo#N(#N[synthetic]#N)"
+        );
+    }
+
+    #[test]
     fn aether_strips_title() {
         let input =
-            "Aether Memory Model Report\n==========================\n── fn foo ──\n  Dups: 0\n";
+            "Aether Ownership Report\n=======================\n── fn foo ──\n  Dups: 0\n";
         let result = normalize_aether_dump(input);
         assert!(result.starts_with("── fn foo ──"));
         assert!(!result.contains("Aether Memory Model Report"));
+        assert!(!result.contains("Aether Ownership Report"));
     }
 
     #[test]
@@ -456,7 +510,7 @@ b12(v3):
     fn aether_normalizes_sym_ids() {
         let input = "  - line 5: drop <sym:2000002>#5\n";
         let result = normalize_aether_dump(input);
-        assert!(result.contains("<sym>#5"));
+        assert!(result.contains("<sym>#N"));
         assert!(!result.contains("<sym:2000002>"));
     }
 
@@ -466,5 +520,20 @@ b12(v3):
         let result = normalize_aether_dump(input);
         assert!(result.contains("[Borrowed, Owned] (Inferred)"));
         assert!(result.contains("call sites: none"));
+    }
+
+    #[test]
+    fn aether_strips_build_progress_noise() {
+        let input = "Finished `dev` profile\n[1 of 7] Compiling  Assert\n[2 of 7] Cached     Flow.IO\n[3 of 7] Linking    forward_reference\nAether Ownership Report\n=======================\n── fn foo ──\n";
+        assert_eq!(normalize_aether_dump(input), "── fn foo ──");
+    }
+
+    #[test]
+    fn aether_normalizes_debug_ids() {
+        let input = "lam() ->\n  let <sym:2000008>#537 =\n    aether_call[] main#538(#4000790[synthetic]#790)\n";
+        assert_eq!(
+            normalize_aether_dump(input),
+            "lam() ->\n  let <sym>#N =\n    aether_call[] main#N(#N[synthetic]#N)"
+        );
     }
 }

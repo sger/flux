@@ -54,9 +54,10 @@ cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_s
 # With Core/Aether checkpoint capture
 cargo run -- parity-check tests/parity --capture-core --capture-aether
 
-# CI/release script
-scripts/check_parity.sh tests/parity examples/basics
-scripts/check_parity.sh --extended   # includes vm_cached, vm_strict, llvm_strict
+# CI/release parity commands
+cargo run -- parity-check tests/parity --ways vm,llvm
+cargo run -- parity-check examples/basics --ways vm,llvm
+cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
 ```
 
 ## How to debug a parity failure

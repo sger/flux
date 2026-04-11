@@ -28,7 +28,10 @@ typedef struct {
 /* ── Helpers ────────────────────────────────────────────────────────── */
 
 static FluxArray *array_ptr(int64_t val) {
-    return (FluxArray *)flux_untag_ptr(val);
+    if (!flux_is_ptr(val)) return NULL;
+    void *ptr = flux_untag_ptr(val);
+    if (!ptr || flux_obj_tag(ptr) != FLUX_OBJ_ARRAY) return NULL;
+    return (FluxArray *)ptr;
 }
 
 static int64_t array_tag(FluxArray *arr) {
@@ -46,6 +49,29 @@ static FluxArray *alloc_array(uint32_t capacity) {
     return arr;
 }
 
+static int64_t primop_type_error(const char *primop, uint32_t primop_len,
+                                 const char *expected, uint32_t expected_len,
+                                 int64_t actual) {
+    int64_t prefix = flux_string_new("primop ", 7);
+    int64_t primop_name = flux_string_new(primop, primop_len);
+    int64_t expected_prefix = flux_string_new(" expected ", 10);
+    int64_t expected_name = flux_string_new(expected, expected_len);
+    int64_t got_prefix = flux_string_new(", got ", 6);
+    int64_t actual_name = flux_type_of(actual);
+    int64_t message =
+        flux_string_concat(
+            flux_string_concat(
+                flux_string_concat(
+                    flux_string_concat(
+                        flux_string_concat(prefix, primop_name),
+                        expected_prefix),
+                    expected_name),
+                got_prefix),
+            actual_name);
+    flux_panic(message);
+    return FLUX_NONE;
+}
+
 /* ── Public API ─────────────────────────────────────────────────────── */
 
 int64_t flux_array_new(int64_t *elements, int32_t len) {
@@ -59,7 +85,9 @@ int64_t flux_array_new(int64_t *elements, int32_t len) {
 
 int64_t flux_array_len(int64_t arr_val) {
     FluxArray *arr = array_ptr(arr_val);
-    if (!arr) return flux_tag_int(0);
+    if (!arr) {
+        return primop_type_error("array_len", 9, "Array", 5, arr_val);
+    }
     return flux_tag_int((int64_t)arr->len);
 }
 

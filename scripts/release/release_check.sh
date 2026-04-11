@@ -14,7 +14,8 @@ run_cmd cargo fmt --all -- --check
 run_cmd cargo clippy --all-targets --all-features -- -D warnings
 run_cmd cargo test --all --all-features
 run_cmd cargo run -- --test examples/tests/array_test.flx
-run_cmd scripts/check_parity.sh --extended tests/parity examples/basics
+run_cmd cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
+run_cmd cargo run -- parity-check examples/basics --ways vm,llvm,vm_cached,vm_strict,llvm_strict
 
 echo
 echo "Release preflight passed."

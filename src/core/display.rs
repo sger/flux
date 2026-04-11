@@ -12,7 +12,6 @@ use super::{
     CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp,
     CoreProgram, CoreTag, CoreVarRef,
 };
-use crate::aether::borrow_infer::BorrowMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoreDisplayMode {
@@ -132,33 +131,6 @@ impl<'a> Formatter<'a> {
                 }
                 out.push(')');
             }
-            CoreExpr::AetherCall {
-                func,
-                args,
-                arg_modes,
-                ..
-            } => {
-                out.push_str("aether_call[");
-                for (i, mode) in arg_modes.iter().enumerate() {
-                    if i > 0 {
-                        out.push_str(", ");
-                    }
-                    out.push_str(match mode {
-                        BorrowMode::Borrowed => "borrowed",
-                        BorrowMode::Owned => "owned",
-                    });
-                }
-                out.push_str("] ");
-                self.write_expr(out, func, indent);
-                out.push('(');
-                for (i, a) in args.iter().enumerate() {
-                    if i > 0 {
-                        out.push_str(", ");
-                    }
-                    self.write_expr_inline(out, a, indent);
-                }
-                out.push(')');
-            }
             CoreExpr::Let { var, rhs, body, .. } => {
                 write!(out, "let {} = ", self.resolve_binder(var)).unwrap();
                 self.write_expr_inline(out, rhs, indent);
@@ -265,60 +237,6 @@ impl<'a> Formatter<'a> {
                 out.push_str("} with\n");
                 push_indent(out, indent + 2);
                 self.write_expr(out, body, indent + 2);
-            }
-            CoreExpr::Dup { var, body, .. } => {
-                write!(out, "dup {}", self.resolve_var(var)).unwrap();
-                out.push('\n');
-                push_indent(out, indent);
-                self.write_expr(out, body, indent);
-            }
-            CoreExpr::Drop { var, body, .. } => {
-                write!(out, "drop {}", self.resolve_var(var)).unwrap();
-                out.push('\n');
-                push_indent(out, indent);
-                self.write_expr(out, body, indent);
-            }
-            CoreExpr::Reuse {
-                token,
-                tag,
-                fields,
-                field_mask,
-                ..
-            } => {
-                write!(out, "reuse {} ", self.resolve_var(token)).unwrap();
-                self.write_tag(out, tag);
-                if !fields.is_empty() {
-                    out.push('(');
-                    for (i, f) in fields.iter().enumerate() {
-                        if i > 0 {
-                            out.push_str(", ");
-                        }
-                        self.write_expr_inline(out, f, indent);
-                    }
-                    out.push(')');
-                }
-                if let Some(mask) = field_mask {
-                    write!(out, " @mask={:#b}", mask).unwrap();
-                }
-            }
-            CoreExpr::DropSpecialized {
-                scrutinee,
-                unique_body,
-                shared_body,
-                ..
-            } => {
-                write!(out, "drop_spec {} {{", self.resolve_var(scrutinee)).unwrap();
-                out.push('\n');
-                push_indent(out, indent + 2);
-                out.push_str("unique -> ");
-                self.write_expr(out, unique_body, indent + 4);
-                out.push('\n');
-                push_indent(out, indent + 2);
-                out.push_str("shared -> ");
-                self.write_expr(out, shared_body, indent + 4);
-                out.push('\n');
-                push_indent(out, indent);
-                out.push('}');
             }
             CoreExpr::MemberAccess { object, member, .. } => {
                 self.write_expr_inline(out, object, indent);

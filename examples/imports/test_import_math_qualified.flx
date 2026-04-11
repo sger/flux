@@ -1,4 +1,4 @@
-// Run with: scripts/run_examples.sh imports/test_import_math_qualified.flx
+// Run with: cargo run -- examples/imports/test_import_math_qualified.flx
 // Or: cargo run -- --root examples examples/imports/test_import_math_qualified.flx
 
 import Modules.Math

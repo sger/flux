@@ -1894,7 +1894,7 @@ fn main() with IO {
 - All stdlib tests pass under the migrated form.
 - All `examples/` programs that used built-in classes still run on both backends.
 - A deprecation warning fires on any top-level `class` / `instance` in user code.
-- Parity check (`scripts/check_parity.sh`) passes on the full `examples/` tree.
+- Parity check (`cargo run -- parity-check examples`) passes on the full `examples/` tree.
 - Benchmark sweep shows no perf regression (`scripts/bench/bench.sh all`).
 
 **Files touched.**
@@ -2086,7 +2086,7 @@ Location: new fixture [examples/classes/mixed_module_body.flx](examples/classes/
 
 ### Parity across backends
 
-- Add the mixed-module example and the effect-row examples to [scripts/check_parity.sh](scripts/check_parity.sh) input directories so both VM and LLVM backends are validated in CI.
+- Add the mixed-module example and the effect-row examples to the maintained `cargo run -- parity-check ...` suites so both VM and LLVM backends are validated in CI.
 
 ### Regression
 
