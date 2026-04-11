@@ -91,7 +91,9 @@ fn rep_of_expr(expr: &CoreExpr) -> FluxRep {
             }
         }
         CoreExpr::Lam { .. } => FluxRep::BoxedRep,
-        CoreExpr::Let { body, .. } | CoreExpr::LetRec { body, .. } => rep_of_expr(body),
+        CoreExpr::Let { body, .. }
+        | CoreExpr::LetRec { body, .. }
+        | CoreExpr::LetRecGroup { body, .. } => rep_of_expr(body),
         _ => FluxRep::TaggedRep,
     }
 }
@@ -224,31 +226,6 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
             };
             wrap_lets(bindings, app, span)
         }
-        CoreExpr::AetherCall {
-            func,
-            args,
-            arg_modes,
-            span,
-        } => {
-            let mut bindings = Vec::new();
-            let func = anf_expr(*func, next_id);
-            let func = anf_atom(func, next_id, &mut bindings);
-            let args: Vec<CoreExpr> = args
-                .into_iter()
-                .map(|a| {
-                    let a = anf_expr(a, next_id);
-                    anf_atom(a, next_id, &mut bindings)
-                })
-                .collect();
-            let app = CoreExpr::AetherCall {
-                func: Box::new(func),
-                args,
-                arg_modes,
-                span,
-            };
-            wrap_lets(bindings, app, span)
-        }
-
         // Let — normalize RHS and body.
         CoreExpr::Let {
             var,
@@ -271,6 +248,20 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         } => CoreExpr::LetRec {
             var,
             rhs: Box::new(anf_expr(*rhs, next_id)),
+            body: Box::new(anf_expr(*body, next_id)),
+            span,
+        },
+
+        // LetRecGroup — normalize all RHS and body.
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => CoreExpr::LetRecGroup {
+            bindings: bindings
+                .into_iter()
+                .map(|(b, rhs)| (b, Box::new(anf_expr(*rhs, next_id))))
+                .collect(),
             body: Box::new(anf_expr(*body, next_id)),
             span,
         },
@@ -380,57 +371,6 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
                     h
                 })
                 .collect(),
-            span,
-        },
-
-        // Dup/Drop — recurse into body.
-        CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
-            var,
-            body: Box::new(anf_expr(*body, next_id)),
-            span,
-        },
-        CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
-            var,
-            body: Box::new(anf_expr(*body, next_id)),
-            span,
-        },
-
-        // Reuse — normalize fields to atoms (same as Con), keep token as-is.
-        CoreExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask,
-            span,
-        } => {
-            let mut bindings = Vec::new();
-            let fields: Vec<CoreExpr> = fields
-                .into_iter()
-                .map(|f| {
-                    let f = anf_expr(f, next_id);
-                    anf_atom(f, next_id, &mut bindings)
-                })
-                .collect();
-            let reuse = CoreExpr::Reuse {
-                token,
-                tag,
-                fields,
-                field_mask,
-                span,
-            };
-            wrap_lets(bindings, reuse, span)
-        }
-
-        // DropSpecialized — pass-through, recurse both branches.
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            span,
-        } => CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body: Box::new(anf_expr(*unique_body, next_id)),
-            shared_body: Box::new(anf_expr(*shared_body, next_id)),
             span,
         },
 

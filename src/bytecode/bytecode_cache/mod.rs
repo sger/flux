@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::bytecode::bytecode::Bytecode;
+use crate::{bytecode::bytecode::Bytecode, cache_paths};
 
 pub(crate) mod cache_serialization;
 pub(crate) mod cache_validation;
@@ -20,8 +20,7 @@ use cache_validation::{
 };
 
 const MAGIC: &[u8; 4] = b"FXBC";
-// Bumped for recursive constant serialization used by module bytecode caches.
-const FORMAT_VERSION: u16 = 10;
+const FORMAT_VERSION: u16 = crate::cache_paths::CACHE_EPOCH;
 
 pub struct BytecodeCache {
     dir: PathBuf,
@@ -244,25 +243,13 @@ impl BytecodeCache {
         Ok(())
     }
 
-    fn cache_path(&self, source_path: &Path, cache_key: &[u8; 32]) -> PathBuf {
-        let stem = source_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("module");
-        let filename = format!("{}-{}.fxc", stem, to_hex(cache_key));
+    pub fn cache_path(&self, source_path: &Path, cache_key: &[u8; 32]) -> PathBuf {
+        let filename = cache_paths::cache_key_filename(source_path, cache_key, "fxc");
         self.dir.join(filename)
     }
 }
 
 pub use cache_validation::{hash_bytes, hash_cache_key, hash_file};
-
-fn to_hex(bytes: &[u8; 32]) -> String {
-    let mut out = String::with_capacity(64);
-    for b in bytes {
-        out.push_str(&format!("{:02x}", b));
-    }
-    out
-}
 
 #[cfg(test)]
 mod cache_serialization_test;

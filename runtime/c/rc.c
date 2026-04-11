@@ -1,10 +1,10 @@
 /*
- * gc.c — Flux Aether RC: Perceus-inspired reference counting.
+ * rc.c — Flux Aether RC: Perceus-inspired reference counting.
  *
  * Inspired by Koka's kklib runtime (Perceus RC). Every heap-allocated
  * object has an 8-byte FluxHeader at ptr - 8 containing:
  *   - int32_t refcount    (1 = unique, >1 = shared)
- *   - uint8_t scan_fsize  (number of child NaN-boxed fields to scan on drop)
+ *   - uint8_t scan_fsize  (number of child tagged fields to scan on drop)
  *   - uint8_t obj_tag     (FLUX_OBJ_STRING, FLUX_OBJ_ARRAY, etc.)
  *   - uint16_t reserved
  *
@@ -23,7 +23,10 @@
  * flux_drop decrements; when it hits 0, recursively drops scan_fsize
  * child fields then frees the block.
  *
- * No mark-sweep GC. No arena. No root stack. Pure reference counting.
+ * Phase 7 (Proposal 0140): bump arena for fast-path allocation.
+ * A 1 MB arena is allocated once at init.  flux_gc_alloc_header tries
+ * to bump-allocate from the arena; on overflow it falls back to malloc.
+ * flux_drop skips free() for arena-resident objects (range check).
  */
 
 #include "flux_rt.h"
@@ -35,7 +38,7 @@
 
 typedef struct {
     int32_t  refcount;     /* 1 = unique, >1 = shared, 0 = ready to free */
-    uint8_t  scan_fsize;   /* number of child NaN-boxed fields to scan */
+    uint8_t  scan_fsize;   /* number of child tagged fields to scan */
     uint8_t  obj_tag;      /* FLUX_OBJ_STRING, FLUX_OBJ_ARRAY, etc. */
     uint16_t _reserved;
 } FluxHeader;
@@ -63,16 +66,56 @@ static inline size_t align_up(size_t n, size_t align) {
 static size_t gc_total_allocated = 0;
 static size_t gc_num_allocs      = 0;
 
+/* ── Bump Arena ───────────────────────────────────────────────────── */
+
+#define FLUX_ARENA_DEFAULT_SIZE  (1 << 20)  /* 1 MB */
+
+static char *arena_base = NULL;
+
+/*
+ * Exported bump pointers — shared between C runtime and LLVM inline
+ * allocation.  The LLVM fast path stores directly to flux_arena_hp,
+ * so the C runtime MUST use the same variable (not a private copy)
+ * to avoid allocating overlapping regions.
+ */
+char *flux_arena_hp    = NULL;
+char *flux_arena_limit = NULL;
+
+static inline int is_bump_allocated(void *hdr) {
+    return arena_base && (char *)hdr >= arena_base && (char *)hdr < flux_arena_limit;
+}
+
+static void arena_init(void) {
+    arena_base = (char *)malloc(FLUX_ARENA_DEFAULT_SIZE);
+    if (!arena_base) {
+        fprintf(stderr, "flux: failed to allocate bump arena (%d bytes)\n",
+                FLUX_ARENA_DEFAULT_SIZE);
+        abort();
+    }
+    flux_arena_hp    = arena_base;
+    flux_arena_limit = arena_base + FLUX_ARENA_DEFAULT_SIZE;
+}
+
 /* ── Allocation ────────────────────────────────────────────────────── */
 
 void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag) {
     size_t aligned = align_up((size_t)payload_size, FLUX_ALIGN);
     size_t total = FLUX_HEADER_SIZE + aligned;
 
-    FluxHeader *hdr = (FluxHeader *)malloc(total);
-    if (!hdr) {
-        fprintf(stderr, "flux_gc_alloc: out of memory (%u bytes)\n", payload_size);
-        abort();
+    FluxHeader *hdr;
+    char *new_ptr = flux_arena_hp + total;
+
+    if (arena_base && new_ptr <= flux_arena_limit) {
+        /* Fast path: bump allocation from the arena. */
+        hdr = (FluxHeader *)flux_arena_hp;
+        flux_arena_hp = new_ptr;
+    } else {
+        /* Slow path: fall back to malloc. */
+        hdr = (FluxHeader *)malloc(total);
+        if (!hdr) {
+            fprintf(stderr, "flux_gc_alloc: out of memory (%u bytes)\n", payload_size);
+            abort();
+        }
     }
 
     hdr->refcount   = 1;
@@ -98,18 +141,50 @@ void *flux_gc_alloc(uint32_t size) {
     return flux_gc_alloc_header(size, 0, 0);
 }
 
+/*
+ * Slow-path allocator for Phase 7b inline LLVM bump allocation.
+ * Called when the inline bump check fails (arena full or uninitialized).
+ * Uses malloc and initializes the header.
+ */
+void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag) {
+    size_t aligned = align_up((size_t)payload_size, FLUX_ALIGN);
+    size_t total = FLUX_HEADER_SIZE + aligned;
+
+    FluxHeader *hdr = (FluxHeader *)malloc(total);
+    if (!hdr) {
+        fprintf(stderr, "flux_bump_alloc_slow: out of memory (%u bytes)\n", payload_size);
+        abort();
+    }
+
+    hdr->refcount   = 1;
+    hdr->scan_fsize = scan_fsize;
+    hdr->obj_tag    = obj_tag;
+    hdr->_reserved  = 0;
+
+    void *payload = (char *)hdr + FLUX_HEADER_SIZE;
+    memset(payload, 0, aligned);
+
+    gc_total_allocated += aligned;
+    gc_num_allocs++;
+
+    return payload;
+}
+
 void flux_gc_free(void *ptr) {
     if (!ptr) return;
-    free((char *)ptr - FLUX_HEADER_SIZE);
+    FluxHeader *hdr = header_of(ptr);
+    if (!is_bump_allocated(hdr)) {
+        free(hdr);
+    }
 }
 
 /* ── Reference Counting ────────────────────────────────────────────── */
 
 /*
- * Word offset where scannable NaN-boxed fields start, per object type.
+ * Word offset where scannable tagged fields start, per object type.
  *
  * Each object type has a fixed-size prefix (metadata) before the
- * NaN-boxed fields that flux_drop should recursively scan.
+ * tagged fields that flux_drop should recursively scan.
  *
  * FluxString: { uint8_t tag, pad[3], uint32_t len, char data[] }
  *   → 0 scannable fields (data is raw bytes, scan_fsize should be 0)
@@ -124,13 +199,14 @@ void flux_gc_free(void *ptr) {
  *   → prefix = 8 bytes = 1 word, fields at offset 1
  *
  * BigInt:     { uint8_t tag, pad[7], int64_t value }
- *   → 0 scannable fields (value is raw int, not NaN-boxed)
+ *   → 0 scannable fields (value is raw int, not a tagged pointer)
  */
 static int flux_scan_offset(uint8_t obj_tag) {
     switch (obj_tag) {
         case FLUX_OBJ_ARRAY:  return 2;  /* skip tag+pad+len+cap+pad2 (16 bytes) */
         case FLUX_OBJ_TUPLE:  return 1;  /* skip tag+pad+arity (8 bytes) */
         case FLUX_OBJ_ADT:    return 1;  /* skip ctor_tag+field_count (8 bytes) */
+        case FLUX_OBJ_CLOSURE: return 3; /* skip fn_ptr + arity/count metadata (24 bytes) */
         default:              return 0;
     }
 }
@@ -143,6 +219,101 @@ void flux_dup(int64_t val) {
     hdr->refcount++;
 }
 
+/*
+ * Decrement refcount of a child field.  If the child becomes unique
+ * (refcount drops to 0), return it for further processing; otherwise
+ * return NULL.
+ */
+static inline void *flux_field_should_free(void *ptr, int field_idx) {
+    int64_t *fields = (int64_t *)ptr;
+    int64_t val = fields[field_idx];
+    if (!flux_is_ptr(val)) return NULL;
+    void *child = flux_untag_ptr(val);
+    if (!child) return NULL;
+    FluxHeader *hdr = header_of(child);
+    if (--hdr->refcount > 0) return NULL;
+    return child;
+}
+
+static inline void flux_block_free(void *ptr) {
+    FluxHeader *hdr = header_of(ptr);
+    if (!is_bump_allocated(hdr)) {
+        free(hdr);
+    }
+}
+
+/*
+ * Stackless recursive drop.
+ *
+ * Uses the _reserved field in FluxHeader to store the current field
+ * index during traversal, and overwrites field[0] with the parent
+ * pointer to maintain an explicit parent chain — no call stack needed.
+ *
+ * This prevents stack overflow when freeing deep structures like long
+ * lists (100K+ Cons cells).
+ */
+static void flux_drop_free_recx(void *ptr) {
+    void *parent = NULL;
+    uint16_t scan_fsize;
+    uint16_t i;
+
+    int offset;
+    int64_t *fields;
+
+move_down:
+    scan_fsize = header_of(ptr)->scan_fsize;
+    offset = flux_scan_offset(header_of(ptr)->obj_tag);
+    fields = (int64_t *)((char *)ptr + offset * 8);
+
+    if (scan_fsize == 0) {
+        /* Leaf node: free directly. */
+        flux_block_free(ptr);
+    }
+    else if (scan_fsize == 1) {
+        /* Single child: free block and tail-call into child. */
+        void *child = flux_field_should_free(fields, 0);
+        flux_block_free(ptr);
+        if (child) { ptr = child; goto move_down; }
+    }
+    else {
+        /* Multiple children: iterate fields, saving progress in header. */
+        i = 0;
+
+    scan_fields:
+        do {
+            void *child = flux_field_should_free(fields, i);
+            i++;
+            if (child) {
+                if (i < scan_fsize) {
+                    /* Save progress: parent pointer in field[0],
+                     * current index in _reserved. */
+                    fields[0] = (int64_t)parent;
+                    header_of(ptr)->_reserved = i;
+                    parent = ptr;
+                }
+                else {
+                    /* Last field: free block, continue with child. */
+                    flux_block_free(ptr);
+                }
+                ptr = child;
+                goto move_down;
+            }
+        } while (i < scan_fsize);
+        flux_block_free(ptr);
+    }
+
+    /* Move up along the parent chain. */
+    if (parent) {
+        ptr = parent;
+        offset = flux_scan_offset(header_of(ptr)->obj_tag);
+        fields = (int64_t *)((char *)ptr + offset * 8);
+        parent = (void *)fields[0];
+        scan_fsize = header_of(ptr)->scan_fsize;
+        i = (uint16_t)header_of(ptr)->_reserved;
+        goto scan_fields;
+    }
+}
+
 void flux_drop(int64_t val) {
     if (!flux_is_ptr(val)) return;
     void *ptr = flux_untag_ptr(val);
@@ -150,16 +321,11 @@ void flux_drop(int64_t val) {
     FluxHeader *hdr = header_of(ptr);
     if (--hdr->refcount > 0) return;
 
-    /* Recursively drop child NaN-boxed fields before freeing. */
     if (hdr->scan_fsize > 0) {
-        int offset = flux_scan_offset(hdr->obj_tag);
-        int64_t *fields = (int64_t *)((char *)ptr + offset * 8);
-        for (int i = 0; i < (int)hdr->scan_fsize; i++) {
-            flux_drop(fields[i]);
-        }
+        flux_drop_free_recx(ptr);
+    } else {
+        flux_block_free(ptr);
     }
-
-    free(hdr);
 }
 
 int flux_rc_is_unique(int64_t val) {
@@ -176,11 +342,16 @@ void flux_gc_init(size_t heap_size) {
     (void)heap_size;
     gc_total_allocated = 0;
     gc_num_allocs      = 0;
+    arena_init();
 }
 
 void flux_gc_shutdown(void) {
-    /* With Aether RC, all objects are freed when their refcount hits 0.
-     * Nothing to do at shutdown — no linked list to walk. */
+    if (arena_base) {
+        free(arena_base);
+        arena_base       = NULL;
+        flux_arena_hp    = NULL;
+        flux_arena_limit = NULL;
+    }
 }
 
 void flux_gc_collect(void) {

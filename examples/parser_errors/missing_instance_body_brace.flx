@@ -1,0 +1,16 @@
+// Missing `{` to begin instance body.
+//
+// Expected: E034 Missing Instance Body
+//   "Expected `{` to begin instance body."
+//   Help: "Instance declarations use `instance ClassName<Type> { fn method(...) { ... } }`."
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int>
+    fn size(x) { x }
+
+fn main() {
+    42
+}

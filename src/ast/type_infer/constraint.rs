@@ -1,7 +1,10 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{
     ast::type_infer::ReportContext,
     diagnostics::position::Span,
-    types::{infer_effect_row::InferEffectRow, infer_type::InferType},
+    syntax::Identifier,
+    types::{TypeVarId, infer_effect_row::InferEffectRow, infer_type::InferType},
 };
 
 /// A type constraint collected during HM inference.
@@ -16,8 +19,10 @@ use crate::{
 /// - [`Unify`](Constraint::Unify): two types must be equal
 /// - [`EffectSubset`](Constraint::EffectSubset): callee effects must be
 ///   available in the ambient scope
+/// - [`ClassConstraint`](Constraint::ClassConstraint): a type must have a
+///   type class instance (e.g., `Num<a>` from `x + y`)
 #[derive(Debug, Clone)]
-pub(super) enum Constraint {
+pub enum Constraint {
     /// `t1 = t2` — two types must unify at the given span.
     Unify {
         t1: InferType,
@@ -31,4 +36,67 @@ pub(super) enum Constraint {
         available: InferEffectRow,
         span: Span,
     },
+    /// A type must implement a type class (e.g., `Num<a>` from `x + y`).
+    ///
+    /// Generated when:
+    /// - An operator is used: `+` → `Num<a>`, `==` → `Eq<a>`
+    /// - A class method is called: `eq(x, y)` → `Eq<typeof(x)>`
+    ///
+    /// Currently recorded for observability. Step 4 (constraint solving) will
+    /// resolve these: concrete types are checked against known instances,
+    /// unresolved variables become part of the function's type scheme.
+    #[allow(dead_code)]
+    Class {
+        /// The class name (e.g., `Eq`, `Num`, `Show`).
+        class_name: Identifier,
+        /// The type(s) that must have an instance. Single-param classes have
+        /// one entry; multi-param classes (e.g., `Convert<a, b>`) have multiple.
+        type_args: Vec<InferType>,
+        /// Where in the source the constraint arose.
+        span: Span,
+    },
+}
+
+/// A collected class constraint exposed to downstream phases.
+///
+/// This is the public version of `Constraint::ClassConstraint`, suitable
+/// for inclusion in `InferProgramResult`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WantedClassConstraintOrigin {
+    ExplicitBound,
+    InferredOperator,
+    MethodCall,
+    SchemeUse,
+}
+
+#[derive(Debug, Clone)]
+pub struct WantedClassConstraint {
+    /// The class name (e.g., `Eq`, `Num`, `Show`).
+    pub class_name: Identifier,
+    /// The type(s) that must have an instance. Single-param classes have
+    /// one entry; multi-param classes (e.g., `Convert<a, b>`) have multiple.
+    pub type_args: Vec<InferType>,
+    /// Where in the source the constraint arose.
+    pub span: Span,
+    /// Why this constraint was emitted.
+    pub origin: WantedClassConstraintOrigin,
+    /// Whether the constraint was emitted from an already-concrete type.
+    pub originated_from_concrete_type: bool,
+}
+
+/// A class constraint attached to a type scheme.
+///
+/// Records that a quantified type variable must have a class instance.
+/// For example, `forall a. Eq<a> => a -> a -> Bool` has one `SchemeConstraint`
+/// with `class_name = Eq` and `type_var` pointing to `a`'s `TypeVarId`.
+///
+/// Used by dictionary elaboration (Proposal 0145, Step 5b) to determine
+/// which dictionary parameters a polymorphic function requires.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchemeConstraint {
+    /// The class name (e.g., `Eq`, `Num`).
+    pub class_name: Identifier,
+    /// The quantified type variable(s) that are constrained. Single-param
+    /// classes have one entry; multi-param classes have multiple.
+    pub type_vars: Vec<TypeVarId>,
 }

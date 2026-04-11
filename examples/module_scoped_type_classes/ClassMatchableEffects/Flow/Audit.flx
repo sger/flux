@@ -1,0 +1,5 @@
+module ClassMatchableEffects.Flow.Audit {
+    effect Audit {
+        mark: String -> Unit
+    }
+}

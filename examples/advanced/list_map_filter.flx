@@ -1,3 +1,5 @@
+import Flow.Map as Map
+
 // Test: Advanced list processing with map, filter, fold
 // Expected output:
 // === Base map/filter/fold on lists ===
@@ -88,7 +90,7 @@ fn main() with IO {
 
     // Fold a list of words into a {word: length} map
     let words = ["alice", "bob", "charlie"];
-    let lengths = fold(words, {}, \(acc, w) -> put(acc, w, len(w)));
+    let lengths = fold(words, {}, \(acc, w) -> Map.set(acc, w, len(w)));
     print(lengths);  // {"bob": 3, "charlie": 7, "alice": 5}
 
     // =============================================================================

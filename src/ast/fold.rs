@@ -170,17 +170,51 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             span,
         },
         Statement::Data {
+            is_public,
             name,
             type_params,
             variants,
             span,
+            deriving,
         } => Statement::Data {
+            is_public,
             name,
             type_params,
             variants,
             span,
+            deriving,
         },
         Statement::EffectDecl { name, ops, span } => Statement::EffectDecl { name, ops, span },
+        Statement::Class {
+            is_public,
+            name,
+            type_params,
+            superclasses,
+            methods,
+            span,
+        } => Statement::Class {
+            is_public,
+            name,
+            type_params,
+            superclasses,
+            methods,
+            span,
+        },
+        Statement::Instance {
+            is_public,
+            class_name,
+            type_args,
+            context,
+            methods,
+            span,
+        } => Statement::Instance {
+            is_public,
+            class_name,
+            type_args,
+            context,
+            methods,
+            span,
+        },
     }
 }
 

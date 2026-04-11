@@ -62,7 +62,7 @@ fn repeat_solve(n, steps, checksum) {
 }
 }
 
-let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
+let lines = to_list(read_lines("examples/aoc/2025/aoc_day1.txt"))
 let steps = parse_rotations(lines, None)
 let iterations = 200
 
@@ -74,6 +74,6 @@ print("iterations:")
 print(iterations)
 print("checksum:")
 print(checksum)
-print("elapsed_ms:")
-print(t1 - t0)
+// print("elapsed_ms:")
+// print(t1 - t0)
 }

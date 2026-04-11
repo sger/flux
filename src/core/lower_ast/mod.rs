@@ -14,11 +14,14 @@
 ///
 /// All surface Flux constructs (sugar, n-ary functions, multi-argument calls,
 /// pattern matching, effects) are desugared into the ~12-variant `CoreExpr`.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
+    ast::free_vars::collect_free_vars_in_function_body,
     diagnostics::position::Span,
-    syntax::{block::Block, expression::ExprId, program::Program, statement::Statement},
+    syntax::{
+        Identifier, block::Block, expression::ExprId, program::Program, statement::Statement,
+    },
     types::infer_type::InferType,
 };
 
@@ -30,6 +33,10 @@ mod pattern;
 
 use binder_resolution::{resolve_program_binders, validate_program_binders};
 
+/// Pre-resolved effect operation signatures: `(effect, operation) → (param_types, return_type)`.
+/// Used by the lowerer to assign `FluxRep` to handler arm binders.
+pub type EffectOpSigs = HashMap<(Identifier, Identifier), (Vec<InferType>, InferType)>;
+
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /// Lower a typed Flux `Program` into a `CoreProgram`.
@@ -40,7 +47,64 @@ pub fn lower_program_ast(
     program: &Program,
     hm_expr_types: &HashMap<ExprId, InferType>,
 ) -> CoreProgram {
-    let mut lowerer = AstLowerer::new(hm_expr_types);
+    lower_program_ast_with_interner(program, hm_expr_types, None)
+}
+
+/// Lower with an optional interner for resolving source-level type annotations
+/// on function return types.  When the interner is available, annotated return
+/// types (e.g. `-> Int`) can fill in `CoreDef::result_ty` even when HM
+/// inference leaves the type unresolved (common for recursive functions).
+pub fn lower_program_ast_with_interner(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&crate::syntax::interner::Interner>,
+) -> CoreProgram {
+    lower_program_ast_full(program, hm_expr_types, interner, None)
+}
+
+/// Lower with both interner and TypeEnv for typed binder creation.
+/// When the TypeEnv is available, function parameters get their FluxRep
+/// from HM-inferred types instead of defaulting to TaggedRep.
+pub fn lower_program_ast_full(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&crate::syntax::interner::Interner>,
+    type_env: Option<&crate::types::type_env::TypeEnv>,
+) -> CoreProgram {
+    lower_program_ast_complete(program, hm_expr_types, interner, type_env, None)
+}
+
+/// Lower with interner, TypeEnv, and effect op signatures for fully typed binders.
+/// This is the most complete entry point — all optional context is available.
+pub fn lower_program_ast_complete(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&crate::syntax::interner::Interner>,
+    type_env: Option<&crate::types::type_env::TypeEnv>,
+    effect_op_sigs: Option<&EffectOpSigs>,
+) -> CoreProgram {
+    lower_program_ast_with_class_env(
+        program,
+        hm_expr_types,
+        interner,
+        type_env,
+        effect_op_sigs,
+        None,
+    )
+}
+
+/// Lower with all context including ClassEnv for compile-time class method dispatch.
+/// When ClassEnv is available, calls to class methods are resolved to mangled
+/// instance functions at compile time, eliminating runtime `type_of()` dispatch.
+pub fn lower_program_ast_with_class_env(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&crate::syntax::interner::Interner>,
+    type_env: Option<&crate::types::type_env::TypeEnv>,
+    effect_op_sigs: Option<&EffectOpSigs>,
+    class_env: Option<&crate::types::class_env::ClassEnv>,
+) -> CoreProgram {
+    let mut lowerer = AstLowerer::new(hm_expr_types, interner, type_env, effect_op_sigs, class_env);
     let mut defs = Vec::new();
     let mut top_level_items = Vec::new();
     for stmt in &program.statements {
@@ -66,14 +130,32 @@ pub(super) struct AstLowerer<'a> {
     /// Counter for synthesizing fresh binding names.
     pub(super) fresh: u32,
     pub(super) next_binder_id: u32,
+    /// Optional interner for resolving source-level type annotations.
+    pub(super) interner: Option<&'a crate::syntax::interner::Interner>,
+    /// Optional TypeEnv for looking up function parameter types (Phase 7).
+    type_env: Option<&'a crate::types::type_env::TypeEnv>,
+    /// Optional effect op signatures for typed handler binders (Phase 7f).
+    pub(super) effect_op_sigs: Option<&'a EffectOpSigs>,
+    /// Optional ClassEnv for compile-time class method dispatch (Phase 4 Step 5).
+    pub(super) class_env: Option<&'a crate::types::class_env::ClassEnv>,
 }
 
 impl<'a> AstLowerer<'a> {
-    fn new(hm_expr_types: &'a HashMap<ExprId, InferType>) -> Self {
+    fn new(
+        hm_expr_types: &'a HashMap<ExprId, InferType>,
+        interner: Option<&'a crate::syntax::interner::Interner>,
+        type_env: Option<&'a crate::types::type_env::TypeEnv>,
+        effect_op_sigs: Option<&'a EffectOpSigs>,
+        class_env: Option<&'a crate::types::class_env::ClassEnv>,
+    ) -> Self {
         Self {
             hm_expr_types,
             fresh: 0,
             next_binder_id: 0,
+            interner,
+            type_env,
+            effect_op_sigs,
+            class_env,
         }
     }
 
@@ -107,6 +189,60 @@ impl<'a> AstLowerer<'a> {
         self.bind_name(name)
     }
 
+    /// Create a binder with a rep derived from a known `InferType`.
+    pub(super) fn bind_name_with_type(
+        &mut self,
+        name: crate::syntax::Identifier,
+        ty: &InferType,
+    ) -> CoreBinder {
+        let id = super::CoreBinderId(self.next_binder_id);
+        self.next_binder_id += 1;
+        let rep = super::FluxRep::from_infer_type(ty);
+        CoreBinder::with_rep(id, name, rep)
+    }
+
+    /// Create typed binders for lambda parameters by extracting param types
+    /// from the lambda's HM-inferred function type.
+    pub(super) fn bind_lambda_params(
+        &mut self,
+        parameters: &[crate::syntax::Identifier],
+        lambda_expr_id: crate::syntax::expression::ExprId,
+    ) -> Vec<CoreBinder> {
+        if let Some(fn_ty) = self.hm_expr_types.get(&lambda_expr_id) {
+            let param_types = fn_ty.param_types();
+            if param_types.len() == parameters.len() && !param_types.is_empty() {
+                return parameters
+                    .iter()
+                    .zip(param_types)
+                    .map(|(&p, ty)| self.bind_name_with_type(p, ty))
+                    .collect();
+            }
+        }
+        parameters.iter().map(|&p| self.bind_name(p)).collect()
+    }
+
+    /// Look up a function's parameter types from the TypeEnv and create
+    /// typed binders. Falls back to untyped binders if TypeEnv is unavailable.
+    fn bind_fn_params(
+        &mut self,
+        fn_name: crate::syntax::Identifier,
+        parameters: &[crate::syntax::Identifier],
+    ) -> Vec<CoreBinder> {
+        // Try to get parameter types from the function's HM scheme.
+        if let Some(scheme) = self.type_env.and_then(|env| env.lookup(fn_name)) {
+            let param_types = scheme.infer_type.param_types();
+            if param_types.len() == parameters.len() && !param_types.is_empty() {
+                return parameters
+                    .iter()
+                    .zip(param_types)
+                    .map(|(&p, ty)| self.bind_name_with_type(p, ty))
+                    .collect();
+            }
+        }
+        // Fallback: untyped binders
+        parameters.iter().map(|&p| self.bind_name(p)).collect()
+    }
+
     /// Allocate a fresh synthetic `Identifier` for compiler-generated bindings.
     /// Used by future passes that need to introduce new named temporaries.
     #[allow(dead_code)]
@@ -126,9 +262,272 @@ impl<'a> AstLowerer<'a> {
         self.hm_expr_types.get(&id)
     }
 
+    /// Try to resolve a class method call to a mangled instance function.
+    ///
+    /// If `name` is a known class method, and the first argument's type is
+    /// known (concrete, not a type variable), resolves to `__tc_{Class}_{Type}_{method}`.
+    /// Returns `None` if resolution fails (unknown type, no instance, no ClassEnv).
+    pub(super) fn try_resolve_class_call(
+        &self,
+        name: Identifier,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Option<Identifier> {
+        let class_env = self.class_env?;
+        let interner = self.interner?;
+
+        // Check if this name is a class method.
+        let (class_name, _class_def) = class_env.method_to_class(name)?;
+
+        // Try compile-time resolution: if the first argument's type is concrete,
+        // find the matching instance and build the mangled name from all of
+        // the instance's type args (supporting multi-param classes).
+        if let Some(first_arg) = arguments.first()
+            && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
+            && let Some((instance, _concrete_type_args)) = class_env
+                .resolve_method_call_instance_from_first_arg(class_name, first_arg_type, interner)
+        {
+            // Build mangled name from the instance head exactly as dispatch
+            // generation does. This preserves higher-kinded heads such as
+            // `Functor<List>` while still allowing first-argument instance
+            // selection for multi-parameter classes like `Convert<Int, String>`.
+            let type_key = instance
+                .type_args
+                .iter()
+                .map(|a| a.display_with(interner))
+                .collect::<Vec<_>>()
+                .join("_");
+            let class_str = interner.resolve(class_name);
+            let method_str = interner.resolve(name);
+            let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+            if let Some(sym) = interner.lookup(&mangled) {
+                return Some(sym);
+            }
+        }
+
+        // No compile-time resolution possible — return None.
+        // Dictionary elaboration handles polymorphic calls via dict params.
+        None
+    }
+
+    pub(super) fn try_resolve_class_call_expr(
+        &self,
+        function: &crate::syntax::expression::Expression,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Option<Identifier> {
+        match function {
+            crate::syntax::expression::Expression::Identifier { name, .. } => {
+                self.try_resolve_class_call(*name, arguments)
+            }
+            crate::syntax::expression::Expression::MemberAccess { object, member, .. } => {
+                let crate::syntax::expression::Expression::Identifier { .. } = object.as_ref()
+                else {
+                    return None;
+                };
+                self.try_resolve_class_call(*member, arguments)
+            }
+            _ => None,
+        }
+    }
+
+    pub(super) fn resolve_direct_class_call_dict_args(
+        &self,
+        method_name: Identifier,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Vec<CoreExpr> {
+        let (class_env, interner) = match (self.class_env, self.interner) {
+            (Some(class_env), Some(interner)) => (class_env, interner),
+            _ => return Vec::new(),
+        };
+        let Some((class_name, _)) = class_env.method_to_class(method_name) else {
+            return Vec::new();
+        };
+        let Some(first_arg) = arguments.first() else {
+            return Vec::new();
+        };
+        let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id()) else {
+            return Vec::new();
+        };
+
+        class_env
+            .resolve_instance_context_dictionaries(
+                class_name,
+                std::slice::from_ref(first_arg_type),
+                interner,
+            )
+            .map(|dicts| dicts.iter().map(Self::lower_dictionary_ref).collect())
+            .unwrap_or_default()
+    }
+
+    /// Resolve concrete dictionary arguments for a call to a constrained function.
+    ///
+    /// Looks up the callee's `Scheme` in the type environment. If it has class
+    /// constraints, determines which concrete dictionaries to pass by examining
+    /// the HM-inferred types at the call site.
+    ///
+    /// Returns a (possibly empty) vector of `CoreExpr::Var(__dict_{Class}_{Type})`
+    /// for each constraint that could be resolved to a concrete dictionary.
+    pub(super) fn resolve_dict_args_for_call(
+        &self,
+        callee_name: Identifier,
+        call_id: ExprId,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Vec<CoreExpr> {
+        let (type_env, class_env, interner) = match (self.type_env, self.class_env, self.interner) {
+            (Some(te), Some(ce), Some(int)) => (te, ce, int),
+            _ => return Vec::new(),
+        };
+
+        let scheme = match type_env.lookup(callee_name) {
+            Some(s) if !s.constraints.is_empty() => s,
+            _ => return Vec::new(),
+        };
+
+        // For each constraint on the callee, try to determine the concrete type
+        // by looking at the argument types at this call site.
+        let mut dict_args = Vec::new();
+        for constraint in &scheme.constraints {
+            if let Some(actual_type_args) =
+                self.resolve_constraint_type_args(constraint, scheme, call_id, arguments)
+                && let Some(dict_ref) = class_env.resolve_dictionary_ref(
+                    constraint.class_name,
+                    &actual_type_args,
+                    interner,
+                )
+            {
+                dict_args.push(Self::lower_dictionary_ref(&dict_ref));
+                continue;
+            }
+
+            // Could not resolve — don't partially apply dictionaries.
+            return Vec::new();
+        }
+
+        dict_args
+    }
+
+    /// Try to determine the concrete type for a constraint's type variable
+    /// by examining the argument types at a call site.
+    ///
+    /// For `fn contains<a: Eq>(xs: List<a>, elem: a)` called with `([1,2,3], 2)`,
+    /// the constraint `Eq<a>` has `type_var` matching `a`. We look at the arguments'
+    /// HM types and find `a = Int`.
+    fn resolve_constraint_type_args(
+        &self,
+        constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
+        scheme: &crate::types::scheme::Scheme,
+        call_id: ExprId,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Option<Vec<InferType>> {
+        if let InferType::Fun(param_tys, ret_ty, _) = &scheme.infer_type {
+            let param_offset = param_tys.len().saturating_sub(arguments.len());
+            let call_result_ty = self.hm_expr_types.get(&call_id);
+            let mut resolved = Vec::with_capacity(constraint.type_vars.len());
+            for type_var in &constraint.type_vars {
+                let mut found = None;
+                for (i, param_ty) in param_tys.iter().enumerate().skip(param_offset) {
+                    if let Some(arg) = arguments.get(i - param_offset)
+                        && let Some(arg_ty) = self.hm_expr_types.get(&arg.expr_id())
+                        && let Some(actual) =
+                            Self::match_constraint_type_var(param_ty, arg_ty, *type_var)
+                    {
+                        found = Some(actual);
+                        break;
+                    }
+                }
+                if found.is_none()
+                    && let Some(actual_ret_ty) = call_result_ty
+                    && let Some(actual) =
+                        Self::match_constraint_type_var(ret_ty, actual_ret_ty, *type_var)
+                {
+                    found = Some(actual);
+                }
+                resolved.push(found?);
+            }
+            return Some(resolved);
+        }
+
+        None
+    }
+
+    fn match_constraint_type_var(
+        pattern: &InferType,
+        actual: &InferType,
+        target: crate::types::TypeVarId,
+    ) -> Option<InferType> {
+        match pattern {
+            InferType::Var(var) if *var == target => Some(actual.clone()),
+            InferType::App(pattern_ctor, pattern_args) => {
+                let InferType::App(actual_ctor, actual_args) = actual else {
+                    return None;
+                };
+                if pattern_ctor != actual_ctor || pattern_args.len() != actual_args.len() {
+                    return None;
+                }
+                pattern_args
+                    .iter()
+                    .zip(actual_args.iter())
+                    .find_map(|(pattern_arg, actual_arg)| {
+                        Self::match_constraint_type_var(pattern_arg, actual_arg, target)
+                    })
+            }
+            InferType::Tuple(pattern_elems) => {
+                let InferType::Tuple(actual_elems) = actual else {
+                    return None;
+                };
+                if pattern_elems.len() != actual_elems.len() {
+                    return None;
+                }
+                pattern_elems.iter().zip(actual_elems.iter()).find_map(
+                    |(pattern_elem, actual_elem)| {
+                        Self::match_constraint_type_var(pattern_elem, actual_elem, target)
+                    },
+                )
+            }
+            _ => None,
+        }
+    }
+
+    fn lower_dictionary_ref(dict_ref: &crate::types::class_env::ResolvedDictionaryRef) -> CoreExpr {
+        let span = crate::diagnostics::position::Span::default();
+        if dict_ref.context_args.is_empty() {
+            return CoreExpr::external_var(dict_ref.dict_name, span);
+        }
+
+        CoreExpr::App {
+            func: Box::new(CoreExpr::external_var(dict_ref.dict_name, span)),
+            args: dict_ref
+                .context_args
+                .iter()
+                .map(Self::lower_dictionary_ref)
+                .collect(),
+            span,
+        }
+    }
+
     /// Convert an HM-inferred expression type to a `CoreType`, if available.
     fn infer_core_type(&self, id: ExprId) -> Option<super::CoreType> {
         self.hm_expr_types.get(&id).map(super::CoreType::from_infer)
+    }
+
+    /// Convert a source-level type annotation to a `CoreType`, if the interner
+    /// is available and the annotation is a simple named type (Int, Float, etc.).
+    fn core_type_from_type_expr(
+        &self,
+        type_expr: &crate::syntax::type_expr::TypeExpr,
+    ) -> Option<super::CoreType> {
+        let interner = self.interner?;
+        match type_expr {
+            crate::syntax::type_expr::TypeExpr::Named { name, args, .. } if args.is_empty() => {
+                match interner.resolve(*name) {
+                    "Int" => Some(super::CoreType::Int),
+                    "Float" => Some(super::CoreType::Float),
+                    "Bool" => Some(super::CoreType::Bool),
+                    "String" => Some(super::CoreType::String),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
     }
 
     // ── Top-level statements ─────────────────────────────────────────────────
@@ -150,10 +549,11 @@ impl<'a> AstLowerer<'a> {
                 body,
                 fip,
                 span,
+                return_type,
                 ..
             } => {
                 let binder = self.bind_name(*name);
-                let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                let params = self.bind_fn_params(*name, parameters);
                 let body_expr = self.lower_block(body);
                 // Always wrap in Lam, even for parameterless functions — the
                 // Core→IR lowerer uses the Lam marker to distinguish function
@@ -178,6 +578,16 @@ impl<'a> AstLowerer<'a> {
                 ) = body.statements.last()
                 {
                     def.result_ty = self.infer_core_type(expression.expr_id());
+                }
+                // If HM didn't resolve the result type, fall back to the
+                // source return-type annotation.  This is critical for
+                // recursive functions where HM may leave the return type as
+                // an unresolved variable.
+                if (def.result_ty.is_none() || matches!(def.result_ty, Some(super::CoreType::Any)))
+                    && let Some(rt) = return_type
+                    && let Some(annotated_ty) = self.core_type_from_type_expr(rt)
+                {
+                    def.result_ty = Some(annotated_ty);
                 }
                 out.push(def);
             }
@@ -248,7 +658,11 @@ impl<'a> AstLowerer<'a> {
                 self.lower_functions_in_module(&body.statements, out);
             }
 
-            Statement::Import { .. } | Statement::Data { .. } | Statement::EffectDecl { .. } => {}
+            Statement::Import { .. }
+            | Statement::Data { .. }
+            | Statement::EffectDecl { .. }
+            | Statement::Class { .. }
+            | Statement::Instance { .. } => {}
         }
     }
 
@@ -263,7 +677,7 @@ impl<'a> AstLowerer<'a> {
                     ..
                 } => {
                     let binder = self.bind_name(*name);
-                    let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                    let params = self.bind_fn_params(*name, parameters);
                     let body_expr = self.lower_block(body);
                     let expr = CoreExpr::Lam {
                         params,
@@ -296,7 +710,7 @@ impl<'a> AstLowerer<'a> {
             } => Some(CoreTopLevelItem::Function {
                 is_public: *is_public,
                 name: *name,
-                type_params: type_params.clone(),
+                type_params: Statement::function_type_param_names(type_params),
                 parameters: parameters.clone(),
                 parameter_types: parameter_types.clone(),
                 return_type: return_type.clone(),
@@ -326,10 +740,14 @@ impl<'a> AstLowerer<'a> {
                 span: *span,
             }),
             Statement::Data {
+                // Proposal 0151: ADT visibility is enforced at the class
+                // visibility walker; Core IR is visibility-blind.
+                is_public: _,
                 name,
                 type_params,
                 variants,
                 span,
+                deriving: _,
             } => Some(CoreTopLevelItem::Data {
                 name: *name,
                 type_params: type_params.clone(),
@@ -339,6 +757,38 @@ impl<'a> AstLowerer<'a> {
             Statement::EffectDecl { name, ops, span } => Some(CoreTopLevelItem::EffectDecl {
                 name: *name,
                 ops: ops.clone(),
+                span: *span,
+            }),
+            Statement::Class {
+                // Proposal 0151: Core IR is currently visibility-blind. Phase
+                // 2 will revisit whether `CoreTopLevelItem::Class` needs to
+                // carry visibility for `.flxi` serialization; until then we
+                // drop the field at the AST→Core boundary.
+                is_public: _,
+                name,
+                type_params,
+                superclasses,
+                methods,
+                span,
+            } => Some(CoreTopLevelItem::Class {
+                name: *name,
+                type_params: type_params.clone(),
+                superclasses: superclasses.clone(),
+                methods: methods.clone(),
+                span: *span,
+            }),
+            Statement::Instance {
+                is_public: _,
+                class_name,
+                type_args,
+                context,
+                methods,
+                span,
+            } => Some(CoreTopLevelItem::Instance {
+                class_name: *class_name,
+                type_args: type_args.clone(),
+                context: context.clone(),
+                methods: methods.clone(),
                 span: *span,
             }),
             Statement::Let { .. }
@@ -379,11 +829,151 @@ impl<'a> AstLowerer<'a> {
     }
 
     /// Lower the full statement slice by prepending one statement at a time.
+    ///
+    /// Detects runs of consecutive function statements that form mutual
+    /// recursion groups (any function references a sibling defined later)
+    /// and emits `LetRecGroup` for those instead of nested `LetRec`s.
     fn prepend_stmts(&mut self, stmts: &[Statement], body: CoreExpr, span: Span) -> CoreExpr {
-        stmts
+        // Process statements right-to-left, but handle mutual recursion
+        // groups using SCC (Strongly Connected Component) analysis.
+        let mut result = body;
+        let mut i = stmts.len();
+        while i > 0 {
+            i -= 1;
+            if matches!(stmts[i], Statement::Function { .. }) {
+                // Found a function. Scan backward for a contiguous run.
+                let run_end = i + 1;
+                let mut run_start = i;
+                while run_start > 0 && matches!(stmts[run_start - 1], Statement::Function { .. }) {
+                    run_start -= 1;
+                }
+                let fn_run = &stmts[run_start..run_end];
+                if fn_run.len() >= 2 {
+                    // Compute SCCs to partition into minimal binding groups.
+                    result = self.lower_fn_run_with_scc(fn_run, result, span);
+                } else {
+                    result = self.prepend_one_stmt(&stmts[run_start], result, span);
+                }
+                i = run_start;
+            } else {
+                result = self.prepend_one_stmt(&stmts[i], result, span);
+            }
+        }
+        result
+    }
+
+    /// Partition a contiguous run of function definitions into minimal
+    /// binding groups using Tarjan's SCC algorithm, then lower each group.
+    ///
+    /// This replaces the conservative "group all if any forward reference"
+    /// strategy with precise dependency analysis. Functions that don't
+    /// participate in cycles become individual `LetRec` bindings that
+    /// downstream passes (inliner, dead code elimination) can optimize.
+    fn lower_fn_run_with_scc(
+        &mut self,
+        fn_stmts: &[Statement],
+        tail: CoreExpr,
+        span: Span,
+    ) -> CoreExpr {
+        // Step 1: Collect function names and their dependencies on siblings.
+        let mut names: Vec<crate::syntax::Identifier> = Vec::new();
+        let mut stmt_by_name: HashMap<crate::syntax::Identifier, &Statement> = HashMap::new();
+        let mut deps: HashMap<crate::syntax::Identifier, HashSet<crate::syntax::Identifier>> =
+            HashMap::new();
+
+        let name_set: HashSet<crate::syntax::Identifier> = fn_stmts
             .iter()
-            .rev()
-            .fold(body, |acc, stmt| self.prepend_one_stmt(stmt, acc, span))
+            .filter_map(|s| {
+                if let Statement::Function { name, .. } = s {
+                    Some(*name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for stmt in fn_stmts {
+            if let Statement::Function {
+                name,
+                parameters,
+                body,
+                ..
+            } = stmt
+            {
+                names.push(*name);
+                stmt_by_name.insert(*name, stmt);
+                let fv = collect_free_vars_in_function_body(parameters, body);
+                // Only keep dependencies on siblings in this run.
+                let sibling_deps: HashSet<crate::syntax::Identifier> =
+                    fv.into_iter().filter(|v| name_set.contains(v)).collect();
+                deps.insert(*name, sibling_deps);
+            }
+        }
+
+        // Step 2: Compute SCCs via Tarjan's algorithm.
+        let sccs = tarjan_scc(&names, &deps);
+
+        // Step 3: Emit bindings in dependency order (SCCs are returned
+        // in reverse topological order — dependencies come first).
+        // We process right-to-left to build nested lets.
+        let mut result = tail;
+        for scc in sccs.iter().rev() {
+            if scc.len() == 1 {
+                // Single function — emit as individual LetRec.
+                let name = scc[0];
+                let stmt = stmt_by_name[&name];
+                result = self.prepend_one_stmt(stmt, result, span);
+            } else {
+                // Multiple functions in a cycle — emit as LetRecGroup.
+                let group_stmts: Vec<&Statement> = scc.iter().map(|n| stmt_by_name[n]).collect();
+                result = self.lower_scc_group(&group_stmts, result);
+            }
+        }
+        result
+    }
+
+    /// Lower a multi-function SCC as a `LetRecGroup`.
+    fn lower_scc_group(&mut self, stmts: &[&Statement], tail: CoreExpr) -> CoreExpr {
+        let span = stmts
+            .first()
+            .map(|s| match s {
+                Statement::Function { span, .. } => *span,
+                _ => Span::default(),
+            })
+            .unwrap_or_default();
+
+        let bindings: Vec<_> = stmts
+            .iter()
+            .map(|stmt| {
+                let Statement::Function {
+                    name,
+                    parameters,
+                    body,
+                    span: s,
+                    ..
+                } = stmt
+                else {
+                    unreachable!("lower_scc_group called with non-function statement");
+                };
+                let binder = self.bind_name(*name);
+                let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                let body_expr = self.lower_block(body);
+                (
+                    binder,
+                    Box::new(CoreExpr::Lam {
+                        params,
+                        body: Box::new(body_expr),
+                        span: *s,
+                    }),
+                )
+            })
+            .collect();
+
+        CoreExpr::LetRecGroup {
+            bindings,
+            body: Box::new(tail),
+            span,
+        }
     }
 
     fn prepend_stmt(
@@ -528,7 +1118,9 @@ impl<'a> AstLowerer<'a> {
             Statement::Import { .. }
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
-            | Statement::Module { .. } => tail,
+            | Statement::Module { .. }
+            | Statement::Class { .. }
+            | Statement::Instance { .. } => tail,
         }
     }
 
@@ -575,6 +1167,111 @@ impl<'a> AstLowerer<'a> {
     }
 }
 
+// ── Tarjan's SCC algorithm ─────────────────────────────────────────────────
+
+/// Compute strongly connected components of a function dependency graph
+/// using Tarjan's algorithm. Returns SCCs in reverse topological order
+/// (dependencies before dependents).
+///
+/// Each function name maps to a set of sibling function names it references.
+/// Single-element SCCs that are not self-referencing represent non-recursive
+/// functions; multi-element SCCs represent true mutual recursion.
+fn tarjan_scc(
+    names: &[crate::syntax::Identifier],
+    deps: &HashMap<crate::syntax::Identifier, HashSet<crate::syntax::Identifier>>,
+) -> Vec<Vec<crate::syntax::Identifier>> {
+    let n = names.len();
+    let name_to_idx: HashMap<crate::syntax::Identifier, usize> =
+        names.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+
+    let mut index_counter: usize = 0;
+    let mut indices = vec![usize::MAX; n];
+    let mut lowlinks = vec![0usize; n];
+    let mut on_stack = vec![false; n];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut result: Vec<Vec<crate::syntax::Identifier>> = Vec::new();
+
+    #[allow(clippy::too_many_arguments)]
+    fn strongconnect(
+        v: usize,
+        names: &[crate::syntax::Identifier],
+        deps: &HashMap<crate::syntax::Identifier, HashSet<crate::syntax::Identifier>>,
+        name_to_idx: &HashMap<crate::syntax::Identifier, usize>,
+        index_counter: &mut usize,
+        indices: &mut [usize],
+        lowlinks: &mut [usize],
+        on_stack: &mut [bool],
+        stack: &mut Vec<usize>,
+        result: &mut Vec<Vec<crate::syntax::Identifier>>,
+    ) {
+        indices[v] = *index_counter;
+        lowlinks[v] = *index_counter;
+        *index_counter += 1;
+        stack.push(v);
+        on_stack[v] = true;
+
+        // Visit successors.
+        if let Some(v_deps) = deps.get(&names[v]) {
+            for dep in v_deps {
+                if let Some(&w) = name_to_idx.get(dep) {
+                    if indices[w] == usize::MAX {
+                        // w not yet visited — recurse.
+                        strongconnect(
+                            w,
+                            names,
+                            deps,
+                            name_to_idx,
+                            index_counter,
+                            indices,
+                            lowlinks,
+                            on_stack,
+                            stack,
+                            result,
+                        );
+                        lowlinks[v] = lowlinks[v].min(lowlinks[w]);
+                    } else if on_stack[w] {
+                        // w is on the stack — part of current SCC.
+                        lowlinks[v] = lowlinks[v].min(indices[w]);
+                    }
+                }
+            }
+        }
+
+        // If v is a root node, pop the SCC.
+        if lowlinks[v] == indices[v] {
+            let mut scc = Vec::new();
+            loop {
+                let w = stack.pop().unwrap();
+                on_stack[w] = false;
+                scc.push(names[w]);
+                if w == v {
+                    break;
+                }
+            }
+            result.push(scc);
+        }
+    }
+
+    for i in 0..n {
+        if indices[i] == usize::MAX {
+            strongconnect(
+                i,
+                names,
+                deps,
+                &name_to_idx,
+                &mut index_counter,
+                &mut indices,
+                &mut lowlinks,
+                &mut on_stack,
+                &mut stack,
+                &mut result,
+            );
+        }
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -605,6 +1302,7 @@ mod tests {
                 known_flow_names: std::collections::HashSet::new(),
                 flow_module_symbol: flow_sym,
                 preloaded_effect_op_signatures: HashMap::new(),
+                class_env: None,
             },
         );
         let types = hm.expr_types;
@@ -643,6 +1341,12 @@ mod tests {
                 collect_ops_in_expr(rhs, out);
                 collect_ops_in_expr(body, out);
             }
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                for (_, rhs) in bindings {
+                    collect_ops_in_expr(rhs, out);
+                }
+                collect_ops_in_expr(body, out);
+            }
             CoreExpr::Case {
                 scrutinee, alts, ..
             } => {
@@ -659,7 +1363,7 @@ mod tests {
         match expr {
             CoreExpr::Var { var, .. } => out.push(var),
             CoreExpr::Lam { body, .. } => collect_var_refs(body, out),
-            CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+            CoreExpr::App { func, args, .. } => {
                 collect_var_refs(func, out);
                 for arg in args {
                     collect_var_refs(arg, out);
@@ -667,6 +1371,12 @@ mod tests {
             }
             CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
                 collect_var_refs(rhs, out);
+                collect_var_refs(body, out);
+            }
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                for (_, rhs) in bindings {
+                    collect_var_refs(rhs, out);
+                }
                 collect_var_refs(body, out);
             }
             CoreExpr::Case {
@@ -698,26 +1408,6 @@ mod tests {
                 }
             }
             CoreExpr::Lit(_, _) => {}
-            CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
-                out.push(var);
-                collect_var_refs(body, out);
-            }
-            CoreExpr::Reuse { token, fields, .. } => {
-                out.push(token);
-                for field in fields {
-                    collect_var_refs(field, out);
-                }
-            }
-            CoreExpr::DropSpecialized {
-                scrutinee,
-                unique_body,
-                shared_body,
-                ..
-            } => {
-                out.push(scrutinee);
-                collect_var_refs(unique_body, out);
-                collect_var_refs(shared_body, out);
-            }
             CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
                 collect_var_refs(object, out);
             }
@@ -917,5 +1607,195 @@ f("flux")
             Some(f_def.binder.id),
             "top-level Symbol(0) binding should still resolve lexically"
         );
+    }
+
+    // ── Tarjan SCC unit tests ──────────────────────────────────────────
+
+    fn sym(id: u32) -> crate::syntax::symbol::Symbol {
+        crate::syntax::symbol::Symbol::new(id)
+    }
+
+    #[test]
+    fn tarjan_scc_chain_produces_separate_sccs() {
+        // a→b→c (no cycle) → three separate SCCs
+        let names = vec![sym(0), sym(1), sym(2)];
+        let mut deps = HashMap::new();
+        deps.insert(sym(0), HashSet::from([sym(1)])); // a depends on b
+        deps.insert(sym(1), HashSet::from([sym(2)])); // b depends on c
+        deps.insert(sym(2), HashSet::new()); // c depends on nothing
+
+        let sccs = tarjan_scc(&names, &deps);
+        assert_eq!(sccs.len(), 3, "chain should produce 3 SCCs: {sccs:?}");
+        // Each SCC has exactly one element.
+        for scc in &sccs {
+            assert_eq!(scc.len(), 1);
+        }
+    }
+
+    #[test]
+    fn tarjan_scc_mutual_recursion_produces_single_group() {
+        // a↔b (cycle) → one SCC with both
+        let names = vec![sym(0), sym(1)];
+        let mut deps = HashMap::new();
+        deps.insert(sym(0), HashSet::from([sym(1)])); // a depends on b
+        deps.insert(sym(1), HashSet::from([sym(0)])); // b depends on a
+
+        let sccs = tarjan_scc(&names, &deps);
+        assert_eq!(
+            sccs.len(),
+            1,
+            "mutual recursion should produce 1 SCC: {sccs:?}"
+        );
+        assert_eq!(sccs[0].len(), 2);
+    }
+
+    #[test]
+    fn tarjan_scc_mixed_cycle_and_independent() {
+        // a↔b, c independent → two SCCs: {c} and {a,b}
+        let names = vec![sym(0), sym(1), sym(2)];
+        let mut deps = HashMap::new();
+        deps.insert(sym(0), HashSet::from([sym(1)])); // a depends on b
+        deps.insert(sym(1), HashSet::from([sym(0)])); // b depends on a
+        deps.insert(sym(2), HashSet::new()); // c independent
+
+        let sccs = tarjan_scc(&names, &deps);
+        assert_eq!(sccs.len(), 2, "should produce 2 SCCs: {sccs:?}");
+        let cycle_scc = sccs
+            .iter()
+            .find(|s| s.len() == 2)
+            .expect("one SCC with 2 elements");
+        assert!(cycle_scc.contains(&sym(0)));
+        assert!(cycle_scc.contains(&sym(1)));
+    }
+
+    #[test]
+    fn tarjan_scc_three_way_cycle() {
+        // a→b→c→a (triangle cycle)
+        let names = vec![sym(0), sym(1), sym(2)];
+        let mut deps = HashMap::new();
+        deps.insert(sym(0), HashSet::from([sym(1)]));
+        deps.insert(sym(1), HashSet::from([sym(2)]));
+        deps.insert(sym(2), HashSet::from([sym(0)]));
+
+        let sccs = tarjan_scc(&names, &deps);
+        assert_eq!(sccs.len(), 1, "triangle cycle should be one SCC: {sccs:?}");
+        assert_eq!(sccs[0].len(), 3);
+    }
+
+    #[test]
+    fn tarjan_scc_no_dependencies() {
+        // a, b, c all independent → three separate SCCs
+        let names = vec![sym(0), sym(1), sym(2)];
+        let deps = HashMap::from([
+            (sym(0), HashSet::new()),
+            (sym(1), HashSet::new()),
+            (sym(2), HashSet::new()),
+        ]);
+
+        let sccs = tarjan_scc(&names, &deps);
+        assert_eq!(sccs.len(), 3);
+    }
+
+    #[test]
+    fn tarjan_scc_self_recursive_single() {
+        // a→a (self-recursive) → one SCC with one element
+        let names = vec![sym(0)];
+        let deps = HashMap::from([(sym(0), HashSet::from([sym(0)]))]);
+
+        let sccs = tarjan_scc(&names, &deps);
+        assert_eq!(sccs.len(), 1);
+        assert_eq!(sccs[0].len(), 1);
+        assert_eq!(sccs[0][0], sym(0));
+    }
+
+    #[test]
+    fn tarjan_scc_reverse_topological_order() {
+        // a→b→c: SCCs should come out as [c], [b], [a] (deps first)
+        let names = vec![sym(0), sym(1), sym(2)];
+        let mut deps = HashMap::new();
+        deps.insert(sym(0), HashSet::from([sym(1)]));
+        deps.insert(sym(1), HashSet::from([sym(2)]));
+        deps.insert(sym(2), HashSet::new());
+
+        let sccs = tarjan_scc(&names, &deps);
+        assert_eq!(sccs[0][0], sym(2), "c should come first (no deps)");
+        assert_eq!(sccs[1][0], sym(1), "b should come second");
+        assert_eq!(sccs[2][0], sym(0), "a should come last (depends on b)");
+    }
+
+    // ── SCC integration tests (full lowering) ─────────────────────────
+
+    /// Count LetRecGroup nodes and individual LetRec nodes in the body
+    /// of the main function's Core IR.
+    fn count_binding_kinds(src: &str) -> (usize, usize) {
+        let (program, types, _interner) = parse_and_infer(src);
+        let core = lower_program_ast(&program, &types);
+        let main_def = core.defs.iter().find(|d| !d.is_anonymous()).unwrap();
+        let mut groups = 0;
+        let mut singles = 0;
+        count_bindings_in_expr(&main_def.expr, &mut groups, &mut singles);
+        (groups, singles)
+    }
+
+    fn count_bindings_in_expr(expr: &CoreExpr, groups: &mut usize, singles: &mut usize) {
+        match expr {
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                *groups += 1;
+                for (_, rhs) in bindings {
+                    count_bindings_in_expr(rhs, groups, singles);
+                }
+                count_bindings_in_expr(body, groups, singles);
+            }
+            CoreExpr::LetRec { rhs, body, .. } => {
+                *singles += 1;
+                count_bindings_in_expr(rhs, groups, singles);
+                count_bindings_in_expr(body, groups, singles);
+            }
+            CoreExpr::Let { rhs, body, .. } => {
+                count_bindings_in_expr(rhs, groups, singles);
+                count_bindings_in_expr(body, groups, singles);
+            }
+            CoreExpr::Lam { body, .. } => count_bindings_in_expr(body, groups, singles),
+            CoreExpr::Case {
+                scrutinee, alts, ..
+            } => {
+                count_bindings_in_expr(scrutinee, groups, singles);
+                for alt in alts {
+                    count_bindings_in_expr(&alt.rhs, groups, singles);
+                }
+            }
+            CoreExpr::App { func, args, .. } => {
+                count_bindings_in_expr(func, groups, singles);
+                for a in args {
+                    count_bindings_in_expr(a, groups, singles);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn scc_chain_produces_individual_letrecs() {
+        let (groups, singles) =
+            count_binding_kinds("fn main() { fn a() { b() } fn b() { c() } fn c() { 42 } a() }");
+        assert_eq!(groups, 0, "chain a→b→c should produce no LetRecGroup");
+        assert_eq!(singles, 3, "chain should produce 3 individual LetRecs");
+    }
+
+    #[test]
+    fn scc_mutual_recursion_produces_one_group() {
+        let (groups, _singles) = count_binding_kinds(
+            "fn main() { fn f(n) { if n <= 0 { 1 } else { g(n - 1) } } fn g(n) { if n <= 0 { 2 } else { f(n - 1) } } f(5) }",
+        );
+        assert_eq!(groups, 1, "mutual recursion should produce 1 LetRecGroup");
+    }
+
+    #[test]
+    fn scc_separates_independent_from_cycle() {
+        let (groups, singles) = count_binding_kinds(
+            "fn main() { fn f(n) { g(n) } fn g(n) { f(n) } fn h() { 42 } f(1) + h() }",
+        );
+        assert_eq!(groups, 1, "f↔g should be 1 group");
+        assert!(singles >= 1, "h should be a separate LetRec");
     }
 }

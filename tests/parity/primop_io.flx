@@ -1,0 +1,14 @@
+// parity: vm, llvm
+// expect: success
+// Tests I/O primops: print, println, to_string, read_file (skipped), etc.
+
+fn main() with IO {
+    print(42)
+    print(3.14)
+    print(true)
+    print("hello")
+    print(None)
+    println("world")
+    print(to_string(123))
+    print(to_string(false))
+}

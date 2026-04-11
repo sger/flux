@@ -1,0 +1,14 @@
+// parity: vm, llvm
+// expect: success
+// Tests string primops: string_concat, slice, len, upper, lower, split, trim.
+
+fn main() with IO {
+    print("hello" ++ " world")
+    print(len("hello"))
+    print(upper("hello"))
+    print(lower("HELLO"))
+    print(trim("  hi  "))
+    print(slice("hello world", 0, 5))
+    print(split("a,b,c", ","))
+    print(join(["x", "y", "z"], "-"))
+}

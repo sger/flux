@@ -1,0 +1,8 @@
+// safe_div returns None instead of panicking on zero.
+fn main() with IO {
+    let result = safe_div(42, 0)
+    match result {
+        Some(v) -> print(v),
+        None -> print("safe_div returned None - no panic!"),
+    }
+}

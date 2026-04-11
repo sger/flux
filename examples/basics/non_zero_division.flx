@@ -1,0 +1,58 @@
+// NonZero: type-safe division that can never panic (Proposal 0135 Phase 2).
+//
+// The NonZero type wraps an Int that is guaranteed non-zero by construction.
+// Division by NonZero is total — no runtime check, no Option, no panic.
+
+import Flow.NonZero exposing (..)
+
+fn main() with IO {
+    // ── Creating NonZero values ──────────────────────────────────────
+    // non_zero is the only way to create a NonZero — it validates at creation time.
+    let five = non_zero(5)
+    let zero = non_zero(0)
+
+    print(five)     // Some(NonZero(5))
+    print(zero)     // None — zero is rejected
+
+    // ── Safe division ────────────────────────────────────────────────
+    // div_nz is total: it can never fail because the divisor is proven non-zero.
+    match non_zero(4) {
+        Some(nz) -> print("100 / 4 = " + to_string(div_nz(100, nz))),
+        None -> print("unreachable"),
+    }
+
+    // ── Compare the three approaches ─────────────────────────────────
+    // 1. Regular division: panics on zero
+    //    let x = 100 / 0   // would panic with E1008
+
+    // 2. safe_div: returns Option, must unwrap every time
+    print(safe_div(100, 4))     // Some(25)
+
+    // 3. NonZero: validate once, divide freely
+    match non_zero(4) {
+        Some(divisor) -> do {
+            // These are all guaranteed safe — no Option wrapping needed
+            print(div_nz(100, divisor))     // 25
+            print(div_nz(200, divisor))     // 50
+            print(mod_nz(100, divisor))     // 0
+            print(mod_nz(17, divisor))      // 1
+        },
+        None -> print("divisor was zero"),
+    }
+
+    // ── Extracting the value ─────────────────────────────────────────
+    match non_zero(42) {
+        Some(nz) -> print("value: " + to_string(from_non_zero(nz))),
+        None -> print("unreachable"),
+    }
+
+    // ── Negative NonZero ─────────────────────────────────────────────
+    match non_zero(-3) {
+        Some(nz) -> do {
+            print(div_nz(15, nz))                       // -5
+            print(from_non_zero(abs_nz(nz)))             // 3
+            print(from_non_zero(negate_nz(nz)))           // 3
+        },
+        None -> print("unreachable"),
+    }
+}

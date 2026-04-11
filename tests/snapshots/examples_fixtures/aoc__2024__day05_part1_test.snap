@@ -3,19 +3,18 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/day05_part1_test.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+error[E004]: Undefined Variable
 
-Cannot find module `Flow.FTest` to import.
+I can't find a value named `fold`.
 
-  examples/aoc/2024/day05_part1_test.flx:1:1
-  |
-1 | import Flow.FTest as Test
-  | ^
+  examples/aoc/2024/Day05Solver.flx:103:9
+    |
+103 |         fold(
+    |         ^^^^
 
 Hint:
-  Check that: 1) The module file exists (e.g., `Flow.FTest.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Flow.FTest` under roots: examples/aoc/2024, src (imported from examples/aoc/2024/day05_part1_test.flx).
+  Define it first: let fold = ...;
 == stdout ==
 <not executed>

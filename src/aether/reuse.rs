@@ -4,10 +4,12 @@
 //! a `Con(tag, fields)` of compatible shape. Transforms the pattern to
 //! `Reuse(x, tag, fields)` which reuses x's allocation if uniquely owned.
 
-use crate::core::{CoreBinderId, CoreExpr, CorePat, CoreTag, CoreVarRef};
+use crate::core::{CoreBinderId, CorePat, CoreTag, CoreVarRef};
 
-use super::into_constructor_shape_for_tag;
 use super::reuse_analysis::rewrite_drop_body;
+use super::{AetherExpr, into_constructor_shape_for_tag_aether};
+
+type CoreExpr = AetherExpr;
 
 /// Insert reuse tokens into a Core IR expression.
 ///
@@ -17,6 +19,11 @@ use super::reuse_analysis::rewrite_drop_body;
 /// that reuses the dropped value's allocation if uniquely owned at runtime.
 pub fn insert_reuse(expr: CoreExpr) -> CoreExpr {
     rewrite(expr)
+}
+
+/// Insert reuse tokens into a backend-only Aether expression.
+pub fn insert_reuse_aether(expr: CoreExpr) -> CoreExpr {
+    insert_reuse(expr)
 }
 
 /// Extract field binder IDs from a constructor pattern, if applicable.
@@ -111,6 +118,33 @@ fn rewrite_with_ctx(
                 pat_tag,
                 blocked_outer_token,
             )),
+            body: Box::new(rewrite_with_ctx(
+                *body,
+                pat_binders,
+                pat_tag,
+                blocked_outer_token,
+            )),
+            span,
+        },
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => CoreExpr::LetRecGroup {
+            bindings: bindings
+                .into_iter()
+                .map(|(var, rhs)| {
+                    (
+                        var,
+                        Box::new(rewrite_with_ctx(
+                            *rhs,
+                            pat_binders,
+                            pat_tag,
+                            blocked_outer_token,
+                        )),
+                    )
+                })
+                .collect(),
             body: Box::new(rewrite_with_ctx(
                 *body,
                 pat_binders,
@@ -344,7 +378,7 @@ fn insert_reuse_in_unique(
     pat_tag: Option<&CoreTag>,
 ) -> CoreExpr {
     // Direct constructor shape — convert to Reuse
-    if let Some((tag, fields, span)) = into_constructor_shape_for_tag(body.clone(), pat_tag)
+    if let Some((tag, fields, span)) = into_constructor_shape_for_tag_aether(body.clone(), pat_tag)
         && is_heap_tag(&tag)
     {
         return CoreExpr::Reuse {

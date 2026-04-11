@@ -1,10 +1,17 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     env, fs,
     path::{Path, PathBuf},
     time::Instant,
 };
 
+use rayon::prelude::*;
+
+#[cfg(feature = "core_to_llvm")]
+use flux::diagnostics::{
+    position::{Position, Span},
+    quality::render_runtime_diagnostic,
+};
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
@@ -13,19 +20,22 @@ use flux::{
         test_runner::{collect_test_functions, print_test_report, run_tests},
     },
     bytecode::{
-        bytecode_cache::{
-            BytecodeCache, hash_bytes, hash_cache_key, hash_file, module_cache::ModuleBytecodeCache,
-        },
+        bytecode_cache::{hash_bytes, hash_cache_key, module_cache::ModuleBytecodeCache},
         compiler::Compiler,
+        module_linker::{LinkedVmProgram, VmAssemblyContext},
         op_code::disassemble,
     },
+    cache_paths::{self, CacheLayout},
     diagnostics::{
         DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticPhase, DiagnosticsAggregator,
         quality::module_skipped_note, render_diagnostics_json, render_display_path,
     },
     runtime::value::Value,
     syntax::{
-        formatter::format_source, lexer::Lexer, linter::Linter, module_graph::ModuleGraph,
+        formatter::format_source,
+        lexer::Lexer,
+        linter::Linter,
+        module_graph::{ModuleGraph, ModuleKind, ModuleNode},
         parser::Parser,
     },
 };
@@ -57,20 +67,1509 @@ enum TraceBackend {
     Vm,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default)]
+struct ModuleBuildState {
+    old_interface_fingerprint: Option<String>,
+    new_interface_fingerprint: Option<String>,
+    interface_changed: bool,
+    rebuild_required: bool,
+    skipped: bool,
+}
+
+struct ParallelVmBuild {
+    bytecode: flux::bytecode::bytecode::Bytecode,
+    symbol_table: flux::bytecode::symbol_table::SymbolTable,
+    cached_count: usize,
+    compiled_count: usize,
+}
+
+#[derive(Debug)]
+struct ParallelModuleResult {
+    path: PathBuf,
+    needs_serial_warning_replay: bool,
+    compile_failed: bool,
+    old_interface_fingerprint: Option<String>,
+    new_interface_fingerprint: Option<String>,
+    interface_changed: bool,
+    skipped: bool,
+    interface_hit: Option<flux::types::module_interface::ModuleInterface>,
+    cache_key: [u8; 32],
+    /// Human-readable reason why the module was recompiled (populated when
+    /// the cache miss path is taken).
+    miss_reason: Option<String>,
+}
+
+#[cfg(feature = "core_to_llvm")]
+#[derive(Debug)]
+struct NativeParallelModuleResult {
+    path: PathBuf,
+    object_path: PathBuf,
+    compile_failed: bool,
+    error_message: Option<String>,
+    interface: Option<flux::types::module_interface::ModuleInterface>,
+    skipped: bool,
+    interface_changed: bool,
+    /// Human-readable reason why the module was recompiled.
+    miss_reason: Option<String>,
+}
+
+#[cfg(feature = "core_to_llvm")]
+fn program_has_user_adt_declarations(program: &Program) -> bool {
+    fn block_has_user_adt_declarations(block: &flux::syntax::block::Block) -> bool {
+        block
+            .statements
+            .iter()
+            .any(statement_has_user_adt_declarations)
+    }
+
+    fn statement_has_user_adt_declarations(statement: &flux::syntax::statement::Statement) -> bool {
+        match statement {
+            flux::syntax::statement::Statement::Data { .. } => true,
+            flux::syntax::statement::Statement::Module { body, .. } => {
+                block_has_user_adt_declarations(body)
+            }
+            _ => false,
+        }
+    }
+
+    program
+        .statements
+        .iter()
+        .any(statement_has_user_adt_declarations)
+}
+
+fn tag_module_diagnostics(diags: &mut Vec<Diagnostic>, phase: DiagnosticPhase, path: &Path) {
+    tag_diagnostics(diags, phase);
+    for diag in diags {
+        if diag.file().is_none() {
+            diag.set_file(path.to_string_lossy().to_string());
+        }
+    }
+}
+
+#[cfg(feature = "core_to_llvm")]
+fn split_native_panic_message(stderr: &str) -> Option<&str> {
+    stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("panic: ").map(str::trim))
+}
+
+#[cfg(feature = "core_to_llvm")]
+struct NativeTraceFrame {
+    name: String,
+    file: Option<String>,
+    line: Option<usize>,
+}
+
+#[cfg(feature = "core_to_llvm")]
+fn parse_native_trace_frames(stderr: &str) -> Vec<NativeTraceFrame> {
+    stderr
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            let rest = line.strip_prefix("at ")?;
+            if let Some((name, location)) = rest.split_once(" (") {
+                let location = location.strip_suffix(')')?;
+                if let Some((file, line_no)) = location.rsplit_once(':') {
+                    return Some(NativeTraceFrame {
+                        name: name.to_string(),
+                        file: Some(file.to_string()),
+                        line: line_no.parse().ok(),
+                    });
+                }
+            }
+            Some(NativeTraceFrame {
+                name: rest.to_string(),
+                file: None,
+                line: None,
+            })
+        })
+        .collect()
+}
+
+#[cfg(feature = "core_to_llvm")]
+fn infer_native_runtime_span(path: &str, message: &str, frames: &[NativeTraceFrame]) -> Span {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return Span::new(Position::default(), Position::default());
+    };
+    let lines: Vec<&str> = source.lines().collect();
+    let preferred_line = frames
+        .first()
+        .and_then(|frame| {
+            frame
+                .file
+                .as_deref()
+                .filter(|file| *file == path)
+                .and(frame.line)
+        })
+        .filter(|line| *line > 0);
+
+    let find_needle = |needle: &str| -> Option<Span> {
+        if let Some(line_no) = preferred_line
+            && let Some(line) = lines.get(line_no.saturating_sub(1))
+            && let Some(col) = line.find(needle)
+        {
+            let mut end = col + needle.len();
+            if needle.ends_with('(')
+                && let Some(close_off) = line[col..].find(')')
+            {
+                end = col + close_off + 1;
+            }
+            return Some(Span::new(
+                Position::new(line_no, col),
+                Position::new(line_no, end),
+            ));
+        }
+        for (idx, line) in lines.iter().enumerate() {
+            if let Some(col) = line.find(needle) {
+                let mut end = col + needle.len();
+                if needle.ends_with('(')
+                    && let Some(close_off) = line[col..].find(')')
+                {
+                    end = col + close_off + 1;
+                }
+                return Some(Span::new(
+                    Position::new(idx + 1, col),
+                    Position::new(idx + 1, end),
+                ));
+            }
+        }
+        None
+    };
+    let find_rhs_span = |operator: char| -> Option<Span> {
+        if let Some(line_no) = preferred_line
+            && let Some(line) = lines.get(line_no.saturating_sub(1))
+            && let Some(op_col) = line.find(operator)
+        {
+            let start = line
+                .chars()
+                .position(|c| !c.is_whitespace())
+                .unwrap_or(op_col);
+            let end = line.trim_end().trim_end_matches(';').len();
+            return Some(Span::new(
+                Position::new(line_no, start),
+                Position::new(line_no, end),
+            ));
+        }
+        for (idx, line) in lines.iter().enumerate() {
+            if let Some(op_col) = line.find(operator) {
+                let start = line
+                    .find('=')
+                    .and_then(|eq_col| {
+                        line[eq_col + 1..]
+                            .chars()
+                            .position(|c| !c.is_whitespace())
+                            .map(|off| eq_col + 1 + off)
+                    })
+                    .unwrap_or_else(|| {
+                        line.chars()
+                            .position(|c| !c.is_whitespace())
+                            .unwrap_or(op_col)
+                    });
+                let end = line.trim_end().trim_end_matches(';').len();
+                return Some(Span::new(
+                    Position::new(idx + 1, start),
+                    Position::new(idx + 1, end),
+                ));
+            }
+        }
+        None
+    };
+
+    if let Some(rest) = message.strip_prefix("primop ")
+        && let Some((primop, _)) = rest.split_once(" expected ")
+        && let Some(span) = find_needle(&format!("{primop}("))
+    {
+        return span;
+    }
+
+    if message.contains("wrong number of arguments")
+        || message.contains("Cannot call non-function value")
+    {
+        for (idx, line) in lines.iter().enumerate().rev() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("fn ")
+                || trimmed.starts_with("//")
+                || trimmed == "{"
+                || trimmed == "}"
+                || trimmed.is_empty()
+            {
+                continue;
+            }
+            if let Some(open) = line.find('(') {
+                let mut start = open;
+                while start > 0 {
+                    let ch = line.as_bytes()[start - 1] as char;
+                    if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
+                        start -= 1;
+                    } else {
+                        break;
+                    }
+                }
+                let end = line[open..]
+                    .find(')')
+                    .map(|off| open + off + 1)
+                    .unwrap_or(open + 1);
+                return Span::new(Position::new(idx + 1, start), Position::new(idx + 1, end));
+            }
+        }
+    }
+
+    if message.contains("Division by zero") {
+        if let Some(span) = find_rhs_span('/') {
+            return span;
+        }
+        if let Some(span) = find_rhs_span('%') {
+            return span;
+        }
+    }
+    if message.contains("modulo by zero")
+        && let Some(span) = find_rhs_span('%')
+    {
+        return span;
+    }
+
+    if let Some(span) = find_rhs_span('+') {
+        return span;
+    }
+    if let Some(span) = find_rhs_span('-') {
+        return span;
+    }
+    if let Some(span) = find_rhs_span('*') {
+        return span;
+    }
+
+    Span::new(Position::default(), Position::default())
+}
+
+#[cfg(feature = "core_to_llvm")]
+fn infer_native_source_frames(path: &str, span: Span) -> Vec<String> {
+    if span.start.line == 0 {
+        return vec!["main".to_string(), "<main>".to_string()];
+    }
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return vec!["main".to_string(), "<main>".to_string()];
+    };
+    let lines: Vec<&str> = source.lines().collect();
+
+    let mut enclosing_fn = None;
+    for idx in (0..span.start.line.saturating_sub(1)).rev() {
+        let trimmed = lines.get(idx).map(|line| line.trim()).unwrap_or_default();
+        if let Some(rest) = trimmed.strip_prefix("fn ") {
+            let name = rest
+                .split(['(', ' ', '{'])
+                .next()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("main");
+            enclosing_fn = Some(name.to_string());
+            break;
+        }
+    }
+
+    let top_frame = enclosing_fn.unwrap_or_else(|| "main".to_string());
+    let mut frames = vec![format!(
+        "{} ({}:{}:{})",
+        top_frame,
+        render_display_path(path),
+        span.start.line,
+        span.start.column + 1
+    )];
+
+    if top_frame != "main" {
+        let call_site = lines
+            .iter()
+            .enumerate()
+            .find(|(_, line)| {
+                let trimmed = line.trim_start();
+                !trimmed.starts_with("fn ") && line.contains(&format!("{top_frame}("))
+            })
+            .map(|(idx, line)| {
+                let col = line.find(&top_frame).unwrap_or(0) + 1;
+                format!("<main> ({}:{}:{})", render_display_path(path), idx + 1, col)
+            })
+            .unwrap_or_else(|| "<main>".to_string());
+        frames.push(call_site);
+    } else {
+        frames.push("<main>".to_string());
+    }
+    frames
+}
+
+#[cfg(feature = "core_to_llvm")]
+fn render_native_runtime_error(path: &str, stderr: &str) -> Option<String> {
+    let message = split_native_panic_message(stderr)?;
+    let frames = parse_native_trace_frames(stderr);
+    let span = infer_native_runtime_span(path, message, &frames);
+    let diag = if message.contains("Cannot call non-function value") {
+        let actual = message
+            .split("(got ")
+            .nth(1)
+            .and_then(|s| s.split(')').next())
+            .map(|s| s.trim_end_matches('.'))
+            .unwrap_or("Unknown");
+        Diagnostic::make_error(
+            &flux::diagnostics::NOT_A_FUNCTION,
+            &[actual],
+            path.to_string(),
+            span,
+        )
+        .with_phase(DiagnosticPhase::Runtime)
+    } else if message.contains("Division by zero") {
+        Diagnostic::make_error(
+            &flux::diagnostics::DIVISION_BY_ZERO_RUNTIME,
+            &[],
+            path.to_string(),
+            span,
+        )
+        .with_phase(DiagnosticPhase::Runtime)
+    } else if message.contains("modulo by zero") {
+        Diagnostic::make_error(
+            &flux::diagnostics::MODULO_BY_ZERO_RUNTIME,
+            &[],
+            path.to_string(),
+            span,
+        )
+        .with_phase(DiagnosticPhase::Runtime)
+    } else if let Some(rest) = message.strip_prefix("Cannot ")
+        && let Some((op, tail)) = rest.split_once(' ')
+        && let Some((lhs, rhs_tail)) = tail.split_once(" and ")
+        && let Some(rhs) = rhs_tail.strip_suffix(" values.")
+    {
+        Diagnostic::make_error(
+            &flux::diagnostics::INVALID_OPERATION,
+            &[op, lhs, rhs],
+            path.to_string(),
+            span,
+        )
+        .with_phase(DiagnosticPhase::Runtime)
+    } else {
+        let error_code = if message.contains("wrong number of arguments") {
+            "E1000"
+        } else if message.contains(" expected ") || message.contains("expects ") {
+            "E1004"
+        } else {
+            "E1009"
+        };
+        Diagnostic::make_error_dynamic(
+            error_code,
+            message,
+            flux::diagnostics::types::ErrorType::Runtime,
+            "",
+            None,
+            path.to_string(),
+            span,
+        )
+        .with_phase(DiagnosticPhase::Runtime)
+    };
+    let source = std::fs::read_to_string(path).ok();
+    let frames = if !frames.is_empty() {
+        frames
+            .iter()
+            .enumerate()
+            .map(|(idx, frame)| {
+                if idx == 0 && span.start.line > 0 {
+                    format!(
+                        "{} ({}:{}:{})",
+                        frame.name,
+                        render_display_path(path),
+                        span.start.line,
+                        span.start.column + 1
+                    )
+                } else if let (Some(file), Some(line)) = (&frame.file, frame.line) {
+                    format!("{} ({}:{line})", frame.name, render_display_path(file))
+                } else {
+                    frame.name.clone()
+                }
+            })
+            .collect()
+    } else {
+        infer_native_source_frames(path, span)
+    };
+    Some(render_runtime_diagnostic(
+        &diag,
+        path,
+        source.as_deref(),
+        &frames,
+    ))
+}
+
+fn build_module_compiler(
+    node: &ModuleNode,
+    nodes_by_path: &HashMap<PathBuf, ModuleNode>,
+    loaded_interfaces: &HashMap<PathBuf, flux::types::module_interface::ModuleInterface>,
+    base_interner: &flux::syntax::interner::Interner,
+    strict_mode: bool,
+    strict_types: bool,
+    is_entry_module: bool,
+) -> Compiler {
+    let mut compiler = Compiler::new_with_interner(
+        node.path.to_string_lossy().to_string(),
+        base_interner.clone(),
+    );
+    compiler.set_current_module_kind(node.kind);
+    compiler.set_strict_require_main(is_entry_module);
+    compiler.set_strict_mode(node.kind != ModuleKind::FlowStdlib && strict_mode);
+    compiler.set_strict_types(node.kind != ModuleKind::FlowStdlib && strict_types);
+    for dep in &node.imports {
+        if let Some(interface) = loaded_interfaces.get(&dep.target_path) {
+            compiler.preload_module_interface(interface);
+        }
+        if let Some(dep_node) = nodes_by_path.get(&dep.target_path) {
+            compiler.preload_dependency_program(&dep_node.program);
+        }
+    }
+    // Auto-prelude: ensure Flow library interfaces and AST visibility are
+    // available to all non-Flow modules, even without explicit import edges.
+    // The sequential (--no-cache) path achieves this via a shared compiler
+    // instance; the parallel path needs explicit preloading.
+    // Flow-to-Flow dependencies must use explicit imports.
+    if node.kind != ModuleKind::FlowStdlib {
+        for (path, interface) in loaded_interfaces {
+            if !node.imports.iter().any(|dep| &dep.target_path == path)
+                && nodes_by_path
+                    .get(path)
+                    .is_some_and(|dep_node| dep_node.kind == ModuleKind::FlowStdlib)
+            {
+                compiler.preload_module_interface(interface);
+            }
+        }
+        for (path, dep_node) in nodes_by_path {
+            if !node.imports.iter().any(|dep| &dep.target_path == path)
+                && dep_node.kind == ModuleKind::FlowStdlib
+            {
+                compiler.preload_dependency_program(&dep_node.program);
+            }
+        }
+    }
+    if node.kind == ModuleKind::FlowStdlib {
+        compiler.set_strict_mode(false);
+        compiler.set_strict_types(false);
+    }
+    compiler
+}
+
+#[allow(clippy::too_many_arguments)]
+fn replay_module_diagnostics(
+    node: &ModuleNode,
+    nodes_by_path: &HashMap<PathBuf, ModuleNode>,
+    loaded_interfaces: &HashMap<PathBuf, flux::types::module_interface::ModuleInterface>,
+    base_interner: &flux::syntax::interner::Interner,
+    strict_mode: bool,
+    strict_types: bool,
+    enable_optimize: bool,
+    enable_analyze: bool,
+) -> Vec<Diagnostic> {
+    let mut compiler = build_module_compiler(
+        node,
+        nodes_by_path,
+        loaded_interfaces,
+        base_interner,
+        strict_mode,
+        strict_types,
+        false,
+    );
+    let compile_result = compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
+    let mut diagnostics = compiler.take_warnings();
+    tag_module_diagnostics(&mut diagnostics, DiagnosticPhase::Validation, &node.path);
+    if let Err(mut diags) = compile_result {
+        tag_module_diagnostics(&mut diags, DiagnosticPhase::TypeCheck, &node.path);
+        diagnostics.extend(diags);
+    }
+    diagnostics
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compile_parallel_module(
+    node: &ModuleNode,
+    nodes_by_path: &HashMap<PathBuf, ModuleNode>,
+    loaded_interfaces: &HashMap<PathBuf, flux::types::module_interface::ModuleInterface>,
+    cache_layout: &CacheLayout,
+    no_cache: bool,
+    force_rebuild: bool,
+    strict_mode: bool,
+    strict_types: bool,
+    enable_optimize: bool,
+    enable_analyze: bool,
+    is_entry: bool,
+    base_interner: &flux::syntax::interner::Interner,
+) -> ParallelModuleResult {
+    let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
+    let source_hash = hash_bytes(module_source.as_bytes());
+    let semantic_config_hash =
+        flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
+            node.kind != ModuleKind::FlowStdlib && strict_mode,
+            enable_optimize,
+        );
+    let strict_hash = if node.kind == ModuleKind::FlowStdlib {
+        hash_bytes(b"strict=0")
+    } else {
+        hash_bytes(if strict_mode {
+            b"strict=1"
+        } else {
+            b"strict=0"
+        })
+    };
+    let cache_key = hash_cache_key(&source_hash, &strict_hash);
+    let module_cache = ModuleBytecodeCache::new(cache_layout.vm_dir());
+    let old_interface = if !no_cache {
+        flux::bytecode::compiler::module_interface::load_cached_interface(
+            cache_layout.root(),
+            &node.path,
+        )
+        .ok()
+    } else {
+        None
+    };
+    let (current_interface, interface_miss_reason) = if !no_cache {
+        match flux::bytecode::compiler::module_interface::load_valid_interface(
+            cache_layout.root(),
+            &node.path,
+            &module_source,
+            &semantic_config_hash,
+        ) {
+            Ok(interface) => (Some(interface), None),
+            Err(err) => (None, Some(err.message())),
+        }
+    } else {
+        (None, None)
+    };
+
+    if !no_cache
+        && !force_rebuild
+        && (current_interface.is_some() || is_entry)
+        && module_cache
+            .load(
+                &node.path,
+                &cache_key,
+                env!("CARGO_PKG_VERSION"),
+                cache_layout.root(),
+            )
+            .is_some()
+    {
+        return ParallelModuleResult {
+            path: node.path.clone(),
+            needs_serial_warning_replay: false,
+            compile_failed: false,
+            old_interface_fingerprint: current_interface
+                .as_ref()
+                .map(|i| i.interface_fingerprint.clone()),
+            new_interface_fingerprint: current_interface
+                .as_ref()
+                .map(|i| i.interface_fingerprint.clone()),
+            interface_changed: false,
+            skipped: true,
+            interface_hit: current_interface.clone(),
+            cache_key,
+            miss_reason: None,
+        };
+    }
+
+    // Determine the miss reason: interface failure takes priority, then
+    // check whether the bytecode artifact itself is stale.
+    let miss_reason = if force_rebuild {
+        Some("dependency interface changed".to_string())
+    } else if let Some(reason) = interface_miss_reason {
+        Some(reason)
+    } else {
+        module_cache.load_failure_reason(
+            &node.path,
+            &cache_key,
+            env!("CARGO_PKG_VERSION"),
+            cache_layout.root(),
+        )
+    };
+
+    let mut compiler = build_module_compiler(
+        node,
+        nodes_by_path,
+        loaded_interfaces,
+        base_interner,
+        strict_mode,
+        strict_types,
+        is_entry,
+    );
+    let compile_result = compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
+    let warning_count = compiler.take_warnings().len();
+
+    if compile_result.is_err() {
+        return ParallelModuleResult {
+            path: node.path.clone(),
+            needs_serial_warning_replay: warning_count > 0,
+            compile_failed: true,
+            old_interface_fingerprint: old_interface
+                .as_ref()
+                .map(|interface| interface.interface_fingerprint.clone()),
+            new_interface_fingerprint: None,
+            interface_changed: true,
+            skipped: false,
+            interface_hit: None,
+            cache_key,
+            miss_reason,
+        };
+    }
+
+    let dependency_fingerprints = node
+        .imports
+        .iter()
+        .filter_map(|dep| {
+            loaded_interfaces.get(&dep.target_path).map(|interface| {
+                flux::types::module_interface::DependencyFingerprint {
+                    module_name: interface.module_name.clone(),
+                    source_path: dep.target_path.to_string_lossy().to_string(),
+                    interface_fingerprint: interface.interface_fingerprint.clone(),
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let interface = extract_module_name_and_sym(&node.program, &compiler.interner).and_then(
+        |(module_name, module_sym)| {
+            compiler
+                .lower_aether_report_program(&node.program, enable_optimize)
+                .ok()
+                .map(|core| {
+                    flux::bytecode::compiler::module_interface::build_interface(
+                        &module_name,
+                        module_sym,
+                        &source_hash,
+                        &semantic_config_hash,
+                        core.as_core(),
+                        compiler.cached_member_schemes(),
+                        &compiler.module_function_visibility,
+                        Some(compiler.class_env()),
+                        dependency_fingerprints,
+                        &compiler.interner,
+                    )
+                })
+        },
+    );
+
+    let artifact = compiler.build_relocatable_module_bytecode();
+    let module_deps = node
+        .imports
+        .iter()
+        .filter_map(|dep| {
+            loaded_interfaces.get(&dep.target_path).map(|interface| {
+                (
+                    dep.target_path.to_string_lossy().to_string(),
+                    interface.interface_fingerprint.clone(),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    if !no_cache {
+        let _ = module_cache.store(
+            &node.path,
+            &cache_key,
+            env!("CARGO_PKG_VERSION"),
+            &artifact,
+            &module_deps,
+        );
+        if let Some(interface) = interface.as_ref() {
+            let iface_path = flux::bytecode::compiler::module_interface::interface_path(
+                cache_layout.root(),
+                &node.path,
+            );
+            let _ =
+                flux::bytecode::compiler::module_interface::save_interface(&iface_path, interface);
+        }
+    }
+
+    let new_interface_fingerprint = interface
+        .as_ref()
+        .map(|iface| iface.interface_fingerprint.clone());
+    let interface_changed = match (&old_interface, &interface) {
+        (Some(old), Some(new)) => {
+            flux::bytecode::compiler::module_interface::module_interface_changed(old, new)
+        }
+        (None, None) => false,
+        _ => true,
+    };
+
+    ParallelModuleResult {
+        path: node.path.clone(),
+        needs_serial_warning_replay: warning_count > 0,
+        compile_failed: false,
+        old_interface_fingerprint: old_interface
+            .as_ref()
+            .map(|interface| interface.interface_fingerprint.clone()),
+        new_interface_fingerprint,
+        interface_changed,
+        skipped: false,
+        interface_hit: interface,
+        cache_key,
+        miss_reason,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compile_vm_modules_parallel(
+    graph: &ModuleGraph,
+    entry_canonical: Option<&PathBuf>,
+    graph_interner: &flux::syntax::interner::Interner,
+    cache_layout: &CacheLayout,
+    no_cache: bool,
+    strict_mode: bool,
+    strict_types: bool,
+    enable_optimize: bool,
+    enable_analyze: bool,
+    verbose: bool,
+    all_diagnostics: &mut Vec<Diagnostic>,
+) -> Result<ParallelVmBuild, String> {
+    let mut loaded_interfaces: HashMap<PathBuf, flux::types::module_interface::ModuleInterface> =
+        HashMap::new();
+    let mut module_states: HashMap<PathBuf, ModuleBuildState> = HashMap::new();
+    let mut failed: HashSet<PathBuf> = HashSet::new();
+    let mut nodes_by_path: HashMap<PathBuf, ModuleNode> = HashMap::new();
+    for node in graph.topo_order() {
+        nodes_by_path.insert(node.path.clone(), node.clone());
+    }
+
+    let mut linker = VmAssemblyContext::new(graph_interner.clone());
+    let module_cache = ModuleBytecodeCache::new(cache_layout.vm_dir());
+    let total_modules = graph.topo_order().len();
+    let mut completed_modules = 0usize;
+    let mut cached_count = 0usize;
+
+    for level in graph.topo_levels().into_iter() {
+        let mut ready = Vec::new();
+        for node in level {
+            if node
+                .imports
+                .iter()
+                .any(|dep| failed.contains(&dep.target_path))
+            {
+                failed.insert(node.path.clone());
+                let display = render_display_path(&node.path.to_string_lossy()).into_owned();
+                if let Some(dep) = node
+                    .imports
+                    .iter()
+                    .find(|edge| failed.contains(&edge.target_path))
+                {
+                    all_diagnostics.push(module_skipped_note(
+                        display.clone(),
+                        display,
+                        dep.name.clone(),
+                    ));
+                }
+                continue;
+            }
+            ready.push(node.clone());
+        }
+
+        if ready.is_empty() {
+            continue;
+        }
+
+        // Split each topo level into Flow library modules and user modules.
+        // Flow modules must be processed first so their interfaces are in
+        // `loaded_interfaces` before user modules compile — the auto-prelude
+        // makes Flow functions available to all modules, but user modules
+        // have no explicit import edges to them in the module graph.
+        let (flow_nodes, user_nodes): (Vec<_>, Vec<_>) = ready
+            .iter()
+            .partition(|node| node.kind == ModuleKind::FlowStdlib);
+
+        // Sub-batches to process: Flow first, then user modules.
+        let batches: Vec<Vec<&ModuleNode>> = if flow_nodes.is_empty() {
+            vec![user_nodes]
+        } else if user_nodes.is_empty() {
+            vec![flow_nodes]
+        } else {
+            vec![flow_nodes, user_nodes]
+        };
+
+        for batch in batches {
+            let dependency_changed = |node: &ModuleNode| {
+                node.imports.iter().any(|dep| {
+                    module_states
+                        .get(&dep.target_path)
+                        .is_some_and(|state| state.interface_changed)
+                })
+            };
+
+            let parallel_results: Vec<ParallelModuleResult> = batch
+                .par_iter()
+                .filter(|node| !dependency_changed(node))
+                .map(|node| {
+                    let is_entry = entry_canonical.is_some_and(|entry| entry == &node.path);
+                    compile_parallel_module(
+                        node,
+                        &nodes_by_path,
+                        &loaded_interfaces,
+                        cache_layout,
+                        no_cache,
+                        false,
+                        strict_mode,
+                        strict_types,
+                        enable_optimize,
+                        enable_analyze,
+                        is_entry,
+                        graph_interner,
+                    )
+                })
+                .collect();
+
+            let mut parallel_results = parallel_results;
+            parallel_results.sort_by(|left, right| left.path.cmp(&right.path));
+
+            let skipped_paths: HashSet<_> = parallel_results
+                .iter()
+                .map(|result| result.path.clone())
+                .collect();
+            for node in &batch {
+                if dependency_changed(node) && !skipped_paths.contains(&node.path) {
+                    let is_entry = entry_canonical.is_some_and(|entry| entry == &node.path);
+                    let result = compile_parallel_module(
+                        node,
+                        &nodes_by_path,
+                        &loaded_interfaces,
+                        cache_layout,
+                        no_cache,
+                        true,
+                        strict_mode,
+                        strict_types,
+                        enable_optimize,
+                        enable_analyze,
+                        is_entry,
+                        graph_interner,
+                    );
+                    parallel_results.push(result);
+                }
+            }
+            parallel_results.sort_by(|left, right| left.path.cmp(&right.path));
+
+            for result in parallel_results {
+                if result.compile_failed {
+                    failed.insert(result.path.clone());
+                    if let Some(node) = nodes_by_path.get(&result.path) {
+                        all_diagnostics.extend(replay_module_diagnostics(
+                            node,
+                            &nodes_by_path,
+                            &loaded_interfaces,
+                            graph_interner,
+                            strict_mode,
+                            strict_types,
+                            enable_optimize,
+                            enable_analyze,
+                        ));
+                    }
+                    continue;
+                }
+                if result.needs_serial_warning_replay
+                    && let Some(node) = nodes_by_path.get(&result.path)
+                {
+                    let replayed = replay_module_diagnostics(
+                        node,
+                        &nodes_by_path,
+                        &loaded_interfaces,
+                        graph_interner,
+                        strict_mode,
+                        strict_types,
+                        enable_optimize,
+                        enable_analyze,
+                    );
+                    all_diagnostics.extend(
+                        replayed
+                            .into_iter()
+                            .filter(|diag| diag.severity() != flux::diagnostics::Severity::Error),
+                    );
+                }
+
+                if let Some(interface) = result.interface_hit.clone() {
+                    let name = interface.module_name.clone();
+                    if result.skipped {
+                        cached_count += 1;
+                    }
+                    completed_modules += 1;
+                    if result.skipped {
+                        eprintln!(
+                            "{}",
+                            progress_line(completed_modules, total_modules, "Cached", &name)
+                        );
+                    } else {
+                        if verbose && let Some(reason) = &result.miss_reason {
+                            eprintln!("  cache miss ({name}): {reason}");
+                        }
+                        eprintln!(
+                            "{}",
+                            progress_line(completed_modules, total_modules, "Compiling", &name)
+                        );
+                    }
+                    loaded_interfaces.insert(result.path.clone(), interface);
+                } else {
+                    if result.skipped {
+                        cached_count += 1;
+                    }
+                    completed_modules += 1;
+                    let name = module_display_name(&result.path);
+                    if result.skipped {
+                        eprintln!(
+                            "{}",
+                            progress_line(completed_modules, total_modules, "Cached", &name)
+                        );
+                    } else {
+                        if verbose && let Some(reason) = &result.miss_reason {
+                            eprintln!("  cache miss ({name}): {reason}");
+                        }
+                        eprintln!(
+                            "{}",
+                            progress_line(completed_modules, total_modules, "Compiling", &name)
+                        );
+                    }
+                }
+
+                module_states.insert(
+                    result.path.clone(),
+                    ModuleBuildState {
+                        old_interface_fingerprint: result.old_interface_fingerprint,
+                        new_interface_fingerprint: result.new_interface_fingerprint,
+                        interface_changed: result.interface_changed,
+                        rebuild_required: !result.skipped,
+                        skipped: result.skipped,
+                    },
+                );
+
+                let artifact = module_cache
+                    .load(
+                        &result.path,
+                        &result.cache_key,
+                        env!("CARGO_PKG_VERSION"),
+                        cache_layout.root(),
+                    )
+                    .ok_or_else(|| {
+                        let reason = module_cache
+                            .load_failure_reason(
+                                &result.path,
+                                &result.cache_key,
+                                env!("CARGO_PKG_VERSION"),
+                                cache_layout.root(),
+                            )
+                            .unwrap_or_else(|| "unknown".to_string());
+                        format!(
+                            "could not load module artifact for {} ({reason})",
+                            result.path.display()
+                        )
+                    })?;
+                linker.assemble_module(&artifact)?;
+            }
+        } // end for batch in batches
+    }
+
+    let compiled_count = total_modules - cached_count;
+    let LinkedVmProgram {
+        bytecode,
+        symbol_table,
+    } = linker.finish();
+    Ok(ParallelVmBuild {
+        bytecode,
+        symbol_table,
+        cached_count,
+        compiled_count,
+    })
+}
+
+#[cfg(feature = "core_to_llvm")]
+fn native_temp_dir() -> PathBuf {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!("flux_native_{}_{}", std::process::id(), stamp))
+}
+
+#[cfg(feature = "core_to_llvm")]
+fn compile_native_support_object(
+    cache_layout: &CacheLayout,
+    no_cache: bool,
+    enable_optimize: bool,
+) -> Result<PathBuf, String> {
+    let object_path = if no_cache {
+        let dir = native_temp_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join(if cfg!(windows) {
+            "flux_support.obj"
+        } else {
+            "flux_support.o"
+        })
+    } else {
+        let dir = cache_layout.native_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join(if enable_optimize {
+            if cfg!(windows) {
+                "flux_support_O2.obj"
+            } else {
+                "flux_support_O2.o"
+            }
+        } else if cfg!(windows) {
+            "flux_support_O0.obj"
+        } else {
+            "flux_support_O0.o"
+        })
+    };
+
+    // The support object is deterministic (empty LirProgram + runtime stubs),
+    // so reuse the cached .o if it already exists.
+    if !no_cache && object_path.exists() {
+        return Ok(object_path);
+    }
+
+    let lir = flux::lir::LirProgram::new();
+    let mut llvm_module = flux::lir::emit_llvm::emit_llvm_module_with_options(&lir, true, false);
+    llvm_module.target_triple = Some(flux::core_to_llvm::target::host_triple());
+    llvm_module.data_layout = flux::core_to_llvm::target::host_data_layout();
+    let ll_text = flux::core_to_llvm::render_module(&llvm_module);
+    flux::core_to_llvm::pipeline::compile_ir_to_object(
+        &ll_text,
+        &object_path,
+        if enable_optimize { 2 } else { 0 },
+    )
+    .map_err(|err| format!("native support object compilation failed: {err}"))?;
+    Ok(object_path)
+}
+
+#[cfg(feature = "core_to_llvm")]
+#[allow(clippy::too_many_arguments)]
+fn compile_parallel_native_module(
+    node: &ModuleNode,
+    is_entry_module: bool,
+    nodes_by_path: &HashMap<PathBuf, ModuleNode>,
+    loaded_interfaces: &HashMap<PathBuf, flux::types::module_interface::ModuleInterface>,
+    cache_layout: &CacheLayout,
+    no_cache: bool,
+    force_rebuild: bool,
+    strict_mode: bool,
+    strict_types: bool,
+    enable_optimize: bool,
+    enable_analyze: bool,
+    base_interner: &flux::syntax::interner::Interner,
+    export_user_ctor_name_helper: bool,
+) -> NativeParallelModuleResult {
+    let is_flow_library = node.kind == ModuleKind::FlowStdlib;
+    let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
+    let source_hash = hash_bytes(module_source.as_bytes());
+    let semantic_config_hash =
+        flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
+            !is_flow_library && strict_mode,
+            enable_optimize,
+        );
+    let cache_key = hash_cache_key(&source_hash, &semantic_config_hash);
+
+    // Check native artifact cache before doing any compilation.
+    let native_miss_reason = if !no_cache && !force_rebuild {
+        let native_cache =
+            flux::core_to_llvm::module_cache::NativeModuleCache::new(cache_layout.native_dir());
+        match native_cache.validate(
+            &node.path,
+            &cache_key,
+            cache_layout.root(),
+            export_user_ctor_name_helper,
+        ) {
+            Ok(object_path) => {
+                // Try to load a cached interface. Entry modules (containing main)
+                // may not have one, but their .o can still be cached.
+                let interface = flux::bytecode::compiler::module_interface::load_cached_interface(
+                    cache_layout.root(),
+                    &node.path,
+                )
+                .ok();
+                // Library modules require a valid interface to be cached;
+                // entry modules (non-library) can be cached without one.
+                if interface.is_some() || node.kind != ModuleKind::FlowStdlib {
+                    return NativeParallelModuleResult {
+                        path: node.path.clone(),
+                        object_path,
+                        compile_failed: false,
+                        error_message: None,
+                        interface,
+                        skipped: true,
+                        interface_changed: false,
+                        miss_reason: None,
+                    };
+                }
+                Some("interface missing for library module".to_string())
+            }
+            Err(err) => Some(err.message()),
+        }
+    } else if force_rebuild {
+        Some("dependency interface changed".to_string())
+    } else {
+        None
+    };
+
+    let mut compiler = build_module_compiler(
+        node,
+        nodes_by_path,
+        loaded_interfaces,
+        base_interner,
+        strict_mode,
+        strict_types,
+        false,
+    );
+    compiler.set_file_path(node.path.to_string_lossy().to_string());
+
+    if is_flow_library {
+        compiler.set_strict_mode(false);
+        compiler.set_strict_types(false);
+    }
+
+    let compile_result = compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
+    let _ = compiler.take_warnings();
+
+    if let Err(mut diags) = compile_result {
+        tag_module_diagnostics(&mut diags, DiagnosticPhase::TypeCheck, &node.path);
+        return NativeParallelModuleResult {
+            path: node.path.clone(),
+            object_path: PathBuf::new(),
+            compile_failed: true,
+            error_message: None,
+            interface: None,
+            skipped: false,
+            interface_changed: true,
+            miss_reason: native_miss_reason,
+        };
+    }
+
+    let llvm_module = match compiler.lower_to_lir_llvm_module_per_module(
+        &node.program,
+        enable_optimize,
+        export_user_ctor_name_helper,
+        is_entry_module,
+    ) {
+        Ok(module) => module,
+        Err(mut diag) => {
+            diag.set_file(node.path.to_string_lossy().to_string());
+            return NativeParallelModuleResult {
+                path: node.path.clone(),
+                object_path: PathBuf::new(),
+                compile_failed: true,
+                error_message: Some(format!(
+                    "native lowering failed for {}: {}",
+                    node.path.display(),
+                    diag.title()
+                )),
+                interface: None,
+                skipped: false,
+                interface_changed: true,
+                miss_reason: native_miss_reason,
+            };
+        }
+    };
+
+    let mut llvm_module = llvm_module;
+    llvm_module.target_triple = Some(flux::core_to_llvm::target::host_triple());
+    llvm_module.data_layout = flux::core_to_llvm::target::host_data_layout();
+    let ll_text = flux::core_to_llvm::render_module(&llvm_module);
+
+    let dependency_fingerprints: Vec<_> = node
+        .imports
+        .iter()
+        .filter_map(|dep| {
+            loaded_interfaces.get(&dep.target_path).map(|interface| {
+                flux::types::module_interface::DependencyFingerprint {
+                    module_name: interface.module_name.clone(),
+                    source_path: dep.target_path.to_string_lossy().to_string(),
+                    interface_fingerprint: interface.interface_fingerprint.clone(),
+                }
+            })
+        })
+        .collect();
+
+    let native_cache =
+        flux::core_to_llvm::module_cache::NativeModuleCache::new(cache_layout.native_dir());
+    let object_path = if no_cache {
+        let dir = native_temp_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join(cache_paths::cache_key_filename(
+            &node.path,
+            &cache_key,
+            if cfg!(windows) { "obj" } else { "o" },
+        ))
+    } else {
+        match native_cache.store(
+            &node.path,
+            &cache_key,
+            dependency_fingerprints.clone(),
+            enable_optimize,
+            export_user_ctor_name_helper,
+        ) {
+            Ok(path) => path,
+            Err(_) => cache_layout
+                .native_dir()
+                .join(cache_paths::cache_key_filename(
+                    &node.path,
+                    &cache_key,
+                    if cfg!(windows) { "obj" } else { "o" },
+                )),
+        }
+    };
+
+    if let Err(err) = flux::core_to_llvm::pipeline::compile_ir_to_object(
+        &ll_text,
+        &object_path,
+        if enable_optimize { 2 } else { 0 },
+    ) {
+        return NativeParallelModuleResult {
+            path: node.path.clone(),
+            object_path: PathBuf::new(),
+            compile_failed: true,
+            error_message: Some(format!(
+                "native module compilation failed for {}: {err}",
+                node.path.display()
+            )),
+            interface: None,
+            skipped: false,
+            interface_changed: true,
+            miss_reason: native_miss_reason,
+        };
+    }
+
+    let interface = extract_module_name_and_sym(&node.program, &compiler.interner).and_then(
+        |(module_name, module_sym)| {
+            compiler
+                .lower_aether_report_program(&node.program, enable_optimize)
+                .ok()
+                .map(|core| {
+                    flux::bytecode::compiler::module_interface::build_interface(
+                        &module_name,
+                        module_sym,
+                        &source_hash,
+                        &semantic_config_hash,
+                        core.as_core(),
+                        compiler.cached_member_schemes(),
+                        &compiler.module_function_visibility,
+                        Some(compiler.class_env()),
+                        dependency_fingerprints,
+                        &compiler.interner,
+                    )
+                })
+        },
+    );
+
+    let interface_changed = match (&loaded_interfaces.get(&node.path), &interface) {
+        (Some(old), Some(new)) => {
+            flux::bytecode::compiler::module_interface::module_interface_changed(old, new)
+        }
+        _ => true,
+    };
+
+    NativeParallelModuleResult {
+        path: node.path.clone(),
+        object_path,
+        compile_failed: false,
+        error_message: None,
+        interface,
+        skipped: false,
+        interface_changed,
+        miss_reason: native_miss_reason,
+    }
+}
+
+#[cfg(feature = "core_to_llvm")]
+#[allow(clippy::too_many_arguments)]
+fn compile_native_modules_parallel(
+    graph: &ModuleGraph,
+    cache_layout: &CacheLayout,
+    no_cache: bool,
+    strict_mode: bool,
+    strict_types: bool,
+    enable_optimize: bool,
+    enable_analyze: bool,
+    verbose: bool,
+    base_interner: &flux::syntax::interner::Interner,
+    all_diagnostics: &mut Vec<Diagnostic>,
+) -> Result<(Vec<PathBuf>, bool), String> {
+    let entry_path = graph
+        .entry_node()
+        .map(|node| node.path.clone())
+        .ok_or_else(|| "native module graph is missing an entry node".to_string())?;
+    let mut loaded_interfaces: HashMap<PathBuf, flux::types::module_interface::ModuleInterface> =
+        HashMap::new();
+    let mut nodes_by_path: HashMap<PathBuf, ModuleNode> = HashMap::new();
+    for node in graph.topo_order() {
+        nodes_by_path.insert(node.path.clone(), node.clone());
+    }
+    let user_ctor_helper_owner = graph
+        .topo_order()
+        .into_iter()
+        .find(|node| program_has_user_adt_declarations(&node.program))
+        .map(|node| node.path.clone());
+    // Pre-load valid interfaces from cache so dependency fingerprints are
+    // available for the first level's cache validation.
+    if !no_cache {
+        for node in graph.topo_order() {
+            if let Ok(interface) = flux::bytecode::compiler::module_interface::load_cached_interface(
+                cache_layout.root(),
+                &node.path,
+            ) {
+                loaded_interfaces.insert(node.path.clone(), interface);
+            }
+        }
+    }
+    let mut object_paths = Vec::new();
+    let mut any_module_recompiled = false;
+    // Track which modules had interface changes so dependents can be forced
+    // to rebuild even if their own source didn't change.
+    let mut interface_changed_modules: HashSet<PathBuf> = HashSet::new();
+    let total_native_modules = graph.topo_order().len();
+    let mut completed_native = 0usize;
+
+    for level in graph.topo_levels().into_iter() {
+        // Split each level into Flow library modules and user modules.
+        // Flow modules must be processed first so their interfaces are
+        // available for user modules via auto-prelude.
+        let (flow_nodes, user_nodes): (Vec<_>, Vec<_>) = level
+            .iter()
+            .partition(|node| node.kind == ModuleKind::FlowStdlib);
+        let batches: Vec<Vec<&ModuleNode>> = if flow_nodes.is_empty() {
+            vec![user_nodes]
+        } else if user_nodes.is_empty() {
+            vec![flow_nodes]
+        } else {
+            vec![flow_nodes, user_nodes]
+        };
+
+        for batch in batches {
+            let mut results: Vec<_> = batch
+                .par_iter()
+                .map(|node| {
+                    let force_rebuild = node
+                        .imports
+                        .iter()
+                        .any(|dep| interface_changed_modules.contains(&dep.target_path));
+                    compile_parallel_native_module(
+                        node,
+                        node.path == entry_path,
+                        &nodes_by_path,
+                        &loaded_interfaces,
+                        cache_layout,
+                        no_cache,
+                        force_rebuild,
+                        strict_mode,
+                        strict_types,
+                        enable_optimize,
+                        enable_analyze,
+                        base_interner,
+                        user_ctor_helper_owner
+                            .as_ref()
+                            .is_some_and(|owner| owner == &node.path),
+                    )
+                })
+                .collect();
+            results.sort_by(|left, right| left.path.cmp(&right.path));
+
+            for result in results {
+                if result.compile_failed {
+                    if let Some(node) = nodes_by_path.get(&result.path) {
+                        all_diagnostics.extend(replay_module_diagnostics(
+                            node,
+                            &nodes_by_path,
+                            &loaded_interfaces,
+                            base_interner,
+                            strict_mode,
+                            strict_types,
+                            enable_optimize,
+                            enable_analyze,
+                        ));
+                    }
+                    return Err(result.error_message.unwrap_or_else(|| {
+                        format!(
+                            "native module compilation failed for {}",
+                            result.path.display()
+                        )
+                    }));
+                }
+                if !result.skipped
+                    && let Some(node) = nodes_by_path.get(&result.path)
+                {
+                    let replayed = replay_module_diagnostics(
+                        node,
+                        &nodes_by_path,
+                        &loaded_interfaces,
+                        base_interner,
+                        strict_mode,
+                        strict_types,
+                        enable_optimize,
+                        enable_analyze,
+                    );
+                    all_diagnostics.extend(
+                        replayed
+                            .into_iter()
+                            .filter(|diag| diag.severity() != flux::diagnostics::Severity::Error),
+                    );
+                }
+                completed_native += 1;
+                {
+                    let name = result
+                        .interface
+                        .as_ref()
+                        .map(|i| i.module_name.clone())
+                        .unwrap_or_else(|| module_display_name(&result.path));
+                    if result.skipped {
+                        eprintln!(
+                            "{}",
+                            progress_line(completed_native, total_native_modules, "Cached", &name)
+                        );
+                    } else {
+                        any_module_recompiled = true;
+                        if verbose && let Some(reason) = &result.miss_reason {
+                            eprintln!("  cache miss ({name}): {reason}");
+                        }
+                        eprintln!(
+                            "{}",
+                            progress_line(completed_native, total_native_modules, "Linking", &name)
+                        );
+                    }
+                }
+                if result.interface_changed {
+                    interface_changed_modules.insert(result.path.clone());
+                }
+                if let Some(interface) = result.interface {
+                    if !result.skipped {
+                        let interface_path =
+                            flux::bytecode::compiler::module_interface::interface_path(
+                                cache_layout.root(),
+                                &result.path,
+                            );
+                        if !no_cache {
+                            let _ = flux::bytecode::compiler::module_interface::save_interface(
+                                &interface_path,
+                                &interface,
+                            );
+                        }
+                    }
+                    loaded_interfaces.insert(result.path.clone(), interface);
+                }
+                object_paths.push(result.object_path);
+            }
+        } // end for batch in batches
+    }
+
+    object_paths.sort();
+    Ok((object_paths, any_module_recompiled))
+}
+
 fn main() {
     let mut args: Vec<String> = env::args().collect();
     let verbose = args.iter().any(|arg| arg == "--verbose");
     let leak_detector = args.iter().any(|arg| arg == "--leak-detector");
     let trace = args.iter().any(|arg| arg == "--trace");
     let trace_aether = args.iter().any(|arg| arg == "--trace-aether");
-    let no_cache = args.iter().any(|arg| arg == "--no-cache");
+    let profiling = args.iter().any(|arg| arg == "--prof");
+    // Profiling requires fresh compilation (no cached bytecode) since
+    // OpEnterCC instructions are only emitted when profiling is enabled.
+    let no_cache = args.iter().any(|arg| arg == "--no-cache") || profiling;
     let roots_only = args.iter().any(|arg| arg == "--roots-only");
     let enable_optimize = args.iter().any(|arg| arg == "--optimize" || arg == "-O");
     let enable_analyze = args.iter().any(|arg| arg == "--analyze" || arg == "-A");
     let show_stats = args.iter().any(|arg| arg == "--stats");
     let test_mode = args.iter().any(|arg| arg == "--test");
     let strict_mode = args.iter().any(|arg| arg == "--strict");
+    let strict_types = args.iter().any(|arg| arg == "--strict-types");
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
+    let dump_repr = args.iter().any(|arg| arg == "--dump-repr");
+    let dump_cfg = args.iter().any(|arg| arg == "--dump-cfg");
     let dump_aether = if args.iter().any(|arg| arg == "--dump-aether=debug") {
         AetherDumpMode::Debug
     } else if args.iter().any(|arg| arg == "--dump-aether") {
@@ -107,6 +1606,9 @@ fn main() {
     if no_cache {
         args.retain(|arg| arg != "--no-cache");
     }
+    if profiling {
+        args.retain(|arg| arg != "--prof");
+    }
     if roots_only {
         args.retain(|arg| arg != "--roots-only");
     }
@@ -125,9 +1627,18 @@ fn main() {
     if args.iter().any(|arg| arg == "--strict") {
         args.retain(|arg| arg != "--strict");
     }
+    if strict_types {
+        args.retain(|arg| arg != "--strict-types");
+    }
     args.retain(|arg| arg != "--no-strict");
     if all_errors {
         args.retain(|arg| arg != "--all-errors");
+    }
+    if dump_repr {
+        args.retain(|arg| arg != "--dump-repr");
+    }
+    if dump_cfg {
+        args.retain(|arg| arg != "--dump-cfg");
     }
     if dump_aether != AetherDumpMode::None {
         args.retain(|arg| arg != "--dump-aether" && arg != "--dump-aether=debug");
@@ -147,6 +1658,10 @@ fn main() {
     if emit_binary {
         args.retain(|arg| arg != "--emit-binary");
     }
+    let cache_dir = match extract_cache_dir(&mut args) {
+        Some(value) => value,
+        None => return,
+    };
     let output_path = extract_output_path(&mut args);
     let dump_core = match extract_dump_core_mode(&mut args) {
         Some(value) => value,
@@ -170,6 +1685,8 @@ fn main() {
 
     if trace_aether
         && (!matches!(dump_core, CoreDumpMode::None)
+            || dump_repr
+            || dump_cfg
             || dump_aether != AetherDumpMode::None
             || test_mode)
     {
@@ -193,8 +1710,10 @@ fn main() {
                 enable_analyze,
                 max_errors,
                 &roots,
+                cache_dir.as_deref(),
                 test_filter.as_deref(),
                 strict_mode,
+                strict_types,
                 diagnostics_format,
                 all_errors,
                 use_core_to_llvm,
@@ -211,11 +1730,16 @@ fn main() {
                 enable_analyze,
                 max_errors,
                 &roots,
+                cache_dir.as_deref(),
                 show_stats,
                 trace_aether,
                 strict_mode,
+                strict_types,
+                profiling,
                 diagnostics_format,
                 all_errors,
+                dump_repr,
+                dump_cfg,
                 dump_core,
                 dump_aether,
                 dump_lir,
@@ -254,8 +1778,10 @@ fn main() {
                     enable_analyze,
                     max_errors,
                     &roots,
+                    cache_dir.as_deref(),
                     test_filter.as_deref(),
                     strict_mode,
+                    strict_types,
                     diagnostics_format,
                     all_errors,
                     use_core_to_llvm,
@@ -272,11 +1798,16 @@ fn main() {
                     enable_analyze,
                     max_errors,
                     &roots,
+                    cache_dir.as_deref(),
                     show_stats,
                     trace_aether,
                     strict_mode,
+                    strict_types,
+                    profiling,
                     diagnostics_format,
                     all_errors,
+                    dump_repr,
+                    dump_cfg,
                     dump_core,
                     dump_aether,
                     dump_lir,
@@ -320,6 +1851,7 @@ fn main() {
                 enable_analyze,
                 max_errors,
                 strict_mode,
+                strict_types,
                 diagnostics_format,
             );
         }
@@ -369,14 +1901,52 @@ fn main() {
                 );
                 return;
             }
-            show_cache_info(&args[2], &roots);
+            show_cache_info(&args[2], &roots, cache_dir.as_deref());
         }
-        "cache-info-file" => {
+        "module-cache-info" => {
             if args.len() < 3 {
-                eprintln!("Usage: flux cache-info-file <file.fxc>");
+                eprintln!("Usage: flux module-cache-info <file.flx>");
                 return;
             }
-            show_cache_info_file(&args[2]);
+            if !is_flx_file(&args[2]) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
+                return;
+            }
+            show_module_cache_info(&args[2], &roots, cache_dir.as_deref());
+        }
+        "native-cache-info" => {
+            if args.len() < 3 {
+                eprintln!("Usage: flux native-cache-info <file.flx>");
+                return;
+            }
+            if !is_flx_file(&args[2]) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
+                return;
+            }
+            show_native_cache_info(&args[2], &roots, cache_dir.as_deref());
+        }
+        "clean" => {
+            let entry = if args.len() >= 3 && is_flx_file(&args[2]) {
+                Path::new(&args[2])
+            } else {
+                Path::new(".")
+            };
+            let layout = flux::cache_paths::resolve_cache_layout(entry, cache_dir.as_deref());
+            let root = layout.root();
+            if root.exists() {
+                match std::fs::remove_dir_all(root) {
+                    Ok(()) => println!("Removed cache: {}", root.display()),
+                    Err(e) => eprintln!("Failed to remove cache {}: {e}", root.display()),
+                }
+            } else {
+                println!("No cache found at {}", root.display());
+            }
         }
         "interface-info" => {
             if args.len() < 3 {
@@ -420,6 +1990,10 @@ fn main() {
             }
             analyze_tail_calls(&args[2], max_errors, diagnostics_format);
         }
+        "parity-check" => {
+            let parity_args: Vec<String> = args[2..].to_vec();
+            flux::parity::cli::run_parity_check(&parity_args);
+        }
         _ => {
             eprintln!(
                 "Error: unknown command or invalid input `{}`. Pass a `.flx` file or a valid subcommand.",
@@ -442,10 +2016,13 @@ Usage:
   flux lint <file.flx>
   flux fmt [--check] <file.flx>
   flux cache-info <file.flx>
-  flux cache-info-file <file.fxc>
+  flux module-cache-info <file.flx>
+  flux native-cache-info <file.flx>
   flux interface-info <file.flxi>
+  flux clean [<file.flx>]
   flux analyze-free-vars <file.flx>
   flux analyze-tail-calls <file.flx>
+  flux parity-check <file-or-dir> [--ways vm,llvm] [--root <path> ...]
   flux <file.flx> --root <path> [--root <path> ...]
   flux run <file.flx> --root <path> [--root <path> ...]
 
@@ -457,6 +2034,7 @@ Flags:
   --test-filter <s>  Only run tests whose names contain <s>
   --leak-detector    Print approximate allocation stats after run
   --no-cache         Disable bytecode cache for this run
+  --cache-dir <dir>  Override cache root (default: nearest Cargo.toml target/flux, else .flux/cache)
   --optimize, -O     Enable AST optimizations (desugar + constant fold)
   --analyze, -A      Enable analysis passes (free vars + tail calls)
   --format <f>       Diagnostics format: text|json|json-compact (default: text)
@@ -464,8 +2042,11 @@ Flags:
   --root <path>      Add a module root (can be repeated)
   --roots-only       Use only explicitly provided --root values
   --stats            Print execution analytics (parse/compile/execute times, module info)
+  --prof             Print per-function profiling report (call counts, time, allocations)
   --strict           Enable strict type/effect boundary checks
   --all-errors       Show diagnostics from all phases (disable stage-aware filtering)
+  --dump-repr        Print the backend representation contract summary and exit
+  --dump-cfg         Lower to Flux CFG IR, print a readable dump, and exit
   --dump-core        Lower to Flux Core IR, print a readable dump, and exit
   --dump-core=debug  Lower to Flux Core IR, print a raw debug dump, and exit
   --dump-aether      Show Aether memory model report (per-function reuse/drop stats)
@@ -486,6 +2067,40 @@ Optimization & Analysis:
     );
 }
 
+fn print_backend_representation_contract() {
+    println!(
+        "\
+Flux Backend Representation Contract
+===================================
+
+family.none = sentinel:none
+family.empty_list = sentinel:empty_list
+family.list_cons = boxed:adt:ctor=Cons
+family.tuple = boxed:tuple
+family.user_adt = boxed:adt:user_ctor
+family.array = boxed:array
+family.string = boxed:string
+family.float = boxed:float
+family.closure = boxed:closure
+family.hashmap = boxed:hamt
+
+rule.match_ctor = decode_ctor_only_after_family_proof
+rule.list_pattern = require_family:list_cons_or_empty_list
+rule.tuple_pattern = require_family:tuple
+rule.adt_pattern = require_family:user_adt_or_builtin_adt
+rule.none_pattern = require_family:none
+rule.empty_list_pattern = require_family:empty_list
+
+vm.proof = shape_opcodes_only_accept_corresponding_Value_variants
+native.proof = ctor_dispatch_requires_heap_obj_tag_before_layout_reads
+
+debug.core = frontend_bug_if_mismatch
+debug.aether = ownership_bug_if_mismatch
+debug.repr = backend_representation_bug_if_core_and_aether_match
+"
+    );
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_file(
     path: &str,
@@ -498,11 +2113,16 @@ fn run_file(
     enable_analyze: bool,
     max_errors: usize,
     extra_roots: &[std::path::PathBuf],
+    cache_dir: Option<&Path>,
     show_stats: bool,
     trace_aether: bool,
     strict_mode: bool,
+    strict_types: bool,
+    profiling: bool,
     diagnostics_format: DiagnosticOutputFormat,
     all_errors: bool,
+    dump_repr: bool,
+    dump_cfg: bool,
     dump_core: CoreDumpMode,
     dump_aether: AetherDumpMode,
     dump_lir: bool,
@@ -514,71 +2134,13 @@ fn run_file(
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
-            let source_hash = hash_bytes(source.as_bytes());
             let entry_path = Path::new(path);
-            let roots = collect_roots(entry_path, extra_roots, roots_only);
-            let roots_hash = roots_cache_hash(&roots);
-            let base_cache_key = hash_cache_key(&source_hash, &roots_hash);
+            let cache_layout = cache_paths::resolve_cache_layout(entry_path, cache_dir);
             let strict_hash = hash_bytes(if strict_mode {
                 b"strict=1"
             } else {
                 b"strict=0"
             });
-            let cache_key = hash_cache_key(&base_cache_key, &strict_hash);
-            let cache = BytecodeCache::new(Path::new("target").join("flux"));
-            if !no_cache
-                && !use_core_to_llvm
-                && !emit_llvm
-                && !emit_binary
-                && matches!(dump_core, CoreDumpMode::None)
-                && dump_aether == AetherDumpMode::None
-                && !dump_lir
-                && !dump_lir_llvm
-                && !trace_aether
-            {
-                if let Some(bytecode) =
-                    cache.load(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
-                {
-                    if verbose {
-                        eprintln!("cache: hit (bytecode loaded)");
-                    }
-                    let functions_count = count_bytecode_functions(&bytecode.constants);
-                    let instruction_bytes = bytecode.instructions.len();
-                    let mut vm = VM::new(bytecode);
-                    vm.set_trace(trace);
-                    let exec_start = Instant::now();
-                    if let Err(err) = vm.run() {
-                        eprintln!("{}", err);
-                        std::process::exit(1);
-                    }
-                    let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
-                    if leak_detector {
-                        print_leak_stats();
-                    }
-                    if show_stats {
-                        print_stats(&RunStats {
-                            parse_ms: None,
-                            compile_ms: None,
-                            compile_backend: Some("bytecode"),
-                            execute_ms,
-                            execute_backend: "vm",
-                            cached: true,
-                            module_count: None,
-                            source_lines: source.lines().count(),
-                            globals_count: None,
-                            functions_count: Some(functions_count),
-                            instruction_bytes: Some(instruction_bytes),
-                        });
-                    }
-                    return;
-                }
-                if verbose {
-                    let reason = cache
-                        .load_failure_reason(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
-                        .unwrap_or("cache file not found");
-                    eprintln!("cache: miss (compiling: {reason})");
-                }
-            }
 
             let parse_start = Instant::now();
             let lexer = Lexer::new(&source);
@@ -623,6 +2185,11 @@ fn run_file(
             let entry_path = Path::new(path);
             let roots = collect_roots(entry_path, extra_roots, roots_only);
 
+            if dump_repr {
+                print_backend_representation_contract();
+                return;
+            }
+
             // --- Build module graph (always returns, may have diagnostics) ---
             let graph_result =
                 ModuleGraph::build_with_entry_and_roots(entry_path, &program, interner, &roots);
@@ -641,31 +2208,148 @@ fn run_file(
             let is_multimodule = module_count > 1;
             let graph = graph_result.graph;
 
+            // Warm the toolchain info cache before compile timing starts.
+            #[cfg(feature = "core_to_llvm")]
+            if verbose && (use_core_to_llvm || emit_binary) {
+                let _ = flux::core_to_llvm::pipeline::toolchain_info();
+            }
+
             // --- Compile valid modules, suppress cascade ---
             let compile_start = Instant::now();
             let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
             compiler.set_strict_mode(strict_mode);
+            compiler.set_strict_types(strict_types);
+            if profiling {
+                compiler.set_profiling(true);
+            }
             let entry_canonical = std::fs::canonicalize(entry_path).ok();
             let mut preloaded_interfaces: HashSet<PathBuf> = HashSet::new();
-            let module_cache = ModuleBytecodeCache::new(Path::new("target").join("flux"));
+            let mut loaded_interfaces: HashMap<
+                PathBuf,
+                flux::types::module_interface::ModuleInterface,
+            > = HashMap::new();
+            let mut module_states: HashMap<PathBuf, ModuleBuildState> = HashMap::new();
+            let module_cache = ModuleBytecodeCache::new(cache_layout.vm_dir());
             let allow_cached_module_bytecode = !use_core_to_llvm
                 && !emit_llvm
                 && !emit_binary
                 && matches!(dump_core, CoreDumpMode::None)
+                && !dump_cfg
                 && dump_aether == AetherDumpMode::None
                 && !dump_lir
                 && !dump_lir_llvm
                 && !trace_aether;
 
+            if is_multimodule && allow_cached_module_bytecode && !no_cache {
+                let build = match compile_vm_modules_parallel(
+                    &graph,
+                    entry_canonical.as_ref(),
+                    &compiler.interner,
+                    &cache_layout,
+                    no_cache,
+                    strict_mode,
+                    strict_types,
+                    enable_optimize,
+                    enable_analyze,
+                    verbose,
+                    &mut all_diagnostics,
+                ) {
+                    Ok(build) => build,
+                    Err(err) => {
+                        eprintln!("parallel VM compilation failed: {err}");
+                        std::process::exit(1);
+                    }
+                };
+
+                let report = DiagnosticsAggregator::new(&all_diagnostics)
+                    .with_default_source(path, source.as_str())
+                    .with_file_headers(true)
+                    .with_max_errors(Some(max_errors))
+                    .with_stage_filtering(!all_errors)
+                    .report();
+                if report.counts.errors > 0 {
+                    emit_diagnostics(
+                        &all_diagnostics,
+                        Some(path),
+                        Some(source.as_str()),
+                        true,
+                        max_errors,
+                        diagnostics_format,
+                        all_errors,
+                        true,
+                    );
+                    std::process::exit(1);
+                }
+                if !all_diagnostics.is_empty() {
+                    emit_diagnostics(
+                        &all_diagnostics,
+                        Some(path),
+                        Some(source.as_str()),
+                        true,
+                        max_errors,
+                        diagnostics_format,
+                        all_errors,
+                        true,
+                    );
+                }
+
+                let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
+                let bytecode = build.bytecode;
+                let globals_count = build.symbol_table.num_definitions;
+                let functions_count = count_bytecode_functions(&bytecode.constants);
+                let instruction_bytes = bytecode.instructions.len();
+
+                eprintln!("[cfg→vm] Running via CFG → bytecode VM backend...");
+                let mut vm = VM::new(bytecode);
+                vm.set_trace(trace);
+                let exec_start = Instant::now();
+                if let Err(err) = vm.run() {
+                    eprintln!("{}", err);
+                    std::process::exit(1);
+                }
+                let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
+                if leak_detector {
+                    print_leak_stats();
+                }
+                if show_stats {
+                    print_stats(&RunStats {
+                        parse_ms: Some(parse_ms),
+                        compile_ms: Some(compile_ms),
+                        compile_backend: Some("bytecode"),
+                        execute_ms,
+                        execute_backend: "vm",
+                        cached: false,
+                        module_count: Some(module_count),
+                        cached_module_count: Some(build.cached_count),
+                        compiled_module_count: Some(build.compiled_count),
+                        source_lines: source.lines().count(),
+                        globals_count: Some(globals_count),
+                        functions_count: Some(functions_count),
+                        instruction_bytes: Some(instruction_bytes),
+                    });
+                }
+                return;
+            }
+
             // Sort topo_order to compile Flow library modules first.
             // This ensures all modules can access Flow functions (map, filter, etc.)
             // without explicit imports — like Haskell's implicit Prelude.
+            let nodes_by_path: HashMap<PathBuf, ModuleNode> = graph
+                .topo_order()
+                .iter()
+                .map(|node| (node.path.clone(), (*node).clone()))
+                .collect();
             let mut ordered_nodes = graph.topo_order();
             ordered_nodes.sort_by_key(|node| {
-                let is_flow = node.path.to_string_lossy().contains("lib/Flow/")
-                    || node.path.to_string_lossy().contains("lib\\Flow\\");
-                if is_flow { 0 } else { 1 }
+                if node.kind == ModuleKind::FlowStdlib {
+                    0
+                } else {
+                    1
+                }
             });
+
+            let seq_total = ordered_nodes.len();
+            let mut seq_completed = 0usize;
 
             for node in ordered_nodes {
                 // Skip entry if it had parse errors (it is in topo_order but
@@ -693,37 +2377,92 @@ fn run_file(
                     continue;
                 }
 
-                if !no_cache {
-                    for dep in &node.imports {
-                        if !preloaded_interfaces.insert(dep.target_path.clone()) {
-                            continue;
+                for dep in &node.imports {
+                    if let Some(interface) = loaded_interfaces.get(&dep.target_path) {
+                        if preloaded_interfaces.insert(dep.target_path.clone()) {
+                            compiler.preload_module_interface(interface);
+                            if verbose {
+                                eprintln!(
+                                    "interface: hit {} [abi:{}]",
+                                    interface.module_name,
+                                    short_hash(&interface.interface_fingerprint)
+                                );
+                            }
                         }
-                        let Ok(dep_source) = std::fs::read_to_string(&dep.target_path) else {
-                            continue;
-                        };
-                        let Some(interface) =
-                            flux::bytecode::compiler::module_interface::load_valid_interface(
-                                &dep.target_path,
-                                &dep_source,
-                            )
-                        else {
-                            continue;
-                        };
-                        compiler.preload_module_interface(&interface);
+                        continue;
+                    }
+                    if no_cache {
+                        continue;
+                    }
+                    let Ok(dep_source) = std::fs::read_to_string(&dep.target_path) else {
                         if verbose {
                             eprintln!(
-                                "interface: loaded {} from {}",
-                                interface.module_name,
+                                "interface: miss {} (reason: source not readable)",
                                 dep.target_path.display()
                             );
+                        }
+                        continue;
+                    };
+                    let dep_is_flow_library = nodes_by_path
+                        .get(&dep.target_path)
+                        .is_some_and(|dep_node| dep_node.kind == ModuleKind::FlowStdlib);
+                    let dep_semantic_config_hash =
+                        flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
+                            !dep_is_flow_library && strict_mode,
+                            enable_optimize,
+                        );
+                    match flux::bytecode::compiler::module_interface::load_valid_interface(
+                        cache_layout.root(),
+                        &dep.target_path,
+                        &dep_source,
+                        &dep_semantic_config_hash,
+                    ) {
+                        Ok(interface) => {
+                            compiler.preload_module_interface(&interface);
+                            preloaded_interfaces.insert(dep.target_path.clone());
+                            if verbose {
+                                eprintln!(
+                                    "interface: hit {} [abi:{}]",
+                                    interface.module_name,
+                                    short_hash(&interface.interface_fingerprint)
+                                );
+                            }
+                            loaded_interfaces.insert(dep.target_path.clone(), interface);
+                        }
+                        Err(err) if verbose => {
+                            eprintln!(
+                                "interface: miss {} (reason: {})",
+                                dep.target_path.display(),
+                                err.message()
+                            );
+                        }
+                        Err(_) => {}
+                    }
+                }
+                for dep in &node.imports {
+                    if let Some(dep_node) = nodes_by_path.get(&dep.target_path) {
+                        compiler.preload_dependency_program(&dep_node.program);
+                    }
+                }
+                if node.kind != ModuleKind::FlowStdlib {
+                    for (path, dep_node) in &nodes_by_path {
+                        if !node.imports.iter().any(|dep| &dep.target_path == path)
+                            && dep_node.kind == ModuleKind::FlowStdlib
+                        {
+                            compiler.preload_dependency_program(&dep_node.program);
                         }
                     }
                 }
 
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
+                compiler.set_current_module_kind(node.kind);
                 let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
-                let is_flow_library = node.path.to_string_lossy().contains("lib/Flow/")
-                    || node.path.to_string_lossy().contains("lib\\Flow\\");
+                let is_flow_library = node.kind == ModuleKind::FlowStdlib;
+                let module_semantic_config_hash =
+                    flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
+                        !is_flow_library && strict_mode,
+                        enable_optimize,
+                    );
                 let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
                 let module_source_hash = hash_bytes(module_source.as_bytes());
                 let module_strict_hash = if is_flow_library {
@@ -732,39 +2471,169 @@ fn run_file(
                     strict_hash
                 };
                 let module_cache_key = hash_cache_key(&module_source_hash, &module_strict_hash);
-                let module_deps: Vec<(String, [u8; 32])> = node
-                    .imports
-                    .iter()
-                    .filter_map(|dep| {
-                        hash_file(&dep.target_path)
-                            .ok()
-                            .map(|hash| (dep.target_path.to_string_lossy().to_string(), hash))
-                    })
-                    .collect();
-
-                if !no_cache
-                    && allow_cached_module_bytecode
-                    && !is_entry_module
-                    && let Some(cached) =
-                        module_cache.load(&node.path, &module_cache_key, env!("CARGO_PKG_VERSION"))
-                {
-                    compiler.hydrate_cached_module_bytecode(&cached);
-                    if verbose {
-                        eprintln!("module-cache: hit ({})", node.path.display());
+                let old_interface = if !no_cache {
+                    flux::bytecode::compiler::module_interface::load_cached_interface(
+                        cache_layout.root(),
+                        &node.path,
+                    )
+                    .ok()
+                } else {
+                    None
+                };
+                let must_rebuild_due_to_dependency = node.imports.iter().any(|dep| {
+                    module_states
+                        .get(&dep.target_path)
+                        .is_some_and(|state| state.interface_changed)
+                });
+                let current_interface = if !no_cache {
+                    match flux::bytecode::compiler::module_interface::load_valid_interface(
+                        cache_layout.root(),
+                        &node.path,
+                        &module_source,
+                        &module_semantic_config_hash,
+                    ) {
+                        Ok(interface) => Some(interface),
+                        Err(err) => {
+                            // Entry modules have no `module` declaration so
+                            // they never produce an interface — don't log
+                            // the expected "not found" miss.
+                            if verbose && !is_entry_module {
+                                eprintln!(
+                                    "interface: miss {} (reason: {})",
+                                    node.path.display(),
+                                    err.message()
+                                );
+                            }
+                            None
+                        }
                     }
+                } else {
+                    None
+                };
+
+                // Skip semantic compilation if interface is valid and no
+                // dependency changed. For VM, also requires a valid .fxm
+                // bytecode cache. For LLVM, the interface alone is sufficient
+                // since native artifacts are cached separately.
+                let can_skip_semantic =
+                    !no_cache && !must_rebuild_due_to_dependency && current_interface.is_some();
+
+                let has_vm_cache = can_skip_semantic
+                    && allow_cached_module_bytecode
+                    && module_cache
+                        .load(
+                            &node.path,
+                            &module_cache_key,
+                            env!("CARGO_PKG_VERSION"),
+                            cache_layout.root(),
+                        )
+                        .is_some();
+
+                // Entry modules have no interface, but can still skip via
+                // bytecode-only cache when the source hash hasn't changed.
+                let has_vm_cache_entry = !no_cache
+                    && is_entry_module
+                    && !must_rebuild_due_to_dependency
+                    && allow_cached_module_bytecode
+                    && module_cache
+                        .load(
+                            &node.path,
+                            &module_cache_key,
+                            env!("CARGO_PKG_VERSION"),
+                            cache_layout.root(),
+                        )
+                        .is_some();
+
+                // LLVM path: skip if interface is valid (native artifacts
+                // are validated separately in compile_native_modules_parallel).
+                let skip_for_llvm = can_skip_semantic && use_core_to_llvm;
+
+                // LLVM entry modules have no interface but can still skip
+                // semantic compilation when their compilation marker file
+                // exists. Uses a dedicated `.fxs` (flux-semantic) marker
+                // instead of `.fxm` to avoid cross-backend cache pollution —
+                // a `.fxm` written during an LLVM session contains global
+                // indices incompatible with the VM backend.
+                let llvm_entry_marker = cache_layout.vm_dir().join(
+                    cache_paths::cache_key_filename(&node.path, &module_cache_key, "fxs"),
+                );
+                let skip_llvm_entry =
+                    use_core_to_llvm && is_entry_module && !no_cache && llvm_entry_marker.exists();
+
+                if has_vm_cache || skip_for_llvm || has_vm_cache_entry || skip_llvm_entry {
+                    if let Some(interface) = current_interface.as_ref() {
+                        compiler.preload_module_interface(interface);
+                        loaded_interfaces.insert(node.path.clone(), interface.clone());
+                        preloaded_interfaces.insert(node.path.clone());
+                    }
+                    if has_vm_cache || has_vm_cache_entry {
+                        // Re-load for hydration (load() was consumed above for the check).
+                        if let Some(cached) = module_cache.load(
+                            &node.path,
+                            &module_cache_key,
+                            env!("CARGO_PKG_VERSION"),
+                            cache_layout.root(),
+                        ) {
+                            compiler.hydrate_cached_module_bytecode(&cached);
+                        }
+                    }
+                    let display_name = current_interface
+                        .as_ref()
+                        .map(|i| i.module_name.clone())
+                        .unwrap_or_else(|| module_display_name(&node.path));
+                    seq_completed += 1;
+                    eprintln!(
+                        "{}",
+                        progress_line(seq_completed, seq_total, "Cached", &display_name,)
+                    );
+                    module_states.insert(
+                        node.path.clone(),
+                        ModuleBuildState {
+                            old_interface_fingerprint: current_interface
+                                .as_ref()
+                                .map(|i| i.interface_fingerprint.clone()),
+                            new_interface_fingerprint: current_interface
+                                .as_ref()
+                                .map(|i| i.interface_fingerprint.clone()),
+                            interface_changed: false,
+                            rebuild_required: false,
+                            skipped: true,
+                        },
+                    );
                     continue;
+                } else if !no_cache && !must_rebuild_due_to_dependency && verbose {
+                    if allow_cached_module_bytecode {
+                        let reason = module_cache
+                            .load_failure_reason(
+                                &node.path,
+                                &module_cache_key,
+                                env!("CARGO_PKG_VERSION"),
+                                cache_layout.root(),
+                            )
+                            .unwrap_or_else(|| "not eligible".to_string());
+                        eprintln!("module-cache: miss (reason: {reason})");
+                    } else if current_interface.is_none() && verbose && !is_entry_module {
+                        eprintln!(
+                            "interface: miss {} (no valid interface)",
+                            node.path.display()
+                        );
+                    }
+                } else if !no_cache && must_rebuild_due_to_dependency && verbose {
+                    eprintln!("module-cache: miss (reason: dependency interface changed)");
                 }
                 compiler.set_strict_require_main(is_entry_module);
                 // Disable strict mode for Flow library modules — they use
                 // polymorphic signatures that strict mode can't validate yet.
                 if is_flow_library {
                     compiler.set_strict_mode(false);
+                    compiler.set_strict_types(false);
                 }
                 let module_snapshot = compiler.module_cache_snapshot();
                 let compile_result =
                     compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
                 if is_flow_library {
                     compiler.set_strict_mode(strict_mode);
+                    compiler.set_strict_types(strict_types);
                 }
                 let mut compiler_warnings = compiler.take_warnings();
                 tag_diagnostics(&mut compiler_warnings, DiagnosticPhase::Validation);
@@ -776,6 +2645,7 @@ fn run_file(
                 all_diagnostics.append(&mut compiler_warnings);
 
                 if let Err(mut diags) = compile_result {
+                    failed.insert(node.path.clone());
                     tag_diagnostics(&mut diags, DiagnosticPhase::TypeCheck);
                     for diag in &mut diags {
                         if diag.file().is_none() {
@@ -786,7 +2656,30 @@ fn run_file(
                     continue;
                 }
 
-                if !no_cache && allow_cached_module_bytecode && !is_entry_module {
+                {
+                    seq_completed += 1;
+                    let name = module_display_name(&node.path);
+                    eprintln!(
+                        "{}",
+                        progress_line(seq_completed, seq_total, "Compiling", &name)
+                    );
+                }
+
+                let module_deps: Vec<(String, String)> = node
+                    .imports
+                    .iter()
+                    .filter_map(|dep| {
+                        loaded_interfaces.get(&dep.target_path).map(|interface| {
+                            (
+                                dep.target_path.to_string_lossy().to_string(),
+                                interface.interface_fingerprint.clone(),
+                            )
+                        })
+                    })
+                    .collect();
+
+                // Store bytecode cache for VM runs.
+                if !no_cache && allow_cached_module_bytecode {
                     let cached_module = compiler.build_cached_module_bytecode(module_snapshot);
                     if let Err(e) = module_cache.store(
                         &node.path,
@@ -802,53 +2695,162 @@ fn run_file(
                         );
                     }
                 }
+                // For LLVM entry modules, write a lightweight semantic
+                // marker (.fxs) so the next LLVM run can skip re-compilation.
+                // This is separate from .fxm to avoid cross-backend pollution.
+                if !no_cache && use_core_to_llvm && is_entry_module {
+                    let marker_path = cache_layout.vm_dir().join(cache_paths::cache_key_filename(
+                        &node.path,
+                        &module_cache_key,
+                        "fxs",
+                    ));
+                    if let Some(parent) = marker_path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    let _ = std::fs::write(&marker_path, b"");
+                }
 
-                // Save module interface (.flxi) for non-entry modules.
-                // Entry module doesn't need an interface — it's the consumer.
-                if !no_cache
-                    && !is_entry_module
-                    && let Some((module_name, module_sym)) =
-                        extract_module_name_and_sym(&node.program, &compiler.interner)
+                // Save module interface (.flxi) when available.
+                // Entry modules have no `module` declaration, so
+                // `extract_module_name_and_sym` returns None — the block
+                // naturally won't execute for them.
+                if let Some((module_name, module_sym)) =
+                    extract_module_name_and_sym(&node.program, &compiler.interner)
                 {
                     match compiler.lower_aether_report_program(&node.program, enable_optimize) {
                         Ok(core) => {
+                            let dependency_fingerprints = node
+                                .imports
+                                .iter()
+                                .filter_map(|dep| {
+                                    loaded_interfaces.get(&dep.target_path).map(|interface| {
+                                        flux::types::module_interface::DependencyFingerprint {
+                                            module_name: interface.module_name.clone(),
+                                            source_path: dep
+                                                .target_path
+                                                .to_string_lossy()
+                                                .to_string(),
+                                            interface_fingerprint: interface
+                                                .interface_fingerprint
+                                                .clone(),
+                                        }
+                                    })
+                                })
+                                .collect();
                             let interface =
                                 flux::bytecode::compiler::module_interface::build_interface(
                                     &module_name,
                                     module_sym,
                                     &module_source_hash,
-                                    &core,
+                                    &module_semantic_config_hash,
+                                    core.as_core(),
                                     compiler.cached_member_schemes(),
                                     &compiler.module_function_visibility,
+                                    Some(compiler.class_env()),
+                                    dependency_fingerprints,
                                     &compiler.interner,
                                 );
                             compiler.preload_module_interface(&interface);
-                            let iface_path =
-                                flux::bytecode::compiler::module_interface::interface_path(
-                                    &node.path,
-                                );
-                            if let Err(e) =
-                                flux::bytecode::compiler::module_interface::save_interface(
-                                    &iface_path,
-                                    &interface,
+                            loaded_interfaces.insert(node.path.clone(), interface.clone());
+                            preloaded_interfaces.insert(node.path.clone());
+                            let interface_changed = old_interface.as_ref().is_none_or(|old| {
+                                flux::bytecode::compiler::module_interface::module_interface_changed(
+                                    old, &interface,
                                 )
-                                && verbose
-                            {
-                                eprintln!(
-                                    "warning: could not write interface file {}: {e}",
-                                    iface_path.display()
-                                );
+                            });
+                            if verbose && interface_changed {
+                                if let Some(old) = old_interface.as_ref() {
+                                    log_interface_diff(old, &interface);
+                                } else {
+                                    eprintln!("  interface: new (no previous interface)");
+                                }
+                            }
+                            module_states.insert(
+                                node.path.clone(),
+                                ModuleBuildState {
+                                    old_interface_fingerprint: old_interface
+                                        .as_ref()
+                                        .map(|interface| interface.interface_fingerprint.clone()),
+                                    new_interface_fingerprint: Some(
+                                        interface.interface_fingerprint.clone(),
+                                    ),
+                                    interface_changed,
+                                    rebuild_required: true,
+                                    skipped: false,
+                                },
+                            );
+                            if !no_cache {
+                                let iface_path =
+                                    flux::bytecode::compiler::module_interface::interface_path(
+                                        cache_layout.root(),
+                                        &node.path,
+                                    );
+                                if let Err(e) =
+                                    flux::bytecode::compiler::module_interface::save_interface(
+                                        &iface_path,
+                                        &interface,
+                                    )
+                                {
+                                    if verbose {
+                                        eprintln!(
+                                            "warning: could not write interface file {}: {e}",
+                                            iface_path.display()
+                                        );
+                                    }
+                                } else if verbose {
+                                    eprintln!(
+                                        "interface: stored {} [abi:{}]",
+                                        interface.module_name,
+                                        short_hash(&interface.interface_fingerprint)
+                                    );
+                                }
                             }
                         }
                         Err(e) if verbose => {
+                            module_states.insert(
+                                node.path.clone(),
+                                ModuleBuildState {
+                                    old_interface_fingerprint: old_interface
+                                        .as_ref()
+                                        .map(|interface| interface.interface_fingerprint.clone()),
+                                    new_interface_fingerprint: None,
+                                    interface_changed: true,
+                                    rebuild_required: true,
+                                    skipped: false,
+                                },
+                            );
                             eprintln!(
                                 "warning: could not build interface for {}: {}",
                                 node.path.display(),
                                 e.message().unwrap_or("unknown Core lowering error")
                             );
                         }
-                        Err(_) => {}
+                        Err(_) => {
+                            module_states.insert(
+                                node.path.clone(),
+                                ModuleBuildState {
+                                    old_interface_fingerprint: old_interface
+                                        .as_ref()
+                                        .map(|interface| interface.interface_fingerprint.clone()),
+                                    new_interface_fingerprint: None,
+                                    interface_changed: true,
+                                    rebuild_required: true,
+                                    skipped: false,
+                                },
+                            );
+                        }
                     }
+                } else {
+                    module_states.insert(
+                        node.path.clone(),
+                        ModuleBuildState {
+                            old_interface_fingerprint: None,
+                            new_interface_fingerprint: None,
+                            interface_changed: false,
+                            rebuild_required: true,
+                            skipped: false,
+                        },
+                    );
                 }
             }
 
@@ -890,6 +2892,7 @@ fn run_file(
             let merged_program = if is_multimodule
                 && (dump_aether != AetherDumpMode::None
                     || !matches!(dump_core, CoreDumpMode::None)
+                    || dump_cfg
                     || dump_lir
                     || dump_lir_llvm)
             {
@@ -976,6 +2979,27 @@ fn run_file(
                 return;
             }
 
+            if dump_cfg {
+                let dumped = compiler.dump_cfg(&merged_program, enable_optimize);
+                match dumped {
+                    Ok(dumped) => println!("{dumped}"),
+                    Err(diag) => {
+                        emit_diagnostics(
+                            &[diag],
+                            Some(path),
+                            Some(source.as_str()),
+                            is_multimodule,
+                            max_errors,
+                            diagnostics_format,
+                            all_errors,
+                            true,
+                        );
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+
             // --- LIR → LLVM IR dump (Proposal 0132 Phase 7) ---
             #[cfg(feature = "core_to_llvm")]
             if dump_lir_llvm {
@@ -1001,45 +3025,36 @@ fn run_file(
             // --- LIR → LLVM native execution path (Proposal 0132) ---
             #[cfg(feature = "core_to_llvm")]
             if use_core_to_llvm || emit_llvm || emit_binary {
-                // Build merged program from all modules.
-                let mut native_program = Program::new();
-                for node in graph.topo_order() {
-                    native_program
-                        .statements
-                        .extend(node.program.statements.clone());
-                }
-
-                // Re-run HM type inference on the merged program so all
-                // modules' types are available for Core IR lowering.
-                compiler.infer_expr_types_for_program(&native_program);
-
-                // AST → Core IR → Aether → LIR → LLVM IR module.
-                eprintln!("[lir→llvm] Compiling via LIR → LLVM native backend...");
-                let mut llvm_module =
-                    match compiler.lower_to_lir_llvm_module(&native_program, enable_optimize) {
-                        Ok(m) => m,
-                        Err(diag) => {
-                            emit_diagnostics(
-                                &[diag],
-                                Some(path),
-                                Some(source.as_str()),
-                                is_multimodule,
-                                max_errors,
-                                diagnostics_format,
-                                all_errors,
-                                true,
-                            );
-                            std::process::exit(1);
-                        }
-                    };
-
-                // Inject target triple and data layout.
-                llvm_module.target_triple = Some(flux::core_to_llvm::target::host_triple());
-                llvm_module.data_layout = flux::core_to_llvm::target::host_data_layout();
-
-                let ll_text = flux::core_to_llvm::render_module(&llvm_module);
-
                 if emit_llvm {
+                    // Keep merged LLVM IR emission as the debug surface in Phase 5.
+                    let mut native_program = Program::new();
+                    for node in graph.topo_order() {
+                        native_program
+                            .statements
+                            .extend(node.program.statements.clone());
+                    }
+                    compiler.infer_expr_types_for_program(&native_program);
+                    eprintln!("[lir→llvm] Compiling via LIR → LLVM native backend...");
+                    let mut llvm_module =
+                        match compiler.lower_to_lir_llvm_module(&native_program, enable_optimize) {
+                            Ok(m) => m,
+                            Err(diag) => {
+                                emit_diagnostics(
+                                    &[diag],
+                                    Some(path),
+                                    Some(source.as_str()),
+                                    is_multimodule,
+                                    max_errors,
+                                    diagnostics_format,
+                                    all_errors,
+                                    true,
+                                );
+                                std::process::exit(1);
+                            }
+                        };
+                    llvm_module.target_triple = Some(flux::core_to_llvm::target::host_triple());
+                    llvm_module.data_layout = flux::core_to_llvm::target::host_data_layout();
+                    let ll_text = flux::core_to_llvm::render_module(&llvm_module);
                     if let Some(ref out) = output_path {
                         if let Err(e) = std::fs::write(out, &ll_text) {
                             eprintln!("Failed to write LLVM IR: {e}");
@@ -1052,49 +3067,246 @@ fn run_file(
                     return;
                 }
 
-                if emit_binary {
-                    let runtime_lib_dir = locate_runtime_lib_dir();
-                    let out = output_path
-                        .map(std::path::PathBuf::from)
-                        .unwrap_or_else(|| {
-                            std::path::PathBuf::from(path.strip_suffix(".flx").unwrap_or(path))
-                        });
-                    let config = flux::core_to_llvm::pipeline::PipelineConfig {
-                        ll_text,
-                        opt_level: if enable_optimize { 2 } else { 0 },
-                        output_path: Some(out.clone()),
-                        runtime_lib_dir,
-                    };
-                    match flux::core_to_llvm::pipeline::compile_to_binary(&config) {
-                        Ok(flux::core_to_llvm::pipeline::PipelineResult::EmittedBinary {
-                            path: bin_path,
-                        }) => {
-                            println!("Emitted binary: {}", bin_path.display());
-                        }
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("core_to_llvm pipeline failed: {e}");
+                let frontend_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
+                let runtime_lib_dir = locate_runtime_lib_dir();
+                if verbose {
+                    eprintln!(
+                        "[lir→llvm] toolchain: {}",
+                        flux::core_to_llvm::pipeline::toolchain_info()
+                    );
+                }
+                eprintln!("[lir→llvm] Compiling via per-module LLVM native backend...");
+                let native_modules_start = Instant::now();
+                let (mut object_paths, any_native_recompiled) =
+                    match compile_native_modules_parallel(
+                        &graph,
+                        &cache_layout,
+                        no_cache,
+                        strict_mode,
+                        strict_types,
+                        enable_optimize,
+                        enable_analyze,
+                        verbose,
+                        &compiler.interner,
+                        &mut all_diagnostics,
+                    ) {
+                        Ok(paths) => paths,
+                        Err(err) => {
+                            emit_diagnostics(
+                                &all_diagnostics,
+                                Some(path),
+                                Some(source.as_str()),
+                                is_multimodule,
+                                max_errors,
+                                diagnostics_format,
+                                all_errors,
+                                true,
+                            );
+                            eprintln!("core_to_llvm module pipeline failed: {err}");
                             std::process::exit(1);
                         }
+                    };
+                let native_modules_ms = native_modules_start.elapsed().as_secs_f64() * 1000.0;
+                let support_start = Instant::now();
+                match compile_native_support_object(&cache_layout, no_cache, enable_optimize) {
+                    Ok(support_object) => {
+                        object_paths.insert(0, support_object);
                     }
+                    Err(err) => {
+                        eprintln!("{err}");
+                        std::process::exit(1);
+                    }
+                }
+                let support_ms = support_start.elapsed().as_secs_f64() * 1000.0;
+
+                // Pre-link Flow.* standard library .o files into libflux_std.a
+                // so the linker processes fewer inputs (GHC-style).
+                let archive_start = Instant::now();
+                // Build a set of object paths that belong to Flow.* library modules
+                // by matching source paths from the module graph.
+                let flow_object_paths: HashSet<PathBuf> = graph
+                    .topo_order()
+                    .iter()
+                    .filter(|node| node.kind == ModuleKind::FlowStdlib)
+                    .filter_map(|node| {
+                        // Find the corresponding .o in object_paths by matching the module name
+                        // embedded in the object filename (e.g., "Array-a732...o" for Flow.Array).
+                        let module_stem = node.path.file_stem()?.to_str()?;
+                        object_paths
+                            .iter()
+                            .find(|obj| {
+                                obj.file_name()
+                                    .and_then(|f| f.to_str())
+                                    .is_some_and(|f| f.starts_with(&format!("{module_stem}-")))
+                            })
+                            .cloned()
+                    })
+                    .collect();
+                let std_lib_objects: Vec<PathBuf> = object_paths
+                    .iter()
+                    .filter(|p| flow_object_paths.contains(*p))
+                    .cloned()
+                    .collect();
+
+                let link_paths = if std_lib_objects.len() >= 2 && !no_cache {
+                    let archive_name = if enable_optimize {
+                        "libflux_std_O2.a"
+                    } else {
+                        "libflux_std_O0.a"
+                    };
+                    let archive_path = cache_layout.native_dir().join(archive_name);
+                    let need_rebuild = !flux::core_to_llvm::pipeline::archive_is_up_to_date(
+                        &std_lib_objects,
+                        &archive_path,
+                    );
+                    if need_rebuild {
+                        if let Err(err) = flux::core_to_llvm::pipeline::create_archive(
+                            &std_lib_objects,
+                            &archive_path,
+                        ) {
+                            eprintln!(
+                                "warning: failed to create libflux_std.a: {err}, falling back to individual .o files"
+                            );
+                            object_paths.clone()
+                        } else {
+                            // Replace individual Flow.* .o files with the archive.
+                            let std_set: HashSet<PathBuf> =
+                                std_lib_objects.iter().cloned().collect();
+                            let mut paths: Vec<PathBuf> = object_paths
+                                .iter()
+                                .filter(|p| !std_set.contains(*p))
+                                .cloned()
+                                .collect();
+                            paths.push(archive_path);
+                            paths
+                        }
+                    } else {
+                        // Archive is up to date, use it directly.
+                        let std_set: HashSet<PathBuf> = std_lib_objects.iter().cloned().collect();
+                        let mut paths: Vec<PathBuf> = object_paths
+                            .iter()
+                            .filter(|p| !std_set.contains(*p))
+                            .cloned()
+                            .collect();
+                        paths.push(archive_path);
+                        paths
+                    }
+                } else {
+                    object_paths.clone()
+                };
+                let archive_ms = archive_start.elapsed().as_secs_f64() * 1000.0;
+
+                if !all_diagnostics.is_empty() {
+                    let report = DiagnosticsAggregator::new(&all_diagnostics)
+                        .with_default_source(path, source.as_str())
+                        .with_file_headers(true)
+                        .with_max_errors(Some(max_errors))
+                        .with_stage_filtering(!all_errors)
+                        .report();
+                    if report.counts.errors > 0 {
+                        emit_diagnostics(
+                            &all_diagnostics,
+                            Some(path),
+                            Some(source.as_str()),
+                            is_multimodule,
+                            max_errors,
+                            diagnostics_format,
+                            all_errors,
+                            true,
+                        );
+                        std::process::exit(1);
+                    }
+                    emit_diagnostics(
+                        &all_diagnostics,
+                        Some(path),
+                        Some(source.as_str()),
+                        is_multimodule,
+                        max_errors,
+                        diagnostics_format,
+                        all_errors,
+                        true,
+                    );
+                }
+
+                let out = output_path
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| {
+                        if emit_binary {
+                            std::path::PathBuf::from(path.strip_suffix(".flx").unwrap_or(path))
+                        } else if !no_cache {
+                            // Cache the binary so we can skip relinking on re-runs.
+                            let bin_name = std::path::Path::new(path)
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("program");
+                            cache_layout.native_dir().join(format!("{bin_name}.bin"))
+                        } else {
+                            native_temp_dir().join("program")
+                        }
+                    });
+
+                // Skip relinking if no module was recompiled and the cached binary exists.
+                let link_start = Instant::now();
+                let binary_up_to_date =
+                    !no_cache && !emit_binary && !any_native_recompiled && out.exists();
+
+                if binary_up_to_date {
+                    if verbose {
+                        eprintln!("[lir→llvm] binary up-to-date, skipping link");
+                    }
+                } else if let Err(e) = flux::core_to_llvm::pipeline::link_objects(
+                    &link_paths,
+                    &out,
+                    runtime_lib_dir.as_deref(),
+                ) {
+                    eprintln!("core_to_llvm linker failed: {e}");
+                    std::process::exit(1);
+                }
+                let link_ms = link_start.elapsed().as_secs_f64() * 1000.0;
+                if verbose {
+                    eprintln!(
+                        "[lir→llvm] frontend: {frontend_ms:.1}ms, modules: {native_modules_ms:.1}ms, support: {support_ms:.1}ms, archive: {archive_ms:.1}ms, link: {link_ms:.1}ms"
+                    );
+                }
+
+                if emit_binary {
+                    println!("Emitted binary: {}", out.display());
                     return;
                 }
 
-                // Default: compile and run.
-                let runtime_lib_dir = locate_runtime_lib_dir();
-                let config = flux::core_to_llvm::pipeline::PipelineConfig {
-                    ll_text,
-                    opt_level: if enable_optimize { 2 } else { 0 },
-                    output_path: None,
-                    runtime_lib_dir,
-                };
                 let exec_start = Instant::now();
-                match flux::core_to_llvm::pipeline::compile_and_run(&config) {
-                    Ok(flux::core_to_llvm::pipeline::PipelineResult::Executed { exit_code }) => {
+                match std::process::Command::new(&out).output() {
+                    Ok(output) => {
+                        let exit_code = output.status.code().unwrap_or(1);
                         let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
+                        let child_stdout = String::from_utf8_lossy(&output.stdout);
+                        let child_stderr = String::from_utf8_lossy(&output.stderr);
+                        if !child_stdout.is_empty() {
+                            print!("{child_stdout}");
+                        }
+                        if exit_code == 0 {
+                            if !child_stderr.is_empty() {
+                                eprint!("{child_stderr}");
+                            }
+                        } else if let Some(rendered) =
+                            render_native_runtime_error(path, &child_stderr)
+                        {
+                            eprint!("{rendered}");
+                        } else if !child_stderr.is_empty() {
+                            eprint!("{child_stderr}");
+                        }
                         if show_stats {
                             let compile_ms =
                                 compile_start.elapsed().as_secs_f64() * 1000.0 - execute_ms;
+                            let total_source_lines: usize = graph
+                                .topo_order()
+                                .iter()
+                                .map(|node| {
+                                    std::fs::read_to_string(&node.path)
+                                        .map(|s| s.lines().count())
+                                        .unwrap_or(0)
+                                })
+                                .sum();
                             print_stats(&RunStats {
                                 parse_ms: Some(parse_ms),
                                 compile_ms: Some(compile_ms),
@@ -1103,17 +3315,22 @@ fn run_file(
                                 execute_backend: "native",
                                 cached: false,
                                 module_count: Some(module_count),
-                                source_lines: source.lines().count(),
+                                cached_module_count: None,
+                                compiled_module_count: None,
+                                source_lines: total_source_lines,
                                 globals_count: None,
                                 functions_count: None,
                                 instruction_bytes: None,
                             });
                         }
+                        // Only clean up temp binaries; keep cached ones for relink skip.
+                        if no_cache || emit_binary {
+                            let _ = std::fs::remove_file(&out);
+                        }
                         if exit_code != 0 {
                             std::process::exit(exit_code);
                         }
                     }
-                    Ok(_) => {}
                     Err(e) => {
                         eprintln!("core_to_llvm execution failed: {e}");
                         std::process::exit(1);
@@ -1156,36 +3373,22 @@ fn run_file(
                 }
             }
 
-            let mut deps = Vec::new();
-            for dep in graph.imported_files() {
-                if let Ok(hash) = hash_file(Path::new(&dep)) {
-                    deps.push((dep, hash));
-                }
-            }
-            if !no_cache {
-                let stored = cache
-                    .store(
-                        Path::new(path),
-                        &cache_key,
-                        env!("CARGO_PKG_VERSION"),
-                        &bytecode,
-                        &deps,
-                    )
-                    .is_ok();
-                if verbose && stored {
-                    eprintln!("cache: stored");
-                }
-            }
-
             eprintln!("[cfg→vm] Running via CFG → bytecode VM backend...");
             let mut vm = VM::new(bytecode);
             vm.set_trace(trace);
+            if profiling {
+                vm.set_profiling(true, compiler.cost_centre_infos.clone());
+            }
             let exec_start = Instant::now();
             if let Err(err) = vm.run() {
                 eprintln!("{}", err);
                 std::process::exit(1);
             }
-            let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
+            let execute_ns = exec_start.elapsed().as_nanos() as u64;
+            let execute_ms = execute_ns as f64 / 1_000_000.0;
+            if profiling {
+                vm.print_profile_report(execute_ns);
+            }
             if leak_detector {
                 print_leak_stats();
             }
@@ -1198,6 +3401,8 @@ fn run_file(
                     execute_backend: "vm",
                     cached: false,
                     module_count: Some(module_count),
+                    cached_module_count: None,
+                    compiled_module_count: None,
                     source_lines: source.lines().count(),
                     globals_count: Some(globals_count),
                     functions_count: Some(functions_count),
@@ -1219,8 +3424,10 @@ fn run_test_file(
     enable_analyze: bool,
     max_errors: usize,
     extra_roots: &[std::path::PathBuf],
+    _cache_dir: Option<&Path>,
     test_filter: Option<&str>,
     strict_mode: bool,
+    strict_types: bool,
     diagnostics_format: DiagnosticOutputFormat,
     all_errors: bool,
     #[cfg_attr(not(feature = "core_to_llvm"), allow(unused))] use_core_to_llvm: bool,
@@ -1291,23 +3498,39 @@ fn run_test_file(
     // --- Compile ---
     let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
     compiler.set_strict_mode(strict_mode);
+    compiler.set_strict_types(strict_types);
     let entry_canonical = std::fs::canonicalize(entry_path).ok();
-    for node in graph.topo_order() {
+
+    // Sort topo_order to compile Flow library modules first.
+    // This ensures all modules can access Flow functions (map, filter, etc.)
+    // without explicit imports — like Haskell's implicit Prelude.
+    let mut ordered_nodes = graph.topo_order();
+    ordered_nodes.sort_by_key(|node| {
+        if node.kind == ModuleKind::FlowStdlib {
+            0
+        } else {
+            1
+        }
+    });
+
+    for node in ordered_nodes {
         if node.imports.iter().any(|e| failed.contains(&e.target_path)) {
             continue;
         }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
+        compiler.set_current_module_kind(node.kind);
         let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
-        let is_flow_library = node.path.to_string_lossy().contains("lib/Flow/")
-            || node.path.to_string_lossy().contains("lib\\Flow\\");
+        let is_flow_library = node.kind == ModuleKind::FlowStdlib;
         compiler.set_strict_require_main(is_entry_module);
         if is_flow_library {
             compiler.set_strict_mode(false);
+            compiler.set_strict_types(false);
         }
         let compile_result =
             compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
         if is_flow_library {
             compiler.set_strict_mode(strict_mode);
+            compiler.set_strict_types(strict_types);
         }
         let mut compiler_warnings = compiler.take_warnings();
         tag_diagnostics(&mut compiler_warnings, DiagnosticPhase::Validation);
@@ -1522,6 +3745,8 @@ struct RunStats {
     execute_backend: &'static str,
     cached: bool,
     module_count: Option<usize>,
+    cached_module_count: Option<usize>,
+    compiled_module_count: Option<usize>,
     source_lines: usize,
     globals_count: Option<usize>,
     functions_count: Option<usize>,
@@ -1601,7 +3826,15 @@ fn print_stats(stats: &RunStats) {
     eprintln!();
 
     if let Some(n) = stats.module_count {
-        eprintln!("  {:<20} {:>8}", "modules", n);
+        match (stats.cached_module_count, stats.compiled_module_count) {
+            (Some(cached), Some(compiled)) if cached > 0 => {
+                eprintln!(
+                    "  {:<20} {:>8}  ({} cached, {} compiled)",
+                    "modules", n, cached, compiled
+                );
+            }
+            _ => eprintln!("  {:<20} {:>8}", "modules", n),
+        }
     }
     eprintln!("  {:<20} {:>8}", "source lines", stats.source_lines);
     if let Some(n) = stats.globals_count {
@@ -1665,6 +3898,28 @@ fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+fn extract_cache_dir(args: &mut Vec<String>) -> Option<Option<PathBuf>> {
+    let mut cache_dir = None;
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--cache-dir" {
+            args.remove(i);
+            if i < args.len() {
+                cache_dir = Some(PathBuf::from(args.remove(i)));
+                continue;
+            }
+            eprintln!("Error: --cache-dir requires a directory path.");
+            return None;
+        } else if let Some(value) = args[i].strip_prefix("--cache-dir=") {
+            cache_dir = Some(PathBuf::from(value));
+            args.remove(i);
+            continue;
+        }
+        i += 1;
+    }
+    Some(cache_dir)
 }
 
 fn extract_output_path(args: &mut Vec<String>) -> Option<String> {
@@ -1862,7 +4117,7 @@ fn emit_diagnostics(
 
 /// Inject auto-imports for Flow library modules into the program AST.
 ///
-/// Currently injects: `import Flow.Option exposing (..)`
+/// Currently injects the standard Flow prelude modules.
 ///
 /// Uses a mini-parser to parse the synthetic import so symbols are
 /// correctly interned in the same interner used for the rest of compilation.
@@ -1917,11 +4172,7 @@ fn inject_flow_prelude(
         if !flow_dir.join(file_name).exists() {
             continue;
         }
-        if module_name == "Flow.List" {
-            imports.push(format!("import {module_name} except [concat, delete]"));
-        } else {
-            imports.push(format!("import {module_name} exposing (..)"));
-        }
+        imports.push(format!("import {module_name} exposing (..)"));
     }
 
     if imports.is_empty() {
@@ -2022,27 +4273,6 @@ fn collect_roots(entry_path: &Path, extra_roots: &[PathBuf], roots_only: bool) -
     roots
 }
 
-fn normalize_roots_for_cache(roots: &[PathBuf]) -> Vec<PathBuf> {
-    let mut normalized = Vec::new();
-    for root in roots {
-        let canonical = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
-        if !normalized.iter().any(|p| p == &canonical) {
-            normalized.push(canonical);
-        }
-    }
-    normalized
-}
-
-fn roots_cache_hash(roots: &[PathBuf]) -> [u8; 32] {
-    let normalized = normalize_roots_for_cache(roots);
-    let mut joined = String::new();
-    for root in normalized {
-        joined.push_str(&root.to_string_lossy());
-        joined.push('\n');
-    }
-    hash_bytes(joined.as_bytes())
-}
-
 fn is_flx_file(path: &str) -> bool {
     Path::new(path).extension().and_then(|ext| ext.to_str()) == Some("flx")
 }
@@ -2073,6 +4303,7 @@ fn show_bytecode(
     enable_analyze: bool,
     max_errors: usize,
     strict_mode: bool,
+    strict_types: bool,
     diagnostics_format: DiagnosticOutputFormat,
 ) {
     match fs::read_to_string(path) {
@@ -2117,6 +4348,7 @@ fn show_bytecode(
             let interner = parser.take_interner();
             let mut compiler = Compiler::new_with_interner(path, interner);
             compiler.set_strict_mode(strict_mode);
+            compiler.set_strict_types(strict_types);
             let compile_result =
                 compiler.compile_with_opts(&program, enable_optimize, enable_analyze);
             let mut compiler_warnings = compiler.take_warnings();
@@ -2396,87 +4628,100 @@ fn analyze_tail_calls(path: &str, max_errors: usize, diagnostics_format: Diagnos
     }
 }
 
-fn show_cache_info(path: &str, extra_roots: &[PathBuf]) {
-    let cache = BytecodeCache::new(Path::new("target").join("flux"));
-    let source = match fs::read_to_string(path) {
-        Ok(src) => src,
-        Err(e) => {
-            eprintln!("Error reading {}: {}", path, e);
-            return;
-        }
-    };
-    let source_hash = hash_bytes(source.as_bytes());
+fn show_cache_info(path: &str, extra_roots: &[PathBuf], cache_dir: Option<&Path>) {
+    if !Path::new(path).exists() {
+        eprintln!("Error: file not found: {}", path);
+        return;
+    }
     let entry_path = Path::new(path);
-    let roots = collect_roots(entry_path, extra_roots, false);
-    let roots_hash = roots_cache_hash(&roots);
-    let base_cache_key = hash_cache_key(&source_hash, &roots_hash);
-    let strict_hash = hash_bytes(b"strict=0");
-    let cache_key = hash_cache_key(&base_cache_key, &strict_hash);
-    let info = cache.inspect(Path::new(path), &cache_key);
-    match info {
-        Some(info) => {
-            println!("cache file: {}", info.cache_path.display());
-            println!("format version: {}", info.format_version);
-            println!("compiler version: {}", info.compiler_version);
-            println!("cache key: {}", hex_string(&info.source_hash));
-            println!("constants: {}", info.constants_count);
-            println!("instructions: {} bytes", info.instructions_len);
-            if info.deps.is_empty() {
-                println!("deps: none");
-            } else {
-                println!("deps:");
-                for (path, hash, valid) in info.deps {
-                    println!(
-                        "  - {} {} ({})",
-                        path,
-                        hex_string(&hash),
-                        if valid { "ok" } else { "stale" }
-                    );
-                }
+    let cache_layout = cache_paths::resolve_cache_layout(entry_path, cache_dir);
+
+    println!("cache root: {}", cache_layout.root().display());
+    println!("entry: {}", entry_path.display());
+
+    match load_module_graph_for_cache_info(path, extra_roots) {
+        Ok(graph) => {
+            println!("modules: {}", graph.topo_order().len());
+            for node in graph.topo_order() {
+                print_module_cache_summary(&node.path, &cache_layout, false, false);
+                #[cfg(feature = "core_to_llvm")]
+                print_native_cache_summary(&node.path, &cache_layout, false, false);
+            }
+            #[cfg(feature = "core_to_llvm")]
+            {
+                let support_path =
+                    flux::core_to_llvm::module_cache::support_object_path(&cache_layout, false);
+                println!(
+                    "support artifact: {} ({})",
+                    support_path.display(),
+                    if support_path.exists() {
+                        "present"
+                    } else {
+                        "missing"
+                    }
+                );
             }
         }
-        None => {
-            println!("cache: not found or invalid");
+        Err(err) => {
+            println!("module graph: unavailable ({err})");
+            print_module_cache_summary(entry_path, &cache_layout, false, false);
+            #[cfg(feature = "core_to_llvm")]
+            print_native_cache_summary(entry_path, &cache_layout, false, false);
         }
     }
 }
 
-fn show_cache_info_file(path: &str) {
-    let cache = BytecodeCache::new(Path::new("target").join("flux"));
-    let info = cache.inspect_file(Path::new(path));
-    match info {
-        Some(info) => {
-            println!("cache file: {}", info.cache_path.display());
-            println!("format version: {}", info.format_version);
-            println!("compiler version: {}", info.compiler_version);
-            println!("cache key: {}", hex_string(&info.source_hash));
-            println!("constants: {}", info.constants_count);
-            println!("instructions: {} bytes", info.instructions_len);
-            if info.deps.is_empty() {
-                println!("deps: none");
-            } else {
-                println!("deps:");
-                for (path, hash, valid) in info.deps {
-                    println!(
-                        "  - {} {} ({})",
-                        path,
-                        hex_string(&hash),
-                        if valid { "ok" } else { "stale" }
-                    );
-                }
-            }
-
-            if let Some(bytecode) = cache.load_file(Path::new(path)) {
-                println!("\nConstants:");
-                for (i, c) in bytecode.constants.iter().enumerate() {
-                    println!("  {}: {}", i, c);
-                }
-                println!("\nInstructions:");
-                print!("{}", disassemble(&bytecode.instructions));
+fn show_module_cache_info(path: &str, extra_roots: &[PathBuf], cache_dir: Option<&Path>) {
+    let entry_path = Path::new(path);
+    let cache_layout = cache_paths::resolve_cache_layout(entry_path, cache_dir);
+    match load_module_graph_for_cache_info(path, extra_roots) {
+        Ok(graph) => {
+            println!("cache root: {}", cache_layout.root().display());
+            for node in graph.topo_order() {
+                print_module_cache_summary(&node.path, &cache_layout, true, false);
             }
         }
-        None => {
-            println!("cache: not found or invalid");
+        Err(err) => {
+            println!("cache root: {}", cache_layout.root().display());
+            println!("module graph: unavailable ({err})");
+            print_module_cache_summary(entry_path, &cache_layout, true, false);
+        }
+    }
+}
+
+fn show_native_cache_info(path: &str, extra_roots: &[PathBuf], cache_dir: Option<&Path>) {
+    let entry_path = Path::new(path);
+    let cache_layout = cache_paths::resolve_cache_layout(entry_path, cache_dir);
+    #[cfg(not(feature = "core_to_llvm"))]
+    {
+        let _ = extra_roots;
+        let _ = cache_layout;
+        println!("native cache inspection requires `core_to_llvm` feature");
+        return;
+    }
+    #[cfg(feature = "core_to_llvm")]
+    match load_module_graph_for_cache_info(path, extra_roots) {
+        Ok(graph) => {
+            println!("cache root: {}", cache_layout.root().display());
+            for node in graph.topo_order() {
+                print_native_cache_summary(&node.path, &cache_layout, true, false);
+            }
+            let support_path =
+                flux::core_to_llvm::module_cache::support_object_path(&cache_layout, false);
+            println!(
+                "support artifact: {} ({})",
+                support_path.display(),
+                if support_path.exists() {
+                    "present"
+                } else {
+                    "missing"
+                }
+            );
+        }
+        Err(err) => {
+            println!("cache root: {}", cache_layout.root().display());
+            println!("module graph: unavailable ({err})");
+            print_native_cache_summary(entry_path, &cache_layout, true, false);
         }
     }
 }
@@ -2492,9 +4737,30 @@ fn show_interface_info_file(path: &str) {
     println!("interface file: {}", path);
     println!("module: {}", interface.module_name);
     println!("compiler version: {}", interface.compiler_version);
+    println!("format version: {}", interface.cache_format_version);
     println!("source hash: {}", interface.source_hash);
+    println!("semantic config hash: {}", interface.semantic_config_hash);
+    println!("interface fingerprint: {}", interface.interface_fingerprint);
     println!("schemes: {}", interface.schemes.len());
     println!("borrow signatures: {}", interface.borrow_signatures.len());
+    println!(
+        "dependency fingerprints: {}",
+        interface.dependency_fingerprints.len()
+    );
+
+    if interface.dependency_fingerprints.is_empty() {
+        println!("dependencies: none");
+    } else {
+        println!("dependencies:");
+        for dependency in &interface.dependency_fingerprints {
+            println!(
+                "  - {} [{}] {}",
+                dependency.module_name,
+                short_hash(&dependency.interface_fingerprint),
+                dependency.source_path
+            );
+        }
+    }
 
     let mut members: Vec<_> = interface
         .schemes
@@ -2536,6 +4802,283 @@ fn show_interface_info_file(path: &str) {
     }
 }
 
+fn load_module_graph_for_cache_info(
+    path: &str,
+    extra_roots: &[PathBuf],
+) -> Result<ModuleGraph, String> {
+    let source = fs::read_to_string(path).map_err(|err| err.to_string())?;
+    let entry_path = Path::new(path);
+    let roots = collect_roots(entry_path, extra_roots, false);
+    let lexer = Lexer::new(&source);
+    let mut parser = Parser::new(lexer);
+    let mut program = parser.parse_program();
+    inject_flow_prelude(&mut program, &mut parser, false);
+    let interner = parser.take_interner();
+    let graph_result =
+        ModuleGraph::build_with_entry_and_roots(entry_path, &program, interner, &roots);
+    if !graph_result.diagnostics.is_empty() {
+        return Err("module graph diagnostics present".to_string());
+    }
+    Ok(graph_result.graph)
+}
+
+fn print_module_cache_summary(
+    module_path: &Path,
+    cache_layout: &CacheLayout,
+    verbose: bool,
+    strict_mode: bool,
+) {
+    let source = match fs::read_to_string(module_path) {
+        Ok(source) => source,
+        Err(err) => {
+            println!("module: {}", module_path.display());
+            println!("  source: unreadable ({err})");
+            return;
+        }
+    };
+    let source_hash = hash_bytes(source.as_bytes());
+    let semantic_config_hash =
+        flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
+            strict_mode,
+            false,
+        );
+    let cache_key = hash_cache_key(&source_hash, &semantic_config_hash);
+    let interface_path = flux::bytecode::compiler::module_interface::interface_path(
+        cache_layout.root(),
+        module_path,
+    );
+
+    println!("module: {}", module_path.display());
+    match flux::bytecode::compiler::module_interface::load_valid_interface(
+        cache_layout.root(),
+        module_path,
+        &source,
+        &semantic_config_hash,
+    ) {
+        Ok(interface) => {
+            println!(
+                "  interface: valid [{}] {}",
+                short_hash(&interface.interface_fingerprint),
+                interface_path.display()
+            );
+            if verbose {
+                println!("    compiler version: {}", interface.compiler_version);
+                println!("    format version: {}", interface.cache_format_version);
+                println!(
+                    "    semantic config hash: {}",
+                    interface.semantic_config_hash
+                );
+                if interface.dependency_fingerprints.is_empty() {
+                    println!("    dependency fingerprints: none");
+                } else {
+                    println!("    dependency fingerprints:");
+                    for dep in &interface.dependency_fingerprints {
+                        let status =
+                            match flux::bytecode::compiler::module_interface::load_cached_interface(
+                                cache_layout.root(),
+                                Path::new(&dep.source_path),
+                            ) {
+                                Ok(current)
+                                    if current.interface_fingerprint
+                                        == dep.interface_fingerprint =>
+                                {
+                                    "ok"
+                                }
+                                Ok(_) => "stale",
+                                Err(_) => "missing",
+                            };
+                        println!(
+                            "      - {} [{}] {} ({})",
+                            dep.module_name,
+                            short_hash(&dep.interface_fingerprint),
+                            dep.source_path,
+                            status
+                        );
+                    }
+                }
+            }
+        }
+        Err(err) => {
+            println!(
+                "  interface: invalid ({}) {}",
+                err.message(),
+                interface_path.display()
+            );
+        }
+    }
+
+    let module_cache = ModuleBytecodeCache::new(cache_layout.vm_dir());
+    match module_cache.inspect(
+        module_path,
+        &cache_key,
+        env!("CARGO_PKG_VERSION"),
+        cache_layout.root(),
+    ) {
+        Ok(info) => {
+            println!("  vm artifact: valid {}", info.cache_path.display());
+            if verbose {
+                println!("    compiler version: {}", info.compiler_version);
+                println!("    format version: {}", info.format_version);
+                println!("    cache key: {}", info.cache_key);
+                if info.dependency_statuses.is_empty() {
+                    println!("    dependency fingerprints: none");
+                } else {
+                    println!("    dependency fingerprints:");
+                    for dep in info.dependency_statuses {
+                        println!(
+                            "      - {} [{} -> {}] ({})",
+                            dep.source_path,
+                            short_hash(&dep.expected_fingerprint),
+                            dep.current_fingerprint
+                                .as_deref()
+                                .map(short_hash)
+                                .unwrap_or("missing"),
+                            match dep.status {
+                                flux::bytecode::bytecode_cache::module_cache::ModuleDependencyStatus::Ok => "ok",
+                                flux::bytecode::bytecode_cache::module_cache::ModuleDependencyStatus::Missing => "missing",
+                                flux::bytecode::bytecode_cache::module_cache::ModuleDependencyStatus::Stale => "stale",
+                            }
+                        );
+                    }
+                }
+            }
+        }
+        Err(err) => println!("  vm artifact: invalid ({})", err.message()),
+    }
+}
+
+#[cfg(all(feature = "core_to_llvm", feature = "native"))]
+#[allow(dead_code)]
+fn print_native_cache_summary(
+    module_path: &Path,
+    cache_layout: &CacheLayout,
+    verbose: bool,
+    strict_mode: bool,
+) {
+    let source = match fs::read_to_string(module_path) {
+        Ok(source) => source,
+        Err(err) => {
+            println!("module: {}", module_path.display());
+            println!("  native artifact: unreadable source ({err})");
+            return;
+        }
+    };
+    let source_hash = hash_bytes(source.as_bytes());
+    let semantic_config_hash =
+        flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
+            strict_mode,
+            false,
+        );
+    let cache_key = hash_cache_key(&source_hash, &semantic_config_hash);
+    let native_cache =
+        flux::core_to_llvm::module_cache::NativeModuleCache::new(cache_layout.native_dir());
+
+    println!("module: {}", module_path.display());
+    match native_cache.inspect(module_path, &cache_key, cache_layout.root()) {
+        Ok(info) => {
+            println!("  native artifact: valid {}", info.object_path.display());
+            if verbose {
+                println!("    metadata: {}", info.metadata_path.display());
+                println!("    compiler version: {}", info.metadata.compiler_version);
+                println!("    format version: {}", info.metadata.format_version);
+                println!("    cache key: {}", info.metadata.cache_key);
+                println!("    optimize: {}", info.metadata.optimize);
+                if info.dependency_statuses.is_empty() {
+                    println!("    dependency fingerprints: none");
+                } else {
+                    println!("    dependency fingerprints:");
+                    for dep in info.dependency_statuses {
+                        println!(
+                            "      - {} [{} -> {}] ({})",
+                            dep.source_path,
+                            short_hash(&dep.expected_fingerprint),
+                            dep.current_fingerprint
+                                .as_deref()
+                                .map(short_hash)
+                                .unwrap_or("missing"),
+                            match dep.status {
+                                flux::core_to_llvm::module_cache::DependencyStatus::Ok => "ok",
+                                flux::core_to_llvm::module_cache::DependencyStatus::Missing =>
+                                    "missing",
+                                flux::core_to_llvm::module_cache::DependencyStatus::Stale =>
+                                    "stale",
+                            }
+                        );
+                    }
+                }
+            }
+        }
+        Err(err) => println!("  native artifact: invalid ({})", err.message()),
+    }
+}
+
+#[cfg(not(all(feature = "core_to_llvm", feature = "native")))]
+#[allow(dead_code)]
+fn print_native_cache_summary(
+    _module_path: &Path,
+    _cache_layout: &CacheLayout,
+    _verbose: bool,
+    _strict_mode: bool,
+) {
+}
+
+fn short_hash(hash: &str) -> &str {
+    let len = hash.len().min(12);
+    &hash[..len]
+}
+
+/// Extract a human-readable module name from a file path.
+/// Prefers `interface.module_name` when available (e.g. "Flow.Array").
+/// Falls back to file stem (e.g. "Day06Solver" from path).
+fn module_display_name(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+/// Format a GHC-style progress line: `[n of m] Action  ModuleName`
+fn progress_line(n: usize, total: usize, action: &str, name: &str) -> String {
+    let width = total.to_string().len();
+    format!("[{:>width$} of {}] {:<10} {}", n, total, action, name)
+}
+
+/// Log the diff between an old and new module interface.
+fn log_interface_diff(
+    old: &flux::types::module_interface::ModuleInterface,
+    new: &flux::types::module_interface::ModuleInterface,
+) {
+    // Added exports.
+    for name in new.schemes.keys() {
+        if !old.schemes.contains_key(name) {
+            eprintln!(
+                "  + public {}: {}",
+                name,
+                format_scheme_for_cli(&new.schemes[name])
+            );
+        }
+    }
+    // Removed exports.
+    for name in old.schemes.keys() {
+        if !new.schemes.contains_key(name) {
+            eprintln!("  - public {}", name);
+        }
+    }
+    // Changed signatures.
+    for (name, new_scheme) in &new.schemes {
+        if let Some(old_scheme) = old.schemes.get(name)
+            && old_scheme != new_scheme
+        {
+            eprintln!(
+                "  ~ public {}: {} -> {}",
+                name,
+                format_scheme_for_cli(old_scheme),
+                format_scheme_for_cli(new_scheme)
+            );
+        }
+    }
+}
+
 fn format_scheme_for_cli(scheme: &flux::types::scheme::Scheme) -> String {
     if scheme.forall.is_empty() {
         scheme.infer_type.to_string()
@@ -2560,12 +5103,4 @@ fn format_borrow_provenance(
         flux::aether::borrow_infer::BorrowProvenance::Imported => "Imported",
         flux::aether::borrow_infer::BorrowProvenance::Unknown => "Unknown",
     }
-}
-
-fn hex_string(bytes: &[u8; 32]) -> String {
-    let mut out = String::with_capacity(64);
-    for b in bytes {
-        out.push_str(&format!("{:02x}", b));
-    }
-    out
 }

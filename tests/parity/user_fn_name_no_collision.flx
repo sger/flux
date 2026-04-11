@@ -1,0 +1,21 @@
+// parity: vm, llvm
+// expect: success
+// Tests that user-defined functions named the same as C runtime primops
+// (sum, product, min, max, reverse, etc.) don't cause linker collisions.
+// The native backend qualifies entry-file functions with the filename.
+
+fn sum(a, b) { a + b }
+fn product(a, b) { a * b }
+fn min(a, b) { if a < b { a } else { b } }
+fn max(a, b) { if a > b { a } else { b } }
+fn reverse(s) { s }
+fn length(xs) { len(xs) }
+
+fn main() with IO {
+    print(sum(3, 4))
+    print(product(5, 6))
+    print(min(10, 20))
+    print(max(10, 20))
+    print(reverse("hello"))
+    print(length([1, 2, 3]))
+}

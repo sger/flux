@@ -1,0 +1,11 @@
+// parity: vm, llvm
+// expect: success
+// bug: arrays must not match list constructor patterns
+
+fn main() with IO {
+    let xs = [|1, 2, 3|]
+    match xs {
+        [h | t] -> print("list"),
+        _ -> print("array")
+    }
+}

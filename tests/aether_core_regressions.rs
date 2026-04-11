@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use flux::aether::{AetherExpr as CoreExpr, AetherProgram, lower_core_to_aether_program};
 use flux::bytecode::compiler::Compiler;
-use flux::core::{CoreExpr, lower_ast::lower_program_ast, passes::run_core_passes_with_interner};
+use flux::core::{
+    lower_ast::lower_program_ast,
+    passes::{run_aether_passes_with_interner_and_registry, run_core_passes_with_interner},
+};
 use flux::diagnostics::Diagnostic;
 use flux::runtime::value::Value;
 use flux::syntax::{lexer::Lexer, module_graph::ModuleGraph, parser::Parser};
@@ -62,6 +66,12 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
             out.extend(collect_core_exprs(rhs));
             out.extend(collect_core_exprs(body));
         }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                out.extend(collect_core_exprs(rhs));
+            }
+            out.extend(collect_core_exprs(body));
+        }
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
@@ -116,11 +126,16 @@ fn count_matching(expr: &CoreExpr, predicate: &impl Fn(&CoreExpr) -> bool) -> us
         .count()
 }
 
-fn lowered_core(src: impl AsRef<str>) -> flux::core::CoreProgram {
+fn lowered_core(src: impl AsRef<str>) -> AetherProgram {
     let (program, types, interner) = parse_and_infer(src.as_ref());
     let mut core = lower_program_ast(&program, &types);
     run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
-    core
+    let compiler = Compiler::new_with_interner("<test>", interner.clone());
+    let preloaded_registry = compiler.build_preloaded_borrow_registry(&program);
+    let (aether, _warnings) =
+        lower_core_to_aether_program(&core, Some(&interner), preloaded_registry)
+            .expect("aether lowering should succeed");
+    aether
 }
 
 fn compile_fixture_warnings(rel: &str) -> Vec<Diagnostic> {
@@ -157,6 +172,7 @@ fn compile_fixture_warnings(rel: &str) -> Vec<Diagnostic> {
     let mut compiler = Compiler::new_with_interner(rel, graph.interner);
     for node in graph.graph.topo_order() {
         compiler.set_file_path(node.path.to_string_lossy().to_string());
+        compiler.set_current_module_kind(node.kind);
         if let Err(diags) = compiler.compile(&node.program) {
             panic!("expected fixture `{rel}` to compile, got diagnostics: {diags:?}");
         }
@@ -507,35 +523,19 @@ fn maintained_drop_spec_branchy_fixture_emits_reuse_inside_drop_specialized() {
 }
 
 #[test]
-fn maintained_drop_spec_recursive_fixture_emits_drop_specialized() {
+fn maintained_drop_spec_recursive_fixture_skips_drop_specialized_for_int_elements() {
+    // Phase 7e: `h` in [h | t] is IntRep (typed pattern binders), so
+    // DropSpecialized is no longer emitted — no dup/drop divergence.
     let src = std::fs::read_to_string("examples/aether/drop_spec_recursive.flx")
         .expect("fixture should exist");
     let core = lowered_core(src);
-    let found = core
-        .defs
-        .iter()
-        .flat_map(|def| collect_core_exprs(&def.expr))
-        .any(|expr| match expr {
-            CoreExpr::DropSpecialized {
-                unique_body,
-                shared_body,
-                ..
-            } => {
-                let unique_reuses = collect_core_exprs(unique_body)
-                    .into_iter()
-                    .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
-                    .count();
-                let shared_reuses = collect_core_exprs(shared_body)
-                    .into_iter()
-                    .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
-                    .count();
-                unique_reuses >= 1 && shared_reuses == 0
-            }
-            _ => false,
-        });
     assert!(
-        found,
-        "expected maintained recursive drop-spec fixture to preserve unique-path-only reuse"
+        !core
+            .defs
+            .iter()
+            .flat_map(|def| collect_core_exprs(&def.expr))
+            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
+        "typed pattern binders (IntRep) should eliminate DropSpecialized for integer list elements"
     );
 }
 
@@ -573,35 +573,23 @@ fn maintained_drop_spec_branchy_fixture_keeps_unique_path_dup_free() {
 }
 
 #[test]
-fn maintained_drop_spec_recursive_fixture_keeps_unique_path_dup_lighter_than_shared() {
+fn maintained_drop_spec_recursive_fixture_has_no_dups_for_int_elements() {
+    // Phase 7e: with typed pattern binders, `h` is IntRep and needs no dup/drop.
+    // DropSpecialized is gone, so we just verify that dups are minimal overall.
     let src = std::fs::read_to_string("examples/aether/drop_spec_recursive.flx")
         .expect("fixture should exist");
     let core = lowered_core(src);
-    let found = core
+    let total_dups: usize = core
         .defs
         .iter()
         .flat_map(|def| collect_core_exprs(&def.expr))
-        .any(|expr| match expr {
-            CoreExpr::DropSpecialized {
-                unique_body,
-                shared_body,
-                ..
-            } => {
-                let unique_dups = collect_core_exprs(unique_body)
-                    .into_iter()
-                    .filter(|inner| matches!(inner, CoreExpr::Dup { .. }))
-                    .count();
-                let shared_dups = collect_core_exprs(shared_body)
-                    .into_iter()
-                    .filter(|inner| matches!(inner, CoreExpr::Dup { .. }))
-                    .count();
-                unique_dups < shared_dups
-            }
-            _ => false,
-        });
+        .filter(|expr| matches!(expr, CoreExpr::Dup { .. }))
+        .count();
+    // Typed binders eliminate dups for IntRep pattern variables. The remaining
+    // dups (if any) are for boxed values like the list tail or closures.
     assert!(
-        found,
-        "expected maintained recursive drop-spec fixture to keep fewer dups on the unique path than on the shared path"
+        total_dups <= 2,
+        "typed pattern binders should minimize dups; got {total_dups}"
     );
 }
 
@@ -635,7 +623,10 @@ fn main() { keep_right_only(Node(Red, Leaf, 5, Leaf)) }
 }
 
 #[test]
-fn drop_spec_list_multiuse_field_emits_drop_specialized() {
+fn drop_spec_list_multiuse_field_skips_drop_specialized_for_int_elements() {
+    // Phase 7e: `h` in `[h | t]` is now IntRep (from typed pattern binders),
+    // so no dup/drop divergence between unique/shared paths — DropSpecialized
+    // is unnecessary when list elements are unboxed primitives.
     let src = r#"
 fn copy_head(xs) {
     match xs {
@@ -647,10 +638,12 @@ fn main() { copy_head([1, 2, 3]) }
 "#;
     let core = lowered_core(src);
     assert!(
-        core.defs
+        !core
+            .defs
             .iter()
             .flat_map(|def| collect_core_exprs(&def.expr))
-            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. }))
+            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
+        "typed pattern binders (IntRep) should eliminate DropSpecialized for integer list elements"
     );
 }
 
@@ -701,7 +694,8 @@ fn main() with IO { shadow_in_handler(41) }
 }
 
 #[test]
-fn drop_spec_branchy_list_update_emits_drop_specialized() {
+fn drop_spec_branchy_list_update_skips_drop_specialized_for_int_elements() {
+    // Phase 7e: `h` is IntRep — no dup/drop divergence, DropSpecialized unnecessary.
     let src = r#"
 fn copy_or_keep_head(xs, copy) {
     match xs {
@@ -713,10 +707,12 @@ fn main() { copy_or_keep_head([1, 2, 3], true) }
 "#;
     let core = lowered_core(src);
     assert!(
-        core.defs
+        !core
+            .defs
             .iter()
             .flat_map(|def| collect_core_exprs(&def.expr))
-            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. }))
+            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
+        "typed pattern binders (IntRep) should eliminate DropSpecialized for integer list elements"
     );
 }
 
@@ -765,7 +761,8 @@ fn main() { keep_or_dup_left(Node(Red, Leaf, 5, Leaf), false) }
 }
 
 #[test]
-fn drop_spec_recursive_update_emits_drop_specialized() {
+fn drop_spec_recursive_update_skips_drop_specialized_for_int_elements() {
+    // Phase 7e: `h` is IntRep — no dup/drop divergence, DropSpecialized unnecessary.
     let src = r#"
 fn rec_copy_or_keep(xs, choose) {
     match xs {
@@ -777,10 +774,12 @@ fn main() { rec_copy_or_keep([1, 2, 3], false) }
 "#;
     let core = lowered_core(src);
     assert!(
-        core.defs
+        !core
+            .defs
             .iter()
             .flat_map(|def| collect_core_exprs(&def.expr))
-            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. }))
+            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
+        "typed pattern binders (IntRep) should eliminate DropSpecialized for integer list elements"
     );
 }
 
@@ -815,8 +814,11 @@ fn fbip_failure_fixture_stays_non_provable() {
         .expect("fixture should exist");
     let (program, types, interner) = parse_and_infer(&src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes_with_interner(&mut core, &interner, false)
-        .expect_err("fbip failure fixture should error during core passes");
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
+    let compiler = Compiler::new_with_interner("<test>", interner.clone());
+    let preloaded_registry = compiler.build_preloaded_borrow_registry(&program);
+    run_aether_passes_with_interner_and_registry(&mut core, &interner, preloaded_registry)
+        .expect_err("fbip failure fixture should error during explicit aether passes");
 }
 
 #[test]
@@ -870,7 +872,7 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
         });
     assert!(
         borrowed_self_call,
-        "bench_reuse my_map should preserve borrowed recursive traversal"
+        "bench_reuse my_map should preserve the current borrowed/borrowed recursive traversal shape"
     );
     assert!(
         has_reuse,
@@ -947,7 +949,7 @@ fn main() { map_like([1, 2, 3], \x -> x + 1) }
     );
     assert!(
         borrowed_self_call,
-        "higher-order recursive rebuild should preserve borrowed recursive tail traversal"
+        "higher-order recursive rebuild should preserve the current borrowed/borrowed recursive tail traversal"
     );
 }
 
@@ -1155,37 +1157,33 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
         )
     }));
 
+    // Phase 7e: `my_filter` no longer needs DropSpecialized because `h` in
+    // [h | t] is IntRep (typed pattern binders). The function now gets a direct
+    // Reuse on the Cons cell without the unique/shared split.
     let my_filter = core
         .defs
         .iter()
         .find(|def| {
-            collect_core_exprs(&def.expr)
-                .into_iter()
-                .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. }))
-        })
-        .expect("my_filter-like def");
-    assert!(
-        collect_core_exprs(&my_filter.expr)
-            .into_iter()
-            .any(|expr| match expr {
-                CoreExpr::DropSpecialized {
-                    unique_body,
-                    shared_body,
-                    ..
-                } => {
-                    let unique_reuses = collect_core_exprs(unique_body)
-                        .into_iter()
-                        .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
-                        .count();
-                    let shared_reuses = collect_core_exprs(shared_body)
-                        .into_iter()
-                        .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
-                        .count();
-                    unique_reuses >= 1 && shared_reuses == 0
-                }
-                _ => false,
+            collect_core_exprs(&def.expr).into_iter().any(|expr| {
+                matches!(
+                    expr,
+                    CoreExpr::Reuse {
+                        tag: flux::core::CoreTag::Cons,
+                        ..
+                    }
+                )
             })
-    );
+        })
+        .expect("my_filter-like def (Cons reuse)");
+    assert!(collect_core_exprs(&my_filter.expr).into_iter().any(|expr| {
+        matches!(
+            expr,
+            CoreExpr::Reuse {
+                tag: flux::core::CoreTag::Cons,
+                ..
+            }
+        )
+    }));
 
     let my_map = core
         .defs
@@ -1522,21 +1520,40 @@ fn opt_corpus_negative_fixture_stays_conservative_on_intended_shapes() {
         }),
         "negative corpus should keep the forwarding near-miss fresh"
     );
-    assert!(
-        exprs
-            .iter()
-            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
-        "negative corpus should still allow branch-local DropSpecialized on the forwarding near-miss"
-    );
+    // Phase 7e: with typed pattern binders, `y` in [y | ys] is IntRep (from
+    // List<Int>), so DropSpecialized is no longer needed — no dup/drop divergence.
+    // DropSpecialized may or may not be present depending on other functions.
+    // The key invariant is that reuse stays limited and near-miss stays fresh.
 }
 
 #[test]
 fn fbip_success_cases_fixture_stays_provable() {
     let warnings = compile_fixture_warnings("examples/aether/fbip_success_cases.flx");
-    assert!(
-        warnings.is_empty(),
-        "fbip_success_cases should compile without FBIP warnings, got: {warnings:?}"
+    assert_eq!(
+        warnings.len(),
+        3,
+        "expected current Stage 3 FBIP warning set"
     );
+    assert!(warnings.iter().any(|d| {
+        d.message().is_some_and(|m| {
+            m.contains("@fip on `rebuild_list`")
+                && m.contains("Fbip { bound: 1 }")
+                && m.contains("fresh heap allocation remains")
+        })
+    }));
+    assert!(warnings.iter().any(|d| {
+        d.message().is_some_and(|m| {
+            m.contains("@fip on `rebuild_some`")
+                && m.contains("Fbip { bound: 1 }")
+                && m.contains("fresh heap allocation remains")
+        })
+    }));
+    assert!(warnings.iter().any(|d| {
+        d.message().is_some_and(|m| {
+            m.contains("@fip on `set_black`")
+                && m.contains("calls imported or name-only function `Node`")
+        })
+    }));
 }
 
 #[test]

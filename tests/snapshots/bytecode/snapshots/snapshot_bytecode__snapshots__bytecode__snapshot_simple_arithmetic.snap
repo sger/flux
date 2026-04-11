@@ -8,6 +8,5 @@ Constants:
 
 Instructions:
 0000 OpConstant 0
-0003 OpConstant 1
-0006 OpAdd 
-0007 OpPop
+0003 OpConstantAdd 1
+0006 OpPop

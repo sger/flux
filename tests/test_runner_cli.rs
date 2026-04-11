@@ -31,6 +31,15 @@ fn run_flux_strict(args: &[&str]) -> Output {
         .unwrap_or_else(|e| panic!("failed to run flux with args {:?}: {e}", args))
 }
 
+fn cli_supports_flag(flag: &str) -> bool {
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .arg("--help")
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run flux --help: {e}"));
+    combined_output(&output).contains(flag)
+}
+
 fn combined_output(output: &Output) -> String {
     let mut text = String::new();
     text.push_str(&String::from_utf8_lossy(&output.stdout));
@@ -38,10 +47,14 @@ fn combined_output(output: &Output) -> String {
     text
 }
 
+#[allow(dead_code)]
 fn extract_function_ir<'a>(llvm: &'a str, name: &str) -> &'a str {
-    let needle = format!("define internal fastcc i64 @{name}");
+    // Try both internal (single-module) and non-internal (per-module) linkage.
+    let needle_internal = format!("define internal fastcc i64 @{name}");
+    let needle_public = format!("define fastcc i64 @{name}");
     let start = llvm
-        .find(&needle)
+        .find(&needle_internal)
+        .or_else(|| llvm.find(&needle_public))
         .unwrap_or_else(|| panic!("expected function `{name}` in LLVM output:\n{llvm}"));
     let rest = &llvm[start..];
     if let Some(next_define) = rest[1..].find("\ndefine ") {
@@ -200,12 +213,65 @@ fn test_mode_flow_list_module_fixture_passes() {
         text
     );
     assert!(
+        text.contains("PASS  test_list_specific_shape"),
+        "expected list shape test pass, output:\n{}",
+        text
+    );
+    assert!(
         text.contains("PASS  test_set_like_operations"),
         "expected set-like operations test pass, output:\n{}",
         text
     );
     assert!(
-        text.contains("8 tests: 8 passed, 0 failed"),
+        text.contains("9 tests: 9 passed, 0 failed"),
+        "unexpected summary, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_mode_flow_array_module_fixture_passes() {
+    let file = fixture_path("Flow/Array_test.flx");
+    let output = run_flux(&[
+        "--test",
+        file.to_str().unwrap(),
+        "--root",
+        workspace_root().join("lib").to_str().unwrap(),
+    ]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_array_core_hofs"),
+        "expected core HOFs test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_array_accessors_and_predicates"),
+        "expected accessors test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_array_ordering_and_slices"),
+        "expected ordering/slices test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_array_specific_shape"),
+        "expected array shape test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_array_zip_and_updates"),
+        "expected zip/update test pass, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("5 tests: 5 passed, 0 failed"),
         "unexpected summary, output:\n{}",
         text
     );
@@ -214,6 +280,10 @@ fn test_mode_flow_list_module_fixture_passes() {
 #[cfg(feature = "native")]
 #[test]
 fn test_mode_flow_list_module_fixture_passes_on_native_llvm() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
     let file = fixture_path("Flow/List_test.flx");
     let output = run_flux(&[
         "--test",
@@ -260,12 +330,17 @@ fn test_mode_flow_list_module_fixture_passes_on_native_llvm() {
         text
     );
     assert!(
+        text.contains("PASS  test_list_specific_shape"),
+        "expected list shape test pass on native backend, output:\n{}",
+        text
+    );
+    assert!(
         text.contains("PASS  test_set_like_operations"),
         "expected set-like operations test pass on native backend, output:\n{}",
         text
     );
     assert!(
-        text.contains("8 tests: 8 passed, 0 failed"),
+        text.contains("9 tests: 9 passed, 0 failed"),
         "unexpected native summary, output:\n{}",
         text
     );
@@ -274,8 +349,12 @@ fn test_mode_flow_list_module_fixture_passes_on_native_llvm() {
 #[cfg(feature = "native")]
 #[test]
 fn test_native_sort_by_string_len_repro_prints_sorted_strings() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
     let file = example_path("repros/sort_by_string_len.flx");
-    let output = run_flux(&["--native", file.to_str().unwrap()]);
+    let output = run_flux(&[file.to_str().unwrap(), "--native"]);
     let text = combined_output(&output);
 
     assert!(
@@ -290,9 +369,59 @@ fn test_native_sort_by_string_len_repro_prints_sorted_strings() {
     );
 }
 
+#[cfg(feature = "native")]
+#[test]
+fn test_native_list_map_filter_example_preserves_list_zip_output() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
+    let file = example_path("advanced/list_map_filter.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for list_map_filter example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("[(1, 1), (2, 2), (3, 3)]"),
+        "expected list zip output on native backend, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_vm_higher_order_builtins_example_sorts_arrays() {
+    let file = example_path("basics/higher_order_builtins.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected VM success for higher_order_builtins example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("[|\"fig\", \"kiwi\", \"apple\", \"banana\"|]"),
+        "expected string sort_by output on VM backend, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("[|5, 4, 3, 2, 1|]"),
+        "expected descending numeric sort_by output on VM backend, output:\n{}",
+        text
+    );
+}
+
 #[cfg(feature = "core_to_llvm")]
 #[test]
 fn test_dump_lir_llvm_reuse_path_writes_raw_cons_headers() {
+    if !cli_supports_flag("--dump-lir-llvm") {
+        eprintln!("skipping LLVM dump CLI test: binary does not advertise --dump-lir-llvm");
+        return;
+    }
     let file = example_path("repros/sort_by_string_len.flx");
     let output = run_flux(&["--dump-lir-llvm", file.to_str().unwrap()]);
     let text = combined_output(&output);
@@ -314,16 +443,19 @@ fn test_dump_lir_llvm_reuse_path_writes_raw_cons_headers() {
         "expected merge_by_key to branch on uniqueness for right cons reuse:\n{}",
         merge_by_key
     );
+    // The reuse path stores ctor_tag=4 and field_count=2 as raw i32s.
+    // Check that at least two pairs exist (one for left, one for right
+    // reuse) without relying on exact temp variable names.
+    let ctor_tag_stores = merge_by_key.matches("store i32 4, ptr %t").count();
+    let field_count_stores = merge_by_key.matches("store i32 2, ptr %t").count();
     assert!(
-        merge_by_key.contains("store i32 4, ptr %t20, align 4")
-            && merge_by_key.contains("store i32 2, ptr %t22, align 4"),
-        "expected left reuse branch to write raw cons header fields:\n{}",
+        ctor_tag_stores >= 2,
+        "expected at least 2 raw ctor_tag=4 stores (left+right reuse), found {ctor_tag_stores}:\n{}",
         merge_by_key
     );
     assert!(
-        merge_by_key.contains("store i32 4, ptr %t29, align 4")
-            && merge_by_key.contains("store i32 2, ptr %t31, align 4"),
-        "expected right reuse branch to write raw cons header fields:\n{}",
+        field_count_stores >= 2,
+        "expected at least 2 raw field_count=2 stores (left+right reuse), found {field_count_stores}:\n{}",
         merge_by_key
     );
     assert!(
@@ -488,8 +620,8 @@ fn test_mode_base_assertions_all_pass() {
 
     // Verify total count
     assert!(
-        text.contains("37 tests: 37 passed, 0 failed"),
-        "expected 37 tests all passing, output:\n{}",
+        text.contains("40 tests: 40 passed, 0 failed"),
+        "expected 40 tests all passing, output:\n{}",
         text
     );
 }
@@ -650,7 +782,35 @@ fn dump_core_debug_preserves_raw_identity_details() {
 }
 
 #[test]
-fn dump_core_reports_drop_specialized_stats() {
+fn dump_cfg_prints_cfg_ir_and_exits_before_execution() {
+    let file = example_path("basics/arithmetic.flx");
+    let output = run_flux(&["--dump-cfg", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected dump-cfg success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("fn #") || text.contains("fn <anon>"),
+        "expected CFG function header, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("Return"),
+        "expected CFG terminator, output:\n{}",
+        text
+    );
+    assert!(
+        !text.contains("\n3\n"),
+        "dump-cfg should not execute the program, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn dump_core_debug_excludes_aether_stats() {
     let file = example_path("aether/verify_aether.flx");
     let output = run_flux(&["--dump-core=debug", file.to_str().unwrap()]);
     let text = combined_output(&output);
@@ -661,13 +821,171 @@ fn dump_core_reports_drop_specialized_stats() {
         text
     );
     assert!(
-        text.contains("drop_spec xs#18"),
-        "expected debug Core dump to include DropSpecialized, output:\n{}",
+        !text.contains("── Aether stats ──"),
+        "dump-core debug should stay semantic-only, output:\n{}",
         text
     );
     assert!(
-        text.contains("DropSpecs: ") && !text.contains("DropSpecs: 0"),
-        "expected Aether stats to count DropSpecialized nodes, output:\n{}",
+        !text.contains("DropSpecs: "),
+        "dump-core debug should not include Aether stats, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_native_aether_queue_workload_matches_vm_totals() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
+    let file = example_path("aether/queue_workload.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for queue_workload example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("\"rotated total = 3502500\""),
+        "expected native rotated total to match VM, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("\"drained total = 2001000\""),
+        "expected native drained total to match VM, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_aether_bench_reuse_enabled_prints_head_value() {
+    let file = example_path("aether/bench_reuse_enabled.flx");
+    let output = run_flux(&["--no-cache", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected VM success for bench_reuse_enabled example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("\"enabled: result head = 101\""),
+        "expected mapped head output on VM backend, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_native_aether_bench_reuse_enabled_prints_head_value() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
+    let file = example_path("aether/bench_reuse_enabled.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for bench_reuse_enabled example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("\"enabled: result head = 101\""),
+        "expected mapped head output on native backend, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_aether_bench_reuse_blocked_prints_head_value() {
+    let file = example_path("aether/bench_reuse_blocked.flx");
+    let output = run_flux(&["--no-cache", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected VM success for bench_reuse_blocked example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("\"blocked: result head = 101\""),
+        "expected mapped head output on VM backend, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_native_aether_bench_reuse_blocked_prints_head_value() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
+    let file = example_path("aether/bench_reuse_blocked.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for bench_reuse_blocked example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("\"blocked: result head = 101\""),
+        "expected mapped head output on native backend, output:\n{}",
+        text
+    );
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn test_native_day06_multimodule_adt_program_links_and_runs() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
+    let file = example_path("aoc/2024/day06.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for day06 example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("Part A:"),
+        "expected Part A output from native day06 example, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("Part B:"),
+        "expected Part B output from native day06 example, output:\n{}",
+        text
+    );
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn test_native_using_modules_program_links_without_user_adts() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
+    let file = example_path("advanced/using_modules.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for using_modules example, output:\n{}",
+        text
+    );
+    assert!(
+        !text.contains("undefined symbol: flux_user_ctor_name"),
+        "expected runtime stub to satisfy ctor-name symbol, output:\n{}",
         text
     );
 }

@@ -1,5 +1,9 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
+use crate::ast::free_vars::collect_free_vars_in_function_body;
 use crate::cfg::{IrFunction, IrProgram};
 use crate::{
     ast::type_infer::display_infer_type,
@@ -34,6 +38,12 @@ use crate::{
 use super::hm_expr_typer::HmExprTypeResult;
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
+
+/// A range [start, end) of statements forming a mutual recursion group.
+struct MutualRecRange {
+    start: usize,
+    end: usize,
+}
 
 impl Compiler {
     pub(super) fn find_ir_function_by_symbol<'a>(
@@ -310,7 +320,7 @@ impl Compiler {
                 // Use HM type to check expected arity
                 if let super::hm_expr_typer::HmExprTypeResult::Known(InferType::Fun(params, _, _)) =
                     self.hm_expr_type_strict_path(function)
-                    && params.len() != arguments.len()
+                    && self.visible_call_arity(function, params.len()) != arguments.len()
                 {
                     return true;
                 }
@@ -334,6 +344,78 @@ impl Compiler {
             Expression::Match { arms, .. } => arms
                 .iter()
                 .any(|arm| self.expr_has_call_arity_error(&arm.body)),
+            _ => false,
+        }
+    }
+
+    /// HM types may include hidden dictionary/evidence parameters for
+    /// constrained identifiers. For user-facing AST validation we should
+    /// compare against the visible source arity, not the elaborated one.
+    fn visible_call_arity(&self, function: &Expression, raw_arity: usize) -> usize {
+        let Expression::Identifier { name, .. } = function else {
+            return raw_arity;
+        };
+        let hidden_dicts = self
+            .type_env
+            .lookup(*name)
+            .map(|scheme| scheme.constraints.len())
+            .unwrap_or(0);
+        raw_arity.saturating_sub(hidden_dicts)
+    }
+
+    fn block_contains_constrained_calls(&self, body: &Block) -> bool {
+        body.statements.iter().any(|statement| match statement {
+            Statement::Expression { expression, .. }
+            | Statement::Let {
+                value: expression, ..
+            } => self.expr_contains_constrained_calls(expression),
+            _ => false,
+        })
+    }
+
+    fn expr_contains_constrained_calls(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                let callee_is_constrained = matches!(
+                    function.as_ref(),
+                    Expression::Identifier { name, .. }
+                        if self
+                            .type_env
+                            .lookup(*name)
+                            .is_some_and(|scheme| !scheme.constraints.is_empty())
+                );
+                callee_is_constrained
+                    || self.expr_contains_constrained_calls(function)
+                    || arguments
+                        .iter()
+                        .any(|argument| self.expr_contains_constrained_calls(argument))
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expr_contains_constrained_calls(condition)
+                    || self.block_contains_constrained_calls(consequence)
+                    || alternative
+                        .as_ref()
+                        .is_some_and(|block| self.block_contains_constrained_calls(block))
+            }
+            Expression::DoBlock { block, .. } => self.block_contains_constrained_calls(block),
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
+                self.expr_contains_constrained_calls(scrutinee)
+                    || arms
+                        .iter()
+                        .any(|arm| self.expr_contains_constrained_calls(&arm.body))
+            }
+            Expression::Function { body, .. } => self.block_contains_constrained_calls(body),
             _ => false,
         }
     }
@@ -1009,6 +1091,8 @@ impl Compiler {
                         && let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
                         && existing.symbol_scope != SymbolScope::Function
+                        // Skip if this binding was predeclared for forward references
+                        && existing.span != *span
                     {
                         let name_str = self.sym(name);
                         return Err(Self::boxed(self.make_redeclaration_error(
@@ -1098,6 +1182,7 @@ impl Compiler {
                     }
                     if self.is_flow_module_symbol(name) {
                         self.compile_import_statement(name, *alias, except)?;
+                        self.register_exposed_bindings(name, exposing, *span)?;
                         return Ok(());
                     }
                     let name_str = self.sym(name).to_string();
@@ -1124,6 +1209,9 @@ impl Compiler {
                 }
                 // Effect declarations are syntax only for now no bytecode emitted.
                 Statement::EffectDecl { .. } => {}
+                // Type class declarations are syntax only — no bytecode emitted.
+                Statement::Class { .. } => {}
+                Statement::Instance { .. } => {}
             }
             Ok(())
         })();
@@ -1171,9 +1259,18 @@ impl Compiler {
         // If an outer or Base binding already exists, this nested function must
         // create a new local binding so it correctly shadows that name.
         let symbol = if self.symbol_table.exists_in_current_scope(name) {
-            self.symbol_table
+            let existing = self
+                .symbol_table
                 .resolve(name)
-                .expect("current-scope function binding must resolve")
+                .expect("current-scope function binding must resolve");
+            if existing.symbol_scope == SymbolScope::Function {
+                // A current-scope self-binding belongs to the enclosing
+                // function, not this nested declaration. Create a new local
+                // binding so the nested function shadows the enclosing name.
+                self.symbol_table.define(name, definition_span)
+            } else {
+                existing
+            }
         } else {
             self.symbol_table.define(name, definition_span)
         };
@@ -1182,6 +1279,27 @@ impl Compiler {
         self.symbol_table
             .define_function_name(name, definition_span);
 
+        // If the IR function has extra dict params (from dict elaboration),
+        // define them in the scope BEFORE the AST params so they get the
+        // correct local indices matching the VM calling convention.
+        // Only apply to user-defined constrained functions (not __tc_*
+        // mangled instance methods, which may have contextual dict params
+        // handled via a separate mechanism).
+        if let Some(ir_fn) = ir_function {
+            let extra = ir_fn.params.len().saturating_sub(parameters.len());
+            if extra > 0 {
+                let has_scheme_constraints = self
+                    .type_env
+                    .lookup(name)
+                    .is_some_and(|s| !s.constraints.is_empty());
+                if has_scheme_constraints {
+                    for ir_param in &ir_fn.params[..extra] {
+                        self.symbol_table.define(ir_param.name, Span::default());
+                    }
+                }
+            }
+        }
+
         for (index, param) in parameters.iter().enumerate() {
             self.symbol_table.define(*param, Span::default());
             if let Some(Some(param_ty)) = parameter_types.get(index)
@@ -1189,6 +1307,34 @@ impl Compiler {
             {
                 self.bind_static_type(*param, runtime_ty);
             }
+        }
+
+        // Emit cost centre entry when profiling is enabled.
+        if self.profiling {
+            let module_name = self
+                .current_module_prefix
+                .map(|s| self.sym(s).to_string())
+                .unwrap_or_else(|| "<main>".to_string());
+            let fn_name = self.sym(name).to_string();
+            let cc_idx = self.register_cost_centre(&fn_name, &module_name);
+            self.emit(OpCode::OpEnterCC, &[cc_idx as usize]);
+        }
+
+        // Track the runtime-facing IR parameter count when CFG path succeeds.
+        // Dict elaboration may add dictionary parameters that the AST doesn't
+        // know about, while lifted function literals also include captures in
+        // `ir_fn.params`. The VM closure arity must count only explicit call
+        // arguments, not captured values loaded by `OpClosure`.
+        let cfg_param_count: std::cell::Cell<Option<usize>> = std::cell::Cell::new(None);
+        if let Some(ir_function) = ir_function {
+            let explicit_param_count = match ir_function.origin {
+                crate::cfg::IrFunctionOrigin::FunctionLiteral => ir_function
+                    .params
+                    .len()
+                    .saturating_sub(ir_function.captures.len()),
+                _ => ir_function.params.len(),
+            };
+            cfg_param_count.set(Some(explicit_param_count));
         }
 
         let compile_result: CompileResult<()> = (|| {
@@ -1232,6 +1378,10 @@ impl Compiler {
             }
 
             let param_effect_rows = self.build_param_effect_rows(parameters, parameter_types);
+            let requires_ir_only = ir_function.is_some_and(|function| {
+                function.params.len() != parameters.len()
+                    || self.block_contains_constrained_calls(body)
+            });
 
             // ── CFG primary path ─────────────────────────────────────────
             // Pre-validate semantic errors that CFG can't catch (E001, E002,
@@ -1243,19 +1393,35 @@ impl Compiler {
             // CFG handles all well-typed functions. AST fallback is used only
             // for: (a) functions with pre-validation errors, (b) HM type errors,
             // (c) module/import statements, (d) strict-mode typed-let.
-            let use_ast_path = has_body_errors
-                || self.has_hm_diagnostics
-                || ir_function.is_none()
-                || Self::block_contains_cfg_incompatible_statements_ast(body)
-                || (self.strict_mode && Self::block_contains_typed_let_ast(body));
+            let use_ast_path = if requires_ir_only {
+                ir_function.is_none()
+                    || Self::block_contains_cfg_incompatible_statements_ast(body)
+                    || (self.strict_mode && Self::block_contains_typed_let_ast(body))
+            } else {
+                has_body_errors
+                    || self.has_hm_diagnostics
+                    || ir_function.is_none()
+                    || Self::block_contains_cfg_incompatible_statements_ast(body)
+                    || (self.strict_mode && Self::block_contains_typed_let_ast(body))
+            };
 
             if !use_ast_path {
                 let ir_function = ir_function.unwrap();
                 let scope_snapshot = self.scopes[self.scope_index].clone();
                 let const_len = self.constants.len();
                 match self.try_compile_ir_cfg_function_body(ir_function, name) {
-                    Some(Ok(())) => return Ok(()),
-                    Some(Err(_)) => {
+                    Some(Ok(())) => {
+                        let explicit_param_count = match ir_function.origin {
+                            crate::cfg::IrFunctionOrigin::FunctionLiteral => ir_function
+                                .params
+                                .len()
+                                .saturating_sub(ir_function.captures.len()),
+                            _ => ir_function.params.len(),
+                        };
+                        cfg_param_count.set(Some(explicit_param_count));
+                        return Ok(());
+                    }
+                    Some(Err(ref _e)) => {
                         // CFG compilation error (e.g. unresolved name) — roll
                         // back and fall through to AST for proper diagnostics.
                         self.scopes[self.scope_index] = scope_snapshot;
@@ -1371,7 +1537,7 @@ impl Compiler {
             CompiledFunction::new(
                 instructions,
                 num_locals,
-                parameters.len(),
+                cfg_param_count.get().unwrap_or(parameters.len()),
                 Some(
                     FunctionDebugInfo::new(Some(self.sym(name).to_string()), files, locations)
                         .with_boundary_location(Some(boundary_location))
@@ -1387,6 +1553,181 @@ impl Compiler {
             SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
             _ => 0,
         };
+        Ok(())
+    }
+
+    /// Compile a group of mutually recursive nested functions using sibling
+    /// reconstruction: each function captures only shared outer variables and
+    /// reconstructs sibling closures on entry from its own captures.
+    ///
+    /// This avoids circular Rc references (which would violate the no-cycle
+    /// invariant) and the Uninit capture problem.
+    pub(super) fn compile_mutual_rec_group(
+        &mut self,
+        fn_stmts: &[&Statement],
+    ) -> CompileResult<()> {
+        // Collect function info.
+        struct FnEntry<'a> {
+            name: Symbol,
+            parameters: &'a [Symbol],
+            body: &'a Block,
+            span: Span,
+        }
+
+        let entries: Vec<FnEntry<'_>> = fn_stmts
+            .iter()
+            .map(|stmt| {
+                if let Statement::Function {
+                    name,
+                    parameters,
+                    body,
+                    span,
+                    ..
+                } = stmt
+                {
+                    FnEntry {
+                        name: *name,
+                        parameters: parameters.as_slice(),
+                        body,
+                        span: *span,
+                    }
+                } else {
+                    unreachable!("compile_mutual_rec_group called with non-function");
+                }
+            })
+            .collect();
+
+        let group_names: HashSet<Symbol> = entries.iter().map(|e| e.name).collect();
+
+        // Reserve constant pool slots for all functions.
+        let const_slots: Vec<usize> = entries
+            .iter()
+            .map(|_| self.add_constant(Value::None))
+            .collect();
+
+        // Compute shared outer captures: union of all free vars minus group members.
+        let mut shared_captures: Vec<Symbol> = Vec::new();
+        {
+            let mut seen = HashSet::new();
+            for entry in &entries {
+                let fv = collect_free_vars_in_function_body(entry.parameters, entry.body);
+                for sym in fv {
+                    if !group_names.contains(&sym) && seen.insert(sym) {
+                        shared_captures.push(sym);
+                    }
+                }
+            }
+            // Sort for deterministic ordering across all functions in the group.
+            shared_captures.sort_by_key(|s| s.as_u32());
+        }
+
+        // Compile each function body with sibling reconstruction.
+        for (idx, entry) in entries.iter().enumerate() {
+            let definition_span = Span::new(entry.span.start, entry.span.start);
+
+            self.enter_scope();
+
+            // Self-reference (OpCurrentClosure).
+            self.symbol_table
+                .define_function_name(entry.name, definition_span);
+
+            // Parameters.
+            for param in entry.parameters {
+                self.symbol_table.define(*param, Span::default());
+            }
+
+            // Define siblings as locals (so they won't become free vars).
+            let mut sibling_locals: Vec<(usize, usize)> = Vec::new(); // (group_idx, local_slot)
+            for (j, sib_entry) in entries.iter().enumerate() {
+                if j != idx {
+                    let binding = self.symbol_table.define(sib_entry.name, sib_entry.span);
+                    sibling_locals.push((j, binding.index));
+                }
+            }
+
+            // Force-resolve shared outer captures to populate free_symbols
+            // with a consistent ordering across all functions. Only non-global
+            // symbols that exist in the enclosing scope become actual Free vars.
+            for &cap_sym in &shared_captures {
+                let _ = self.symbol_table.resolve(cap_sym);
+            }
+
+            // Emit sibling reconstruction prologue:
+            // For each sibling, reconstruct its closure from our own captures.
+            // Use the actual free_symbols count (excludes globals).
+            let actual_captures = self.symbol_table.free_symbols.len();
+            for &(group_j, local_slot) in &sibling_locals {
+                for cap_idx in 0..actual_captures {
+                    self.emit(OpCode::OpGetFree, &[cap_idx]);
+                }
+                self.emit_closure_index(const_slots[group_j], actual_captures);
+                self.emit(OpCode::OpSetLocal, &[local_slot]);
+            }
+
+            // Compile the function body.
+            let body_errors = self.with_tail_position(true, |c| {
+                c.compile_block_with_tail_collect_errors(entry.body)
+            });
+            if self.block_has_value_tail(entry.body) {
+                if !self.is_last_instruction(OpCode::OpReturnValue)
+                    && !self.is_last_instruction(OpCode::OpReturnLocal)
+                {
+                    self.emit(OpCode::OpReturnValue, &[]);
+                }
+            } else if !self.is_last_instruction(OpCode::OpReturnValue)
+                && !self.is_last_instruction(OpCode::OpReturnLocal)
+            {
+                self.emit(OpCode::OpReturn, &[]);
+            }
+            for err in body_errors {
+                self.errors.push(*err);
+            }
+
+            let free_symbols = self.symbol_table.free_symbols.clone();
+            for free in &free_symbols {
+                if free.symbol_scope == SymbolScope::Local {
+                    self.mark_captured_in_current_function(free.index);
+                }
+            }
+
+            let num_locals = self.symbol_table.num_definitions;
+            let (instructions, locations, files, effect_summary) = self.leave_scope();
+
+            // Store compiled function in the reserved constant pool slot.
+            let fn_name = self.sym(entry.name).to_string();
+            let compiled = CompiledFunction::new(
+                instructions,
+                num_locals,
+                entry.parameters.len(),
+                Some(
+                    FunctionDebugInfo::new(Some(fn_name), files, locations)
+                        .with_effect_summary(effect_summary),
+                ),
+            );
+            self.constants[const_slots[idx]] = Value::Function(Rc::new(compiled));
+
+            // Push captures for this function in the enclosing scope.
+            for free in &free_symbols {
+                self.load_symbol(free);
+            }
+            self.emit_closure_index(const_slots[idx], free_symbols.len());
+
+            // Assign to the predeclared local in the enclosing scope.
+            let enclosing_symbol = self
+                .symbol_table
+                .resolve(entry.name)
+                .expect("mutual rec function must be predeclared");
+            match enclosing_symbol.symbol_scope {
+                SymbolScope::Global => {
+                    self.emit(OpCode::OpSetGlobal, &[enclosing_symbol.index]);
+                }
+                SymbolScope::Local => {
+                    self.emit(OpCode::OpSetLocal, &[enclosing_symbol.index]);
+                }
+                _ => {}
+            };
+        }
+
         Ok(())
     }
 
@@ -1441,6 +1782,21 @@ impl Compiler {
                 }
                 // ADT type declarations are allowed inside modules
                 Statement::Data { .. } => {}
+                // Type class declarations are allowed inside modules (Proposal 0151).
+                // Semantic processing happens in the class collection pipeline; the
+                // bytecode compiler treats them as transparent here.
+                Statement::Class { .. } => {}
+                Statement::Instance { .. } => {}
+                // Imports inside module bodies are allowed (Proposal 0151 §5a).
+                // Resolution happens via the module graph; the bytecode compiler
+                // ignores them at this site.
+                Statement::Import { .. } => {}
+                // Effect declarations are allowed inside modules (Proposal 0151
+                // Phase 4a-prereq). Semantic processing happens in the existing
+                // effect-handling pipeline; the bytecode compiler treats the
+                // declaration as transparent here, identical to how it treats
+                // top-level `effect` declarations.
+                Statement::EffectDecl { .. } => {}
                 _ => {
                     let pos = statement.position();
                     return Err(Self::boxed(Diagnostic::make_error(
@@ -1577,10 +1933,6 @@ impl Compiler {
         alias: Option<Symbol>,
         except: &[Symbol],
     ) -> CompileResult<()> {
-        if self.is_flow_module_symbol(name) {
-            return Ok(());
-        }
-
         if !except.is_empty() {
             let binding_name = alias.unwrap_or(name);
             let excluded: std::collections::HashSet<Symbol> = except.iter().copied().collect();
@@ -1712,6 +2064,28 @@ impl Compiler {
 
     #[allow(clippy::vec_box)]
     fn compile_block_with_tail_collect_errors(&mut self, block: &Block) -> Vec<Box<Diagnostic>> {
+        // Predeclare nested function names so forward references and mutual
+        // recursion work inside function bodies (mirrors top-level pass 1).
+        if self.scope_index > 0 {
+            for stmt in &block.statements {
+                if let Statement::Function { name, span, .. } = stmt {
+                    let should_predeclare = if self.symbol_table.exists_in_current_scope(*name) {
+                        self.symbol_table
+                            .resolve(*name)
+                            .is_some_and(|binding| binding.symbol_scope == SymbolScope::Function)
+                    } else {
+                        true
+                    };
+                    if should_predeclare {
+                        self.symbol_table.define(*name, *span);
+                    }
+                }
+            }
+        }
+
+        // Detect mutual recursion groups among consecutive function statements.
+        let mutual_groups = Self::detect_mutual_rec_groups(&block.statements);
+
         let len = block.statements.len();
         let mut errors = Vec::new();
         let mut consumable_counts = HashMap::new();
@@ -1720,7 +2094,20 @@ impl Compiler {
         }
 
         self.with_consumable_local_use_counts(consumable_counts, |compiler| {
-            for (i, statement) in block.statements.iter().enumerate() {
+            let mut i = 0;
+            while i < len {
+                // Check if this statement starts a mutual recursion group.
+                if let Some(group) = mutual_groups.iter().find(|g| g.start == i) {
+                    let stmts: Vec<&Statement> =
+                        block.statements[group.start..group.end].iter().collect();
+                    if let Err(err) = compiler.compile_mutual_rec_group(&stmts) {
+                        errors.push(err);
+                    }
+                    i = group.end;
+                    continue;
+                }
+
+                let statement = &block.statements[i];
                 let is_last = i == len - 1;
                 let tail_eligible = matches!(
                     statement,
@@ -1741,10 +2128,71 @@ impl Compiler {
                 if let Err(err) = result {
                     errors.push(err);
                 }
+                i += 1;
             }
         });
 
         errors
+    }
+
+    /// Detect runs of consecutive function statements that form mutual
+    /// recursion groups (any function references a sibling defined later).
+    fn detect_mutual_rec_groups(stmts: &[Statement]) -> Vec<MutualRecRange> {
+        let mut groups = Vec::new();
+        let mut i = 0;
+        while i < stmts.len() {
+            if !matches!(stmts[i], Statement::Function { .. }) {
+                i += 1;
+                continue;
+            }
+            // Find the end of this run of consecutive functions.
+            let run_start = i;
+            while i < stmts.len() && matches!(stmts[i], Statement::Function { .. }) {
+                i += 1;
+            }
+            let run_end = i;
+            if run_end - run_start < 2 {
+                continue;
+            }
+            // Check for forward references among siblings.
+            let fn_run = &stmts[run_start..run_end];
+            if Self::has_mutual_references(fn_run) {
+                groups.push(MutualRecRange {
+                    start: run_start,
+                    end: run_end,
+                });
+            }
+        }
+        groups
+    }
+
+    /// Check whether any function in a run references a sibling defined later.
+    fn has_mutual_references(fn_stmts: &[Statement]) -> bool {
+        let names: Vec<Symbol> = fn_stmts
+            .iter()
+            .filter_map(|s| {
+                if let Statement::Function { name, .. } = s {
+                    Some(*name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (idx, stmt) in fn_stmts.iter().enumerate() {
+            if let Statement::Function {
+                parameters, body, ..
+            } = stmt
+            {
+                let fv = collect_free_vars_in_function_body(parameters, body);
+                for &sibling_name in &names[idx + 1..] {
+                    if fv.contains(&sibling_name) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Compile a block with tail position awareness for the last statement

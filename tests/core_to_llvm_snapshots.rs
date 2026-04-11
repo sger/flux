@@ -29,13 +29,13 @@ fn hand_written_module_snapshot() {
         }],
         globals: vec![LlvmGlobal {
             linkage: Linkage::Private,
-            name: GlobalId("flux.tag.true".into()),
+            name: GlobalId("flux.ptrtag.true".into()),
             ty: LlvmType::i64(),
             is_constant: true,
-            value: LlvmConst::Int {
+            value: Some(LlvmConst::Int {
                 bits: 64,
-                value: 9221120237041090562,
-            },
+                value: 4, // FLUX_TRUE
+            }),
             attrs: vec![],
         }],
         declarations: vec![LlvmDecl {
@@ -109,7 +109,7 @@ fn hand_written_module_snapshot() {
                             LlvmType::i64(),
                             LlvmOperand::Const(LlvmConst::Int {
                                 bits: 64,
-                                value: 9221120237041090562,
+                                value: 4, // FLUX_TRUE
                             }),
                         )],
                         attrs: vec![],

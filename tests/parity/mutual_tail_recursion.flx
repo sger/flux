@@ -1,0 +1,23 @@
+// parity: vm, llvm
+// expect: success
+// Tests mutual tail call optimization: is_even calls is_odd and vice versa.
+// Without TCO this would stack overflow at 100K+ depth.
+
+fn is_even(n) {
+    if n <= 0 { true }
+    else { is_odd(n - 1) }
+}
+
+fn is_odd(n) {
+    if n <= 0 { false }
+    else { is_even(n - 1) }
+}
+
+fn main() with IO {
+    print(is_even(0))
+    print(is_odd(0))
+    print(is_even(1))
+    print(is_odd(1))
+    print(is_even(100000))
+    print(is_odd(99999))
+}

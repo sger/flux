@@ -1,0 +1,12 @@
+import ClassMatchableEffects.Flow.Audit as Audit
+import ClassMatchableEffects.Flow.Matchable as Matchable
+
+module ClassMatchableEffects.App.Main {
+    public fn run() with IO {
+        let ok = Matchable.same(1, 1) handle Audit {
+            mark(resume, _msg) -> resume(())
+        }
+
+        print(if ok { "1" } else { "0" })
+    }
+}

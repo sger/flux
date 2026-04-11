@@ -1,0 +1,15 @@
+// Constrained type parameter syntax test.
+// Verifies that explicit bounds on function generics compile end to end.
+
+fn same<a: Eq>(x: a, y: a) -> Bool {
+    x == y
+}
+
+fn combine<a: Eq + Num>(x: a, y: a) -> a {
+    if same(x, y) { x + y } else { y + x }
+}
+
+fn main() with IO {
+    print(same(1, 1))
+    print(combine(1, 2))
+}

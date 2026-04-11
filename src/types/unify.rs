@@ -72,6 +72,10 @@ fn occurs_in_with_ctx(v: TypeVarId, ty: &InferType, ctx_subst: &TypeSubst) -> bo
                 || occurs_in_with_ctx(v, ret, ctx_subst)
         }
         InferType::Tuple(elems) => elems.iter().any(|e| occurs_in_with_ctx(v, e, ctx_subst)),
+        InferType::HktApp(head, args) => {
+            occurs_in_with_ctx(v, head, ctx_subst)
+                || args.iter().any(|a| occurs_in_with_ctx(v, a, ctx_subst))
+        }
     }
 }
 
@@ -146,6 +150,65 @@ pub fn unify_core(
         // Tuple types: same length
         (InferType::Tuple(elems1), InferType::Tuple(elems2)) if elems1.len() == elems2.len() => {
             unify_many(elems1, elems2, ctx_subst, span, fresh_row_var)
+        }
+
+        // HKT application: unify heads and args pairwise
+        (InferType::HktApp(h1, args1), InferType::HktApp(h2, args2))
+            if args1.len() == args2.len() =>
+        {
+            let head_subst = unify_core(h1, h2, ctx_subst, span, fresh_row_var)?;
+            let combined = ctx_subst.clone().compose(&head_subst);
+            let mut result = head_subst;
+            let applied_args1: Vec<InferType> = args1
+                .iter()
+                .map(|a| a.apply_type_subst(&combined))
+                .collect();
+            let applied_args2: Vec<InferType> = args2
+                .iter()
+                .map(|a| a.apply_type_subst(&combined))
+                .collect();
+            let args_subst = unify_many(
+                &applied_args1,
+                &applied_args2,
+                &combined,
+                span,
+                fresh_row_var,
+            )?;
+            result = result.compose(&args_subst);
+            Ok(result)
+        }
+
+        // HktApp(Var(f), args) vs App(tc, args2): bind f → Con(tc), unify args
+        (InferType::HktApp(head, args1), InferType::App(tc, args2))
+        | (InferType::App(tc, args2), InferType::HktApp(head, args1))
+            if args1.len() == args2.len() =>
+        {
+            let head_subst = unify_core(
+                head,
+                &InferType::Con(tc.clone()),
+                ctx_subst,
+                span,
+                fresh_row_var,
+            )?;
+            let combined = ctx_subst.clone().compose(&head_subst);
+            let mut result = head_subst;
+            let applied_args1: Vec<InferType> = args1
+                .iter()
+                .map(|a| a.apply_type_subst(&combined))
+                .collect();
+            let applied_args2: Vec<InferType> = args2
+                .iter()
+                .map(|a| a.apply_type_subst(&combined))
+                .collect();
+            let args_subst = unify_many(
+                &applied_args1,
+                &applied_args2,
+                &combined,
+                span,
+                fresh_row_var,
+            )?;
+            result = result.compose(&args_subst);
+            Ok(result)
         }
 
         // Everything else is a mismatch

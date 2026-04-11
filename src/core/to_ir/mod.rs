@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 
 use crate::{
+    aether::{AetherExpr, AetherProgram},
     cfg::{
         FunctionId, IrConst, IrExpr, IrFunctionOrigin, IrInstr, IrMetadata, IrParam, IrProgram,
         IrTopLevelItem, IrType,
@@ -52,6 +53,13 @@ use fn_ctx::FnCtx;
 pub fn lower_core_to_ir(core: &crate::core::CoreProgram) -> IrProgram {
     let mut ctx = ToIrCtx::new();
     ctx.lower_program(core);
+    ctx.finish()
+}
+
+/// Lower a backend-only Aether program into CFG IR for RC backends.
+pub fn lower_aether_to_ir(aether: &crate::aether::AetherProgram) -> IrProgram {
+    let mut ctx = ToIrCtx::new();
+    ctx.lower_aether_program(aether);
     ctx.finish()
 }
 
@@ -253,6 +261,148 @@ impl ToIrCtx {
         entry_fn.finish_return(ret, Span::default());
     }
 
+    fn lower_aether_program(&mut self, aether: &AetherProgram) {
+        self.top_level_items = aether
+            .top_level_items()
+            .iter()
+            .map(lower_core_top_level_item)
+            .collect();
+
+        let entry_id = self.alloc_function();
+        let entry_block = self.alloc_block();
+        let mut entry_fn = FnCtx::new(
+            self,
+            entry_id,
+            IrFunctionOrigin::ModuleTopLevel,
+            entry_block,
+            Vec::new(),
+            None,
+            Vec::new(),
+        );
+
+        for def in aether.defs() {
+            if matches!(def.expr, AetherExpr::Lam { .. }) {
+                let f_var = entry_fn.ctx.alloc_var();
+                entry_fn.emit(IrInstr::Assign {
+                    dest: f_var,
+                    expr: IrExpr::LoadName(def.name),
+                    metadata: IrMetadata::from_span(def.span),
+                });
+                entry_fn.env.insert(def.binder.id, f_var);
+                entry_fn.binder_names.insert(def.binder.id, def.binder.name);
+            }
+        }
+
+        for def in aether.defs() {
+            if let AetherExpr::Lam { params, body, .. } = &def.expr {
+                let fn_id = entry_fn.ctx.alloc_function();
+                let fn_block = entry_fn.ctx.alloc_block();
+                let (parameter_types, return_type_annotation, effects) =
+                    find_function_decl_metadata(&entry_fn.ctx.top_level_items, def.name)
+                        .unwrap_or_else(|| (Vec::new(), None, Vec::new()));
+                {
+                    let mut fn_ctx = FnCtx::new(
+                        entry_fn.ctx,
+                        fn_id,
+                        IrFunctionOrigin::NamedFunction,
+                        fn_block,
+                        parameter_types.clone(),
+                        return_type_annotation.clone(),
+                        effects.clone(),
+                    );
+                    fn_ctx.name = Some(def.name);
+                    if let Some(crate::core::CoreType::Function(ref param_tys, ref ret_ty)) =
+                        def.result_ty
+                    {
+                        fn_ctx.inferred_param_types =
+                            param_tys.iter().map(|t| Some(t.clone())).collect();
+                        fn_ctx.inferred_return_type = Some((**ret_ty).clone());
+                    } else if let Some(ref ty) = def.result_ty {
+                        fn_ctx.inferred_return_type = Some(ty.clone());
+                    }
+                    for (&binder_id, &binder_name) in &entry_fn.binder_names {
+                        let v = fn_ctx.ctx.alloc_var();
+                        fn_ctx.emit(IrInstr::Assign {
+                            dest: v,
+                            expr: IrExpr::LoadName(binder_name),
+                            metadata: IrMetadata::from_span(def.span),
+                        });
+                        fn_ctx.env.insert(binder_id, v);
+                        fn_ctx.binder_names.insert(binder_id, binder_name);
+                    }
+                    for (i, &p) in params.iter().enumerate() {
+                        let v = fn_ctx.ctx.alloc_var();
+                        fn_ctx.env.insert(p.id, v);
+                        fn_ctx.binder_names.insert(p.id, p.name);
+                        let ir_ty = fn_ctx
+                            .inferred_param_types
+                            .get(i)
+                            .and_then(|t| t.as_ref())
+                            .map(core_type_to_ir_type)
+                            .unwrap_or(IrType::Any);
+                        fn_ctx.params.push(IrParam {
+                            name: p.name,
+                            var: v,
+                            ty: ir_ty,
+                        });
+                    }
+                    let ret = fn_ctx.lower_expr_aether(body);
+                    fn_ctx.finish_return(ret, def.span);
+                }
+                entry_fn.ctx.globals.push(def.name);
+                if !bind_function_id_in_items(&mut entry_fn.ctx.top_level_items, def.name, fn_id) {
+                    entry_fn.ctx.top_level_items.push(IrTopLevelItem::Function {
+                        is_public: false,
+                        name: def.name,
+                        type_params: Vec::new(),
+                        function_id: Some(fn_id),
+                        parameters: params.iter().map(|p| p.name).collect(),
+                        parameter_types,
+                        return_type: return_type_annotation,
+                        effects,
+                        body: crate::syntax::block::Block {
+                            statements: Vec::new(),
+                            span: def.span,
+                        },
+                        span: def.span,
+                    });
+                }
+            } else {
+                let val = entry_fn.lower_expr_aether(&def.expr);
+                let g_var = entry_fn.ctx.alloc_var();
+                entry_fn.emit(IrInstr::Assign {
+                    dest: g_var,
+                    expr: IrExpr::Var(val),
+                    metadata: IrMetadata::empty(),
+                });
+                entry_fn.ctx.globals.push(def.name);
+                entry_fn
+                    .ctx
+                    .global_bindings
+                    .push(crate::cfg::IrGlobalBinding {
+                        name: def.name,
+                        var: g_var,
+                    });
+                entry_fn.env.insert(def.binder.id, g_var);
+                entry_fn.binder_names.insert(def.binder.id, def.binder.name);
+                if def.is_anonymous {
+                    entry_fn.last_value = Some(val);
+                }
+            }
+        }
+
+        let ret = entry_fn.last_value.unwrap_or_else(|| {
+            let v = entry_fn.ctx.alloc_var();
+            entry_fn.emit(IrInstr::Assign {
+                dest: v,
+                expr: IrExpr::Const(IrConst::Unit),
+                metadata: IrMetadata::empty(),
+            });
+            v
+        });
+        entry_fn.finish_return(ret, Span::default());
+    }
+
     fn finish(self) -> IrProgram {
         IrProgram {
             top_level_items: self.top_level_items,
@@ -326,6 +476,32 @@ fn lower_core_top_level_item(item: &CoreTopLevelItem) -> IrTopLevelItem {
             ops: ops.clone(),
             span: *span,
         },
+        CoreTopLevelItem::Class {
+            name,
+            type_params,
+            superclasses,
+            methods,
+            span,
+        } => IrTopLevelItem::Class {
+            name: *name,
+            type_params: type_params.clone(),
+            superclasses: superclasses.clone(),
+            methods: methods.clone(),
+            span: *span,
+        },
+        CoreTopLevelItem::Instance {
+            class_name,
+            type_args,
+            context,
+            methods,
+            span,
+        } => IrTopLevelItem::Instance {
+            class_name: *class_name,
+            type_args: type_args.clone(),
+            context: context.clone(),
+            methods: methods.clone(),
+            span: *span,
+        },
     }
 }
 
@@ -390,6 +566,7 @@ fn find_function_decl_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::aether::{AetherDef, AetherExpr, AetherProgram};
     use crate::cfg::{IrExpr, IrFunctionOrigin, IrInstr, IrTerminator};
     use crate::core::{
         CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePrimOp, CoreProgram,
@@ -618,17 +795,12 @@ mod tests {
         let f_binder = binder(0, f_name);
         let xs_binder = binder(1, xs_name);
 
-        let prog = CoreProgram {
+        let core = CoreProgram {
             defs: vec![CoreDef::new(
                 f_binder,
                 CoreExpr::Lam {
                     params: vec![xs_binder],
-                    body: Box::new(CoreExpr::DropSpecialized {
-                        scrutinee: CoreVarRef::resolved(xs_binder),
-                        unique_body: Box::new(CoreExpr::Lit(CoreLit::Int(1), Span::default())),
-                        shared_body: Box::new(CoreExpr::Lit(CoreLit::Int(2), Span::default())),
-                        span: Span::default(),
-                    }),
+                    body: Box::new(CoreExpr::Lit(CoreLit::Int(0), Span::default())),
                     span: Span::default(),
                 },
                 false,
@@ -636,8 +808,32 @@ mod tests {
             )],
             top_level_items: Vec::new(),
         };
+        let aether = AetherProgram::new(
+            core.clone(),
+            vec![AetherDef {
+                name: f_name,
+                binder: f_binder,
+                expr: AetherExpr::Lam {
+                    params: vec![xs_binder],
+                    body: Box::new(AetherExpr::DropSpecialized {
+                        scrutinee: CoreVarRef::resolved(xs_binder),
+                        unique_body: Box::new(AetherExpr::Lit(CoreLit::Int(1), Span::default())),
+                        shared_body: Box::new(AetherExpr::Lit(CoreLit::Int(2), Span::default())),
+                        span: Span::default(),
+                    }),
+                    span: Span::default(),
+                },
+                borrow_signature: None,
+                result_ty: None,
+                is_anonymous: false,
+                is_recursive: false,
+                fip: None,
+                span: Span::default(),
+            }],
+            Vec::new(),
+        );
 
-        let ir = lower_core_to_ir(&prog);
+        let ir = lower_aether_to_ir(&aether);
         let spec_fn = ir
             .functions
             .iter()

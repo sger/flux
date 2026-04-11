@@ -1,0 +1,9 @@
+// parity: vm, llvm
+// expect: success
+// bug: member access on a locally constructed record/module object may
+//       crash the native backend when MemberAccess lowering is missing.
+
+fn main() with IO {
+    let Math = { "square": fn(x) { x * x; } };
+    print(Math.square(5));
+}

@@ -1,0 +1,13 @@
+// parity: vm, llvm
+// expect: success
+// bug: Some(x) == Some(x) may fail on the native backend when ADT equality
+//       compares pointer identity instead of structural equality.
+
+fn main() with IO {
+    print(Some(42) == Some(42));
+    print(Some(true) == Some(true));
+    print(Some("hello") == Some("hello"));
+    print(None == None);
+    print(Some(1) == Some(2));
+    print(Some(1) == None);
+}

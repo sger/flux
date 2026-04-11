@@ -1,5 +1,5 @@
 // Advent of Code - Day 10 Part 1 (Factory)
-// Input: examples/io/aoc_day10.txt
+// Input: examples/aoc/2025/aoc_day10.txt
 
 fn main() with IO, Time {
     fn min2(a, b) {
@@ -158,7 +158,7 @@ fn machine_min_presses(line) {
     dfs_min(target, buttons, 0, init, 0, best_init)
 }
 
-let lines = read_lines("examples/io/aoc_day10.txt")
+let lines = read_lines("examples/aoc/2025/aoc_day10.txt")
 let machine_lines = [trim(line) | line <- lines, trim(line) != ""]
 let presses = [machine_min_presses(line) | line <- machine_lines]
 print(sum(presses))

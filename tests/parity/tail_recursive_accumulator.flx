@@ -1,0 +1,25 @@
+// parity: vm, llvm
+// expect: success
+// Tests tail-recursive accumulator pattern (sibling tail call to helper).
+// The inner go() function is in tail position and should be optimized.
+
+fn sum_list(xs) {
+    fn go(ys, acc) {
+        match ys {
+            [h | t] -> go(t, acc + h),
+            _ -> acc,
+        }
+    }
+    go(xs, 0)
+}
+
+fn count_down(n, acc) {
+    if n <= 0 { acc }
+    else { count_down(n - 1, acc + 1) }
+}
+
+fn main() with IO {
+    print(sum_list([1, 2, 3, 4, 5]))
+    print(sum_list([10, 20, 30]))
+    print(count_down(100000, 0))
+}

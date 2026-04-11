@@ -1,9 +1,7 @@
 use std::{collections::HashMap, fmt};
 
 use crate::{
-    core::{
-        CoreType, lower_ast::lower_program_ast, passes::run_core_passes, to_ir::lower_core_to_ir,
-    },
+    core::{CoreType, passes::run_core_passes, to_ir::lower_aether_to_ir},
     diagnostics::{Diagnostic, position::Span},
     syntax::{
         Identifier,
@@ -54,7 +52,7 @@ pub fn lower_program_to_ir_with_interner_and_warnings(
     hm_expr_types: &HashMap<ExprId, InferType>,
     interner: Option<&Interner>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(program, hm_expr_types, interner, false)
+    lower_program_to_ir_impl(program, hm_expr_types, interner, false, None, None)
 }
 
 #[allow(clippy::result_large_err)]
@@ -64,7 +62,27 @@ pub fn lower_program_to_ir_with_optimize(
     interner: Option<&Interner>,
     optimize: bool,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize)
+    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize, None, None)
+}
+
+/// Lower with TypeEnv for typed parameter binders (Phase 7).
+#[allow(clippy::result_large_err)]
+pub fn lower_program_to_ir_typed(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&Interner>,
+    optimize: bool,
+    type_env: Option<&crate::types::type_env::TypeEnv>,
+    class_env: Option<&crate::types::class_env::ClassEnv>,
+) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
+    lower_program_to_ir_impl(
+        program,
+        hm_expr_types,
+        interner,
+        optimize,
+        type_env,
+        class_env,
+    )
 }
 
 #[allow(clippy::result_large_err)]
@@ -73,9 +91,33 @@ fn lower_program_to_ir_impl(
     hm_expr_types: &HashMap<ExprId, InferType>,
     interner: Option<&Interner>,
     optimize: bool,
+    type_env: Option<&crate::types::type_env::TypeEnv>,
+    class_env: Option<&crate::types::class_env::ClassEnv>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    let mut core = lower_program_ast(program, hm_expr_types);
-    let warnings = if let Some(interner) = interner {
+    let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
+        program,
+        hm_expr_types,
+        interner,
+        type_env,
+        None,
+        class_env,
+    );
+
+    // Dictionary elaboration (Proposal 0145, Step 5b):
+    // If class_env and type_env are available, run dictionary elaboration
+    // before standard Core passes.
+    if let (Some(ce), Some(te), Some(int)) = (class_env, type_env, interner)
+        && !ce.classes.is_empty()
+    {
+        let mut max_id: u32 = 0;
+        for def in &core.defs {
+            max_id = max_id.max(def.binder.id.0);
+        }
+        let mut next_id = max_id + 1;
+        crate::core::passes::elaborate_dictionaries(&mut core, ce, te, int, &mut next_id);
+    }
+
+    let mut warnings = if let Some(interner) = interner {
         crate::core::passes::run_core_passes_with_interner_and_warnings(
             &mut core, interner, optimize,
         )?
@@ -83,6 +125,21 @@ fn lower_program_to_ir_impl(
         run_core_passes(&mut core)?;
         Vec::new()
     };
+
+    let (aether, mut aether_warnings) = if let Some(interner) = interner {
+        crate::aether::lower_core_to_aether_program(
+            &core,
+            Some(interner),
+            crate::aether::borrow_infer::BorrowRegistry::default(),
+        )?
+    } else {
+        crate::aether::lower_core_to_aether_program(
+            &core,
+            None,
+            crate::aether::borrow_infer::BorrowRegistry::default(),
+        )?
+    };
+    warnings.append(&mut aether_warnings);
 
     // Aether diagnostics (works for all backends: VM, JIT, LLVM).
     // Uses a static flag to print only once even if called multiple times.
@@ -97,7 +154,7 @@ fn lower_program_to_ir_impl(
             let mut total = crate::aether::AetherStats::default();
             let mut all_diags = Vec::new();
 
-            for def in &core.defs {
+            for def in aether.defs() {
                 let s = crate::aether::collect_stats(&def.expr);
                 total.dups += s.dups;
                 total.drops += s.drops;
@@ -106,7 +163,7 @@ fn lower_program_to_ir_impl(
                 total.allocs += s.allocs;
 
                 if aether_verify {
-                    all_diags.extend(crate::aether::verify::verify_diagnostics(&def.expr));
+                    all_diags.extend(crate::aether::verify::verify_diagnostics_aether(&def.expr));
                 }
             }
 
@@ -128,9 +185,9 @@ fn lower_program_to_ir_impl(
         }
     }
 
-    let mut ir = lower_core_to_ir(&core);
+    let mut ir = lower_aether_to_ir(&aether);
     ir.hm_expr_types = hm_expr_types.clone();
-    ir.core = Some(core);
+    ir.core = Some(aether.into_core());
     Ok((ir, warnings))
 }
 
@@ -624,6 +681,20 @@ pub enum IrTopLevelItem {
     EffectDecl {
         name: Identifier,
         ops: Vec<EffectOp>,
+        span: Span,
+    },
+    Class {
+        name: Identifier,
+        type_params: Vec<Identifier>,
+        superclasses: Vec<crate::syntax::type_class::ClassConstraint>,
+        methods: Vec<crate::syntax::type_class::ClassMethod>,
+        span: Span,
+    },
+    Instance {
+        class_name: Identifier,
+        type_args: Vec<TypeExpr>,
+        context: Vec<crate::syntax::type_class::ClassConstraint>,
+        methods: Vec<crate::syntax::type_class::InstanceMethod>,
         span: Span,
     },
 }

@@ -624,7 +624,8 @@ fn parses_generic_function_one_type_param() {
         } => {
             assert_eq!(interner.resolve(*name), "identity");
             assert_eq!(type_params.len(), 1);
-            assert_eq!(interner.resolve(type_params[0]), "T");
+            assert_eq!(interner.resolve(type_params[0].name), "T");
+            assert!(type_params[0].constraints.is_empty());
             assert_eq!(parameters.len(), 1);
             assert_eq!(
                 parameter_types[0]
@@ -655,12 +656,82 @@ fn parses_generic_function_two_type_params() {
             ..
         } => {
             assert_eq!(type_params.len(), 2);
-            assert_eq!(interner.resolve(type_params[0]), "A");
-            assert_eq!(interner.resolve(type_params[1]), "B");
+            assert_eq!(interner.resolve(type_params[0].name), "A");
+            assert_eq!(interner.resolve(type_params[1].name), "B");
             assert_eq!(parameters.len(), 2);
         }
         _ => panic!("expected generic function"),
     }
+}
+
+#[test]
+fn parses_generic_function_single_constraint() {
+    let (program, interner) = parse_ok("fn contains<A: Eq>(x: A) -> A { x }");
+    match &program.statements[0] {
+        Statement::Function { type_params, .. } => {
+            assert_eq!(type_params.len(), 1);
+            assert_eq!(interner.resolve(type_params[0].name), "A");
+            assert_eq!(type_params[0].constraints.len(), 1);
+            assert_eq!(interner.resolve(type_params[0].constraints[0]), "Eq");
+        }
+        _ => panic!("expected generic function"),
+    }
+}
+
+#[test]
+fn parses_generic_function_multiple_constraints() {
+    let (program, interner) = parse_ok("fn show_max<A: Ord + Show>(x: A) -> A { x }");
+    match &program.statements[0] {
+        Statement::Function { type_params, .. } => {
+            assert_eq!(type_params.len(), 1);
+            assert_eq!(interner.resolve(type_params[0].name), "A");
+            assert_eq!(type_params[0].constraints.len(), 2);
+            assert_eq!(interner.resolve(type_params[0].constraints[0]), "Ord");
+            assert_eq!(interner.resolve(type_params[0].constraints[1]), "Show");
+        }
+        _ => panic!("expected generic function"),
+    }
+}
+
+#[test]
+fn parses_generic_function_multiple_constrained_params() {
+    let (program, interner) = parse_ok("fn f<A: Eq, B: Show>(x: A, y: B) -> A { x }");
+    match &program.statements[0] {
+        Statement::Function { type_params, .. } => {
+            assert_eq!(type_params.len(), 2);
+            assert_eq!(interner.resolve(type_params[0].name), "A");
+            assert_eq!(interner.resolve(type_params[0].constraints[0]), "Eq");
+            assert_eq!(interner.resolve(type_params[1].name), "B");
+            assert_eq!(interner.resolve(type_params[1].constraints[0]), "Show");
+        }
+        _ => panic!("expected generic function"),
+    }
+}
+
+#[test]
+fn rejects_generic_constraint_missing_name() {
+    let (_program, parser) = parse_with_errors("fn f<A:>(x: A) -> A { x }");
+    assert!(
+        parser
+            .errors
+            .iter()
+            .any(|d| d.display_title() == Some("Missing Generic Constraint")),
+        "expected Missing Generic Constraint diagnostic, got: {:?}",
+        parser.errors
+    );
+}
+
+#[test]
+fn rejects_generic_constraint_trailing_plus() {
+    let (_program, parser) = parse_with_errors("fn f<A: Eq +>(x: A) -> A { x }");
+    assert!(
+        parser
+            .errors
+            .iter()
+            .any(|d| d.display_title() == Some("Missing Generic Constraint")),
+        "expected Missing Generic Constraint diagnostic, got: {:?}",
+        parser.errors
+    );
 }
 
 #[test]

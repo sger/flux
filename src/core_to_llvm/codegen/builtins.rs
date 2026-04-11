@@ -472,6 +472,18 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
         returns_value: true,
     },
     BuiltinMapping {
+        flux_name: "safe_div",
+        c_name: "flux_safe_div",
+        arity: 2,
+        returns_value: true,
+    },
+    BuiltinMapping {
+        flux_name: "safe_mod",
+        c_name: "flux_safe_mod",
+        arity: 2,
+        returns_value: true,
+    },
+    BuiltinMapping {
         flux_name: "unwrap_or",
         c_name: "flux_unwrap_or",
         arity: 2,

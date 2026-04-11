@@ -1,0 +1,19 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_instance_type_arg.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Unexpected Token
+
+Expected `>` after instance type arguments.
+
+  examples/parser_errors/missing_instance_type_arg.flx:10:23
+   |
+10 | instance Sizeable<Int {
+   |                       ^
+
+Hint:
+== stdout ==
+<not executed>

@@ -80,7 +80,7 @@ fn main() with IO {
 
     // Benchmark 1: map (recursive borrow path with plain Reuse)
     let mapped = bench_map(xs, iterations)
-    print("map: result head = #{unwrap(first(mapped))}")
+    print("map: result head = #{first(mapped)}")
 
     // Benchmark 2: len (borrowed params — no Rc::clone)
     let total_len = bench_len(xs, iterations)

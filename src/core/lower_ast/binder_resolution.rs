@@ -53,7 +53,7 @@ fn resolve_expr_binders(expr: &mut CoreExpr, scopes: &mut Vec<BinderScope>) {
             resolve_expr_binders(body, scopes);
             scopes.pop();
         }
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+        CoreExpr::App { func, args, .. } => {
             resolve_expr_binders(func, scopes);
             for arg in args {
                 resolve_expr_binders(arg, scopes);
@@ -68,6 +68,16 @@ fn resolve_expr_binders(expr: &mut CoreExpr, scopes: &mut Vec<BinderScope>) {
         CoreExpr::LetRec { var, rhs, body, .. } => {
             scopes.push(scope_for_binders(std::slice::from_ref(var)));
             resolve_expr_binders(rhs, scopes);
+            resolve_expr_binders(body, scopes);
+            scopes.pop();
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            // All binders are in scope for ALL RHS and body (mutual recursion)
+            let binder_scope: BinderScope = bindings.iter().map(|(b, _)| (b.name, b.id)).collect();
+            scopes.push(binder_scope);
+            for (_, rhs) in bindings {
+                resolve_expr_binders(rhs, scopes);
+            }
             resolve_expr_binders(body, scopes);
             scopes.pop();
         }
@@ -107,26 +117,6 @@ fn resolve_expr_binders(expr: &mut CoreExpr, scopes: &mut Vec<BinderScope>) {
                 scopes.pop();
             }
         }
-        CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
-            var.binder = lookup_binder(scopes, var.name);
-            resolve_expr_binders(body, scopes);
-        }
-        CoreExpr::Reuse { token, fields, .. } => {
-            token.binder = lookup_binder(scopes, token.name);
-            for field in fields {
-                resolve_expr_binders(field, scopes);
-            }
-        }
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
-            scrutinee.binder = lookup_binder(scopes, scrutinee.name);
-            resolve_expr_binders(unique_body, scopes);
-            resolve_expr_binders(shared_body, scopes);
-        }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             resolve_expr_binders(object, scopes);
         }
@@ -147,7 +137,7 @@ fn validate_expr_binders(expr: &CoreExpr, scopes: &mut Vec<BinderScope>) -> bool
             scopes.pop();
             ok
         }
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+        CoreExpr::App { func, args, .. } => {
             validate_expr_binders(func, scopes)
                 && args.iter().all(|arg| validate_expr_binders(arg, scopes))
         }
@@ -163,6 +153,16 @@ fn validate_expr_binders(expr: &CoreExpr, scopes: &mut Vec<BinderScope>) -> bool
         CoreExpr::LetRec { var, rhs, body, .. } => {
             scopes.push(scope_for_binders(std::slice::from_ref(var)));
             let ok = validate_expr_binders(rhs, scopes) && validate_expr_binders(body, scopes);
+            scopes.pop();
+            ok
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            let binder_scope: BinderScope = bindings.iter().map(|(b, _)| (b.name, b.id)).collect();
+            scopes.push(binder_scope);
+            let ok = bindings
+                .iter()
+                .all(|(_, rhs)| validate_expr_binders(rhs, scopes))
+                && validate_expr_binders(body, scopes);
             scopes.pop();
             ok
         }
@@ -204,40 +204,6 @@ fn validate_expr_binders(expr: &CoreExpr, scopes: &mut Vec<BinderScope>) -> bool
                 scopes.pop();
                 ok
             })
-        }
-        CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
-            let var_ok = match (var.binder, lookup_binder(scopes, var.name)) {
-                (Some(actual), Some(expected)) => actual == expected,
-                (None, None) => true,
-                _ => false,
-            };
-            var_ok && validate_expr_binders(body, scopes)
-        }
-        CoreExpr::Reuse { token, fields, .. } => {
-            let token_ok = match (token.binder, lookup_binder(scopes, token.name)) {
-                (Some(actual), Some(expected)) => actual == expected,
-                (None, None) => true,
-                _ => false,
-            };
-            token_ok
-                && fields
-                    .iter()
-                    .all(|field| validate_expr_binders(field, scopes))
-        }
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
-            let var_ok = match (scrutinee.binder, lookup_binder(scopes, scrutinee.name)) {
-                (Some(actual), Some(expected)) => actual == expected,
-                (None, None) => true,
-                _ => false,
-            };
-            var_ok
-                && validate_expr_binders(unique_body, scopes)
-                && validate_expr_binders(shared_body, scopes)
         }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             validate_expr_binders(object, scopes)

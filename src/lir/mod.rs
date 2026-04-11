@@ -184,6 +184,14 @@ pub enum LirInstr {
         func_id: LirFuncId,
         captures: Vec<LirVar>,
     },
+    /// Create a closure from an externally linked top-level function symbol.
+    /// Used by the native backend when an imported public function is referenced
+    /// as a first-class value across module boundaries.
+    MakeExternClosure {
+        dst: LirVar,
+        symbol: String,
+        arity: usize,
+    },
 
     // ── Collection construction ────────────────────────────────────
     /// Build an array from elements on the stack.
@@ -223,6 +231,10 @@ pub enum LirInstr {
         ctor_tag: i32,
         ctor_name: Option<String>,
         fields: Vec<LirVar>,
+        /// Per-field runtime representations (Proposal 0123 Phase 7g).
+        /// When populated, enables unboxed field storage in ADT payloads.
+        /// Empty means all fields are TaggedRep (legacy/unknown).
+        field_reps: Vec<crate::core::FluxRep>,
     },
 
     // ── Variables ───────────────────────────────────────────────────
@@ -338,6 +350,8 @@ pub enum CtorTag {
 pub enum CallKind {
     /// Known top-level function — emit direct call with individual i64 params.
     Direct { func_id: LirFuncId },
+    /// Known imported top-level function — emit direct call to an external symbol.
+    DirectExtern { symbol: String },
     /// Unknown closure or higher-order value — dispatch via `flux_call_closure`.
     Indirect,
 }
@@ -373,6 +387,11 @@ pub struct LirFunction {
     /// LirVars in this function that are free (captured from the enclosing scope).
     /// The bytecode emitter maps these to `OpGetFree(index)` instead of `OpGetLocal`.
     pub capture_vars: Vec<LirVar>,
+    /// Per-parameter runtime representation (from CoreBinder::rep via HM inference).
+    /// Used by the LLVM emitter for worker/wrapper unboxing (Phase 10).
+    pub param_reps: Vec<crate::core::FluxRep>,
+    /// Return type representation (from CoreDef::result_ty).
+    pub result_rep: crate::core::FluxRep,
 }
 
 /// A complete LIR program — a collection of functions.
@@ -388,6 +407,8 @@ pub struct LirProgram {
     /// Built-in constructors (Some=1, Left=2, Right=3, Cons=4) are implicit.
     /// User constructors start at 5 and are assigned sequentially.
     pub constructor_tags: HashMap<String, i32>,
+    /// Monotonic allocator for synthetic nested-function IDs.
+    next_synthetic_func_id: u32,
 }
 
 // ── Display ──────────────────────────────────────────────────────────────────
@@ -440,6 +461,7 @@ impl LirProgram {
             string_pool: Vec::new(),
             func_index: HashMap::new(),
             constructor_tags: HashMap::new(),
+            next_synthetic_func_id: u32::MAX,
         }
     }
 
@@ -461,6 +483,13 @@ impl LirProgram {
         self.func_index.get(&id).copied()
     }
 
+    /// Allocate a unique synthetic function id for nested lambdas/handlers.
+    pub fn alloc_synthetic_func_id(&mut self) -> LirFuncId {
+        let id = self.next_synthetic_func_id;
+        self.next_synthetic_func_id = self.next_synthetic_func_id.saturating_sub(1);
+        LirFuncId(id)
+    }
+
     /// Intern a string constant, returning its index.
     pub fn intern_string(&mut self, s: String) -> usize {
         if let Some(idx) = self.string_pool.iter().position(|existing| *existing == s) {
@@ -479,15 +508,11 @@ impl Default for LirProgram {
     }
 }
 
-// ── NaN-box helpers for LIR constants ───────────────────────────────────────
+// ── Pointer-tag helpers for LIR constants ───────────────────────────────────
 
-/// NaN-box layout constants (must match `runtime/c/flux_rt.h`).
-const NANBOX_SENTINEL: u64 = 0x7FFC_0000_0000_0000;
-const PAYLOAD_MASK: u64 = (1u64 << 46) - 1;
-
-/// Produce a pre-tagged NaN-boxed integer literal (inline, no overflow boxing).
+/// Produce a pre-tagged pointer-tagged integer literal (inline).
+/// Encoding: `(raw << 1) | 1` — LSB=1 marks an integer.
 /// Used for effect tags and other small compile-time constants.
 pub fn nanbox_tag_int(raw: i64) -> i64 {
-    let payload = (raw as u64) & PAYLOAD_MASK;
-    (payload | NANBOX_SENTINEL) as i64
+    (raw << 1) | 1
 }

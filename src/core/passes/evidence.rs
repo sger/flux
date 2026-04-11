@@ -190,21 +190,6 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
                 .collect(),
             span,
         },
-        CoreExpr::AetherCall {
-            func,
-            args,
-            arg_modes,
-            span,
-        } => CoreExpr::AetherCall {
-            func: Box::new(evidence_transform(*func, next_id, evidence)),
-            args: args
-                .into_iter()
-                .map(|a| evidence_transform(a, next_id, evidence))
-                .collect(),
-            arg_modes,
-            span,
-        },
-
         CoreExpr::Let {
             var,
             rhs,
@@ -225,6 +210,19 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
         } => CoreExpr::LetRec {
             var,
             rhs: Box::new(evidence_transform(*rhs, next_id, evidence)),
+            body: Box::new(evidence_transform(*body, next_id, evidence)),
+            span,
+        },
+
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => CoreExpr::LetRecGroup {
+            bindings: bindings
+                .into_iter()
+                .map(|(b, rhs)| (b, Box::new(evidence_transform(*rhs, next_id, evidence))))
+                .collect(),
             body: Box::new(evidence_transform(*body, next_id, evidence)),
             span,
         },
@@ -266,47 +264,6 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
 
         CoreExpr::Return { value, span } => CoreExpr::Return {
             value: Box::new(evidence_transform(*value, next_id, evidence)),
-            span,
-        },
-
-        CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
-            var,
-            body: Box::new(evidence_transform(*body, next_id, evidence)),
-            span,
-        },
-
-        CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
-            var,
-            body: Box::new(evidence_transform(*body, next_id, evidence)),
-            span,
-        },
-
-        CoreExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask,
-            span,
-        } => CoreExpr::Reuse {
-            token,
-            tag,
-            fields: fields
-                .into_iter()
-                .map(|f| evidence_transform(f, next_id, evidence))
-                .collect(),
-            field_mask,
-            span,
-        },
-
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            span,
-        } => CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body: Box::new(evidence_transform(*unique_body, next_id, evidence)),
-            shared_body: Box::new(evidence_transform(*shared_body, next_id, evidence)),
             span,
         },
 

@@ -8,6 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::aether::{AetherAlt, AetherExpr, AetherHandler};
 use crate::core::{CoreBinderId, CoreExpr, CorePat};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +82,7 @@ impl AetherEnv {
 
 #[derive(Debug, Clone)]
 pub struct AetherPlan {
-    pub expr: CoreExpr,
+    pub expr: AetherExpr,
     pub env_before: AetherEnv,
 }
 
@@ -105,6 +106,12 @@ pub fn use_counts(expr: &CoreExpr) -> HashMap<CoreBinderId, usize> {
     counts
 }
 
+pub fn use_counts_aether(expr: &AetherExpr) -> HashMap<CoreBinderId, usize> {
+    let mut counts = HashMap::new();
+    count_uses_aether(expr, &mut counts);
+    counts
+}
+
 fn count_uses(expr: &CoreExpr, counts: &mut HashMap<CoreBinderId, usize>) {
     match expr {
         CoreExpr::Var { var, .. } => {
@@ -122,7 +129,7 @@ fn count_uses(expr: &CoreExpr, counts: &mut HashMap<CoreBinderId, usize>) {
             }
             merge_counts(counts, &inner);
         }
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+        CoreExpr::App { func, args, .. } => {
             count_uses(func, counts);
             for a in args {
                 count_uses(a, counts);
@@ -141,6 +148,17 @@ fn count_uses(expr: &CoreExpr, counts: &mut HashMap<CoreBinderId, usize>) {
             count_uses(rhs, &mut inner);
             count_uses(body, &mut inner);
             inner.remove(&var.id);
+            merge_counts(counts, &inner);
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            let mut inner = HashMap::new();
+            for (_, rhs) in bindings {
+                count_uses(rhs, &mut inner);
+            }
+            count_uses(body, &mut inner);
+            for (var, _) in bindings {
+                inner.remove(&var.id);
+            }
             merge_counts(counts, &inner);
         }
         CoreExpr::Case {
@@ -186,57 +204,133 @@ fn count_uses(expr: &CoreExpr, counts: &mut HashMap<CoreBinderId, usize>) {
                 merge_counts(counts, &h_counts);
             }
         }
-        // Dup/Drop are transparent for analysis (shouldn't exist pre-pass,
-        // but handle them for correctness if the pass runs multiple times).
-        CoreExpr::Dup { var, body, .. } => {
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            count_uses(object, counts);
+        }
+    }
+}
+
+fn count_uses_aether(expr: &AetherExpr, counts: &mut HashMap<CoreBinderId, usize>) {
+    match expr {
+        AetherExpr::Var { var, .. } => {
             if let Some(id) = var.binder {
                 *counts.entry(id).or_insert(0) += 1;
             }
-            count_uses(body, counts);
         }
-        CoreExpr::Drop { body, .. } => {
-            count_uses(body, counts);
+        AetherExpr::Lit(_, _) => {}
+        AetherExpr::Lam { params, body, .. } => {
+            let mut inner = HashMap::new();
+            count_uses_aether(body, &mut inner);
+            for p in params {
+                inner.remove(&p.id);
+            }
+            merge_counts(counts, &inner);
         }
-        // Reuse: token is a use + recurse into fields (same as Con).
-        CoreExpr::Reuse { token, fields, .. } => {
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
+            count_uses_aether(func, counts);
+            for a in args {
+                count_uses_aether(a, counts);
+            }
+        }
+        AetherExpr::Let { var, rhs, body, .. } => {
+            count_uses_aether(rhs, counts);
+            let mut body_counts = HashMap::new();
+            count_uses_aether(body, &mut body_counts);
+            body_counts.remove(&var.id);
+            merge_counts(counts, &body_counts);
+        }
+        AetherExpr::LetRec { var, rhs, body, .. } => {
+            let mut inner = HashMap::new();
+            count_uses_aether(rhs, &mut inner);
+            count_uses_aether(body, &mut inner);
+            inner.remove(&var.id);
+            merge_counts(counts, &inner);
+        }
+        AetherExpr::LetRecGroup { bindings, body, .. } => {
+            let mut inner = HashMap::new();
+            for (_, rhs) in bindings {
+                count_uses_aether(rhs, &mut inner);
+            }
+            count_uses_aether(body, &mut inner);
+            for (var, _) in bindings {
+                inner.remove(&var.id);
+            }
+            merge_counts(counts, &inner);
+        }
+        AetherExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            count_uses_aether(scrutinee, counts);
+            for alt in alts {
+                count_alt_uses_aether(alt, counts);
+            }
+        }
+        AetherExpr::Con { fields, .. } => {
+            for f in fields {
+                count_uses_aether(f, counts);
+            }
+        }
+        AetherExpr::PrimOp { args, .. } | AetherExpr::Perform { args, .. } => {
+            for a in args {
+                count_uses_aether(a, counts);
+            }
+        }
+        AetherExpr::Return { value, .. } => count_uses_aether(value, counts),
+        AetherExpr::Handle { body, handlers, .. } => {
+            count_uses_aether(body, counts);
+            for h in handlers {
+                count_handler_uses_aether(h, counts);
+            }
+        }
+        AetherExpr::Dup { var, body, .. } => {
+            if let Some(id) = var.binder {
+                *counts.entry(id).or_insert(0) += 1;
+            }
+            count_uses_aether(body, counts);
+        }
+        AetherExpr::Drop { body, .. } => {
+            count_uses_aether(body, counts);
+        }
+        AetherExpr::Reuse { token, fields, .. } => {
             if let Some(id) = token.binder {
                 *counts.entry(id).or_insert(0) += 1;
             }
             for f in fields {
-                count_uses(f, counts);
+                count_uses_aether(f, counts);
             }
         }
-        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
-            count_uses(object, counts);
+        AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
+            count_uses_aether(object, counts)
         }
-        // DropSpecialized: count scrutinee var + take max of both branches
-        // (like Case arms — only one branch executes at runtime).
-        CoreExpr::DropSpecialized {
-            scrutinee,
+        AetherExpr::DropSpecialized {
             unique_body,
             shared_body,
             ..
         } => {
-            if let Some(id) = scrutinee.binder {
-                *counts.entry(id).or_insert(0) += 1;
-            }
-            let mut unique_counts = HashMap::new();
-            count_uses(unique_body, &mut unique_counts);
-            let mut shared_counts = HashMap::new();
-            count_uses(shared_body, &mut shared_counts);
-            // Merge taking max (only one branch runs).
-            let all_keys: std::collections::HashSet<_> = unique_counts
-                .keys()
-                .chain(shared_counts.keys())
-                .copied()
-                .collect();
-            for id in all_keys {
-                let u = unique_counts.get(&id).copied().unwrap_or(0);
-                let s = shared_counts.get(&id).copied().unwrap_or(0);
-                *counts.entry(id).or_insert(0) += u.max(s);
-            }
+            count_uses_aether(unique_body, counts);
+            count_uses_aether(shared_body, counts);
         }
     }
+}
+
+fn count_alt_uses_aether(alt: &AetherAlt, counts: &mut HashMap<CoreBinderId, usize>) {
+    let mut alt_counts = HashMap::new();
+    count_uses_aether(&alt.rhs, &mut alt_counts);
+    if let Some(g) = &alt.guard {
+        count_uses_aether(g, &mut alt_counts);
+    }
+    remove_pat_bindings(&alt.pat, &mut alt_counts);
+    merge_counts(counts, &alt_counts);
+}
+
+fn count_handler_uses_aether(handler: &AetherHandler, counts: &mut HashMap<CoreBinderId, usize>) {
+    let mut h_counts = HashMap::new();
+    count_uses_aether(&handler.body, &mut h_counts);
+    h_counts.remove(&handler.resume.id);
+    for p in &handler.params {
+        h_counts.remove(&p.id);
+    }
+    merge_counts(counts, &h_counts);
 }
 
 /// Count uses within a single Case alternative's RHS (and guard),
@@ -395,26 +489,6 @@ fn count_owned_inner(
                 .sum();
             func_owned + args_owned
         }
-        CoreExpr::AetherCall {
-            func,
-            args,
-            arg_modes,
-            ..
-        } => {
-            let func_owned = count_owned_skip_direct(var, func, registry);
-            let args_owned: usize = args
-                .iter()
-                .zip(arg_modes.iter())
-                .map(|(arg, mode)| match mode {
-                    super::borrow_infer::BorrowMode::Borrowed => {
-                        count_owned_skip_direct(var, arg, registry)
-                    }
-                    super::borrow_infer::BorrowMode::Owned => count_owned_inner(var, arg, registry),
-                })
-                .sum();
-            func_owned + args_owned
-        }
-
         // Con fields are OWNED (stored in data structure).
         CoreExpr::Con { fields, .. } => fields
             .iter()
@@ -462,6 +536,18 @@ fn count_owned_inner(
             }
         }
 
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            if bindings.iter().any(|(b, _)| b.id == var) {
+                0 // shadowed
+            } else {
+                bindings
+                    .iter()
+                    .map(|(_, rhs)| count_owned_inner(var, rhs, registry))
+                    .sum::<usize>()
+                    + count_owned_inner(var, body, registry)
+            }
+        }
+
         // Perform args are OWNED (continuation capture boundary).
         CoreExpr::Perform { args, .. } => args
             .iter()
@@ -484,38 +570,8 @@ fn count_owned_inner(
             body_owned + handlers_owned
         }
 
-        // Dup/Drop: transparent
-        CoreExpr::Dup {
-            var: dup_var, body, ..
-        } => {
-            let dup_use = if dup_var.binder == Some(var) { 1 } else { 0 };
-            dup_use + count_owned_inner(var, body, registry)
-        }
-        CoreExpr::Drop { body, .. } => count_owned_inner(var, body, registry),
-        // Reuse: token is owned (reuse consumes the token), fields are owned (stored).
-        CoreExpr::Reuse { token, fields, .. } => {
-            let token_use = if token.binder == Some(var) { 1 } else { 0 };
-            token_use
-                + fields
-                    .iter()
-                    .map(|f| count_owned_inner(var, f, registry))
-                    .sum::<usize>()
-        }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             count_owned_inner(var, object, registry)
-        }
-        // DropSpecialized: scrutinee is borrowed (tested for uniqueness),
-        // branches are normal context — take max (only one runs).
-        CoreExpr::DropSpecialized {
-            scrutinee: _,
-            unique_body,
-            shared_body,
-            ..
-        } => {
-            // scrutinee is always borrowed (tested for uniqueness, not consumed)
-            let u = count_owned_inner(var, unique_body, registry);
-            let s = count_owned_inner(var, shared_body, registry);
-            u.max(s)
         }
     }
 }

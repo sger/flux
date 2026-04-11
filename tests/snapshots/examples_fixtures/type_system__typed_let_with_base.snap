@@ -244,6 +244,22 @@ Hint:
 
 error[E004]: Undefined Variable
 
+I can't find a value named `reverse`.
+
+  examples/type_system/typed_let_with_base.flx:44:27
+   |
+44 |     let rev: Array<Int> = reverse(nums)
+   |                           ^^^^^^^
+
+Hint:
+  Define it first: let reverse = ...;
+
+Help:
+  Did you mean one of: `rev`, `evens`?
+
+
+error[E004]: Undefined Variable
+
 I can't find a value named `assert_eq`.
 
   examples/type_system/typed_let_with_base.flx:45:5
@@ -403,6 +419,6 @@ I can't find a value named `assert_eq`.
 Hint:
   Define it first: let assert_eq = ...;
 
-Found 30 errors.
+Found 31 errors.
 == stdout ==
 <not executed>
