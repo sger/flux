@@ -23,7 +23,8 @@ use flux::{
     cache_paths::{self, CacheLayout},
     diagnostics::{
         DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticPhase, DiagnosticsAggregator,
-        quality::module_skipped_note, render_diagnostics_json, render_display_path,
+        quality::module_skipped_note,
+        render_diagnostics_json, render_display_path,
     },
     runtime::value::Value,
     syntax::{
@@ -33,6 +34,11 @@ use flux::{
         module_graph::{ModuleGraph, ModuleKind, ModuleNode},
         parser::Parser,
     },
+};
+#[cfg(feature = "core_to_llvm")]
+use flux::diagnostics::{
+    position::{Position, Span},
+    quality::render_runtime_diagnostic,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,6 +147,354 @@ fn tag_module_diagnostics(diags: &mut Vec<Diagnostic>, phase: DiagnosticPhase, p
             diag.set_file(path.to_string_lossy().to_string());
         }
     }
+}
+
+#[cfg(feature = "core_to_llvm")]
+fn split_native_panic_message(stderr: &str) -> Option<&str> {
+    stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("panic: ").map(str::trim))
+}
+
+#[cfg(feature = "core_to_llvm")]
+struct NativeTraceFrame {
+    name: String,
+    file: Option<String>,
+    line: Option<usize>,
+}
+
+#[cfg(feature = "core_to_llvm")]
+fn parse_native_trace_frames(stderr: &str) -> Vec<NativeTraceFrame> {
+    stderr
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            let rest = line.strip_prefix("at ")?;
+            if let Some((name, location)) = rest.split_once(" (") {
+                let location = location.strip_suffix(')')?;
+                if let Some((file, line_no)) = location.rsplit_once(':') {
+                    return Some(NativeTraceFrame {
+                        name: name.to_string(),
+                        file: Some(file.to_string()),
+                        line: line_no.parse().ok(),
+                    });
+                }
+            }
+            Some(NativeTraceFrame {
+                name: rest.to_string(),
+                file: None,
+                line: None,
+            })
+        })
+        .collect()
+}
+
+#[cfg(feature = "core_to_llvm")]
+fn infer_native_runtime_span(
+    path: &str,
+    message: &str,
+    frames: &[NativeTraceFrame],
+) -> Span {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return Span::new(Position::default(), Position::default());
+    };
+    let lines: Vec<&str> = source.lines().collect();
+    let preferred_line = frames
+        .first()
+        .and_then(|frame| {
+            frame.file
+                .as_deref()
+                .filter(|file| *file == path)
+                .and(frame.line)
+        })
+        .filter(|line| *line > 0);
+
+    let find_needle = |needle: &str| -> Option<Span> {
+        if let Some(line_no) = preferred_line
+            && let Some(line) = lines.get(line_no.saturating_sub(1))
+            && let Some(col) = line.find(needle)
+        {
+            let mut end = col + needle.len();
+            if needle.ends_with('(')
+                && let Some(close_off) = line[col..].find(')')
+            {
+                end = col + close_off + 1;
+            }
+            return Some(Span::new(
+                Position::new(line_no, col),
+                Position::new(line_no, end),
+            ));
+        }
+        for (idx, line) in lines.iter().enumerate() {
+            if let Some(col) = line.find(needle) {
+                let mut end = col + needle.len();
+                if needle.ends_with('(')
+                    && let Some(close_off) = line[col..].find(')')
+                {
+                    end = col + close_off + 1;
+                }
+                return Some(Span::new(
+                    Position::new(idx + 1, col),
+                    Position::new(idx + 1, end),
+                ));
+            }
+        }
+        None
+    };
+    let find_rhs_span = |operator: char| -> Option<Span> {
+        if let Some(line_no) = preferred_line
+            && let Some(line) = lines.get(line_no.saturating_sub(1))
+            && let Some(op_col) = line.find(operator)
+        {
+            let start = line
+                .chars()
+                .position(|c| !c.is_whitespace())
+                .unwrap_or(op_col);
+            let end = line.trim_end().trim_end_matches(';').len();
+            return Some(Span::new(
+                Position::new(line_no, start),
+                Position::new(line_no, end),
+            ));
+        }
+        for (idx, line) in lines.iter().enumerate() {
+            if let Some(op_col) = line.find(operator) {
+                let start = line
+                    .find('=')
+                    .and_then(|eq_col| {
+                        line[eq_col + 1..]
+                            .chars()
+                            .position(|c| !c.is_whitespace())
+                            .map(|off| eq_col + 1 + off)
+                    })
+                    .unwrap_or_else(|| line.chars().position(|c| !c.is_whitespace()).unwrap_or(op_col));
+                let end = line.trim_end().trim_end_matches(';').len();
+                return Some(Span::new(
+                    Position::new(idx + 1, start),
+                    Position::new(idx + 1, end),
+                ));
+            }
+        }
+        None
+    };
+
+    if let Some(rest) = message.strip_prefix("primop ")
+        && let Some((primop, _)) = rest.split_once(" expected ")
+        && let Some(span) = find_needle(&format!("{primop}("))
+    {
+        return span;
+    }
+
+    if message.contains("wrong number of arguments")
+        || message.contains("Cannot call non-function value")
+    {
+        for (idx, line) in lines.iter().enumerate().rev() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("fn ")
+                || trimmed.starts_with("//")
+                || trimmed == "{"
+                || trimmed == "}"
+                || trimmed.is_empty()
+            {
+                continue;
+            }
+            if let Some(open) = line.find('(') {
+                let mut start = open;
+                while start > 0 {
+                    let ch = line.as_bytes()[start - 1] as char;
+                    if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
+                        start -= 1;
+                    } else {
+                        break;
+                    }
+                }
+                let end = line[open..]
+                    .find(')')
+                    .map(|off| open + off + 1)
+                    .unwrap_or(open + 1);
+                return Span::new(Position::new(idx + 1, start), Position::new(idx + 1, end));
+            }
+        }
+    }
+
+    if message.contains("Division by zero") {
+        if let Some(span) = find_rhs_span('/') {
+            return span;
+        }
+        if let Some(span) = find_rhs_span('%') {
+            return span;
+        }
+    }
+    if message.contains("modulo by zero") && let Some(span) = find_rhs_span('%') {
+        return span;
+    }
+
+    if let Some(span) = find_rhs_span('+') {
+        return span;
+    }
+    if let Some(span) = find_rhs_span('-') {
+        return span;
+    }
+    if let Some(span) = find_rhs_span('*') {
+        return span;
+    }
+
+    Span::new(Position::default(), Position::default())
+}
+
+#[cfg(feature = "core_to_llvm")]
+fn infer_native_source_frames(path: &str, span: Span) -> Vec<String> {
+    if span.start.line == 0 {
+        return vec!["main".to_string(), "<main>".to_string()];
+    }
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return vec!["main".to_string(), "<main>".to_string()];
+    };
+    let lines: Vec<&str> = source.lines().collect();
+
+    let mut enclosing_fn = None;
+    for idx in (0..span.start.line.saturating_sub(1)).rev() {
+        let trimmed = lines.get(idx).map(|line| line.trim()).unwrap_or_default();
+        if let Some(rest) = trimmed.strip_prefix("fn ") {
+            let name = rest
+                .split(['(', ' ', '{'])
+                .next()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("main");
+            enclosing_fn = Some(name.to_string());
+            break;
+        }
+    }
+
+    let top_frame = enclosing_fn.unwrap_or_else(|| "main".to_string());
+    let mut frames = vec![format!(
+        "{} ({}:{}:{})",
+        top_frame,
+        render_display_path(path),
+        span.start.line,
+        span.start.column + 1
+    )];
+
+    if top_frame != "main" {
+        let call_site = lines
+            .iter()
+            .enumerate()
+            .find(|(_, line)| {
+                let trimmed = line.trim_start();
+                !trimmed.starts_with("fn ") && line.contains(&format!("{top_frame}("))
+            })
+            .map(|(idx, line)| {
+                let col = line.find(&top_frame).unwrap_or(0) + 1;
+                format!(
+                    "<main> ({}:{}:{})",
+                    render_display_path(path),
+                    idx + 1,
+                    col
+                )
+            })
+            .unwrap_or_else(|| "<main>".to_string());
+        frames.push(call_site);
+    } else {
+        frames.push("<main>".to_string());
+    }
+    frames
+}
+
+#[cfg(feature = "core_to_llvm")]
+fn render_native_runtime_error(path: &str, stderr: &str) -> Option<String> {
+    let message = split_native_panic_message(stderr)?;
+    let frames = parse_native_trace_frames(stderr);
+    let span = infer_native_runtime_span(path, message, &frames);
+    let diag = if message.contains("Cannot call non-function value") {
+        let actual = message
+            .split("(got ")
+            .nth(1)
+            .and_then(|s| s.split(')').next())
+            .map(|s| s.trim_end_matches('.'))
+            .unwrap_or("Unknown");
+        Diagnostic::make_error(
+            &flux::diagnostics::NOT_A_FUNCTION,
+            &[actual],
+            path.to_string(),
+            span,
+        )
+        .with_phase(DiagnosticPhase::Runtime)
+    } else if message.contains("Division by zero") {
+        Diagnostic::make_error(
+            &flux::diagnostics::DIVISION_BY_ZERO_RUNTIME,
+            &[],
+            path.to_string(),
+            span,
+        )
+        .with_phase(DiagnosticPhase::Runtime)
+    } else if message.contains("modulo by zero") {
+        Diagnostic::make_error(
+            &flux::diagnostics::MODULO_BY_ZERO_RUNTIME,
+            &[],
+            path.to_string(),
+            span,
+        )
+        .with_phase(DiagnosticPhase::Runtime)
+    } else if let Some(rest) = message.strip_prefix("Cannot ")
+        && let Some((op, tail)) = rest.split_once(' ')
+        && let Some((lhs, rhs_tail)) = tail.split_once(" and ")
+        && let Some(rhs) = rhs_tail.strip_suffix(" values.")
+    {
+        Diagnostic::make_error(
+            &flux::diagnostics::INVALID_OPERATION,
+            &[op, lhs, rhs],
+            path.to_string(),
+            span,
+        )
+        .with_phase(DiagnosticPhase::Runtime)
+    } else {
+        let error_code = if message.contains("wrong number of arguments") {
+            "E1000"
+        } else if message.contains(" expected ") || message.contains("expects ") {
+            "E1004"
+        } else {
+            "E1009"
+        };
+        Diagnostic::make_error_dynamic(
+            error_code,
+            message,
+            flux::diagnostics::types::ErrorType::Runtime,
+            "",
+            None,
+            path.to_string(),
+            span,
+        )
+        .with_phase(DiagnosticPhase::Runtime)
+    };
+    let source = std::fs::read_to_string(path).ok();
+    let frames = if !frames.is_empty() {
+        frames
+            .iter()
+            .enumerate()
+            .map(|(idx, frame)| {
+                if idx == 0 && span.start.line > 0 {
+                    format!(
+                        "{} ({}:{}:{})",
+                        frame.name,
+                        render_display_path(path),
+                        span.start.line,
+                        span.start.column + 1
+                    )
+                } else if let (Some(file), Some(line)) = (&frame.file, frame.line) {
+                    format!("{} ({}:{line})", frame.name, render_display_path(file))
+                } else {
+                    frame.name.clone()
+                }
+            })
+            .collect()
+    } else {
+        infer_native_source_frames(path, span)
+    };
+    Some(render_runtime_diagnostic(
+        &diag,
+        path,
+        source.as_deref(),
+        &frames,
+    ))
 }
 
 fn build_module_compiler(
@@ -733,7 +1087,6 @@ fn compile_native_support_object(
     cache_layout: &CacheLayout,
     no_cache: bool,
     enable_optimize: bool,
-    program_has_main: bool,
 ) -> Result<PathBuf, String> {
     let object_path = if no_cache {
         let dir = native_temp_dir();
@@ -760,22 +1113,13 @@ fn compile_native_support_object(
     };
 
     // The support object is deterministic (empty LirProgram + runtime stubs),
-    // so reuse the cached .o if it already exists. Skip cache when emitting
-    // a flux_main stub (no-main programs) to avoid reusing a stub-less object.
-    if !no_cache && program_has_main && object_path.exists() {
+    // so reuse the cached .o if it already exists.
+    if !no_cache && object_path.exists() {
         return Ok(object_path);
     }
 
     let lir = flux::lir::LirProgram::new();
     let mut llvm_module = flux::lir::emit_llvm::emit_llvm_module_with_options(&lir, true, false);
-    // If no module defines fn main(), emit an empty flux_main stub so that
-    // libflux_rt.a links successfully. This allows module-only .flx files
-    // to be compiled with --native.
-    if !program_has_main {
-        llvm_module
-            .functions
-            .push(flux::lir::emit_llvm::flux_main_stub());
-    }
     llvm_module.target_triple = Some(flux::core_to_llvm::target::host_triple());
     llvm_module.data_layout = flux::core_to_llvm::target::host_data_layout();
     let ll_text = flux::core_to_llvm::render_module(&llvm_module);
@@ -792,6 +1136,7 @@ fn compile_native_support_object(
 #[allow(clippy::too_many_arguments)]
 fn compile_parallel_native_module(
     node: &ModuleNode,
+    is_entry_module: bool,
     nodes_by_path: &HashMap<PathBuf, ModuleNode>,
     loaded_interfaces: &HashMap<PathBuf, flux::types::module_interface::ModuleInterface>,
     cache_layout: &CacheLayout,
@@ -893,6 +1238,7 @@ fn compile_parallel_native_module(
         &node.program,
         enable_optimize,
         export_user_ctor_name_helper,
+        is_entry_module,
     ) {
         Ok(module) => module,
         Err(mut diag) => {
@@ -1037,6 +1383,10 @@ fn compile_native_modules_parallel(
     base_interner: &flux::syntax::interner::Interner,
     all_diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<(Vec<PathBuf>, bool), String> {
+    let entry_path = graph
+        .entry_node()
+        .map(|node| node.path.clone())
+        .ok_or_else(|| "native module graph is missing an entry node".to_string())?;
     let mut loaded_interfaces: HashMap<PathBuf, flux::types::module_interface::ModuleInterface> =
         HashMap::new();
     let mut nodes_by_path: HashMap<PathBuf, ModuleNode> = HashMap::new();
@@ -1093,6 +1443,7 @@ fn compile_native_modules_parallel(
                         .any(|dep| interface_changed_modules.contains(&dep.target_path));
                     compile_parallel_native_module(
                         node,
+                        node.path == entry_path,
                         &nodes_by_path,
                         &loaded_interfaces,
                         cache_layout,
@@ -2760,20 +3111,10 @@ fn run_file(
                     };
                 let native_modules_ms = native_modules_start.elapsed().as_secs_f64() * 1000.0;
                 let support_start = Instant::now();
-                let program_has_main = graph.topo_order().iter().any(|node| {
-                    node.program.statements.iter().any(|stmt| {
-                        matches!(
-                            stmt,
-                            flux::syntax::statement::Statement::Function { name, .. }
-                                if compiler.interner.resolve(*name) == "main"
-                        )
-                    })
-                });
                 match compile_native_support_object(
                     &cache_layout,
                     no_cache,
                     enable_optimize,
-                    program_has_main,
                 ) {
                     Ok(support_object) => {
                         object_paths.insert(0, support_object);
@@ -2941,10 +3282,26 @@ fn run_file(
                 }
 
                 let exec_start = Instant::now();
-                match std::process::Command::new(&out).status() {
-                    Ok(status) => {
-                        let exit_code = status.code().unwrap_or(1);
+                match std::process::Command::new(&out).output() {
+                    Ok(output) => {
+                        let exit_code = output.status.code().unwrap_or(1);
                         let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
+                        let child_stdout = String::from_utf8_lossy(&output.stdout);
+                        let child_stderr = String::from_utf8_lossy(&output.stderr);
+                        if !child_stdout.is_empty() {
+                            print!("{child_stdout}");
+                        }
+                        if exit_code == 0 {
+                            if !child_stderr.is_empty() {
+                                eprint!("{child_stderr}");
+                            }
+                        } else if let Some(rendered) =
+                            render_native_runtime_error(path, &child_stderr)
+                        {
+                            eprint!("{rendered}");
+                        } else if !child_stderr.is_empty() {
+                            eprint!("{child_stderr}");
+                        }
                         if show_stats {
                             let compile_ms =
                                 compile_start.elapsed().as_secs_f64() * 1000.0 - execute_ms;

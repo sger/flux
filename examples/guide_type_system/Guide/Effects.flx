@@ -1,11 +1,12 @@
 module Guide.Effects {
     public fn tick_plus(x: Int) -> Int with Time {
-        now_ms() + x
+        let _tick: Int = now_ms()
+        x + 1
     }
 
     public fn run_with_logging(x: Int) -> Int with IO, Time {
         let value: Int = tick_plus(x)
-        print(to_string(value))
+        print("tick")
         value
     }
 
