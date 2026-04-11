@@ -12,6 +12,6 @@ fn main() with IO, Time {
         print("Hello, #{name}")
     }
 
-    log_now("timestamp=")
+    // log_now("timestamp=")
     greet("Flux")
 }

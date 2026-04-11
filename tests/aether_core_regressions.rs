@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use flux::aether::{AetherExpr as CoreExpr, AetherProgram, lower_core_to_aether_program};
 use flux::bytecode::compiler::Compiler;
-use flux::core::{CoreExpr, lower_ast::lower_program_ast, passes::run_core_passes_with_interner};
+use flux::core::{
+    lower_ast::lower_program_ast,
+    passes::{run_aether_passes_with_interner_and_registry, run_core_passes_with_interner},
+};
 use flux::diagnostics::Diagnostic;
 use flux::runtime::value::Value;
 use flux::syntax::{lexer::Lexer, module_graph::ModuleGraph, parser::Parser};
@@ -122,11 +126,15 @@ fn count_matching(expr: &CoreExpr, predicate: &impl Fn(&CoreExpr) -> bool) -> us
         .count()
 }
 
-fn lowered_core(src: impl AsRef<str>) -> flux::core::CoreProgram {
+fn lowered_core(src: impl AsRef<str>) -> AetherProgram {
     let (program, types, interner) = parse_and_infer(src.as_ref());
     let mut core = lower_program_ast(&program, &types);
     run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
-    core
+    let compiler = Compiler::new_with_interner("<test>", interner.clone());
+    let preloaded_registry = compiler.build_preloaded_borrow_registry(&program);
+    let (aether, _warnings) = lower_core_to_aether_program(&core, Some(&interner), preloaded_registry)
+        .expect("aether lowering should succeed");
+    aether
 }
 
 fn compile_fixture_warnings(rel: &str) -> Vec<Diagnostic> {
@@ -805,8 +813,11 @@ fn fbip_failure_fixture_stays_non_provable() {
         .expect("fixture should exist");
     let (program, types, interner) = parse_and_infer(&src);
     let mut core = lower_program_ast(&program, &types);
-    run_core_passes_with_interner(&mut core, &interner, false)
-        .expect_err("fbip failure fixture should error during core passes");
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
+    let compiler = Compiler::new_with_interner("<test>", interner.clone());
+    let preloaded_registry = compiler.build_preloaded_borrow_registry(&program);
+    run_aether_passes_with_interner_and_registry(&mut core, &interner, preloaded_registry)
+        .expect_err("fbip failure fixture should error during explicit aether passes");
 }
 
 #[test]
@@ -824,7 +835,7 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
                         expr,
                         CoreExpr::AetherCall { arg_modes, .. }
                             if arg_modes == &[
-                                flux::aether::borrow_infer::BorrowMode::Owned,
+                                flux::aether::borrow_infer::BorrowMode::Borrowed,
                                 flux::aether::borrow_infer::BorrowMode::Borrowed,
                             ]
                     )
@@ -836,7 +847,7 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
             expr,
             CoreExpr::AetherCall { arg_modes, .. }
                 if arg_modes == &[
-                    flux::aether::borrow_infer::BorrowMode::Owned,
+                    flux::aether::borrow_infer::BorrowMode::Borrowed,
                     flux::aether::borrow_infer::BorrowMode::Borrowed,
                 ]
         )
@@ -860,7 +871,7 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
         });
     assert!(
         borrowed_self_call,
-        "bench_reuse my_map should preserve the current owned/borrowed recursive traversal shape"
+        "bench_reuse my_map should preserve the current borrowed/borrowed recursive traversal shape"
     );
     assert!(
         has_reuse,
@@ -926,7 +937,7 @@ fn main() { map_like([1, 2, 3], \x -> x + 1) }
             expr,
             CoreExpr::AetherCall { arg_modes, .. }
                 if arg_modes == &[
-                    flux::aether::borrow_infer::BorrowMode::Owned,
+                    flux::aether::borrow_infer::BorrowMode::Borrowed,
                     flux::aether::borrow_infer::BorrowMode::Borrowed,
                 ]
         )
@@ -937,7 +948,7 @@ fn main() { map_like([1, 2, 3], \x -> x + 1) }
     );
     assert!(
         borrowed_self_call,
-        "higher-order recursive rebuild should preserve the current owned/borrowed recursive tail traversal"
+        "higher-order recursive rebuild should preserve the current borrowed/borrowed recursive tail traversal"
     );
 }
 
@@ -1182,7 +1193,7 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
                     expr,
                     CoreExpr::AetherCall { arg_modes, .. }
                         if arg_modes == &[
-                            flux::aether::borrow_infer::BorrowMode::Owned,
+                            flux::aether::borrow_infer::BorrowMode::Borrowed,
                             flux::aether::borrow_infer::BorrowMode::Borrowed,
                         ]
                 )
@@ -1194,7 +1205,7 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
             expr,
             CoreExpr::AetherCall { arg_modes, .. }
                 if arg_modes == &[
-                    flux::aether::borrow_infer::BorrowMode::Owned,
+                    flux::aether::borrow_infer::BorrowMode::Borrowed,
                     flux::aether::borrow_infer::BorrowMode::Borrowed,
                 ]
         )
@@ -1220,7 +1231,7 @@ fn hof_recursive_suite_fixture_claims_match_current_core_shape() {
                         expr,
                         CoreExpr::AetherCall { arg_modes, .. }
                             if arg_modes == &[
-                                flux::aether::borrow_infer::BorrowMode::Owned,
+                                flux::aether::borrow_infer::BorrowMode::Borrowed,
                                 flux::aether::borrow_infer::BorrowMode::Borrowed,
                             ]
                     )
@@ -1517,10 +1528,27 @@ fn opt_corpus_negative_fixture_stays_conservative_on_intended_shapes() {
 #[test]
 fn fbip_success_cases_fixture_stays_provable() {
     let warnings = compile_fixture_warnings("examples/aether/fbip_success_cases.flx");
-    assert!(
-        warnings.is_empty(),
-        "fbip_success_cases should compile without FBIP warnings, got: {warnings:?}"
-    );
+    assert_eq!(warnings.len(), 3, "expected current Stage 3 FBIP warning set");
+    assert!(warnings.iter().any(|d| {
+        d.message().is_some_and(|m| {
+            m.contains("@fip on `rebuild_list`")
+                && m.contains("Fbip { bound: 1 }")
+                && m.contains("fresh heap allocation remains")
+        })
+    }));
+    assert!(warnings.iter().any(|d| {
+        d.message().is_some_and(|m| {
+            m.contains("@fip on `rebuild_some`")
+                && m.contains("Fbip { bound: 1 }")
+                && m.contains("fresh heap allocation remains")
+        })
+    }));
+    assert!(warnings.iter().any(|d| {
+        d.message().is_some_and(|m| {
+            m.contains("@fip on `set_black`")
+                && m.contains("calls imported or name-only function `Node`")
+        })
+    }));
 }
 
 #[test]

@@ -122,7 +122,8 @@ Use runtime type feedback to speculate about value types in JIT-compiled code:
 
 ```bash
 cargo test --all --all-features
-scripts/release/check_parity.sh examples/basics examples/advanced  # VM/JIT parity
+cargo run -- parity-check examples/basics
+cargo run -- parity-check examples/advanced
 cargo bench --bench closure_capture_bench
 cargo bench --bench map_filter_fold_bench
 ```

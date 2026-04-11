@@ -7,12 +7,22 @@
 ## Summary
 [summary]: #summary
 
-Remove the five Aether-specific expression variants (`Dup`, `Drop`, `Reuse`, `DropSpecialized`, `AetherCall`) from `CoreExpr` and represent them as regular `PrimOp` calls or metadata annotations instead. The goal is clear: **Aether is only used by the VM and LLVM backends.** Core IR must be backend-agnostic so that future backends can consume it directly without running or knowing about the Aether pass.
+Decouple Aether from `CoreExpr` by making Aether a **backend-only lowering layer** instead of a set of `CoreExpr` variants or `CorePrimOp`s.
+
+The corrected architecture is:
+
+- `src/core/` remains the only semantic IR.
+- `run_core_passes*` produces clean semantic Core only.
+- Aether becomes a lowering product derived from clean Core plus borrow metadata.
+- RC backends (VM and LLVM/native) consume the Aether product.
+- Future non-RC backends consume clean Core directly and never need to know about Aether.
+
+This proposal intentionally does **not** introduce a second semantic IR. Aether is a backend-specific ownership and memory-management layer, not a semantic compiler stage.
 
 ## Motivation
 [motivation]: #motivation
 
-Today, `CoreExpr` (the central IR type in `src/core/mod.rs`) contains five variants that exist solely for the Aether reference-counting pass:
+Today, `CoreExpr` in `src/core/mod.rs` contains five Aether-only variants:
 
 ```rust
 CoreExpr::Dup { var, body, span }
@@ -22,185 +32,183 @@ CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, span }
 CoreExpr::AetherCall { func, args, arg_modes, span }
 ```
 
-These are inserted by the Aether pass (`src/aether/insert.rs`) **into** the existing Core IR, mutating the IR type in-place. This creates several problems:
+These variants are injected after semantic Core passes and are only meaningful to RC-based backends. That creates several problems:
 
-### 1. Every pass must handle Aether variants
+### 1. Semantic Core walkers must understand backend-only structure
 
-Every function that pattern-matches on `CoreExpr` — simplification passes, ANF normalization, primop promotion, dead let elimination — must include arms for `Dup`, `Drop`, `Reuse`, `DropSpecialized`, and `AetherCall`, even though these variants are irrelevant to those passes. This is visible throughout `src/core/passes/` where Aether arms do nothing but recursively walk children.
+Many generic Core helpers and tests have to match on `Dup`, `Drop`, `Reuse`, `DropSpecialized`, and `AetherCall` even though those nodes are not semantic Core constructs. This leaks backend ownership planning into:
 
-### 2. Core IR cannot be consumed before Aether
+- Core display/dump code
+- Core walkers and helper analyses
+- tests that are nominally about Core
+- lowering code that has to distinguish "clean Core" from "Aether-mutated Core"
 
-The Aether pass is the final stage of `run_core_passes_with_optional_interner` in `src/core/passes/mod.rs` (lines 210-239). There is no function that produces a fully optimized, clean Core IR without Aether annotations. Any new backend that doesn't need reference counting (a GC-based target, a JavaScript emitter) would need to either:
-- Run the Aether pass and ignore all Aether nodes (wasteful, error-prone)
-- Duplicate the pass pipeline up to the Aether stage (fragile)
+### 2. `run_core_passes*` does not currently mean "semantic Core only"
 
-### 3. Violates the architecture invariant
+The current pipeline runs Aether inside `run_core_passes_with_optional_interner`. That means call sites asking for "Core passes" actually receive ownership-annotated, backend-specific Core. As a result:
 
-CLAUDE.md states: "`src/core/` is the only semantic IR. Do not add a second one." But by embedding ownership directives into Core, the IR serves two roles: semantic program representation AND memory management plan. These concerns should be separated.
+- there is no stable "clean Core" compiler boundary today
+- `--dump-core` is not guaranteed to remain purely semantic
+- future backends would need to either run and ignore Aether or fork the pipeline
 
-### 4. Blocks multi-backend strategy
+### 3. Re-encoding Aether as Core primops would still pollute Core
 
-Adding any backend that uses a different memory model (tracing GC, no-op GC for a managed runtime, region-based allocation) requires either ignoring Aether nodes or splitting the pipeline. The current design makes the implicit assumption that all backends use Perceus-style reference counting.
+A previous direction considered deleting the five `CoreExpr` variants and re-encoding them as `CoreExpr::PrimOp`. That does not solve the real problem. It would still place backend-only ownership structure inside semantic Core, just under a different syntax.
+
+This is especially awkward for:
+
+- `AetherCall`, which is a call-site ownership contract rather than a primitive operation
+- `Reuse`, which carries structural construction data
+- `DropSpecialized`, which is control flow with unique/shared branches
+
+These are not naturally "just primops".
+
+### 4. Flux needs a clean semantic/backend boundary
+
+The architecture contract for Flux is:
+
+- `Core` is the only semantic IR
+- backend-specific lowering happens below Core
+
+Aether is backend-specific lowering. Treating it as such makes the architecture honest and keeps future backend work tractable.
 
 ## Guide-level explanation
 [guide-level-explanation]: #guide-level-explanation
 
-### Before (current)
+### Before
 
-Core IR is a single enum with both semantic and memory-management variants:
+Today the pipeline is effectively:
 
-```rust
-enum CoreExpr {
-    // Semantic (11 variants)
-    Var, Lit, Lam, App, Let, LetRec, LetRecGroup,
-    Case, Con, PrimOp, MemberAccess, TupleField,
-    Return, Perform, Handle,
-    // Memory management (5 variants)
-    Dup, Drop, Reuse, DropSpecialized, AetherCall,
-}
+```text
+AST -> Core -> semantic Core passes -> Aether mutates CoreExpr in place
+    -> CFG / LIR lowering
 ```
 
-The Aether pass mutates `CoreExpr` → `CoreExpr` (same type, new variants injected).
+The same `CoreExpr` type is used for both:
 
-### After (proposed)
+- semantic program structure
+- ownership / RC planning
 
-Core IR contains only semantic variants. Aether annotations are represented as regular `PrimOp` calls and metadata:
+### After
 
-```rust
-enum CoreExpr {
-    // Semantic only (11 variants)
-    Var, Lit, Lam, App, Let, LetRec, LetRecGroup,
-    Case, Con, PrimOp, MemberAccess, TupleField,
-    Return, Perform, Handle,
-}
+The corrected pipeline is:
+
+```text
+AST -> Core -> semantic Core passes -> clean Core
+    -> Aether lowering -> AetherProgram
+        -> VM/CFG lowering
+        -> LLVM/LIR lowering
 ```
 
-The Aether pass inserts `PrimOp(Dup, ...)`, `PrimOp(Drop, ...)`, etc. — regular primop calls that RC-based backends emit and GC-based backends ignore.
+or, for a future non-RC backend:
 
-### Backend pipeline
-
-```
-Source → AST → Type Inference → CoreExpr
-  → Core passes (beta, cokc, inline, dead_let, evidence, ANF, primop_promote, dict_elaborate)
-  → Clean CoreExpr
-      │
-      ├── VM backend:   Aether pass → CoreExpr (with PrimOp::AetherDup/Drop) → CFG → Bytecode
-      ├── LLVM backend: Aether pass → CoreExpr (with PrimOp::AetherDup/Drop) → LIR → LLVM IR
-      │
-      └── Future backends: consume clean CoreExpr directly (no Aether, no RC)
+```text
+AST -> Core -> semantic Core passes -> clean Core
+    -> backend-specific lowering that does not use Aether
 ```
 
-All backends consume the same `CoreExpr` type. The VM and LLVM backends run the Aether pass to insert RC operations. Future backends skip it entirely.
+Key consequences:
+
+- `CoreExpr` becomes semantic-only again.
+- `--dump-core` shows semantic Core only.
+- `--dump-aether` becomes the ownership/debug surface for RC backends.
+- VM and LLVM stop consuming "Core with Aether nodes" and instead consume a backend-only Aether product.
+
+### What Aether becomes
+
+Aether becomes its own lowering representation, owned by `src/aether/`, with names such as:
+
+- `AetherExpr`
+- `AetherDef`
+- `AetherProgram`
+
+It can structurally resemble the former Aether-enriched Core when useful, but it is no longer `CoreExpr`.
+
+This is **not** a second semantic IR:
+
+- semantic passes still operate on clean Core only
+- Aether exists only for ownership planning, FBIP validation, debug dumping, and RC backend lowering
 
 ## Reference-level explanation
 [reference-level-explanation]: #reference-level-explanation
 
-### Step 1: Add Aether primops to CorePrimOp
+### 1. Clean up the public compiler boundary
 
-Add the following variants to the existing `CorePrimOp` enum in `src/core/mod.rs`:
+Split the current pipeline into two explicit stages.
+
+#### Semantic Core stage
+
+`run_core_passes*` becomes semantic-only:
+
+- builtin promotion
+- simplification loop
+- evidence passing
+- ANF normalization
+- dictionary elaboration where applicable
+
+It must not:
+
+- run Aether insertion
+- materialize Aether-only nodes
+- enforce Aether-only validation contracts
+
+Its output is the canonical clean `CoreProgram`.
+
+#### Aether stage
+
+Introduce a new entrypoint owned by `src/aether/`, for example:
 
 ```rust
-// Aether RC operations (inserted by Aether pass, consumed by RC backends)
-AetherDup = 140,
-AetherDrop = 141,
-AetherDropReuse = 142,      // drop and return reuse token
-AetherAllocAt = 143,        // allocate using reuse token, fallback to fresh alloc
-AetherDropSpecial = 144,    // branch on unique vs shared refcount
+pub fn lower_core_to_aether(
+    core: &CoreProgram,
+    registry: &BorrowRegistry,
+) -> Result<AetherProgram, Diagnostic>
 ```
 
-These follow the same convention as all other primops: they're opaque operations that backends emit as they see fit.
+or an equivalent API that is decision-equivalent:
 
-### Step 2: Represent dup/drop as PrimOp calls
+- input: clean Core
+- input: borrow metadata
+- output: backend-only Aether product
 
-The Aether pass (`src/aether/insert.rs`) currently produces:
+The exact function name can vary, but the boundary must be explicit and stable.
 
-```rust
-CoreExpr::Dup { var: x, body: ... }
-CoreExpr::Drop { var: x, body: ... }
-```
+### 2. Define the Aether representation as backend-only
 
-After this change, it produces:
+The new Aether layer must support these behaviors:
 
-```rust
-CoreExpr::Let {
-    var: _unused,
-    rhs: CoreExpr::PrimOp { op: AetherDup, args: [Var(x)] },
-    body: ...
-}
-// Drop as a sequenced side-effect before the continuation
-CoreExpr::Let {
-    var: _unused,
-    rhs: CoreExpr::PrimOp { op: AetherDrop, args: [Var(x)] },
-    body: ...
-}
-```
+- ownership-aware call nodes or call annotations
+- explicit dup/drop sequencing
+- reuse nodes with field-mask information
+- drop-specialization branching with unique/shared continuations
 
-This is a `Let` with a side-effecting RHS — the same pattern used for `Print` and other effectful primops.
+It must preserve enough structure for:
 
-### Step 3: Represent reuse as PrimOp calls
+- borrow inference output
+- FBIP checking
+- `--dump-aether`
+- VM lowering
+- LLVM/LIR lowering
 
-Current:
+It must not be used by semantic Core passes.
 
-```rust
-CoreExpr::Reuse { token, tag, fields, field_mask, span }
-```
+### 3. Move `AetherCall` out of `CoreExpr`
 
-After:
+`AetherCall` should not survive as a semantic Core construct and should not be collapsed into a plain `App` plus an invisible side table.
 
-```rust
-// Step 1: try to reuse the token's allocation
-CoreExpr::Let {
-    var: reuse_ptr,
-    rhs: CoreExpr::PrimOp { op: AetherAllocAt, args: [Var(token)] },
-    body:
-        // Step 2: construct using the reuse pointer (or fresh alloc if token was shared)
-        CoreExpr::Con { tag, fields, span }
-}
-```
+Instead:
 
-The `AetherAllocAt` primop returns a reuse token that the backend can use for in-place construction. The `field_mask` metadata (which fields are unchanged from the reused value) is carried as an annotation on the `AetherAllocAt` primop args or as a separate metadata field on `CorePrimOp`.
+- Core remains a normal `App`
+- borrow metadata still lives in `BorrowRegistry`
+- the Aether lowering stage materializes an Aether-layer call form that carries the ownership contract needed for debug output and lowering
 
-### Step 4: Represent DropSpecialized as PrimOp
+This keeps ownership-aware calls visible at the backend-only layer without polluting semantic Core.
 
-Current:
+### 4. Remove Aether-only `CoreExpr` variants after the Aether layer exists
+
+Once the Aether representation is introduced and both RC backends consume it, delete these from `CoreExpr`:
 
 ```rust
-CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, span }
-```
-
-After:
-
-```rust
-CoreExpr::PrimOp {
-    op: AetherDropSpecial,
-    args: [Var(scrutinee), Lam([], unique_body), Lam([], shared_body)]
-}
-```
-
-The `AetherDropSpecial` primop takes the scrutinee and two thunks (unique path, shared path). The backend emits a refcount check and branches.
-
-### Step 5: Represent AetherCall as metadata on App
-
-Current:
-
-```rust
-CoreExpr::AetherCall { func, args, arg_modes, span }
-```
-
-After: Use a regular `App` node. Borrow mode information is stored in a side table (`BorrowRegistry`) that RC backends consult during code generation. GC backends ignore the registry entirely.
-
-```rust
-// Before: AetherCall { func, args, arg_modes: [Owned, Borrowed, Owned] }
-// After:  App { func, args }
-//         + BorrowRegistry maps this call site → [Owned, Borrowed, Owned]
-```
-
-### Step 6: Remove Aether variants from CoreExpr
-
-Delete from `CoreExpr`:
-
-```rust
-// DELETE these 5 variants:
 AetherCall { func, args, arg_modes, span }
 Dup { var, body, span }
 Drop { var, body, span }
@@ -208,145 +216,230 @@ Reuse { token, tag, fields, field_mask, span }
 DropSpecialized { scrutinee, unique_body, shared_body, span }
 ```
 
-### Step 7: Split the pass pipeline
+This removal is intentionally **not** the first step.
 
-In `src/core/passes/mod.rs`, split `run_core_passes_with_optional_interner` into two public functions:
+### 5. Update backend lowering contracts
 
-```rust
-/// Run all semantic Core passes. Produces clean, optimized CoreExpr
-/// suitable for any backend.
-pub fn run_core_passes(program: &mut CoreProgram, interner: &Interner, optimize: bool)
-    -> Result<Vec<Diagnostic>, Diagnostic>
-{
-    // Stage 0: primop_promote
-    // Stage 1: simplification loop (beta, case_of_case, cokc, inline, dead_let)
-    // Stage 2: normalization (evidence, ANF)
-}
+After the Aether layer exists:
 
-/// Run Aether RC passes on already-optimized Core IR.
-/// Only called by RC-based backends (VM, LLVM native).
-pub fn run_aether_passes(program: &mut CoreProgram, interner: &Interner,
-                         registry: BorrowRegistry)
-    -> Result<(), Diagnostic>
-{
-    // Borrow inference
-    // Aether dup/drop/reuse insertion (now emits PrimOp calls)
-    // Refined re-inference
-    // FBIP check
-}
-```
+- VM/CFG lowering consumes Aether form, not `CoreExpr` with Aether variants
+- LLVM/LIR lowering consumes Aether form, not `CoreExpr` with Aether variants
 
-### Step 8: Update consumers
+Backends must no longer pattern-match Aether-only structure out of `CoreExpr`.
 
-Files that pattern-match on `CoreExpr` and currently handle Aether variants:
+### 6. Keep debug surfaces aligned with the architecture
 
-| File | Change |
-|------|--------|
-| `src/core/passes/primop_promote.rs` | Remove 5 Aether match arms (~50 lines) |
-| `src/core/passes/mod.rs` (helpers) | Remove Aether arms from `expr_size`, `collect_max_binder_id` |
-| `src/cfg/` | Handle `PrimOp(AetherDup/Drop/...)` in lowering instead of dedicated arms |
-| `src/lir/lower.rs` | Same — match on primop variants |
-| `src/lir/emit_llvm.rs` | Emit `flux_dup`/`flux_drop` C calls for Aether primops |
-| `src/bytecode/vm/core_dispatch.rs` | Dispatch Aether primops to `Rc::clone`/drop |
-| `src/aether/insert.rs` | Emit `PrimOp(AetherDup, ...)` instead of `CoreExpr::Dup { ... }` |
-| `src/aether/borrow_infer.rs` | Recognize `PrimOp(AetherDup/Drop)` for analysis |
+The proposal locks these surfaces:
 
-### Verification of Aether contracts
+- `--dump-core`
+  - semantic-only Core
+  - first semantic debugging surface
+- `--dump-aether`
+  - backend-only ownership/debug surface
+  - shows borrow modes, reuse, and drop specialization
 
-The existing `verify_aether_contract_stage` function in `src/core/passes/mod.rs` checks that Aether nodes are well-formed after each pass. After this refactor, it would check for `PrimOp(AetherDup/Drop/...)` nodes instead of `CoreExpr::Dup/Drop` variants. The logic is identical; only the pattern match changes.
+This keeps the debugging story aligned with the architecture contract:
 
-### Backward compatibility
+- inspect Core first for semantic bugs
+- inspect Aether only after Core is correct
 
-- **Clean Core IR dumps** (`--dump-core`): Will no longer show `Dup`/`Drop` as first-class expressions. They appear as `PrimOp(AetherDup, ...)` calls. `--dump-aether` continues to show them.
-- **Snapshot tests**: Tests that inspect Core IR with Aether annotations will need updating to match the new PrimOp representation.
-- **No semantic change**: The same dup/drop/reuse operations are performed; only their IR encoding changes.
+## Implementation strategy
+[implementation-strategy]: #implementation-strategy
+
+This proposal is intentionally staged. It should **not** be implemented as a one-shot refactor unless a separate spike proves that safe.
+
+### Stage 1: Split the pipeline boundary first
+
+Goals:
+
+- make `run_core_passes*` semantic-only in API and intent
+- introduce an explicit post-Core Aether stage in the pipeline
+- keep current internals temporarily if needed while the boundary is being established
+
+Requirements:
+
+- all clean-Core call sites become explicit
+- `--dump-core` remains semantic-only
+- `--dump-aether` remains the ownership/debug surface
+- do not collapse Aether into Core primops during this stage
+
+This stage is allowed to preserve some temporary compatibility internally, but the public/compiler boundary must become explicit.
+
+### Stage 2: Introduce backend-only Aether types
+
+Goals:
+
+- add `AetherExpr` / `AetherDef` / `AetherProgram` (or equivalent)
+- port Aether logic from `CoreExpr -> CoreExpr` transforms into:
+  - clean-Core-to-Aether lowering
+  - Aether-to-Aether transforms/checks
+
+Requirements:
+
+- borrow inference still feeds Aether lowering
+- `Reuse` and `DropSpecialized` stay structural in Aether, not re-encoded as Core primops
+- `--dump-aether` reads from the new Aether product
+- VM and LLVM lowering switch to the new Aether product
+
+### Stage 3: Remove Aether from Core entirely
+
+Goals:
+
+- delete the five Aether-specific `CoreExpr` variants
+- remove Aether match arms from semantic Core walkers and helpers
+- simplify Core tests so they no longer assert on Aether-only nodes
+
+Requirements:
+
+- semantic Core helpers no longer know about Aether-only structure
+- Aether regression tests move to Aether-layer tests
+- backend lowering no longer matches Aether nodes in `CoreExpr`
+
+This proposal explicitly forbids collapsing Stages 2 and 3 unless a smaller exploratory spike demonstrates that the migration is mechanically safe.
+
+## Migration impact
+[migration-impact]: #migration-impact
+
+The major affected areas are:
+
+- `src/core/`
+  - semantic walkers/helpers stop matching Aether-only constructs
+- `src/core/passes/`
+  - no Aether insertion inside semantic Core passes
+- `src/aether/`
+  - moves from mutating `CoreExpr` in place to producing and transforming Aether form
+- `src/cfg/`
+  - lowers from Aether form for RC backends instead of matching Aether nodes in Core
+- `src/lir/lower.rs`
+  - same change as CFG/VM path
+- tests
+  - assertions on `CoreExpr::AetherCall`, `Dup`, `Drop`, `Reuse`, and `DropSpecialized` move to Aether-layer tests
+
+Dump surfaces also change:
+
+- `--dump-core` snapshots become cleaner
+- `--dump-aether` becomes the canonical ownership/reuse surface
+
+Parity/debug guidance does not change in spirit:
+
+- inspect `--dump-core` first
+- inspect `--dump-aether` only after Core looks correct
 
 ## Drawbacks
 [drawbacks]: #drawbacks
 
-1. **Refactoring scope**: Touching `CoreExpr` affects most of the compiler. Every `match` on `CoreExpr` needs updating, though most changes are deletions (removing Aether arms).
+1. **This is a real refactor, not just an enum cleanup**
 
-2. **Loss of type-level distinction**: With dedicated variants, the Rust type system prevents accidentally constructing a `Dup` node before the Aether pass. With PrimOps, a pass could accidentally emit `PrimOp(AetherDup, ...)` at the wrong pipeline stage. Mitigation: the `verify_aether_contract_stage` function catches this at runtime.
+The compiler currently assumes that post-Aether code is still `CoreExpr`. Moving to a backend-only Aether layer affects:
 
-3. **PrimOp enum grows**: Adding 5 Aether variants to `CorePrimOp` (already ~130 variants) increases its size. However, this is offset by removing 5 variants from `CoreExpr`, which is the more impactful enum.
+- lowering boundaries
+- tests
+- dumps
+- ownership analyses
 
-4. **Reuse and DropSpecialized are not simple calls**: `Reuse` carries a field mask and `DropSpecialized` carries two continuations. Encoding these as PrimOp args (with thunks) is slightly less natural than dedicated variants. However, this matches how other languages represent these constructs.
+2. **There will be a temporary mixed state during staging**
+
+Stage 1 necessarily introduces some transitional plumbing before Stage 3 removes the old variants completely.
+
+3. **Aether gets its own data model**
+
+This adds more types to the codebase. That cost is intentional: it restores the semantic/backend boundary and avoids hiding backend structure in Core.
 
 ## Rationale and alternatives
 [rationale-and-alternatives]: #rationale-and-alternatives
 
-### Why PrimOps instead of a separate AetherExpr type?
+### Why not encode Aether as Core primops?
 
-An alternative design introduces a new `AetherExpr` enum that wraps `CoreExpr`:
+Because it keeps backend-only structure inside semantic Core.
 
-```rust
-enum AetherExpr {
-    Core(CoreExpr),
-    Dup { var, body: Box<AetherExpr> },
-    Drop { var, body: Box<AetherExpr> },
-    // ...
-}
-```
+It also fits poorly for the most important Aether constructs:
 
-This provides stronger type-level guarantees (pre-Aether code is `CoreExpr`, post-Aether is `AetherExpr`) but requires:
-- Duplicating all pattern match logic for the `Core(...)` wrapper
-- Converting between types at the Aether boundary
-- Updating CFG and LIR lowering to consume `AetherExpr` instead of `CoreExpr`
+- `AetherCall` is a call contract, not a primitive operation
+- `Reuse` is a structural constructor/rewrite with field-mask semantics
+- `DropSpecialized` is branching control flow
 
-The PrimOp approach avoids all of this. It keeps one IR type, one set of pattern matches, and one lowering path. The distinction between "pre-Aether" and "post-Aether" Core IR is a pipeline concern, not a type concern.
+Encoding those as Core primops would only rename the leak, not remove it.
 
-Other functional language compilers with Perceus-style RC (including compilers in this space) use the same approach: dup/drop are regular function applications in Core, not special IR nodes. This is proven to work well and keeps the IR simple.
+### Why not keep Aether in `CoreExpr`?
 
-### Why not keep Aether in CoreExpr?
+Because that conflates:
 
-The current design works for a two-backend compiler (VM + LLVM) where both backends need RC. But Flux's architecture section in CLAUDE.md states that `src/core/` is the only semantic IR. Memory management directives are not semantics — they're an optimization for a specific class of backends. Embedding them in Core IR conflates concerns and blocks the multi-backend future.
+- semantic program representation
+- backend-specific ownership planning
 
-### Impact of not doing this
+and makes every future backend carry knowledge of RC-specific structure even if it never uses RC.
 
-Without this refactor, adding any non-RC backend requires one of:
-- Running the Aether pass and ignoring its output (wasted work, Aether nodes pollute the IR)
-- Forking the pipeline before Aether (fragile, two code paths to maintain)
-- Special-casing Aether nodes in every new backend ("if Dup, skip; if Drop, skip; ...")
+### Why a separate Aether layer?
 
-All three options accumulate technical debt. The PrimOp approach eliminates the problem at the root.
+Because it gives Flux the correct architectural split:
+
+- clean semantic Core
+- backend-only ownership lowering
+
+without introducing a second semantic IR.
+
+This also provides the right type-level separation:
+
+- pre-Aether code is `Core`
+- post-Aether RC lowering is `Aether`
+
+That is exactly the distinction the current design tries to express informally with pipeline discipline alone.
 
 ## Prior art
 [prior-art]: #prior-art
 
-### Functional language compilers with RC
-
-Several functional language compilers that use compile-time reference counting represent dup/drop as regular function calls in their Core IR rather than dedicated expression variants:
-
-- **Compilers in this design space** represent dup/drop as ordinary function applications (e.g., `App(Var "dup", [arg])`) with backend-specific inline annotations. The Core IR type has no special RC variants. Backends that don't need RC simply never insert these calls.
-
-- **Lean 4** uses a similar approach where RC operations are regular IR nodes that the C backend emits and other backends can ignore.
-
 ### GHC (Haskell)
 
-GHC's Core IR (`CoreExpr`) is purely semantic: `Var`, `Lit`, `App`, `Lam`, `Let`, `Case`, `Cast`, `Tick`, `Type`, `Coercion`. No memory management nodes. GC directives are a runtime concern, not an IR concern. This clean separation enables GHC's multiple backends (native codegen, LLVM, bytecode interpreter).
+GHC’s Core is semantic. Backend and runtime concerns live below Core rather than as ad hoc semantic IR variants. Flux should follow the same architectural discipline even though its memory model differs.
 
-### GRIN (Graph Reduction Intermediate Notation)
+### Backend-specific lowering layers in optimizing compilers
 
-GRIN separates heap operations (`store`, `fetch`, `update`) from the functional IR. Memory management is explicit but handled through a separate set of operations, not mixed into the functional expression type.
+Many compilers keep a clean high-level IR and then derive lower, backend-oriented forms for ownership, layout, and code generation. The important lesson is not the exact IR names; it is keeping semantic IR and backend memory-management structure separate.
+
+### Flux’s own architecture contract
+
+Flux already states that:
+
+- `Core` is the only semantic IR
+- backend IR belongs below Core
+
+Making Aether backend-only is simply aligning the implementation with that contract.
 
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-1. **Field mask encoding for Reuse**: The current `Reuse` variant carries a `field_mask: Option<Vec<bool>>` indicating which fields are unchanged from the reused value. When Reuse becomes a PrimOp, this metadata needs encoding. Options: (a) encode as an integer bitmask argument to `AetherAllocAt`, (b) store in a side table keyed by span or binder ID. Lean toward (a) for simplicity.
+1. **Aether type shape**
 
-2. **BorrowRegistry threading**: `AetherCall` currently carries borrow modes inline. Moving them to a `BorrowRegistry` side table means the registry must be threaded through CFG/LIR lowering. This is already partially the case (`borrow_infer.rs` produces a registry), but the lowering code currently reads modes from the `AetherCall` node. Needs wiring.
+The proposal recommends `AetherExpr`, `AetherDef`, and `AetherProgram`, but the exact split between expression-level and program-level metadata still needs to be chosen during implementation.
 
-3. **Snapshot test volume**: Core IR snapshot tests that include Aether annotations will all change format. The diff will be large but mechanical. Consider accepting all snapshots in one pass (`cargo insta test --accept`).
+2. **Borrow metadata placement**
+
+`BorrowRegistry` remains compiler-owned metadata, but implementation still needs to decide exactly how much of that metadata is copied into Aether nodes versus referenced alongside them.
+
+3. **Stage 1 compatibility plumbing**
+
+Stage 1 allows temporary internal compatibility while the clean-Core boundary is introduced. Implementation must keep that temporary state narrow and short-lived.
 
 ## Future possibilities
 [future-possibilities]: #future-possibilities
 
-1. **GC-based backends**: With clean Core IR, adding a backend targeting a GC runtime (BEAM, JVM, JavaScript) becomes straightforward — consume Core IR directly, skip Aether entirely.
+1. **Non-RC backends**
 
-2. **Region-based memory management**: A future alternative to Perceus could use region inference instead of RC. This would be a different pass that inserts different PrimOps (`RegionAlloc`, `RegionFree`), consuming the same clean Core IR.
+A GC-backed or managed-runtime backend can consume clean Core directly and never run Aether.
 
-3. **Backend-specific optimization passes**: Each backend could run its own optimization passes on Core IR before code generation, without needing to handle irrelevant Aether nodes.
+2. **Alternative ownership lowerings**
 
-4. **Parallel backend compilation**: With a clean Core IR snapshot, multiple backends could compile the same program concurrently from the same IR, each applying their own memory management strategy.
+If Flux later experiments with another ownership or allocation strategy, it can be implemented as a different post-Core lowering rather than by modifying semantic Core again.
 
-5. **Core IR serialization**: A clean Core IR (without backend-specific annotations) could be serialized as a compilation artifact, enabling separate compilation, caching, and cross-compilation scenarios.
+3. **Cleaner serialization and caching**
+
+A clean semantic Core boundary is easier to cache, diff, serialize, and reuse than a Core representation polluted with backend-specific ownership directives.
+
+4. **Cleaner parity/debug layering**
+
+The distinction between:
+
+- semantic mismatch (`--dump-core`)
+- ownership/backend mismatch (`--dump-aether`)
+
+becomes explicit in the compiler architecture rather than being an accidental byproduct of how Core is currently mutated.

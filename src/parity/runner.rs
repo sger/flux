@@ -618,6 +618,21 @@ fn classify_exit(code: i32, stderr: &str) -> ExitKind {
         return ExitKind::Success;
     }
 
+    let has_runtime_error_code = stderr.lines().any(|line| {
+        let Some(start) = line.find("error[E") else {
+            return false;
+        };
+        let rest = &line[start + 7..];
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        digits
+            .parse::<u32>()
+            .map(|n| (1000..2000).contains(&n))
+            .unwrap_or(false)
+    });
+    if has_runtime_error_code {
+        return ExitKind::RuntimeError;
+    }
+
     // Check for compile-time errors (diagnostics with error codes like E001, E300, etc.)
     let has_compile_error = stderr.lines().any(|line| {
         // Flux diagnostic format: "error[E###]:" or lines containing "error:" from the compiler

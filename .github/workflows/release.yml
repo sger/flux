@@ -41,7 +41,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y llvm-18 lld-18
 
       - name: Parity gate (extended)
-        run: scripts/check_parity.sh --extended tests/parity examples/basics
+        run: cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
+
+      - name: Parity check (examples/basics, extended)
+        run: cargo run -- parity-check examples/basics --ways vm,llvm,vm_cached,vm_strict,llvm_strict
 
   linux:
     name: Build + Upload (linux x86_64)

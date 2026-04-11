@@ -76,14 +76,10 @@ fn repeat_solve(n, lines, checksum) {
 let lines = to_list(read_lines("examples/aoc/2025/aoc_day1.txt"))
 let iterations = 200
 
-let t0 = now_ms()
 let checksum = repeat_solve(iterations, lines, 0)
-let t1 = now_ms()
 
 print("iterations:")
 print(iterations)
 print("checksum:")
 print(checksum)
-print("elapsed_ms:")
-print(t1 - t0)
 }

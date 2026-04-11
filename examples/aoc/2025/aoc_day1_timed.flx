@@ -65,6 +65,6 @@ let t1 = now_ms()
 
 print("AoC Day 1 password:")
 print(password)
-print("elapsed (ms):")
-print(t1 - t0)
+// print("elapsed (ms):")
+// print(t1 - t0)
 }

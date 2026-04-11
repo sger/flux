@@ -228,7 +228,8 @@ Strict mode may produce additional compile errors that normal mode doesn't. This
 The CI workflow runs parity on `tests/parity` and `examples/basics` with `vm,llvm`:
 
 ```bash
-scripts/check_parity.sh tests/parity examples/basics
+cargo run -- parity-check tests/parity --ways vm,llvm
+cargo run -- parity-check examples/basics --ways vm,llvm
 ```
 
 ### Release preflight
@@ -236,7 +237,8 @@ scripts/check_parity.sh tests/parity examples/basics
 Before releases, the extended suite adds `vm_cached`, `vm_strict`, `llvm_strict`:
 
 ```bash
-scripts/check_parity.sh --extended tests/parity examples/basics
+cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
+cargo run -- parity-check examples/basics --ways vm,llvm,vm_cached,vm_strict,llvm_strict
 ```
 
 This is included in `scripts/release/release_check.sh`.

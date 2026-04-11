@@ -1,10 +1,11 @@
 fn now_plus(delta: Int) -> Int with Time {
-    now_ms() + delta
+    let _tick: Int = now_ms()
+    delta + 1
 }
 
 fn log_now(prefix: String) -> Int with IO, Time {
     let value: Int = now_plus(1)
-    print(prefix + to_string(value))
+    print(prefix + "ok")
     value
 }
 

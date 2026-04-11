@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
+    aether::AetherExpr,
     cfg::{
         BlockId, FunctionId, IrBlock, IrCallTarget, IrExpr, IrFunction, IrFunctionOrigin, IrInstr,
         IrMetadata, IrParam, IrTerminator, IrType, IrVar,
@@ -193,10 +194,7 @@ impl<'a> FnCtx<'a> {
 
             CoreExpr::Lam { .. } => self.lower_lam_as_closure(None, None, expr),
 
-            CoreExpr::App { func, args, span }
-            | CoreExpr::AetherCall {
-                func, args, span, ..
-            } => {
+            CoreExpr::App { func, args, span } => {
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 let dest = self.ctx.alloc_var();
                 let meta = IrMetadata::from_span(*span);
@@ -462,11 +460,326 @@ impl<'a> FnCtx<'a> {
                 dest
             }
 
-            // Dup — transparent at IR level (Rc clone is automatic), just lower the body.
-            CoreExpr::Dup { body, .. } => self.lower_expr(body),
+        }
+    }
 
-            // Drop — emit AetherDrop to signal early release, then lower the body.
-            CoreExpr::Drop { var, body, span } => {
+    /// Lower a backend-only `AetherExpr`, returning the `IrVar` that holds the result.
+    pub(super) fn lower_expr_aether(&mut self, expr: &AetherExpr) -> IrVar {
+        match expr {
+            AetherExpr::Var { var, span } => {
+                if let Some(binder) = var.binder {
+                    return self.bound_var(binder, var.name);
+                }
+                let dest = self.ctx.alloc_var();
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: IrExpr::LoadName(var.name),
+                    metadata: IrMetadata::from_span(*span),
+                });
+                dest
+            }
+            AetherExpr::Lit(lit, span) => {
+                let dest = self.ctx.alloc_var();
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: IrExpr::Const(lower_lit(lit)),
+                    metadata: IrMetadata::from_span(*span),
+                });
+                dest
+            }
+            AetherExpr::Lam { params, body, span } => {
+                self.lower_lam_as_closure_aether(None, None, params, body, *span, expr)
+            }
+            AetherExpr::App { func, args, span } => {
+                let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
+                let dest = self.ctx.alloc_var();
+                let meta = IrMetadata::from_span(*span);
+                match func.as_ref() {
+                    AetherExpr::Var { var, .. } => {
+                        if let Some(binder) = var.binder {
+                            let fv = self.bound_var(binder, var.name);
+                            self.emit(IrInstr::Call {
+                                dest,
+                                target: IrCallTarget::Var(fv),
+                                args: arg_vars,
+                                metadata: meta,
+                            });
+                            return dest;
+                        }
+                        self.emit(IrInstr::Call {
+                            dest,
+                            target: IrCallTarget::Named(var.name),
+                            args: arg_vars,
+                            metadata: meta,
+                        });
+                    }
+                    other => {
+                        let fv = self.lower_expr_aether(other);
+                        self.emit(IrInstr::Call {
+                            dest,
+                            target: IrCallTarget::Var(fv),
+                            args: arg_vars,
+                            metadata: meta,
+                        });
+                    }
+                }
+                dest
+            }
+            AetherExpr::AetherCall {
+                func, args, span, ..
+            } => {
+                let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
+                let dest = self.ctx.alloc_var();
+                let meta = IrMetadata::from_span(*span);
+
+                match func.as_ref() {
+                    AetherExpr::Var { var, .. } => {
+                        if let Some(binder) = var.binder {
+                            let fv = self.bound_var(binder, var.name);
+                            self.emit(IrInstr::Call {
+                                dest,
+                                target: IrCallTarget::Var(fv),
+                                args: arg_vars,
+                                metadata: meta,
+                            });
+                            return dest;
+                        }
+                        self.emit(IrInstr::Call {
+                            dest,
+                            target: IrCallTarget::Named(var.name),
+                            args: arg_vars,
+                            metadata: meta,
+                        });
+                    }
+                    other => {
+                        let fv = self.lower_expr_aether(other);
+                        self.emit(IrInstr::Call {
+                            dest,
+                            target: IrCallTarget::Var(fv),
+                            args: arg_vars,
+                            metadata: meta,
+                        });
+                    }
+                }
+                dest
+            }
+            AetherExpr::Let { var, rhs, body, .. } => {
+                let rhs_var = self.lower_expr_aether(rhs);
+                self.with_bound_var(var.id, var.name, rhs_var, |this| {
+                    this.lower_expr_aether(body)
+                })
+            }
+            AetherExpr::LetRec { var, rhs, body, .. } => {
+                let rhs_var = match rhs.as_ref() {
+                    AetherExpr::Lam { params, body, span } => {
+                        let placeholder = self.ctx.alloc_var();
+                        self.emit(IrInstr::Assign {
+                            dest: placeholder,
+                            expr: IrExpr::LoadName(var.name),
+                            metadata: IrMetadata::empty(),
+                        });
+                        self.with_bound_var(var.id, var.name, placeholder, |this| {
+                            this.lower_lam_as_closure_aether(
+                                Some(var.name),
+                                Some(var.id),
+                                params,
+                                body,
+                                *span,
+                                rhs.as_ref(),
+                            )
+                        })
+                    }
+                    _ => self.lower_expr_aether(rhs),
+                };
+                self.with_bound_var(var.id, var.name, rhs_var, |this| {
+                    this.lower_expr_aether(body)
+                })
+            }
+            AetherExpr::LetRecGroup {
+                bindings,
+                body,
+                span,
+            } => {
+                let mut placeholders = Vec::with_capacity(bindings.len());
+                for (var, _) in bindings {
+                    let placeholder = self.ctx.alloc_var();
+                    self.emit(IrInstr::Assign {
+                        dest: placeholder,
+                        expr: IrExpr::LoadName(var.name),
+                        metadata: IrMetadata::from_span(*span),
+                    });
+                    self.env.insert(var.id, placeholder);
+                    self.binder_names.insert(var.id, var.name);
+                    placeholders.push((var, placeholder));
+                }
+
+                let mut rhs_vars = Vec::with_capacity(bindings.len());
+                for (var, rhs) in bindings {
+                    let rhs_var = match rhs.as_ref() {
+                        AetherExpr::Lam { params, body, span } => self.lower_lam_as_closure_aether(
+                            Some(var.name),
+                            Some(var.id),
+                            params,
+                            body,
+                            *span,
+                            rhs.as_ref(),
+                        ),
+                        _ => self.lower_expr_aether(rhs),
+                    };
+                    rhs_vars.push((var, rhs_var));
+                }
+
+                for (var, rhs_var) in &rhs_vars {
+                    self.env.insert(var.id, *rhs_var);
+                }
+                let result = self.lower_expr_aether(body);
+                for (var, _) in bindings {
+                    self.env.remove(&var.id);
+                    self.binder_names.remove(&var.id);
+                }
+                result
+            }
+            AetherExpr::Case {
+                scrutinee,
+                alts,
+                span,
+            } => self.lower_case_aether(scrutinee, alts, *span),
+            AetherExpr::Con { tag, fields, span } => {
+                let field_vars: Vec<IrVar> =
+                    fields.iter().map(|f| self.lower_expr_aether(f)).collect();
+                let dest = self.ctx.alloc_var();
+                let ir_expr = match tag {
+                    CoreTag::None => IrExpr::None,
+                    CoreTag::Some => IrExpr::Some(*field_vars.first().expect("Some needs 1 field")),
+                    CoreTag::Left => IrExpr::Left(*field_vars.first().expect("Left needs 1 field")),
+                    CoreTag::Right => {
+                        IrExpr::Right(*field_vars.first().expect("Right needs 1 field"))
+                    }
+                    CoreTag::Nil => IrExpr::EmptyList,
+                    CoreTag::Cons => IrExpr::Cons {
+                        head: field_vars[0],
+                        tail: field_vars[1],
+                    },
+                    CoreTag::Named(name) => IrExpr::MakeAdt(*name, field_vars),
+                };
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: ir_expr,
+                    metadata: IrMetadata::from_span(*span),
+                });
+                dest
+            }
+            AetherExpr::PrimOp { op, args, span } => self.lower_primop(
+                op,
+                &args.iter().cloned().map(|arg| arg.into_core()).collect::<Vec<_>>(),
+                *span,
+            ),
+            AetherExpr::MemberAccess {
+                object,
+                member,
+                span,
+            } => {
+                let module_name = match object.as_ref() {
+                    AetherExpr::Var { var, .. } => Some(var.name),
+                    _ => None,
+                };
+                let obj = self.lower_expr_aether(object);
+                let dest = self.ctx.alloc_var();
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: IrExpr::MemberAccess {
+                        object: obj,
+                        member: *member,
+                        module_name,
+                    },
+                    metadata: IrMetadata::from_span(*span),
+                });
+                dest
+            }
+            AetherExpr::TupleField {
+                object,
+                index,
+                span,
+            } => {
+                let obj = self.lower_expr_aether(object);
+                let dest = self.ctx.alloc_var();
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: IrExpr::TupleFieldAccess {
+                        object: obj,
+                        index: *index,
+                    },
+                    metadata: IrMetadata::from_span(*span),
+                });
+                dest
+            }
+            AetherExpr::Return { value, span } => {
+                let ret = self.lower_expr_aether(value);
+                if self.current_block_is_open() {
+                    self.set_terminator(IrTerminator::Return(ret, IrMetadata::from_span(*span)));
+                }
+                ret
+            }
+            AetherExpr::Perform {
+                effect,
+                operation,
+                args,
+                span,
+            } => {
+                let arg_vars: Vec<IrVar> =
+                    args.iter().map(|a| self.lower_expr_aether(a)).collect();
+                let dest = self.ctx.alloc_var();
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: IrExpr::Perform {
+                        effect: *effect,
+                        operation: *operation,
+                        args: arg_vars,
+                    },
+                    metadata: IrMetadata::from_span(*span),
+                });
+                dest
+            }
+            AetherExpr::Handle {
+                body,
+                effect,
+                handlers,
+                span,
+            } => {
+                let mut scope_arms = Vec::new();
+                for h in handlers {
+                    let (fn_id, capture_vars) = self.lower_handler_arm_aether(h);
+                    scope_arms.push(crate::cfg::HandleScopeArm {
+                        operation_name: h.operation,
+                        function_id: fn_id,
+                        capture_vars,
+                    });
+                }
+                let body_block_idx = self.new_block();
+                let body_block_id = self.blocks[body_block_idx].id;
+                let cont_block_idx = self.new_block();
+                let cont_block_id = self.blocks[cont_block_idx].id;
+                let dest = self.ctx.alloc_var();
+                self.blocks[cont_block_idx]
+                    .params
+                    .push(crate::cfg::IrBlockParam { var: dest, ty: IrType::Any });
+                let meta = IrMetadata::from_span(*span);
+                self.emit(IrInstr::HandleScope {
+                    effect: *effect,
+                    arms: scope_arms,
+                    body_entry: body_block_id,
+                    body_result: dest,
+                    dest,
+                    metadata: meta.clone(),
+                });
+                self.set_terminator(IrTerminator::Jump(body_block_id, Vec::new(), meta.clone()));
+                self.current_block = body_block_idx;
+                let body_var = self.lower_expr_aether(body);
+                self.set_terminator(IrTerminator::Jump(cont_block_id, vec![body_var], meta));
+                self.current_block = cont_block_idx;
+                dest
+            }
+            AetherExpr::Drop { var, body, span } => {
                 if let Some(binder) = var.binder
                     && let Some(&ir_var) = self.env.get(&binder)
                 {
@@ -475,26 +788,23 @@ impl<'a> FnCtx<'a> {
                         metadata: IrMetadata::from_span(*span),
                     });
                 }
-                self.lower_expr(body)
+                self.lower_expr_aether(body)
             }
-
-            // Reuse — emit DropReuse + Reuse* IR to enable in-place allocation reuse.
-            CoreExpr::Reuse {
+            AetherExpr::Dup { body, .. } => self.lower_expr_aether(body),
+            AetherExpr::Reuse {
                 token,
                 tag,
                 fields,
                 field_mask,
                 span,
             } => {
-                // Step 1: Resolve token variable. If not in scope, fall back to regular Con.
                 let token_var = if let Some(binder) = token.binder
                     && let Some(&ir_var) = self.env.get(&binder)
                 {
                     ir_var
                 } else {
-                    // Token not in scope — fall back to regular Con
                     let field_vars: Vec<IrVar> =
-                        fields.iter().map(|f| self.lower_expr(f)).collect();
+                        fields.iter().map(|f| self.lower_expr_aether(f)).collect();
                     let dest = self.ctx.alloc_var();
                     let ir_expr = match tag {
                         CoreTag::None => IrExpr::None,
@@ -522,10 +832,9 @@ impl<'a> FnCtx<'a> {
                     return dest;
                 };
 
-                // Step 2: Lower fields
-                let field_vars: Vec<IrVar> = fields.iter().map(|f| self.lower_expr(f)).collect();
+                let field_vars: Vec<IrVar> =
+                    fields.iter().map(|f| self.lower_expr_aether(f)).collect();
 
-                // Step 3: Emit DropReuse to get reuse token
                 let reuse_token = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
                     dest: reuse_token,
@@ -533,7 +842,6 @@ impl<'a> FnCtx<'a> {
                     metadata: IrMetadata::from_span(*span),
                 });
 
-                // Step 4: Emit Reuse* variant with token
                 let dest = self.ctx.alloc_var();
                 let ir_expr = match tag {
                     CoreTag::Cons => IrExpr::ReuseCons {
@@ -560,7 +868,6 @@ impl<'a> FnCtx<'a> {
                         fields: field_vars,
                         field_mask: *field_mask,
                     },
-                    // Stack-allocated types can't be reused — fall back to regular Con
                     CoreTag::Nil => IrExpr::EmptyList,
                     CoreTag::None => IrExpr::None,
                 };
@@ -571,13 +878,7 @@ impl<'a> FnCtx<'a> {
                 });
                 dest
             }
-
-            // DropSpecialized — branch on uniqueness of scrutinee at runtime.
-            // Emits: is_unique = IsUnique(scrutinee)
-            //        if is_unique → unique_block (lower unique_body)
-            //        else         → shared_block (lower shared_body)
-            //        both jump to join_block with result
-            CoreExpr::DropSpecialized {
+            AetherExpr::DropSpecialized {
                 scrutinee,
                 unique_body,
                 shared_body,
@@ -591,7 +892,6 @@ impl<'a> FnCtx<'a> {
                     scrutinee.name,
                 );
 
-                // Emit IsUnique test
                 let is_unique_var = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
                     dest: is_unique_var,
@@ -599,7 +899,6 @@ impl<'a> FnCtx<'a> {
                     metadata: meta.clone(),
                 });
 
-                // Create blocks for unique path, shared path, and join
                 let saved_env = self.env.clone();
                 let saved_binder_names = self.binder_names.clone();
 
@@ -617,7 +916,6 @@ impl<'a> FnCtx<'a> {
                         ty: IrType::Any,
                     });
 
-                // Branch on uniqueness
                 self.set_terminator(IrTerminator::Branch {
                     cond: is_unique_var,
                     then_block: unique_block_id,
@@ -625,11 +923,10 @@ impl<'a> FnCtx<'a> {
                     metadata: meta.clone(),
                 });
 
-                // Lower unique body
                 self.current_block = unique_block_idx;
                 self.env = saved_env.clone();
                 self.binder_names = saved_binder_names.clone();
-                let unique_result = self.lower_expr(unique_body);
+                let unique_result = self.lower_expr_aether(unique_body);
                 if self.current_block_is_open() {
                     self.set_terminator(IrTerminator::Jump(
                         join_block_id,
@@ -638,11 +935,10 @@ impl<'a> FnCtx<'a> {
                     ));
                 }
 
-                // Lower shared body
                 self.current_block = shared_block_idx;
                 self.env = saved_env;
                 self.binder_names = saved_binder_names;
-                let shared_result = self.lower_expr(shared_body);
+                let shared_result = self.lower_expr_aether(shared_body);
                 if self.current_block_is_open() {
                     self.set_terminator(IrTerminator::Jump(
                         join_block_id,
@@ -651,7 +947,6 @@ impl<'a> FnCtx<'a> {
                     ));
                 }
 
-                // Continue in join block
                 self.current_block = join_block_idx;
                 result_var
             }

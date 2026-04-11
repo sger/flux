@@ -20,8 +20,10 @@ pub mod analysis;
 pub mod borrow_infer;
 pub mod callee;
 pub mod check_fbip;
+pub mod display;
 pub mod drop_spec;
 pub mod fbip_analysis;
+pub mod free_vars;
 pub mod fusion;
 pub mod insert;
 pub mod reuse;
@@ -29,13 +31,541 @@ pub mod reuse_analysis;
 pub mod reuse_spec;
 pub mod verify;
 
-use crate::core::{CoreExpr, CoreTag, CoreVarRef};
+use crate::core::{
+    CoreAlt, CoreBinder, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreProgram,
+    CoreTag, CoreTopLevelItem, CoreType, CoreVarRef,
+};
 use crate::diagnostics::position::Span;
+use crate::syntax::{Identifier, interner::Interner, statement::FipAnnotation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AetherBuiltinEffect {
     Io,
     Time,
+}
+
+/// Backend-only Aether lowering product.
+///
+/// This is not a second semantic IR: it is clean Core plus RC/ownership
+/// planning materialized for RC backends and debugging surfaces.
+#[derive(Debug, Clone)]
+pub struct AetherAlt {
+    pub pat: CorePat,
+    pub guard: Option<AetherExpr>,
+    pub rhs: AetherExpr,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct AetherHandler {
+    pub operation: Identifier,
+    pub params: Vec<CoreBinder>,
+    pub resume: CoreBinder,
+    pub body: AetherExpr,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum AetherExpr {
+    Var {
+        var: CoreVarRef,
+        span: Span,
+    },
+    Lit(CoreLit, Span),
+    Lam {
+        params: Vec<CoreBinder>,
+        body: Box<AetherExpr>,
+        span: Span,
+    },
+    App {
+        func: Box<AetherExpr>,
+        args: Vec<AetherExpr>,
+        span: Span,
+    },
+    AetherCall {
+        func: Box<AetherExpr>,
+        args: Vec<AetherExpr>,
+        arg_modes: Vec<crate::aether::borrow_infer::BorrowMode>,
+        span: Span,
+    },
+    Let {
+        var: CoreBinder,
+        rhs: Box<AetherExpr>,
+        body: Box<AetherExpr>,
+        span: Span,
+    },
+    LetRec {
+        var: CoreBinder,
+        rhs: Box<AetherExpr>,
+        body: Box<AetherExpr>,
+        span: Span,
+    },
+    LetRecGroup {
+        bindings: Vec<(CoreBinder, Box<AetherExpr>)>,
+        body: Box<AetherExpr>,
+        span: Span,
+    },
+    Case {
+        scrutinee: Box<AetherExpr>,
+        alts: Vec<AetherAlt>,
+        span: Span,
+    },
+    Con {
+        tag: CoreTag,
+        fields: Vec<AetherExpr>,
+        span: Span,
+    },
+    PrimOp {
+        op: CorePrimOp,
+        args: Vec<AetherExpr>,
+        span: Span,
+    },
+    MemberAccess {
+        object: Box<AetherExpr>,
+        member: Identifier,
+        span: Span,
+    },
+    TupleField {
+        object: Box<AetherExpr>,
+        index: usize,
+        span: Span,
+    },
+    Return {
+        value: Box<AetherExpr>,
+        span: Span,
+    },
+    Perform {
+        effect: Identifier,
+        operation: Identifier,
+        args: Vec<AetherExpr>,
+        span: Span,
+    },
+    Handle {
+        body: Box<AetherExpr>,
+        effect: Identifier,
+        handlers: Vec<AetherHandler>,
+        span: Span,
+    },
+    Dup {
+        var: CoreVarRef,
+        body: Box<AetherExpr>,
+        span: Span,
+    },
+    Drop {
+        var: CoreVarRef,
+        body: Box<AetherExpr>,
+        span: Span,
+    },
+    Reuse {
+        token: CoreVarRef,
+        tag: CoreTag,
+        fields: Vec<AetherExpr>,
+        field_mask: Option<u64>,
+        span: Span,
+    },
+    DropSpecialized {
+        scrutinee: CoreVarRef,
+        unique_body: Box<AetherExpr>,
+        shared_body: Box<AetherExpr>,
+        span: Span,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct AetherDef {
+    pub name: Identifier,
+    pub binder: CoreBinder,
+    pub expr: AetherExpr,
+    pub borrow_signature: Option<crate::aether::borrow_infer::BorrowSignature>,
+    pub result_ty: Option<CoreType>,
+    pub is_anonymous: bool,
+    pub is_recursive: bool,
+    pub fip: Option<FipAnnotation>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct AetherProgram {
+    pub core: CoreProgram,
+    pub defs: Vec<AetherDef>,
+    pub top_level_items: Vec<CoreTopLevelItem>,
+}
+
+impl AetherProgram {
+    pub fn from_core(core: CoreProgram) -> Self {
+        let defs = core
+            .defs
+            .iter()
+            .cloned()
+            .map(AetherDef::from_core)
+            .collect();
+        let top_level_items = core.top_level_items.clone();
+        Self {
+            core,
+            defs,
+            top_level_items,
+        }
+    }
+
+    pub fn as_core(&self) -> &CoreProgram {
+        &self.core
+    }
+
+    pub fn defs(&self) -> &[AetherDef] {
+        &self.defs
+    }
+
+    pub fn top_level_items(&self) -> &[CoreTopLevelItem] {
+        &self.top_level_items
+    }
+
+    pub fn into_core(self) -> CoreProgram {
+        self.core
+    }
+
+    pub fn new(core: CoreProgram, defs: Vec<AetherDef>, top_level_items: Vec<CoreTopLevelItem>) -> Self {
+        Self {
+            core,
+            defs,
+            top_level_items,
+        }
+    }
+}
+
+impl AetherDef {
+    pub fn from_core(def: CoreDef) -> Self {
+        Self {
+            name: def.name,
+            binder: def.binder,
+            expr: AetherExpr::from_core(def.expr),
+            borrow_signature: def.borrow_signature,
+            result_ty: def.result_ty,
+            is_anonymous: def.is_anonymous,
+            is_recursive: def.is_recursive,
+            fip: def.fip,
+            span: def.span,
+        }
+    }
+}
+
+impl AetherExpr {
+    pub fn bound_var(binder: CoreBinder, span: Span) -> Self {
+        Self::Var {
+            var: CoreVarRef::resolved(binder),
+            span,
+        }
+    }
+
+    pub fn unresolved_var(name: Identifier, span: Span) -> Self {
+        Self::Var {
+            var: CoreVarRef::unresolved(name),
+            span,
+        }
+    }
+
+    pub fn from_core(expr: CoreExpr) -> Self {
+        match expr {
+            CoreExpr::Var { var, span } => Self::Var { var, span },
+            CoreExpr::Lit(lit, span) => Self::Lit(lit, span),
+            CoreExpr::Lam { params, body, span } => Self::Lam {
+                params,
+                body: Box::new(Self::from_core(*body)),
+                span,
+            },
+            CoreExpr::App { func, args, span } => Self::App {
+                func: Box::new(Self::from_core(*func)),
+                args: args.into_iter().map(Self::from_core).collect(),
+                span,
+            },
+            CoreExpr::Let {
+                var,
+                rhs,
+                body,
+                span,
+            } => Self::Let {
+                var,
+                rhs: Box::new(Self::from_core(*rhs)),
+                body: Box::new(Self::from_core(*body)),
+                span,
+            },
+            CoreExpr::LetRec {
+                var,
+                rhs,
+                body,
+                span,
+            } => Self::LetRec {
+                var,
+                rhs: Box::new(Self::from_core(*rhs)),
+                body: Box::new(Self::from_core(*body)),
+                span,
+            },
+            CoreExpr::LetRecGroup {
+                bindings,
+                body,
+                span,
+            } => Self::LetRecGroup {
+                bindings: bindings
+                    .into_iter()
+                    .map(|(binder, rhs)| (binder, Box::new(Self::from_core(*rhs))))
+                    .collect(),
+                body: Box::new(Self::from_core(*body)),
+                span,
+            },
+            CoreExpr::Case {
+                scrutinee,
+                alts,
+                span,
+            } => Self::Case {
+                scrutinee: Box::new(Self::from_core(*scrutinee)),
+                alts: alts.into_iter().map(AetherAlt::from_core).collect(),
+                span,
+            },
+            CoreExpr::Con { tag, fields, span } => Self::Con {
+                tag,
+                fields: fields.into_iter().map(Self::from_core).collect(),
+                span,
+            },
+            CoreExpr::PrimOp { op, args, span } => Self::PrimOp {
+                op,
+                args: args.into_iter().map(Self::from_core).collect(),
+                span,
+            },
+            CoreExpr::MemberAccess {
+                object,
+                member,
+                span,
+            } => Self::MemberAccess {
+                object: Box::new(Self::from_core(*object)),
+                member,
+                span,
+            },
+            CoreExpr::TupleField {
+                object,
+                index,
+                span,
+            } => Self::TupleField {
+                object: Box::new(Self::from_core(*object)),
+                index,
+                span,
+            },
+            CoreExpr::Return { value, span } => Self::Return {
+                value: Box::new(Self::from_core(*value)),
+                span,
+            },
+            CoreExpr::Perform {
+                effect,
+                operation,
+                args,
+                span,
+            } => Self::Perform {
+                effect,
+                operation,
+                args: args.into_iter().map(Self::from_core).collect(),
+                span,
+            },
+            CoreExpr::Handle {
+                body,
+                effect,
+                handlers,
+                span,
+            } => Self::Handle {
+                body: Box::new(Self::from_core(*body)),
+                effect,
+                handlers: handlers.into_iter().map(AetherHandler::from_core).collect(),
+                span,
+            },
+        }
+    }
+
+    pub fn into_core(self) -> CoreExpr {
+        match self {
+            Self::Var { var, span } => CoreExpr::Var { var, span },
+            Self::Lit(lit, span) => CoreExpr::Lit(lit, span),
+            Self::Lam { params, body, span } => CoreExpr::Lam {
+                params,
+                body: Box::new(body.into_core()),
+                span,
+            },
+            Self::App { func, args, span } => CoreExpr::App {
+                func: Box::new(func.into_core()),
+                args: args.into_iter().map(Self::into_core).collect(),
+                span,
+            },
+            Self::Let {
+                var,
+                rhs,
+                body,
+                span,
+            } => CoreExpr::Let {
+                var,
+                rhs: Box::new(rhs.into_core()),
+                body: Box::new(body.into_core()),
+                span,
+            },
+            Self::LetRec {
+                var,
+                rhs,
+                body,
+                span,
+            } => CoreExpr::LetRec {
+                var,
+                rhs: Box::new(rhs.into_core()),
+                body: Box::new(body.into_core()),
+                span,
+            },
+            Self::LetRecGroup {
+                bindings,
+                body,
+                span,
+            } => CoreExpr::LetRecGroup {
+                bindings: bindings
+                    .into_iter()
+                    .map(|(binder, rhs)| (binder, Box::new(rhs.into_core())))
+                    .collect(),
+                body: Box::new(body.into_core()),
+                span,
+            },
+            Self::Case {
+                scrutinee,
+                alts,
+                span,
+            } => CoreExpr::Case {
+                scrutinee: Box::new(scrutinee.into_core()),
+                alts: alts.into_iter().map(AetherAlt::into_core).collect(),
+                span,
+            },
+            Self::Con { tag, fields, span } => CoreExpr::Con {
+                tag,
+                fields: fields.into_iter().map(Self::into_core).collect(),
+                span,
+            },
+            Self::PrimOp { op, args, span } => CoreExpr::PrimOp {
+                op,
+                args: args.into_iter().map(Self::into_core).collect(),
+                span,
+            },
+            Self::MemberAccess {
+                object,
+                member,
+                span,
+            } => CoreExpr::MemberAccess {
+                object: Box::new(object.into_core()),
+                member,
+                span,
+            },
+            Self::TupleField {
+                object,
+                index,
+                span,
+            } => CoreExpr::TupleField {
+                object: Box::new(object.into_core()),
+                index,
+                span,
+            },
+            Self::Return { value, span } => CoreExpr::Return {
+                value: Box::new(value.into_core()),
+                span,
+            },
+            Self::Perform {
+                effect,
+                operation,
+                args,
+                span,
+            } => CoreExpr::Perform {
+                effect,
+                operation,
+                args: args.into_iter().map(Self::into_core).collect(),
+                span,
+            },
+            Self::Handle {
+                body,
+                effect,
+                handlers,
+                span,
+            } => CoreExpr::Handle {
+                body: Box::new(body.into_core()),
+                effect,
+                handlers: handlers.into_iter().map(AetherHandler::into_core).collect(),
+                span,
+            },
+            Self::AetherCall { .. }
+            | Self::Dup { .. }
+            | Self::Drop { .. }
+            | Self::Reuse { .. }
+            | Self::DropSpecialized { .. } => {
+                panic!("Aether-only expressions cannot be projected back into semantic Core")
+            }
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Var { span, .. }
+            | Self::Lit(_, span)
+            | Self::Lam { span, .. }
+            | Self::App { span, .. }
+            | Self::AetherCall { span, .. }
+            | Self::Let { span, .. }
+            | Self::LetRec { span, .. }
+            | Self::LetRecGroup { span, .. }
+            | Self::Case { span, .. }
+            | Self::Con { span, .. }
+            | Self::PrimOp { span, .. }
+            | Self::MemberAccess { span, .. }
+            | Self::TupleField { span, .. }
+            | Self::Return { span, .. }
+            | Self::Perform { span, .. }
+            | Self::Handle { span, .. }
+            | Self::Dup { span, .. }
+            | Self::Drop { span, .. }
+            | Self::Reuse { span, .. }
+            | Self::DropSpecialized { span, .. } => *span,
+        }
+    }
+}
+
+impl AetherAlt {
+    fn from_core(alt: CoreAlt) -> Self {
+        Self {
+            pat: alt.pat,
+            guard: alt.guard.map(AetherExpr::from_core),
+            rhs: AetherExpr::from_core(alt.rhs),
+            span: alt.span,
+        }
+    }
+
+    fn into_core(self) -> CoreAlt {
+        CoreAlt {
+            pat: self.pat,
+            guard: self.guard.map(AetherExpr::into_core),
+            rhs: self.rhs.into_core(),
+            span: self.span,
+        }
+    }
+
+}
+
+impl AetherHandler {
+    fn from_core(handler: CoreHandler) -> Self {
+        Self {
+            operation: handler.operation,
+            params: handler.params,
+            resume: handler.resume,
+            body: AetherExpr::from_core(handler.body),
+            span: handler.span,
+        }
+    }
+
+    fn into_core(self) -> CoreHandler {
+        CoreHandler {
+            operation: self.operation,
+            params: self.params,
+            resume: self.resume,
+            body: self.body.into_core(),
+            span: self.span,
+        }
+    }
+
 }
 
 pub fn builtin_effect_for_name(name: &str) -> Option<AetherBuiltinEffect> {
@@ -104,48 +634,48 @@ impl std::fmt::Display for AetherStats {
     }
 }
 
-/// Walk a Core IR expression and count Dup/Drop/Reuse nodes.
-pub fn collect_stats(expr: &CoreExpr) -> AetherStats {
+/// Walk an Aether expression and count Dup/Drop/Reuse nodes.
+pub fn collect_stats(expr: &AetherExpr) -> AetherStats {
     let mut stats = AetherStats::default();
     count_nodes(expr, &mut stats);
     stats
 }
 
-fn count_nodes(expr: &CoreExpr, stats: &mut AetherStats) {
+fn count_nodes(expr: &AetherExpr, stats: &mut AetherStats) {
     match expr {
-        CoreExpr::Dup { body, .. } => {
+        AetherExpr::Dup { body, .. } => {
             stats.dups += 1;
             count_nodes(body, stats);
         }
-        CoreExpr::Drop { body, .. } => {
+        AetherExpr::Drop { body, .. } => {
             stats.drops += 1;
             count_nodes(body, stats);
         }
-        CoreExpr::Reuse { fields, .. } => {
+        AetherExpr::Reuse { fields, .. } => {
             stats.reuses += 1;
             for f in fields {
                 count_nodes(f, stats);
             }
         }
-        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
-        CoreExpr::Lam { body, .. } => count_nodes(body, stats),
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+        AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => {}
+        AetherExpr::Lam { body, .. } => count_nodes(body, stats),
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
             count_nodes(func, stats);
             for a in args {
                 count_nodes(a, stats);
             }
         }
-        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
             count_nodes(rhs, stats);
             count_nodes(body, stats);
         }
-        CoreExpr::LetRecGroup { bindings, body, .. } => {
+        AetherExpr::LetRecGroup { bindings, body, .. } => {
             for (_, rhs) in bindings {
                 count_nodes(rhs, stats);
             }
             count_nodes(body, stats);
         }
-        CoreExpr::Case {
+        AetherExpr::Case {
             scrutinee, alts, ..
         } => {
             count_nodes(scrutinee, stats);
@@ -156,7 +686,7 @@ fn count_nodes(expr: &CoreExpr, stats: &mut AetherStats) {
                 }
             }
         }
-        CoreExpr::Con { tag, fields, .. } => {
+        AetherExpr::Con { tag, fields, .. } => {
             // Count heap-allocating constructors (not Nil/None which are value types)
             if is_heap_tag(tag) {
                 stats.allocs += 1;
@@ -165,27 +695,27 @@ fn count_nodes(expr: &CoreExpr, stats: &mut AetherStats) {
                 count_nodes(f, stats);
             }
         }
-        CoreExpr::PrimOp { args, .. } => {
+        AetherExpr::PrimOp { args, .. } => {
             for a in args {
                 count_nodes(a, stats);
             }
         }
-        CoreExpr::Return { value, .. } => count_nodes(value, stats),
-        CoreExpr::Perform { args, .. } => {
+        AetherExpr::Return { value, .. } => count_nodes(value, stats),
+        AetherExpr::Perform { args, .. } => {
             for a in args {
                 count_nodes(a, stats);
             }
         }
-        CoreExpr::Handle { body, handlers, .. } => {
+        AetherExpr::Handle { body, handlers, .. } => {
             count_nodes(body, stats);
             for h in handlers {
                 count_nodes(&h.body, stats);
             }
         }
-        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+        AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
             count_nodes(object, stats);
         }
-        CoreExpr::DropSpecialized {
+        AetherExpr::DropSpecialized {
             unique_body,
             shared_body,
             ..
@@ -220,9 +750,22 @@ pub fn constructor_shape_for_tag<'a>(
         CoreExpr::App { func, args, span } => {
             constructor_app_shape_for_tag(func.as_ref(), args, *span, expected_tag)
         }
-        CoreExpr::AetherCall {
+        _ => None,
+    }
+}
+
+pub fn constructor_shape_for_tag_aether<'a>(
+    expr: &'a AetherExpr,
+    expected_tag: Option<&CoreTag>,
+) -> Option<(CoreTag, &'a [AetherExpr], Span)> {
+    match expr {
+        AetherExpr::Con { tag, fields, span } => Some((tag.clone(), fields.as_slice(), *span)),
+        AetherExpr::App { func, args, span } => {
+            constructor_app_shape_for_tag_aether(func.as_ref(), args, *span, expected_tag)
+        }
+        AetherExpr::AetherCall {
             func, args, span, ..
-        } => constructor_app_shape_for_tag(func.as_ref(), args, *span, expected_tag),
+        } => constructor_app_shape_for_tag_aether(func.as_ref(), args, *span, expected_tag),
         _ => None,
     }
 }
@@ -237,9 +780,22 @@ pub fn into_constructor_shape_for_tag(
         CoreExpr::App { func, args, span } => {
             into_constructor_app_shape_for_tag(*func, args, span, expected_tag)
         }
-        CoreExpr::AetherCall {
+        _ => None,
+    }
+}
+
+pub fn into_constructor_shape_for_tag_aether(
+    expr: AetherExpr,
+    expected_tag: Option<&CoreTag>,
+) -> Option<(CoreTag, Vec<AetherExpr>, Span)> {
+    match expr {
+        AetherExpr::Con { tag, fields, span } => Some((tag, fields, span)),
+        AetherExpr::App { func, args, span } => {
+            into_constructor_app_shape_for_tag_aether(*func, args, span, expected_tag)
+        }
+        AetherExpr::AetherCall {
             func, args, span, ..
-        } => into_constructor_app_shape_for_tag(*func, args, span, expected_tag),
+        } => into_constructor_app_shape_for_tag_aether(*func, args, span, expected_tag),
         _ => None,
     }
 }
@@ -257,6 +813,19 @@ fn constructor_app_shape_for_tag<'a>(
     Some((tag, args, span))
 }
 
+fn constructor_app_shape_for_tag_aether<'a>(
+    func: &'a AetherExpr,
+    args: &'a [AetherExpr],
+    span: Span,
+    expected_tag: Option<&CoreTag>,
+) -> Option<(CoreTag, &'a [AetherExpr], Span)> {
+    let AetherExpr::Var { var, .. } = func else {
+        return None;
+    };
+    let tag = core_tag_from_constructor_var(var, expected_tag)?;
+    Some((tag, args, span))
+}
+
 fn into_constructor_app_shape_for_tag(
     func: CoreExpr,
     args: Vec<CoreExpr>,
@@ -264,6 +833,19 @@ fn into_constructor_app_shape_for_tag(
     expected_tag: Option<&CoreTag>,
 ) -> Option<(CoreTag, Vec<CoreExpr>, Span)> {
     let CoreExpr::Var { var, .. } = func else {
+        return None;
+    };
+    let tag = core_tag_from_constructor_var(&var, expected_tag)?;
+    Some((tag, args, span))
+}
+
+fn into_constructor_app_shape_for_tag_aether(
+    func: AetherExpr,
+    args: Vec<AetherExpr>,
+    span: Span,
+    expected_tag: Option<&CoreTag>,
+) -> Option<(CoreTag, Vec<AetherExpr>, Span)> {
+    let AetherExpr::Var { var, .. } = func else {
         return None;
     };
     let tag = core_tag_from_constructor_var(&var, expected_tag)?;
@@ -293,12 +875,17 @@ fn core_tag_from_constructor_var(
 /// 5. Reuse specialization (Phase 7b) — add profitable selective-write masks
 ///
 /// This is the public entry point called from `run_core_passes`.
-pub fn run_aether_pass(expr: CoreExpr) -> CoreExpr {
-    let expr = insert::insert_dup_drop(expr);
-    let expr = drop_spec::specialize_drops(expr);
-    let expr = fusion::fuse_dup_drop(expr);
-    let expr = reuse::insert_reuse(expr);
-    reuse_spec::specialize_reuse(expr)
+pub fn run_aether_pass(expr: CoreExpr) -> AetherExpr {
+    run_aether_expr(AetherExpr::from_core(expr))
+}
+
+/// Run the full Aether pipeline on a backend-only Aether expression.
+pub fn run_aether_expr(expr: AetherExpr) -> AetherExpr {
+    let expr = insert::insert_dup_drop_aether(expr);
+    let expr = drop_spec::specialize_drops_aether(expr);
+    let expr = fusion::fuse_dup_drop_aether(expr);
+    let expr = reuse::insert_reuse_aether(expr);
+    reuse_spec::specialize_reuse_aether(expr)
 }
 
 /// Run the Aether pipeline with a borrow registry for cross-function optimization.
@@ -306,10 +893,58 @@ pub fn run_aether_pass(expr: CoreExpr) -> CoreExpr {
 pub fn run_aether_pass_with_registry(
     expr: CoreExpr,
     registry: &borrow_infer::BorrowRegistry,
-) -> CoreExpr {
-    let expr = insert::insert_dup_drop_with_registry(expr, registry);
-    let expr = drop_spec::specialize_drops(expr);
-    let expr = fusion::fuse_dup_drop(expr);
-    let expr = reuse::insert_reuse(expr);
-    reuse_spec::specialize_reuse(expr)
+) -> AetherExpr {
+    run_aether_expr_with_registry(AetherExpr::from_core(expr), registry)
+}
+
+/// Run the Aether pipeline with a borrow registry on a backend-only Aether expression.
+pub fn run_aether_expr_with_registry(
+    expr: AetherExpr,
+    registry: &borrow_infer::BorrowRegistry,
+) -> AetherExpr {
+    let expr = insert::insert_dup_drop_with_registry_aether(expr, registry);
+    let expr = drop_spec::specialize_drops_aether(expr);
+    let expr = fusion::fuse_dup_drop_aether(expr);
+    let expr = reuse::insert_reuse_aether(expr);
+    reuse_spec::specialize_reuse_aether(expr)
+}
+
+#[allow(clippy::result_large_err)]
+pub fn lower_core_to_aether_program(
+    core: &CoreProgram,
+    interner: Option<&Interner>,
+    preloaded_registry: borrow_infer::BorrowRegistry,
+) -> Result<(AetherProgram, Vec<crate::diagnostics::Diagnostic>), crate::diagnostics::Diagnostic> {
+    let mut warnings = Vec::new();
+    let mut semantic_core = core.clone();
+    let borrow_registry =
+        borrow_infer::infer_borrow_modes_with_preloaded(&mut semantic_core, interner, preloaded_registry);
+
+    let defs = semantic_core
+        .defs
+        .iter()
+        .cloned()
+        .map(|def| AetherDef {
+            name: def.name,
+            binder: def.binder,
+            expr: run_aether_expr_with_registry(AetherExpr::from_core(def.expr), &borrow_registry),
+            borrow_signature: def.borrow_signature,
+            result_ty: def.result_ty,
+            is_anonymous: def.is_anonymous,
+            is_recursive: def.is_recursive,
+            fip: def.fip,
+            span: def.span,
+        })
+        .collect();
+
+    if let Some(interner) = interner {
+        let fbip_result = check_fbip::check_fbip(&semantic_core, interner);
+        warnings.extend(fbip_result.warnings);
+        if let Some(error) = fbip_result.error {
+            return Err(error);
+        }
+    }
+
+    let top_level_items = semantic_core.top_level_items.clone();
+    Ok((AetherProgram::new(semantic_core, defs, top_level_items), warnings))
 }
