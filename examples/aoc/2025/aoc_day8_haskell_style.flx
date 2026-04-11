@@ -1,7 +1,7 @@
 // Advent of Code - Day 8 (Haskell-style, JIT-friendly)
 // Keeps day08a/day08b naming while using the pruned-edge approach
 // from existing Flux Day 8 examples for performance.
-// Uses input file: examples/io/aoc_day8.txt
+// Uses input file: examples/aoc/2025/aoc_day8.txt
 
 import Flow.Array as Array
 
@@ -169,8 +169,8 @@ fn run_limit(points, limit) {
     })
 
     let sorted_keys = Array.sort(keys)
-    let parents0 = range(0, n)
-    let sizes0 = map(range(0, n), \_ -> 1)
+    let parents0 = to_array(range(0, n))
+    let sizes0 = to_array(map(range(0, n), \_ -> 1))
     let state0 = dsu_state(parents0, sizes0, n, -1, -1)
     let state1 = fold(sorted_keys, state0, \(st, k) -> union_key(st, k))
 
@@ -190,8 +190,8 @@ fn run_day08a(points, max_dist) {
     let sorted_keys = Array.sort(keys)
     let top_keys = slice(sorted_keys, 0, 1000)
 
-    let parents0 = range(0, n)
-    let sizes0 = map(range(0, n), \_ -> 1)
+    let parents0 = to_array(range(0, n))
+    let sizes0 = to_array(map(range(0, n), \_ -> 1))
     let state0 = dsu_state(parents0, sizes0, n, -1, -1)
     let state1 = fold(top_keys, state0, \(st, k) -> union_key(st, k))
 
@@ -231,7 +231,7 @@ fn day08b(points) {
     solve_day08b(points, 188000000, 40000000000)
 }
 
-let lines = read_lines("examples/io/aoc_day8.txt")
+let lines = read_lines("examples/aoc/2025/aoc_day8.txt")
 let points = parse_points(lines, 0, [||])
 
 print(day08a(points))

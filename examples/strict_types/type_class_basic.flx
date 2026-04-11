@@ -1,0 +1,19 @@
+// Type class declarations — parser integration test.
+// This file verifies that class and instance declarations parse correctly
+// and pass through the full pipeline (Core IR, CFG, VM).
+
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool
+}
+
+instance Eq<Int> {
+    fn eq(x, y) { x == y }
+}
+
+instance Eq<String> {
+    fn eq(x, y) { x == y }
+}
+
+fn main() with IO {
+    print(42)
+}

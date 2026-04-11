@@ -12,7 +12,6 @@ use super::{
     CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp,
     CoreProgram, CoreTag, CoreVarRef,
 };
-use crate::aether::borrow_infer::BorrowMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoreDisplayMode {
@@ -132,33 +131,6 @@ impl<'a> Formatter<'a> {
                 }
                 out.push(')');
             }
-            CoreExpr::AetherCall {
-                func,
-                args,
-                arg_modes,
-                ..
-            } => {
-                out.push_str("aether_call[");
-                for (i, mode) in arg_modes.iter().enumerate() {
-                    if i > 0 {
-                        out.push_str(", ");
-                    }
-                    out.push_str(match mode {
-                        BorrowMode::Borrowed => "borrowed",
-                        BorrowMode::Owned => "owned",
-                    });
-                }
-                out.push_str("] ");
-                self.write_expr(out, func, indent);
-                out.push('(');
-                for (i, a) in args.iter().enumerate() {
-                    if i > 0 {
-                        out.push_str(", ");
-                    }
-                    self.write_expr_inline(out, a, indent);
-                }
-                out.push(')');
-            }
             CoreExpr::Let { var, rhs, body, .. } => {
                 write!(out, "let {} = ", self.resolve_binder(var)).unwrap();
                 self.write_expr_inline(out, rhs, indent);
@@ -169,6 +141,22 @@ impl<'a> Formatter<'a> {
             CoreExpr::LetRec { var, rhs, body, .. } => {
                 write!(out, "letrec {} = ", self.resolve_binder(var)).unwrap();
                 self.write_expr_inline(out, rhs, indent);
+                out.push('\n');
+                push_indent(out, indent);
+                self.write_expr(out, body, indent);
+            }
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                write!(out, "letrec {{").unwrap();
+                for (var, rhs) in bindings {
+                    out.push('\n');
+                    push_indent(out, indent + 1);
+                    write!(out, "{} = ", self.resolve_binder(var)).unwrap();
+                    self.write_expr_inline(out, rhs, indent + 1);
+                    out.push(';');
+                }
+                out.push('\n');
+                push_indent(out, indent);
+                out.push_str("} in");
                 out.push('\n');
                 push_indent(out, indent);
                 self.write_expr(out, body, indent);
@@ -250,60 +238,6 @@ impl<'a> Formatter<'a> {
                 push_indent(out, indent + 2);
                 self.write_expr(out, body, indent + 2);
             }
-            CoreExpr::Dup { var, body, .. } => {
-                write!(out, "dup {}", self.resolve_var(var)).unwrap();
-                out.push('\n');
-                push_indent(out, indent);
-                self.write_expr(out, body, indent);
-            }
-            CoreExpr::Drop { var, body, .. } => {
-                write!(out, "drop {}", self.resolve_var(var)).unwrap();
-                out.push('\n');
-                push_indent(out, indent);
-                self.write_expr(out, body, indent);
-            }
-            CoreExpr::Reuse {
-                token,
-                tag,
-                fields,
-                field_mask,
-                ..
-            } => {
-                write!(out, "reuse {} ", self.resolve_var(token)).unwrap();
-                self.write_tag(out, tag);
-                if !fields.is_empty() {
-                    out.push('(');
-                    for (i, f) in fields.iter().enumerate() {
-                        if i > 0 {
-                            out.push_str(", ");
-                        }
-                        self.write_expr_inline(out, f, indent);
-                    }
-                    out.push(')');
-                }
-                if let Some(mask) = field_mask {
-                    write!(out, " @mask={:#b}", mask).unwrap();
-                }
-            }
-            CoreExpr::DropSpecialized {
-                scrutinee,
-                unique_body,
-                shared_body,
-                ..
-            } => {
-                write!(out, "drop_spec {} {{", self.resolve_var(scrutinee)).unwrap();
-                out.push('\n');
-                push_indent(out, indent + 2);
-                out.push_str("unique -> ");
-                self.write_expr(out, unique_body, indent + 4);
-                out.push('\n');
-                push_indent(out, indent + 2);
-                out.push_str("shared -> ");
-                self.write_expr(out, shared_body, indent + 4);
-                out.push('\n');
-                push_indent(out, indent);
-                out.push('}');
-            }
             CoreExpr::MemberAccess { object, member, .. } => {
                 self.write_expr_inline(out, object, indent);
                 out.push('.');
@@ -322,6 +256,7 @@ impl<'a> Formatter<'a> {
             CoreExpr::Lam { .. }
                 | CoreExpr::Let { .. }
                 | CoreExpr::LetRec { .. }
+                | CoreExpr::LetRecGroup { .. }
                 | CoreExpr::Case { .. }
                 | CoreExpr::Return { .. }
                 | CoreExpr::Handle { .. }
@@ -600,12 +535,13 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::CmpNe => out.push_str("CmpNe"),
         CorePrimOp::Try => out.push_str("Try"),
         CorePrimOp::AssertThrows => out.push_str("AssertThrows"),
-        CorePrimOp::Reverse => out.push_str("Reverse"),
-        CorePrimOp::Contains => out.push_str("Contains"),
+        CorePrimOp::ArrayReverse => out.push_str("ArrayReverse"),
+        CorePrimOp::ArrayContains => out.push_str("ArrayContains"),
         CorePrimOp::Sort => out.push_str("Sort"),
         CorePrimOp::SortBy => out.push_str("SortBy"),
         CorePrimOp::HoMap => out.push_str("HoMap"),
         CorePrimOp::HoFilter => out.push_str("HoFilter"),
+        CorePrimOp::HoFold => out.push_str("HoFold"),
         CorePrimOp::HoAny => out.push_str("HoAny"),
         CorePrimOp::HoAll => out.push_str("HoAll"),
         CorePrimOp::HoEach => out.push_str("HoEach"),
@@ -624,6 +560,9 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::YieldPrompt => out.push_str("YieldPrompt"),
         CorePrimOp::IsYielding => out.push_str("IsYielding"),
         CorePrimOp::PerformDirect => out.push_str("PerformDirect"),
+        CorePrimOp::Unwrap => out.push_str("Unwrap"),
+        CorePrimOp::SafeDiv => out.push_str("SafeDiv"),
+        CorePrimOp::SafeMod => out.push_str("SafeMod"),
     }
 }
 

@@ -9,7 +9,13 @@ You must install it locally once.
 
 ## Install Locally
 
-From the repo root:
+### Windows (PowerShell)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\vscode-flux\scripts\install-local.ps1
+```
+
+### macOS / Linux
 
 ```bash
 bash tools/vscode-flux/scripts/install-local.sh
@@ -17,24 +23,28 @@ bash tools/vscode-flux/scripts/install-local.sh
 
 Then restart VS Code.
 
-## Build VSIX (recommended for WSL + Windows)
+## Build VSIX (alternative)
 
-From the repo root:
+### Windows
+
+```powershell
+python tools\vscode-flux\scripts\build-vsix.py
+```
+
+### macOS / Linux
 
 ```bash
 python3 tools/vscode-flux/scripts/build-vsix.py
 ```
 
-Generated file:
-
-`tools/vscode-flux/dist/flux-language-0.0.1.vsix`
+Generated file: `tools/vscode-flux/dist/flux-language-0.0.4.vsix`
 
 Install in VS Code:
 
 1. Open Extensions view.
 2. Click `...` (top-right).
 3. `Install from VSIX...`
-4. Choose `tools/vscode-flux/dist/flux-language-0.0.1.vsix`.
+4. Choose `tools/vscode-flux/dist/flux-language-0.0.4.vsix`.
 5. Reload window.
 
 ## Verify

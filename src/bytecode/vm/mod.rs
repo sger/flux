@@ -15,6 +15,7 @@ mod dispatch;
 mod function_call;
 mod index_ops;
 mod primop;
+pub mod profiling;
 pub mod test_runner;
 mod trace;
 
@@ -77,6 +78,10 @@ pub struct VM {
     tail_arg_scratch: Vec<Slot>,
     /// Active effect handlers pushed by OpHandle / popped by OpEndHandle.
     pub(crate) handler_stack: Vec<HandlerFrame>,
+    /// Profiling state — only active when `--prof` is passed.
+    pub(crate) profiling: bool,
+    pub(crate) cost_centres: Vec<profiling::CostCentre>,
+    pub(crate) cc_stack: Vec<profiling::CostCentreStackEntry>,
 }
 
 impl VM {
@@ -96,11 +101,61 @@ impl VM {
             trace: false,
             tail_arg_scratch: Vec::new(),
             handler_stack: Vec::new(),
+            profiling: false,
+            cost_centres: Vec::new(),
+            cc_stack: Vec::new(),
         }
     }
 
     pub fn set_trace(&mut self, enabled: bool) {
         self.trace = enabled;
+    }
+
+    pub fn set_profiling(&mut self, enabled: bool, infos: Vec<profiling::CostCentreInfo>) {
+        self.profiling = enabled;
+        self.cost_centres = infos
+            .into_iter()
+            .map(|info| profiling::CostCentre {
+                name: info.name,
+                module: info.module,
+                ..Default::default()
+            })
+            .collect();
+    }
+
+    #[inline(always)]
+    fn enter_cost_centre(&mut self, idx: u16) {
+        let i = idx as usize;
+        if i < self.cost_centres.len() {
+            self.cost_centres[i].entries += 1;
+            self.cc_stack.push(profiling::CostCentreStackEntry {
+                cc_index: idx,
+                enter_time: std::time::Instant::now(),
+                child_time_ns: 0,
+            });
+        }
+    }
+
+    #[inline(always)]
+    fn exit_cost_centre(&mut self) {
+        if let Some(entry) = self.cc_stack.pop() {
+            let elapsed = entry.enter_time.elapsed().as_nanos() as u64;
+            let self_time = elapsed.saturating_sub(entry.child_time_ns);
+            let i = entry.cc_index as usize;
+            if i < self.cost_centres.len() {
+                self.cost_centres[i].time_ns += elapsed;
+                self.cost_centres[i].inner_time_ns += entry.child_time_ns;
+            }
+            // Attribute this function's total time as child time of the parent.
+            if let Some(parent) = self.cc_stack.last_mut() {
+                parent.child_time_ns += elapsed;
+            }
+            let _ = self_time; // used for individual time in the report
+        }
+    }
+
+    pub fn print_profile_report(&self, execute_ns: u64) {
+        profiling::print_profile_report(&self.cost_centres, execute_ns);
     }
 
     /// Create a closure that acts as the identity function: `fn(x) -> x`.

@@ -112,6 +112,7 @@ define_tokens! {
         Hash      => "#",
         At        => "@",
         Arrow     => "->",
+        FatArrow  => "=>",
         LeftArrow => "<-",
         Backslash => "\\",
         InterpolationStart => "#{",
@@ -143,5 +144,8 @@ define_tokens! {
         Effect => "effect",
         Handle => "handle",
         Perform => "perform",
+        Class => "class",
+        Instance => "instance",
+        Deriving => "deriving",
     }
 }

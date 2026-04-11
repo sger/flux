@@ -1,5 +1,6 @@
 ---
 source: tests/snapshots/bytecode/mod.rs
+assertion_line: 112
 expression: output
 ---
 Constants:
@@ -13,9 +14,9 @@ Instructions:
 0004 OpSetGlobal 0
 0007 OpGetGlobal 0
 0010 OpConstant 2
-0013 OpCall 1
-0015 OpSetGlobal 1
-0018 OpGetGlobal 1
-0021 OpConstant 3
-0024 OpCall 1
-0026 OpPop
+0013 OpCall1 
+0014 OpSetGlobal 1
+0017 OpGetGlobal 1
+0020 OpConstant 3
+0023 OpCall1 
+0024 OpPop

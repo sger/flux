@@ -30,9 +30,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `range`.
 
-  examples/aoc/2025/aoc_day6_part2.flx:93:16
+  examples/aoc/2025/aoc_day6_part2.flx:94:16
    |
-93 |     let cols = range(start, stop)
+94 |     let cols = range(start, stop)
    |                ^^^^^
 
 Hint:
@@ -43,93 +43,27 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/aoc/2025/aoc_day6_part2.flx:95:23
+  examples/aoc/2025/aoc_day6_part2.flx:96:23
    |
-95 |         let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
+96 |         let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
   Define it first: let map = ...;
 
 
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 4th argument to `col_value`.
-
-  examples/aoc/2025/aoc_day6_part2.flx:95:56
-   |
-81 | fn col_value(lines, num_rows, col, empty_default) {
-82 |     let digits = [
-83 |     char_at_pad(line_at(lines, row), col)
-84 |     | row <- range(0, num_rows),
-85 |     char_at_pad(line_at(lines, row), col) != " "
-86 |     ]
-87 |     if len(digits) == 0 { empty_default } else { parse_int(join(digits, "")) }
-88 | }
-89 | 
-90 | fn eval_problem(lines, num_rows, start, stop) {
-... |
-93 |     let cols = range(start, stop)
-94 |     if op == "*" {
-95 |         let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
-   |                                                        ^
-   |                                                        - this argument has type `Int`
-
-Note:
-  expected argument type: Option<Int>
-  found argument type: Int
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
-
-Help:
-  Wrap this value in `Some(...)` or return `None`.
-
-
 error[E004]: Undefined Variable
 
 I can't find a value named `product`.
 
-  examples/aoc/2025/aoc_day6_part2.flx:96:9
+  examples/aoc/2025/aoc_day6_part2.flx:97:9
    |
-96 |         product(factors)
+97 |         product(factors)
    |         ^^^^^^^
 
 Hint:
   Define it first: let product = ...;
 
-
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 4th argument to `col_value`.
-
-  examples/aoc/2025/aoc_day6_part2.flx:98:50
-   |
-81 | fn col_value(lines, num_rows, col, empty_default) {
-82 |     let digits = [
-83 |     char_at_pad(line_at(lines, row), col)
-84 |     | row <- range(0, num_rows),
-85 |     char_at_pad(line_at(lines, row), col) != " "
-86 |     ]
-87 |     if len(digits) == 0 { empty_default } else { parse_int(join(digits, "")) }
-88 | }
-89 | 
-90 | fn eval_problem(lines, num_rows, start, stop) {
-... |
-96 |         product(factors)
-97 |     } else {
-98 |     let terms = [col_value(lines, num_rows, col, 0) | col <- cols]
-   |                                                  ^
-   |                                                  - this argument has type `Int`
-
-Note:
-  expected argument type: Option<Int>
-  found argument type: Int
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
-
-Help:
-  Wrap this value in `Some(...)` or return `None`.
-
-Found 6 errors.
+Found 4 errors.
 == stdout ==
 <not executed>

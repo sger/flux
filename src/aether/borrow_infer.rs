@@ -289,6 +289,23 @@ fn register_explicit_named_fallbacks(
             BorrowSignature::all(BorrowMode::Owned, arity, BorrowProvenance::Imported),
         );
     }
+
+    // Invariant B (Proposal 0151 Phase 5): Register __dict_* dictionary globals
+    // as zero-arity Inferred so they don't fall through to Unknown.
+    // Dictionaries are MakeTuple values (not callees), but registering them
+    // prevents the Unknown classification when their Var appears in Core IR.
+    if let Some(interner) = interner {
+        for def in &program.defs {
+            if let Some(name_str) = interner.try_resolve(def.name)
+                && name_str.starts_with("__dict_")
+            {
+                registry.insert_named_if_absent(
+                    def.name,
+                    BorrowSignature::new(Vec::new(), BorrowProvenance::Inferred),
+                );
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -387,7 +404,7 @@ fn collect_local_callees(
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
         CoreExpr::Lam { body, .. } => collect_local_callees(body, def_ids, out),
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+        CoreExpr::App { func, args, .. } => {
             if let CoreExpr::Var { var, .. } = func.as_ref()
                 && let Some(binder) = var.binder
                 && def_ids.contains(&binder)
@@ -401,6 +418,12 @@ fn collect_local_callees(
         }
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
             collect_local_callees(rhs, def_ids, out);
+            collect_local_callees(body, def_ids, out);
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                collect_local_callees(rhs, def_ids, out);
+            }
             collect_local_callees(body, def_ids, out);
         }
         CoreExpr::Case {
@@ -431,24 +454,8 @@ fn collect_local_callees(
                 collect_local_callees(&handler.body, def_ids, out);
             }
         }
-        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
-            collect_local_callees(body, def_ids, out)
-        }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             collect_local_callees(object, def_ids, out)
-        }
-        CoreExpr::Reuse { fields, .. } => {
-            for field in fields {
-                collect_local_callees(field, def_ids, out);
-            }
-        }
-        CoreExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => {
-            collect_local_callees(unique_body, def_ids, out);
-            collect_local_callees(shared_body, def_ids, out);
         }
     }
 }
@@ -573,25 +580,7 @@ fn collect_param_constraints(
                 target, func, args, None, registry, group_set, constraint,
             );
         }
-        CoreExpr::AetherCall {
-            func,
-            args,
-            arg_modes,
-            ..
-        } => {
-            collect_call_param_constraints(
-                target,
-                func,
-                args,
-                Some(arg_modes),
-                registry,
-                group_set,
-                constraint,
-            );
-        }
-        CoreExpr::Con { fields, .. }
-        | CoreExpr::Reuse { fields, .. }
-        | CoreExpr::Perform { args: fields, .. } => {
+        CoreExpr::Con { fields, .. } | CoreExpr::Perform { args: fields, .. } => {
             for field in fields {
                 collect_param_constraints(target, field, registry, group_set, constraint);
             }
@@ -618,6 +607,14 @@ fn collect_param_constraints(
                 collect_param_constraints(target, body, registry, group_set, constraint);
             }
         }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            if !bindings.iter().any(|(b, _)| b.id == target) {
+                for (_, rhs) in bindings {
+                    collect_param_constraints(target, rhs, registry, group_set, constraint);
+                }
+                collect_param_constraints(target, body, registry, group_set, constraint);
+            }
+        }
         CoreExpr::Handle { body, handlers, .. } => {
             collect_param_constraints(target, body, registry, group_set, constraint);
             for handler in handlers {
@@ -627,25 +624,8 @@ fn collect_param_constraints(
                 collect_param_constraints(target, &handler.body, registry, group_set, constraint);
             }
         }
-        CoreExpr::Dup { var, body, .. } => {
-            if var.binder == Some(target) {
-                constraint.force_owned = true;
-            }
-            collect_param_constraints(target, body, registry, group_set, constraint);
-        }
-        CoreExpr::Drop { body, .. } => {
-            collect_param_constraints(target, body, registry, group_set, constraint);
-        }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             collect_param_constraints(target, object, registry, group_set, constraint);
-        }
-        CoreExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => {
-            collect_param_constraints(target, unique_body, registry, group_set, constraint);
-            collect_param_constraints(target, shared_body, registry, group_set, constraint);
         }
     }
 }
@@ -731,7 +711,7 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
         CoreExpr::Lam { body, .. } => collect_unresolved_callees(body, unresolved),
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+        CoreExpr::App { func, args, .. } => {
             if let CoreExpr::Var { var, .. } = func.as_ref()
                 && var.binder.is_none()
             {
@@ -747,6 +727,12 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
         }
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
             collect_unresolved_callees(rhs, unresolved);
+            collect_unresolved_callees(body, unresolved);
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                collect_unresolved_callees(rhs, unresolved);
+            }
             collect_unresolved_callees(body, unresolved);
         }
         CoreExpr::Case {
@@ -777,24 +763,8 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
                 collect_unresolved_callees(&handler.body, unresolved);
             }
         }
-        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
-            collect_unresolved_callees(body, unresolved)
-        }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             collect_unresolved_callees(object, unresolved)
-        }
-        CoreExpr::Reuse { fields, .. } => {
-            for field in fields {
-                collect_unresolved_callees(field, unresolved);
-            }
-        }
-        CoreExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => {
-            collect_unresolved_callees(unique_body, unresolved);
-            collect_unresolved_callees(shared_body, unresolved);
         }
     }
 }
@@ -1267,10 +1237,43 @@ mod tests {
     }
 
     #[test]
+    fn reuse_token_forces_parameter_owned() {
+        let mut interner = Interner::new();
+        let push_binder = binder(1, interner.intern("push"));
+        let q = binder(2, interner.intern("q"));
+        let value = binder(3, interner.intern("value"));
+        let array_push = interner.intern("array_push");
+
+        let push_def = def(
+            push_binder,
+            vec![q, value],
+            CoreExpr::App {
+                func: Box::new(ext_var(array_push)),
+                args: vec![var_ref(q), var_ref(value)],
+                span: span(),
+            },
+            false,
+        );
+
+        let mut program = CoreProgram {
+            defs: vec![push_def],
+            top_level_items: Vec::new(),
+        };
+        let registry = infer_borrow_modes(&mut program, Some(&interner));
+        assert_eq!(
+            registry
+                .lookup_binder(push_binder.id)
+                .expect("push signature")
+                .params,
+            vec![BorrowMode::Owned, BorrowMode::Owned]
+        );
+    }
+
+    #[test]
     fn base_runtime_entries_use_explicit_metadata() {
         let mut interner = Interner::new();
         let len = interner.intern("len");
-        let push = interner.intern("push");
+        let array_push = interner.intern("array_push");
         let main = binder(1, interner.intern("main"));
         let xs = binder(2, interner.intern("xs"));
         let push_main = binder(3, interner.intern("push_main"));
@@ -1292,7 +1295,7 @@ mod tests {
                     push_main,
                     vec![ys, value],
                     CoreExpr::App {
-                        func: Box::new(ext_var(push)),
+                        func: Box::new(ext_var(array_push)),
                         args: vec![var_ref(ys), var_ref(value)],
                         span: span(),
                     },
@@ -1309,8 +1312,8 @@ mod tests {
         );
         assert_eq!(
             registry
-                .lookup_name(push)
-                .expect("push signature")
+                .lookup_name(array_push)
+                .expect("array_push signature")
                 .provenance,
             BorrowProvenance::BaseRuntime
         );
@@ -1319,8 +1322,8 @@ mod tests {
             "len should borrow its argument"
         );
         assert!(
-            !registry.is_borrowed(BorrowCallee::BaseRuntime(push), 0),
-            "push should own at least its array argument"
+            !registry.is_borrowed(BorrowCallee::BaseRuntime(array_push), 0),
+            "array_push should own at least its array argument"
         );
     }
 

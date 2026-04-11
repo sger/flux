@@ -1,0 +1,5 @@
+module MultiEffectTracerExample.Flow.Tracer {
+    public class Tracer<h> {
+        fn trace(hnd: h, msg: String) -> Unit with IO, Time
+    }
+}

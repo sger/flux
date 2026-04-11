@@ -1,0 +1,20 @@
+// Default method test.
+// The Eq class provides a default implementation for `neq`.
+// The instance only needs to implement `eq` — `neq` is inherited.
+
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool
+    fn neq(x: a, y: a) -> Bool { !eq(x, y) }
+}
+
+instance Eq<Int> {
+    fn eq(x, y) { x == y }
+}
+
+fn main() with IO {
+    print(eq(1, 1))
+    print(eq(1, 2))
+    // neq uses the default implementation from the class
+    print(neq(1, 1))
+    print(neq(1, 2))
+}

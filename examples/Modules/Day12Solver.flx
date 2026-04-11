@@ -41,7 +41,7 @@ module Modules.Day12Solver {
         }
     }
 
-    fn day12a(input_lines) {
+    public fn day12a(input_lines) {
         let block_sizes = P.parse_block_sizes(input_lines)
         let areas = P.parse_areas(input_lines)
         count_valid_areas(block_sizes, areas, 0, 0)

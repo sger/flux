@@ -9,13 +9,13 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Day12Solver` to import.
 
-  examples/aoc/2025/aoc_day12_haskell_style_using_modules.flx:1:1
+  examples/aoc/2025/aoc_day12_haskell_style_using_modules.flx:3:1
   |
-1 | import Modules.Day12Solver as Day12
+3 | import Modules.Day12Solver as Day12
   | ^
 
 Hint:
   Check that: 1) The module file exists (e.g., `Modules.Day12Solver.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Modules.Day12Solver` under roots: examples/aoc/2025, src (imported from examples/aoc/2025/aoc_day12_haskell_style_using_modules.flx).
+  Looked for module `Modules.Day12Solver` under roots: examples/aoc/2025, lib, src (imported from examples/aoc/2025/aoc_day12_haskell_style_using_modules.flx).
 == stdout ==
 <not executed>

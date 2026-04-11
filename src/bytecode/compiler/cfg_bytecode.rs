@@ -7,6 +7,7 @@ use crate::cfg::{
 };
 use crate::{
     bytecode::op_code::OpCode,
+    bytecode::symbol_scope::SymbolScope,
     diagnostics::{Diagnostic, DiagnosticBuilder},
     runtime::{handler_descriptor::HandlerDescriptor, value::Value},
     syntax::symbol::Symbol,
@@ -152,7 +153,7 @@ impl Compiler {
                     let Some(else_index) = block_indices.get(else_block).copied() else {
                         return false;
                     };
-                    if then_index != index + 1 || else_index <= index {
+                    if then_index <= index || else_index <= index {
                         return false;
                     }
                     if !function.blocks[then_index].params.is_empty()
@@ -263,7 +264,10 @@ impl Compiler {
                         pending_jumps.push((jump_pos, *target));
                     }
                     IrTerminator::Branch {
-                        cond, else_block, ..
+                        cond,
+                        then_block,
+                        else_block,
+                        ..
                     } => {
                         let cond_binding = bindings.get(cond).ok_or_else(|| {
                             Self::boxed(Diagnostic::warning(
@@ -274,6 +278,8 @@ impl Compiler {
                         let false_jump = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
                         pending_jumps.push((false_jump, *else_block));
                         false_target_blocks.insert(*else_block);
+                        let true_jump = self.emit(OpCode::OpJump, &[9999]);
+                        pending_jumps.push((true_jump, *then_block));
                     }
                     IrTerminator::Unreachable(_) => {
                         return Err(Self::boxed(Diagnostic::warning(
@@ -361,7 +367,12 @@ impl Compiler {
                 let ops: Vec<_> = arms.iter().map(|a| a.operation_name).collect();
                 let descriptor = HandlerDescriptor {
                     effect: *effect,
+                    effect_name: this.sym(*effect).to_string().into(),
                     ops,
+                    op_names: arms
+                        .iter()
+                        .map(|a| this.sym(a.operation_name).to_string().into_boxed_str())
+                        .collect(),
                     is_discard: false, // TODO: detect from evidence pass
                 };
                 let const_idx = this.add_constant(Value::HandlerDescriptor(Rc::new(descriptor)));
@@ -903,17 +914,25 @@ impl Compiler {
                 Ok(())
             }
             IrExpr::Index { left, index } => {
-                self.load_symbol(bindings.get(left).ok_or_else(|| {
+                let left_binding = bindings.get(left).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning(
                         "missing CFG bytecode index left binding",
                     ))
-                })?);
-                self.load_symbol(bindings.get(index).ok_or_else(|| {
+                })?;
+                let index_binding = bindings.get(index).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning(
                         "missing CFG bytecode index right binding",
                     ))
-                })?);
-                self.emit(OpCode::OpIndex, &[]);
+                })?;
+
+                if left_binding.symbol_scope == SymbolScope::Local {
+                    self.load_symbol(index_binding);
+                    self.emit(OpCode::OpGetLocalIndex, &[left_binding.index]);
+                } else {
+                    self.load_symbol(left_binding);
+                    self.load_symbol(index_binding);
+                    self.emit(OpCode::OpIndex, &[]);
+                }
                 Ok(())
             }
             IrExpr::LoadName(name) => {
@@ -1025,7 +1044,8 @@ impl Compiler {
 
                 // Effect checking and PrimOp emission for named tail calls.
                 if let Some(ref name_str) = callee_name_str
-                    && let Some(primop) = crate::core::CorePrimOp::from_name(name_str, args.len())
+                    && let Some(primop) = Self::resolve_library_primop(name_str, args.len())
+                        .or_else(|| crate::core::CorePrimOp::from_name(name_str, args.len()))
                 {
                     let required = match primop.effect_kind() {
                         crate::core::PrimEffect::Io => Some("IO"),
@@ -1118,7 +1138,11 @@ impl Compiler {
                     })?);
                 }
                 if is_self {
-                    this.emit(OpCode::OpTailCall, &[args.len()]);
+                    if args.len() == 1 {
+                        this.emit(OpCode::OpTailCall1, &[]);
+                    } else {
+                        this.emit(OpCode::OpTailCall, &[args.len()]);
+                    }
                 } else {
                     this.emit(OpCode::OpCall, &[args.len()]);
                     this.emit(OpCode::OpReturnValue, &[]);
@@ -1150,7 +1174,8 @@ impl Compiler {
         // effectful base functions (e.g. print, read_file) have the required
         // effect available in the surrounding scope.
         if let Some(ref name_str) = target_name_str
-            && let Some(primop) = crate::core::CorePrimOp::from_name(name_str, args.len())
+            && let Some(primop) = Self::resolve_library_primop(name_str, args.len())
+                .or_else(|| crate::core::CorePrimOp::from_name(name_str, args.len()))
         {
             let required = match primop.effect_kind() {
                 crate::core::PrimEffect::Io => Some("IO"),

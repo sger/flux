@@ -1,0 +1,4 @@
+fn main() with IO {
+    let x = None
+    print(x["name"])
+}

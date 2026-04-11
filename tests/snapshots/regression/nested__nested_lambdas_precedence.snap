@@ -4,6 +4,12 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/nested/nested_lambdas_precedence.flx
 exit_code: 1
 
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
 • 3 errors • tests/fixtures/nested/nested_lambdas_precedence.flx
 error[E413]: Top-Level Effect
 

@@ -34,7 +34,7 @@ pub(super) fn free_vars_rec(
                 bound.remove(&p.id);
             }
         }
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+        CoreExpr::App { func, args, .. } => {
             free_vars_rec(func, bound, free);
             for a in args {
                 free_vars_rec(a, bound, free);
@@ -54,6 +54,21 @@ pub(super) fn free_vars_rec(
             free_vars_rec(body, bound, free);
             if is_new {
                 bound.remove(&var.id);
+            }
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            // All binders are bound before visiting any RHS
+            let new_binders: Vec<_> = bindings
+                .iter()
+                .filter(|(var, _)| bound.insert(var.id))
+                .map(|(var, _)| var.id)
+                .collect();
+            for (_, rhs) in bindings {
+                free_vars_rec(rhs, bound, free);
+            }
+            free_vars_rec(body, bound, free);
+            for id in new_binders {
+                bound.remove(&id);
             }
         }
         CoreExpr::Case {
@@ -110,38 +125,6 @@ pub(super) fn free_vars_rec(
                     bound.remove(&b);
                 }
             }
-        }
-        CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
-            if let Some(binder) = var.binder
-                && !bound.contains(&binder)
-            {
-                free.insert(binder);
-            }
-            free_vars_rec(body, bound, free);
-        }
-        CoreExpr::Reuse { token, fields, .. } => {
-            if let Some(binder) = token.binder
-                && !bound.contains(&binder)
-            {
-                free.insert(binder);
-            }
-            for f in fields {
-                free_vars_rec(f, bound, free);
-            }
-        }
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
-            if let Some(binder) = scrutinee.binder
-                && !bound.contains(&binder)
-            {
-                free.insert(binder);
-            }
-            free_vars_rec(unique_body, bound, free);
-            free_vars_rec(shared_body, bound, free);
         }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             free_vars_rec(object, bound, free);

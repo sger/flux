@@ -7,6 +7,13 @@ status: 1
 stdout:
 <empty>
 stderr:
+[1 of 8] Compiling  Assert
+[2 of 8] Compiling  IO
+[3 of 8] Compiling  List
+[4 of 8] Compiling  Numeric
+[5 of 8] Compiling  Option
+[6 of 8] Compiling  String
+[7 of 8] Compiling  BoundaryUnknown
 • 1 error • examples/runtime_errors/boundary_arg_string_into_int.flx
 error[E300]: Argument Type Mismatch
 
@@ -36,6 +43,13 @@ status: 1
 stdout:
 <empty>
 stderr:
+[1 of 8] Compiling  Assert
+[2 of 8] Compiling  IO
+[3 of 8] Compiling  List
+[4 of 8] Compiling  Numeric
+[5 of 8] Compiling  Option
+[6 of 8] Compiling  String
+[7 of 8] Compiling  BoundaryUnknown
 • 1 error • examples/runtime_errors/boundary_arg_string_into_int.flx
 error[E300]: Argument Type Mismatch
 

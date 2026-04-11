@@ -6,14 +6,16 @@
 
 use std::collections::HashMap;
 
-use crate::core::{CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreTag, CoreVarRef};
+use crate::core::{CoreBinder, CoreBinderId, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
 
 use super::analysis::{
-    AetherEnv, AetherPlan, ValueDemand, join_branch_envs, pat_binders, use_counts,
+    AetherEnv, AetherPlan, ValueDemand, join_branch_envs, pat_binders, use_counts_aether,
 };
 use super::borrow_infer::{BorrowMode, BorrowRegistry};
-use super::constructor_shape_for_tag;
+use super::{AetherAlt as CoreAlt, AetherExpr, AetherHandler, constructor_shape_for_tag_aether};
+
+type CoreExpr = AetherExpr;
 
 type Scope = HashMap<CoreBinderId, CoreBinder>;
 
@@ -39,6 +41,11 @@ pub fn insert_dup_drop(expr: CoreExpr) -> CoreExpr {
     .expr
 }
 
+/// Insert Dup/Drop annotations into a backend-only Aether expression.
+pub fn insert_dup_drop_aether(expr: CoreExpr) -> CoreExpr {
+    insert_dup_drop(expr)
+}
+
 /// Insert Dup/Drop annotations, consulting the borrow registry to skip
 /// Rc::clone for arguments passed to borrowed parameters.
 pub fn insert_dup_drop_with_registry(expr: CoreExpr, registry: &BorrowRegistry) -> CoreExpr {
@@ -53,6 +60,12 @@ pub fn insert_dup_drop_with_registry(expr: CoreExpr, registry: &BorrowRegistry) 
         &mut field_parents,
     )
     .expr
+}
+
+/// Insert Dup/Drop annotations into a backend-only Aether expression,
+/// consulting the borrow registry to skip unnecessary clones.
+pub fn insert_dup_drop_with_registry_aether(expr: CoreExpr, registry: &BorrowRegistry) -> CoreExpr {
+    insert_dup_drop_with_registry(expr, registry)
 }
 
 fn plan_expr(
@@ -76,6 +89,17 @@ fn plan_expr(
             span,
         } => {
             scope.insert(var.id, var);
+
+            // Track field→parent for TupleField access (e.g. `let total = st.2`).
+            // This prevents the parent from being dropped while the field
+            // binder is still live (use-after-free on borrowed field).
+            if let CoreExpr::TupleField { object, .. } = rhs.as_ref()
+                && let CoreExpr::Var { var: obj_var, .. } = object.as_ref()
+                && let Some(parent_id) = obj_var.binder
+            {
+                field_parents.insert(var.id, (parent_id, None));
+            }
+
             let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
             let binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
@@ -94,6 +118,7 @@ fn plan_expr(
                 field_parents,
             );
             scope.remove(&var.id);
+            field_parents.remove(&var.id);
 
             let mut env_before = rhs_plan.env_before;
             env_before.remove(var.id);
@@ -145,6 +170,50 @@ fn plan_expr(
                     span,
                 },
                 env_before,
+            }
+        }
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => {
+            for (var, _) in &bindings {
+                scope.insert(var.id, *var);
+            }
+            let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
+            let mut body_expr = body_plan.expr;
+            // Insert drops for unused bindings
+            for (var, _) in bindings.iter().rev() {
+                let bd = binder_demand(&body_plan.env_before, var.id);
+                if bd == ValueDemand::Ignore {
+                    body_expr = wrap_drop(*var, body_expr, span);
+                }
+            }
+
+            let mut env = body_plan.env_before.clone();
+            let mut new_bindings = Vec::with_capacity(bindings.len());
+            for (var, rhs) in bindings.into_iter().rev() {
+                let bd = binder_demand(&env, var.id);
+                let mut rhs_tail = env.clone();
+                rhs_tail.remove(var.id);
+                let rhs_plan = plan_expr(*rhs, rhs_tail, bd, registry, scope, field_parents);
+                env = rhs_plan.env_before;
+                env.remove(var.id);
+                new_bindings.push((var, Box::new(rhs_plan.expr)));
+            }
+            new_bindings.reverse();
+
+            for (var, _) in new_bindings.iter() {
+                scope.remove(&var.id);
+            }
+
+            AetherPlan {
+                expr: CoreExpr::LetRecGroup {
+                    bindings: new_bindings,
+                    body: Box::new(body_expr),
+                    span,
+                },
+                env_before: env,
             }
         }
         CoreExpr::Lam { params, body, span } => {
@@ -246,9 +315,34 @@ fn plan_expr(
         CoreExpr::AetherCall {
             func,
             args,
-            arg_modes,
+            arg_modes: existing_arg_modes,
             span,
         } => {
+            let resolved_callee = registry.and_then(|reg| match func.as_ref() {
+                CoreExpr::Var { var, .. } => Some(reg.classify_var_ref(var).borrow_callee),
+                CoreExpr::MemberAccess { object, member, .. } => match object.as_ref() {
+                    CoreExpr::Var { var, .. } => {
+                        Some(reg.resolve_member_access_callee(var.name, *member))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            });
+            let arg_modes: Vec<_> = if let Some(reg) = registry {
+                (0..args.len())
+                    .map(|index| {
+                        let borrowed =
+                            resolved_callee.is_some_and(|callee| reg.is_borrowed(callee, index));
+                        if borrowed {
+                            BorrowMode::Borrowed
+                        } else {
+                            BorrowMode::Owned
+                        }
+                    })
+                    .collect()
+            } else {
+                existing_arg_modes.clone()
+            };
             let (args, env_after_args) =
                 plan_expr_list(args, tail_env, registry, scope, field_parents, |index| {
                     match arg_modes[index] {
@@ -546,7 +640,7 @@ fn plan_expr(
                 env_before.remove_all(shadow_ids);
                 incoming_envs.push(env_before);
 
-                planned_handlers.push(crate::core::CoreHandler {
+                planned_handlers.push(AetherHandler {
                     operation: handler.operation,
                     params: handler.params,
                     resume: handler.resume,
@@ -800,6 +894,10 @@ fn binder_demand(env: &AetherEnv, binder: CoreBinderId) -> ValueDemand {
 }
 
 fn wrap_drop(binder: CoreBinder, body: CoreExpr, span: Span) -> CoreExpr {
+    // Unboxed primitives (Int, Float, Bool) don't need reference counting.
+    if !binder.rep.needs_rc() {
+        return body;
+    }
     CoreExpr::Drop {
         var: CoreVarRef::resolved(binder),
         body: Box::new(body),
@@ -808,6 +906,10 @@ fn wrap_drop(binder: CoreBinder, body: CoreExpr, span: Span) -> CoreExpr {
 }
 
 fn wrap_dups(binder: CoreBinder, body: CoreExpr, span: Span, n: usize) -> CoreExpr {
+    // Unboxed primitives (Int, Float, Bool) don't need reference counting.
+    if !binder.rep.needs_rc() {
+        return body;
+    }
     let mut result = body;
     for _ in 0..n {
         result = CoreExpr::Dup {
@@ -879,8 +981,8 @@ fn find_con_tag_in_spine(
 ) -> Option<crate::core::CoreTag> {
     match expr {
         CoreExpr::Reuse { tag, .. } => Some(tag.clone()),
-        _ if constructor_shape_for_tag(expr, expected_tag).is_some() => {
-            constructor_shape_for_tag(expr, expected_tag).map(|(tag, _, _)| tag)
+        _ if constructor_shape_for_tag_aether(expr, expected_tag).is_some() => {
+            constructor_shape_for_tag_aether(expr, expected_tag).map(|(tag, _, _)| tag)
         }
         CoreExpr::Case { alts, .. } => alts
             .iter()
@@ -904,7 +1006,7 @@ fn tags_shape_compatible(a: &CoreTag, b: &CoreTag) -> bool {
 }
 
 fn expr_uses_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
-    use_counts(expr).get(&binder).copied().unwrap_or(0) > 0
+    use_counts_aether(expr).get(&binder).copied().unwrap_or(0) > 0
 }
 
 fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
@@ -914,6 +1016,12 @@ fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
         }
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
             expr_drops_binder(rhs, binder) || expr_drops_binder(body, binder)
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            bindings
+                .iter()
+                .any(|(_, rhs)| expr_drops_binder(rhs, binder))
+                || expr_drops_binder(body, binder)
         }
         CoreExpr::Lam { body, .. }
         | CoreExpr::Dup { body, .. }
@@ -959,9 +1067,10 @@ fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::aether::borrow_infer::{BorrowMode, BorrowRegistry};
-    use crate::core::{
-        CoreBinder, CoreBinderId, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreVarRef,
+    use crate::aether::{
+        AetherAlt as CoreAlt, AetherExpr as CoreExpr, AetherHandler as CoreHandler,
     };
+    use crate::core::{CoreBinder, CoreBinderId, CoreLit, CorePat, CorePrimOp, CoreVarRef};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 
@@ -994,6 +1103,13 @@ mod tests {
             }
             CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
                 count_binder_nodes(rhs, binder, predicate)
+                    + count_binder_nodes(body, binder, predicate)
+            }
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                bindings
+                    .iter()
+                    .map(|(_, rhs)| count_binder_nodes(rhs, binder, predicate))
+                    .sum::<usize>()
                     + count_binder_nodes(body, binder, predicate)
             }
             CoreExpr::Case {
@@ -1193,7 +1309,7 @@ mod tests {
             body: Box::new(CoreExpr::Case {
                 scrutinee: Box::new(CoreExpr::Lit(CoreLit::Bool(true), Span::default())),
                 alts: vec![
-                    crate::core::CoreAlt {
+                    CoreAlt {
                         pat: CorePat::Lit(CoreLit::Bool(true)),
                         guard: None,
                         rhs: CoreExpr::App {
@@ -1206,7 +1322,7 @@ mod tests {
                         },
                         span: Span::default(),
                     },
-                    crate::core::CoreAlt {
+                    CoreAlt {
                         pat: CorePat::Wildcard,
                         guard: None,
                         rhs: CoreExpr::Lit(CoreLit::Int(0), Span::default()),

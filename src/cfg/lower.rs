@@ -9,7 +9,7 @@ use crate::{
         block::Block,
         expression::{ExprId, Expression, MatchArm, Pattern, StringPart},
         program::Program,
-        statement::Statement,
+        statement::{FunctionTypeParam, Statement},
     },
     types::{infer_type::InferType, type_constructor::TypeConstructor},
 };
@@ -390,7 +390,9 @@ impl<'a> FunctionLoweringContext<'a> {
             | Statement::Module { .. }
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
-            | Statement::LetDestructure { .. } => Ok(None),
+            | Statement::LetDestructure { .. }
+            | Statement::Class { .. }
+            | Statement::Instance { .. } => Ok(None),
         }
     }
 
@@ -2503,7 +2505,7 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
         } => Ok(IrTopLevelItem::Function {
             is_public: *is_public,
             name: *name,
-            type_params: type_params.clone(),
+            type_params: Statement::function_type_param_names(type_params),
             function_id: None,
             parameters: parameters.clone(),
             parameter_types: parameter_types.clone(),
@@ -2540,10 +2542,14 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
             span: *span,
         }),
         Statement::Data {
+            // Proposal 0151: ADT visibility is enforced at the class
+            // visibility walker; the IR layer is visibility-blind.
+            is_public: _,
             name,
             type_params,
             variants,
             span,
+            deriving: _,
         } => Ok(IrTopLevelItem::Data {
             name: *name,
             type_params: type_params.clone(),
@@ -2553,6 +2559,37 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
         Statement::EffectDecl { name, ops, span } => Ok(IrTopLevelItem::EffectDecl {
             name: *name,
             ops: ops.clone(),
+            span: *span,
+        }),
+        Statement::Class {
+            // Proposal 0151: visibility is enforced in higher-level passes
+            // (class collection, name resolution). The cfg/IR layer is
+            // visibility-blind, so we drop the field here.
+            is_public: _,
+            name,
+            type_params,
+            superclasses,
+            methods,
+            span,
+        } => Ok(IrTopLevelItem::Class {
+            name: *name,
+            type_params: type_params.clone(),
+            superclasses: superclasses.clone(),
+            methods: methods.clone(),
+            span: *span,
+        }),
+        Statement::Instance {
+            is_public: _,
+            class_name,
+            type_args,
+            context,
+            methods,
+            span,
+        } => Ok(IrTopLevelItem::Instance {
+            class_name: *class_name,
+            type_args: type_args.clone(),
+            context: context.clone(),
+            methods: methods.clone(),
             span: *span,
         }),
     }
@@ -2611,7 +2648,13 @@ pub(crate) fn ir_top_level_item_to_statement(
         } => Statement::Function {
             is_public: *is_public,
             name: *name,
-            type_params: type_params.clone(),
+            type_params: type_params
+                .iter()
+                .map(|name| FunctionTypeParam {
+                    name: *name,
+                    constraints: vec![],
+                })
+                .collect(),
             parameters: parameters.clone(),
             parameter_types: parameter_types.clone(),
             return_type: return_type.clone(),
@@ -2655,14 +2698,52 @@ pub(crate) fn ir_top_level_item_to_statement(
             variants,
             span,
         } => Statement::Data {
+            // IR layer doesn't carry ADT visibility — defaults to private
+            // when reconstructing the AST. Visibility checks happen before
+            // IR lowering, so this is safe.
+            is_public: false,
             name: *name,
             type_params: type_params.clone(),
             variants: variants.clone(),
             span: *span,
+            deriving: vec![],
         },
         IrTopLevelItem::EffectDecl { name, ops, span } => Statement::EffectDecl {
             name: *name,
             ops: ops.clone(),
+            span: *span,
+        },
+        IrTopLevelItem::Class {
+            name,
+            type_params,
+            superclasses,
+            methods,
+            span,
+        } => Statement::Class {
+            // Proposal 0151: cfg/IR is visibility-blind, so the round-trip
+            // through IR loses the original `is_public` value. This function
+            // is `#[allow(dead_code)]` and reserved for future use; if it
+            // becomes load-bearing for visibility-sensitive paths, the IR
+            // type must grow an `is_public` field too.
+            is_public: false,
+            name: *name,
+            type_params: type_params.clone(),
+            superclasses: superclasses.clone(),
+            methods: methods.clone(),
+            span: *span,
+        },
+        IrTopLevelItem::Instance {
+            class_name,
+            type_args,
+            context,
+            methods,
+            span,
+        } => Statement::Instance {
+            is_public: false,
+            class_name: *class_name,
+            type_args: type_args.clone(),
+            context: context.clone(),
+            methods: methods.clone(),
             span: *span,
         },
     }

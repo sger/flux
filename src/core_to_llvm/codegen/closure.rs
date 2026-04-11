@@ -1,13 +1,10 @@
-use crate::{
-    core_to_llvm::{
-        CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl,
-        LlvmFunction, LlvmFunctionSig, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand,
-        LlvmTerminator, LlvmType, LlvmTypeDef, LlvmValueKind,
-    },
-    runtime::nanbox::NanTag,
+use crate::core_to_llvm::{
+    CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl, LlvmFunction,
+    LlvmFunctionSig, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType,
+    LlvmTypeDef, LlvmValueKind,
 };
 
-use super::prelude::{FluxNanboxLayout, has_function, helper_attrs};
+use super::prelude::{has_function, helper_attrs};
 
 pub const FLUX_CLOSURE_TYPE_NAME: &str = "FluxClosure";
 pub const FLUX_CLOSURE_HEADER_SIZE: i64 = 24;
@@ -17,6 +14,7 @@ pub const FLUX_CLOSURE_REMAINING_ARITY_FIELD: u32 = 1;
 pub const FLUX_CLOSURE_CAPTURE_COUNT_FIELD: u32 = 2;
 pub const FLUX_CLOSURE_APPLIED_COUNT_FIELD: u32 = 3;
 pub const FLUX_CLOSURE_PAYLOAD_FIELD: u32 = 5;
+pub const FLUX_OBJ_CLOSURE_TAG: i32 = 0xF5;
 
 pub fn flux_closure_symbol(name: &str) -> GlobalId {
     GlobalId(name.to_string())
@@ -25,7 +23,10 @@ pub fn flux_closure_symbol(name: &str) -> GlobalId {
 pub fn emit_closure_support(module: &mut LlvmModule) {
     emit_closure_type(module);
     emit_gc_alloc_decl(module);
+    emit_gc_alloc_header_decl(module);
+    emit_dup_decl(module);
     emit_copy_helper(module);
+    emit_retain_helper(module);
     emit_tag_boxed_ptr(module);
     emit_untag_boxed_ptr(module);
     emit_make_closure(module);
@@ -47,9 +48,12 @@ pub fn closure_entry_sig() -> LlvmFunctionSig {
     }
 }
 
+/// With pointer tagging, boxed pointers don't need extra tag bits.
+/// This function is kept for backward compatibility but returns 0
+/// (no extra bits to OR in — the pointer value IS the tagged representation).
+#[allow(dead_code)]
 pub fn boxed_nanbox_tag_bits() -> i64 {
-    (FluxNanboxLayout::NANBOX_SENTINEL_U64
-        | ((NanTag::BoxedValue as u64) << FluxNanboxLayout::TAG_SHIFT)) as i64
+    0
 }
 
 fn emit_closure_type(module: &mut LlvmModule) {
@@ -98,13 +102,49 @@ fn emit_gc_alloc_decl(module: &mut LlvmModule) {
     });
 }
 
+fn emit_gc_alloc_header_decl(module: &mut LlvmModule) {
+    let name = "flux_gc_alloc_header";
+    if module.declarations.iter().any(|decl| decl.name.0 == name) {
+        return;
+    }
+    module.declarations.push(LlvmDecl {
+        linkage: Linkage::External,
+        name: flux_closure_symbol(name),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::ptr(),
+            params: vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i32()],
+            varargs: false,
+            call_conv: CallConv::Ccc,
+        },
+        attrs: vec![],
+    });
+}
+
+fn emit_dup_decl(module: &mut LlvmModule) {
+    let name = "flux_dup";
+    if has_function(module, name) || module.declarations.iter().any(|decl| decl.name.0 == name) {
+        return;
+    }
+    module.declarations.push(LlvmDecl {
+        linkage: Linkage::External,
+        name: flux_closure_symbol(name),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::Void,
+            params: vec![LlvmType::i64()],
+            varargs: false,
+            call_conv: CallConv::Ccc,
+        },
+        attrs: vec!["nounwind".into()],
+    });
+}
+
 fn emit_copy_helper(module: &mut LlvmModule) {
     let name = "flux_copy_i64s";
     if has_function(module, name) {
         return;
     }
     module.functions.push(LlvmFunction {
-        linkage: Linkage::Internal,
+        linkage: Linkage::External,
         name: flux_closure_symbol(name),
         sig: LlvmFunctionSig {
             ret: LlvmType::Void,
@@ -206,11 +246,112 @@ fn emit_copy_helper(module: &mut LlvmModule) {
     });
 }
 
+fn emit_retain_helper(module: &mut LlvmModule) {
+    let name = "flux_retain_i64s";
+    if has_function(module, name) {
+        return;
+    }
+    module.functions.push(LlvmFunction {
+        linkage: Linkage::External,
+        name: flux_closure_symbol(name),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::Void,
+            params: vec![LlvmType::ptr(), LlvmType::i32()],
+            varargs: false,
+            call_conv: CallConv::Fastcc,
+        },
+        params: vec![LlvmLocal("src".into()), LlvmLocal("count".into())],
+        attrs: vec![],
+        blocks: vec![
+            LlvmBlock {
+                label: LabelId("entry".into()),
+                instrs: vec![LlvmInstr::Icmp {
+                    dst: LlvmLocal("empty".into()),
+                    op: LlvmCmpOp::Eq,
+                    ty: LlvmType::i32(),
+                    lhs: local("count"),
+                    rhs: const_i32_operand(0),
+                }],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("empty"),
+                    then_label: LabelId("done".into()),
+                    else_label: LabelId("loop".into()),
+                },
+            },
+            LlvmBlock {
+                label: LabelId("loop".into()),
+                instrs: vec![
+                    LlvmInstr::Phi {
+                        dst: LlvmLocal("idx".into()),
+                        ty: LlvmType::i32(),
+                        incoming: vec![
+                            (const_i32_operand(0), LabelId("entry".into())),
+                            (
+                                LlvmOperand::Local(LlvmLocal("idx.next".into())),
+                                LabelId("loop".into()),
+                            ),
+                        ],
+                    },
+                    LlvmInstr::GetElementPtr {
+                        dst: LlvmLocal("src.slot".into()),
+                        inbounds: true,
+                        element_ty: LlvmType::i64(),
+                        base: local("src"),
+                        indices: vec![(LlvmType::i32(), local("idx"))],
+                    },
+                    LlvmInstr::Load {
+                        dst: LlvmLocal("value".into()),
+                        ty: LlvmType::i64(),
+                        ptr: local("src.slot"),
+                        align: Some(8),
+                    },
+                    LlvmInstr::Call {
+                        dst: None,
+                        tail: false,
+                        call_conv: Some(CallConv::Ccc),
+                        ret_ty: LlvmType::Void,
+                        callee: LlvmOperand::Global(flux_closure_symbol("flux_dup")),
+                        args: vec![(LlvmType::i64(), local("value"))],
+                        attrs: vec!["nounwind".into()],
+                    },
+                    LlvmInstr::Binary {
+                        dst: LlvmLocal("idx.next".into()),
+                        op: LlvmValueKind::Add,
+                        ty: LlvmType::i32(),
+                        lhs: local("idx"),
+                        rhs: const_i32_operand(1),
+                    },
+                    LlvmInstr::Icmp {
+                        dst: LlvmLocal("keep".into()),
+                        op: LlvmCmpOp::Slt,
+                        ty: LlvmType::i32(),
+                        lhs: local("idx.next"),
+                        rhs: local("count"),
+                    },
+                ],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("keep"),
+                    then_label: LabelId("loop".into()),
+                    else_label: LabelId("done".into()),
+                },
+            },
+            LlvmBlock {
+                label: LabelId("done".into()),
+                instrs: vec![],
+                term: LlvmTerminator::RetVoid,
+            },
+        ],
+    });
+}
+
 fn emit_tag_boxed_ptr(module: &mut LlvmModule) {
     let name = "flux_tag_boxed_ptr";
     if has_function(module, name) {
         return;
     }
+    // With pointer tagging, tagging a pointer is just ptrtoint.
     module.functions.push(LlvmFunction {
         linkage: Linkage::Internal,
         name: flux_closure_symbol(name),
@@ -224,36 +365,13 @@ fn emit_tag_boxed_ptr(module: &mut LlvmModule) {
         attrs: helper_attrs(),
         blocks: vec![LlvmBlock {
             label: LabelId("entry".into()),
-            instrs: vec![
-                LlvmInstr::Cast {
-                    dst: LlvmLocal("addr".into()),
-                    op: LlvmValueKind::PtrToInt,
-                    from_ty: LlvmType::ptr(),
-                    operand: local("ptr"),
-                    to_ty: LlvmType::i64(),
-                },
-                LlvmInstr::Binary {
-                    dst: LlvmLocal("shifted".into()),
-                    op: LlvmValueKind::LShr,
-                    ty: LlvmType::i64(),
-                    lhs: local("addr"),
-                    rhs: const_i64_operand(3),
-                },
-                LlvmInstr::Binary {
-                    dst: LlvmLocal("payload".into()),
-                    op: LlvmValueKind::And,
-                    ty: LlvmType::i64(),
-                    lhs: local("shifted"),
-                    rhs: const_i64_operand(FluxNanboxLayout::payload_mask_i64()),
-                },
-                LlvmInstr::Binary {
-                    dst: LlvmLocal("tagged".into()),
-                    op: LlvmValueKind::Or,
-                    ty: LlvmType::i64(),
-                    lhs: local("payload"),
-                    rhs: const_i64_operand(boxed_nanbox_tag_bits()),
-                },
-            ],
+            instrs: vec![LlvmInstr::Cast {
+                dst: LlvmLocal("tagged".into()),
+                op: LlvmValueKind::PtrToInt,
+                from_ty: LlvmType::ptr(),
+                operand: local("ptr"),
+                to_ty: LlvmType::i64(),
+            }],
             term: LlvmTerminator::Ret {
                 ty: LlvmType::i64(),
                 value: local("tagged"),
@@ -267,6 +385,7 @@ fn emit_untag_boxed_ptr(module: &mut LlvmModule) {
     if has_function(module, name) {
         return;
     }
+    // With pointer tagging, untagging a pointer is just inttoptr.
     module.functions.push(LlvmFunction {
         linkage: Linkage::Internal,
         name: flux_closure_symbol(name),
@@ -280,29 +399,13 @@ fn emit_untag_boxed_ptr(module: &mut LlvmModule) {
         attrs: helper_attrs(),
         blocks: vec![LlvmBlock {
             label: LabelId("entry".into()),
-            instrs: vec![
-                LlvmInstr::Binary {
-                    dst: LlvmLocal("payload".into()),
-                    op: LlvmValueKind::And,
-                    ty: LlvmType::i64(),
-                    lhs: local("value"),
-                    rhs: const_i64_operand(FluxNanboxLayout::payload_mask_i64()),
-                },
-                LlvmInstr::Binary {
-                    dst: LlvmLocal("addr".into()),
-                    op: LlvmValueKind::Shl,
-                    ty: LlvmType::i64(),
-                    lhs: local("payload"),
-                    rhs: const_i64_operand(3),
-                },
-                LlvmInstr::Cast {
-                    dst: LlvmLocal("ptr".into()),
-                    op: LlvmValueKind::IntToPtr,
-                    from_ty: LlvmType::i64(),
-                    operand: local("addr"),
-                    to_ty: LlvmType::ptr(),
-                },
-            ],
+            instrs: vec![LlvmInstr::Cast {
+                dst: LlvmLocal("ptr".into()),
+                op: LlvmValueKind::IntToPtr,
+                from_ty: LlvmType::i64(),
+                operand: local("value"),
+                to_ty: LlvmType::ptr(),
+            }],
             term: LlvmTerminator::Ret {
                 ty: LlvmType::ptr(),
                 value: local("ptr"),
@@ -370,8 +473,12 @@ fn emit_make_closure(module: &mut LlvmModule) {
                     tail: false,
                     call_conv: Some(CallConv::Ccc),
                     ret_ty: LlvmType::ptr(),
-                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc")),
-                    args: vec![(LlvmType::i32(), local("size"))],
+                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc_header")),
+                    args: vec![
+                        (LlvmType::i32(), local("size")),
+                        (LlvmType::i32(), local("payload_count")),
+                        (LlvmType::i32(), const_i32_operand(FLUX_OBJ_CLOSURE_TAG)),
+                    ],
                     attrs: vec![],
                 },
                 LlvmInstr::GetElementPtr {
@@ -477,6 +584,18 @@ fn emit_make_closure(module: &mut LlvmModule) {
                     ],
                     attrs: vec![],
                 },
+                LlvmInstr::Call {
+                    dst: None,
+                    tail: false,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::Void,
+                    callee: LlvmOperand::Global(flux_closure_symbol("flux_retain_i64s")),
+                    args: vec![
+                        (LlvmType::ptr(), local("payload")),
+                        (LlvmType::i32(), local("capture_count")),
+                    ],
+                    attrs: vec![],
+                },
                 LlvmInstr::GetElementPtr {
                     dst: LlvmLocal("applied.dst".into()),
                     inbounds: true,
@@ -493,6 +612,18 @@ fn emit_make_closure(module: &mut LlvmModule) {
                     args: vec![
                         (LlvmType::ptr(), local("applied.dst")),
                         (LlvmType::ptr(), local("applied_values")),
+                        (LlvmType::i32(), local("applied_count")),
+                    ],
+                    attrs: vec![],
+                },
+                LlvmInstr::Call {
+                    dst: None,
+                    tail: false,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::Void,
+                    callee: LlvmOperand::Global(flux_closure_symbol("flux_retain_i64s")),
+                    args: vec![
+                        (LlvmType::ptr(), local("applied.dst")),
                         (LlvmType::i32(), local("applied_count")),
                     ],
                     attrs: vec![],
@@ -892,6 +1023,7 @@ pub(super) fn const_i32_operand(value: i32) -> LlvmOperand {
     })
 }
 
+#[allow(dead_code)]
 pub(super) fn const_i64_operand(value: i64) -> LlvmOperand {
     LlvmOperand::Const(LlvmConst::Int {
         bits: 64,
@@ -914,9 +1046,11 @@ mod tests {
         assert!(rendered.contains("%FluxClosure = type {ptr, i32, i32, i32, i32, [0 x i64]}"));
         assert!(rendered.contains("declare ccc ptr @flux_gc_alloc(i32)"));
         assert!(rendered.contains("define internal fastcc i64 @flux_tag_boxed_ptr(ptr %ptr)"));
-        assert!(rendered.contains("lshr i64 %addr, 3"));
+        // With pointer tagging, tag_boxed_ptr is just ptrtoint
+        assert!(rendered.contains("%tagged = ptrtoint ptr %ptr to i64"));
         assert!(rendered.contains("define internal fastcc ptr @flux_untag_boxed_ptr(i64 %value)"));
-        assert!(rendered.contains("shl i64 %payload, 3"));
+        // With pointer tagging, untag_boxed_ptr is just inttoptr
+        assert!(rendered.contains("%ptr = inttoptr i64 %value to ptr"));
     }
 
     #[test]
@@ -926,7 +1060,9 @@ mod tests {
         let rendered = render_module(&module);
 
         assert!(rendered.contains("define internal fastcc i64 @flux_make_closure("));
-        assert!(rendered.contains("call ccc ptr @flux_gc_alloc(i32 %size)"));
+        assert!(rendered.contains(
+            "call ccc ptr @flux_gc_alloc_header(i32 %size, i32 %payload_count, i32 245)"
+        ));
         assert!(rendered.contains("call fastcc void @flux_copy_i64s("));
         assert!(rendered.contains("define internal fastcc i64 @flux_call_closure(i64 %closure_value, ptr %args, i32 %nargs)"));
         assert!(

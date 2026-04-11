@@ -1,0 +1,39 @@
+// Dictionary elaboration: concrete call-site resolution.
+//
+// Tests that the dictionary elaboration pipeline works end-to-end:
+// - class/instance declarations generate __tc_* mangled functions
+// - __dict_* CoreDefs are built as MakeTuple of mangled refs
+// - Monomorphic calls resolve directly to mangled functions
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Sizeable<String> {
+    fn size(x) { len(x) }
+}
+
+fn double_size_int(x) {
+    size(x) * 2
+}
+
+fn double_size_str(x) {
+    size(x) * 2
+}
+
+fn main() with IO {
+    // Direct class method calls (monomorphic dispatch):
+    print(size(42))
+    print(size("hello"))
+
+    // Through wrapper functions:
+    print(double_size_int(10))
+    print(double_size_str("world"))
+
+    // Combined:
+    print(size(100) + size("flux"))
+}

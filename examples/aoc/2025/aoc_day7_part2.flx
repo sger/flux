@@ -1,7 +1,7 @@
 // Advent of Code - Day 7 Part 2 (Laboratories)
 // Quantum manifold: one particle, timelines split at each splitter (^).
 // Count total completed timelines.
-// Input: examples/io/aoc_day7.txt
+// Input: examples/aoc/2025/aoc_day7.txt
 
 fn main() with IO, Time {
     fn line_at(arr, idx) {
@@ -40,8 +40,11 @@ fn add_at(arr, idx, delta) {
 }
 }
 
+fn zeros_acc(i, n, acc) {
+    if i >= n { acc } else { zeros_acc(i + 1, n, push(acc, 0)) }
+}
 fn zeros(n) {
-    map(range(0, n), \_ -> 0)
+    zeros_acc(0, n, [||])
 }
 
 fn max_width(lines, i, cur) {
@@ -67,11 +70,11 @@ fn find_s_in_row(s, i) {
 
 fn find_s(lines, r) {
     if r >= len(lines) {
-        [|-1, -1|]
+        (-1, -1)
     } else {
     let c = find_s_in_row(line_at(lines, r), 0)
     if c >= 0 {
-        [|r, c|]
+        (r, c)
     } else {
     find_s(lines, r + 1)
 }
@@ -133,11 +136,11 @@ fn simulate(lines, row_idx, width, active_counts, finished) {
 }
 }
 
-let input7 = read_lines("examples/io/aoc_day7.txt")
+let input7 = read_lines("examples/aoc/2025/aoc_day7.txt")
 let width7 = max_width(input7, 0, 0)
 let s7 = find_s(input7, 0)
-let srow7 = int_at(s7, 0)
-let scol7 = int_at(s7, 1)
+let srow7 = s7.0
+let scol7 = s7.1
 let start_counts7 = add_at(zeros(width7), scol7, 1)
 print(simulate(input7, srow7, width7, start_counts7, 0))
 }

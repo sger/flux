@@ -1,0 +1,24 @@
+import EqAuditLogExample.Flow.Comparable as Comparable
+import EqAuditLogExample.Flow.AuditLog as AuditLog
+
+module EqAuditLogExample.App.Users {
+    public data UserId { Id(Int) }
+
+    public fn id(x: Int) -> UserId {
+        Id(x)
+    }
+
+    public instance Comparable<UserId> {
+        fn same(a, b) with AuditLog {
+            perform AuditLog.record("comparing users")
+            match (a, b) {
+                (Id(x), Id(y)) -> x == y,
+                _ -> false
+            }
+        }
+    }
+
+    public fn users_equal(a: UserId, b: UserId) -> Bool with AuditLog {
+        Comparable.same(a, b)
+    }
+}

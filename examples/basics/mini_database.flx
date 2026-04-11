@@ -1,3 +1,5 @@
+import Flow.Array as Array
+
 fn opt_eq(opt, value) {
     match opt {
         Some(v) -> v == value,
@@ -6,15 +8,23 @@ fn opt_eq(opt, value) {
     }
 }
 
+fn expectSome(opt, message) {
+    match opt {
+        Some(v) -> v,
+        None -> panic(message),
+        _ -> panic(message),
+    }
+}
+
 fn findById(records, id) {
     if len(records) == 0 {
         None
     } else {
-    let record = first(records)
+    let record = expectSome(Array.first(records), "database unexpectedly empty")
     if opt_eq(record["id"], id) {
         record
     } else {
-    findById(rest(records), id)
+    findById(Array.drop(records, 1), id)
 }
 }
 }
@@ -39,11 +49,11 @@ fn main() with IO {
     |]
 
     // Get records by position
-    let first_record = first(db)
+    let first_record = expectSome(Array.first(db), "missing first record")
     print(first_record["name"])
     print(first_record["age"])
 
-    let second_record = first(rest(db))
+    let second_record = expectSome(Array.first(Array.drop(db, 1)), "missing second record")
     print(second_record["name"])
     print(second_record["age"])
 

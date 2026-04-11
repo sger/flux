@@ -1,58 +1,48 @@
 module Modules.Math {
   // Forward reference: quadruple uses double which is defined below
-  fn quadruple(x) {
-    double(double(x));
+  public fn quadruple(x) {
+    double(double(x))
   }
 
   // Forward reference: triple uses double which is defined below
-  fn triple(x) {
-    x + double(x);
+  public fn triple(x) {
+    x + double(x)
   }
 
-  fn double(x) {
-    x * 2;
+  public fn double(x) {
+    x * 2
   }
 
-  fn square(x) {
-    x * x;
+  public fn square(x) {
+    x * x
   }
 
-  fn cube(x) {
-    x * square(x);
+  public fn cube(x) {
+    x * square(x)
   }
 
-  fn call_another_function() {
-    cube(100);
+  public fn call_another_function() {
+    cube(100)
   }
 
   // Mutual recursion: isEven and isOdd call each other
-  fn isEven(n) {
-    if n == 0 {
-      true;
-    } else {
-      isOdd(n - 1);
-    }
+  public fn isEven(n) {
+    if n == 0 { true }
+    else { isOdd(n - 1) }
   }
 
-  fn isOdd(n) {
-    if n == 0 {
-      false;
-    } else {
-      isEven(n - 1);
-    }
+  public fn isOdd(n) {
+    if n == 0 { false }
+    else { isEven(n - 1) }
   }
 
   fn _private_function() {
-    print("_private_function");
+    print("_private_function")
   }
 
-  fn calling_private_from_public_function() {
-    print("calling_private_from_public_function");
-    _private_function();
-    return 42;
+  public fn calling_private_from_public_function() with IO {
+    print("calling_private_from_public_function")
+    _private_function()
+    42
   }
 }
-
-// print(Math.cube(10));
-// print(Math.call_another_function());
-// print(Math.calling_private_from_public_function());

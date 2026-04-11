@@ -3,36 +3,28 @@ source: tests/runtime_error_fixtures_snapshots.rs
 ---
 Fixture: examples/runtime_errors/base_map_callback_arity.flx
 == vm ==
-status: 1
+status: 0
 stdout:
 <empty>
 stderr:
-• 1 error • examples/runtime_errors/base_map_callback_arity.flx
-error[E004]: Undefined Variable
-
-I can't find a value named `concat`.
-
-  examples/runtime_errors/base_map_callback_arity.flx:2:29
-  |
-2 |     let ignored = map(#[1], concat)
-  |                             ^^^^^^
-
-Hint:
-  Define it first: let concat = ...;
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+[7 of 7] Compiling  base_map_callback_arity
+[cfg→vm] Running via CFG → bytecode VM backend...
 == jit ==
-status: 1
+status: 0
 stdout:
 <empty>
 stderr:
-• 1 error • examples/runtime_errors/base_map_callback_arity.flx
-error[E004]: Undefined Variable
-
-I can't find a value named `concat`.
-
-  examples/runtime_errors/base_map_callback_arity.flx:2:29
-  |
-2 |     let ignored = map(#[1], concat)
-  |                             ^^^^^^
-
-Hint:
-  Define it first: let concat = ...;
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+[7 of 7] Compiling  base_map_callback_arity
+[cfg→vm] Running via CFG → bytecode VM backend...

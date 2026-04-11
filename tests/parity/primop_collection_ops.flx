@@ -1,0 +1,32 @@
+// parity: vm, llvm
+// expect: success
+// Tests collection primops: array/list/map operations, len, get, put, etc.
+// Note: keys()/values() order is non-deterministic for HAMT maps — avoided here.
+
+fn main() with IO {
+    // Array ops
+    let arr = [|1, 2, 3|]
+    print(len(arr))
+    print(arr[0])
+    print(array_push(arr, 4))
+    print(to_list(arr))
+    print(to_array([1, 2, 3]))
+
+    // HAMT map ops
+    let m = { "a": 1, "b": 2 }
+    print(map_get(m, "a"))
+    print(map_get(m, "c"))
+    let m2 = map_set(m, "c", 3)
+    print(map_get(m2, "c"))
+    print(map_has(m, "a"))
+    print(map_has(m, "z"))
+
+    // Type checks
+    print(is_int(42))
+    print(is_float(3.14))
+    print(is_string("hi"))
+    print(is_bool(true))
+    print(is_array([|1|]))
+    print(is_none(None))
+    print(is_some(Some(1)))
+}

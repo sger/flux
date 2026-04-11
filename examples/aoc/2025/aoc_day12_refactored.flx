@@ -1,6 +1,6 @@
 // Advent of Code - Day 12 (refactored: idiomatic Flux, allocation-aware)
 // Refactored from aoc_day12_haskell_style.flx
-// Uses input file: examples/io/aoc_day12.txt
+// Uses input file: examples/aoc/2025/aoc_day12.txt
 
 // Two unified safe-get helpers replace line_at / int_at / str_at / area_at
 fn main() with IO, Time {
@@ -48,7 +48,7 @@ fn main() with IO, Time {
 
 // parse_area_counts: filter + map pipeline replaces 3-arg index recursion
 fn parse_area_counts(tokens) {
-    tokens |> filter(\t -> trim(t) != "") |> map(parse_int)
+    tokens |> filter(\t -> trim(t) != "") |> map(\t -> parse_int(t))
 }
 
 // parse_areas: fold with simple array acc (no tuple boxing overhead)
@@ -101,6 +101,6 @@ fn day12a(input_lines) {
     count_valid_areas(block_sizes, areas)
 }
 
-let input_lines = read_lines("examples/io/aoc_day12.txt")
+let input_lines = read_lines("examples/aoc/2025/aoc_day12.txt")
 print(day12a(input_lines))
 }

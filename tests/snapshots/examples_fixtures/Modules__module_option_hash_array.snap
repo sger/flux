@@ -16,7 +16,7 @@ Cannot find module `Modules.UserUtils` to import.
 
 Hint:
   Check that: 1) The module file exists (e.g., `Modules.UserUtils.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Modules.UserUtils` under roots: examples/Modules, src (imported from examples/Modules/module_option_hash_array.flx).
+  Looked for module `Modules.UserUtils` under roots: examples/Modules, lib, src (imported from examples/Modules/module_option_hash_array.flx).
 
 
 error[E018]: Import Not Found
@@ -30,7 +30,7 @@ Cannot find module `Modules.Main` to import.
 
 Hint:
   Check that: 1) The module file exists (e.g., `Modules.Main.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Modules.Main` under roots: examples/Modules, src (imported from examples/Modules/module_option_hash_array.flx).
+  Looked for module `Modules.Main` under roots: examples/Modules, lib, src (imported from examples/Modules/module_option_hash_array.flx).
 
 Found 2 errors.
 == stdout ==

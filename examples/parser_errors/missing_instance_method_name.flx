@@ -1,0 +1,17 @@
+// Missing method name after `fn` in instance declaration.
+//
+// Expected: E034 Missing Method Name
+//   "Expected method name after `fn` in instance declaration."
+//   Help: "Instance methods use `fn name(x, y) { body }`."
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn (x) { x }
+}
+
+fn main() {
+    42
+}

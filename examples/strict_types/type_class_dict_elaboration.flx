@@ -1,0 +1,32 @@
+// Dictionary elaboration test (Proposal 0145, Step 5b).
+//
+// Tests that the dictionary elaboration pass correctly:
+// 1. Builds __dict_* CoreDefs for concrete instances
+// 2. Rewrites constrained function bodies to extract methods from dicts
+// 3. Passes dictionaries at call sites
+//
+// Currently exercises monomorphic dispatch (compile-time resolved).
+// Polymorphic dispatch via dictionaries activates when constraint
+// promotion to Scheme is wired in type inference.
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Sizeable<String> {
+    fn size(x) { len(x) }
+}
+
+// Monomorphic call sites — resolved at compile time to __tc_* mangled names.
+// No dictionary overhead for these.
+fn main() with IO {
+    let a = size(42)
+    let b = size("hello")
+    print(a)
+    print(b)
+    print(a + b)
+}

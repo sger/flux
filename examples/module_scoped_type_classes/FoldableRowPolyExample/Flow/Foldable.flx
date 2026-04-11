@@ -1,0 +1,19 @@
+module FoldableRowPolyExample.Flow.Foldable {
+    public class Foldable<f> {
+        fn fold<a, b>(
+            xs: f<a>,
+            init: b,
+            step: (b, a) -> b with |e
+        ) -> b with |e
+    }
+
+    public instance Foldable<List> {
+        fn fold(xs, init, step) {
+            match xs {
+                []         -> init,
+                [h | t]    -> fold(t, step(init, h), step),
+                _          -> init
+            }
+        }
+    }
+}

@@ -36,9 +36,9 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::ArrayLen => "array_len",
         CorePrimOp::ArrayGet => "array_get",
         CorePrimOp::ArraySet => "array_set",
-        CorePrimOp::ArrayPush => "push",
-        CorePrimOp::ArrayConcat => "concat",
-        CorePrimOp::ArraySlice => "slice",
+        CorePrimOp::ArrayPush => "array_push",
+        CorePrimOp::ArrayConcat => "array_concat",
+        CorePrimOp::ArraySlice => "array_slice",
         CorePrimOp::HamtGet => "get",
         CorePrimOp::HamtSet => "put",
         CorePrimOp::HamtDelete => "delete",
@@ -60,6 +60,9 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::CmpEq => "cmp_eq",
         CorePrimOp::CmpNe => "cmp_ne",
         CorePrimOp::Panic => "panic",
+        CorePrimOp::Unwrap => "unwrap",
+        CorePrimOp::SafeDiv => "safe_div",
+        CorePrimOp::SafeMod => "safe_mod",
         CorePrimOp::ClockNow => "now_ms",
         CorePrimOp::Time => "time",
         CorePrimOp::Try => "try",
@@ -73,12 +76,13 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Min => "min",
         CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
-        CorePrimOp::Reverse => "reverse",
-        CorePrimOp::Contains => "contains",
+        CorePrimOp::ArrayReverse => "array_reverse",
+        CorePrimOp::ArrayContains => "array_contains",
         CorePrimOp::Sort => "sort",
         CorePrimOp::SortBy => "sort_by",
         CorePrimOp::HoMap => "map",
         CorePrimOp::HoFilter => "filter",
+        CorePrimOp::HoFold => "fold",
         CorePrimOp::HoAny => "any",
         CorePrimOp::HoAll => "all",
         CorePrimOp::HoEach => "each",
@@ -266,6 +270,9 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::IsList
             | CorePrimOp::IsMap
             | CorePrimOp::Panic
+            | CorePrimOp::Unwrap
+            | CorePrimOp::SafeDiv
+            | CorePrimOp::SafeMod
             | CorePrimOp::ClockNow
             | CorePrimOp::Time
             | CorePrimOp::ParseInt
@@ -281,12 +288,13 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::CmpNe
             | CorePrimOp::Try
             | CorePrimOp::AssertThrows
-            | CorePrimOp::Reverse
-            | CorePrimOp::Contains
+            | CorePrimOp::ArrayReverse
+            | CorePrimOp::ArrayContains
             | CorePrimOp::Sort
             | CorePrimOp::SortBy
             | CorePrimOp::HoMap
             | CorePrimOp::HoFilter
+            | CorePrimOp::HoFold
             | CorePrimOp::HoAny
             | CorePrimOp::HoAll
             | CorePrimOp::HoEach

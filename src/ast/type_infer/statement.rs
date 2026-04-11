@@ -138,7 +138,12 @@ impl<'a> InferCtx<'a> {
 
         // Generalize the let binding (Hindley-Milner let-polymorphism).
         let env_free = self.env.free_vars();
-        let scheme = generalize(&final_ty, &env_free);
+        let constraints = self.collect_scheme_constraints(&final_ty);
+        let scheme = if constraints.is_empty() {
+            generalize(&final_ty, &env_free)
+        } else {
+            generalize_with_constraints(&final_ty, &env_free, constraints)
+        };
         self.env.bind(name, scheme);
     }
 
@@ -192,6 +197,17 @@ impl<'a> InferCtx<'a> {
     ///
     /// Returns `Unit` when the block has no value expression.
     pub(super) fn infer_block(&mut self, block: &Block) -> InferType {
+        // Predeclare nested function names so forward references and mutual
+        // recursion work inside function bodies (mirrors top-level Phase A).
+        for stmt in &block.statements {
+            if let Statement::Function { name, span, .. } = stmt
+                && self.env.lookup(*name).is_none()
+            {
+                let v = self.env.alloc_infer_type_var();
+                self.env.bind_with_span(*name, Scheme::mono(v), Some(*span));
+            }
+        }
+
         let mut last_ty = InferType::Con(TypeConstructor::Unit);
         for stmt in &block.statements {
             match stmt {

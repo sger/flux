@@ -7,6 +7,7 @@ mod beta;
 mod case_of_case;
 mod cokc;
 mod dead_let;
+pub mod dict_elaborate;
 mod evidence;
 mod helpers;
 mod inline;
@@ -19,6 +20,7 @@ pub use beta::beta_reduce;
 pub use case_of_case::case_of_case;
 pub use cokc::case_of_known_constructor;
 pub use dead_let::elim_dead_let;
+pub use dict_elaborate::elaborate_dictionaries;
 pub use evidence::evidence_pass;
 pub use inline::inline_trivial_lets;
 pub use inliner::inline_lets;
@@ -29,6 +31,7 @@ use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, ErrorType,
 };
 use crate::syntax::interner::Interner;
+use crate::types::{class_env::ClassEnv, type_env::TypeEnv};
 
 // ── Pass pipeline ─────────────────────────────────────────────────────────────
 
@@ -52,13 +55,7 @@ use crate::syntax::interner::Interner;
 /// reduction exposing a known constructor for COKC).
 #[allow(clippy::result_large_err)]
 pub fn run_core_passes(program: &mut CoreProgram) -> Result<(), Diagnostic> {
-    run_core_passes_with_optional_interner(
-        program,
-        None,
-        false,
-        crate::aether::borrow_infer::BorrowRegistry::default(),
-    )
-    .map(|_| ())
+    run_semantic_core_passes_with_optional_interner(program, None, false).map(|_| ())
 }
 
 #[allow(clippy::result_large_err)]
@@ -77,7 +74,9 @@ pub fn run_core_passes_with_interner_and_registry(
     optimize: bool,
     preloaded_registry: crate::aether::borrow_infer::BorrowRegistry,
 ) -> Result<(), Diagnostic> {
-    run_core_passes_with_optional_interner(program, Some(interner), optimize, preloaded_registry)
+    run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize)
+        .map(|_| ())?;
+    run_aether_passes_with_optional_interner(program, Some(interner), preloaded_registry)
         .map(|_| ())
 }
 
@@ -87,25 +86,53 @@ pub fn run_core_passes_with_interner_and_warnings(
     interner: &Interner,
     optimize: bool,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
-    run_core_passes_with_optional_interner(
-        program,
-        Some(interner),
-        optimize,
-        crate::aether::borrow_infer::BorrowRegistry::default(),
-    )
+    run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize)
+}
+
+/// Run Core passes with dictionary elaboration for type classes.
+///
+/// This variant runs the dictionary elaboration pass (Stage 0.5) before
+/// the standard simplification loop. It needs `&mut Interner` because
+/// dictionary construction interns new names (`__dict_*`).
+#[allow(clippy::result_large_err)]
+pub fn run_core_passes_with_class_env(
+    program: &mut CoreProgram,
+    interner: &Interner,
+    optimize: bool,
+    class_env: &ClassEnv,
+    type_env: &TypeEnv,
+    preloaded_registry: crate::aether::borrow_infer::BorrowRegistry,
+) -> Result<Vec<Diagnostic>, Diagnostic> {
+    // Stage 0.5: Dictionary elaboration (before standard passes).
+    if !class_env.classes.is_empty() {
+        let mut max_binder_id: u32 = 0;
+        for def in &program.defs {
+            max_binder_id = max_binder_id.max(def.binder.id.0);
+            collect_max_binder_id(&def.expr, &mut max_binder_id);
+        }
+        let mut next_id = max_binder_id + 1;
+        elaborate_dictionaries(program, class_env, type_env, interner, &mut next_id);
+    }
+    // Run the standard semantic pipeline first, then explicit Aether passes.
+    let warnings =
+        run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize)?;
+    let mut aether_warnings =
+        run_aether_passes_with_optional_interner(program, Some(interner), preloaded_registry)?;
+    let mut warnings = warnings;
+    warnings.append(&mut aether_warnings);
+    Ok(warnings)
 }
 
 /// Maximum number of simplification rounds when `-O` is enabled.
 const MAX_SIMPLIFIER_ROUNDS: usize = 3;
 
 #[allow(clippy::result_large_err)]
-fn run_core_passes_with_optional_interner(
+fn run_semantic_core_passes_with_optional_interner(
     program: &mut CoreProgram,
     interner: Option<&Interner>,
     optimize: bool,
-    preloaded_registry: crate::aether::borrow_infer::BorrowRegistry,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
-    let mut warnings = Vec::new();
+    let warnings = Vec::new();
     // Find the maximum binder ID so passes can allocate fresh IDs above it.
     let mut max_binder_id: u32 = 0;
     for def in &program.defs {
@@ -173,28 +200,39 @@ fn run_core_passes_with_optional_interner(
         def.expr = e;
     }
 
-    // Infer cross-function borrow modes from the ANF-normalized program,
-    // then run the Aether pass with the registry.
-    let borrow_registry = crate::aether::borrow_infer::infer_borrow_modes_with_preloaded(
+    Ok(warnings)
+}
+
+#[allow(clippy::result_large_err)]
+pub fn run_aether_passes_with_interner_and_registry(
+    program: &mut CoreProgram,
+    interner: &Interner,
+    preloaded_registry: crate::aether::borrow_infer::BorrowRegistry,
+) -> Result<Vec<Diagnostic>, Diagnostic> {
+    run_aether_passes_with_optional_interner(program, Some(interner), preloaded_registry)
+}
+
+#[allow(clippy::result_large_err)]
+pub fn run_aether_passes(program: &mut CoreProgram) -> Result<Vec<Diagnostic>, Diagnostic> {
+    run_aether_passes_with_optional_interner(
         program,
-        interner,
-        preloaded_registry,
-    );
-    for def in &mut program.defs {
-        let e = std::mem::replace(&mut def.expr, sentinel.clone());
-        let e = crate::aether::run_aether_pass_with_registry(e, &borrow_registry);
-        verify_aether_contract_stage(def, &e, "run_aether_pass")?;
-        def.expr = e;
-    }
+        None,
+        crate::aether::borrow_infer::BorrowRegistry::default(),
+    )
+}
 
-    if let Some(interner) = interner {
-        let fbip_result = check_fbip_annotations(program, interner);
-        warnings.extend(fbip_result.warnings);
-        if let Some(error) = fbip_result.error {
-            return Err(error);
-        }
+#[allow(clippy::result_large_err)]
+fn run_aether_passes_with_optional_interner(
+    program: &mut CoreProgram,
+    interner: Option<&Interner>,
+    preloaded_registry: crate::aether::borrow_infer::BorrowRegistry,
+) -> Result<Vec<Diagnostic>, Diagnostic> {
+    let (aether_program, warnings) =
+        crate::aether::lower_core_to_aether_program(program, interner, preloaded_registry)?;
+    for def in aether_program.defs() {
+        verify_aether_contract_stage_aether(def, &def.expr, "lower_core_to_aether_program")?;
     }
-
+    *program = aether_program.into_core();
     Ok(warnings)
 }
 
@@ -217,7 +255,7 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
             }
             collect_max_binder_id(body, max);
         }
-        App { func, args, .. } | AetherCall { func, args, .. } => {
+        App { func, args, .. } => {
             collect_max_binder_id(func, max);
             for a in args {
                 collect_max_binder_id(a, max);
@@ -226,6 +264,13 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
         Let { var, rhs, body, .. } | LetRec { var, rhs, body, .. } => {
             *max = (*max).max(var.id.0);
             collect_max_binder_id(rhs, max);
+            collect_max_binder_id(body, max);
+        }
+        LetRecGroup { bindings, body, .. } => {
+            for (b, rhs) in bindings {
+                *max = (*max).max(b.id.0);
+                collect_max_binder_id(rhs, max);
+            }
             collect_max_binder_id(body, max);
         }
         Case {
@@ -265,22 +310,6 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
                 collect_max_binder_id(&h.body, max);
             }
         }
-        Dup { body, .. } | Drop { body, .. } => {
-            collect_max_binder_id(body, max);
-        }
-        Reuse { fields, .. } => {
-            for f in fields {
-                collect_max_binder_id(f, max);
-            }
-        }
-        DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => {
-            collect_max_binder_id(unique_body, max);
-            collect_max_binder_id(shared_body, max);
-        }
         MemberAccess { object, .. } | TupleField { object, .. } => {
             collect_max_binder_id(object, max);
         }
@@ -294,13 +323,42 @@ fn verify_aether_contract_stage(
     stage: &'static str,
 ) -> Result<(), Diagnostic> {
     if let Err(errors) = crate::aether::verify::verify_contract(expr) {
-        return Err(aether_contract_error(def, stage, &errors));
+        return Err(aether_contract_error_core(def, stage, &errors));
     }
     Ok(())
 }
 
-fn aether_contract_error(
+#[allow(clippy::result_large_err)]
+fn verify_aether_contract_stage_aether(
+    def: &crate::aether::AetherDef,
+    expr: &crate::aether::AetherExpr,
+    stage: &'static str,
+) -> Result<(), Diagnostic> {
+    if let Err(errors) = crate::aether::verify::verify_contract_aether(expr) {
+        return Err(aether_contract_error_aether(def, stage, &errors));
+    }
+    Ok(())
+}
+
+fn aether_contract_error_core(
     def: &crate::core::CoreDef,
+    stage: &'static str,
+    errors: &[crate::aether::verify::AetherError],
+) -> Diagnostic {
+    aether_contract_error_common(def.name.as_u32(), def.span, stage, errors)
+}
+
+fn aether_contract_error_aether(
+    def: &crate::aether::AetherDef,
+    stage: &'static str,
+    errors: &[crate::aether::verify::AetherError],
+) -> Diagnostic {
+    aether_contract_error_common(def.name.as_u32(), def.span, stage, errors)
+}
+
+fn aether_contract_error_common(
+    def_name: u32,
+    def_span: crate::diagnostics::position::Span,
     stage: &'static str,
     errors: &[crate::aether::verify::AetherError],
 ) -> Diagnostic {
@@ -320,19 +378,16 @@ fn aether_contract_error(
         ErrorType::Compiler,
         format!(
             "definition `{}` emitted malformed Aether after `{}` and cannot be lowered:\n{}\n\n{}",
-            def.name.as_u32(),
-            stage,
-            bullet_lines,
-            details
+            def_name, stage, bullet_lines, details
         ),
         Some("Fix the Aether transform in src/aether/ before lowering to CFG.".to_string()),
         "",
-        def.span,
+        def_span,
     )
     .with_display_title("Aether Verification Failed")
     .with_category(DiagnosticCategory::Internal)
     .with_phase(DiagnosticPhase::Validation)
-    .with_primary_label(def.span, "malformed Aether emitted here")
+    .with_primary_label(def_span, "malformed Aether emitted here")
 }
 
 #[cfg(test)]

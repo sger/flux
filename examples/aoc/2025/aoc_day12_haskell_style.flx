@@ -1,6 +1,6 @@
 // Advent of Code - Day 12 (Haskell-style translation)
 // Inspired by AOC2025.Day12 day12a.
-// Uses input file: examples/io/aoc_day12.txt
+// Uses input file: examples/aoc/2025/aoc_day12.txt
 
 fn main() with IO, Time {
     fn line_at(lines, idx) {
@@ -136,6 +136,6 @@ fn day12a(input_lines) {
     count_valid_areas(block_sizes, areas, 0, 0)
 }
 
-let input_lines = read_lines("examples/io/aoc_day12.txt")
+let input_lines = read_lines("examples/aoc/2025/aoc_day12.txt")
 print(day12a(input_lines))
 }
