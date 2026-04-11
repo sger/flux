@@ -273,7 +273,16 @@ impl Compiler {
         {
             Some(*name)
         } else {
-            None
+            let short = self.sym(*name);
+            self.imported_modules
+                .iter()
+                .copied()
+                .find(|module| self.sym(*module).rsplit('.').next() == Some(short))
+                .or_else(|| {
+                    self.current_module_prefix.filter(|module| {
+                        self.sym(*module).rsplit('.').next() == Some(short)
+                    })
+                })
         };
         let Some(module_name) = module_name else {
             return Ok(());

@@ -320,7 +320,7 @@ impl Compiler {
                 // Use HM type to check expected arity
                 if let super::hm_expr_typer::HmExprTypeResult::Known(InferType::Fun(params, _, _)) =
                     self.hm_expr_type_strict_path(function)
-                    && params.len() != arguments.len()
+                    && self.visible_call_arity(function, params.len()) != arguments.len()
                 {
                     return true;
                 }
@@ -344,6 +344,78 @@ impl Compiler {
             Expression::Match { arms, .. } => arms
                 .iter()
                 .any(|arm| self.expr_has_call_arity_error(&arm.body)),
+            _ => false,
+        }
+    }
+
+    /// HM types may include hidden dictionary/evidence parameters for
+    /// constrained identifiers. For user-facing AST validation we should
+    /// compare against the visible source arity, not the elaborated one.
+    fn visible_call_arity(&self, function: &Expression, raw_arity: usize) -> usize {
+        let Expression::Identifier { name, .. } = function else {
+            return raw_arity;
+        };
+        let hidden_dicts = self
+            .type_env
+            .lookup(*name)
+            .map(|scheme| scheme.constraints.len())
+            .unwrap_or(0);
+        raw_arity.saturating_sub(hidden_dicts)
+    }
+
+    fn block_contains_constrained_calls(&self, body: &Block) -> bool {
+        body.statements.iter().any(|statement| match statement {
+            Statement::Expression { expression, .. }
+            | Statement::Let {
+                value: expression, ..
+            } => self.expr_contains_constrained_calls(expression),
+            _ => false,
+        })
+    }
+
+    fn expr_contains_constrained_calls(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                let callee_is_constrained = matches!(
+                    function.as_ref(),
+                    Expression::Identifier { name, .. }
+                        if self
+                            .type_env
+                            .lookup(*name)
+                            .is_some_and(|scheme| !scheme.constraints.is_empty())
+                );
+                callee_is_constrained
+                    || self.expr_contains_constrained_calls(function)
+                    || arguments
+                        .iter()
+                        .any(|argument| self.expr_contains_constrained_calls(argument))
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expr_contains_constrained_calls(condition)
+                    || self.block_contains_constrained_calls(consequence)
+                    || alternative
+                        .as_ref()
+                        .is_some_and(|block| self.block_contains_constrained_calls(block))
+            }
+            Expression::DoBlock { block, .. } => self.block_contains_constrained_calls(block),
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
+                self.expr_contains_constrained_calls(scrutinee)
+                    || arms
+                        .iter()
+                        .any(|arm| self.expr_contains_constrained_calls(&arm.body))
+            }
+            Expression::Function { body, .. } => self.block_contains_constrained_calls(body),
             _ => false,
         }
     }
@@ -1187,9 +1259,18 @@ impl Compiler {
         // If an outer or Base binding already exists, this nested function must
         // create a new local binding so it correctly shadows that name.
         let symbol = if self.symbol_table.exists_in_current_scope(name) {
-            self.symbol_table
+            let existing = self
+                .symbol_table
                 .resolve(name)
-                .expect("current-scope function binding must resolve")
+                .expect("current-scope function binding must resolve");
+            if existing.symbol_scope == SymbolScope::Function {
+                // A current-scope self-binding belongs to the enclosing
+                // function, not this nested declaration. Create a new local
+                // binding so the nested function shadows the enclosing name.
+                self.symbol_table.define(name, definition_span)
+            } else {
+                existing
+            }
         } else {
             self.symbol_table.define(name, definition_span)
         };
@@ -1239,11 +1320,21 @@ impl Compiler {
             self.emit(OpCode::OpEnterCC, &[cc_idx as usize]);
         }
 
-        // Track IR param count when CFG path succeeds — dict elaboration may
-        // add extra dictionary parameters that the AST doesn't know about.
+        // Track the runtime-facing IR parameter count when CFG path succeeds.
+        // Dict elaboration may add dictionary parameters that the AST doesn't
+        // know about, while lifted function literals also include captures in
+        // `ir_fn.params`. The VM closure arity must count only explicit call
+        // arguments, not captured values loaded by `OpClosure`.
         let cfg_param_count: std::cell::Cell<Option<usize>> = std::cell::Cell::new(None);
         if let Some(ir_function) = ir_function {
-            cfg_param_count.set(Some(ir_function.params.len()));
+            let explicit_param_count = match ir_function.origin {
+                crate::cfg::IrFunctionOrigin::FunctionLiteral => ir_function
+                    .params
+                    .len()
+                    .saturating_sub(ir_function.captures.len()),
+                _ => ir_function.params.len(),
+            };
+            cfg_param_count.set(Some(explicit_param_count));
         }
 
         let compile_result: CompileResult<()> = (|| {
@@ -1287,6 +1378,9 @@ impl Compiler {
             }
 
             let param_effect_rows = self.build_param_effect_rows(parameters, parameter_types);
+            let requires_ir_only = ir_function.is_some_and(|function| {
+                function.params.len() != parameters.len() || self.block_contains_constrained_calls(body)
+            });
 
             // ── CFG primary path ─────────────────────────────────────────
             // Pre-validate semantic errors that CFG can't catch (E001, E002,
@@ -1298,11 +1392,17 @@ impl Compiler {
             // CFG handles all well-typed functions. AST fallback is used only
             // for: (a) functions with pre-validation errors, (b) HM type errors,
             // (c) module/import statements, (d) strict-mode typed-let.
-            let use_ast_path = has_body_errors
-                || self.has_hm_diagnostics
-                || ir_function.is_none()
-                || Self::block_contains_cfg_incompatible_statements_ast(body)
-                || (self.strict_mode && Self::block_contains_typed_let_ast(body));
+            let use_ast_path = if requires_ir_only {
+                ir_function.is_none()
+                    || Self::block_contains_cfg_incompatible_statements_ast(body)
+                    || (self.strict_mode && Self::block_contains_typed_let_ast(body))
+            } else {
+                has_body_errors
+                    || self.has_hm_diagnostics
+                    || ir_function.is_none()
+                    || Self::block_contains_cfg_incompatible_statements_ast(body)
+                    || (self.strict_mode && Self::block_contains_typed_let_ast(body))
+            };
 
             if !use_ast_path {
                 let ir_function = ir_function.unwrap();
@@ -1310,7 +1410,14 @@ impl Compiler {
                 let const_len = self.constants.len();
                 match self.try_compile_ir_cfg_function_body(ir_function, name) {
                     Some(Ok(())) => {
-                        cfg_param_count.set(Some(ir_function.params.len()));
+                        let explicit_param_count = match ir_function.origin {
+                            crate::cfg::IrFunctionOrigin::FunctionLiteral => ir_function
+                                .params
+                                .len()
+                                .saturating_sub(ir_function.captures.len()),
+                            _ => ir_function.params.len(),
+                        };
+                        cfg_param_count.set(Some(explicit_param_count));
                         return Ok(());
                     }
                     Some(Err(ref _e)) => {
@@ -1825,10 +1932,6 @@ impl Compiler {
         alias: Option<Symbol>,
         except: &[Symbol],
     ) -> CompileResult<()> {
-        if self.is_flow_module_symbol(name) {
-            return Ok(());
-        }
-
         if !except.is_empty() {
             let binding_name = alias.unwrap_or(name);
             let excluded: std::collections::HashSet<Symbol> = except.iter().copied().collect();
@@ -1964,10 +2067,17 @@ impl Compiler {
         // recursion work inside function bodies (mirrors top-level pass 1).
         if self.scope_index > 0 {
             for stmt in &block.statements {
-                if let Statement::Function { name, span, .. } = stmt
-                    && !self.symbol_table.exists_in_current_scope(*name)
-                {
-                    self.symbol_table.define(*name, *span);
+                if let Statement::Function { name, span, .. } = stmt {
+                    let should_predeclare = if self.symbol_table.exists_in_current_scope(*name) {
+                        self.symbol_table
+                            .resolve(*name)
+                            .is_some_and(|binding| binding.symbol_scope == SymbolScope::Function)
+                    } else {
+                        true
+                    };
+                    if should_predeclare {
+                        self.symbol_table.define(*name, *span);
+                    }
                 }
             }
         }

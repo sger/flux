@@ -1,8 +1,8 @@
 fn main() with IO, Time {
     let newClosure = fn(a) {
         fn() {
-            a;
-        };
+            a
+        }
     };
 
     let closure = newClosure(99);
@@ -10,7 +10,7 @@ fn main() with IO, Time {
     print(closure());
 
     let test_closure = fn(b) {
-        b;
+        b
     };
 
     print(test_closure(100));

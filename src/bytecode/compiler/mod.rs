@@ -615,24 +615,28 @@ struct AetherDebugDetails {
 }
 
 fn collect_aether_debug_details(
-    expr: &crate::core::CoreExpr,
+    expr: &crate::aether::AetherExpr,
     interner: &Interner,
 ) -> AetherDebugDetails {
-    fn walk(expr: &crate::core::CoreExpr, interner: &Interner, details: &mut AetherDebugDetails) {
-        use crate::core::CoreExpr;
+    fn walk(
+        expr: &crate::aether::AetherExpr,
+        interner: &Interner,
+        details: &mut AetherDebugDetails,
+    ) {
+        use crate::aether::AetherExpr;
 
         match expr {
-            CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
-            CoreExpr::Lam { body, .. } | CoreExpr::Return { value: body, .. } => {
+            AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => {}
+            AetherExpr::Lam { body, .. } | AetherExpr::Return { value: body, .. } => {
                 walk(body, interner, details);
             }
-            CoreExpr::App { func, args, .. } => {
+            AetherExpr::App { func, args, .. } => {
                 walk(func, interner, details);
                 for arg in args {
                     walk(arg, interner, details);
                 }
             }
-            CoreExpr::AetherCall {
+            AetherExpr::AetherCall {
                 func,
                 args,
                 arg_modes,
@@ -641,7 +645,7 @@ fn collect_aether_debug_details(
                 details.call_sites.push(format!(
                     "line {}: {} [{}]",
                     span.start.line,
-                    single_line_expr(func, interner),
+                    crate::aether::display::single_line_expr(func, interner),
                     arg_modes
                         .iter()
                         .map(format_borrow_mode)
@@ -653,17 +657,17 @@ fn collect_aether_debug_details(
                     walk(arg, interner, details);
                 }
             }
-            CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
                 walk(rhs, interner, details);
                 walk(body, interner, details);
             }
-            CoreExpr::LetRecGroup { bindings, body, .. } => {
+            AetherExpr::LetRecGroup { bindings, body, .. } => {
                 for (_, rhs) in bindings {
                     walk(rhs, interner, details);
                 }
                 walk(body, interner, details);
             }
-            CoreExpr::Case {
+            AetherExpr::Case {
                 scrutinee, alts, ..
             } => {
                 walk(scrutinee, interner, details);
@@ -674,42 +678,42 @@ fn collect_aether_debug_details(
                     walk(&alt.rhs, interner, details);
                 }
             }
-            CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
+            AetherExpr::Con { fields, .. } | AetherExpr::PrimOp { args: fields, .. } => {
                 for field in fields {
                     walk(field, interner, details);
                 }
             }
-            CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
                 walk(object, interner, details);
             }
-            CoreExpr::Perform { args, .. } => {
+            AetherExpr::Perform { args, .. } => {
                 for arg in args {
                     walk(arg, interner, details);
                 }
             }
-            CoreExpr::Handle { body, handlers, .. } => {
+            AetherExpr::Handle { body, handlers, .. } => {
                 walk(body, interner, details);
                 for handler in handlers {
                     walk(&handler.body, interner, details);
                 }
             }
-            CoreExpr::Dup { var, body, span } => {
+            AetherExpr::Dup { var, body, span } => {
                 details.dups.push(format!(
                     "line {}: dup {}",
                     span.start.line,
-                    format_var_ref(var, interner)
+                    crate::aether::display::format_var_ref(var, interner)
                 ));
                 walk(body, interner, details);
             }
-            CoreExpr::Drop { var, body, span } => {
+            AetherExpr::Drop { var, body, span } => {
                 details.drops.push(format!(
                     "line {}: drop {}",
                     span.start.line,
-                    format_var_ref(var, interner)
+                    crate::aether::display::format_var_ref(var, interner)
                 ));
                 walk(body, interner, details);
             }
-            CoreExpr::Reuse {
+            AetherExpr::Reuse {
                 token,
                 tag,
                 fields,
@@ -719,8 +723,8 @@ fn collect_aether_debug_details(
                 details.reuses.push(format!(
                     "line {}: reuse {} as {}{}",
                     span.start.line,
-                    format_var_ref(token, interner),
-                    tag_label(tag, interner),
+                    crate::aether::display::format_var_ref(token, interner),
+                    crate::aether::display::tag_label(tag, interner),
                     field_mask
                         .map(|mask| format!(" mask=0x{mask:x}"))
                         .unwrap_or_default()
@@ -729,7 +733,7 @@ fn collect_aether_debug_details(
                     walk(field, interner, details);
                 }
             }
-            CoreExpr::DropSpecialized {
+            AetherExpr::DropSpecialized {
                 scrutinee,
                 unique_body,
                 shared_body,
@@ -738,7 +742,7 @@ fn collect_aether_debug_details(
                 details.reuses.push(format!(
                     "line {}: drop-specialized {}",
                     span.start.line,
-                    format_var_ref(scrutinee, interner)
+                    crate::aether::display::format_var_ref(scrutinee, interner)
                 ));
                 walk(unique_body, interner, details);
                 walk(shared_body, interner, details);
@@ -762,40 +766,6 @@ fn render_debug_lines(label: &str, lines: &[String]) -> String {
         }
     }
     out
-}
-
-fn single_line_expr(expr: &crate::core::CoreExpr, interner: &Interner) -> String {
-    crate::core::display::display_expr_readable(expr, interner)
-        .replace('\n', " ")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn format_var_ref(var: &crate::core::CoreVarRef, interner: &Interner) -> String {
-    let name = interner
-        .try_resolve(var.name)
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("<sym:{}>", var.name.as_u32()));
-    match var.binder {
-        Some(binder) => format!("{name}#{}", binder.0),
-        None => name,
-    }
-}
-
-fn tag_label(tag: &crate::core::CoreTag, interner: &Interner) -> String {
-    match tag {
-        crate::core::CoreTag::Nil => "Nil".to_string(),
-        crate::core::CoreTag::Cons => "Cons".to_string(),
-        crate::core::CoreTag::None => "None".to_string(),
-        crate::core::CoreTag::Some => "Some".to_string(),
-        crate::core::CoreTag::Left => "Left".to_string(),
-        crate::core::CoreTag::Right => "Right".to_string(),
-        crate::core::CoreTag::Named(name) => interner
-            .try_resolve(*name)
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("<sym:{}>", name.as_u32())),
-    }
 }
 
 fn format_borrow_mode(mode: &crate::aether::borrow_infer::BorrowMode) -> &'static str {
@@ -1239,7 +1209,7 @@ impl Compiler {
             program_to_lower,
             &self.hm_expr_types,
             Some(&self.interner),
-            None,
+            Some(&self.type_env),
             None,
             class_env_ref,
         );
@@ -1260,45 +1230,81 @@ impl Compiler {
         }
 
         let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
-        crate::core::passes::run_core_passes_with_interner_and_registry(
-            &mut core,
-            &self.interner,
-            optimize,
+        let _ = preloaded_registry;
+        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
+        Ok(core)
+    }
+
+    fn lower_aether_from_program(
+        &self,
+        program_to_lower: &Program,
+        optimize: bool,
+        elaborate_dictionaries: bool,
+    ) -> Result<crate::aether::AetherProgram, Diagnostic> {
+        let core =
+            self.lower_core_from_program(program_to_lower, optimize, elaborate_dictionaries)?;
+        let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
+        let (aether, _) = crate::aether::lower_core_to_aether_program(
+            &core,
+            Some(&self.interner),
             preloaded_registry,
         )?;
-        Ok(core)
+        Ok(aether)
     }
 
     fn prepare_core_program(
         &mut self,
         program: &Program,
         optimize: bool,
+        elaborate_dictionaries: bool,
     ) -> Result<crate::core::CoreProgram, Diagnostic> {
         if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
             let program_to_lower = rename(optimized, HashMap::new());
-            return self.lower_core_from_program(&program_to_lower, true, false);
+            return self.lower_core_from_program(&program_to_lower, true, elaborate_dictionaries);
         }
 
         let prepared = self.prepare_program_for_lowering(program);
         self.apply_hm_final(&prepared.hm_final);
-        self.lower_core_from_program(prepared.effective_program.as_ref(), false, false)
+        self.lower_core_from_program(
+            prepared.effective_program.as_ref(),
+            false,
+            elaborate_dictionaries,
+        )
     }
 
-    fn prepare_core_program_with_preloaded(
+    fn prepare_backend_core_program(
         &mut self,
         program: &Program,
         optimize: bool,
-    ) -> Result<crate::core::CoreProgram, Diagnostic> {
+    ) -> Result<crate::aether::AetherProgram, Diagnostic> {
         if optimize {
-            return self.prepare_core_program(program, true);
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
+            let program_to_lower = rename(optimized, HashMap::new());
+            return self.lower_aether_from_program(&program_to_lower, true, true);
+        }
+
+        let prepared = self.prepare_program_for_lowering(program);
+        self.apply_hm_final(&prepared.hm_final);
+        self.lower_aether_from_program(prepared.effective_program.as_ref(), false, true)
+    }
+
+    fn prepare_backend_core_program_with_preloaded(
+        &mut self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<crate::aether::AetherProgram, Diagnostic> {
+        if optimize {
+            return self.prepare_backend_core_program(program, true);
         }
 
         let prepared = self.prepare_program_for_lowering_with_preloaded(program);
         self.apply_hm_final(&prepared.hm_final);
-        self.lower_core_from_program(prepared.effective_program.as_ref(), false, false)
+        self.lower_aether_from_program(prepared.effective_program.as_ref(), false, true)
     }
 
     fn prepare_program_for_lowering_internal<'a>(
@@ -2498,7 +2504,13 @@ impl Compiler {
             ("map_has", vec![var_a(), var_b()], con(TC::Bool), pure(), 0),
             ("map_merge", vec![var_a(), var_a()], var_a(), pure(), 0),
             ("map_delete", vec![var_a(), var_b()], var_a(), pure(), 0),
-            ("map_set", vec![var_a(), var_b(), var_c()], var_a(), pure(), 0),
+            (
+                "map_set",
+                vec![var_a(), var_b(), var_c()],
+                var_a(),
+                pure(),
+                0,
+            ),
             ("map_get", vec![var_a(), var_b()], var_c(), pure(), 0),
             ("map_size", vec![var_a()], con(TC::Int), pure(), 0),
             // Time
@@ -3796,6 +3808,20 @@ impl Compiler {
             if self.imported_modules.contains(name) || self.current_module_prefix == Some(*name) {
                 return Some(*name);
             }
+            let short = self.sym(*name);
+            if let Some(found) = self
+                .imported_modules
+                .iter()
+                .copied()
+                .find(|module| self.sym(*module).rsplit('.').next() == Some(short))
+            {
+                return Some(found);
+            }
+            if let Some(current) = self.current_module_prefix
+                && self.sym(current).rsplit('.').next() == Some(short)
+            {
+                return Some(current);
+            }
             return None;
         }
 
@@ -3938,28 +3964,7 @@ impl Compiler {
         optimize: bool,
         mode: crate::core::display::CoreDisplayMode,
     ) -> Result<String, Diagnostic> {
-        let core = if optimize {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(program.clone());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            let program_to_lower = rename(optimized, HashMap::new());
-            self.lower_core_from_program(&program_to_lower, true, true)?
-        } else {
-            let prepared = self.prepare_program_for_lowering(program);
-            self.apply_hm_final(&prepared.hm_final);
-            self.lower_core_from_program(prepared.effective_program.as_ref(), false, true)?
-        };
-
-        // Collect Aether stats across all definitions
-        let mut total_stats = crate::aether::AetherStats::default();
-        for def in &core.defs {
-            let s = crate::aether::collect_stats(&def.expr);
-            total_stats.dups += s.dups;
-            total_stats.drops += s.drops;
-            total_stats.reuses += s.reuses;
-            total_stats.drop_specs += s.drop_specs;
-            total_stats.allocs += s.allocs;
-        }
+        let core = self.prepare_core_program(program, optimize, true)?;
 
         let ir_text = match mode {
             crate::core::display::CoreDisplayMode::Readable => {
@@ -3969,21 +3974,16 @@ impl Compiler {
                 crate::core::display::display_program_debug(&core, &self.interner)
             }
         };
-
-        if total_stats.dups > 0 || total_stats.drops > 0 || total_stats.reuses > 0 {
-            Ok(format!("{}\n── Aether stats ──\n{}", ir_text, total_stats))
-        } else {
-            Ok(ir_text)
-        }
+        Ok(ir_text)
     }
 
     /// Lower to Core IR, then to LIR, and return a human-readable dump.
     #[allow(clippy::result_large_err)]
     pub fn dump_lir(&mut self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
-        let core = self.prepare_core_program(program, optimize)?;
+        let aether = self.prepare_backend_core_program_with_preloaded(program, optimize)?;
         let globals_map = self.build_globals_map();
-        let lir = crate::lir::lower::lower_program_with_interner(
-            &core,
+        let lir = crate::lir::lower::lower_aether_program_with_interner(
+            &aether,
             Some(&self.interner),
             Some(&globals_map),
         );
@@ -4022,12 +4022,16 @@ impl Compiler {
         program: &Program,
         optimize: bool,
     ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
-        let core = self.prepare_core_program(program, optimize)?;
+        let aether = self.prepare_backend_core_program_with_preloaded(program, optimize)?;
 
         // Pass None for globals_map so ALL functions are lowered to LIR
         // functions (no GetGlobal). In native mode there's no VM globals
         // table, so every function must be compiled into the LLVM module.
-        let lir = crate::lir::lower::lower_program_with_interner(&core, Some(&self.interner), None);
+        let lir = crate::lir::lower::lower_aether_program_with_interner(
+            &aether,
+            Some(&self.interner),
+            None,
+        );
         Ok(crate::lir::emit_llvm::emit_llvm_module(&lir))
     }
 
@@ -4041,31 +4045,33 @@ impl Compiler {
         program: &Program,
         optimize: bool,
         export_user_ctor_name_helper: bool,
+        emit_entry_main: bool,
     ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
         let _ = self.phase_collection(program);
         let prepared = self.prepare_program_for_lowering_with_preloaded(program);
         self.apply_hm_final(&prepared.hm_final);
         let effective_program = prepared.effective_program;
 
-        let (effective_program, core) = if optimize {
+        let (effective_program, aether) = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(effective_program.into_owned());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
             let program_to_lower = rename(optimized, HashMap::new());
-            let core = self.lower_core_from_program(&program_to_lower, true, false)?;
-            (Cow::Owned(program_to_lower), core)
+            let aether = self.lower_aether_from_program(&program_to_lower, true, true)?;
+            (Cow::Owned(program_to_lower), aether)
         } else {
-            let core = self.lower_core_from_program(effective_program.as_ref(), false, false)?;
-            (effective_program, core)
+            let aether = self.lower_aether_from_program(effective_program.as_ref(), false, true)?;
+            (effective_program, aether)
         };
 
         let extern_symbols = self.build_native_extern_symbols(effective_program.as_ref());
-        let emit_main = effective_program.statements.iter().any(|statement| {
+        let has_named_main = effective_program.statements.iter().any(|statement| {
             matches!(
                 statement,
                 Statement::Function { name, .. } if self.sym(*name) == "main"
             )
         });
+        let emit_main = emit_entry_main || has_named_main;
         // Derive an entry qualifier from the file path to prevent symbol
         // collisions with C runtime primops. E.g. "examples/day06.flx"
         // yields qualifier "day06", so user's `fn sum` becomes `flux_day06_sum`
@@ -4074,8 +4080,8 @@ impl Compiler {
             .file_stem()
             .and_then(|s| s.to_str())
             .map(|s| s.replace(['-', '.', ' '], "_"));
-        let lir = crate::lir::lower::lower_program_with_interner_and_externs(
-            &core,
+        let lir = crate::lir::lower::lower_aether_program_with_interner_and_externs(
+            &aether,
             Some(&self.interner),
             None,
             Some(&extern_symbols),
@@ -4180,11 +4186,11 @@ impl Compiler {
         &mut self,
         program: &Program,
         optimize: bool,
-    ) -> Result<crate::core::CoreProgram, Diagnostic> {
-        self.prepare_core_program_with_preloaded(program, optimize)
+    ) -> Result<crate::aether::AetherProgram, Diagnostic> {
+        self.prepare_backend_core_program_with_preloaded(program, optimize)
     }
 
-    /// Render an Aether memory model report showing per-function optimization decisions.
+    /// Render an Aether-native ownership report showing per-function lowering decisions.
     #[allow(clippy::result_large_err)]
     pub fn render_aether_report(
         &mut self,
@@ -4192,8 +4198,8 @@ impl Compiler {
         optimize: bool,
         debug: bool,
     ) -> Result<String, Diagnostic> {
-        let core = self.lower_aether_report_program(program, optimize)?;
-        let fbip_diags = crate::aether::check_fbip::check_fbip(&core, &self.interner);
+        let aether = self.lower_aether_report_program(program, optimize)?;
+        let fbip_diags = crate::aether::check_fbip::check_fbip_aether(&aether, &self.interner);
         let fbip_by_name = fbip_diags
             .diagnostics
             .iter()
@@ -4201,12 +4207,12 @@ impl Compiler {
             .collect::<HashMap<_, _>>();
 
         let mut out = String::new();
-        out.push_str("Aether Memory Model Report\n");
-        out.push_str("==========================\n\n");
+        out.push_str("Aether Ownership Report\n");
+        out.push_str("=======================\n\n");
 
         let mut total = crate::aether::AetherStats::default();
 
-        for def in &core.defs {
+        for def in aether.defs() {
             let stats = crate::aether::collect_stats(&def.expr);
             if stats.dups == 0
                 && stats.drops == 0
@@ -4226,10 +4232,10 @@ impl Compiler {
             out.push_str(&format!("  {}\n", stats));
             out.push_str(&format!("  FreshAllocs: {}\n", stats.allocs));
 
-            let verify_errors = crate::aether::verify::verify_contract(&def.expr)
+            let verify_errors = crate::aether::verify::verify_contract_aether(&def.expr)
                 .err()
                 .unwrap_or_default();
-            let verify_diags = crate::aether::verify::verify_diagnostics(&def.expr);
+            let verify_diags = crate::aether::verify::verify_diagnostics_aether(&def.expr);
             if verify_errors.is_empty() && verify_diags.is_empty() {
                 out.push_str("  verifier: ok\n");
             } else {
@@ -4281,7 +4287,8 @@ impl Compiler {
                 out.push_str(&render_debug_lines("reuse", &debug_details.reuses));
             }
 
-            let displayed = crate::core::display::display_expr_readable(&def.expr, &self.interner);
+            let displayed =
+                crate::aether::display::display_expr_readable(&def.expr, &self.interner);
             out.push_str(&displayed);
             out.push('\n');
 
@@ -4299,7 +4306,7 @@ impl Compiler {
         Ok(out)
     }
 
-    /// Dump an Aether memory model report showing per-function optimization decisions.
+    /// Dump an Aether-native ownership report showing per-function lowering decisions.
     #[allow(clippy::result_large_err)]
     pub fn dump_aether_report(
         &mut self,

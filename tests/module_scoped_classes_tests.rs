@@ -323,7 +323,6 @@ fn main() {
 /// import-alias workaround is sufficient and matches the §5a precedence
 /// rules of Proposal 0151 (explicit imports beat implicit shortening).
 #[test]
-#[ignore = "Gap B: short-form qualified call without explicit import; commit #6 leaves this for a follow-up"]
 fn qualified_call_short_form_fails_today() {
     let source = r#"
 module Phase1.Quall {

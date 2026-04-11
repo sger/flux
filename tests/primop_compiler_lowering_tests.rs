@@ -33,6 +33,21 @@ fn compile_disassembly(input: &str) -> String {
     output
 }
 
+fn compile_error(input: &str) -> String {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    if !parser.errors.is_empty() {
+        return render_diagnostics(&parser.errors, Some(input), None);
+    }
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    match compiler.compile(&program) {
+        Ok(_) => panic!("expected compile error"),
+        Err(diags) => render_diagnostics(&diags, Some(input), None),
+    }
+}
+
 fn assert_contains_primop(input: &str) {
     let asm = compile_disassembly(input);
     assert!(asm.contains("OpPrimOp"), "expected OpPrimOp:\n{}", asm);
@@ -45,11 +60,6 @@ fn assert_not_contains_primop(input: &str) {
         "did not expect OpPrimOp:\n{}",
         asm
     );
-}
-
-fn assert_contains_get_base(input: &str) {
-    let asm = compile_disassembly(input);
-    assert!(asm.contains("OpGetBase"), "expected OpGetBase:\n{}", asm);
 }
 
 #[test]
@@ -66,8 +76,7 @@ fn main() -> Unit with IO {
 }
 
 #[test]
-#[ignore = "uses base functions not in standalone compiler"]
-fn print_arity_split_routes_one_arg_to_primop_and_multi_arg_to_generic_base_call() {
+fn print_arity_split_routes_one_arg_to_primop_and_multi_arg_to_unresolved_call() {
     assert_contains_primop(
         r#"
 fn main() -> Unit with IO {
@@ -76,7 +85,7 @@ fn main() -> Unit with IO {
 "#,
     );
 
-    let asm = compile_disassembly(
+    let rendered = compile_error(
         r#"
 fn main() -> Unit with IO {
     print("a", "b", "c")
@@ -84,16 +93,9 @@ fn main() -> Unit with IO {
 "#,
     );
     assert!(
-        !asm.contains("OpPrimOp"),
-        "did not expect OpPrimOp for multi-arg print:\n{}",
-        asm
-    );
-    assert_contains_get_base(
-        r#"
-fn main() -> Unit with IO {
-    print("a", "b", "c")
-}
-"#,
+        rendered.contains("I can't find a value named `print`."),
+        "expected unresolved multi-arg print call:\n{}",
+        rendered
     );
 }
 

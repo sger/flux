@@ -33,7 +33,7 @@ fn compile_and_build_interface(source: &str) -> ModuleInterface {
         compiler.interner.intern("Test"),
         &source_hash,
         &config_hash,
-        &core,
+        core.as_core(),
         compiler.cached_member_schemes(),
         &compiler.module_function_visibility,
         Some(compiler.class_env()),

@@ -398,34 +398,105 @@ static inline int flux_val_is_string(int64_t val) {
     return flux_obj_tag(ptr) == FLUX_OBJ_STRING;
 }
 
+static int64_t flux_invalid_binary_op_error(const char *op, uint32_t op_len,
+                                            int64_t a, int64_t b) {
+    int64_t prefix = flux_string_new("Cannot ", 7);
+    int64_t op_name = flux_string_new(op, op_len);
+    int64_t middle = flux_string_new(" ", 1);
+    int64_t and_sep = flux_string_new(" and ", 5);
+    int64_t suffix = flux_string_new(" values.", 8);
+    int64_t lhs = flux_type_of(a);
+    int64_t rhs = flux_type_of(b);
+    int64_t message =
+        flux_string_concat(
+            flux_string_concat(
+                flux_string_concat(
+                    flux_string_concat(
+                        flux_string_concat(
+                            flux_string_concat(prefix, op_name),
+                            middle),
+                        lhs),
+                    and_sep),
+                rhs),
+            suffix);
+    flux_panic(message);
+    return FLUX_NONE;
+}
+
+static int64_t flux_invalid_unary_op_error(const char *op, uint32_t op_len,
+                                           int64_t value) {
+    int64_t prefix = flux_string_new("Cannot ", 7);
+    int64_t op_name = flux_string_new(op, op_len);
+    int64_t middle = flux_string_new(" ", 1);
+    int64_t suffix = flux_string_new(" value.", 7);
+    int64_t ty = flux_type_of(value);
+    int64_t message =
+        flux_string_concat(
+            flux_string_concat(
+                flux_string_concat(
+                    flux_string_concat(prefix, op_name),
+                    middle),
+                ty),
+            suffix);
+    flux_panic(message);
+    return FLUX_NONE;
+}
+
 int64_t flux_rt_add(int64_t a, int64_t b) {
     /* Check string first (boxed ptr with string tag), then float. */
     if (flux_val_is_string(a)) {
+        if (!flux_val_is_string(b)) {
+            return flux_invalid_binary_op_error("add", 3, a, b);
+        }
         return flux_string_concat(a, b);
     }
     if (flux_val_is_float(a)) {
+        if (!flux_val_is_float(b)) {
+            return flux_invalid_binary_op_error("add", 3, a, b);
+        }
         return flux_box_float(flux_unbox_float(a) + flux_unbox_float(b));
+    }
+    if (!flux_is_int(a) || !flux_is_int(b)) {
+        return flux_invalid_binary_op_error("add", 3, a, b);
     }
     return flux_tag_int(flux_untag_int(a) + flux_untag_int(b));
 }
 
 int64_t flux_rt_sub(int64_t a, int64_t b) {
     if (flux_val_is_float(a)) {
+        if (!flux_val_is_float(b)) {
+            return flux_invalid_binary_op_error("subtract", 8, a, b);
+        }
         return flux_box_float(flux_unbox_float(a) - flux_unbox_float(b));
+    }
+    if (!flux_is_int(a) || !flux_is_int(b)) {
+        return flux_invalid_binary_op_error("subtract", 8, a, b);
     }
     return flux_tag_int(flux_untag_int(a) - flux_untag_int(b));
 }
 
 int64_t flux_rt_mul(int64_t a, int64_t b) {
     if (flux_val_is_float(a)) {
+        if (!flux_val_is_float(b)) {
+            return flux_invalid_binary_op_error("multiply", 8, a, b);
+        }
         return flux_box_float(flux_unbox_float(a) * flux_unbox_float(b));
+    }
+    if (!flux_is_int(a) || !flux_is_int(b)) {
+        return flux_invalid_binary_op_error("multiply", 8, a, b);
     }
     return flux_tag_int(flux_untag_int(a) * flux_untag_int(b));
 }
 
 int64_t flux_rt_div(int64_t a, int64_t b) {
     if (flux_val_is_float(a)) {
+        if (!flux_val_is_float(b)) {
+            return flux_invalid_binary_op_error("divide", 6, a, b);
+        }
         return flux_box_float(flux_unbox_float(a) / flux_unbox_float(b));
+    }
+    if (!flux_is_int(a) || !flux_is_int(b)) {
+        return flux_invalid_binary_op_error("divide", 6, a, b);
     }
     int64_t rb = flux_untag_int(b);
     if (rb == 0) {
@@ -437,7 +508,13 @@ int64_t flux_rt_div(int64_t a, int64_t b) {
 
 int64_t flux_rt_mod(int64_t a, int64_t b) {
     if (flux_val_is_float(a)) {
+        if (!flux_val_is_float(b)) {
+            return flux_invalid_binary_op_error("modulo", 6, a, b);
+        }
         return flux_box_float(fmod(flux_unbox_float(a), flux_unbox_float(b)));
+    }
+    if (!flux_is_int(a) || !flux_is_int(b)) {
+        return flux_invalid_binary_op_error("modulo", 6, a, b);
     }
     int64_t rb = flux_untag_int(b);
     if (rb == 0) {
@@ -450,6 +527,9 @@ int64_t flux_rt_mod(int64_t a, int64_t b) {
 int64_t flux_rt_neg(int64_t a) {
     if (flux_val_is_float(a)) {
         return flux_box_float(-flux_unbox_float(a));
+    }
+    if (!flux_is_int(a)) {
+        return flux_invalid_unary_op_error("negate", 6, a);
     }
     return flux_tag_int(-flux_untag_int(a));
 }
@@ -829,6 +909,54 @@ int64_t flux_try(int64_t thunk) {
         fields[1] = msg;
         return make_tuple(fields, 2);
     }
+}
+
+typedef struct {
+    void    *fn_ptr;
+    int32_t  remaining_arity;
+    int32_t  capture_count;
+    int32_t  applied_count;
+    int32_t  _pad;
+    int64_t  payload[];
+} FluxClosure;
+
+static int64_t flux_call_not_function_error(int64_t value) {
+    int64_t prefix = flux_string_new("Cannot call non-function value (got ", 36);
+    int64_t ty = flux_type_of(value);
+    int64_t suffix = flux_string_new(").", 2);
+    flux_panic(flux_string_concat(flux_string_concat(prefix, ty), suffix));
+    return FLUX_NONE;
+}
+
+static int64_t flux_wrong_arity_error(int32_t expected, int32_t got) {
+    char buf[96];
+    int len = snprintf(buf, sizeof(buf),
+                       "wrong number of arguments: want=%d, got=%d",
+                       expected, got);
+    if (len < 0) {
+        flux_panic(flux_string_new("wrong number of arguments", 25));
+        return FLUX_NONE;
+    }
+    flux_panic(flux_string_new(buf, (uint32_t)len));
+    return FLUX_NONE;
+}
+
+int64_t flux_call_closure_exact(int64_t closure, int64_t *args, int32_t nargs) {
+    if (!flux_is_ptr(closure)) {
+        return flux_call_not_function_error(closure);
+    }
+
+    void *ptr = flux_untag_ptr(closure);
+    if (flux_obj_tag(ptr) != FLUX_OBJ_CLOSURE) {
+        return flux_call_not_function_error(closure);
+    }
+
+    FluxClosure *fn = (FluxClosure *)ptr;
+    if (fn->remaining_arity != nargs) {
+        return flux_wrong_arity_error(fn->remaining_arity, nargs);
+    }
+
+    return flux_call_closure_c(closure, args, nargs);
 }
 
 /* flux_assert_throws(thunk, expected_msg): assert that thunk() panics. */

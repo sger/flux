@@ -37,7 +37,7 @@ fn compile_per_module_llvm_ir_with_classes(src: &str) -> String {
         .expect("compilation should succeed");
 
     let llvm = compiler
-        .lower_to_lir_llvm_module_per_module(&program, false, false)
+        .lower_to_lir_llvm_module_per_module(&program, false, false, true)
         .expect("per-module LLVM lowering should succeed");
     flux::core_to_llvm::render_module(&llvm)
 }
@@ -65,7 +65,7 @@ fn compile_per_module_llvm_ir_with_preloaded_interfaces(
         .expect("compilation should succeed");
 
     let llvm = compiler
-        .lower_to_lir_llvm_module_per_module(&program, false, false)
+        .lower_to_lir_llvm_module_per_module(&program, false, false, true)
         .expect("per-module LLVM lowering should succeed");
     flux::core_to_llvm::render_module(&llvm)
 }

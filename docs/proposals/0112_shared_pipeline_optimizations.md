@@ -173,7 +173,8 @@ Analyze which function results and ADT fields are actually demanded (used) by ca
 cargo test --all --all-features
 cargo clippy --all-targets --all-features -- -D warnings
 # Verify all 3 backends produce same results:
-scripts/release/check_parity.sh examples/basics examples/advanced
+cargo run -- parity-check examples/basics
+cargo run -- parity-check examples/advanced
 # Benchmark compilation speed:
 cargo run -- --stats examples/perf/binarytrees.flx    # Before/after
 ```

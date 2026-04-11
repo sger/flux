@@ -283,13 +283,17 @@ impl<'a> AstLowerer<'a> {
         // the instance's type args (supporting multi-param classes).
         if let Some(first_arg) = arguments.first()
             && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
-            && let Some((instance, _)) = class_env.resolve_instance_with_subst(
-                class_name,
-                std::slice::from_ref(first_arg_type),
-                interner,
-            )
+            && let Some((instance, _concrete_type_args)) = class_env
+                .resolve_method_call_instance_from_first_arg(
+                    class_name,
+                    first_arg_type,
+                    interner,
+                )
         {
-            // Build mangled name from all instance type args.
+            // Build mangled name from the instance head exactly as dispatch
+            // generation does. This preserves higher-kinded heads such as
+            // `Functor<List>` while still allowing first-argument instance
+            // selection for multi-parameter classes like `Convert<Int, String>`.
             let type_key = instance
                 .type_args
                 .iter()
@@ -369,7 +373,7 @@ impl<'a> AstLowerer<'a> {
     pub(super) fn resolve_dict_args_for_call(
         &self,
         callee_name: Identifier,
-        _call_id: ExprId,
+        call_id: ExprId,
         arguments: &[crate::syntax::expression::Expression],
     ) -> Vec<CoreExpr> {
         let (type_env, class_env, interner) = match (self.type_env, self.class_env, self.interner) {
@@ -387,7 +391,7 @@ impl<'a> AstLowerer<'a> {
         let mut dict_args = Vec::new();
         for constraint in &scheme.constraints {
             if let Some(actual_type_args) =
-                self.resolve_constraint_type_args(constraint, scheme, arguments)
+                self.resolve_constraint_type_args(constraint, scheme, call_id, arguments)
                 && let Some(dict_ref) = class_env.resolve_dictionary_ref(
                     constraint.class_name,
                     &actual_type_args,
@@ -415,10 +419,12 @@ impl<'a> AstLowerer<'a> {
         &self,
         constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
         scheme: &crate::types::scheme::Scheme,
+        call_id: ExprId,
         arguments: &[crate::syntax::expression::Expression],
     ) -> Option<Vec<InferType>> {
-        if let InferType::Fun(param_tys, _, _) = &scheme.infer_type {
+        if let InferType::Fun(param_tys, ret_ty, _) = &scheme.infer_type {
             let param_offset = param_tys.len().saturating_sub(arguments.len());
+            let call_result_ty = self.hm_expr_types.get(&call_id);
             let mut resolved = Vec::with_capacity(constraint.type_vars.len());
             for type_var in &constraint.type_vars {
                 let mut found = None;
@@ -431,6 +437,13 @@ impl<'a> AstLowerer<'a> {
                         found = Some(actual);
                         break;
                     }
+                }
+                if found.is_none()
+                    && let Some(actual_ret_ty) = call_result_ty
+                    && let Some(actual) =
+                        Self::match_constraint_type_var(ret_ty, actual_ret_ty, *type_var)
+                {
+                    found = Some(actual);
                 }
                 resolved.push(found?);
             }
@@ -1354,7 +1367,7 @@ mod tests {
         match expr {
             CoreExpr::Var { var, .. } => out.push(var),
             CoreExpr::Lam { body, .. } => collect_var_refs(body, out),
-            CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+            CoreExpr::App { func, args, .. } => {
                 collect_var_refs(func, out);
                 for arg in args {
                     collect_var_refs(arg, out);
@@ -1399,26 +1412,6 @@ mod tests {
                 }
             }
             CoreExpr::Lit(_, _) => {}
-            CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
-                out.push(var);
-                collect_var_refs(body, out);
-            }
-            CoreExpr::Reuse { token, fields, .. } => {
-                out.push(token);
-                for field in fields {
-                    collect_var_refs(field, out);
-                }
-            }
-            CoreExpr::DropSpecialized {
-                scrutinee,
-                unique_body,
-                shared_body,
-                ..
-            } => {
-                out.push(scrutinee);
-                collect_var_refs(unique_body, out);
-                collect_var_refs(shared_body, out);
-            }
             CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
                 collect_var_refs(object, out);
             }
@@ -1775,7 +1768,7 @@ f("flux")
                     count_bindings_in_expr(&alt.rhs, groups, singles);
                 }
             }
-            CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+            CoreExpr::App { func, args, .. } => {
                 count_bindings_in_expr(func, groups, singles);
                 for a in args {
                     count_bindings_in_expr(a, groups, singles);

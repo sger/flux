@@ -398,7 +398,7 @@ These types always go through a pointer tag:
 ### Phase 5: Evaluation + Adoption Decision
 
 1. Run full benchmark suite: compare NaN-boxed vs baseline
-2. Run `scripts/check_parity.sh` — 102/102 VM/JIT parity
+2. Run `cargo run -- parity-check tests/parity` — maintained VM/native parity
 3. Expected wins:
    - **Memory**: ~3x reduction in stack, array, closure memory
    - **Cache**: significant improvement on numeric-heavy workloads

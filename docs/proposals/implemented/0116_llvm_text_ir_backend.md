@@ -590,7 +590,7 @@ llvm = ["llvm-sys"]
 
 **Phase 9 — Parity and benchmarks** (~2 weeks)
 - Run all examples through VM, JIT, and CoreToLlvm backends
-- Parity script: `scripts/release/check_parity.sh` extended for `--core-to-llvm`
+- Parity command: `cargo run -- parity-check ...` extended for `--core-to-llvm`
 - Benchmark suite: compare runtime performance across all backends
 - Expected: CoreToLlvm significantly faster than VM/JIT on numeric workloads
 

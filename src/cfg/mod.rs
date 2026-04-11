@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt};
 
 use crate::{
-    core::{CoreType, passes::run_core_passes, to_ir::lower_core_to_ir},
+    core::{CoreType, passes::run_core_passes, to_ir::lower_aether_to_ir},
     diagnostics::{Diagnostic, position::Span},
     syntax::{
         Identifier,
@@ -117,7 +117,7 @@ fn lower_program_to_ir_impl(
         crate::core::passes::elaborate_dictionaries(&mut core, ce, te, int, &mut next_id);
     }
 
-    let warnings = if let Some(interner) = interner {
+    let mut warnings = if let Some(interner) = interner {
         crate::core::passes::run_core_passes_with_interner_and_warnings(
             &mut core, interner, optimize,
         )?
@@ -125,6 +125,21 @@ fn lower_program_to_ir_impl(
         run_core_passes(&mut core)?;
         Vec::new()
     };
+
+    let (aether, mut aether_warnings) = if let Some(interner) = interner {
+        crate::aether::lower_core_to_aether_program(
+            &core,
+            Some(interner),
+            crate::aether::borrow_infer::BorrowRegistry::default(),
+        )?
+    } else {
+        crate::aether::lower_core_to_aether_program(
+            &core,
+            None,
+            crate::aether::borrow_infer::BorrowRegistry::default(),
+        )?
+    };
+    warnings.append(&mut aether_warnings);
 
     // Aether diagnostics (works for all backends: VM, JIT, LLVM).
     // Uses a static flag to print only once even if called multiple times.
@@ -139,7 +154,7 @@ fn lower_program_to_ir_impl(
             let mut total = crate::aether::AetherStats::default();
             let mut all_diags = Vec::new();
 
-            for def in &core.defs {
+            for def in aether.defs() {
                 let s = crate::aether::collect_stats(&def.expr);
                 total.dups += s.dups;
                 total.drops += s.drops;
@@ -148,7 +163,7 @@ fn lower_program_to_ir_impl(
                 total.allocs += s.allocs;
 
                 if aether_verify {
-                    all_diags.extend(crate::aether::verify::verify_diagnostics(&def.expr));
+                    all_diags.extend(crate::aether::verify::verify_diagnostics_aether(&def.expr));
                 }
             }
 
@@ -170,9 +185,9 @@ fn lower_program_to_ir_impl(
         }
     }
 
-    let mut ir = lower_core_to_ir(&core);
+    let mut ir = lower_aether_to_ir(&aether);
     ir.hm_expr_types = hm_expr_types.clone();
-    ir.core = Some(core);
+    ir.core = Some(aether.into_core());
     Ok((ir, warnings))
 }
 
