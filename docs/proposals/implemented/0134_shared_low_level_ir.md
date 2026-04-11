@@ -275,7 +275,7 @@ Incremental — LIR is additive until the final phase.  Each phase produces a wo
 - `LirTerminator::Return` → `OpReturnValue`
 - Feature flag `FLUX_USE_LIR` in bytecode compiler pipeline to switch paths
 
-**Verification:** `scripts/run_examples.sh --all` produces identical output with `FLUX_USE_LIR=1`.  Parity with existing CFG path.
+**Verification:** `cargo run -- parity-check examples` produces identical output with `FLUX_USE_LIR=1`. Parity with existing CFG path.
 
 ---
 
@@ -291,7 +291,7 @@ Incremental — LIR is additive until the final phase.  Each phase produces a wo
 - `LirInstr::Dup`/`Drop` → `call void @flux_dup`/`@flux_drop`
 - Memory instructions → direct LLVM `load`/`store`/`call @malloc`
 
-**Verification:** `scripts/check_core_to_llvm_parity.sh` passes with LIR-based LLVM emitter.
+**Verification:** `cargo run -- parity-check examples` passes with the LIR-based LLVM emitter.
 
 ---
 
