@@ -6,14 +6,16 @@
 
 use std::collections::HashMap;
 
-use crate::core::{CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreTag, CoreVarRef};
+use crate::core::{CoreBinder, CoreBinderId, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
 
 use super::analysis::{
-    AetherEnv, AetherPlan, ValueDemand, join_branch_envs, pat_binders, use_counts,
+    AetherEnv, AetherPlan, ValueDemand, join_branch_envs, pat_binders, use_counts_aether,
 };
 use super::borrow_infer::{BorrowMode, BorrowRegistry};
-use super::constructor_shape_for_tag;
+use super::{AetherAlt as CoreAlt, AetherExpr, AetherHandler, constructor_shape_for_tag_aether};
+
+type CoreExpr = AetherExpr;
 
 type Scope = HashMap<CoreBinderId, CoreBinder>;
 
@@ -39,6 +41,11 @@ pub fn insert_dup_drop(expr: CoreExpr) -> CoreExpr {
     .expr
 }
 
+/// Insert Dup/Drop annotations into a backend-only Aether expression.
+pub fn insert_dup_drop_aether(expr: CoreExpr) -> CoreExpr {
+    insert_dup_drop(expr)
+}
+
 /// Insert Dup/Drop annotations, consulting the borrow registry to skip
 /// Rc::clone for arguments passed to borrowed parameters.
 pub fn insert_dup_drop_with_registry(expr: CoreExpr, registry: &BorrowRegistry) -> CoreExpr {
@@ -53,6 +60,15 @@ pub fn insert_dup_drop_with_registry(expr: CoreExpr, registry: &BorrowRegistry) 
         &mut field_parents,
     )
     .expr
+}
+
+/// Insert Dup/Drop annotations into a backend-only Aether expression,
+/// consulting the borrow registry to skip unnecessary clones.
+pub fn insert_dup_drop_with_registry_aether(
+    expr: CoreExpr,
+    registry: &BorrowRegistry,
+) -> CoreExpr {
+    insert_dup_drop_with_registry(expr, registry)
 }
 
 fn plan_expr(
@@ -627,7 +643,7 @@ fn plan_expr(
                 env_before.remove_all(shadow_ids);
                 incoming_envs.push(env_before);
 
-                planned_handlers.push(crate::core::CoreHandler {
+                planned_handlers.push(AetherHandler {
                     operation: handler.operation,
                     params: handler.params,
                     resume: handler.resume,
@@ -968,8 +984,8 @@ fn find_con_tag_in_spine(
 ) -> Option<crate::core::CoreTag> {
     match expr {
         CoreExpr::Reuse { tag, .. } => Some(tag.clone()),
-        _ if constructor_shape_for_tag(expr, expected_tag).is_some() => {
-            constructor_shape_for_tag(expr, expected_tag).map(|(tag, _, _)| tag)
+        _ if constructor_shape_for_tag_aether(expr, expected_tag).is_some() => {
+            constructor_shape_for_tag_aether(expr, expected_tag).map(|(tag, _, _)| tag)
         }
         CoreExpr::Case { alts, .. } => alts
             .iter()
@@ -993,7 +1009,7 @@ fn tags_shape_compatible(a: &CoreTag, b: &CoreTag) -> bool {
 }
 
 fn expr_uses_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
-    use_counts(expr).get(&binder).copied().unwrap_or(0) > 0
+    use_counts_aether(expr).get(&binder).copied().unwrap_or(0) > 0
 }
 
 fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
@@ -1054,9 +1070,8 @@ fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::aether::borrow_infer::{BorrowMode, BorrowRegistry};
-    use crate::core::{
-        CoreBinder, CoreBinderId, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreVarRef,
-    };
+    use crate::aether::{AetherAlt as CoreAlt, AetherExpr as CoreExpr, AetherHandler as CoreHandler};
+    use crate::core::{CoreBinder, CoreBinderId, CoreLit, CorePat, CorePrimOp, CoreVarRef};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 
@@ -1295,7 +1310,7 @@ mod tests {
             body: Box::new(CoreExpr::Case {
                 scrutinee: Box::new(CoreExpr::Lit(CoreLit::Bool(true), Span::default())),
                 alts: vec![
-                    crate::core::CoreAlt {
+                    CoreAlt {
                         pat: CorePat::Lit(CoreLit::Bool(true)),
                         guard: None,
                         rhs: CoreExpr::App {
@@ -1308,7 +1323,7 @@ mod tests {
                         },
                         span: Span::default(),
                     },
-                    crate::core::CoreAlt {
+                    CoreAlt {
                         pat: CorePat::Wildcard,
                         guard: None,
                         rhs: CoreExpr::Lit(CoreLit::Int(0), Span::default()),

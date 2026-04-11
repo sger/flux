@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
+    aether::AetherExpr,
     cfg::{
         BlockId, FunctionId, IrBlock, IrCallTarget, IrExpr, IrFunction, IrFunctionOrigin, IrInstr,
         IrMetadata, IrParam, IrTerminator, IrType, IrVar,
@@ -193,10 +194,7 @@ impl<'a> FnCtx<'a> {
 
             CoreExpr::Lam { .. } => self.lower_lam_as_closure(None, None, expr),
 
-            CoreExpr::App { func, args, span }
-            | CoreExpr::AetherCall {
-                func, args, span, ..
-            } => {
+            CoreExpr::App { func, args, span } => {
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 let dest = self.ctx.alloc_var();
                 let meta = IrMetadata::from_span(*span);
@@ -462,11 +460,51 @@ impl<'a> FnCtx<'a> {
                 dest
             }
 
-            // Dup — transparent at IR level (Rc clone is automatic), just lower the body.
-            CoreExpr::Dup { body, .. } => self.lower_expr(body),
+        }
+    }
 
-            // Drop — emit AetherDrop to signal early release, then lower the body.
-            CoreExpr::Drop { var, body, span } => {
+    /// Lower a backend-only `AetherExpr`, returning the `IrVar` that holds the result.
+    pub(super) fn lower_expr_aether(&mut self, expr: &AetherExpr) -> IrVar {
+        match expr {
+            AetherExpr::AetherCall {
+                func, args, span, ..
+            } => {
+                let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
+                let dest = self.ctx.alloc_var();
+                let meta = IrMetadata::from_span(*span);
+
+                match func.as_ref() {
+                    AetherExpr::Var { var, .. } => {
+                        if let Some(binder) = var.binder {
+                            let fv = self.bound_var(binder, var.name);
+                            self.emit(IrInstr::Call {
+                                dest,
+                                target: IrCallTarget::Var(fv),
+                                args: arg_vars,
+                                metadata: meta,
+                            });
+                            return dest;
+                        }
+                        self.emit(IrInstr::Call {
+                            dest,
+                            target: IrCallTarget::Named(var.name),
+                            args: arg_vars,
+                            metadata: meta,
+                        });
+                    }
+                    other => {
+                        let fv = self.lower_expr_aether(other);
+                        self.emit(IrInstr::Call {
+                            dest,
+                            target: IrCallTarget::Var(fv),
+                            args: arg_vars,
+                            metadata: meta,
+                        });
+                    }
+                }
+                dest
+            }
+            AetherExpr::Drop { var, body, span } => {
                 if let Some(binder) = var.binder
                     && let Some(&ir_var) = self.env.get(&binder)
                 {
@@ -475,26 +513,23 @@ impl<'a> FnCtx<'a> {
                         metadata: IrMetadata::from_span(*span),
                     });
                 }
-                self.lower_expr(body)
+                self.lower_expr_aether(body)
             }
-
-            // Reuse — emit DropReuse + Reuse* IR to enable in-place allocation reuse.
-            CoreExpr::Reuse {
+            AetherExpr::Dup { body, .. } => self.lower_expr_aether(body),
+            AetherExpr::Reuse {
                 token,
                 tag,
                 fields,
                 field_mask,
                 span,
             } => {
-                // Step 1: Resolve token variable. If not in scope, fall back to regular Con.
                 let token_var = if let Some(binder) = token.binder
                     && let Some(&ir_var) = self.env.get(&binder)
                 {
                     ir_var
                 } else {
-                    // Token not in scope — fall back to regular Con
                     let field_vars: Vec<IrVar> =
-                        fields.iter().map(|f| self.lower_expr(f)).collect();
+                        fields.iter().map(|f| self.lower_expr_aether(f)).collect();
                     let dest = self.ctx.alloc_var();
                     let ir_expr = match tag {
                         CoreTag::None => IrExpr::None,
@@ -522,10 +557,9 @@ impl<'a> FnCtx<'a> {
                     return dest;
                 };
 
-                // Step 2: Lower fields
-                let field_vars: Vec<IrVar> = fields.iter().map(|f| self.lower_expr(f)).collect();
+                let field_vars: Vec<IrVar> =
+                    fields.iter().map(|f| self.lower_expr_aether(f)).collect();
 
-                // Step 3: Emit DropReuse to get reuse token
                 let reuse_token = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
                     dest: reuse_token,
@@ -533,7 +567,6 @@ impl<'a> FnCtx<'a> {
                     metadata: IrMetadata::from_span(*span),
                 });
 
-                // Step 4: Emit Reuse* variant with token
                 let dest = self.ctx.alloc_var();
                 let ir_expr = match tag {
                     CoreTag::Cons => IrExpr::ReuseCons {
@@ -560,7 +593,6 @@ impl<'a> FnCtx<'a> {
                         fields: field_vars,
                         field_mask: *field_mask,
                     },
-                    // Stack-allocated types can't be reused — fall back to regular Con
                     CoreTag::Nil => IrExpr::EmptyList,
                     CoreTag::None => IrExpr::None,
                 };
@@ -571,13 +603,7 @@ impl<'a> FnCtx<'a> {
                 });
                 dest
             }
-
-            // DropSpecialized — branch on uniqueness of scrutinee at runtime.
-            // Emits: is_unique = IsUnique(scrutinee)
-            //        if is_unique → unique_block (lower unique_body)
-            //        else         → shared_block (lower shared_body)
-            //        both jump to join_block with result
-            CoreExpr::DropSpecialized {
+            AetherExpr::DropSpecialized {
                 scrutinee,
                 unique_body,
                 shared_body,
@@ -591,7 +617,6 @@ impl<'a> FnCtx<'a> {
                     scrutinee.name,
                 );
 
-                // Emit IsUnique test
                 let is_unique_var = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
                     dest: is_unique_var,
@@ -599,7 +624,6 @@ impl<'a> FnCtx<'a> {
                     metadata: meta.clone(),
                 });
 
-                // Create blocks for unique path, shared path, and join
                 let saved_env = self.env.clone();
                 let saved_binder_names = self.binder_names.clone();
 
@@ -617,7 +641,6 @@ impl<'a> FnCtx<'a> {
                         ty: IrType::Any,
                     });
 
-                // Branch on uniqueness
                 self.set_terminator(IrTerminator::Branch {
                     cond: is_unique_var,
                     then_block: unique_block_id,
@@ -625,11 +648,10 @@ impl<'a> FnCtx<'a> {
                     metadata: meta.clone(),
                 });
 
-                // Lower unique body
                 self.current_block = unique_block_idx;
                 self.env = saved_env.clone();
                 self.binder_names = saved_binder_names.clone();
-                let unique_result = self.lower_expr(unique_body);
+                let unique_result = self.lower_expr_aether(unique_body);
                 if self.current_block_is_open() {
                     self.set_terminator(IrTerminator::Jump(
                         join_block_id,
@@ -638,11 +660,10 @@ impl<'a> FnCtx<'a> {
                     ));
                 }
 
-                // Lower shared body
                 self.current_block = shared_block_idx;
                 self.env = saved_env;
                 self.binder_names = saved_binder_names;
-                let shared_result = self.lower_expr(shared_body);
+                let shared_result = self.lower_expr_aether(shared_body);
                 if self.current_block_is_open() {
                     self.set_terminator(IrTerminator::Jump(
                         join_block_id,
@@ -651,10 +672,10 @@ impl<'a> FnCtx<'a> {
                     ));
                 }
 
-                // Continue in join block
                 self.current_block = join_block_idx;
                 result_var
             }
+            _ => self.lower_expr(&expr.clone().erase_to_core()),
         }
     }
 }

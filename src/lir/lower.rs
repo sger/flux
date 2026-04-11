@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use std::collections::HashSet;
 
+use crate::aether::AetherExpr;
 use crate::core::{
     CoreAlt, CoreBinderId, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp,
     CoreProgram, CoreTag, CoreTopLevelItem,
@@ -253,6 +254,11 @@ pub fn lower_program(program: &CoreProgram) -> LirProgram {
     lower_program_with_interner(program, None, None)
 }
 
+/// Lower a backend-only `AetherProgram` to `LirProgram`.
+pub fn lower_aether_program(program: &crate::aether::AetherProgram) -> LirProgram {
+    lower_aether_program_with_interner(program, None, None)
+}
+
 /// Lower a `CoreProgram` to `LirProgram` with symbol resolution support.
 ///
 /// `globals_map` maps `Symbol` → VM global index for imported/prelude functions.
@@ -264,6 +270,14 @@ pub fn lower_program_with_interner(
     globals_map: Option<&HashMap<String, usize>>,
 ) -> LirProgram {
     lower_program_with_interner_and_externs(program, interner, globals_map, None, true, None)
+}
+
+pub fn lower_aether_program_with_interner(
+    program: &crate::aether::AetherProgram,
+    interner: Option<&Interner>,
+    globals_map: Option<&HashMap<String, usize>>,
+) -> LirProgram {
+    lower_aether_program_with_interner_and_externs(program, interner, globals_map, None, true, None)
 }
 
 /// Lower a `CoreProgram` to `LirProgram` with optional native external symbol
@@ -385,6 +399,111 @@ pub fn lower_program_with_interner_and_externs(
     // to a Return with no intervening side effects.
     promote_tail_calls(&mut lir);
 
+    lir
+}
+
+pub fn lower_aether_program_with_interner_and_externs(
+    program: &crate::aether::AetherProgram,
+    interner: Option<&Interner>,
+    globals_map: Option<&HashMap<String, usize>>,
+    extern_symbols: Option<&HashMap<String, ImportedNativeSymbol>>,
+    emit_main: bool,
+    entry_qualifier: Option<&str>,
+) -> LirProgram {
+    let core = program.as_core();
+    let mut lir = LirProgram::new();
+
+    let qualified_names = build_qualified_names(core, interner, entry_qualifier);
+    collect_constructor_tags(&core.top_level_items, &mut lir.constructor_tags, interner);
+
+    let main_idx = if emit_main {
+        if let Some(interner) = interner {
+            program
+                .defs()
+                .iter()
+                .position(|d| interner.resolve(d.name) == "main")
+                .or(Some(0))
+        } else {
+            Some(0)
+        }
+    } else if let Some(interner) = interner {
+        program
+            .defs()
+            .iter()
+            .position(|d| interner.resolve(d.name) == "main")
+    } else {
+        None
+    };
+
+    let mut binder_func_map: HashMap<CoreBinderId, LirFuncId> = HashMap::new();
+    let mut top_level_value_map: HashMap<CoreBinderId, &CoreExpr> = HashMap::new();
+    for (i, def) in program.defs().iter().enumerate() {
+        if main_idx.is_some_and(|idx| i == idx) {
+            continue;
+        }
+        if matches!(def.expr, crate::aether::AetherExpr::Lam { .. }) {
+            binder_func_map.insert(def.binder.id, LirFuncId(def.binder.id.0));
+        } else if let Some(core_def) = core
+            .defs
+            .iter()
+            .find(|core_def| core_def.binder.id == def.binder.id)
+        {
+            top_level_value_map.insert(def.binder.id, &core_def.expr);
+        }
+    }
+
+    let mut name_binder_map: HashMap<crate::syntax::Identifier, Vec<CoreBinderId>> = HashMap::new();
+    for def in program.defs() {
+        name_binder_map
+            .entry(def.name)
+            .or_default()
+            .push(def.binder.id);
+    }
+
+    let int_return_binders: HashSet<CoreBinderId> = program
+        .defs()
+        .iter()
+        .filter(|def| matches!(def.result_ty, Some(crate::core::CoreType::Int)))
+        .map(|def| def.binder.id)
+        .collect();
+
+    for (i, def) in program.defs().iter().enumerate() {
+        if main_idx.is_some_and(|idx| i == idx) {
+            continue;
+        }
+        let ctx = LowerDefCtx {
+            program: &mut lir,
+            binder_func_map: &binder_func_map,
+            qualified_names: &qualified_names,
+            name_binder_map: &name_binder_map,
+            interner,
+            globals_map,
+            extern_symbols,
+            top_level_value_map: &top_level_value_map,
+            int_return_binders: &int_return_binders,
+        };
+        let func = lower_aether_def(def, ctx);
+        lir.push_function(func);
+    }
+
+    if let Some(main_idx) = main_idx {
+        let main_def = &program.defs()[main_idx];
+        let ctx = LowerDefCtx {
+            program: &mut lir,
+            binder_func_map: &binder_func_map,
+            qualified_names: &qualified_names,
+            name_binder_map: &name_binder_map,
+            interner,
+            globals_map,
+            extern_symbols,
+            top_level_value_map: &top_level_value_map,
+            int_return_binders: &int_return_binders,
+        };
+        let func = lower_aether_def(main_def, ctx);
+        lir.push_function(func);
+    }
+
+    promote_tail_calls(&mut lir);
     lir
 }
 
@@ -1256,12 +1375,6 @@ impl<'a> FnLower<'a> {
             }
 
             CoreExpr::App { func, args, .. } => self.lower_call_expr(func, args, None),
-            CoreExpr::AetherCall {
-                func,
-                args,
-                arg_modes,
-                ..
-            } => self.lower_call_expr(func, args, Some(arg_modes)),
 
             // ── Pattern matching (Phase 3) ────────────────────────────
             CoreExpr::Case {
@@ -1440,37 +1553,206 @@ impl<'a> FnLower<'a> {
                 ..
             } => self.lower_perform(*effect, *operation, args),
 
-            // ── Aether RC nodes (Phase 5) ─────────────────────────────
-            CoreExpr::Dup { var, body, .. } => {
+        }
+    }
+
+    fn lower_expr_aether(&mut self, expr: &AetherExpr) -> LirVar {
+        match expr {
+            AetherExpr::AetherCall {
+                func,
+                args,
+                arg_modes,
+                ..
+            } => {
+                let func_core = func.clone().erase_to_core();
+                let args_core: Vec<CoreExpr> =
+                    args.iter().cloned().map(AetherExpr::erase_to_core).collect();
+                self.lower_call_expr(&func_core, &args_core, Some(arg_modes))
+            }
+            AetherExpr::Dup { var, body, .. } => {
                 if let Some(binder) = var.binder {
                     let v = self.lookup(binder);
                     self.emit(LirInstr::Dup { val: v });
                 }
-                self.lower_expr(body)
+                self.lower_expr_aether(body)
             }
-
-            CoreExpr::Drop { var, body, .. } => {
+            AetherExpr::Drop { var, body, .. } => {
                 if let Some(binder) = var.binder {
                     let v = self.lookup(binder);
                     self.emit(LirInstr::Drop { val: v });
                 }
-                self.lower_expr(body)
+                self.lower_expr_aether(body)
             }
-
-            CoreExpr::Reuse {
+            AetherExpr::Reuse {
                 token,
                 tag,
                 fields,
                 field_mask,
                 ..
-            } => self.lower_reuse(token, tag, fields, *field_mask),
+            } => {
+                let field_vars: Vec<LirVar> =
+                    fields.iter().map(|f| self.lower_expr_aether(f)).collect();
 
-            CoreExpr::DropSpecialized {
+                let ctor_tag = match tag {
+                    CoreTag::Some => SOME_TAG_ID as i32,
+                    CoreTag::Left => LEFT_TAG_ID as i32,
+                    CoreTag::Right => RIGHT_TAG_ID as i32,
+                    CoreTag::Cons => CONS_TAG_ID as i32,
+                    CoreTag::Named(name) => {
+                        let ctor_name = self.resolve_name(*name);
+                        self.program
+                            .constructor_tags
+                            .get(&ctor_name)
+                            .copied()
+                            .unwrap_or(FIRST_USER_TAG_ID as i32)
+                    }
+                    CoreTag::None | CoreTag::Nil => {
+                        return self.lower_con_from_vars(tag, field_vars);
+                    }
+                };
+
+                let token_var = if let Some(b) = token.binder {
+                    self.lookup(b)
+                } else {
+                    let v = self.fresh_var();
+                    self.emit(LirInstr::Const {
+                        dst: v,
+                        value: LirConst::None,
+                    });
+                    v
+                };
+
+                let is_reusable = self.fresh_var();
+                self.emit(LirInstr::IsUnique {
+                    dst: is_reusable,
+                    val: token_var,
+                });
+
+                let reuse_idx = self.new_block();
+                let fresh_idx = self.new_block();
+                let join_idx = self.new_block();
+                let reuse_id = BlockId(reuse_idx as u32);
+                let fresh_id = BlockId(fresh_idx as u32);
+                let join_id = BlockId(join_idx as u32);
+
+                let result = self.fresh_var();
+                self.func.blocks[join_idx].params.push(result);
+
+                self.set_terminator(LirTerminator::Branch {
+                    cond: is_reusable,
+                    then_block: reuse_id,
+                    else_block: fresh_id,
+                });
+
+                self.switch_to_block(reuse_idx);
+                let reuse_ptr = self.fresh_var();
+                self.emit(LirInstr::UntagPtr {
+                    dst: reuse_ptr,
+                    val: token_var,
+                });
+                self.emit(LirInstr::StoreI32 {
+                    ptr: reuse_ptr,
+                    offset: 0,
+                    value: ctor_tag,
+                });
+                self.emit(LirInstr::StoreI32 {
+                    ptr: reuse_ptr,
+                    offset: 4,
+                    value: field_vars.len() as i32,
+                });
+                for (i, fv) in field_vars.iter().enumerate() {
+                    if let Some(mask) = field_mask
+                        && mask & (1 << i) == 0
+                    {
+                        continue;
+                    }
+                    self.emit(LirInstr::Store {
+                        ptr: reuse_ptr,
+                        offset: ADT_HEADER_SIZE + (i as i32) * 8,
+                        val: *fv,
+                    });
+                }
+                let reuse_tagged = self.fresh_var();
+                self.emit(LirInstr::TagPtr {
+                    dst: reuse_tagged,
+                    ptr: reuse_ptr,
+                });
+                self.emit_copy_to_join_param(reuse_tagged, join_id);
+                self.set_terminator(LirTerminator::Jump(join_id));
+
+                self.switch_to_block(fresh_idx);
+                self.emit(LirInstr::Drop { val: token_var });
+                let ctor_name = match tag {
+                    CoreTag::Named(name) => Some(self.resolve_name(*name)),
+                    _ => None,
+                };
+                let fresh_val = self.fresh_var();
+                self.emit(LirInstr::MakeCtor {
+                    dst: fresh_val,
+                    ctor_tag,
+                    ctor_name,
+                    fields: field_vars.clone(),
+                    field_reps: Vec::new(),
+                });
+                self.emit_copy_to_join_param(fresh_val, join_id);
+                self.set_terminator(LirTerminator::Jump(join_id));
+
+                self.switch_to_block(join_idx);
+                result
+            }
+            AetherExpr::DropSpecialized {
                 scrutinee,
                 unique_body,
                 shared_body,
                 ..
-            } => self.lower_drop_specialized(scrutinee, unique_body, shared_body),
+            } => {
+                let scrut_var = if let Some(b) = scrutinee.binder {
+                    self.lookup(b)
+                } else {
+                    let v = self.fresh_var();
+                    self.emit(LirInstr::Const {
+                        dst: v,
+                        value: LirConst::None,
+                    });
+                    v
+                };
+
+                let is_unique = self.fresh_var();
+                self.emit(LirInstr::IsUnique {
+                    dst: is_unique,
+                    val: scrut_var,
+                });
+
+                let unique_idx = self.new_block();
+                let shared_idx = self.new_block();
+                let join_idx = self.new_block();
+                let unique_id = BlockId(unique_idx as u32);
+                let shared_id = BlockId(shared_idx as u32);
+                let join_id = BlockId(join_idx as u32);
+
+                let result = self.fresh_var();
+                self.func.blocks[join_idx].params.push(result);
+
+                self.set_terminator(LirTerminator::Branch {
+                    cond: is_unique,
+                    then_block: unique_id,
+                    else_block: shared_id,
+                });
+
+                self.switch_to_block(unique_idx);
+                let unique_val = self.lower_expr_aether(unique_body);
+                self.emit_copy_to_join_param(unique_val, join_id);
+                self.set_terminator(LirTerminator::Jump(join_id));
+
+                self.switch_to_block(shared_idx);
+                let shared_val = self.lower_expr_aether(shared_body);
+                self.emit_copy_to_join_param(shared_val, join_id);
+                self.set_terminator(LirTerminator::Jump(join_id));
+
+                self.switch_to_block(join_idx);
+                result
+            }
+            _ => self.lower_expr(&expr.clone().erase_to_core()),
         }
     }
 
@@ -2722,7 +3004,10 @@ impl<'a> FnLower<'a> {
     /// Lower a `Con` expression (ADT, cons, some, none, etc.).
     fn lower_con(&mut self, tag: &CoreTag, fields: &[CoreExpr]) -> LirVar {
         let field_vars: Vec<LirVar> = fields.iter().map(|f| self.lower_expr(f)).collect();
+        self.lower_con_from_vars(tag, field_vars)
+    }
 
+    fn lower_con_from_vars(&mut self, tag: &CoreTag, field_vars: Vec<LirVar>) -> LirVar {
         match tag {
             CoreTag::None | CoreTag::Nil => {
                 // Immediate values — no heap allocation.
@@ -2774,204 +3059,6 @@ impl<'a> FnLower<'a> {
         }
     }
 
-    // ── Phase 5: Aether RC ───────────────────────────────────────────
-
-    /// Lower `Reuse { token, tag, fields, field_mask }`.
-    ///
-    /// Perceus reuse: try to reuse `token`'s heap allocation for a new
-    /// constructor.  Emit `DropReuse` to test uniqueness.  If the token
-    /// was unique (returned non-null), write fields in-place.  If shared,
-    /// fall back to a fresh allocation.
-    fn lower_reuse(
-        &mut self,
-        token: &crate::core::CoreVarRef,
-        tag: &CoreTag,
-        fields: &[CoreExpr],
-        field_mask: Option<u64>,
-    ) -> LirVar {
-        let field_vars: Vec<LirVar> = fields.iter().map(|f| self.lower_expr(f)).collect();
-
-        let ctor_tag = match tag {
-            CoreTag::Some => SOME_TAG_ID as i32,
-            CoreTag::Left => LEFT_TAG_ID as i32,
-            CoreTag::Right => RIGHT_TAG_ID as i32,
-            CoreTag::Cons => CONS_TAG_ID as i32,
-            CoreTag::Named(name) => {
-                let ctor_name = self.resolve_name(*name);
-                self.program
-                    .constructor_tags
-                    .get(&ctor_name)
-                    .copied()
-                    .unwrap_or(FIRST_USER_TAG_ID as i32)
-            }
-            CoreTag::None | CoreTag::Nil => {
-                // None/Nil are immediates — no allocation to reuse.
-                let dst = self.fresh_var();
-                let value = if matches!(tag, CoreTag::Nil) {
-                    LirConst::EmptyList
-                } else {
-                    LirConst::None
-                };
-                self.emit(LirInstr::Const { dst, value });
-                return dst;
-            }
-        };
-
-        // Try to reuse the token's allocation.
-        let token_var = if let Some(b) = token.binder {
-            self.lookup(b)
-        } else {
-            let v = self.fresh_var();
-            self.emit(LirInstr::Const {
-                dst: v,
-                value: LirConst::None,
-            });
-            v
-        };
-
-        let is_reusable = self.fresh_var();
-        self.emit(LirInstr::IsUnique {
-            dst: is_reusable,
-            val: token_var,
-        });
-
-        let reuse_idx = self.new_block();
-        let fresh_idx = self.new_block();
-        let join_idx = self.new_block();
-        let reuse_id = BlockId(reuse_idx as u32);
-        let fresh_id = BlockId(fresh_idx as u32);
-        let join_id = BlockId(join_idx as u32);
-
-        let result = self.fresh_var();
-        self.func.blocks[join_idx].params.push(result);
-
-        self.set_terminator(LirTerminator::Branch {
-            cond: is_reusable,
-            then_block: reuse_id,
-            else_block: fresh_id,
-        });
-
-        // Reuse path: write header + fields into existing allocation.
-        self.switch_to_block(reuse_idx);
-        let reuse_ptr = self.fresh_var();
-        self.emit(LirInstr::UntagPtr {
-            dst: reuse_ptr,
-            val: token_var,
-        });
-        self.emit(LirInstr::StoreI32 {
-            ptr: reuse_ptr,
-            offset: 0,
-            value: ctor_tag,
-        });
-        self.emit(LirInstr::StoreI32 {
-            ptr: reuse_ptr,
-            offset: 4,
-            value: field_vars.len() as i32,
-        });
-        for (i, fv) in field_vars.iter().enumerate() {
-            // If field_mask is set, skip unchanged fields on the reuse path.
-            if let Some(mask) = field_mask
-                && mask & (1 << i) == 0
-            {
-                continue; // field unchanged, skip write
-            }
-            self.emit(LirInstr::Store {
-                ptr: reuse_ptr,
-                offset: ADT_HEADER_SIZE + (i as i32) * 8,
-                val: *fv,
-            });
-        }
-        let reuse_tagged = self.fresh_var();
-        self.emit(LirInstr::TagPtr {
-            dst: reuse_tagged,
-            ptr: reuse_ptr,
-        });
-        self.emit_copy_to_join_param(reuse_tagged, join_id);
-        self.set_terminator(LirTerminator::Jump(join_id));
-
-        // Fresh alloc path — use MakeCtor (high-level).
-        self.switch_to_block(fresh_idx);
-        self.emit(LirInstr::Drop { val: token_var });
-        let ctor_name = match tag {
-            CoreTag::Named(name) => Some(self.resolve_name(*name)),
-            _ => None,
-        };
-        let fresh_val = self.fresh_var();
-        self.emit(LirInstr::MakeCtor {
-            dst: fresh_val,
-            ctor_tag,
-            ctor_name,
-            fields: field_vars.clone(),
-            field_reps: Vec::new(),
-        });
-        self.emit_copy_to_join_param(fresh_val, join_id);
-        self.set_terminator(LirTerminator::Jump(join_id));
-
-        // Join.
-        self.switch_to_block(join_idx);
-        result
-    }
-
-    /// Lower `DropSpecialized { scrutinee, unique_body, shared_body }`.
-    ///
-    /// Perceus drop specialization: test if scrutinee is uniquely owned.
-    /// - Unique: fields are already owned, only free the shell.
-    /// - Shared: dup fields, decrement scrutinee refcount.
-    fn lower_drop_specialized(
-        &mut self,
-        scrutinee: &crate::core::CoreVarRef,
-        unique_body: &CoreExpr,
-        shared_body: &CoreExpr,
-    ) -> LirVar {
-        let scrut_var = if let Some(b) = scrutinee.binder {
-            self.lookup(b)
-        } else {
-            let v = self.fresh_var();
-            self.emit(LirInstr::Const {
-                dst: v,
-                value: LirConst::None,
-            });
-            v
-        };
-
-        let is_unique = self.fresh_var();
-        self.emit(LirInstr::IsUnique {
-            dst: is_unique,
-            val: scrut_var,
-        });
-
-        let unique_idx = self.new_block();
-        let shared_idx = self.new_block();
-        let join_idx = self.new_block();
-        let unique_id = BlockId(unique_idx as u32);
-        let shared_id = BlockId(shared_idx as u32);
-        let join_id = BlockId(join_idx as u32);
-
-        let result = self.fresh_var();
-        self.func.blocks[join_idx].params.push(result);
-
-        self.set_terminator(LirTerminator::Branch {
-            cond: is_unique,
-            then_block: unique_id,
-            else_block: shared_id,
-        });
-
-        // Unique path.
-        self.switch_to_block(unique_idx);
-        let unique_val = self.lower_expr(unique_body);
-        self.emit_copy_to_join_param(unique_val, join_id);
-        self.set_terminator(LirTerminator::Jump(join_id));
-
-        // Shared path.
-        self.switch_to_block(shared_idx);
-        let shared_val = self.lower_expr(shared_body);
-        self.emit_copy_to_join_param(shared_val, join_id);
-        self.set_terminator(LirTerminator::Jump(join_id));
-
-        // Join.
-        self.switch_to_block(join_idx);
-        result
-    }
 }
 
 /// Internal enum for typed integer binary operations.
@@ -3057,6 +3144,56 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
     };
 
     let result = ctx.lower_expr(body);
+    ctx.set_terminator(LirTerminator::Return(result));
+
+    ctx.func
+}
+
+fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> LirFunction {
+    let func_id = LirFuncId(def.binder.id.0);
+    let debug_name = format!("def_{}", def.binder.id.0);
+    let qualified_name = ctx
+        .qualified_names
+        .get(&def.binder.id)
+        .cloned()
+        .unwrap_or_else(|| debug_name.clone());
+    let mut ctx = FnLower::new(
+        debug_name,
+        func_id,
+        qualified_name,
+        FnLowerCtx {
+            program: ctx.program,
+            interner: ctx.interner,
+            globals_map: ctx.globals_map,
+            extern_symbols: ctx.extern_symbols,
+            name_binder_map: ctx.name_binder_map,
+            binder_func_id_map: ctx.binder_func_map,
+            qualified_names: ctx.qualified_names,
+            top_level_value_map: ctx.top_level_value_map,
+            int_return_binders: ctx.int_return_binders,
+        },
+    );
+
+    ctx.func.result_rep = def
+        .result_ty
+        .as_ref()
+        .map(crate::core::FluxRep::from_core_type)
+        .unwrap_or(crate::core::FluxRep::TaggedRep);
+
+    let body = match &def.expr {
+        AetherExpr::Lam { params, body, .. } => {
+            for param in params {
+                let pv = ctx.fresh_var();
+                ctx.bind(param.id, pv);
+                ctx.func.params.push(pv);
+                ctx.func.param_reps.push(param.rep);
+            }
+            body.as_ref()
+        }
+        other => other,
+    };
+
+    let result = ctx.lower_expr_aether(body);
     ctx.set_terminator(LirTerminator::Return(result));
 
     ctx.func
@@ -3352,7 +3489,7 @@ fn free_vars_rec(
                 bound.remove(&id);
             }
         }
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+        CoreExpr::App { func, args, .. } => {
             free_vars_rec(func, bound, free);
             for a in args {
                 free_vars_rec(a, bound, free);
@@ -3434,38 +3571,6 @@ fn free_vars_rec(
         }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             free_vars_rec(object, bound, free);
-        }
-        CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
-            if let Some(b) = var.binder
-                && !bound.contains(&b)
-            {
-                free.insert(b);
-            }
-            free_vars_rec(body, bound, free);
-        }
-        CoreExpr::Reuse { token, fields, .. } => {
-            if let Some(b) = token.binder
-                && !bound.contains(&b)
-            {
-                free.insert(b);
-            }
-            for f in fields {
-                free_vars_rec(f, bound, free);
-            }
-        }
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
-            if let Some(b) = scrutinee.binder
-                && !bound.contains(&b)
-            {
-                free.insert(b);
-            }
-            free_vars_rec(unique_body, bound, free);
-            free_vars_rec(shared_body, bound, free);
         }
     }
 }

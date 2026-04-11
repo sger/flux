@@ -83,7 +83,7 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
     let mut out = vec![expr];
     match expr {
         CoreExpr::Lam { body, .. } => out.extend(collect_core_exprs(body)),
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+        CoreExpr::App { func, args, .. } => {
             out.extend(collect_core_exprs(func));
             for a in args {
                 out.extend(collect_core_exprs(a));
@@ -132,22 +132,6 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
             out.extend(collect_core_exprs(body));
         }
         CoreExpr::Var { .. } | CoreExpr::Lit(..) => {}
-        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
-            out.extend(collect_core_exprs(body));
-        }
-        CoreExpr::Reuse { fields, .. } => {
-            for f in fields {
-                out.extend(collect_core_exprs(f));
-            }
-        }
-        CoreExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => {
-            out.extend(collect_core_exprs(unique_body));
-            out.extend(collect_core_exprs(shared_body));
-        }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             out.extend(collect_core_exprs(object));
         }

@@ -6,9 +6,9 @@
 
 use crate::core::{CoreExpr, CorePat, CoreTag};
 
-use super::analysis::use_counts;
+use super::analysis::use_counts_aether;
 use super::reuse_analysis::diagnose_drop_body;
-use super::{constructor_shape_for_tag, is_heap_tag};
+use super::{AetherExpr, constructor_shape_for_tag_aether, is_heap_tag};
 
 /// Fatal Aether verification error.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +44,11 @@ pub enum AetherDiagnosticKind {
 
 /// Verify the fatal Aether contract for an expression.
 pub fn verify_contract(expr: &CoreExpr) -> Result<(), Vec<AetherError>> {
+    verify_contract_aether(&AetherExpr::from_core(expr.clone()))
+}
+
+/// Verify the fatal Aether contract for a backend-only Aether expression.
+pub fn verify_contract_aether(expr: &AetherExpr) -> Result<(), Vec<AetherError>> {
     let mut errors = Vec::new();
     check_contract(expr, &mut errors);
     if errors.is_empty() {
@@ -55,24 +60,29 @@ pub fn verify_contract(expr: &CoreExpr) -> Result<(), Vec<AetherError>> {
 
 /// Verify optional non-fatal diagnostics for an expression.
 pub fn verify_diagnostics(expr: &CoreExpr) -> Vec<AetherDiagnostic> {
+    verify_diagnostics_aether(&AetherExpr::from_core(expr.clone()))
+}
+
+/// Verify optional non-fatal diagnostics for a backend-only Aether expression.
+pub fn verify_diagnostics_aether(expr: &AetherExpr) -> Vec<AetherDiagnostic> {
     let mut diags = Vec::new();
     check_diagnostics(expr, &mut diags);
     diags
 }
 
-fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
+fn check_contract(expr: &AetherExpr, errors: &mut Vec<AetherError>) {
     match expr {
-        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
-        CoreExpr::Lam { body, .. } | CoreExpr::Return { value: body, .. } => {
+        AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => {}
+        AetherExpr::Lam { body, .. } | AetherExpr::Return { value: body, .. } => {
             check_contract(body, errors)
         }
-        CoreExpr::App { func, args, .. } => {
+        AetherExpr::App { func, args, .. } => {
             check_contract(func, errors);
             for arg in args {
                 check_contract(arg, errors);
             }
         }
-        CoreExpr::AetherCall {
+        AetherExpr::AetherCall {
             func,
             args,
             arg_modes,
@@ -93,17 +103,17 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
                 check_contract(arg, errors);
             }
         }
-        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
             check_contract(rhs, errors);
             check_contract(body, errors);
         }
-        CoreExpr::LetRecGroup { bindings, body, .. } => {
+        AetherExpr::LetRecGroup { bindings, body, .. } => {
             for (_, rhs) in bindings {
                 check_contract(rhs, errors);
             }
             check_contract(body, errors);
         }
-        CoreExpr::Case {
+        AetherExpr::Case {
             scrutinee, alts, ..
         } => {
             check_contract(scrutinee, errors);
@@ -114,23 +124,23 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
                 check_contract(&alt.rhs, errors);
             }
         }
-        CoreExpr::Con { fields, .. } => {
+        AetherExpr::Con { fields, .. } => {
             for field in fields {
                 check_contract(field, errors);
             }
         }
-        CoreExpr::PrimOp { args, .. } | CoreExpr::Perform { args, .. } => {
+        AetherExpr::PrimOp { args, .. } | AetherExpr::Perform { args, .. } => {
             for arg in args {
                 check_contract(arg, errors);
             }
         }
-        CoreExpr::Handle { body, handlers, .. } => {
+        AetherExpr::Handle { body, handlers, .. } => {
             check_contract(body, errors);
             for handler in handlers {
                 check_contract(&handler.body, errors);
             }
         }
-        CoreExpr::Dup { var, body, .. } => {
+        AetherExpr::Dup { var, body, .. } => {
             if var.binder.is_none() {
                 errors.push(AetherError {
                     kind: AetherErrorKind::UnresolvedAetherVar,
@@ -139,9 +149,9 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
             }
             check_contract(body, errors);
         }
-        CoreExpr::Drop { var, body, .. } => {
+        AetherExpr::Drop { var, body, .. } => {
             if let Some(id) = var.binder {
-                if let Some(&count) = use_counts(body).get(&id)
+                if let Some(&count) = use_counts_aether(body).get(&id)
                     && count > 0
                 {
                     errors.push(AetherError {
@@ -161,7 +171,7 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
             }
             check_contract(body, errors);
         }
-        CoreExpr::Reuse {
+        AetherExpr::Reuse {
             token,
             tag,
             fields,
@@ -183,7 +193,7 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
             if let Some(token_id) = token.binder
                 && fields
                     .iter()
-                    .any(|field| use_counts(field).contains_key(&token_id))
+                    .any(|field| use_counts_aether(field).contains_key(&token_id))
             {
                 errors.push(AetherError {
                     kind: AetherErrorKind::ReuseTokenEscapesIntoFields,
@@ -209,7 +219,7 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
                 check_contract(field, errors);
             }
         }
-        CoreExpr::DropSpecialized {
+        AetherExpr::DropSpecialized {
             scrutinee,
             unique_body,
             shared_body,
@@ -228,7 +238,8 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
                 return;
             };
 
-            let unique_count = invalid_drop_specialized_uses(unique_body, scrutinee_id, false);
+            let unique_count =
+                invalid_drop_specialized_uses_aether(unique_body, scrutinee_id, false);
             if unique_count > 0 {
                 errors.push(AetherError {
                     kind: AetherErrorKind::InvalidDropSpecializedUse,
@@ -239,7 +250,8 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
                     ),
                 });
             }
-            let shared_count = invalid_drop_specialized_uses(shared_body, scrutinee_id, true);
+            let shared_count =
+                invalid_drop_specialized_uses_aether(shared_body, scrutinee_id, true);
             if shared_count > 0 {
                 errors.push(AetherError {
                     kind: AetherErrorKind::InvalidDropSpecializedUse,
@@ -253,15 +265,15 @@ fn check_contract(expr: &CoreExpr, errors: &mut Vec<AetherError>) {
             check_contract(unique_body, errors);
             check_contract(shared_body, errors);
         }
-        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+        AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
             check_contract(object, errors);
         }
     }
 }
 
-fn check_diagnostics(expr: &CoreExpr, diags: &mut Vec<AetherDiagnostic>) {
+fn check_diagnostics(expr: &AetherExpr, diags: &mut Vec<AetherDiagnostic>) {
     match expr {
-        CoreExpr::Case {
+        AetherExpr::Case {
             scrutinee, alts, ..
         } => {
             check_diagnostics(scrutinee, diags);
@@ -273,7 +285,7 @@ fn check_diagnostics(expr: &CoreExpr, diags: &mut Vec<AetherDiagnostic>) {
                     && !has_reuse_for_tag(&alt.rhs, &con_tag)
                 {
                     let scrutinee_var = match scrutinee.as_ref() {
-                        CoreExpr::Var { var, .. } => Some(*var),
+                        AetherExpr::Var { var, .. } => Some(*var),
                         _ => None,
                     };
                     let reason = scrutinee_var
@@ -309,43 +321,45 @@ fn check_diagnostics(expr: &CoreExpr, diags: &mut Vec<AetherDiagnostic>) {
                 }
             }
         }
-        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => check_diagnostics(body, diags),
-        CoreExpr::Reuse { fields, .. } | CoreExpr::Con { fields, .. } => {
+        AetherExpr::Dup { body, .. } | AetherExpr::Drop { body, .. } => {
+            check_diagnostics(body, diags)
+        }
+        AetherExpr::Reuse { fields, .. } | AetherExpr::Con { fields, .. } => {
             for f in fields {
                 check_diagnostics(f, diags);
             }
         }
-        CoreExpr::Lam { body, .. } | CoreExpr::Return { value: body, .. } => {
+        AetherExpr::Lam { body, .. } | AetherExpr::Return { value: body, .. } => {
             check_diagnostics(body, diags)
         }
-        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
             check_diagnostics(rhs, diags);
             check_diagnostics(body, diags);
         }
-        CoreExpr::LetRecGroup { bindings, body, .. } => {
+        AetherExpr::LetRecGroup { bindings, body, .. } => {
             for (_, rhs) in bindings {
                 check_diagnostics(rhs, diags);
             }
             check_diagnostics(body, diags);
         }
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
             check_diagnostics(func, diags);
             for a in args {
                 check_diagnostics(a, diags);
             }
         }
-        CoreExpr::PrimOp { args, .. } | CoreExpr::Perform { args, .. } => {
+        AetherExpr::PrimOp { args, .. } | AetherExpr::Perform { args, .. } => {
             for a in args {
                 check_diagnostics(a, diags);
             }
         }
-        CoreExpr::Handle { body, handlers, .. } => {
+        AetherExpr::Handle { body, handlers, .. } => {
             check_diagnostics(body, diags);
             for h in handlers {
                 check_diagnostics(&h.body, diags);
             }
         }
-        CoreExpr::DropSpecialized {
+        AetherExpr::DropSpecialized {
             unique_body,
             shared_body,
             ..
@@ -353,10 +367,10 @@ fn check_diagnostics(expr: &CoreExpr, diags: &mut Vec<AetherDiagnostic>) {
             check_diagnostics(unique_body, diags);
             check_diagnostics(shared_body, diags);
         }
-        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+        AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
             check_diagnostics(object, diags);
         }
-        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
+        AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => {}
     }
 }
 
@@ -369,104 +383,113 @@ fn field_mask_fits(mask: u64, arity: usize) -> bool {
     }
 }
 
-fn invalid_drop_specialized_uses(
-    expr: &CoreExpr,
+fn invalid_drop_specialized_uses_aether(
+    expr: &AetherExpr,
     scrutinee_id: crate::core::CoreBinderId,
     count_reuse_token: bool,
 ) -> usize {
     match expr {
-        CoreExpr::Var { var, .. } => usize::from(var.binder == Some(scrutinee_id)),
-        CoreExpr::Lit(_, _) => 0,
-        CoreExpr::Lam { body, .. } | CoreExpr::Return { value: body, .. } => {
-            invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
+        AetherExpr::Var { var, .. } => usize::from(var.binder == Some(scrutinee_id)),
+        AetherExpr::Lit(_, _) => 0,
+        AetherExpr::Lam { body, .. } | AetherExpr::Return { value: body, .. } => {
+            invalid_drop_specialized_uses_aether(body, scrutinee_id, count_reuse_token)
         }
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
-            invalid_drop_specialized_uses(func, scrutinee_id, count_reuse_token)
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
+            invalid_drop_specialized_uses_aether(func, scrutinee_id, count_reuse_token)
                 + args
                     .iter()
-                    .map(|arg| invalid_drop_specialized_uses(arg, scrutinee_id, count_reuse_token))
+                    .map(|arg| {
+                        invalid_drop_specialized_uses_aether(arg, scrutinee_id, count_reuse_token)
+                    })
                     .sum::<usize>()
         }
-        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
-            invalid_drop_specialized_uses(rhs, scrutinee_id, count_reuse_token)
-                + invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
+            invalid_drop_specialized_uses_aether(rhs, scrutinee_id, count_reuse_token)
+                + invalid_drop_specialized_uses_aether(body, scrutinee_id, count_reuse_token)
         }
-        CoreExpr::LetRecGroup { bindings, body, .. } => {
+        AetherExpr::LetRecGroup { bindings, body, .. } => {
             bindings
                 .iter()
-                .map(|(_, rhs)| invalid_drop_specialized_uses(rhs, scrutinee_id, count_reuse_token))
+                .map(|(_, rhs)| {
+                    invalid_drop_specialized_uses_aether(rhs, scrutinee_id, count_reuse_token)
+                })
                 .sum::<usize>()
-                + invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
+                + invalid_drop_specialized_uses_aether(body, scrutinee_id, count_reuse_token)
         }
-        CoreExpr::Case {
+        AetherExpr::Case {
             scrutinee, alts, ..
         } => {
-            invalid_drop_specialized_uses(scrutinee, scrutinee_id, count_reuse_token)
+            invalid_drop_specialized_uses_aether(scrutinee, scrutinee_id, count_reuse_token)
                 + alts
                     .iter()
                     .map(|alt| {
-                        invalid_drop_specialized_uses(&alt.rhs, scrutinee_id, count_reuse_token)
-                            + alt
-                                .guard
-                                .as_ref()
-                                .map(|g| {
-                                    invalid_drop_specialized_uses(
-                                        g,
-                                        scrutinee_id,
-                                        count_reuse_token,
-                                    )
-                                })
-                                .unwrap_or(0)
+                        invalid_drop_specialized_uses_aether(
+                            &alt.rhs,
+                            scrutinee_id,
+                            count_reuse_token,
+                        ) + alt
+                            .guard
+                            .as_ref()
+                            .map(|g| {
+                                invalid_drop_specialized_uses_aether(
+                                    g,
+                                    scrutinee_id,
+                                    count_reuse_token,
+                                )
+                            })
+                            .unwrap_or(0)
                     })
                     .sum::<usize>()
         }
-        CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => fields
+        AetherExpr::Con { fields, .. } | AetherExpr::PrimOp { args: fields, .. } => fields
             .iter()
-            .map(|field| invalid_drop_specialized_uses(field, scrutinee_id, count_reuse_token))
+            .map(|field| {
+                invalid_drop_specialized_uses_aether(field, scrutinee_id, count_reuse_token)
+            })
             .sum(),
-        CoreExpr::Perform { args, .. } => args
+        AetherExpr::Perform { args, .. } => args
             .iter()
-            .map(|arg| invalid_drop_specialized_uses(arg, scrutinee_id, count_reuse_token))
+            .map(|arg| invalid_drop_specialized_uses_aether(arg, scrutinee_id, count_reuse_token))
             .sum(),
-        CoreExpr::Handle { body, handlers, .. } => {
-            invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
+        AetherExpr::Handle { body, handlers, .. } => {
+            invalid_drop_specialized_uses_aether(body, scrutinee_id, count_reuse_token)
                 + handlers
                     .iter()
                     .map(|h| {
-                        invalid_drop_specialized_uses(&h.body, scrutinee_id, count_reuse_token)
+                        invalid_drop_specialized_uses_aether(
+                            &h.body,
+                            scrutinee_id,
+                            count_reuse_token,
+                        )
                     })
                     .sum::<usize>()
         }
-        CoreExpr::Dup { var, body, .. } => {
+        AetherExpr::Dup { var, body, .. } | AetherExpr::Drop { var, body, .. } => {
             usize::from(var.binder == Some(scrutinee_id))
-                + invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
+                + invalid_drop_specialized_uses_aether(body, scrutinee_id, count_reuse_token)
         }
-        CoreExpr::Drop { var, body, .. } => {
-            usize::from(var.binder == Some(scrutinee_id))
-                + invalid_drop_specialized_uses(body, scrutinee_id, count_reuse_token)
-        }
-        CoreExpr::Reuse { token, fields, .. } => {
+        AetherExpr::Reuse { token, fields, .. } => {
             let token_uses = usize::from(count_reuse_token && token.binder == Some(scrutinee_id));
             token_uses
                 + fields
                     .iter()
                     .map(|field| {
-                        invalid_drop_specialized_uses(field, scrutinee_id, count_reuse_token)
+                        invalid_drop_specialized_uses_aether(field, scrutinee_id, count_reuse_token)
                     })
                     .sum::<usize>()
         }
-        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
-            invalid_drop_specialized_uses(object, scrutinee_id, count_reuse_token)
+        AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
+            invalid_drop_specialized_uses_aether(object, scrutinee_id, count_reuse_token)
         }
-        CoreExpr::DropSpecialized {
+        AetherExpr::DropSpecialized {
             scrutinee,
             unique_body,
             shared_body,
             ..
         } => {
             usize::from(scrutinee.binder == Some(scrutinee_id))
-                + invalid_drop_specialized_uses(unique_body, scrutinee_id, count_reuse_token)
-                + invalid_drop_specialized_uses(shared_body, scrutinee_id, count_reuse_token)
+                + invalid_drop_specialized_uses_aether(unique_body, scrutinee_id, count_reuse_token)
+                + invalid_drop_specialized_uses_aether(shared_body, scrutinee_id, count_reuse_token)
         }
     }
 }
@@ -493,13 +516,13 @@ fn pat_field_binder_ids(pat: &CorePat) -> Option<Vec<Option<crate::core::CoreBin
     }
 }
 
-fn find_con_in_body(expr: &CoreExpr, expected_tag: Option<&CoreTag>) -> Option<CoreTag> {
+fn find_con_in_body(expr: &AetherExpr, expected_tag: Option<&CoreTag>) -> Option<CoreTag> {
     match expr {
-        CoreExpr::Reuse { tag, .. } => Some(tag.clone()),
-        _ if constructor_shape_for_tag(expr, expected_tag).is_some() => {
-            constructor_shape_for_tag(expr, expected_tag).map(|(tag, _, _)| tag)
+        AetherExpr::Reuse { tag, .. } => Some(tag.clone()),
+        _ if constructor_shape_for_tag_aether(expr, expected_tag).is_some() => {
+            constructor_shape_for_tag_aether(expr, expected_tag).map(|(tag, _, _)| tag)
         }
-        CoreExpr::Let { body, .. } | CoreExpr::Drop { body, .. } | CoreExpr::Dup { body, .. } => {
+        AetherExpr::Let { body, .. } | AetherExpr::Drop { body, .. } | AetherExpr::Dup { body, .. } => {
             find_con_in_body(body, expected_tag)
         }
         _ => None,
@@ -517,10 +540,10 @@ fn tags_compatible(a: &CoreTag, b: &CoreTag) -> bool {
     }
 }
 
-fn has_reuse_for_tag(expr: &CoreExpr, tag: &CoreTag) -> bool {
+fn has_reuse_for_tag(expr: &AetherExpr, tag: &CoreTag) -> bool {
     match expr {
-        CoreExpr::Reuse { tag: t, .. } => tags_compatible(t, tag),
-        CoreExpr::Let { body, .. } | CoreExpr::Drop { body, .. } | CoreExpr::Dup { body, .. } => {
+        AetherExpr::Reuse { tag: t, .. } => tags_compatible(t, tag),
+        AetherExpr::Let { body, .. } | AetherExpr::Drop { body, .. } | AetherExpr::Dup { body, .. } => {
             has_reuse_for_tag(body, tag)
         }
         _ => false,
@@ -529,11 +552,15 @@ fn has_reuse_for_tag(expr: &CoreExpr, tag: &CoreTag) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::{CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreLit, CorePat, CoreTag};
+    use crate::aether::{AetherAlt as CoreAlt, AetherExpr as CoreExpr};
+    use crate::core::{CoreBinder, CoreBinderId, CoreLit, CorePat, CoreTag};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 
-    use super::{AetherDiagnosticKind, AetherErrorKind, verify_contract, verify_diagnostics};
+    use super::{
+        AetherDiagnosticKind, AetherErrorKind, verify_contract_aether as verify_contract,
+        verify_diagnostics_aether as verify_diagnostics,
+    };
 
     fn binder(raw: u32, name: crate::syntax::Identifier) -> CoreBinder {
         CoreBinder::new(CoreBinderId(raw), name)
