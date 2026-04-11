@@ -401,9 +401,7 @@ fn main() {
 /// `Statement::Class` it finds (recursing into module bodies). Used by the
 /// `public class` parser tests.
 fn first_class_visibility(program: &flux::syntax::program::Program) -> Option<bool> {
-    fn walk(
-        statements: &[flux::syntax::statement::Statement],
-    ) -> Option<bool> {
+    fn walk(statements: &[flux::syntax::statement::Statement]) -> Option<bool> {
         use flux::syntax::statement::Statement;
         for stmt in statements {
             match stmt {
@@ -423,9 +421,7 @@ fn first_class_visibility(program: &flux::syntax::program::Program) -> Option<bo
 
 /// Same shape as `first_class_visibility` but for the first `Statement::Instance`.
 fn first_instance_visibility(program: &flux::syntax::program::Program) -> Option<bool> {
-    fn walk(
-        statements: &[flux::syntax::statement::Statement],
-    ) -> Option<bool> {
+    fn walk(statements: &[flux::syntax::statement::Statement]) -> Option<bool> {
         use flux::syntax::statement::Statement;
         for stmt in statements {
             match stmt {

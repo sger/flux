@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     aether::borrow_infer::BorrowSignature,
-    syntax::{Identifier, effect_expr::EffectExpr, symbol::Symbol, type_class::ClassConstraint, type_expr::TypeExpr},
+    syntax::{
+        Identifier, effect_expr::EffectExpr, symbol::Symbol, type_class::ClassConstraint,
+        type_expr::TypeExpr,
+    },
     types::scheme::Scheme,
 };
 
