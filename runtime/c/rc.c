@@ -206,6 +206,7 @@ static int flux_scan_offset(uint8_t obj_tag) {
         case FLUX_OBJ_ARRAY:  return 2;  /* skip tag+pad+len+cap+pad2 (16 bytes) */
         case FLUX_OBJ_TUPLE:  return 1;  /* skip tag+pad+arity (8 bytes) */
         case FLUX_OBJ_ADT:    return 1;  /* skip ctor_tag+field_count (8 bytes) */
+        case FLUX_OBJ_CLOSURE: return 3; /* skip fn_ptr + arity/count metadata (24 bytes) */
         default:              return 0;
     }
 }

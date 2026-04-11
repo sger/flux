@@ -335,6 +335,7 @@ void flux_set_global(int64_t idx, int64_t val);
 /* ── Higher-order functions (closure calling) ──────────────────────── */
 /* flux_call_closure_c is defined in LLVM IR (ccc trampoline). */
 extern int64_t flux_call_closure_c(int64_t closure, int64_t *args, int32_t nargs);
+int64_t flux_call_closure_exact(int64_t closure, int64_t *args, int32_t nargs);
 
 int64_t flux_ho_map(int64_t collection, int64_t func);
 int64_t flux_ho_filter(int64_t collection, int64_t func);

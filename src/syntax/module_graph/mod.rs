@@ -200,6 +200,10 @@ impl ModuleGraph {
             .collect()
     }
 
+    pub fn entry_node(&self) -> Option<&ModuleNode> {
+        self.nodes.get(&self.entry)
+    }
+
     pub fn topo_levels(&self) -> Vec<Vec<&ModuleNode>> {
         let mut levels: HashMap<&ModuleId, usize> = HashMap::new();
         for module_id in &self.order {

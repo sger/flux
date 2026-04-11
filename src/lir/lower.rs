@@ -191,19 +191,31 @@ fn build_qualified_names(
     // (entry-file functions, anonymous lambdas, letrec bindings, etc.)
     // Entry-file functions get qualified with `entry_qualifier` to avoid
     // symbol collisions with C runtime primops like `flux_sum`.
+    let mut used_names: HashSet<String> = result.values().cloned().collect();
     for def in &program.defs {
-        result.entry(def.binder.id).or_insert_with(|| {
-            let bare = interner
-                .map(|i| i.resolve(def.name).to_string())
-                .unwrap_or_else(|| format!("def_{}", def.binder.id.0));
-            match entry_qualifier {
-                Some(_) if bare.starts_with("__tc_") || bare.starts_with("__dict_") => bare,
-                Some(qual) if !bare.starts_with("lambda_") && !bare.starts_with("letrec_") => {
-                    format!("{qual}_{bare}")
-                }
-                _ => bare,
+        if result.contains_key(&def.binder.id) {
+            continue;
+        }
+        let bare = interner
+            .map(|i| i.resolve(def.name).to_string())
+            .unwrap_or_else(|| format!("def_{}", def.binder.id.0));
+        let base = match entry_qualifier {
+            Some(_) if bare.starts_with("__tc_") || bare.starts_with("__dict_") => bare,
+            Some(qual) if def.is_anonymous => format!("{qual}_expr_{}", def.binder.id.0),
+            Some(qual) if !bare.starts_with("lambda_") && !bare.starts_with("letrec_") => {
+                format!("{qual}_{bare}")
             }
-        });
+            _ if def.is_anonymous => format!("expr_{}", def.binder.id.0),
+            _ => bare,
+        };
+        let mut candidate = base.clone();
+        let mut suffix = 1usize;
+        while used_names.contains(&candidate) {
+            candidate = format!("{base}_{suffix}");
+            suffix += 1;
+        }
+        used_names.insert(candidate.clone());
+        result.insert(def.binder.id, candidate);
     }
 
     result
@@ -309,9 +321,8 @@ pub fn lower_program_with_interner_and_externs(
                 .defs
                 .iter()
                 .position(|d| interner.resolve(d.name) == "main")
-                .or(Some(0))
         } else {
-            Some(0)
+            None
         }
     } else if let Some(interner) = interner {
         program
@@ -393,6 +404,19 @@ pub fn lower_program_with_interner_and_externs(
         };
         let func = lower_def(main_def, ctx);
         lir.push_function(func);
+    } else if emit_main {
+        let func = lower_synthetic_main_core(
+            program,
+            &mut lir,
+            interner,
+            globals_map,
+            extern_symbols,
+            &name_binder_map,
+            &binder_func_map,
+            &qualified_names,
+            &int_return_binders,
+        );
+        lir.push_function(func);
     }
 
     // Post-pass: promote Call → TailCall where the result flows directly
@@ -422,9 +446,8 @@ pub fn lower_aether_program_with_interner_and_externs(
                 .defs()
                 .iter()
                 .position(|d| interner.resolve(d.name) == "main")
-                .or(Some(0))
         } else {
-            Some(0)
+            None
         }
     } else if let Some(interner) = interner {
         program
@@ -500,6 +523,19 @@ pub fn lower_aether_program_with_interner_and_externs(
             int_return_binders: &int_return_binders,
         };
         let func = lower_aether_def(main_def, ctx);
+        lir.push_function(func);
+    } else if emit_main {
+        let func = lower_synthetic_main_aether(
+            program,
+            &mut lir,
+            interner,
+            globals_map,
+            extern_symbols,
+            &name_binder_map,
+            &binder_func_map,
+            &qualified_names,
+            &int_return_binders,
+        );
         lir.push_function(func);
     }
 
@@ -796,6 +832,28 @@ impl<'a> FnLower<'a> {
             .unwrap_or(binder)
     }
 
+    fn preferred_top_level_binders(&self, name: crate::syntax::Identifier) -> Vec<CoreBinderId> {
+        let Some(candidates) = self.name_binder_map.get(&name) else {
+            return Vec::new();
+        };
+        if self.globals_map.is_none() || candidates.len() <= 1 {
+            return candidates.clone();
+        }
+        let Some((module_prefix, _)) = self.func.qualified_name.rsplit_once('_') else {
+            return candidates.clone();
+        };
+        let target = format!("{}_{}", module_prefix, self.resolve_name(name));
+        let mut ordered = candidates.clone();
+        if let Some(pos) = ordered
+            .iter()
+            .position(|bid| self.qualified_names.get(bid).is_some_and(|q| q == &target))
+        {
+            let preferred = ordered.remove(pos);
+            ordered.insert(0, preferred);
+        }
+        ordered
+    }
+
     /// Allocate a fresh LIR variable.
     fn fresh_var(&mut self) -> LirVar {
         self.func.fresh_var()
@@ -883,16 +941,19 @@ impl<'a> FnLower<'a> {
             CoreExpr::Var { var, .. } => {
                 if let Some(raw_binder) = var.binder {
                     let binder = self.prefer_same_module_binder(raw_binder, var.name);
-                    // Check env first (locals, parameters, letrec bindings).
-                    if let Some(&v) = self.env.get(&binder) {
-                        return v;
-                    }
                     // Top-level pure values should lower as values on the
                     // native path, not as fabricated closure objects.
+                    // Prefer them over any cached env entry so repeated uses
+                    // of imported dictionaries/constants cannot be polluted by
+                    // later local bindings.
                     if let Some(value_expr) = self.top_level_value_map.get(&binder) {
                         let lowered = self.lower_expr(value_expr);
                         self.bind(binder, lowered);
                         return lowered;
+                    }
+                    // Check env next (locals, parameters, letrec bindings).
+                    if let Some(&v) = self.env.get(&binder) {
+                        return v;
                     }
                     // Not in env — check if it's a top-level function.
                     // Create a closure lazily (only when used as a value).
@@ -917,6 +978,27 @@ impl<'a> FnLower<'a> {
                 } else if let Some(globals) = self.globals_map {
                     // External variable — resolve name and check the globals map.
                     let name = self.resolve_name(var.name);
+                    for binder in self.preferred_top_level_binders(var.name) {
+                        if let Some(&lir_var) = self.env.get(&binder) {
+                            return lir_var;
+                        }
+                        if let Some(value_expr) = self.top_level_value_map.get(&binder) {
+                            let lowered = self.lower_expr(value_expr);
+                            self.bind(binder, lowered);
+                            return lowered;
+                        }
+                        if let Some(&func_id) = self.binder_func_id_map.get(&binder) {
+                            let var = self.fresh_var();
+                            self.emit(LirInstr::MakeClosure {
+                                dst: var,
+                                func_id,
+                                captures: Vec::new(),
+                            });
+                            self.bind(binder, var);
+                            self.direct_func_vars.insert(var, func_id);
+                            return var;
+                        }
+                    }
                     if let Some(&global_idx) = globals.get(&name) {
                         let dst = self.fresh_var();
                         self.emit(LirInstr::GetGlobal { dst, global_idx });
@@ -949,6 +1031,11 @@ impl<'a> FnLower<'a> {
                     } else if let Some(binders) = self.name_binder_map.get(&var.name) {
                         // Check if it's a top-level function reference.
                         for &bid in binders {
+                            if let Some(value_expr) = self.top_level_value_map.get(&bid) {
+                                let lowered = self.lower_expr(value_expr);
+                                self.bind(bid, lowered);
+                                return lowered;
+                            }
                             if let Some(&lir_var) = self.env.get(&bid) {
                                 return lir_var;
                             }
@@ -2524,34 +2611,6 @@ impl<'a> FnLower<'a> {
             return dst;
         }
 
-        // Phase 8: If func_var is a known zero-capture function reference
-        // (populated in direct_func_vars when MakeClosure wraps a known
-        // function with no captures), emit a direct call instead of going
-        // through flux_call_closure.
-        if let Some(&func_id) = self.direct_func_vars.get(&func_var) {
-            let cont_idx = self.new_block();
-            let cont_id = BlockId(cont_idx as u32);
-            let result = self.fresh_var();
-            self.func.blocks[cont_idx].params.push(result);
-
-            let dummy = self.fresh_var();
-            self.emit(LirInstr::Const {
-                dst: dummy,
-                value: LirConst::None,
-            });
-
-            self.set_terminator(LirTerminator::Call {
-                dst: result,
-                func: dummy,
-                args: arg_vars,
-                cont: cont_id,
-                kind: CallKind::Direct { func_id },
-                yield_cont: None,
-            });
-            self.switch_to_block(cont_idx);
-            return result;
-        }
-
         let cont_idx = self.new_block();
         let cont_id = BlockId(cont_idx as u32);
         let result = self.fresh_var();
@@ -2712,28 +2771,6 @@ impl<'a> FnLower<'a> {
                 args: arg_vars,
             });
             return dst;
-        }
-
-        if let Some(&func_id) = self.direct_func_vars.get(&func_var) {
-            let cont_idx = self.new_block();
-            let cont_id = BlockId(cont_idx as u32);
-            let result = self.fresh_var();
-            self.func.blocks[cont_idx].params.push(result);
-            let dummy = self.fresh_var();
-            self.emit(LirInstr::Const {
-                dst: dummy,
-                value: LirConst::None,
-            });
-            self.set_terminator(LirTerminator::Call {
-                dst: result,
-                func: dummy,
-                args: arg_vars,
-                cont: cont_id,
-                kind: CallKind::Direct { func_id },
-                yield_cont: None,
-            });
-            self.switch_to_block(cont_idx);
-            return result;
         }
 
         let cont_idx = self.new_block();
@@ -3379,6 +3416,16 @@ impl<'a> FnLower<'a> {
             return self.lower_single_alt(scrut, &alts[0]);
         }
 
+        if alts.iter().any(|alt| alt.guard.is_some()) {
+            let join_idx = self.new_block();
+            let join_id = self.func.blocks[join_idx].id;
+            let result_var = self.fresh_var();
+            self.func.blocks[join_idx].params.push(result_var);
+            self.lower_case_chain(scrut, alts, join_id);
+            self.switch_to_block(join_idx);
+            return result_var;
+        }
+
         // Create a join block where all alt branches merge their results.
         let join_idx = self.new_block();
         let join_id = self.func.blocks[join_idx].id;
@@ -3420,6 +3467,16 @@ impl<'a> FnLower<'a> {
 
         if alts.len() == 1 {
             return self.lower_single_alt_aether(scrut, &alts[0]);
+        }
+
+        if alts.iter().any(|alt| alt.guard.is_some()) {
+            let join_idx = self.new_block();
+            let join_id = self.func.blocks[join_idx].id;
+            let result_var = self.fresh_var();
+            self.func.blocks[join_idx].params.push(result_var);
+            self.lower_case_chain_aether(scrut, alts, join_id);
+            self.switch_to_block(join_idx);
+            return result_var;
         }
 
         let join_idx = self.new_block();
@@ -3837,9 +3894,7 @@ impl<'a> FnLower<'a> {
 
             self.switch_to_block(success_idx);
             self.bind_pattern(scrut, &alt.pat);
-            let val = self.lower_expr(&alt.rhs);
-            self.emit_copy_to_join_param(val, join_block);
-            self.set_terminator(LirTerminator::Jump(join_block));
+            self.lower_alt_success_with_guard(alt, join_block, fail_id);
 
             self.switch_to_block(fail_id.0 as usize);
         }
@@ -3858,14 +3913,106 @@ impl<'a> FnLower<'a> {
 
             self.switch_to_block(success_idx);
             self.bind_pattern(scrut, &alt.pat);
-            let val = self.lower_expr_aether(&alt.rhs);
-            self.emit_copy_to_join_param(val, join_block);
-            self.set_terminator(LirTerminator::Jump(join_block));
+            self.lower_alt_success_with_guard_aether(alt, join_block, fail_id);
 
             self.switch_to_block(fail_id.0 as usize);
         }
 
         self.set_terminator(LirTerminator::Unreachable);
+    }
+
+    fn lower_case_chain(&mut self, scrut: LirVar, alts: &[CoreAlt], join_block: BlockId) {
+        for alt in alts {
+            let success_idx = self.new_block();
+            let success_id = BlockId(success_idx as u32);
+            let fail_idx = self.new_block();
+            let fail_id = BlockId(fail_idx as u32);
+
+            self.emit_pattern_check(scrut, &alt.pat, success_id, fail_id);
+
+            self.switch_to_block(success_idx);
+            self.bind_pattern(scrut, &alt.pat);
+            self.lower_alt_success_with_guard(alt, join_block, fail_id);
+
+            self.switch_to_block(fail_idx);
+        }
+
+        self.set_terminator(LirTerminator::Unreachable);
+    }
+
+    fn lower_case_chain_aether(&mut self, scrut: LirVar, alts: &[AetherAlt], join_block: BlockId) {
+        for alt in alts {
+            let success_idx = self.new_block();
+            let success_id = BlockId(success_idx as u32);
+            let fail_idx = self.new_block();
+            let fail_id = BlockId(fail_idx as u32);
+
+            self.emit_pattern_check(scrut, &alt.pat, success_id, fail_id);
+
+            self.switch_to_block(success_idx);
+            self.bind_pattern(scrut, &alt.pat);
+            self.lower_alt_success_with_guard_aether(alt, join_block, fail_id);
+
+            self.switch_to_block(fail_idx);
+        }
+
+        self.set_terminator(LirTerminator::Unreachable);
+    }
+
+    fn lower_alt_success_with_guard(
+        &mut self,
+        alt: &CoreAlt,
+        join_block: BlockId,
+        fail_block: BlockId,
+    ) {
+        if let Some(guard) = &alt.guard {
+            let guard_val = self.lower_expr(guard);
+            let guard_raw = self.fresh_var();
+            self.emit(LirInstr::UntagBool {
+                dst: guard_raw,
+                val: guard_val,
+            });
+            let body_idx = self.new_block();
+            let body_id = BlockId(body_idx as u32);
+            self.set_terminator(LirTerminator::Branch {
+                cond: guard_raw,
+                then_block: body_id,
+                else_block: fail_block,
+            });
+            self.switch_to_block(body_idx);
+        }
+
+        let val = self.lower_expr(&alt.rhs);
+        self.emit_copy_to_join_param(val, join_block);
+        self.set_terminator(LirTerminator::Jump(join_block));
+    }
+
+    fn lower_alt_success_with_guard_aether(
+        &mut self,
+        alt: &AetherAlt,
+        join_block: BlockId,
+        fail_block: BlockId,
+    ) {
+        if let Some(guard) = &alt.guard {
+            let guard_val = self.lower_expr_aether(guard);
+            let guard_raw = self.fresh_var();
+            self.emit(LirInstr::UntagBool {
+                dst: guard_raw,
+                val: guard_val,
+            });
+            let body_idx = self.new_block();
+            let body_id = BlockId(body_idx as u32);
+            self.set_terminator(LirTerminator::Branch {
+                cond: guard_raw,
+                then_block: body_id,
+                else_block: fail_block,
+            });
+            self.switch_to_block(body_idx);
+        }
+
+        let val = self.lower_expr_aether(&alt.rhs);
+        self.emit_copy_to_join_param(val, join_block);
+        self.set_terminator(LirTerminator::Jump(join_block));
     }
 
     fn emit_pattern_check(
@@ -4138,14 +4285,26 @@ struct LowerDefCtx<'a> {
     int_return_binders: &'a HashSet<CoreBinderId>,
 }
 
+fn lir_symbol_name_for_def(
+    binder_id: CoreBinderId,
+    is_anonymous: bool,
+    qualified_names: &HashMap<CoreBinderId, String>,
+    debug_name: &str,
+) -> String {
+    if is_anonymous {
+        return format!("expr_{}", binder_id.0);
+    }
+    qualified_names
+        .get(&binder_id)
+        .cloned()
+        .unwrap_or_else(|| debug_name.to_string())
+}
+
 fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
     let func_id = LirFuncId(def.binder.id.0);
     let debug_name = format!("def_{}", def.binder.id.0);
-    let qualified_name = ctx
-        .qualified_names
-        .get(&def.binder.id)
-        .cloned()
-        .unwrap_or_else(|| debug_name.clone());
+    let qualified_name =
+        lir_symbol_name_for_def(def.binder.id, def.is_anonymous, ctx.qualified_names, &debug_name);
     let mut ctx = FnLower::new(
         debug_name,
         func_id,
@@ -4201,11 +4360,8 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
 fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> LirFunction {
     let func_id = LirFuncId(def.binder.id.0);
     let debug_name = format!("def_{}", def.binder.id.0);
-    let qualified_name = ctx
-        .qualified_names
-        .get(&def.binder.id)
-        .cloned()
-        .unwrap_or_else(|| debug_name.clone());
+    let qualified_name =
+        lir_symbol_name_for_def(def.binder.id, def.is_anonymous, ctx.qualified_names, &debug_name);
     let mut ctx = FnLower::new(
         debug_name,
         func_id,
@@ -4245,6 +4401,130 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
     let result = ctx.lower_expr_aether(body);
     ctx.set_terminator(LirTerminator::Return(result));
 
+    ctx.func
+}
+
+fn lower_synthetic_main_core(
+    program: &CoreProgram,
+    lir: &mut LirProgram,
+    interner: Option<&Interner>,
+    globals_map: Option<&HashMap<String, usize>>,
+    extern_symbols: Option<&HashMap<String, ImportedNativeSymbol>>,
+    name_binder_map: &HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
+    binder_func_map: &HashMap<CoreBinderId, LirFuncId>,
+    qualified_names: &HashMap<CoreBinderId, String>,
+    int_return_binders: &HashSet<CoreBinderId>,
+) -> LirFunction {
+    let synthetic_id = LirFuncId(
+        program
+            .defs
+            .iter()
+            .map(|def| def.binder.id.0)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1),
+    );
+    let empty_values: HashMap<CoreBinderId, &CoreExpr> = HashMap::new();
+    let mut ctx = FnLower::new(
+        "main".to_string(),
+        synthetic_id,
+        "main".to_string(),
+        FnLowerCtx {
+            program: lir,
+            interner,
+            globals_map,
+            extern_symbols,
+            name_binder_map,
+            binder_func_id_map: binder_func_map,
+            qualified_names,
+            top_level_value_map: &empty_values,
+            int_return_binders,
+        },
+    );
+
+    let mut last_value = None;
+    for def in &program.defs {
+        if matches!(def.expr, CoreExpr::Lam { .. }) {
+            continue;
+        }
+        let value = ctx.lower_expr(&def.expr);
+        ctx.bind(def.binder.id, value);
+        if def.is_anonymous {
+            last_value = Some(value);
+        }
+    }
+
+    let result = last_value.unwrap_or_else(|| {
+        let dst = ctx.fresh_var();
+        ctx.emit(LirInstr::Const {
+            dst,
+            value: LirConst::None,
+        });
+        dst
+    });
+    ctx.set_terminator(LirTerminator::Return(result));
+    ctx.func
+}
+
+fn lower_synthetic_main_aether(
+    program: &crate::aether::AetherProgram,
+    lir: &mut LirProgram,
+    interner: Option<&Interner>,
+    globals_map: Option<&HashMap<String, usize>>,
+    extern_symbols: Option<&HashMap<String, ImportedNativeSymbol>>,
+    name_binder_map: &HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
+    binder_func_map: &HashMap<CoreBinderId, LirFuncId>,
+    qualified_names: &HashMap<CoreBinderId, String>,
+    int_return_binders: &HashSet<CoreBinderId>,
+) -> LirFunction {
+    let synthetic_id = LirFuncId(
+        program
+            .defs()
+            .iter()
+            .map(|def| def.binder.id.0)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1),
+    );
+    let empty_values: HashMap<CoreBinderId, &CoreExpr> = HashMap::new();
+    let mut ctx = FnLower::new(
+        "main".to_string(),
+        synthetic_id,
+        "main".to_string(),
+        FnLowerCtx {
+            program: lir,
+            interner,
+            globals_map,
+            extern_symbols,
+            name_binder_map,
+            binder_func_id_map: binder_func_map,
+            qualified_names,
+            top_level_value_map: &empty_values,
+            int_return_binders,
+        },
+    );
+
+    let mut last_value = None;
+    for def in program.defs() {
+        if matches!(def.expr, AetherExpr::Lam { .. }) {
+            continue;
+        }
+        let value = ctx.lower_expr_aether(&def.expr);
+        ctx.bind(def.binder.id, value);
+        if def.is_anonymous {
+            last_value = Some(value);
+        }
+    }
+
+    let result = last_value.unwrap_or_else(|| {
+        let dst = ctx.fresh_var();
+        ctx.emit(LirInstr::Const {
+            dst,
+            value: LirConst::None,
+        });
+        dst
+    });
+    ctx.set_terminator(LirTerminator::Return(result));
     ctx.func
 }
 
@@ -4646,4 +4926,75 @@ fn bind_pat(pat: &CorePat, bound: &mut HashSet<CoreBinderId>) -> Vec<CoreBinderI
         CorePat::Wildcard | CorePat::Lit(_) | CorePat::EmptyList => {}
     }
     added
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_qualified_names, lir_symbol_name_for_def};
+    use crate::core::{
+        CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreLit, CoreProgram, CoreTopLevelItem,
+        FluxRep,
+    };
+    use crate::diagnostics::position::{Position, Span};
+    use crate::syntax::Identifier;
+
+    fn mk_binder(id: u32, name: Identifier) -> CoreBinder {
+        CoreBinder {
+            id: CoreBinderId(id),
+            name,
+            rep: FluxRep::TaggedRep,
+        }
+    }
+
+    #[test]
+    fn anonymous_top_level_defs_get_unique_lir_symbols() {
+        let span = Span::new(Position::new(1, 1), Position::new(1, 1));
+        let add = Identifier::new(1);
+        let program = CoreProgram {
+            defs: vec![
+                CoreDef {
+                    name: add,
+                    binder: mk_binder(1, add),
+                    expr: CoreExpr::lambda(vec![], CoreExpr::Lit(CoreLit::Int(0), span), span),
+                    borrow_signature: None,
+                    result_ty: None,
+                    is_anonymous: false,
+                    is_recursive: false,
+                    fip: None,
+                    span,
+                },
+                CoreDef {
+                    name: add,
+                    binder: mk_binder(2, add),
+                    expr: CoreExpr::Lit(CoreLit::Int(42), span),
+                    borrow_signature: None,
+                    result_ty: None,
+                    is_anonymous: true,
+                    is_recursive: false,
+                    fip: None,
+                    span,
+                },
+            ],
+            top_level_items: vec![CoreTopLevelItem::Function {
+                is_public: false,
+                name: add,
+                type_params: vec![],
+                parameters: vec![],
+                parameter_types: vec![],
+                return_type: None,
+                effects: vec![],
+                span,
+            }],
+        };
+
+        let qualified = build_qualified_names(&program, None, Some("fn_keyword_error"));
+        assert_eq!(
+            lir_symbol_name_for_def(CoreBinderId(1), false, &qualified, "def_1"),
+            "fn_keyword_error_sym_1"
+        );
+        assert_eq!(
+            lir_symbol_name_for_def(CoreBinderId(2), true, &qualified, "def_2"),
+            "expr_2"
+        );
+    }
 }

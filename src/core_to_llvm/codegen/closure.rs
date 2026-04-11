@@ -14,6 +14,7 @@ pub const FLUX_CLOSURE_REMAINING_ARITY_FIELD: u32 = 1;
 pub const FLUX_CLOSURE_CAPTURE_COUNT_FIELD: u32 = 2;
 pub const FLUX_CLOSURE_APPLIED_COUNT_FIELD: u32 = 3;
 pub const FLUX_CLOSURE_PAYLOAD_FIELD: u32 = 5;
+pub const FLUX_OBJ_CLOSURE_TAG: i32 = 0xF5;
 
 pub fn flux_closure_symbol(name: &str) -> GlobalId {
     GlobalId(name.to_string())
@@ -22,7 +23,10 @@ pub fn flux_closure_symbol(name: &str) -> GlobalId {
 pub fn emit_closure_support(module: &mut LlvmModule) {
     emit_closure_type(module);
     emit_gc_alloc_decl(module);
+    emit_gc_alloc_header_decl(module);
+    emit_dup_decl(module);
     emit_copy_helper(module);
+    emit_retain_helper(module);
     emit_tag_boxed_ptr(module);
     emit_untag_boxed_ptr(module);
     emit_make_closure(module);
@@ -95,6 +99,42 @@ fn emit_gc_alloc_decl(module: &mut LlvmModule) {
             call_conv: CallConv::Ccc,
         },
         attrs: vec![],
+    });
+}
+
+fn emit_gc_alloc_header_decl(module: &mut LlvmModule) {
+    let name = "flux_gc_alloc_header";
+    if module.declarations.iter().any(|decl| decl.name.0 == name) {
+        return;
+    }
+    module.declarations.push(LlvmDecl {
+        linkage: Linkage::External,
+        name: flux_closure_symbol(name),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::ptr(),
+            params: vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i32()],
+            varargs: false,
+            call_conv: CallConv::Ccc,
+        },
+        attrs: vec![],
+    });
+}
+
+fn emit_dup_decl(module: &mut LlvmModule) {
+    let name = "flux_dup";
+    if has_function(module, name) || module.declarations.iter().any(|decl| decl.name.0 == name) {
+        return;
+    }
+    module.declarations.push(LlvmDecl {
+        linkage: Linkage::External,
+        name: flux_closure_symbol(name),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::Void,
+            params: vec![LlvmType::i64()],
+            varargs: false,
+            call_conv: CallConv::Ccc,
+        },
+        attrs: vec!["nounwind".into()],
     });
 }
 
@@ -174,6 +214,106 @@ fn emit_copy_helper(module: &mut LlvmModule) {
                         value: local("value"),
                         ptr: local("dst.slot"),
                         align: Some(8),
+                    },
+                    LlvmInstr::Binary {
+                        dst: LlvmLocal("idx.next".into()),
+                        op: LlvmValueKind::Add,
+                        ty: LlvmType::i32(),
+                        lhs: local("idx"),
+                        rhs: const_i32_operand(1),
+                    },
+                    LlvmInstr::Icmp {
+                        dst: LlvmLocal("keep".into()),
+                        op: LlvmCmpOp::Slt,
+                        ty: LlvmType::i32(),
+                        lhs: local("idx.next"),
+                        rhs: local("count"),
+                    },
+                ],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("keep"),
+                    then_label: LabelId("loop".into()),
+                    else_label: LabelId("done".into()),
+                },
+            },
+            LlvmBlock {
+                label: LabelId("done".into()),
+                instrs: vec![],
+                term: LlvmTerminator::RetVoid,
+            },
+        ],
+    });
+}
+
+fn emit_retain_helper(module: &mut LlvmModule) {
+    let name = "flux_retain_i64s";
+    if has_function(module, name) {
+        return;
+    }
+    module.functions.push(LlvmFunction {
+        linkage: Linkage::External,
+        name: flux_closure_symbol(name),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::Void,
+            params: vec![LlvmType::ptr(), LlvmType::i32()],
+            varargs: false,
+            call_conv: CallConv::Fastcc,
+        },
+        params: vec![LlvmLocal("src".into()), LlvmLocal("count".into())],
+        attrs: vec![],
+        blocks: vec![
+            LlvmBlock {
+                label: LabelId("entry".into()),
+                instrs: vec![LlvmInstr::Icmp {
+                    dst: LlvmLocal("empty".into()),
+                    op: LlvmCmpOp::Eq,
+                    ty: LlvmType::i32(),
+                    lhs: local("count"),
+                    rhs: const_i32_operand(0),
+                }],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("empty"),
+                    then_label: LabelId("done".into()),
+                    else_label: LabelId("loop".into()),
+                },
+            },
+            LlvmBlock {
+                label: LabelId("loop".into()),
+                instrs: vec![
+                    LlvmInstr::Phi {
+                        dst: LlvmLocal("idx".into()),
+                        ty: LlvmType::i32(),
+                        incoming: vec![
+                            (const_i32_operand(0), LabelId("entry".into())),
+                            (
+                                LlvmOperand::Local(LlvmLocal("idx.next".into())),
+                                LabelId("loop".into()),
+                            ),
+                        ],
+                    },
+                    LlvmInstr::GetElementPtr {
+                        dst: LlvmLocal("src.slot".into()),
+                        inbounds: true,
+                        element_ty: LlvmType::i64(),
+                        base: local("src"),
+                        indices: vec![(LlvmType::i32(), local("idx"))],
+                    },
+                    LlvmInstr::Load {
+                        dst: LlvmLocal("value".into()),
+                        ty: LlvmType::i64(),
+                        ptr: local("src.slot"),
+                        align: Some(8),
+                    },
+                    LlvmInstr::Call {
+                        dst: None,
+                        tail: false,
+                        call_conv: Some(CallConv::Ccc),
+                        ret_ty: LlvmType::Void,
+                        callee: LlvmOperand::Global(flux_closure_symbol("flux_dup")),
+                        args: vec![(LlvmType::i64(), local("value"))],
+                        attrs: vec!["nounwind".into()],
                     },
                     LlvmInstr::Binary {
                         dst: LlvmLocal("idx.next".into()),
@@ -333,8 +473,12 @@ fn emit_make_closure(module: &mut LlvmModule) {
                     tail: false,
                     call_conv: Some(CallConv::Ccc),
                     ret_ty: LlvmType::ptr(),
-                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc")),
-                    args: vec![(LlvmType::i32(), local("size"))],
+                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc_header")),
+                    args: vec![
+                        (LlvmType::i32(), local("size")),
+                        (LlvmType::i32(), local("payload_count")),
+                        (LlvmType::i32(), const_i32_operand(FLUX_OBJ_CLOSURE_TAG)),
+                    ],
                     attrs: vec![],
                 },
                 LlvmInstr::GetElementPtr {
@@ -440,6 +584,18 @@ fn emit_make_closure(module: &mut LlvmModule) {
                     ],
                     attrs: vec![],
                 },
+                LlvmInstr::Call {
+                    dst: None,
+                    tail: false,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::Void,
+                    callee: LlvmOperand::Global(flux_closure_symbol("flux_retain_i64s")),
+                    args: vec![
+                        (LlvmType::ptr(), local("payload")),
+                        (LlvmType::i32(), local("capture_count")),
+                    ],
+                    attrs: vec![],
+                },
                 LlvmInstr::GetElementPtr {
                     dst: LlvmLocal("applied.dst".into()),
                     inbounds: true,
@@ -456,6 +612,18 @@ fn emit_make_closure(module: &mut LlvmModule) {
                     args: vec![
                         (LlvmType::ptr(), local("applied.dst")),
                         (LlvmType::ptr(), local("applied_values")),
+                        (LlvmType::i32(), local("applied_count")),
+                    ],
+                    attrs: vec![],
+                },
+                LlvmInstr::Call {
+                    dst: None,
+                    tail: false,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::Void,
+                    callee: LlvmOperand::Global(flux_closure_symbol("flux_retain_i64s")),
+                    args: vec![
+                        (LlvmType::ptr(), local("applied.dst")),
                         (LlvmType::i32(), local("applied_count")),
                     ],
                     attrs: vec![],

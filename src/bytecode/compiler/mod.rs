@@ -1209,7 +1209,7 @@ impl Compiler {
             program_to_lower,
             &self.hm_expr_types,
             Some(&self.interner),
-            None,
+            Some(&self.type_env),
             None,
             class_env_ref,
         );
@@ -1285,12 +1285,12 @@ impl Compiler {
             let desugared = desugar(program.clone());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
             let program_to_lower = rename(optimized, HashMap::new());
-            return self.lower_aether_from_program(&program_to_lower, true, false);
+            return self.lower_aether_from_program(&program_to_lower, true, true);
         }
 
         let prepared = self.prepare_program_for_lowering(program);
         self.apply_hm_final(&prepared.hm_final);
-        self.lower_aether_from_program(prepared.effective_program.as_ref(), false, false)
+        self.lower_aether_from_program(prepared.effective_program.as_ref(), false, true)
     }
 
     fn prepare_backend_core_program_with_preloaded(
@@ -1304,7 +1304,7 @@ impl Compiler {
 
         let prepared = self.prepare_program_for_lowering_with_preloaded(program);
         self.apply_hm_final(&prepared.hm_final);
-        self.lower_aether_from_program(prepared.effective_program.as_ref(), false, false)
+        self.lower_aether_from_program(prepared.effective_program.as_ref(), false, true)
     }
 
     fn prepare_program_for_lowering_internal<'a>(
@@ -3966,7 +3966,7 @@ impl Compiler {
     /// Lower to Core IR, then to LIR, and return a human-readable dump.
     #[allow(clippy::result_large_err)]
     pub fn dump_lir(&mut self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
-        let aether = self.prepare_backend_core_program(program, optimize)?;
+        let aether = self.prepare_backend_core_program_with_preloaded(program, optimize)?;
         let globals_map = self.build_globals_map();
         let lir = crate::lir::lower::lower_aether_program_with_interner(
             &aether,
@@ -4008,7 +4008,7 @@ impl Compiler {
         program: &Program,
         optimize: bool,
     ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
-        let aether = self.prepare_backend_core_program(program, optimize)?;
+        let aether = self.prepare_backend_core_program_with_preloaded(program, optimize)?;
 
         // Pass None for globals_map so ALL functions are lowered to LIR
         // functions (no GetGlobal). In native mode there's no VM globals
@@ -4031,6 +4031,7 @@ impl Compiler {
         program: &Program,
         optimize: bool,
         export_user_ctor_name_helper: bool,
+        emit_entry_main: bool,
     ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
         let _ = self.phase_collection(program);
         let prepared = self.prepare_program_for_lowering_with_preloaded(program);
@@ -4042,21 +4043,21 @@ impl Compiler {
             let desugared = desugar(effective_program.into_owned());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
             let program_to_lower = rename(optimized, HashMap::new());
-            let aether = self.lower_aether_from_program(&program_to_lower, true, false)?;
+            let aether = self.lower_aether_from_program(&program_to_lower, true, true)?;
             (Cow::Owned(program_to_lower), aether)
         } else {
-            let aether =
-                self.lower_aether_from_program(effective_program.as_ref(), false, false)?;
+            let aether = self.lower_aether_from_program(effective_program.as_ref(), false, true)?;
             (effective_program, aether)
         };
 
         let extern_symbols = self.build_native_extern_symbols(effective_program.as_ref());
-        let emit_main = effective_program.statements.iter().any(|statement| {
+        let has_named_main = effective_program.statements.iter().any(|statement| {
             matches!(
                 statement,
                 Statement::Function { name, .. } if self.sym(*name) == "main"
             )
         });
+        let emit_main = emit_entry_main || has_named_main;
         // Derive an entry qualifier from the file path to prevent symbol
         // collisions with C runtime primops. E.g. "examples/day06.flx"
         // yields qualifier "day06", so user's `fn sum` becomes `flux_day06_sum`

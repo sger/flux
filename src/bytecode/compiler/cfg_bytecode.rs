@@ -153,7 +153,7 @@ impl Compiler {
                     let Some(else_index) = block_indices.get(else_block).copied() else {
                         return false;
                     };
-                    if then_index != index + 1 || else_index <= index {
+                    if then_index <= index || else_index <= index {
                         return false;
                     }
                     if !function.blocks[then_index].params.is_empty()
@@ -264,7 +264,10 @@ impl Compiler {
                         pending_jumps.push((jump_pos, *target));
                     }
                     IrTerminator::Branch {
-                        cond, else_block, ..
+                        cond,
+                        then_block,
+                        else_block,
+                        ..
                     } => {
                         let cond_binding = bindings.get(cond).ok_or_else(|| {
                             Self::boxed(Diagnostic::warning(
@@ -275,6 +278,8 @@ impl Compiler {
                         let false_jump = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
                         pending_jumps.push((false_jump, *else_block));
                         false_target_blocks.insert(*else_block);
+                        let true_jump = self.emit(OpCode::OpJump, &[9999]);
+                        pending_jumps.push((true_jump, *then_block));
                     }
                     IrTerminator::Unreachable(_) => {
                         return Err(Self::boxed(Diagnostic::warning(
