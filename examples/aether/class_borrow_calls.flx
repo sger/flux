@@ -1,0 +1,32 @@
+// Aether borrow-call regression fixture for user-defined type classes.
+// Used by --dump-core / --dump-aether snapshot tests.
+//
+// Exercises:
+//   - __tc_Sizeable_Int_size / __tc_Sizeable_String_size (monomorphic dispatch)
+//   - Borrow inference on user-defined class method implementations
+//   - Multiple class instances with different parameter usage patterns
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { 1 }
+}
+
+instance Sizeable<String> {
+    fn size(x) { len(x) }
+}
+
+fn total_size(a, b) {
+    size(a) + size(b)
+}
+
+fn size_twice(x) {
+    size(x) + size(x)
+}
+
+fn main() with IO {
+    print(total_size(42, "hello"))
+    print(size_twice("world"))
+}
