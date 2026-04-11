@@ -48,7 +48,7 @@ fn compile_per_module_llvm_ir(src: &str, export_user_ctor_name_helper: bool) -> 
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     let llvm = compiler
-        .lower_to_lir_llvm_module_per_module(&program, false, export_user_ctor_name_helper)
+        .lower_to_lir_llvm_module_per_module(&program, false, export_user_ctor_name_helper, true)
         .expect("per-module lowering should succeed");
     flux::core_to_llvm::render_module(&llvm)
 }

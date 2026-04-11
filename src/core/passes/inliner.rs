@@ -30,6 +30,9 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
             let body = inline_lets(*body);
 
             let count = count_occurrences(var.id, &body);
+            let preserves_call_boundary =
+                matches!(rhs, CoreExpr::Var { .. } | CoreExpr::Lam { .. })
+                    && occurs_as_callee(var.id, &body);
 
             if count == 0 && is_pure(&rhs) {
                 // Dead binding — drop it.
@@ -42,12 +45,19 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
                     body: Box::new(body),
                     span,
                 }
-            } else if count == 1 && !occurs_under_lambda(var.id, &body) && is_pure(&rhs) {
+            } else if count == 1
+                && !occurs_under_lambda(var.id, &body)
+                && is_pure(&rhs)
+                && !preserves_call_boundary
+            {
                 // Used exactly once, not under a lambda, and pure — safe to
                 // inline regardless of size (no code duplication, no work
                 // duplication, no effect reordering).
                 inline_lets(subst(body, var.id, &rhs))
-            } else if expr_size(&rhs) <= INLINE_THRESHOLD && is_pure(&rhs) {
+            } else if expr_size(&rhs) <= INLINE_THRESHOLD
+                && is_pure(&rhs)
+                && !preserves_call_boundary
+            {
                 // Small pure RHS — inline even if used multiple times.
                 inline_lets(subst(body, var.id, &rhs))
             } else {
@@ -242,6 +252,85 @@ fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
         }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             occurs_under_lambda(var, object)
+        }
+    }
+}
+
+fn occurs_as_callee(var: CoreBinderId, expr: &CoreExpr) -> bool {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => false,
+        CoreExpr::Lam { params, body, .. } => {
+            if params.iter().any(|p| p.id == var) {
+                false
+            } else {
+                occurs_as_callee(var, body)
+            }
+        }
+        CoreExpr::App { func, args, .. } => {
+            matches!(func.as_ref(), CoreExpr::Var { var: ref_var, .. } if ref_var.binder == Some(var))
+                || occurs_as_callee(var, func)
+                || args.iter().any(|arg| occurs_as_callee(var, arg))
+        }
+        CoreExpr::Let {
+            var: binding,
+            rhs,
+            body,
+            ..
+        } => {
+            occurs_as_callee(var, rhs)
+                || if binding.id == var {
+                    false
+                } else {
+                    occurs_as_callee(var, body)
+                }
+        }
+        CoreExpr::LetRec {
+            var: binding,
+            rhs,
+            body,
+            ..
+        } => {
+            if binding.id == var {
+                false
+            } else {
+                occurs_as_callee(var, rhs) || occurs_as_callee(var, body)
+            }
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            if bindings.iter().any(|(b, _)| b.id == var) {
+                false
+            } else {
+                bindings.iter().any(|(_, rhs)| occurs_as_callee(var, rhs))
+                    || occurs_as_callee(var, body)
+            }
+        }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            occurs_as_callee(var, scrutinee)
+                || alts.iter().any(|alt| {
+                    !pat_binds_var(&alt.pat, var)
+                        && (alt
+                            .guard
+                            .as_ref()
+                            .is_some_and(|g| occurs_as_callee(var, g))
+                            || occurs_as_callee(var, &alt.rhs))
+                })
+        }
+        CoreExpr::Con { fields, .. } => fields.iter().any(|f| occurs_as_callee(var, f)),
+        CoreExpr::PrimOp { args, .. } => args.iter().any(|a| occurs_as_callee(var, a)),
+        CoreExpr::Return { value, .. } => occurs_as_callee(var, value),
+        CoreExpr::Perform { args, .. } => args.iter().any(|a| occurs_as_callee(var, a)),
+        CoreExpr::Handle { body, handlers, .. } => {
+            occurs_as_callee(var, body)
+                || handlers.iter().any(|h| {
+                    h.resume.id != var
+                        && !h.params.iter().any(|p| p.id == var)
+                        && occurs_as_callee(var, &h.body)
+                })
+        }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            occurs_as_callee(var, object)
         }
     }
 }
