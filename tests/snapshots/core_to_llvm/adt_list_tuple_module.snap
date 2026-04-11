@@ -597,7 +597,6 @@ bb0:
   br label %bb1
 bb1:
   %v5 = add i64 7, 0
-  call ccc void @flux_dup(i64 %v5)
   %t2 = alloca [1 x i64], align 8
   %t3 = getelementptr inbounds i64, ptr %t2, i32 0
   store i64 %v5, ptr %t3, align 8

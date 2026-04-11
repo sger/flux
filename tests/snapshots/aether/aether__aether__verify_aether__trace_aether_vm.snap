@@ -5,6 +5,7 @@ source: tests/aether_cli_snapshots.rs
 Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:
+- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
@@ -27,6 +28,7 @@ Warning: FBIP Contract Not Proven
 Warning: FBIP Contract Not Proven
 
 @fip on `option_map` analysis result NotProvable:
+- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
@@ -66,14 +68,15 @@ Aether Memory Model Report
   FreshAllocs: 0
   verifier: ok
   fbip: NotProvable
+    - fresh heap allocation remains on at least one path
     - calls indirect or opaque callee `f` whose FBIP behavior is unknown
     - control-flow join loses a precise allocation bound across paths
 λxs, f.
   case xs of
     ::(h, t) →
-      let %t1 = aether_call[owned] f(h)
-      let %t2 = aether_call[owned, borrowed] my_map(t, f)
-      reuse xs ::(%t1, %t2)
+      let %t1 = f(h)
+      let %t2 = my_map(t, f)
+      ::(%t1, %t2)
     _ →
       []
 ── fn option_map @fip ──
@@ -81,13 +84,14 @@ Aether Memory Model Report
   FreshAllocs: 0
   verifier: ok
   fbip: NotProvable
+    - fresh heap allocation remains on at least one path
     - calls indirect or opaque callee `f` whose FBIP behavior is unknown
     - control-flow join loses a precise allocation bound across paths
 λopt, f.
   case opt of
     Some(x) →
-      let %t1 = aether_call[owned] f(x)
-      reuse opt Some(%t1)
+      let %t1 = f(x)
+      Some(%t1)
     _ →
       None
 ── fn set_black ──
@@ -97,7 +101,7 @@ Aether Memory Model Report
 λt.
   case t of
     Node(_, left, key, right) →
-      reuse t Node(Black, left, key, right) @mask=0b1
+      Node(Black, left, key, right)
     _ →
       t
 ── fn my_filter ──
@@ -107,14 +111,13 @@ Aether Memory Model Report
 λxs, f.
   case xs of
     ::(h, t) →
-      let %t1 = aether_call[owned] f(h)
+      let %t1 = f(h)
       case %t1 of
         true →
-          let %t2 = aether_call[owned, borrowed] my_filter(t, f)
-          reuse xs ::(h, %t2) @mask=0b10
+          let %t2 = my_filter(t, f)
+          ::(h, %t2)
         _ →
-          drop xs
-          aether_call[owned, borrowed] my_filter(t, f)
+          my_filter(t, f)
     _ →
       []
 ── fn main ──
@@ -125,32 +128,27 @@ Aether Memory Model Report
   let result = (let %t1 = MakeList(1, 2, 3)
   let %t2 = (λx.
     IMul(x, 2))
-  aether_call[owned, borrowed] my_map(%t1, %t2))
+  my_map(%t1, %t2))
   let %t3 = Print(result)
-  drop %t3
   let opt = (let %t4 = Some(42)
   let %t5 = (λx.
     IAdd(x, 1))
-  aether_call[owned, borrowed] option_map(%t4, %t5))
+  option_map(%t4, %t5))
   let %t6 = Print(opt)
-  drop %t6
-  let tree = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
-  let blk = aether_call[owned] set_black(tree)
+  let tree = Node(Red, Leaf, 5, Leaf)
+  let blk = set_black(tree)
   let %t7 = Print(blk)
-  drop %t7
   let n = (let %t8 = MakeList(1, 2, 3, 4, 5)
-  aether_call[borrowed] my_len(%t8))
+  my_len(%t8))
   let %t9 = Print(n)
-  drop %t9
   let evens = (let %t10 = MakeList(1, 2, 3, 4, 5, 6)
   let %t11 = (λx.
     let %t12 = IMod(x, 2)
     ICmpEq(%t12, 0))
-  aether_call[owned, borrowed] my_filter(%t10, %t11))
+  my_filter(%t10, %t11))
   let %t13 = Print(evens)
-  drop %t13
   let total = (let %t14 = MakeList(1, 2, 3, 4, 5)
-  aether_call[borrowed] my_sum(%t14))
+  my_sum(%t14))
   Print(total)
 
 ── Total ──

@@ -503,29 +503,6 @@ fn insert_dict_args_expr(
             span,
         },
 
-        CoreExpr::AetherCall {
-            func,
-            args,
-            arg_modes,
-            span,
-        } => CoreExpr::AetherCall {
-            func: Box::new(insert_dict_args_expr(
-                *func,
-                constrained_fns,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            args: args
-                .into_iter()
-                .map(|a| {
-                    insert_dict_args_expr(a, constrained_fns, caller_dicts, class_env, interner)
-                })
-                .collect(),
-            arg_modes,
-            span,
-        },
-
         CoreExpr::Let {
             var,
             rhs,
@@ -715,73 +692,6 @@ fn insert_dict_args_expr(
             span,
         },
 
-        CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
-            var,
-            body: Box::new(insert_dict_args_expr(
-                *body,
-                constrained_fns,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            span,
-        },
-
-        CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
-            var,
-            body: Box::new(insert_dict_args_expr(
-                *body,
-                constrained_fns,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            span,
-        },
-
-        CoreExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask,
-            span,
-        } => CoreExpr::Reuse {
-            token,
-            tag,
-            fields: fields
-                .into_iter()
-                .map(|f| {
-                    insert_dict_args_expr(f, constrained_fns, caller_dicts, class_env, interner)
-                })
-                .collect(),
-            field_mask,
-            span,
-        },
-
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            span,
-        } => CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body: Box::new(insert_dict_args_expr(
-                *unique_body,
-                constrained_fns,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            shared_body: Box::new(insert_dict_args_expr(
-                *shared_body,
-                constrained_fns,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            span,
-        },
-
         CoreExpr::MemberAccess {
             object,
             member,
@@ -940,45 +850,6 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
             span,
         },
 
-        CoreExpr::AetherCall {
-            func,
-            args,
-            arg_modes,
-            span,
-        } => {
-            // Same method extraction as the App case — AetherCall is produced
-            // by the Aether RC pass from App nodes.
-            if let CoreExpr::Var { ref var, .. } = *func
-                && let Some(&(dict_binder, index)) = method_map.get(&var.name)
-            {
-                let dict_ref = CoreExpr::bound_var(dict_binder, span);
-                let method_extract = CoreExpr::TupleField {
-                    object: Box::new(dict_ref),
-                    index,
-                    span,
-                };
-                let rewritten_args = args
-                    .into_iter()
-                    .map(|a| rewrite_expr(a, method_map))
-                    .collect();
-                return CoreExpr::AetherCall {
-                    func: Box::new(method_extract),
-                    args: rewritten_args,
-                    arg_modes,
-                    span,
-                };
-            }
-            CoreExpr::AetherCall {
-                func: Box::new(rewrite_expr(*func, method_map)),
-                args: args
-                    .into_iter()
-                    .map(|a| rewrite_expr(a, method_map))
-                    .collect(),
-                arg_modes,
-                span,
-            }
-        }
-
         CoreExpr::Let {
             var,
             rhs,
@@ -1086,47 +957,6 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
                     h
                 })
                 .collect(),
-            span,
-        },
-
-        CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
-            var,
-            body: Box::new(rewrite_expr(*body, method_map)),
-            span,
-        },
-
-        CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
-            var,
-            body: Box::new(rewrite_expr(*body, method_map)),
-            span,
-        },
-
-        CoreExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask,
-            span,
-        } => CoreExpr::Reuse {
-            token,
-            tag,
-            fields: fields
-                .into_iter()
-                .map(|f| rewrite_expr(f, method_map))
-                .collect(),
-            field_mask,
-            span,
-        },
-
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            span,
-        } => CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body: Box::new(rewrite_expr(*unique_body, method_map)),
-            shared_body: Box::new(rewrite_expr(*shared_body, method_map)),
             span,
         },
 

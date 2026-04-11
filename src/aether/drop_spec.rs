@@ -17,14 +17,24 @@
 
 use std::collections::BTreeSet;
 
-use crate::core::{CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreVarRef};
+use crate::core::{CoreBinder, CoreBinderId, CoreVarRef};
 use crate::diagnostics::position::Span;
 
-use super::analysis::{pat_binders, use_counts};
+use super::{
+    AetherAlt as CoreAlt, AetherExpr, AetherHandler,
+    analysis::{pat_binders, use_counts_aether},
+};
+
+type CoreExpr = AetherExpr;
 
 /// Run drop specialization on a Core IR expression.
 pub fn specialize_drops(expr: CoreExpr) -> CoreExpr {
     transform(expr)
+}
+
+/// Run drop specialization on a backend-only Aether expression.
+pub fn specialize_drops_aether(expr: CoreExpr) -> CoreExpr {
+    specialize_drops(expr)
 }
 
 fn transform(expr: CoreExpr) -> CoreExpr {
@@ -664,7 +674,7 @@ fn rewrite_mode(
             effect: *effect,
             handlers: handlers
                 .iter()
-                .map(|handler| crate::core::CoreHandler {
+                .map(|handler| AetherHandler {
                     operation: handler.operation,
                     params: handler.params.clone(),
                     resume: handler.resume,
@@ -706,7 +716,7 @@ fn rewrite_mode(
 }
 
 fn uses_binder(expr: &CoreExpr, binder_id: CoreBinderId) -> bool {
-    use_counts(expr).contains_key(&binder_id)
+    use_counts_aether(expr).contains_key(&binder_id)
 }
 
 fn merge_candidate_acc(acc: &mut CandidateAccumulator, branch_acc: CandidateAccumulator) {
@@ -740,7 +750,8 @@ fn is_safe_wrapper_rhs(expr: &CoreExpr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::{CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreLit, CorePat, CoreTag};
+    use crate::aether::{AetherAlt as CoreAlt, AetherExpr as CoreExpr};
+    use crate::core::{CoreBinder, CoreBinderId, CoreLit, CorePat, CoreTag};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 

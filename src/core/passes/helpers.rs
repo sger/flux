@@ -175,46 +175,6 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
                 .collect(),
             span,
         },
-        CoreExpr::Dup {
-            var: dup_var,
-            body,
-            span,
-        } => CoreExpr::Dup {
-            var: if dup_var.binder == Some(var) {
-                // The var itself is being substituted — but Dup/Drop reference
-                // variables, not arbitrary expressions. Keep the ref as-is.
-                dup_var
-            } else {
-                dup_var
-            },
-            body: Box::new(subst(*body, var, replacement)),
-            span,
-        },
-        CoreExpr::Drop {
-            var: drop_var,
-            body,
-            span,
-        } => CoreExpr::Drop {
-            var: drop_var,
-            body: Box::new(subst(*body, var, replacement)),
-            span,
-        },
-        CoreExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask,
-            span,
-        } => CoreExpr::Reuse {
-            token,
-            tag,
-            fields: fields
-                .into_iter()
-                .map(|f| subst(f, var, replacement))
-                .collect(),
-            field_mask,
-            span,
-        },
         CoreExpr::MemberAccess {
             object,
             member,
@@ -358,40 +318,6 @@ pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreE
                 .collect(),
             span,
         },
-        CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
-            var,
-            body: Box::new(f(*body)),
-            span,
-        },
-        CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
-            var,
-            body: Box::new(f(*body)),
-            span,
-        },
-        CoreExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask,
-            span,
-        } => CoreExpr::Reuse {
-            token,
-            tag,
-            fields: fields.into_iter().map(f).collect(),
-            field_mask,
-            span,
-        },
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            span,
-        } => CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body: Box::new(f(*unique_body)),
-            shared_body: Box::new(f(*shared_body)),
-            span,
-        },
         CoreExpr::MemberAccess {
             object,
             member,
@@ -430,7 +356,7 @@ pub(super) fn is_pure(expr: &CoreExpr) -> bool {
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
         CoreExpr::Lam { .. } => true,
-        CoreExpr::Con { fields, .. } | CoreExpr::Reuse { fields, .. } => fields.iter().all(is_pure),
+        CoreExpr::Con { fields, .. } => fields.iter().all(is_pure),
         CoreExpr::PrimOp { op, args, .. } => is_primop_pure(op) && args.iter().all(is_pure),
         _ => false, // App, Let, LetRec, Case, Perform, Handle, Return
     }
@@ -588,7 +514,7 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
         CoreExpr::Lam { params, body, .. } => {
             !params.iter().any(|p| p.id == var) && appears_free(var, body)
         }
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+        CoreExpr::App { func, args, .. } => {
             appears_free(var, func) || args.iter().any(|a| appears_free(var, a))
         }
         CoreExpr::Let {
@@ -630,25 +556,6 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
                         && appears_free(var, &h.body)
                 })
         }
-        CoreExpr::Dup {
-            var: ref_var, body, ..
-        }
-        | CoreExpr::Drop {
-            var: ref_var, body, ..
-        } => ref_var.binder == Some(var) || appears_free(var, body),
-        CoreExpr::Reuse { token, fields, .. } => {
-            token.binder == Some(var) || fields.iter().any(|f| appears_free(var, f))
-        }
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
-            scrutinee.binder == Some(var)
-                || appears_free(var, unique_body)
-                || appears_free(var, shared_body)
-        }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             appears_free(var, object)
         }
@@ -660,7 +567,7 @@ pub(super) fn expr_size(expr: &CoreExpr) -> usize {
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => 1,
         CoreExpr::Lam { body, .. } => 1 + expr_size(body),
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+        CoreExpr::App { func, args, .. } => {
             1 + expr_size(func) + args.iter().map(expr_size).sum::<usize>()
         }
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
@@ -689,13 +596,6 @@ pub(super) fn expr_size(expr: &CoreExpr) -> usize {
         CoreExpr::Handle { body, handlers, .. } => {
             1 + expr_size(body) + handlers.iter().map(|h| expr_size(&h.body)).sum::<usize>()
         }
-        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => 1 + expr_size(body),
-        CoreExpr::Reuse { fields, .. } => 1 + fields.iter().map(expr_size).sum::<usize>(),
-        CoreExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => 1 + expr_size(unique_body) + expr_size(shared_body),
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             1 + expr_size(object)
         }

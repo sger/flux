@@ -15,9 +15,12 @@
 //!   → Dup(f); body                      // h cancelled, f kept
 //! ```
 
-use crate::aether::analysis::use_counts;
-use crate::core::{CoreBinder, CoreExpr, CoreVarRef};
+use crate::aether::analysis::use_counts_aether;
+use crate::core::{CoreBinder, CoreVarRef};
 use crate::diagnostics::position::Span;
+use crate::aether::AetherExpr;
+
+type CoreExpr = AetherExpr;
 
 /// Run dup/drop fusion on a Core IR expression.
 pub fn fuse_dup_drop(expr: CoreExpr) -> CoreExpr {
@@ -30,6 +33,11 @@ pub fn fuse_dup_drop(expr: CoreExpr) -> CoreExpr {
         }
         result = fused;
     }
+}
+
+/// Run dup/drop fusion on a backend-only Aether expression.
+pub fn fuse_dup_drop_aether(expr: CoreExpr) -> CoreExpr {
+    fuse_dup_drop(expr)
 }
 
 /// Represents a collected Dup or Drop on a spine.
@@ -341,7 +349,7 @@ fn can_cross_pure_wrappers(target: &CoreVarRef, elems: &[PrefixElem]) -> bool {
     };
     elems.iter().all(|elem| match elem {
         PrefixElem::Rc(_) => true,
-        PrefixElem::Let { rhs, .. } => !use_counts(rhs).contains_key(&target_id),
+        PrefixElem::Let { rhs, .. } => !use_counts_aether(rhs).contains_key(&target_id),
     })
 }
 
@@ -387,7 +395,8 @@ fn exprs_equal(a: &CoreExpr, b: &CoreExpr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::fuse_dup_drop;
-    use crate::core::{CoreBinder, CoreBinderId, CoreExpr, CoreLit, CoreVarRef};
+    use crate::aether::AetherExpr as CoreExpr;
+    use crate::core::{CoreBinder, CoreBinderId, CoreLit, CoreVarRef};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 

@@ -1354,7 +1354,7 @@ mod tests {
         match expr {
             CoreExpr::Var { var, .. } => out.push(var),
             CoreExpr::Lam { body, .. } => collect_var_refs(body, out),
-            CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+            CoreExpr::App { func, args, .. } => {
                 collect_var_refs(func, out);
                 for arg in args {
                     collect_var_refs(arg, out);
@@ -1399,26 +1399,6 @@ mod tests {
                 }
             }
             CoreExpr::Lit(_, _) => {}
-            CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
-                out.push(var);
-                collect_var_refs(body, out);
-            }
-            CoreExpr::Reuse { token, fields, .. } => {
-                out.push(token);
-                for field in fields {
-                    collect_var_refs(field, out);
-                }
-            }
-            CoreExpr::DropSpecialized {
-                scrutinee,
-                unique_body,
-                shared_body,
-                ..
-            } => {
-                out.push(scrutinee);
-                collect_var_refs(unique_body, out);
-                collect_var_refs(shared_body, out);
-            }
             CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
                 collect_var_refs(object, out);
             }
@@ -1775,7 +1755,7 @@ f("flux")
                     count_bindings_in_expr(&alt.rhs, groups, singles);
                 }
             }
-            CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+            CoreExpr::App { func, args, .. } => {
                 count_bindings_in_expr(func, groups, singles);
                 for a in args {
                     count_bindings_in_expr(a, groups, singles);
