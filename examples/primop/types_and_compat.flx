@@ -1,7 +1,7 @@
 fn main() with IO {
     print("== PrimOps: types + compat ==");
     let arr = [|10, 20, 30|];
-    let m = put({}, "name", "flux");
+    let m = map_set({}, "name", "flux");
     print(type_of(arr));
     print(type_of(m));
     print(is_int(1));

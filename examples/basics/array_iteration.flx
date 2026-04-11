@@ -1,26 +1,28 @@
+import Flow.Array as Array
+
 fn printAll(arr) with IO {
-    if len(arr) == 0 {
-        print("done")
-    } else {
-    print(first(arr))
-    printAll(rest(arr))
-}
+    fn printAllGo(i) with IO {
+        if i >= Array.length(arr) {
+            print("done")
+        } else {
+            match arr[i] {
+                Some(v) -> do {
+                    print(v)
+                    printAllGo(i + 1)
+                },
+                _ -> printAllGo(i + 1)
+            }
+        }
+    }
+    printAllGo(0)
 }
 
 fn mySum(arr) {
-    if len(arr) == 0 {
-        0
-    } else {
-    first(arr) + mySum(rest(arr))
-}
+    Array.fold(arr, 0, fn(acc, x) { acc + x })
 }
 
 fn countItems(arr) {
-    if len(arr) == 0 {
-        0
-    } else {
-    1 + countItems(rest(arr))
-}
+    Array.length(arr)
 }
 
 fn main() with IO {

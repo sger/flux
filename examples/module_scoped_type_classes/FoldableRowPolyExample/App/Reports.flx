@@ -1,0 +1,17 @@
+import FoldableRowPolyExample.Flow.Foldable as Foldable
+import FoldableRowPolyExample.Flow.Console as Console
+
+module FoldableRowPolyExample.App.Reports {
+    fn print_step(count: Int, line: String) -> Int with Console {
+        perform Console.print(line)
+        count + 1
+    }
+
+    public fn print_all(lines: List<String>) -> Int with Console {
+        Foldable.fold(lines, 0, print_step)
+    }
+
+    public fn count_lines(lines: List<String>) -> Int {
+        Foldable.fold(lines, 0, fn(count, _) { count + 1 })
+    }
+}

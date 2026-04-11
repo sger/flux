@@ -1382,11 +1382,9 @@ impl Parser {
                 guard = Some(self.parse_expression(Precedence::Lowest)?);
             }
 
-            if self.is_peek_token(TokenType::Assign) && self.peek2_token.token_type == TokenType::Gt
-            {
+            if self.is_peek_token(TokenType::FatArrow) {
                 self.emit_parser_diagnostic(match_fat_arrow(self.peek_token.span()));
-                self.next_token(); // consume '='
-                self.next_token(); // consume '>'
+                self.next_token(); // consume `=>`
             } else if self.is_peek_token(TokenType::Arrow) {
                 self.next_token();
             } else {

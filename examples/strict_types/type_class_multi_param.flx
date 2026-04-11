@@ -1,0 +1,17 @@
+// Multi-parameter type class test (Proposal 0146, Track 5).
+//
+// Tests that class declarations can have multiple type parameters
+// and instances with distinct type combinations don't collide.
+
+class Convert<a, b> {
+    fn convert(x: a) -> b
+}
+
+instance Convert<Int, String> {
+    fn convert(x) { to_string(x) }
+}
+
+fn main() with IO {
+    let s = convert(42)
+    print(s)
+}

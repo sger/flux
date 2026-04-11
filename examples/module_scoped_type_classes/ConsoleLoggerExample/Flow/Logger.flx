@@ -1,0 +1,7 @@
+import ConsoleLoggerExample.Flow.Console as Console
+
+module ConsoleLoggerExample.Flow.Logger {
+    public class Logger<h> {
+        fn log(hnd: h, msg: String) -> Unit with Console
+    }
+}

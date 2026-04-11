@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-EXT_ID="flux-local.flux-language-0.0.1"
+EXT_ID="flux-local.flux-language-0.0.4"
 
 install_to_dir() {
   local base_dir="$1"

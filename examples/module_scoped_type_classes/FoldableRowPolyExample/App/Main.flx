@@ -1,0 +1,11 @@
+import FoldableRowPolyExample.App.Reports as Reports
+import FoldableRowPolyExample.Flow.Console as Console
+
+module FoldableRowPolyExample.App.Main {
+    public fn run() with IO {
+        let n = Reports.print_all(["a", "b", "c"]) handle Console {
+            print(resume, _msg) -> resume(())
+        }
+        print(to_string(n))
+    }
+}

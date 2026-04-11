@@ -4,6 +4,101 @@ source: tests/aether_cli_snapshots.rs
 Aether Memory Model Report
 ==========================
 
+── fn compare ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ__x0, __x1.
+  drop __x0
+  drop __x1
+  Panic("No instance of Ord.compare for the given type")
+── fn lt ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ__x0, __x1.
+  drop __x0
+  drop __x1
+  Panic("No instance of Ord.lt for the given type")
+── fn lte ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ__x0, __x1.
+  drop __x0
+  drop __x1
+  Panic("No instance of Ord.lte for the given type")
+── fn gt ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ__x0, __x1.
+  drop __x0
+  drop __x1
+  Panic("No instance of Ord.gt for the given type")
+── fn gte ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ__x0, __x1.
+  drop __x0
+  drop __x1
+  Panic("No instance of Ord.gte for the given type")
+── fn eq ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ__x0, __x1.
+  drop __x0
+  drop __x1
+  Panic("No instance of Eq.eq for the given type")
+── fn neq ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ__x0, __x1.
+  drop __x0
+  drop __x1
+  Panic("No instance of Eq.neq for the given type")
+── fn add ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ__x0, __x1.
+  drop __x0
+  drop __x1
+  Panic("No instance of Num.add for the given type")
+── fn sub ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ__x0, __x1.
+  drop __x0
+  drop __x1
+  Panic("No instance of Num.sub for the given type")
+── fn mul ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ__x0, __x1.
+  drop __x0
+  drop __x1
+  Panic("No instance of Num.mul for the given type")
+── fn div ──
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ__x0, __x1.
+  drop __x0
+  drop __x1
+  Panic("No instance of Num.div for the given type")
+── fn show ──
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+λ__x0.
+  drop __x0
+  Panic("No instance of Show.show for the given type")
 ── fn assert_eq ──
   Dups: 0  Drops: 3  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
@@ -14,7 +109,7 @@ Aether Memory Model Report
     true →
       MakeTuple()
     _ →
-      let %t2 = Println("ASSERTION FAILED: assert_eq")
+      let %t2 = aether_call[borrowed] assert_failed("assert_eq")
       drop %t2
       let %t3 = Println(a)
       drop %t3
@@ -31,7 +126,7 @@ Aether Memory Model Report
     true →
       MakeTuple()
     _ →
-      let %t2 = Println("ASSERTION FAILED: assert_neq")
+      let %t2 = aether_call[borrowed] assert_failed("assert_neq")
       drop %t2
       Panic("assert_neq failed")
 ── fn list_length ──
@@ -57,12 +152,12 @@ Aether Memory Model Report
       aether_call[borrowed, owned] list_length(collection, 0)
     _ →
       Len(collection))
-  let %t2 = CmpEq(actual, expected)
+  let %t2 = Eq(actual, expected)
   case %t2 of
     true →
       MakeTuple()
     _ →
-      let %t3 = Println("ASSERTION FAILED: assert_len")
+      let %t3 = aether_call[borrowed] assert_failed("assert_len")
       drop %t3
       Panic("assert_len failed")
 ── fn print_all ──
@@ -109,150 +204,41 @@ Aether Memory Model Report
       _ →
         MakeTuple())
   aether_call[owned] pla_go(0)
-── fn filter ──
-  Dups: 2  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
+── fn find ──
+  Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 λxs, pred.
-  let %t1 = IsArray(xs)
-  case %t1 of
-    true →
-      letrec filter_arr = (λi, acc.
-        let %t2 = (let %t3 = Len(xs)
-        Ge(i, %t3))
-        case %t2 of
-          true →
-            acc
-          _ →
-            let %t4 = Index(xs, i)
-            case %t4 of
-              Some(v) →
-                let %t5 = aether_call[owned] pred(dup v
-                v)
-                case %t5 of
-                  true →
-                    let %t6 = Add(i, 1)
-                    let %t7 = ArrayPush(acc, v)
-                    aether_call[owned, owned] filter_arr(%t6, %t7)
-                  _ →
-                    let %t8 = Add(i, 1)
-                    aether_call[owned, owned] filter_arr(%t8, acc)
-              _ →
-                let %t9 = Add(i, 1)
-                aether_call[owned, owned] filter_arr(%t9, acc))
-      let %t10 = MakeArray()
-      aether_call[owned, owned] filter_arr(0, %t10)
-    _ →
-      letrec filter_acc = (λys, acc.
-        case ys of
-          ::(h, t) →
-            let %t11 = aether_call[owned] pred(dup h
-            h)
-            case %t11 of
-              true →
-                let %t12 = ::(h, acc)
-                aether_call[owned, owned] filter_acc(t, %t12)
-              _ →
-                drop h
-                aether_call[owned, owned] filter_acc(t, acc)
-          _ →
-            aether_call[owned] reverse(acc))
-      let %t13 = []
-      aether_call[owned, owned] filter_acc(xs, %t13)
-── fn find ──
-  Dups: 2  Drops: 3  Reuses: 1  DropSpecs: 1  FBIP: fbip(2)
-  FreshAllocs: 2
-  verifier: ok
-λxs, pred.
-  let %t1 = IsArray(xs)
-  case %t1 of
-    true →
-      letrec find_arr = (λi.
-        let %t2 = (let %t3 = Len(xs)
-        Ge(i, %t3))
-        case %t2 of
-          true →
-            None
-          _ →
-            let %t4 = Index(xs, i)
-            case %t4 of
-              Some(v) →
-                drop_spec %t4 {
-                  unique -> let %t5 = aether_call[owned] pred(v)
-                    case %t5 of
-                      true →
-                        reuse %t4 Some(v) @mask=0b0
-                      _ →
-                        drop v
-                        let %t6 = Add(i, 1)
-                        aether_call[owned] find_arr(%t6)
-                  shared -> let %t5 = aether_call[owned] pred(dup v
-                    v)
-                    case %t5 of
-                      true →
-                        Some(v)
-                      _ →
-                        drop v
-                        let %t6 = Add(i, 1)
-                        aether_call[owned] find_arr(%t6)
-                }
-              _ →
-                let %t7 = Add(i, 1)
-                aether_call[owned] find_arr(%t7))
-      aether_call[owned] find_arr(0)
-    _ →
-      case xs of
-        ::(h, t) →
-          let %t8 = aether_call[owned] pred(dup h
-          h)
-          case %t8 of
-            true →
-              Some(h)
-            _ →
-              drop h
-              aether_call[borrowed, borrowed] find(t, pred)
+  case xs of
+    ::(h, t) →
+      let %t1 = aether_call[owned] pred(dup h
+      h)
+      case %t1 of
+        true →
+          Some(h)
         _ →
-          None
+          drop h
+          aether_call[borrowed, borrowed] find(t, pred)
+    _ →
+      None
 ── fn each ──
-  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
   verifier: ok
 λxs, f.
-  let %t1 = IsArray(xs)
-  case %t1 of
-    true →
-      letrec each_arr = (λi.
-        let %t2 = (let %t3 = Len(xs)
-        Ge(i, %t3))
-        case %t2 of
-          true →
-            MakeTuple()
-          _ →
-            let %t4 = Index(xs, i)
-            case %t4 of
-              Some(v) →
-                let %t5 = aether_call[owned] f(v)
-                drop %t5
-                let %t6 = Add(i, 1)
-                aether_call[owned] each_arr(%t6)
-              _ →
-                let %t7 = Add(i, 1)
-                aether_call[owned] each_arr(%t7))
-      aether_call[owned] each_arr(0)
+  case xs of
+    ::(h, t) →
+      let %t1 = aether_call[owned] f(h)
+      drop %t1
+      aether_call[borrowed, borrowed] each(t, f)
     _ →
-      case xs of
-        ::(h, t) →
-          let %t8 = aether_call[owned] f(h)
-          drop %t8
-          aether_call[borrowed, borrowed] each(t, f)
-        _ →
-          MakeTuple()
+      MakeTuple()
 ── fn drop ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
   verifier: ok
 λxs, n.
-  let %t1 = Le(n, 0)
+  let %t1 = ICmpLe(n, 0)
   case %t1 of
     true →
       xs
@@ -260,7 +246,7 @@ Aether Memory Model Report
       case xs of
         ::(h, t) →
           drop h
-          let %t2 = Sub(n, 1)
+          let %t2 = ISub(n, 1)
           aether_call[owned, borrowed] drop(t, %t2)
         _ →
           []
@@ -353,84 +339,38 @@ Aether Memory Model Report
   FreshAllocs: 0
   verifier: ok
 λxs.
-  let %t1 = IsArray(xs)
-  case %t1 of
-    true →
-      let %t2 = (let %t3 = Len(xs)
-      Eq(%t3, 0))
-      case %t2 of
-        true →
-          None
-        _ →
-          let %t4 = Index(xs, 0)
-          case %t4 of
-            Some(v) →
-              v
-            _ →
-              None
+  case xs of
+    ::(h, t) →
+      drop t
+      h
     _ →
-      case xs of
-        ::(h, t) →
-          drop t
-          h
-        _ →
-          None
+      None
 ── fn last ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
   verifier: ok
 λxs.
-  let %t1 = IsArray(xs)
-  case %t1 of
-    true →
-      let %t2 = (let %t3 = Len(xs)
-      Eq(%t3, 0))
-      case %t2 of
-        true →
-          None
+  case xs of
+    ::(h, t) →
+      case t of
+        ::(h2, t2) →
+          drop h
+          aether_call[borrowed] last(t)
         _ →
-          let %t4 = (let %t5 = (let %t6 = Len(xs)
-          Sub(%t6, 1))
-          Index(xs, %t5))
-          case %t4 of
-            Some(v) →
-              v
-            _ →
-              None
+          h
     _ →
-      case xs of
-        ::(h, t) →
-          case t of
-            ::(h2, t2) →
-              drop h
-              aether_call[borrowed] last(t)
-            _ →
-              h
-        _ →
-          None
+      None
 ── fn rest ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
   verifier: ok
 λxs.
-  let %t1 = IsArray(xs)
-  case %t1 of
-    true →
-      let %t2 = (let %t3 = Len(xs)
-      Le(%t3, 1))
-      case %t2 of
-        true →
-          MakeArray()
-        _ →
-          let %t4 = Len(xs)
-          ArraySlice(xs, 1, %t4)
+  case xs of
+    ::(h, t) →
+      drop h
+      t
     _ →
-      case xs of
-        ::(h, t) →
-          drop h
-          t
-        _ →
-          []
+      []
 ── fn length ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
@@ -440,7 +380,7 @@ Aether Memory Model Report
     case ys of
       ::(h, t) →
         drop h
-        let %t1 = Add(acc, 1)
+        let %t1 = IAdd(acc, 1)
         aether_call[owned, owned] length_go(t, %t1)
       _ →
         acc)
@@ -480,13 +420,13 @@ Aether Memory Model Report
   FreshAllocs: 1
   verifier: ok
 λstart, stop.
-  let %t1 = Ge(start, stop)
+  let %t1 = ICmpGe(start, stop)
   case %t1 of
     true →
       drop start
       []
     _ →
-      let %t2 = (let %t3 = Add(start, 1)
+      let %t2 = (let %t3 = IAdd(start, 1)
       aether_call[owned, borrowed] range(%t3, stop))
       ::(start, %t2)
 ── fn unzip ──
@@ -547,7 +487,7 @@ Aether Memory Model Report
 λxs, x, acc.
   case xs of
     ::(h, t) →
-      let %t1 = CmpEq(h, x)
+      let %t1 = Eq(h, x)
       case %t1 of
         true →
           drop h
@@ -587,20 +527,20 @@ Aether Memory Model Report
   FreshAllocs: 1
   verifier: ok
 λxs, n.
-  let %t1 = Lt(n, 0)
+  let %t1 = ICmpLt(n, 0)
   case %t1 of
     true →
       None
     _ →
       case xs of
         ::(h, t) →
-          let %t2 = Eq(n, 0)
+          let %t2 = ICmpEq(n, 0)
           case %t2 of
             true →
               Some(h)
             _ →
               drop h
-              let %t3 = Sub(n, 1)
+              let %t3 = ISub(n, 1)
               aether_call[borrowed, borrowed] nth(t, %t3)
         _ →
           None
@@ -609,13 +549,13 @@ Aether Memory Model Report
   FreshAllocs: 1
   verifier: ok
 λn, x.
-  let %t1 = Le(n, 0)
+  let %t1 = ICmpLe(n, 0)
   case %t1 of
     true →
       drop x
       []
     _ →
-      let %t2 = (let %t3 = Sub(n, 1)
+      let %t2 = (let %t3 = ISub(n, 1)
       aether_call[borrowed, owned] replicate(%t3, dup x
       x))
       ::(x, %t2)
@@ -624,7 +564,7 @@ Aether Memory Model Report
   FreshAllocs: 1
   verifier: ok
 λx, f, n.
-  let %t1 = Le(n, 0)
+  let %t1 = ICmpLe(n, 0)
   case %t1 of
     true →
       drop x
@@ -632,7 +572,7 @@ Aether Memory Model Report
     _ →
       let %t2 = (let %t3 = aether_call[owned] f(dup x
       x)
-      let %t4 = Sub(n, 1)
+      let %t4 = ISub(n, 1)
       aether_call[owned, borrowed, borrowed] iterate(%t3, f, %t4))
       ::(x, %t2)
 ── fn append ──
@@ -654,7 +594,7 @@ Aether Memory Model Report
   case xs of
     ::(h, t) →
       let %t1 = MakeTuple(i, h)
-      let %t2 = (let %t3 = Add(i, 1)
+      let %t2 = (let %t3 = IAdd(i, 1)
       aether_call[owned, borrowed] enumerate_go(t, %t3))
       reuse xs ::(%t1, %t2)
     _ →
@@ -762,7 +702,7 @@ Aether Memory Model Report
 λxs, key_fn.
   let mid = (let %t1 = aether_call[owned] length(dup xs
   xs)
-  Div(%t1, 2))
+  IDiv(%t1, 2))
   let %t2 = aether_call[borrowed, borrowed] split_at(xs, mid)
   case %t2 of
     (left, right) →
@@ -987,8 +927,8 @@ Aether Memory Model Report
       []
 
 ── Total ──
-  Dups: 17  Drops: 57  Reuses: 11  DropSpecs: 1  FBIP: fbip(22)
-  FreshAllocs: 22
+  Dups: 14  Drops: 76  Reuses: 10  DropSpecs: 0  FBIP: fbip(20)
+  FreshAllocs: 20
 
 [1 of 7] Compiling  Assert
 [2 of 7] Compiling  IO

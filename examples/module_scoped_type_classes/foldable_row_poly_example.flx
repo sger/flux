@@ -1,0 +1,5 @@
+import FoldableRowPolyExample.App.Main as Main
+
+fn main() with IO {
+    Main.run()
+}

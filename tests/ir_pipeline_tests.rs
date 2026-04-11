@@ -61,6 +61,24 @@ fn run_produces_error(input: &str) -> bool {
     compiler.compile(&program).is_err()
 }
 
+fn dump_core(input: &str) -> String {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(input), None)));
+    compiler
+        .dump_core_with_opts(
+            &program,
+            false,
+            flux::core::display::CoreDisplayMode::Readable,
+        )
+        .expect("dump_core should succeed")
+}
+
 fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
     let mut out = vec![expr];
     match expr {
@@ -137,6 +155,206 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
     out
 }
 
+#[test]
+fn contextual_list_instance_dispatches_with_element_dictionary() {
+    let value = run(r#"
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+instance Eq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) {
+        match xs {
+            [h1 | _] -> match ys {
+                [h2 | _] -> h1 == h2,
+                _ -> false
+            },
+            _ -> true
+        }
+    }
+}
+
+my_eq([1], [1]);
+"#);
+
+    assert_eq!(value, Value::Boolean(true));
+}
+
+#[test]
+fn hkt_functor_list_dispatches_at_runtime() {
+    let value = run(r#"
+class Functor<f> {
+    fn fmap<a, b>(x: f<a>, func: (a) -> b): f<b>
+}
+
+instance Functor<List> {
+    fn fmap(xs, func) {
+        fn go(ys) {
+            match ys {
+                [] -> [],
+                [h | t] -> [func(h) | go(t)]
+            }
+        }
+        go(xs)
+    }
+}
+
+to_string(fmap([1, 2, 3], \x -> x * 2));
+"#);
+
+    assert_eq!(value, Value::String("[2, 4, 6]".to_string().into()));
+}
+
+#[test]
+fn hkt_functor_list_dump_core_uses_mangled_dispatch_call() {
+    let core = dump_core(
+        r#"
+class Functor<f> {
+    fn fmap<a, b>(x: f<a>, func: (a) -> b): f<b>
+}
+
+instance Functor<List> {
+    fn fmap(xs, func) {
+        fn go(ys) {
+            match ys {
+                [] -> [],
+                [h | t] -> [func(h) | go(t)]
+            }
+        }
+        go(xs)
+    }
+}
+
+fmap([1, 2, 3], \x -> x * 2);
+"#,
+    );
+
+    assert!(
+        core.contains("__tc_Functor_List_fmap"),
+        "expected HKT class call to lower to the mangled instance method, got:\n{core}"
+    );
+}
+
+#[test]
+fn contextual_list_instance_dump_core_shows_mangled_dispatch_call() {
+    let core = dump_core(
+        r#"
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+instance Eq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) {
+        match xs {
+            [h1 | _] -> match ys {
+                [h2 | _] -> h1 == h2,
+                _ -> false
+            },
+            _ -> true
+        }
+    }
+}
+
+my_eq([1], [1]);
+"#,
+    );
+
+    assert!(
+        core.contains("__tc_MyEq_List<a>_my_eq"),
+        "expected contextual mangled function in Core dump:\n{core}"
+    );
+}
+
+#[test]
+fn nested_contextual_list_instance_dump_core_threads_context_dictionary() {
+    let core = dump_core(
+        r#"
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+instance MyEq<Int> {
+    fn my_eq(x, y) { x == y }
+}
+instance MyEq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) {
+        match (xs, ys) {
+            ([], []) -> true,
+            ([h1 | t1], [h2 | t2]) -> my_eq(h1, h2) && my_eq(t1, t2),
+            _ -> false
+        }
+    }
+}
+
+my_eq([[1], [2]], [[1], [2]]);
+"#,
+    );
+
+    assert!(
+        core.contains("__dict_MyEq_Int"),
+        "expected contextual Core dump to reference the captured MyEq<Int> dictionary, got:\n{core}"
+    );
+    assert!(
+        core.contains("__tc_MyEq_List<a>_my_eq"),
+        "expected nested contextual call to lower to the mangled instance method, got:\n{core}"
+    );
+    assert!(
+        core.contains("__dict_MyEq_List<a>(__dict_MyEq_Int)"),
+        "expected nested contextual call site to build the recursive dictionary constructor, got:\n{core}"
+    );
+}
+
+#[test]
+fn polymorphic_operator_dump_core_uses_named_class_methods() {
+    let core = dump_core(
+        r#"
+fn choose<A: Ord + Eq + Num>(x: A, y: A) -> A {
+    if x != y {
+        if x > y { x / y } else { y / x }
+    } else {
+        x
+    }
+}
+
+fn main() {
+    choose(8, 2)
+}
+"#,
+    );
+
+    for dict_name in ["__dict_Ord_Int", "__dict_Eq_Int", "__dict_Num_Int"] {
+        assert!(
+            core.contains(dict_name),
+            "expected Core dump to contain {dict_name}, got:\n{core}"
+        );
+    }
+
+    for primop_name in ["NEq(__x0, __x1)", "Gt(__x0, __x1)", "Div(__x0, __x1)"] {
+        assert!(
+            core.contains(primop_name),
+            "expected Core dump to contain specialized primop {primop_name}, got:\n{core}"
+        );
+    }
+}
+
+#[test]
+fn concrete_int_comparison_keeps_specialized_primop() {
+    let (program, hm_expr_types, _interner) = parse_and_infer(
+        r#"
+fn main() {
+    7 > 3
+}
+"#,
+    );
+
+    let core = lower_program_ast(&program, &hm_expr_types);
+    let has_icmp_gt = core
+        .defs
+        .iter()
+        .any(|def| has_primop(&def.expr, &CorePrimOp::ICmpGt));
+    assert!(
+        has_icmp_gt,
+        "expected concrete Int comparison to lower to ICmpGt, got: {core:#?}"
+    );
+}
+
 fn has_primop(expr: &CoreExpr, target: &CorePrimOp) -> bool {
     collect_core_exprs(expr)
         .iter()
@@ -200,8 +418,8 @@ fn main() {
 #[test]
 fn backend_ir_lowering_is_core_backed() {
     let src = r#"
-fn add(a: Int, b: Int) -> Int { a + b }
-fn main() { add(3, 4) }
+fn sum_ints(a: Int, b: Int) -> Int { a + b }
+fn main() { sum_ints(3, 4) }
 "#;
     let (program, types, _interner) = parse_and_infer(src);
     let ir = lower_program_to_ir(&program, &types).expect("backend lowering should succeed");
@@ -240,8 +458,8 @@ fn main() {
 #[test]
 fn pipeline_typed_arithmetic_emits_iadd() {
     let src = r#"
-fn add(a: Int, b: Int) -> Int { a + b }
-fn main() { add(3, 4) }
+fn sum_ints(a: Int, b: Int) -> Int { a + b }
+fn main() { sum_ints(3, 4) }
 "#;
     let (program, types, _interner) = parse_and_infer(src);
     let core = lower_program_ast(&program, &types);

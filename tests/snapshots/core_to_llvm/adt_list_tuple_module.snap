@@ -56,8 +56,6 @@ declare ccc i64 @flux_box_float_rt(double) nounwind
 
 declare ccc double @flux_unbox_float_rt(i64) nounwind
 
-declare ccc i64 @flux_rt_add(i64, i64) nounwind
-
 define internal fastcc i64 @flux_tag_int(i64 %raw) alwaysinline {
 entry:
   %shifted = shl i64 %raw, 1
@@ -561,9 +559,13 @@ match.adt.3:
     i32 4, label %match.extract.3.2
   ]
 match.boxed.1:
-  br label %match.adt.3
+  %match.ptr.6 = inttoptr i64 %v0 to ptr
+  %match.otptr.7 = getelementptr i8, ptr %match.ptr.6, i32 -3
+  %match.ot.8 = load i8, ptr %match.otptr.7, align 1
+  %match.isadt.9 = icmp eq i8 %match.ot.8, 242
+  br i1 %match.isadt.9, label %match.adt.3, label %bb4
 bb1:
-  %v1 = phi i64 [ %v4, %bb2 ], [ %v7, %bb5 ]
+  %v1 = phi i64 [ %v4, %bb2 ], [ %v10, %bb5 ]
   ret i64 %v1
 bb2:
   %v4 = add i64 1, 0
@@ -575,7 +577,11 @@ bb3:
 bb4:
   unreachable
 bb5:
-  %v7 = call ccc i64 @flux_rt_add(i64 %v2, i64 %v5)
+  %v7 = ashr i64 %v2, 1
+  %v8 = ashr i64 %v5, 1
+  %v9 = add i64 %v7, %v8
+  %t10 = shl i64 %v9, 1
+  %v10 = or i64 %t10, 1
   br label %bb1
 }
 
@@ -644,8 +650,8 @@ bb4:
   %v21 = load i64, ptr %t27, align 8
   br label %bb9
 bb5:
-  %match.ptrck.34 = icmp ule i64 12, %v10
-  br i1 %match.ptrck.34, label %match.boxed.29, label %bb4
+  %match.ptrck.38 = icmp ule i64 12, %v10
+  br i1 %match.ptrck.38, label %match.boxed.29, label %bb4
 match.extract.6.30:
   %ext.ptr.6 = inttoptr i64 %v10 to ptr
   %ext.payload.6 = getelementptr inbounds %FluxAdt, ptr %ext.ptr.6, i32 0, i32 2, i32 0
@@ -661,34 +667,42 @@ match.adt.31:
     i32 5, label %match.extract.6.30
   ]
 match.boxed.29:
-  br label %match.adt.31
+  %match.ptr.34 = inttoptr i64 %v10 to ptr
+  %match.otptr.35 = getelementptr i8, ptr %match.ptr.34, i32 -3
+  %match.ot.36 = load i8, ptr %match.otptr.35, align 1
+  %match.isadt.37 = icmp eq i8 %match.ot.36, 242
+  br i1 %match.isadt.37, label %match.adt.31, label %bb4
 bb6:
   br label %bb3
 bb7:
-  %t35 = inttoptr i64 %v7 to ptr
-  %t36 = getelementptr inbounds %FluxTuple, ptr %t35, i32 0, i32 5, i32 0
-  %t37 = getelementptr inbounds i64, ptr %t36, i32 0
-  %v22 = load i64, ptr %t37, align 8
-  %t38 = inttoptr i64 %v7 to ptr
-  %t39 = getelementptr inbounds %FluxTuple, ptr %t38, i32 0, i32 5, i32 0
-  %t40 = getelementptr inbounds i64, ptr %t39, i32 1
-  %v23 = load i64, ptr %t40, align 8
+  %t39 = inttoptr i64 %v7 to ptr
+  %t40 = getelementptr inbounds %FluxTuple, ptr %t39, i32 0, i32 5, i32 0
+  %t41 = getelementptr inbounds i64, ptr %t40, i32 0
+  %v22 = load i64, ptr %t41, align 8
+  %t42 = inttoptr i64 %v7 to ptr
+  %t43 = getelementptr inbounds %FluxTuple, ptr %t42, i32 0, i32 5, i32 0
+  %t44 = getelementptr inbounds i64, ptr %t43, i32 1
+  %v23 = load i64, ptr %t44, align 8
   %v24 = add i64 1, 0
   br label %bb2
 bb8:
   unreachable
 bb9:
-  %match.ptrck.46 = icmp ule i64 12, %v21
-  br i1 %match.ptrck.46, label %match.boxed.42, label %bb8
-match.adt.43:
-  %match.adtptr.44 = inttoptr i64 %v21 to ptr
-  %match.adttagptr.45 = getelementptr inbounds %FluxAdt, ptr %match.adtptr.44, i32 0, i32 0
-  %t41 = load i32, ptr %match.adttagptr.45, align 4
-  switch i32 %t41, label %bb8 [
+  %match.ptrck.54 = icmp ule i64 12, %v21
+  br i1 %match.ptrck.54, label %match.boxed.46, label %bb8
+match.adt.47:
+  %match.adtptr.48 = inttoptr i64 %v21 to ptr
+  %match.adttagptr.49 = getelementptr inbounds %FluxAdt, ptr %match.adtptr.48, i32 0, i32 0
+  %t45 = load i32, ptr %match.adttagptr.49, align 4
+  switch i32 %t45, label %bb8 [
     i32 6, label %bb10
   ]
-match.boxed.42:
-  br label %match.adt.43
+match.boxed.46:
+  %match.ptr.50 = inttoptr i64 %v21 to ptr
+  %match.otptr.51 = getelementptr i8, ptr %match.ptr.50, i32 -3
+  %match.ot.52 = load i8, ptr %match.otptr.51, align 1
+  %match.isadt.53 = icmp eq i8 %match.ot.52, 242
+  br i1 %match.isadt.53, label %match.adt.47, label %bb8
 bb10:
   br label %bb7
 }

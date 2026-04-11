@@ -9,9 +9,9 @@
 /// Only direct calls with matching arity are promoted; higher-order usage
 /// (`let f = println; f(x)`) falls through to the existing `App(Var …)` path.
 ///
-/// Functions NOT promoted here (map, filter, fold, sort, reverse,
-/// assert_*, etc.) will be rewritten in Flux (`lib/Flow/*.flx`) using
-/// these primops.
+/// Functions NOT promoted here (map, filter, fold, sort, bare list-facing
+/// collection helpers, assert_*, etc.) will be rewritten in Flux
+/// (`lib/Flow/*.flx`) using explicit builtin names where needed.
 use std::collections::HashMap;
 
 use crate::core::{CoreBinderId, CoreExpr, CorePrimOp, CoreProgram, CoreTopLevelItem};
@@ -44,18 +44,18 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         ("chars", 1, CorePrimOp::Chars),
         ("str_contains", 2, CorePrimOp::StrContains),
         // Array memory operations
-        ("push", 2, CorePrimOp::ArrayPush),
-        ("concat", 2, CorePrimOp::ArrayConcat),
-        ("slice", 3, CorePrimOp::ArraySlice),
+        ("array_push", 2, CorePrimOp::ArrayPush),
+        ("array_concat", 2, CorePrimOp::ArrayConcat),
+        ("array_slice", 3, CorePrimOp::ArraySlice),
         // HAMT operations
-        ("put", 3, CorePrimOp::HamtSet),
-        ("get", 2, CorePrimOp::HamtGet),
-        ("has_key", 2, CorePrimOp::HamtContains),
-        ("delete", 2, CorePrimOp::HamtDelete),
-        ("merge", 2, CorePrimOp::HamtMerge),
-        ("keys", 1, CorePrimOp::HamtKeys),
-        ("values", 1, CorePrimOp::HamtValues),
-        ("size", 1, CorePrimOp::HamtSize),
+        ("map_set", 3, CorePrimOp::HamtSet),
+        ("map_get", 2, CorePrimOp::HamtGet),
+        ("map_has", 2, CorePrimOp::HamtContains),
+        ("map_delete", 2, CorePrimOp::HamtDelete),
+        ("map_merge", 2, CorePrimOp::HamtMerge),
+        ("map_keys", 1, CorePrimOp::HamtKeys),
+        ("map_values", 1, CorePrimOp::HamtValues),
+        ("map_size", 1, CorePrimOp::HamtSize),
         // Type tag inspection
         ("type_of", 1, CorePrimOp::TypeOf),
         ("is_int", 1, CorePrimOp::IsInt),
@@ -95,11 +95,10 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         // Collection helpers (C runtime implementations).
         // map/filter/sort/sort_by are NOT promoted — they take closures
         // which the VM dispatch can't call (needs prelude closure path).
-        // first/last/rest: handled by Flow.List prelude (polymorphic for
-        // both arrays and cons lists). Not promoted here because they have
-        // binders from the prelude import.
-        ("reverse", 1, CorePrimOp::Reverse),
-        ("contains", 2, CorePrimOp::Contains),
+        // stdlib-facing `reverse`/`contains` stay ordinary bindings; only the
+        // array-specific builtin names promote to primops.
+        ("array_reverse", 1, CorePrimOp::ArrayReverse),
+        ("array_contains", 2, CorePrimOp::ArrayContains),
     ];
     entries.iter().map(|&(n, a, op)| ((n, a), op)).collect()
 }
@@ -183,11 +182,12 @@ fn build_qualified_names(
     result
 }
 
-fn is_conflicting_prelude_binding(name: &str, arity: usize, qualified_name: Option<&str>) -> bool {
-    matches!(
-        (name, arity, qualified_name),
-        ("delete", 2, Some("Flow_List_delete"))
-    )
+fn is_conflicting_prelude_binding(
+    _name: &str,
+    _arity: usize,
+    _qualified_name: Option<&str>,
+) -> bool {
+    false
 }
 
 /// Recursively walk a `CoreExpr`, promoting eligible `App` nodes.
@@ -202,6 +202,19 @@ fn promote_expr(
         CoreExpr::App { func, args, span } => {
             if let CoreExpr::Var { var, .. } = func.as_ref() {
                 let name_str = interner.try_resolve(var.name);
+                if name_str == Some("list") && var.binder.is_none() {
+                    let promoted_args: Vec<CoreExpr> = args
+                        .into_iter()
+                        .map(|a| {
+                            promote_expr(a, table, interner, def_arities, binder_qualified_names)
+                        })
+                        .collect();
+                    return CoreExpr::PrimOp {
+                        op: CorePrimOp::MakeList,
+                        args: promoted_args,
+                        span,
+                    };
+                }
                 let name_matches_primop = name_str
                     .and_then(|resolved| table.get(&(resolved, args.len())))
                     .is_some();

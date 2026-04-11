@@ -374,6 +374,7 @@ impl Lexer {
     fn two_byte_token(&mut self, b0: u8, b1: Option<u8>, line: usize, col: usize) -> Option<Token> {
         let (token_type, literal) = match (b0, b1) {
             (b'=', Some(b'=')) => (TokenType::Eq, "=="),
+            (b'=', Some(b'>')) => (TokenType::FatArrow, "=>"),
             (b'!', Some(b'=')) => (TokenType::NotEq, "!="),
             (b'<', Some(b'=')) => (TokenType::Lte, "<="),
             (b'<', Some(b'-')) => (TokenType::LeftArrow, "<-"),

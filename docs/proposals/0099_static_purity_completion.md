@@ -1,9 +1,23 @@
 - Feature Name: Static Purity Completion
 - Start Date: 2026-03-11
-- Status: Draft
+- Status: **Part 2 complete, Parts 1 and 3 open**
+- Last Updated: 2026-04-08
 - Proposal PR:
 - Flux Issue:
-- Depends on: 0053 (traits and typeclasses), 0086 (backend-neutral core IR), 0098 (Cranelift JIT improvements / Flux IR)
+- Depends on: ~~0053 (traits and typeclasses)~~ → superseded by 0145, 0086 (backend-neutral core IR) ✅, 0098 (Cranelift JIT improvements / Flux IR) ✅
+
+> **Status update (2026-04-08):**
+>
+> | Part | Status | Details |
+> |------|--------|---------|
+> | **Part 1: IO as algebraic effect** | **Open** | Not started. No blockers — can begin independently. |
+> | **Part 2: `Any` elimination** | **Complete** | Proposal 0123 (`--strict-types`, E430) rejects `Any` in inferred types. Proposal 0145 (type classes) provides constrained polymorphism: `Eq`, `Ord`, `Num`, `Show`, `Semigroup` with compile-time dispatch + dictionary elaboration. Proposal 0146 hardens with superclass enforcement (E445), extra method validation (E446), structural duplicate detection, multi-param classes. Operator desugaring routes `==`/`+`/`++` through class methods. `type_of()` runtime fallback removed. |
+> | **Part 3: Monomorphization** | **Open, unblocked** | All dependencies met: 0086 (backend-neutral Core IR) ✅, 0098 (Flux IR) ✅, 0119 (typed codegen) ✅, 0123 (full static typing) ✅. Part 2 complete means the type system is closed — monomorphization can proceed. |
+>
+> **Dependency 0053** (traits/typeclasses) has been superseded by **Proposal 0145** (Type Classes),
+> which implements Haskell-style `class`/`instance` with full dictionary elaboration, multi-param
+> classes, superclass parsing/enforcement, operator desugaring, and HKTs. See [0145](0145_type_classes.md)
+> for tracking. Proposal 0146 (Type Class Hardening) is complete — see `implemented/0146_type_class_hardening.md`.
 
 # Proposal 0099: Static Purity Completion
 

@@ -1,0 +1,13 @@
+// Missing class name after `instance` keyword.
+//
+// Expected: E034 Missing Instance Class Name
+//   "Expected class name after `instance`."
+//   Help: "Instance declarations use `instance ClassName<Type> { ... }`."
+
+instance {
+    fn show(x) { x }
+}
+
+fn main() {
+    42
+}

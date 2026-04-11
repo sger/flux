@@ -1,0 +1,47 @@
+// Type class constraint generation test.
+// Verifies that operators and class method calls emit the correct
+// constraints during type inference.
+//
+// Constraints generated:
+//   1 + 2        → Num<Int>
+//   10 - 3       → Num<Int>
+//   4 * 5        → Num<Int>
+//   1 == 1       → Eq<Int>
+//   2 > 1        → Ord<Int>
+//   eq(42, 42)   → Eq<Int> (class method call)
+//   add(10, 20)  → Num<Int> (class method call)
+
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool
+}
+
+class Num<a> {
+    fn add(x: a, y: a) -> a
+    fn sub(x: a, y: a) -> a
+    fn mul(x: a, y: a) -> a
+}
+
+instance Eq<Int> {
+    fn eq(x, y) { x == y }
+}
+
+instance Num<Int> {
+    fn add(x, y) { x + y }
+    fn sub(x, y) { x - y }
+    fn mul(x, y) { x * y }
+}
+
+fn main() with IO {
+    // Operator constraints
+    print(1 + 2)
+    print(10 - 3)
+    print(4 * 5)
+    print(1 == 1)
+    print(2 > 1)
+
+    // Class method call constraints
+    print(eq(42, 42))
+    print(add(10, 20))
+    print(sub(100, 42))
+    print(mul(3, 7))
+}

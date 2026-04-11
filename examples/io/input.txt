@@ -1,0 +1,2 @@
+Flux parity fixture input.
+This file exists so `read_file("examples/io/input.txt")` succeeds on every backend.

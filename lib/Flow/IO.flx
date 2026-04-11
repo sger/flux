@@ -2,7 +2,7 @@
 
 module Flow.IO {
 
-    public fn print_all(arr) with IO {
+    public fn print_all<a>(arr: Array<a>) with IO {
         fn pa_go(i) with IO {
             if i < len(arr) {
                 match arr[i] {
@@ -15,7 +15,7 @@ module Flow.IO {
         pa_go(0)
     }
 
-    public fn println_all(arr) with IO {
+    public fn println_all<a>(arr: Array<a>) with IO {
         fn pla_go(i) with IO {
             if i < len(arr) {
                 match arr[i] {
@@ -28,17 +28,17 @@ module Flow.IO {
         pla_go(0)
     }
 
-    public fn read_lines(path) with IO {
+    public fn read_lines(path: String) -> Array<String> with IO {
         let content = read_file(path)
         split(content, "\n")
     }
 
-    public fn parse_ints(arr) {
+    public fn parse_ints(arr: Array<String>) -> Array<Int> {
         fn pi_go(i, result) {
             if i >= len(arr) { result }
             else {
                 match arr[i] {
-                    Some(s) -> pi_go(i + 1, push(result, parse_int(s))),
+                    Some(s) -> pi_go(i + 1, array_push(result, parse_int(s))),
                     _ -> pi_go(i + 1, result)
                 }
             }
@@ -46,7 +46,7 @@ module Flow.IO {
         pi_go(0, [||])
     }
 
-    public fn split_ints(s, sep) {
+    public fn split_ints(s: String, sep: String) -> Array<Int> {
         let parts = split(s, sep)
         parse_ints(parts)
     }

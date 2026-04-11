@@ -23,6 +23,7 @@ impl<'a> InferCtx<'a> {
         // Map explicit type parameters (e.g. `T`, `U`) to fresh type variables.
         let tp_map = self.allocate_type_parameter_vars(input.type_params);
         let mut row_var_env: HashMap<Identifier, TypeVarId> = HashMap::new();
+        self.emit_declared_type_param_constraints(input.type_params, &tp_map, input.fn_span);
 
         self.env.enter_scope();
 
@@ -76,12 +77,86 @@ impl<'a> InferCtx<'a> {
     /// Allocate fresh HM type variables for explicit generic type parameters.
     fn allocate_type_parameter_vars(
         &mut self,
-        type_params: &[Identifier],
+        type_params: &[crate::syntax::statement::FunctionTypeParam],
     ) -> HashMap<Identifier, TypeVarId> {
         type_params
             .iter()
-            .map(|symbol| (*symbol, self.env.alloc_type_var_id()))
+            .map(|param| (param.name, self.env.alloc_type_var_id()))
             .collect()
+    }
+
+    /// Emit class constraints declared inline on function generic parameters.
+    ///
+    /// This reuses the normal wanted-constraint path so explicit bounds like
+    /// `fn f<a: Eq + Show>(...)` flow through solving and scheme generation
+    /// the same way as constraints inferred from operators or method calls.
+    fn emit_declared_type_param_constraints(
+        &mut self,
+        type_params: &[crate::syntax::statement::FunctionTypeParam],
+        tp_map: &HashMap<Identifier, TypeVarId>,
+        span: Span,
+    ) {
+        for type_param in type_params {
+            let Some(type_var) = tp_map.get(&type_param.name).copied() else {
+                continue;
+            };
+            for &constraint in &type_param.constraints {
+                // Proposal 0151, Phase 2: short-name constraint ambiguity (E456).
+                //
+                // If two or more classes share the same short name in
+                // `class_env`, an explicit bound `<a: Foo>` is ambiguous
+                // because the constraint solver cannot pick which class
+                // the user meant. Fire E456 once per ambiguous bound.
+                self.report_ambiguous_class_constraint(constraint, span);
+
+                self.emit_class_constraint(
+                    constraint,
+                    InferType::Var(type_var),
+                    span,
+                    constraint::WantedClassConstraintOrigin::ExplicitBound,
+                );
+            }
+        }
+    }
+
+    /// Phase 2 helper: scan the class environment for classes sharing
+    /// `short_name`. If two or more matches exist, emit E456 with a
+    /// hint listing the conflicting owning modules.
+    fn report_ambiguous_class_constraint(&mut self, short_name: Identifier, span: Span) {
+        let Some(class_env) = self.class_env.as_ref() else {
+            return;
+        };
+        let matches: Vec<_> = class_env
+            .classes
+            .values()
+            .filter(|def| def.name == short_name)
+            .collect();
+        if matches.len() < 2 {
+            return;
+        }
+
+        let display_class = self.interner.resolve(short_name);
+        let modules: Vec<String> = matches
+            .iter()
+            .map(|def| match def.module.as_identifier() {
+                Some(id) => self.interner.resolve(id).to_string(),
+                None => "<prelude>".to_string(),
+            })
+            .collect();
+        let modules_display = modules.join(", ");
+
+        let diagnostic = crate::diagnostics::diagnostic_for(
+            &crate::diagnostics::compiler_errors::AMBIGUOUS_CLASS_CONSTRAINT,
+        )
+        .with_span(span)
+        .with_message(format!(
+            "Class constraint `{display_class}` is ambiguous: matches classes in {modules_display}."
+        ))
+        .with_hint_text(format!(
+            "Two or more classes named `{display_class}` are visible. Qualify with the \
+             owning module or use `import ... as Alias`."
+        ));
+        self.errors.push(diagnostic);
     }
 
     /// Infer and bind function parameters in the current scope.
@@ -193,7 +268,7 @@ impl<'a> InferCtx<'a> {
         &mut self,
         name: Identifier,
         fn_span: Span,
-        type_params: &[Identifier],
+        type_params: &[crate::syntax::statement::FunctionTypeParam],
         param_tys: &[InferType],
         ret_ty: &InferType,
         declared_effect_row: &InferEffectRow,
@@ -208,7 +283,12 @@ impl<'a> InferCtx<'a> {
         self.env.leave_scope();
 
         let scheme = if !type_params.is_empty() {
-            generalize(&fn_ty, &self.env.free_vars())
+            let constraints = self.collect_scheme_constraints(&fn_ty);
+            if constraints.is_empty() {
+                generalize(&fn_ty, &self.env.free_vars())
+            } else {
+                generalize_with_constraints(&fn_ty, &self.env.free_vars(), constraints)
+            }
         } else {
             Scheme::mono(fn_ty)
         };

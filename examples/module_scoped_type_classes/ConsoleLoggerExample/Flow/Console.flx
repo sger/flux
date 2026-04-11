@@ -1,0 +1,5 @@
+module ConsoleLoggerExample.Flow.Console {
+    effect Console {
+        print: String -> ()
+    }
+}

@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    ast::type_infer::constraint::SchemeConstraint,
     syntax::{Identifier, symbol::Symbol},
     types::{
         TypeVarId, infer_effect_row::InferEffectRow, infer_type::InferType, type_subst::TypeSubst,
@@ -34,6 +35,15 @@ use crate::{
 pub struct Scheme {
     /// Universally quantified type variables (the `∀` binders).
     pub forall: Vec<TypeVarId>,
+    /// Class constraints on quantified type variables.
+    ///
+    /// E.g., `forall a. Eq<a> => a -> a -> Bool` has one constraint
+    /// `SchemeConstraint { class_name: Eq, type_var: <id of a> }`.
+    ///
+    /// Used by dictionary elaboration (Proposal 0145, Step 5b) to determine
+    /// which dictionary parameters a polymorphic function requires.
+    #[serde(default)]
+    pub constraints: Vec<SchemeConstraint>,
     /// Scheme body type.
     ///
     /// This may contain `Var(v)` for variables listed in `forall`, as well as
@@ -51,6 +61,7 @@ impl Scheme {
     pub fn remap_symbols(&self, remap: &HashMap<Symbol, Symbol>) -> Self {
         Scheme {
             forall: self.forall.clone(),
+            constraints: self.constraints.clone(),
             infer_type: self.infer_type.remap_symbols(remap),
         }
     }
@@ -61,6 +72,7 @@ impl Scheme {
     pub fn mono(infer_type: InferType) -> Self {
         Scheme {
             forall: Vec::new(),
+            constraints: Vec::new(),
             infer_type,
         }
     }
@@ -75,7 +87,14 @@ impl Scheme {
     ///
     /// The returned mapping is useful for debugging and tests; inference usually
     /// only needs the instantiated type.
-    pub fn instantiate(&self, counter: &mut u32) -> (InferType, HashMap<TypeVarId, TypeVarId>) {
+    pub fn instantiate(
+        &self,
+        counter: &mut u32,
+    ) -> (
+        InferType,
+        HashMap<TypeVarId, TypeVarId>,
+        Vec<SchemeConstraint>,
+    ) {
         let mut mapping: HashMap<TypeVarId, TypeVarId> = HashMap::new();
 
         for &v in &self.forall {
@@ -105,7 +124,24 @@ impl Scheme {
             s
         };
 
-        (self.infer_type.apply_type_subst(&type_subst), mapping)
+        let constraints = self
+            .constraints
+            .iter()
+            .map(|c| SchemeConstraint {
+                class_name: c.class_name,
+                type_vars: c
+                    .type_vars
+                    .iter()
+                    .map(|v| mapping.get(v).copied().unwrap_or(*v))
+                    .collect(),
+            })
+            .collect();
+
+        (
+            self.infer_type.apply_type_subst(&type_subst),
+            mapping,
+            constraints,
+        )
     }
 
     /// Returns free type variables in the body that are not quantified by
@@ -143,6 +179,36 @@ pub fn generalize(infer_type: &InferType, env_free_vars: &HashSet<TypeVarId>) ->
     free.sort_unstable();
     Scheme {
         forall: free,
+        constraints: Vec::new(),
+        infer_type: infer_type.clone(),
+    }
+}
+
+/// Generalize a type with class constraints.
+///
+/// Like [`generalize`], but also attaches class constraints on quantified
+/// variables. Constraints whose `type_var` is not in the `forall` set
+/// (i.e., the type was resolved to a concrete type) are discarded — they
+/// have already been validated by `solve_class_constraints`.
+pub fn generalize_with_constraints(
+    infer_type: &InferType,
+    env_free_vars: &HashSet<TypeVarId>,
+    constraints: Vec<SchemeConstraint>,
+) -> Scheme {
+    let mut free: Vec<TypeVarId> = infer_type
+        .free_vars()
+        .difference(env_free_vars)
+        .copied()
+        .collect();
+    free.sort_unstable();
+    let forall_set: HashSet<TypeVarId> = free.iter().copied().collect();
+    let filtered: Vec<SchemeConstraint> = constraints
+        .into_iter()
+        .filter(|c| c.type_vars.iter().all(|v| forall_set.contains(v)))
+        .collect();
+    Scheme {
+        forall: free,
+        constraints: filtered,
         infer_type: infer_type.clone(),
     }
 }
@@ -184,6 +250,7 @@ mod tests {
     fn instantiate_is_fresh_and_avoids_capture_of_free_vars() {
         let scheme = Scheme {
             forall: vec![0],
+            constraints: vec![],
             // ?1 is free in the scheme body (not quantified) and must remain unchanged.
             infer_type: InferType::Fun(
                 vec![infer_var(0)],
@@ -193,7 +260,7 @@ mod tests {
         };
 
         let mut counter = 10;
-        let (instantiated, mapping) = scheme.instantiate(&mut counter);
+        let (instantiated, mapping, _constraints) = scheme.instantiate(&mut counter);
 
         assert_eq!(mapping.get(&0), Some(&10));
         assert_eq!(counter, 11);
@@ -211,6 +278,7 @@ mod tests {
     fn instantiate_produces_distinct_fresh_vars_per_call() {
         let scheme = Scheme {
             forall: vec![0, 1],
+            constraints: vec![],
             infer_type: InferType::Fun(
                 vec![infer_var(0)],
                 Box::new(infer_var(1)),
@@ -219,8 +287,8 @@ mod tests {
         };
 
         let mut counter = 20;
-        let (first, first_mapping) = scheme.instantiate(&mut counter);
-        let (second, second_mapping) = scheme.instantiate(&mut counter);
+        let (first, first_mapping, _) = scheme.instantiate(&mut counter);
+        let (second, second_mapping, _) = scheme.instantiate(&mut counter);
 
         assert_eq!(first_mapping.get(&0), Some(&20));
         assert_eq!(first_mapping.get(&1), Some(&21));
@@ -267,6 +335,7 @@ mod tests {
         let adt_sym = Symbol::new(7);
         let scheme = Scheme {
             forall: vec![0],
+            constraints: vec![],
             infer_type: InferType::App(TypeConstructor::Adt(adt_sym), vec![infer_var(0)]),
         };
 
@@ -285,6 +354,7 @@ mod tests {
         let new_sym = Symbol::new(50);
         let scheme = Scheme {
             forall: vec![0, 1],
+            constraints: vec![],
             infer_type: InferType::Fun(
                 vec![InferType::App(
                     TypeConstructor::Adt(old_sym),

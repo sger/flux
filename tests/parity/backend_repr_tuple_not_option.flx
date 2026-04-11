@@ -1,0 +1,11 @@
+// parity: vm, llvm
+// expect: success
+// bug: tuples must not match ADT constructor patterns
+
+fn main() with IO {
+    let value = (1, 2)
+    match value {
+        Some(x) -> print("option"),
+        _ -> print("tuple")
+    }
+}

@@ -1,0 +1,13 @@
+// Missing `(` after method name in class declaration.
+//
+// Expected: E034 Unexpected Token
+//   "Expected `(` after method name."
+//   Help: "Class methods use `fn name(x: a, y: a) -> ReturnType`."
+
+class Show<a> {
+    fn show
+}
+
+fn main() {
+    42
+}

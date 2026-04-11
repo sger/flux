@@ -1,0 +1,5 @@
+module CustomHandledTracerExample.Flow.Clock {
+    effect Clock {
+        now: () -> Int
+    }
+}

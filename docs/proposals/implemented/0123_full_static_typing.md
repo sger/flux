@@ -10,6 +10,78 @@ Transition Flux from a gradually-typed language (where unannotated code infers a
 
 The transition is incremental — each phase adds type system features while maintaining backward compatibility through a `--strict-types` flag that becomes the default in a future release.
 
+---
+
+## Implementation status
+
+Last updated: 2026-04-08 (all phases complete)
+
+### Completed
+
+| Phase | Feature | Status | Notes |
+|-------|---------|--------|-------|
+| **1** | Eliminate `Any` fallback (`--strict-types`) | **Done** | New flag, post-inference validation pass (`strict_types.rs`), error code E430. Rejects any binding whose inferred type `contains_any()`. Disabled for Flow library. |
+| **2** | Public API annotations (`--strict`) | **Already existed** | E416 (params), E417 (return type), E418 (effects), E423 (Any in annotations). |
+| **—** | Typed primop returns | **Done** | `print`/`println` return `Unit` (was `Any`). All primop params polymorphic with type variables (was `Any`). Operators preserve type vars instead of collapsing to `Any`. |
+| **3** | Type classes (syntax + AST + dispatch) | **Done** | See Proposal 0145. Parser, ClassEnv, compile-time monomorphic dispatch, polymorphic dispatch via `type_of()` for multi-instance, LLVM backend support. Constraint solver (Steps 3–4) done. |
+| **4** | Constraint solver | **Done** | Constraint generation + solving done. Monomorphic compile-time instance resolution during Core lowering. E444 for unsatisfied constraints under `--strict-types`. |
+| **5** | Higher-kinded types | **Done** | Kind system (`src/types/kind.rs`), `InferType::HktApp` variant, HKT unification in `unify.rs`, `Functor<List>` works end-to-end. Per-method type params on class methods (`fn fmap<a, b>`). |
+| **6** | Deriving (`Eq`, `Ord`, `Show`, `Semigroup`) | **Done** | Auto-derive type class instances for ADTs. |
+| **7a** | Typed Core IR — binder infrastructure | **Done** | `FluxRep` enum on `CoreBinder`, `CoreType`, `TypeEnv` threading to AST lowerer, typed function params via `bind_fn_params()`. |
+| **7b** | Typed Core IR — lambda param typing | **Done** | Lambda parameters get `FluxRep` from HM-inferred function type via `bind_lambda_params()`. |
+| **7c** | Typed Core IR — LIR/LLVM type extraction | **Done** | LIR extracts `param_reps`/`result_rep` from Core binders; LLVM worker/wrapper uses them for unboxed specialization. |
+| **7d** | Aether type-directed RC elision | **Done** | `wrap_drop`/`wrap_dups` skip Dup/Drop for binders with `IntRep`/`FloatRep`/`BoolRep` (`!needs_rc()`). |
+| **7e** | Typed Core IR — pattern binders | **Done** | `lower_pattern_typed()` threads scrutinee `InferType` from `hm_expr_types` through pattern decomposition. Built-in patterns (Option, Either, List, Tuple) extract inner types; `CorePat::Var` binders get correct `FluxRep`. Eliminates unnecessary Dup/Drop for unboxed pattern vars (e.g. `h` in `[h\|t]` for `List<Int>` is `IntRep`). |
+| **7f** | Typed Core IR — effect handler binders | **Done** | `lower_handle_arm_typed()` uses `EffectOpSigs` map threaded into `AstLowerer` to type handler param binders from effect op signatures. Resume binder is always `BoxedRep` (closure). New `lower_program_ast_complete()` entry point accepts `EffectOpSigs`. |
+| **7g** | Typed Core IR — ADT field layout metadata | **Done** | `FluxRep::from_type_expr()` converts syntactic field types to reps. `AdtDefinition` and `ConstructorInfo` now store per-constructor `field_reps: Vec<FluxRep>`. LIR `MakeCtor` carries `field_reps`. Infrastructure for future unboxed field storage. |
+
+| **3–4** | Dictionary elaboration | **Done** | Proposal 0145 Step 5b: Core-to-Core `dict_elaborate.rs` pass. Scheme carries constraints, dictionaries built as MakeTuple, constrained functions get dict params, class method calls rewritten to TupleField extractions. Concrete call-site resolution via `resolve_dict_args_for_call`. `type_of()` runtime fallback removed. |
+| **—** | Type class hardening | **Done** | Proposal 0146 complete: superclass `=>` parsing + E445 enforcement, structural duplicate detection (`TypeExpr::structural_eq`), extra method validation (E446), multi-param type classes (`ClassDef.type_params: Vec`). |
+| **—** | Operator desugaring | **Done** | Polymorphic operators desugar to class methods: `==` → `eq` (Eq), `+` → `add` (Num), `++` → `append` (Semigroup). Concrete Int/Float keep specialized primops. |
+
+All phases complete. Remaining type class work (constrained type param syntax, instance context enforcement, stdlib migration) tracked in Proposals 0145 and 0147.
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `src/ast/type_infer/strict_types.rs` | Phase 1: `--strict-types` validation pass |
+| `src/types/class_env.rs` | Phase 3: ClassEnv — class/instance registry + validation |
+| `src/types/class_dispatch.rs` | Phase 3: MVP runtime dispatch — instance method compilation |
+| `src/syntax/type_class.rs` | Phase 3: AST types for `ClassConstraint`, `ClassMethod`, `InstanceMethod` |
+| `src/diagnostics/compiler_errors.rs` | E430 (strict-types), E440–E443 (type class validation) |
+| `docs/proposals/0145_type_classes.md` | Detailed type class proposal with step-by-step tracking |
+| `src/core/lower_ast/pattern.rs` | Phase 7e: `lower_pattern_typed()` — typed pattern binder lowering |
+| `src/core/lower_ast/mod.rs` | Phase 7f: `EffectOpSigs` type, `lower_program_ast_complete()` entry point |
+| `src/bytecode/compiler/adt_registry.rs` | Phase 7g: `register_adt()` populates `field_reps` from `DataVariant` |
+| `src/bytecode/compiler/adt_definition.rs` | Phase 7g: `AdtDefinition` with per-constructor `field_reps` |
+| `src/bytecode/compiler/constructor_info.rs` | Phase 7g: `ConstructorInfo` with `field_reps: Vec<FluxRep>` |
+
+### What `--strict-types` catches today
+
+```flux
+fn add(x, y) { x + y }       // ✓ passes — infers as a -> a -> a (polymorphic, no Any)
+fn identity(x) { x }         // ✓ passes — infers as a -> a (polymorphic)
+fn bad() { x + "hello" }     // ✗ E300 type mismatch (caught by normal inference)
+
+fn main() with IO {
+    print(add(1, 2))          // ✓ passes — print returns Unit, add returns Int
+}
+```
+
+### What `--strict-types` cannot catch yet
+
+```flux
+fn add(x, y) { x + y }       // infers a -> a -> a — but + should require Num<a>
+                               // Without type classes, any type is accepted for +
+                               // Needs: Phase 3-4 (constraint solver)
+
+fn show_it(x) { show(x) }    // Would need Show<a> constraint
+                               // Needs: Phase 3-4 (dictionary passing for polymorphic dispatch)
+```
+
+---
+
 ## Motivation
 
 ### The problem with gradual typing
@@ -342,7 +414,7 @@ The solver follows GHC's **OutsideIn(X)** approach, simplified:
 //   Solve Num Int -> found instance -> emit NumIntDict
 ```
 
-**GHC comparison**: GHC's solver (`GHC.Tc.Solver`) is ~850K lines across 10 files. The core loop in `simplify_loop` iterates until a fixed point. GHC tracks "Given" constraints (from context) and "Wanted" constraints (to solve). For Flux, a single-pass solver is sufficient initially — iterate only if superclass expansion adds new constraints.
+**GHC comparison**: GHC's solver (`GHC.Tc.Solver`) is ~16K lines across 10 files. The core loop in `simplify_loop` iterates until a fixed point. GHC tracks "Given" constraints (from context) and "Wanted" constraints (to solve). For Flux, a single-pass solver is sufficient initially — iterate only if superclass expansion adds new constraints.
 
 **GHC comparison on evidence**: GHC compiles type classes to explicit dictionaries in Core:
 ```haskell
@@ -652,15 +724,16 @@ The transition is opt-in per compilation unit:
 
 ### Timeline
 
-| Phase | Feature | Depends on | GHC Reference |
-|-------|---------|------------|---------------|
-| 1 | Eliminate Any fallback | 0120 Phase 4 (done) | `GHC.Tc.Gen.Bind` generalization |
-| 2 | Public API annotations | Phase 1 | `-Wmissing-signatures` |
-| 3 | Type classes (syntax + AST) | Phase 1 | `GHC.Core.Class`, `GHC.Tc.TyCl` |
-| 4 | Constraint solver + dictionaries | Phase 3 | `GHC.Tc.Solver` (simplified) |
-| 5 | Higher-kinded types | Phase 4 | `GHC.Tc.Gen.HsType` kind checking |
-| 6 | Deriving | Phase 3-4 | `GHC.Tc.Deriv.Generate` |
-| 7 | Typed Core IR (0119) | Phase 1-2 | `GHC.Core` typed expressions |
+| Phase | Feature | Depends on | GHC Reference | Status |
+|-------|---------|------------|---------------|--------|
+| 1 | Eliminate Any fallback | 0120 Phase 4 (done) | `GHC.Tc.Gen.Bind` generalization | **Done** |
+| 2 | Public API annotations | Phase 1 | `-Wmissing-signatures` | **Done** (pre-existing) |
+| — | Typed primop returns | Phase 1 | — | **Done** |
+| 3 | Type classes (syntax + AST) | Phase 1 | `GHC.Core.Class`, `GHC.Tc.TyCl` | **MVP done** (Proposal 0145) |
+| 4 | Constraint solver + dictionaries | Phase 3 + **Proposal 0145 Steps 3–5** | `GHC.Tc.Solver` (simplified) | Not started |
+| 5 | Higher-kinded types | Phase 4 | `GHC.Tc.Gen.HsType` kind checking | Not started |
+| 6 | Deriving | Phase 3-4 | `GHC.Tc.Deriv.Generate` | Not started |
+| 7 | Typed Core IR (0119) | Phase 1-2 | `GHC.Core` typed expressions | Not started |
 
 Phases 1-2 give immediate value (catch type errors). Phases 3-4 are the big investment (type classes + solver). Phase 5-6 unlock expressiveness. Phase 7 unlocks performance.
 
@@ -672,7 +745,7 @@ Phases 1-2 give immediate value (catch type errors). Phases 3-4 are the big inve
 
 - **Annotation burden**: Users must write type annotations on public APIs. Mitigated by HM inference handling local/private code.
 
-- **Type class complexity**: Type classes add significant compiler complexity. GHC's constraint solver (`GHC.Tc.Solver`) is ~850K lines across 10 files. However, Flux's simplified version (no type families, no GADTs, no overlapping instances) should be ~2-3K lines — closer to PureScript's implementation.
+- **Type class complexity**: Type classes add significant compiler complexity. GHC's constraint solver (`GHC.Tc.Solver`) is ~16K lines across 10 files. However, Flux's simplified version (no type families, no GADTs, no overlapping instances) should be ~2-3K lines — closer to PureScript's implementation.
 
 - **Higher-kinded types**: HKTs make the type system significantly more complex. Can be deferred — basic type classes work without HKTs (just no `Functor`/`Foldable`).
 

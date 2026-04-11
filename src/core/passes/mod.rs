@@ -7,6 +7,7 @@ mod beta;
 mod case_of_case;
 mod cokc;
 mod dead_let;
+pub mod dict_elaborate;
 mod evidence;
 mod helpers;
 mod inline;
@@ -19,6 +20,7 @@ pub use beta::beta_reduce;
 pub use case_of_case::case_of_case;
 pub use cokc::case_of_known_constructor;
 pub use dead_let::elim_dead_let;
+pub use dict_elaborate::elaborate_dictionaries;
 pub use evidence::evidence_pass;
 pub use inline::inline_trivial_lets;
 pub use inliner::inline_lets;
@@ -29,6 +31,7 @@ use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, ErrorType,
 };
 use crate::syntax::interner::Interner;
+use crate::types::{class_env::ClassEnv, type_env::TypeEnv};
 
 // ── Pass pipeline ─────────────────────────────────────────────────────────────
 
@@ -93,6 +96,34 @@ pub fn run_core_passes_with_interner_and_warnings(
         optimize,
         crate::aether::borrow_infer::BorrowRegistry::default(),
     )
+}
+
+/// Run Core passes with dictionary elaboration for type classes.
+///
+/// This variant runs the dictionary elaboration pass (Stage 0.5) before
+/// the standard simplification loop. It needs `&mut Interner` because
+/// dictionary construction interns new names (`__dict_*`).
+#[allow(clippy::result_large_err)]
+pub fn run_core_passes_with_class_env(
+    program: &mut CoreProgram,
+    interner: &Interner,
+    optimize: bool,
+    class_env: &ClassEnv,
+    type_env: &TypeEnv,
+    preloaded_registry: crate::aether::borrow_infer::BorrowRegistry,
+) -> Result<Vec<Diagnostic>, Diagnostic> {
+    // Stage 0.5: Dictionary elaboration (before standard passes).
+    if !class_env.classes.is_empty() {
+        let mut max_binder_id: u32 = 0;
+        for def in &program.defs {
+            max_binder_id = max_binder_id.max(def.binder.id.0);
+            collect_max_binder_id(&def.expr, &mut max_binder_id);
+        }
+        let mut next_id = max_binder_id + 1;
+        elaborate_dictionaries(program, class_env, type_env, interner, &mut next_id);
+    }
+    // Run the standard pipeline (promote_builtins, simplification, evidence, ANF, Aether).
+    run_core_passes_with_optional_interner(program, Some(interner), optimize, preloaded_registry)
 }
 
 /// Maximum number of simplification rounds when `-O` is enabled.

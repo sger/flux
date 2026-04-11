@@ -802,6 +802,207 @@ pub const UNDEFINED_TYPE_VAR: ErrorCode = ErrorCode {
     hint: Some("Declare the type variable in the function's generic parameter list: fn f<T>(...)"),
 };
 
+pub const STRICT_TYPES_ANY_INFERRED: ErrorCode = ErrorCode {
+    code: "E430",
+    title: "ANY TYPE INFERRED",
+    error_type: ErrorType::Compiler,
+    message: "Could not determine a concrete type for `{}`.",
+    hint: Some("Add a type annotation so the compiler can verify type safety."),
+};
+
+// Type class errors (E440–E449)
+
+pub const DUPLICATE_CLASS: ErrorCode = ErrorCode {
+    code: "E440",
+    title: "DUPLICATE TYPE CLASS",
+    error_type: ErrorType::Compiler,
+    message: "Type class `{}` is already defined.",
+    hint: Some("Each type class name must be unique."),
+};
+
+pub const INSTANCE_UNKNOWN_CLASS: ErrorCode = ErrorCode {
+    code: "E441",
+    title: "UNKNOWN TYPE CLASS",
+    error_type: ErrorType::Compiler,
+    message: "No type class `{}` is defined.",
+    hint: Some("Declare the class before writing instances for it."),
+};
+
+pub const INSTANCE_MISSING_METHOD: ErrorCode = ErrorCode {
+    code: "E442",
+    title: "MISSING INSTANCE METHOD",
+    error_type: ErrorType::Compiler,
+    message: "Missing method `{}` in instance.",
+    hint: Some("Implement all required methods that don't have defaults."),
+};
+
+pub const DUPLICATE_INSTANCE: ErrorCode = ErrorCode {
+    code: "E443",
+    title: "DUPLICATE INSTANCE",
+    error_type: ErrorType::Compiler,
+    message: "Duplicate instance for `{}`.",
+    hint: Some("Each type can have at most one instance per class."),
+};
+
+pub const NO_INSTANCE: ErrorCode = ErrorCode {
+    code: "E444",
+    title: "NO TYPE CLASS INSTANCE",
+    error_type: ErrorType::Compiler,
+    message: "No instance for `{}`.",
+    hint: Some("Add an instance declaration for this type."),
+};
+
+pub const INSTANCE_EXTRA_METHOD: ErrorCode = ErrorCode {
+    code: "E446",
+    title: "UNKNOWN INSTANCE METHOD",
+    error_type: ErrorType::Compiler,
+    message: "`{}` is not a method of this class.",
+    hint: Some("Instance methods must match the class declaration."),
+};
+
+pub const INSTANCE_TYPE_ARG_ARITY: ErrorCode = ErrorCode {
+    code: "E447",
+    title: "INSTANCE TYPE ARG ARITY MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Instance for `{}` uses the wrong number of type arguments.",
+    hint: Some("Match the number of type arguments declared by the class."),
+};
+
+pub const INSTANCE_METHOD_ARITY: ErrorCode = ErrorCode {
+    code: "E448",
+    title: "INSTANCE METHOD ARITY MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Method `{}` has the wrong number of parameters.",
+    hint: Some("Instance method arity must match the class declaration."),
+};
+
+pub const MISSING_SUPERCLASS_INSTANCE: ErrorCode = ErrorCode {
+    code: "E445",
+    title: "MISSING SUPERCLASS INSTANCE",
+    error_type: ErrorType::Compiler,
+    message: "Missing superclass instance `{}`.",
+    hint: Some("Add the required superclass instance before this instance."),
+};
+
+/// Proposal 0151, Phase 2: a `public instance` cannot reference a private
+/// class. The class's visibility caps the instance's effective visibility,
+/// because downstream importers cannot name the class to dispatch through.
+pub const PUBLIC_INSTANCE_OF_PRIVATE_CLASS: ErrorCode = ErrorCode {
+    code: "E450",
+    title: "PUBLIC INSTANCE OF PRIVATE CLASS",
+    error_type: ErrorType::Compiler,
+    message: "`public instance` `{}` references a private class.",
+    hint: Some(
+        "Either mark the class `public class` or remove `public` from \
+         this instance.",
+    ),
+};
+
+/// Proposal 0151, Phase 4a: floor-semantics violation. An `instance`
+/// method declares an effect row that is *narrower* than the class
+/// method's declared row. The class row is a *floor*: implementing
+/// methods must declare at least every effect the class declared.
+pub const INSTANCE_METHOD_EFFECT_FLOOR: ErrorCode = ErrorCode {
+    code: "E452",
+    title: "INSTANCE METHOD MISSING CLASS EFFECT",
+    error_type: ErrorType::Compiler,
+    message: "Instance method `{}` is missing class-declared effect `{}`.",
+    hint: Some(
+        "Add the missing effect to the instance method's `with` clause, \
+         or remove it from the class declaration if it should not be required.",
+    ),
+};
+
+/// Proposal 0151, Phase 2: a `public class` signature must not mention a
+/// private type — otherwise importers see a class method whose parameter
+/// or return type they cannot name.
+pub const PUBLIC_CLASS_LEAKS_PRIVATE_TYPE: ErrorCode = ErrorCode {
+    code: "E451",
+    title: "PUBLIC CLASS LEAKS PRIVATE TYPE",
+    error_type: ErrorType::Compiler,
+    message: "`public class` `{}` mentions a private type `{}`.",
+    hint: Some(
+        "Either mark the type `public data` or remove `public` from \
+         this class.",
+    ),
+};
+
+/// Proposal 0151, Phase 3: an `exposing (foo)` clause collides with a
+/// local top-level `fn foo` (or any locally bound short name `foo`).
+/// The exposing brings `foo` into unqualified scope, but the local
+/// declaration already owns that name in the same scope.
+pub const EXPOSING_LOCAL_COLLISION: ErrorCode = ErrorCode {
+    code: "E457",
+    title: "EXPOSING LOCAL COLLISION",
+    error_type: ErrorType::Compiler,
+    message: "`exposing ({})` collides with a local declaration of the same name.",
+    hint: Some(
+        "Either rename the local declaration, drop the exposing entry, or \
+         continue using the qualified `Module.{}` form.",
+    ),
+};
+
+/// Proposal 0151, Phase 3: a file-level `import A exposing (foo)` and a
+/// module-body `import B exposing (foo)` (where `A != B`) bind the same
+/// short name to two different module targets in overlapping scopes.
+/// The compiler can't pick one without surprising the user.
+pub const IMPORT_NAME_COLLISION_FILE_VS_MODULE: ErrorCode = ErrorCode {
+    code: "E458",
+    title: "IMPORT NAME COLLISION",
+    error_type: ErrorType::Compiler,
+    message: "`{}` is exposed by two different imports in overlapping scopes.",
+    hint: Some(
+        "Pick one source — either drop the duplicate exposing entry or \
+         restructure the imports so the short names don't overlap.",
+    ),
+};
+
+/// Proposal 0151, Phase 2: a class constraint written with a short name
+/// (e.g. `<a: Foldable>`) is ambiguous when two or more classes named
+/// `Foldable` are visible in the program. Users must qualify with a
+/// module path or rely on `import ... as Alias` to disambiguate.
+pub const AMBIGUOUS_CLASS_CONSTRAINT: ErrorCode = ErrorCode {
+    code: "E456",
+    title: "AMBIGUOUS CLASS CONSTRAINT",
+    error_type: ErrorType::Compiler,
+    message: "Class constraint `{}` is ambiguous: multiple classes have this short name.",
+    hint: Some(
+        "Qualify the class with its module path, or use `import ... as Alias` \
+         to bring exactly one into scope.",
+    ),
+};
+
+/// Proposal 0151, Phase 2: a `public instance` of a `public class` must
+/// not have a private head ADT — downstream importers cannot name the
+/// type to actually use the dispatch.
+pub const PUBLIC_INSTANCE_HAS_PRIVATE_HEAD: ErrorCode = ErrorCode {
+    code: "E455",
+    title: "PUBLIC INSTANCE HAS PRIVATE HEAD TYPE",
+    error_type: ErrorType::Compiler,
+    message: "`public instance` `{}` has a private head type `{}`.",
+    hint: Some(
+        "Either mark the head type `public data` or remove `public` \
+         from this instance.",
+    ),
+};
+
+/// Proposal 0151, Phase 2: orphan instance rejection.
+///
+/// An `instance C<T>` is "orphan" when neither the class `C` nor the head
+/// type `T` is defined in the module where the instance lives. The orphan
+/// rule keeps the dictionary lookup table coherent in the presence of
+/// separate compilation and incremental caching.
+pub const ORPHAN_INSTANCE: ErrorCode = ErrorCode {
+    code: "E449",
+    title: "ORPHAN INSTANCE",
+    error_type: ErrorType::Compiler,
+    message: "Orphan instance `{}` is not allowed.",
+    hint: Some(
+        "An instance must be declared in the module that defines the class \
+         or in the module that defines the head type.",
+    ),
+};
+
 // ============================================================================
 // Error Constructor Functions
 // ============================================================================

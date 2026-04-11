@@ -10,9 +10,13 @@ use std::time::Duration;
 use crate::bytecode::bytecode_cache::{BytecodeCache, hash_bytes, hash_cache_key};
 use crate::cache_paths;
 
-use super::normalize::{normalize, normalize_aether_dump, normalize_core_dump};
+use super::normalize::{
+    normalize, normalize_aether_dump, normalize_cfg_dump, normalize_core_dump, normalize_lir_dump,
+    normalize_repr_dump,
+};
 use super::{
-    CacheFileKind, CacheFileState, CacheObservation, DebugArtifacts, ExitKind, RunResult, Way,
+    BackendId, CacheFileKind, CacheFileState, CacheObservation, DebugArtifacts, ExitKind,
+    RunResult, SurfaceArtifact, Way,
 };
 
 /// Default timeout per way per fixture.
@@ -374,8 +378,7 @@ pub fn capture_dump_core(
         SpawnResult::Completed { stdout, .. } => {
             let normalized = normalize_core_dump(&stdout);
             DebugArtifacts {
-                dump_core: Some(stdout),
-                normalized_dump_core: Some(normalized),
+                core: SurfaceArtifact::from_raw(stdout, normalized),
                 ..Default::default()
             }
         }
@@ -417,11 +420,126 @@ pub fn capture_dump_aether(
         SpawnResult::Completed { stdout, .. } => {
             let normalized = normalize_aether_dump(&stdout);
             DebugArtifacts {
-                dump_aether: Some(stdout),
-                normalized_dump_aether: Some(normalized),
+                aether: SurfaceArtifact::from_raw(stdout, normalized),
                 ..Default::default()
             }
         }
+        _ => DebugArtifacts::default(),
+    }
+}
+
+/// Capture `--dump-repr` output for a fixture under a given way.
+///
+/// This dump is intentionally backend-agnostic: both binaries should report
+/// the same runtime representation contract even though they enforce it via
+/// different implementations.
+pub fn capture_dump_repr(
+    vm_binary: &Path,
+    llvm_binary: &Path,
+    file: &Path,
+    way: Way,
+    extra_args: &[String],
+    timeout: Duration,
+) -> DebugArtifacts {
+    let binary = match way {
+        Way::Vm | Way::VmCached | Way::VmStrict => vm_binary,
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict => llvm_binary,
+    };
+
+    if !binary.exists() {
+        return DebugArtifacts::default();
+    }
+
+    let mut args = vec![
+        "--dump-repr".to_string(),
+        "--no-cache".to_string(),
+        file.to_string_lossy().into_owned(),
+    ];
+    if matches!(way, Way::Llvm | Way::LlvmCached | Way::LlvmStrict) {
+        args.push("--native".to_string());
+    }
+    if way.is_strict() {
+        args.push("--strict".to_string());
+    }
+    args.extend_from_slice(extra_args);
+
+    let result = spawn_with_timeout(binary, &args, timeout);
+
+    match result {
+        SpawnResult::Completed { stdout, .. } => {
+            let normalized = normalize_repr_dump(&stdout);
+            DebugArtifacts {
+                repr: SurfaceArtifact::from_raw(stdout, normalized),
+                ..Default::default()
+            }
+        }
+        _ => DebugArtifacts::default(),
+    }
+}
+
+pub fn capture_dump_cfg(
+    vm_binary: &Path,
+    _llvm_binary: &Path,
+    file: &Path,
+    way: Way,
+    extra_args: &[String],
+    timeout: Duration,
+) -> DebugArtifacts {
+    if way.backend_id() != BackendId::Vm || !vm_binary.exists() {
+        return DebugArtifacts::default();
+    }
+    let mut args = vec![
+        "--dump-cfg".to_string(),
+        "--no-cache".to_string(),
+        file.to_string_lossy().into_owned(),
+    ];
+    if way.is_strict() {
+        args.push("--strict".to_string());
+    }
+    args.extend_from_slice(extra_args);
+
+    match spawn_with_timeout(vm_binary, &args, timeout) {
+        SpawnResult::Completed { stdout, .. } => DebugArtifacts {
+            backend_ir: vec![(
+                BackendId::Vm,
+                SurfaceArtifact::from_raw(stdout.clone(), normalize_cfg_dump(&stdout)),
+            )],
+            ..Default::default()
+        },
+        _ => DebugArtifacts::default(),
+    }
+}
+
+pub fn capture_dump_lir(
+    _vm_binary: &Path,
+    llvm_binary: &Path,
+    file: &Path,
+    way: Way,
+    extra_args: &[String],
+    timeout: Duration,
+) -> DebugArtifacts {
+    if way.backend_id() != BackendId::Llvm || !llvm_binary.exists() {
+        return DebugArtifacts::default();
+    }
+    let mut args = vec![
+        "--dump-lir".to_string(),
+        "--native".to_string(),
+        "--no-cache".to_string(),
+        file.to_string_lossy().into_owned(),
+    ];
+    if way.is_strict() {
+        args.push("--strict".to_string());
+    }
+    args.extend_from_slice(extra_args);
+
+    match spawn_with_timeout(llvm_binary, &args, timeout) {
+        SpawnResult::Completed { stdout, .. } => DebugArtifacts {
+            backend_ir: vec![(
+                BackendId::Llvm,
+                SurfaceArtifact::from_raw(stdout.clone(), normalize_lir_dump(&stdout)),
+            )],
+            ..Default::default()
+        },
         _ => DebugArtifacts::default(),
     }
 }

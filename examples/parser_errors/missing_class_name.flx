@@ -1,0 +1,13 @@
+// Missing class name after `class` keyword.
+//
+// Expected: E034 Missing Class Name
+//   "Expected class name or constraint after `class`."
+//   Help: "Class declarations use `class Name<a> { ... }`."
+
+class {
+    fn size(x: a) -> Int
+}
+
+fn main() {
+    42
+}

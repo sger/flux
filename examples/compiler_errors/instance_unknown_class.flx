@@ -1,0 +1,13 @@
+// Instance declaration for a class that doesn't exist.
+//
+// Expected: E441 Unknown Type Class
+//   "No type class `Foo` is defined."
+//   Hint: "Declare the class first: `class Foo<a> { ... }`"
+
+instance Foo<Int> {
+    fn bar(x) { x }
+}
+
+fn main() {
+    42
+}

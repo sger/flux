@@ -37,6 +37,10 @@ impl<'a> InferCtx<'a> {
             } => {
                 self.constrain_call_effects(&required, &available, span);
             }
+            Constraint::Class { .. } => {
+                // Class constraints are recorded but not solved eagerly.
+                // Step 4 (constraint solving) will resolve these at generalization time.
+            }
         }
     }
 

@@ -123,7 +123,85 @@ Entry point: `solve_row_constraints(constraints) -> Vec<Diagnostic>`.
 
 ---
 
-## 7. Base Function Row Signatures
+## 7. Effect Rows on Type Class Methods (Proposal 0151, Phase 4)
+
+> **Proposal:** [0151](../proposals/0151_module_scoped_type_classes.md) — Phase 4 (Effects on instance methods)
+
+Type class methods participate in the effect row system. Two features were added in Phase 4:
+
+### 7.1 Effect Floors on Class Methods
+
+A class method can declare an effect floor — a minimum effect row that all instances must satisfy:
+
+```flux
+class Logger<h> {
+    fn log(hnd: h, msg: String) -> Unit with Console   // floor = {Console}
+}
+```
+
+Instance methods must declare an effect row that is a **superset** of the class method's floor:
+
+| Instance effect row | Floor `{Console}` | Result |
+|--------------------|--------------------|--------|
+| `with Console` | `{Console} ⊇ {Console}` | OK |
+| `with Console, AuditLog` | `{Console, AuditLog} ⊇ {Console}` | OK |
+| *(no `with`)* | `{} ⊇ {Console}` | **E452** |
+| `with AuditLog` | `{AuditLog} ⊇ {Console}` | **E452** |
+
+The E452 walker validates this at compile time during Phase 4a. It walks all instance declarations and checks that each instance method's declared effects contain every effect from the corresponding class method's floor.
+
+A class method with no `with` clause imposes no floor — instances are free to add any effects or remain pure.
+
+### 7.2 Effect Row Propagation Through Type-Directed Dispatch
+
+When `try_resolve_class_call` resolves a class method call to a specific instance, the resolved instance's effect row flows into the caller's ambient row. This means:
+
+```flux
+class Comparable<a> {
+    fn same(x: a, y: a) -> Bool
+}
+
+instance Comparable<Int> {
+    fn same(x, y) { x == y }           // pure — row = {}
+}
+
+instance Comparable<UserId> {
+    fn same(a, b) with AuditLog {       // effectful — row = {AuditLog}
+        perform AuditLog.record("comparing users")
+        match (a, b) { (Id(x), Id(y)) -> x == y }
+    }
+}
+```
+
+At call sites:
+- `Comparable.same(1, 2)` resolves to `Comparable<Int>` → row `{}` → caller needs no effects
+- `Comparable.same(id1, id2)` resolves to `Comparable<UserId>` → row `{AuditLog}` → caller must have `AuditLog` in its ambient row
+
+This is the key interaction between type classes and the effect system: the same class method name produces different effect requirements depending on which instance the type-directed dispatch selects.
+
+### 7.3 Row-Polymorphic Class Methods
+
+Class methods can use row variables (`|e`) just like regular functions:
+
+```flux
+class Foldable<f> {
+    fn fold<a, b>(xs: f<a>, init: b, step: (b, a) -> b with |e) -> b with |e
+}
+```
+
+The row variable `e` is instantiated freshly at each call site and unifies with the callback's actual effects. The instance body itself may be pure — the row variable is bound at the call site, not at the instance.
+
+### 7.4 Implementation Files
+
+- `src/syntax/parser/statement.rs` — `parse_class_method()` and `parse_instance_method()` call `parse_effect_list()` for the `with` clause
+- `src/syntax/type_class.rs` — `ClassMethod.effects` and `InstanceMethod.effects` AST fields
+- `src/types/class_dispatch.rs` — Phase 1b mangling pass forwards effects to mangled function signatures
+- `src/bytecode/compiler/statement.rs` — E452 walker validates effect floor satisfaction
+- `src/core/lower_ast/mod.rs` — `try_resolve_class_call()` propagates the resolved instance's row to the caller
+
+---
+
+## 8. Base Function Row Signatures
 
 All 77 base functions with higher-order parameters declare `row_params` in their `BaseHmSignature`. For example:
 
@@ -144,7 +222,7 @@ See `docs/internals/base_hm_signatures.md` for the full signature reference.
 
 ---
 
-## 8. Fixture Evidence
+## 9. Fixture Evidence
 
 **Passing (constraint correctness):**
 - `100_effect_row_order_equivalence_ok.flx` — concrete ordering is non-semantic
@@ -164,7 +242,7 @@ See `docs/internals/base_hm_signatures.md` for the full signature reference.
 
 ---
 
-## 9. Contributor Rules
+## 10. Contributor Rules
 
 When changing effect row semantics:
 
