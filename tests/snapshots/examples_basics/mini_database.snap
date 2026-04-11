@@ -3,65 +3,8 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/mini_database.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `first`.
-
-  examples/basics/mini_database.flx:13:18
-   |
-13 |     let record = first(records)
-   |                  ^^^^^
-
-Hint:
-  Define it first: let first = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `rest`.
-
-  examples/basics/mini_database.flx:17:14
-   |
-17 |     findById(rest(records), id)
-   |              ^^^^
-
-Hint:
-  Define it first: let rest = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `first`.
-
-  examples/basics/mini_database.flx:42:24
-   |
-42 |     let first_record = first(db)
-   |                        ^^^^^
-
-Hint:
-  Define it first: let first = ...;
-
-Help:
-  Did you mean `first_record`?
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `first`.
-
-  examples/basics/mini_database.flx:46:25
-   |
-46 |     let second_record = first(rest(db))
-   |                         ^^^^^
-
-Hint:
-  Define it first: let first = ...;
-
-Help:
-  Did you mean `first_record`?
-
-Found 4 errors.
+<none>
 == stdout ==
 <not executed>

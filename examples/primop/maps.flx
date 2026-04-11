@@ -1,15 +1,19 @@
+import Flow.Map as Map
+import Flow.Array as Array
+
 fn main() with IO {
     print("== PrimOps: maps ==");
     let m0 = {};
-    let m1 = put(m0, "name", "flux");
-    let m2 = put(m1, "year", 2026);
+    let m1 = Map.set(m0, "name", "flux");
+    let m2 = Map.set(m1, "year", 2026);
     print(is_map(m2));
-    print(has_key(m2, "name"));
-    print(get(m2, "name"));
-    print(keys(m2));
-    print(values(m2));
-    print(delete(m2, "year"));
-    print(merge(m2, put({}, "lang", "en")));
+    print(Map.has(m2, "name"));
+    print(Map.get(m2, "name"));
+    print(Array.sort(Map.keys(m2)));
+    print(Array.contains(Map.values(m2), "flux"));
+    print(Array.contains(Map.values(m2), 2026));
+    print(Map.delete(m2, "year"));
+    print(Map.merge(m2, Map.set({}, "lang", "en")));
 
     print(map_has(m2, "name"));
     print(map_get(m2, "name"));

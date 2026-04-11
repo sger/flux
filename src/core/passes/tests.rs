@@ -271,7 +271,7 @@ fn run_core_passes_reports_aether_contract_stage() {
 }
 
 #[test]
-fn primop_promote_prefers_map_delete_over_flow_list_delete_binding() {
+fn primop_promote_keeps_bare_delete_bound_to_flow_list_delete() {
     let mut interner = Interner::new();
     let flow = interner.intern("Flow");
     let list = interner.intern("List");
@@ -363,8 +363,62 @@ fn primop_promote_prefers_map_delete_over_flow_list_delete_binding() {
     promote_builtins(&mut program, &interner);
 
     match &program.defs[1].expr {
+        CoreExpr::App { .. } => {}
+        other => panic!("expected bare delete to remain a stdlib call, got {other:?}"),
+    }
+}
+
+#[test]
+fn primop_promote_promotes_explicit_map_delete_name() {
+    let mut interner = Interner::new();
+    let map_delete = interner.intern("map_delete");
+    let main = interner.intern("main");
+    let main_binder = binder(0, main);
+
+    let main_def = CoreDef {
+        name: main,
+        binder: main_binder,
+        expr: CoreExpr::App {
+            func: Box::new(CoreExpr::Var {
+                var: CoreVarRef {
+                    name: map_delete,
+                    binder: None,
+                },
+                span: s(),
+            }),
+            args: vec![
+                CoreExpr::Lit(CoreLit::Int(1), s()),
+                CoreExpr::Lit(CoreLit::Int(2), s()),
+            ],
+            span: s(),
+        },
+        borrow_signature: None,
+        result_ty: None,
+        is_anonymous: false,
+        is_recursive: false,
+        fip: None,
+        span: s(),
+    };
+
+    let mut program = CoreProgram {
+        defs: vec![main_def],
+        top_level_items: vec![CoreTopLevelItem::Function {
+            is_public: true,
+            name: main,
+            type_params: Vec::new(),
+            parameters: Vec::new(),
+            parameter_types: Vec::new(),
+            return_type: None,
+            effects: Vec::new(),
+            span: s(),
+        }],
+    };
+
+    promote_builtins(&mut program, &interner);
+
+    match &program.defs[0].expr {
         CoreExpr::PrimOp { op, .. } => assert_eq!(*op, CorePrimOp::HamtDelete),
-        other => panic!("expected HamtDelete promotion, got {other:?}"),
+        other => panic!("expected explicit map_delete promotion, got {other:?}"),
     }
 }
 

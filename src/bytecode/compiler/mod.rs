@@ -1421,13 +1421,7 @@ impl Compiler {
             "Flow.IO",
             "Flow.Assert",
         ];
-        let skip_flow_auto_expose: Vec<(&str, &str)> = vec![
-            // Preserve existing primop behavior for unqualified calls.
-            ("Flow.List", "concat"),
-            ("Flow.List", "delete"),
-            ("Flow.List", "sort"),
-            ("Flow.List", "sort_by"),
-        ];
+        let skip_flow_auto_expose: Vec<(&str, &str)> = vec![];
         // Collect all public members for Flow modules.
         let entries: Vec<(Symbol, Symbol)> = self
             .module_function_visibility
@@ -1660,7 +1654,7 @@ impl Compiler {
             "Flow.IO",
             "Flow.Assert",
         ];
-        let skip_flow_auto_expose = [("Flow.List", "concat"), ("Flow.List", "delete")];
+        let skip_flow_auto_expose: [(&str, &str); 0] = [];
         let mut local_function_names = HashSet::new();
         collect_local_function_names(
             &program.statements,
@@ -2466,21 +2460,20 @@ impl Compiler {
             ),
             // Collection ops
             ("len", vec![var_a()], con(TC::Int), pure(), 0),
-            ("push", vec![var_a(), var_b()], var_a(), pure(), 0),
-            ("concat", vec![var_a(), var_a()], var_a(), pure(), 0),
+            ("array_push", vec![var_a(), var_b()], var_a(), pure(), 0),
+            ("array_concat", vec![var_a(), var_a()], var_a(), pure(), 0),
             (
-                "slice",
+                "array_slice",
                 vec![var_a(), con(TC::Int), con(TC::Int)],
                 var_a(),
                 pure(),
                 0,
             ),
-            ("reverse", vec![var_a()], var_a(), pure(), 0),
-            ("contains", vec![var_a(), var_b()], con(TC::Bool), pure(), 0),
+            ("array_reverse", vec![var_a()], var_a(), pure(), 0),
             (
-                "range",
-                vec![con(TC::Int), con(TC::Int)],
-                app(TC::Array, vec![con(TC::Int)]),
+                "array_contains",
+                vec![var_a(), var_b()],
+                con(TC::Bool),
                 pure(),
                 0,
             ),
@@ -2500,13 +2493,14 @@ impl Compiler {
             ("to_list", vec![var_a()], var_b(), pure(), 0),
             ("to_array", vec![var_a()], var_b(), pure(), 0),
             // Map ops
-            ("keys", vec![var_a()], var_b(), pure(), 0),
-            ("values", vec![var_a()], var_b(), pure(), 0),
-            ("has_key", vec![var_a(), var_b()], con(TC::Bool), pure(), 0),
-            ("merge", vec![var_a(), var_a()], var_a(), pure(), 0),
-            ("delete", vec![var_a(), var_b()], var_a(), pure(), 0),
-            ("put", vec![var_a(), var_b(), var_c()], var_a(), pure(), 0),
-            ("get", vec![var_a(), var_b()], var_c(), pure(), 0),
+            ("map_keys", vec![var_a()], var_b(), pure(), 0),
+            ("map_values", vec![var_a()], var_b(), pure(), 0),
+            ("map_has", vec![var_a(), var_b()], con(TC::Bool), pure(), 0),
+            ("map_merge", vec![var_a(), var_a()], var_a(), pure(), 0),
+            ("map_delete", vec![var_a(), var_b()], var_a(), pure(), 0),
+            ("map_set", vec![var_a(), var_b(), var_c()], var_a(), pure(), 0),
+            ("map_get", vec![var_a(), var_b()], var_c(), pure(), 0),
+            ("map_size", vec![var_a()], con(TC::Int), pure(), 0),
             // Time
             ("now_ms", vec![], con(TC::Int), pure(), 0),
             (
@@ -4141,11 +4135,19 @@ impl Compiler {
         }
 
         let mut map = HashMap::new();
-        // Sort by global index so later-compiled modules (higher indices)
-        // shadow earlier ones for unqualified names. This ensures Flow.Array's
-        // `first`/`last`/`contains`/`reverse` shadow Flow.List's versions.
+        // Sort by global index so later-defined globals overwrite earlier
+        // unqualified names. Module members from non-prelude modules remain
+        // qualified/alias-qualified only.
         let mut globals = self.symbol_table.global_definitions();
         globals.sort_by_key(|&(_, idx)| idx);
+        let flow_prelude_modules = [
+            "Flow.Option",
+            "Flow.List",
+            "Flow.String",
+            "Flow.Numeric",
+            "Flow.IO",
+            "Flow.Assert",
+        ];
         for (sym, idx) in globals {
             let name = self
                 .interner
@@ -4153,14 +4155,10 @@ impl Compiler {
                 .to_string();
             // Add qualified name (e.g. "Flow.Array.sort")
             map.insert(name.clone(), idx);
-            // Add unqualified name (last segment after last '.').
-            // Always overwrite: later-compiled modules (e.g. Flow.Array)
-            // shadow earlier ones (e.g. Flow.List) for the same unqualified
-            // name, matching the CFG compiler's resolution order.
-            if let Some(short) = name.rsplit('.').next()
-                && short != name
-            {
-                map.insert(short.to_string(), idx);
+            if let Some((module, short)) = name.rsplit_once('.') {
+                if flow_prelude_modules.contains(&module) {
+                    map.insert(short.to_string(), idx);
+                }
             }
             // Add alias-qualified names (e.g. "Array.sort" for "Flow.Array.sort"
             // when "import Flow.Array as Array" is in effect).

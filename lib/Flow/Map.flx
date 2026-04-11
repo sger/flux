@@ -1,0 +1,34 @@
+module Flow.Map {
+
+    public fn get<m, k>(m: m, key: k) {
+        map_get(m, key)
+    }
+
+    public fn set<m, k, v>(m: m, key: k, value: v) {
+        map_set(m, key, value)
+    }
+
+    public fn delete<m, k>(m: m, key: k) {
+        map_delete(m, key)
+    }
+
+    public fn merge<m>(left: m, right: m) {
+        map_merge(left, right)
+    }
+
+    public fn keys<m>(m: m) {
+        map_keys(m)
+    }
+
+    public fn values<m>(m: m) {
+        map_values(m)
+    }
+
+    public fn has<m, k>(m: m, key: k) -> Bool {
+        map_has(m, key)
+    }
+
+    public fn size<m>(m: m) -> Int {
+        map_size(m)
+    }
+}

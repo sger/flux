@@ -1,3 +1,5 @@
+import Flow.Map as Map
+
 fn main() with IO {
     // Test: Persistent map base functions (HAMT)
     // Expected output:
@@ -20,23 +22,23 @@ fn main() with IO {
     let person = {"name": "Alice", "age": 30};
 
     // get returns Some(value) or None
-    print(get(person, "name"));     // Some("Alice")
-    print(get(person, "email"));    // None
+    print(Map.get(person, "name"));     // Some("Alice")
+    print(Map.get(person, "email"));    // None
 
     // =============================================================================
     // put - Returns a New Map (Original Unchanged)
     // =============================================================================
 
     // put creates a new map with the key added
-    let updated = put(person, "email", "alice@example.com");
+    let updated = Map.set(person, "email", "alice@example.com");
     print(updated);                       // {name: Alice, age: 30, email: alice@example.com}
-    print(get(updated, "email"));         // Some("alice@example.com")
+    print(Map.get(updated, "email"));     // Some("alice@example.com")
 
     // =============================================================================
     // delete - Returns a New Map Without the Key
     // =============================================================================
 
-    let smaller = delete(updated, "email");
+    let smaller = Map.delete(updated, "email");
     print(smaller);  // {name: Alice, age: 30}
 
     // =============================================================================
@@ -52,6 +54,6 @@ fn main() with IO {
     // =============================================================================
 
     print("Immutability check:");
-    print(get(person, "name"));   // Some("Alice") — unchanged
-    print(get(person, "email"));  // None — put didn't mutate original
+    print(Map.get(person, "name"));   // Some("Alice") — unchanged
+    print(Map.get(person, "email"));  // None — put didn't mutate original
 }

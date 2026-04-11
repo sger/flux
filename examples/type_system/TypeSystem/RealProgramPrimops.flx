@@ -1,4 +1,5 @@
 import Flow.Array as Array
+import Flow.Map as Map
 
 module TypeSystem.RealProgramPrimops {
     public fn norm_sum(a: Int, b: Int) -> Int {
@@ -10,11 +11,11 @@ module TypeSystem.RealProgramPrimops {
     }
 
     public fn top_two(xs: Array<Int>) -> Array<Int> {
-        slice(reverse(Array.sort(xs)), 0, 2)
+        Array.slice(Array.reverse(Array.sort(xs)), 0, 2)
     }
 
     public fn lookup_score(m: Map<String, Int>, key: String) -> Option<Int> {
-        get(m, key)
+        Map.get(m, key)
     }
 
     public fn emit_label(n: Int) -> Int with IO {

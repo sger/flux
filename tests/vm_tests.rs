@@ -392,7 +392,7 @@ fn test_base_array_functions() {
     assert_eq!(run("first(rest([1, 2, 3]));"), Value::Integer(2));
     // push still works on arrays
     assert_eq!(
-        run("push(#[1, 2], 3);"),
+        run("array_push(#[1, 2], 3);"),
         Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3),].into())
     );
 }
