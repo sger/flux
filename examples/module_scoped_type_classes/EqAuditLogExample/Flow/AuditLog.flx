@@ -1,0 +1,5 @@
+module EqAuditLogExample.Flow.AuditLog {
+    effect AuditLog {
+        record: String -> ()
+    }
+}

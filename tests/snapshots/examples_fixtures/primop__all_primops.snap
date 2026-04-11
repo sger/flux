@@ -9,9 +9,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `first`.
 
-  examples/primop/all_primops.flx:40:11
+  examples/primop/all_primops.flx:51:11
    |
-40 |     print(first(arr2));
+51 |     print(first(lst));
    |           ^^^^^
 
 Hint:
@@ -22,48 +22,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `last`.
 
-  examples/primop/all_primops.flx:41:11
+  examples/primop/all_primops.flx:52:11
    |
-41 |     print(last(arr2));
-   |           ^^^^
-
-Hint:
-  Define it first: let last = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `rest`.
-
-  examples/primop/all_primops.flx:42:11
-   |
-42 |     print(rest(arr2));
-   |           ^^^^
-
-Hint:
-  Define it first: let rest = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `first`.
-
-  examples/primop/all_primops.flx:48:11
-   |
-48 |     print(first(lst));
-   |           ^^^^^
-
-Hint:
-  Define it first: let first = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `last`.
-
-  examples/primop/all_primops.flx:49:11
-   |
-49 |     print(last(lst));
+52 |     print(last(lst));
    |           ^^^^
 
 Hint:
@@ -77,9 +38,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `rest`.
 
-  examples/primop/all_primops.flx:50:11
+  examples/primop/all_primops.flx:53:11
    |
-50 |     print(rest(lst));
+53 |     print(rest(lst));
    |           ^^^^
 
 Hint:
@@ -88,6 +49,19 @@ Hint:
 Help:
   Did you mean `lst`?
 
-Found 6 errors.
+
+error[E004]: Undefined Variable
+
+I can't find a value named `contains`.
+
+  examples/primop/all_primops.flx:54:11
+   |
+54 |     print(contains(lst, 2));
+   |           ^^^^^^^^
+
+Hint:
+  Define it first: let contains = ...;
+
+Found 4 errors.
 == stdout ==
 <not executed>

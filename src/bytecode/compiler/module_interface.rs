@@ -17,9 +17,11 @@ use crate::{
     core::CoreProgram,
     syntax::{Identifier, interner::Interner, symbol::Symbol},
     types::{
+        class_env::ClassEnv,
         module_interface::{
             DependencyFingerprint, DependencyMissReason, MODULE_INTERFACE_FORMAT_VERSION,
-            ModuleInterface,
+            ModuleInterface, PublicClassEntry, PublicClassMethodEntry, PublicInstanceEntry,
+            PublicInstanceMethodEntry,
         },
         scheme::Scheme,
     },
@@ -71,6 +73,12 @@ struct CanonicalExport<'a> {
 }
 
 /// Build a module interface from post-Aether Core plus cached HM schemes.
+///
+/// Proposal 0151, Phase 2: when `class_env` is `Some`, the interface
+/// also records `public class` and `public instance` entries owned by
+/// `module_sym`. The recorded entries flow into the interface
+/// fingerprint, so adding/removing/modifying a `public class` or
+/// `public instance` invalidates downstream `.fxc` cache hits.
 #[allow(clippy::too_many_arguments)]
 pub fn build_interface(
     module_name: &str,
@@ -80,6 +88,7 @@ pub fn build_interface(
     program: &CoreProgram,
     schemes: &HashMap<(Identifier, Identifier), Scheme>,
     visibility: &HashMap<(Identifier, Identifier), bool>,
+    class_env: Option<&ClassEnv>,
     dependency_fingerprints: Vec<DependencyFingerprint>,
     interner: &Interner,
 ) -> ModuleInterface {
@@ -89,6 +98,15 @@ pub fn build_interface(
         hex::encode(semantic_config_hash),
     );
     interface.dependency_fingerprints = dependency_fingerprints;
+
+    // Proposal 0151, Phase 2: collect `public class` and `public instance`
+    // entries owned by this module. Done before the symbol-table sweep so
+    // any new symbols introduced by class/instance metadata also land in
+    // the portable symbol table.
+    if let Some(env) = class_env {
+        interface.public_classes = collect_public_class_entries(env, module_sym, interner);
+        interface.public_instances = collect_public_instance_entries(env, module_sym, interner);
+    }
 
     for def in &program.defs {
         if def.is_anonymous() || visibility.get(&(module_sym, def.name)) != Some(&true) {
@@ -111,6 +129,8 @@ pub fn build_interface(
     for scheme in interface.schemes.values() {
         scheme.collect_symbols(&mut symbols);
     }
+    collect_symbols_from_public_classes(&interface.public_classes, &mut symbols);
+    collect_symbols_from_public_instances(&interface.public_instances, &mut symbols);
     for &sym in &symbols {
         interface
             .symbol_table
@@ -119,6 +139,224 @@ pub fn build_interface(
 
     interface.interface_fingerprint = compute_interface_fingerprint(&interface);
     interface
+}
+
+/// Proposal 0151, Phase 2: extract every `public class` declared in
+/// `module_sym` from the live `ClassEnv` and render it as a serializable
+/// `PublicClassEntry`. Sorted by `(class_module, name)` for deterministic
+/// fingerprinting.
+fn collect_public_class_entries(
+    env: &ClassEnv,
+    module_sym: Identifier,
+    interner: &Interner,
+) -> Vec<PublicClassEntry> {
+    let mut entries: Vec<PublicClassEntry> = env
+        .classes
+        .values()
+        .filter(|def| def.is_public)
+        .filter(|def| def.module.as_identifier() == Some(module_sym))
+        .map(|def| {
+            let class_module = def
+                .module
+                .as_identifier()
+                .map(|id| interner.resolve(id).to_string())
+                .unwrap_or_default();
+            let method_names = def
+                .methods
+                .iter()
+                .map(|m| interner.resolve(m.name).to_string())
+                .collect();
+            PublicClassEntry {
+                class_module,
+                name: interner.resolve(def.name).to_string(),
+                type_param_arity: def.type_params.len(),
+                type_params: def.type_params.clone(),
+                superclasses: def.superclasses.clone(),
+                methods: def
+                    .methods
+                    .iter()
+                    .map(|method| PublicClassMethodEntry {
+                        name: method.name,
+                        type_params: method.type_params.clone(),
+                        param_types: method.param_types.clone(),
+                        return_type: method.return_type.clone(),
+                        effects: method.effects.clone(),
+                    })
+                    .collect(),
+                default_methods: def.default_methods.clone(),
+                method_names,
+                pinned_row_placeholder: None,
+            }
+        })
+        .collect();
+    entries.sort_by(|a, b| (&a.class_module, &a.name).cmp(&(&b.class_module, &b.name)));
+    entries
+}
+
+/// Proposal 0151, Phase 2: extract every `public instance` whose
+/// `instance_module` matches `module_sym`. Sorted by
+/// `(class_module, class_name, head_type_repr)`.
+fn collect_public_instance_entries(
+    env: &ClassEnv,
+    module_sym: Identifier,
+    interner: &Interner,
+) -> Vec<PublicInstanceEntry> {
+    let mut entries: Vec<PublicInstanceEntry> = env
+        .instances
+        .iter()
+        .filter(|inst| inst.is_public)
+        .filter(|inst| inst.instance_module.as_identifier() == Some(module_sym))
+        .map(|inst| {
+            let class_module = inst
+                .class_id
+                .module
+                .as_identifier()
+                .map(|id| interner.resolve(id).to_string())
+                .unwrap_or_default();
+            let instance_module = inst
+                .instance_module
+                .as_identifier()
+                .map(|id| interner.resolve(id).to_string())
+                .unwrap_or_default();
+            let head_type_repr: Vec<String> = inst
+                .type_args
+                .iter()
+                .map(|t| t.display_with(interner))
+                .collect();
+            PublicInstanceEntry {
+                class_module,
+                class_name: interner.resolve(inst.class_name).to_string(),
+                instance_module,
+                head_type_repr: head_type_repr.join(", "),
+                type_args: inst.type_args.clone(),
+                context: inst.context.clone(),
+                methods: inst
+                    .method_effects
+                    .iter()
+                    .map(|(name, effects)| PublicInstanceMethodEntry {
+                        name: *name,
+                        effects: effects.clone(),
+                    })
+                    .collect(),
+                pinned_row_placeholder: None,
+            }
+        })
+        .collect();
+    entries.sort_by(|a, b| {
+        (&a.class_module, &a.class_name, &a.head_type_repr).cmp(&(
+            &b.class_module,
+            &b.class_name,
+            &b.head_type_repr,
+        ))
+    });
+    entries
+}
+
+fn collect_symbols_from_public_classes(entries: &[PublicClassEntry], out: &mut HashSet<Symbol>) {
+    for entry in entries {
+        for &type_param in &entry.type_params {
+            out.insert(type_param);
+        }
+        for superclass in &entry.superclasses {
+            collect_symbols_from_class_constraint(superclass, out);
+        }
+        for &default_method in &entry.default_methods {
+            out.insert(default_method);
+        }
+        for method in &entry.methods {
+            out.insert(method.name);
+            for &type_param in &method.type_params {
+                out.insert(type_param);
+            }
+            for param in &method.param_types {
+                collect_symbols_from_type_expr(param, out);
+            }
+            collect_symbols_from_type_expr(&method.return_type, out);
+            for effect in &method.effects {
+                collect_symbols_from_effect_expr(effect, out);
+            }
+        }
+    }
+}
+
+fn collect_symbols_from_public_instances(
+    entries: &[PublicInstanceEntry],
+    out: &mut HashSet<Symbol>,
+) {
+    for entry in entries {
+        for ty in &entry.type_args {
+            collect_symbols_from_type_expr(ty, out);
+        }
+        for constraint in &entry.context {
+            collect_symbols_from_class_constraint(constraint, out);
+        }
+        for method in &entry.methods {
+            out.insert(method.name);
+            for effect in &method.effects {
+                collect_symbols_from_effect_expr(effect, out);
+            }
+        }
+    }
+}
+
+fn collect_symbols_from_class_constraint(
+    constraint: &crate::syntax::type_class::ClassConstraint,
+    out: &mut HashSet<Symbol>,
+) {
+    out.insert(constraint.class_name);
+    for ty in &constraint.type_args {
+        collect_symbols_from_type_expr(ty, out);
+    }
+}
+
+fn collect_symbols_from_type_expr(
+    ty: &crate::syntax::type_expr::TypeExpr,
+    out: &mut HashSet<Symbol>,
+) {
+    match ty {
+        crate::syntax::type_expr::TypeExpr::Named { name, args, .. } => {
+            out.insert(*name);
+            for arg in args {
+                collect_symbols_from_type_expr(arg, out);
+            }
+        }
+        crate::syntax::type_expr::TypeExpr::Tuple { elements, .. } => {
+            for elem in elements {
+                collect_symbols_from_type_expr(elem, out);
+            }
+        }
+        crate::syntax::type_expr::TypeExpr::Function {
+            params,
+            ret,
+            effects,
+            ..
+        } => {
+            for param in params {
+                collect_symbols_from_type_expr(param, out);
+            }
+            collect_symbols_from_type_expr(ret, out);
+            for effect in effects {
+                collect_symbols_from_effect_expr(effect, out);
+            }
+        }
+    }
+}
+
+fn collect_symbols_from_effect_expr(
+    effect: &crate::syntax::effect_expr::EffectExpr,
+    out: &mut HashSet<Symbol>,
+) {
+    match effect {
+        crate::syntax::effect_expr::EffectExpr::Named { name, .. }
+        | crate::syntax::effect_expr::EffectExpr::RowVar { name, .. } => {
+            out.insert(*name);
+        }
+        crate::syntax::effect_expr::EffectExpr::Add { left, right, .. }
+        | crate::syntax::effect_expr::EffectExpr::Subtract { left, right, .. } => {
+            collect_symbols_from_effect_expr(left, out);
+            collect_symbols_from_effect_expr(right, out);
+        }
+    }
 }
 
 pub fn compute_semantic_config_hash(strict_mode: bool, optimize_mode: bool) -> [u8; 32] {
@@ -148,7 +386,27 @@ pub fn compute_interface_fingerprint(interface: &ModuleInterface) -> String {
             borrow_signature: interface.borrow_signatures.get(member),
         })
         .collect();
-    let bytes = serde_json::to_vec(&exports).expect("canonical interface fingerprint");
+
+    // Proposal 0151, Phase 2: the fingerprint also covers the public
+    // class/instance tables. Both vectors are pre-sorted in
+    // `collect_public_*_entries`, so byte-level serde_json output is
+    // deterministic. Adding/removing/modifying a public class or
+    // public instance changes the fingerprint, which invalidates
+    // downstream `.fxc` cache hits.
+    #[derive(Serialize)]
+    struct CanonicalInterface<'a> {
+        exports: &'a [CanonicalExport<'a>],
+        public_classes: &'a [PublicClassEntry],
+        public_instances: &'a [PublicInstanceEntry],
+    }
+
+    let canonical = CanonicalInterface {
+        exports: &exports,
+        public_classes: &interface.public_classes,
+        public_instances: &interface.public_instances,
+    };
+
+    let bytes = serde_json::to_vec(&canonical).expect("canonical interface fingerprint");
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hex::encode(&hasher.finalize())
@@ -330,6 +588,7 @@ mod tests {
             (module, public_name),
             Scheme {
                 forall: vec![0, 1],
+                constraints: vec![],
                 infer_type: InferType::Fun(
                     vec![
                         InferType::App(TypeConstructor::List, vec![InferType::Var(0)]),
@@ -366,6 +625,7 @@ mod tests {
             &program,
             &schemes,
             &visibility,
+            None,
             vec![DependencyFingerprint {
                 module_name: "Flow.Prelude".to_string(),
                 source_path: "lib/Flow/Prelude.flx".to_string(),
@@ -410,6 +670,7 @@ mod tests {
             (module, fn_name),
             Scheme {
                 forall: vec![],
+                constraints: vec![],
                 infer_type: InferType::Fun(
                     vec![InferType::Con(TypeConstructor::Adt(adt_sym))],
                     Box::new(InferType::Con(TypeConstructor::Unit)),
@@ -429,6 +690,7 @@ mod tests {
             &program,
             &schemes,
             &visibility,
+            None,
             Vec::new(),
             &interner,
         );
@@ -470,6 +732,7 @@ mod tests {
             (module, fn_name),
             Scheme {
                 forall: vec![0],
+                constraints: vec![],
                 infer_type: InferType::Fun(
                     vec![InferType::Var(0)],
                     Box::new(InferType::Var(0)),
@@ -489,6 +752,7 @@ mod tests {
             &program,
             &schemes,
             &visibility,
+            None,
             Vec::new(),
             &interner,
         );
@@ -527,6 +791,8 @@ mod tests {
                 interface_fingerprint: "dep".to_string(),
             }],
             symbol_table: HashMap::new(),
+            public_classes: Vec::new(),
+            public_instances: Vec::new(),
         };
 
         let json = serde_json::to_string_pretty(&interface).unwrap();
@@ -563,6 +829,194 @@ mod tests {
         b.interface_fingerprint = compute_interface_fingerprint(&b);
 
         assert_eq!(a.interface_fingerprint, b.interface_fingerprint);
+    }
+
+    /// Proposal 0151, Phase 2: an empty `.flxi` round-trips its
+    /// `public_classes` and `public_instances` vectors as JSON.
+    #[test]
+    fn public_class_and_instance_entries_roundtrip_through_json() {
+        use crate::types::module_interface::{PublicClassEntry, PublicInstanceEntry};
+
+        let mut interface = ModuleInterface::new("Mod.A", "src", "cfg");
+        interface.public_classes.push(PublicClassEntry {
+            class_module: "Mod.A".to_string(),
+            name: "MyShow".to_string(),
+            type_param_arity: 1,
+            type_params: vec![],
+            superclasses: vec![],
+            methods: vec![],
+            default_methods: vec![],
+            method_names: vec!["my_show".to_string()],
+            pinned_row_placeholder: None,
+        });
+        interface.public_instances.push(PublicInstanceEntry {
+            class_module: "Mod.A".to_string(),
+            class_name: "MyShow".to_string(),
+            instance_module: "Mod.A".to_string(),
+            head_type_repr: "Int".to_string(),
+            type_args: vec![],
+            context: vec![],
+            methods: vec![],
+            pinned_row_placeholder: None,
+        });
+
+        let json = serde_json::to_string_pretty(&interface).expect("serialize");
+        let decoded: ModuleInterface = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded.public_classes.len(), 1);
+        assert_eq!(decoded.public_classes[0].name, "MyShow");
+        assert_eq!(decoded.public_instances.len(), 1);
+        assert_eq!(decoded.public_instances[0].head_type_repr, "Int");
+    }
+
+    /// Proposal 0151, Phase 2: an old `.flxi` written before the new
+    /// fields existed must still load — the `#[serde(default)]` on
+    /// `public_classes` and `public_instances` makes them optional.
+    #[test]
+    fn old_flxi_loads_without_class_fields() {
+        let json = r#"{
+            "module_name": "Old.Mod",
+            "source_hash": "abc",
+            "compiler_version": "0.0.1",
+            "cache_format_version": 1,
+            "semantic_config_hash": "cfg",
+            "interface_fingerprint": "fp",
+            "schemes": {},
+            "borrow_signatures": {},
+            "dependency_fingerprints": []
+        }"#;
+        let decoded: ModuleInterface = serde_json::from_str(json).expect("backward-compat load");
+        assert!(decoded.public_classes.is_empty());
+        assert!(decoded.public_instances.is_empty());
+    }
+
+    /// Proposal 0151, Phase 2: adding a `public class` entry to the
+    /// interface changes its fingerprint, so the `.fxc` cache stays
+    /// sound when an upstream module gains a new public class.
+    #[test]
+    fn fingerprint_changes_when_public_class_is_added() {
+        use crate::types::module_interface::PublicClassEntry;
+
+        let base = ModuleInterface::new("Mod.A", "src", "cfg");
+        let mut with_class = base.clone();
+        with_class.public_classes.push(PublicClassEntry {
+            class_module: "Mod.A".to_string(),
+            name: "MyShow".to_string(),
+            type_param_arity: 1,
+            type_params: vec![],
+            superclasses: vec![],
+            methods: vec![],
+            default_methods: vec![],
+            method_names: vec!["my_show".to_string()],
+            pinned_row_placeholder: None,
+        });
+
+        assert_ne!(
+            compute_interface_fingerprint(&base),
+            compute_interface_fingerprint(&with_class),
+            "adding a public class must change the interface fingerprint"
+        );
+    }
+
+    /// Symmetric: adding a `public instance` also changes the fingerprint.
+    #[test]
+    fn fingerprint_changes_when_public_instance_is_added() {
+        use crate::types::module_interface::PublicInstanceEntry;
+
+        let base = ModuleInterface::new("Mod.A", "src", "cfg");
+        let mut with_inst = base.clone();
+        with_inst.public_instances.push(PublicInstanceEntry {
+            class_module: "Mod.A".to_string(),
+            class_name: "MyShow".to_string(),
+            instance_module: "Mod.A".to_string(),
+            head_type_repr: "Int".to_string(),
+            type_args: vec![],
+            context: vec![],
+            methods: vec![],
+            pinned_row_placeholder: None,
+        });
+
+        assert_ne!(
+            compute_interface_fingerprint(&base),
+            compute_interface_fingerprint(&with_inst),
+            "adding a public instance must change the interface fingerprint"
+        );
+    }
+
+    /// Negative: adding a *private* (non-public) class to the live
+    /// `ClassEnv` does NOT show up in the interface, so the fingerprint
+    /// stays unchanged. We exercise this through `build_interface` to
+    /// confirm the public-only filter is correct.
+    #[test]
+    fn fingerprint_unchanged_when_only_private_class_added() {
+        use crate::types::class_env::{ClassDef, ClassEnv};
+        use crate::types::class_id::{ClassId, ModulePath};
+
+        let mut interner = Interner::new();
+        let module = interner.intern("Mod.A");
+        let priv_name = interner.intern("PrivShow");
+
+        // Empty env baseline.
+        let env_empty = ClassEnv::new();
+        let hash = hash_bytes(b"src");
+        let cfg = compute_semantic_config_hash(false, false);
+        let program = CoreProgram {
+            defs: Vec::new(),
+            top_level_items: Vec::new(),
+        };
+        let schemes = HashMap::new();
+        let visibility = HashMap::new();
+
+        let iface_empty = build_interface(
+            "Mod.A",
+            module,
+            &hash,
+            &cfg,
+            &program,
+            &schemes,
+            &visibility,
+            Some(&env_empty),
+            Vec::new(),
+            &interner,
+        );
+
+        // Same module, but with one PRIVATE class registered.
+        let mut env_priv = ClassEnv::new();
+        let class_id = ClassId::new(ModulePath::from_identifier(module), priv_name);
+        env_priv.classes.insert(
+            class_id,
+            ClassDef {
+                name: priv_name,
+                module: ModulePath::from_identifier(module),
+                is_public: false,
+                type_params: vec![interner.intern("a")],
+                superclasses: vec![],
+                methods: vec![],
+                default_methods: vec![],
+                span: Default::default(),
+            },
+        );
+
+        let iface_priv = build_interface(
+            "Mod.A",
+            module,
+            &hash,
+            &cfg,
+            &program,
+            &schemes,
+            &visibility,
+            Some(&env_priv),
+            Vec::new(),
+            &interner,
+        );
+
+        assert_eq!(
+            iface_empty.interface_fingerprint, iface_priv.interface_fingerprint,
+            "private classes must not affect the interface fingerprint"
+        );
+        assert!(
+            iface_priv.public_classes.is_empty(),
+            "private classes must not appear in public_classes"
+        );
     }
 
     #[test]

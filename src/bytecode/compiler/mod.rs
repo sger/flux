@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use crate::aether::borrow_infer::{BorrowRegistry, BorrowSignature};
@@ -9,7 +10,12 @@ use crate::syntax::expression::ExprId;
 use crate::types::infer_effect_row::InferEffectRow;
 use crate::types::{TypeVarId, infer_type::InferType, scheme::Scheme};
 use crate::{
-    ast::{TailCall, collect_free_vars_in_program, type_infer::infer_program},
+    ast::{
+        TailCall, collect_free_vars_in_program, desugar_operators_if_needed,
+        operator_desugaring_needed,
+        type_infer::{InferProgramResult, infer_program},
+        type_informed_fold::type_informed_fold,
+    },
     bytecode::{
         binding::Binding,
         bytecode::Bytecode,
@@ -26,15 +32,17 @@ use crate::{
     },
     diagnostics::{
         CIRCULAR_DEPENDENCY, Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase,
-        ErrorType, lookup_error_code,
+        ErrorType, diagnostic_for, lookup_error_code,
         position::{Position, Span},
     },
     runtime::{function_contract::FunctionContract, runtime_type::RuntimeType, value::Value},
     syntax::{
+        Identifier,
         block::Block,
         effect_expr::EffectExpr,
         expression::{Expression, StringPart},
         interner::Interner,
+        module_graph::ModuleKind,
         program::Program,
         statement::Statement,
         symbol::Symbol,
@@ -78,6 +86,524 @@ fn merge_effect_summary(current: EffectSummary, observed: EffectSummary) -> Effe
         (EffectSummary::Unknown, _) | (_, EffectSummary::Unknown) => EffectSummary::Unknown,
         _ => EffectSummary::Pure,
     }
+}
+
+fn remap_identifier(id: Identifier, remap: &HashMap<Symbol, Symbol>) -> Identifier {
+    remap.get(&id).copied().unwrap_or(id)
+}
+
+fn remap_effect_expr(effect: &EffectExpr, remap: &HashMap<Symbol, Symbol>) -> EffectExpr {
+    match effect {
+        EffectExpr::Named { name, span } => EffectExpr::Named {
+            name: remap_identifier(*name, remap),
+            span: *span,
+        },
+        EffectExpr::RowVar { name, span } => EffectExpr::RowVar {
+            name: remap_identifier(*name, remap),
+            span: *span,
+        },
+        EffectExpr::Add { left, right, span } => EffectExpr::Add {
+            left: Box::new(remap_effect_expr(left, remap)),
+            right: Box::new(remap_effect_expr(right, remap)),
+            span: *span,
+        },
+        EffectExpr::Subtract { left, right, span } => EffectExpr::Subtract {
+            left: Box::new(remap_effect_expr(left, remap)),
+            right: Box::new(remap_effect_expr(right, remap)),
+            span: *span,
+        },
+    }
+}
+
+fn remap_type_expr(ty: &TypeExpr, remap: &HashMap<Symbol, Symbol>) -> TypeExpr {
+    match ty {
+        TypeExpr::Named { name, args, span } => TypeExpr::Named {
+            name: remap_identifier(*name, remap),
+            args: args.iter().map(|arg| remap_type_expr(arg, remap)).collect(),
+            span: *span,
+        },
+        TypeExpr::Tuple { elements, span } => TypeExpr::Tuple {
+            elements: elements
+                .iter()
+                .map(|elem| remap_type_expr(elem, remap))
+                .collect(),
+            span: *span,
+        },
+        TypeExpr::Function {
+            params,
+            ret,
+            effects,
+            span,
+        } => TypeExpr::Function {
+            params: params
+                .iter()
+                .map(|param| remap_type_expr(param, remap))
+                .collect(),
+            ret: Box::new(remap_type_expr(ret, remap)),
+            effects: effects
+                .iter()
+                .map(|effect| remap_effect_expr(effect, remap))
+                .collect(),
+            span: *span,
+        },
+    }
+}
+
+fn remap_class_constraint(
+    constraint: &crate::syntax::type_class::ClassConstraint,
+    remap: &HashMap<Symbol, Symbol>,
+) -> crate::syntax::type_class::ClassConstraint {
+    crate::syntax::type_class::ClassConstraint {
+        class_name: remap_identifier(constraint.class_name, remap),
+        type_args: constraint
+            .type_args
+            .iter()
+            .map(|arg| remap_type_expr(arg, remap))
+            .collect(),
+        span: constraint.span,
+    }
+}
+
+fn imported_class_def_from_entry(
+    entry: &crate::types::module_interface::PublicClassEntry,
+    remap: &HashMap<Symbol, Symbol>,
+    interner: &mut Interner,
+) -> Option<crate::types::class_env::ClassDef> {
+    let module_sym = interner.intern(&entry.class_module);
+    let class_sym = interner.intern(&entry.name);
+    let module = crate::types::class_id::ModulePath::from_identifier(module_sym);
+    let methods = entry
+        .methods
+        .iter()
+        .map(|method| crate::types::class_env::MethodSig {
+            name: remap_identifier(method.name, remap),
+            type_params: method
+                .type_params
+                .iter()
+                .map(|tp| remap_identifier(*tp, remap))
+                .collect(),
+            param_types: method
+                .param_types
+                .iter()
+                .map(|ty| remap_type_expr(ty, remap))
+                .collect(),
+            return_type: remap_type_expr(&method.return_type, remap),
+            arity: method.param_types.len(),
+            effects: method
+                .effects
+                .iter()
+                .map(|effect| remap_effect_expr(effect, remap))
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+
+    if methods.is_empty() && !entry.method_names.is_empty() {
+        return None;
+    }
+
+    Some(crate::types::class_env::ClassDef {
+        name: class_sym,
+        module,
+        is_public: true,
+        type_params: entry
+            .type_params
+            .iter()
+            .map(|tp| remap_identifier(*tp, remap))
+            .collect(),
+        superclasses: entry
+            .superclasses
+            .iter()
+            .map(|constraint| remap_class_constraint(constraint, remap))
+            .collect(),
+        methods,
+        default_methods: entry
+            .default_methods
+            .iter()
+            .map(|name| remap_identifier(*name, remap))
+            .collect(),
+        span: Span::default(),
+    })
+}
+
+fn imported_instance_def_from_entry(
+    entry: &crate::types::module_interface::PublicInstanceEntry,
+    remap: &HashMap<Symbol, Symbol>,
+    interner: &mut Interner,
+    imported_classes: &HashMap<crate::types::class_id::ClassId, crate::types::class_env::ClassDef>,
+) -> Option<crate::types::class_env::InstanceDef> {
+    let class_module =
+        crate::types::class_id::ModulePath::from_identifier(interner.intern(&entry.class_module));
+    let class_name = interner.intern(&entry.class_name);
+    let class_id = crate::types::class_id::ClassId::new(class_module, class_name);
+    imported_classes.get(&class_id)?;
+    Some(crate::types::class_env::InstanceDef {
+        class_name,
+        class_id,
+        instance_module: crate::types::class_id::ModulePath::from_identifier(
+            interner.intern(&entry.instance_module),
+        ),
+        is_public: true,
+        type_args: entry
+            .type_args
+            .iter()
+            .map(|ty| remap_type_expr(ty, remap))
+            .collect(),
+        context: entry
+            .context
+            .iter()
+            .map(|constraint| remap_class_constraint(constraint, remap))
+            .collect(),
+        method_names: entry
+            .methods
+            .iter()
+            .map(|method| remap_identifier(method.name, remap))
+            .collect(),
+        method_effects: entry
+            .methods
+            .iter()
+            .map(|method| {
+                (
+                    remap_identifier(method.name, remap),
+                    method
+                        .effects
+                        .iter()
+                        .map(|effect| remap_effect_expr(effect, remap))
+                        .collect(),
+                )
+            })
+            .collect(),
+        span: Span::default(),
+    })
+}
+
+fn remap_public_instance_entry(
+    entry: &crate::types::module_interface::PublicInstanceEntry,
+    remap: &HashMap<Symbol, Symbol>,
+) -> crate::types::module_interface::PublicInstanceEntry {
+    crate::types::module_interface::PublicInstanceEntry {
+        class_module: entry.class_module.clone(),
+        class_name: entry.class_name.clone(),
+        instance_module: entry.instance_module.clone(),
+        head_type_repr: entry.head_type_repr.clone(),
+        type_args: entry
+            .type_args
+            .iter()
+            .map(|ty| remap_type_expr(ty, remap))
+            .collect(),
+        context: entry
+            .context
+            .iter()
+            .map(|constraint| remap_class_constraint(constraint, remap))
+            .collect(),
+        methods: entry
+            .methods
+            .iter()
+            .map(
+                |method| crate::types::module_interface::PublicInstanceMethodEntry {
+                    name: remap_identifier(method.name, remap),
+                    effects: method
+                        .effects
+                        .iter()
+                        .map(|effect| remap_effect_expr(effect, remap))
+                        .collect(),
+                },
+            )
+            .collect(),
+        pinned_row_placeholder: entry.pinned_row_placeholder.clone(),
+    }
+}
+
+fn build_public_class_method_scheme(
+    class_def: &crate::types::class_env::ClassDef,
+    method: &crate::types::class_env::MethodSig,
+    interner: &Interner,
+) -> Scheme {
+    let mut type_params = HashMap::new();
+    let mut next_var: TypeVarId = 0;
+    for &name in &class_def.type_params {
+        type_params.insert(name, next_var);
+        next_var += 1;
+    }
+    for &name in &method.type_params {
+        type_params.insert(name, next_var);
+        next_var += 1;
+    }
+    let mut row_var_env = HashMap::new();
+    let mut row_var_counter = next_var;
+    let param_tys: Vec<InferType> = method
+        .param_types
+        .iter()
+        .map(|ty| {
+            TypeEnv::convert_type_expr_rec(
+                ty,
+                &type_params,
+                interner,
+                &mut row_var_env,
+                &mut row_var_counter,
+            )
+            .expect("public class method param type should convert")
+        })
+        .collect();
+    let ret_ty = TypeEnv::convert_type_expr_rec(
+        &method.return_type,
+        &type_params,
+        interner,
+        &mut row_var_env,
+        &mut row_var_counter,
+    )
+    .expect("public class method return type should convert");
+    let effect_row =
+        InferEffectRow::from_effect_exprs(&method.effects, &mut row_var_env, &mut row_var_counter)
+            .expect("public class method effects should convert");
+    crate::types::scheme::generalize(
+        &InferType::Fun(param_tys, Box::new(ret_ty), effect_row),
+        &HashSet::new(),
+    )
+}
+
+fn substitute_type_expr_for_instance(
+    ty: &TypeExpr,
+    subst: &HashMap<Identifier, TypeExpr>,
+) -> TypeExpr {
+    match ty {
+        TypeExpr::Named { name, args, span } => {
+            let substituted_args: Vec<TypeExpr> = args
+                .iter()
+                .map(|arg| substitute_type_expr_for_instance(arg, subst))
+                .collect();
+            if let Some(replacement) = subst.get(name) {
+                if let TypeExpr::Named {
+                    name: replacement_name,
+                    args: replacement_args,
+                    ..
+                } = replacement
+                {
+                    let mut merged_args = replacement_args.clone();
+                    merged_args.extend(substituted_args);
+                    TypeExpr::Named {
+                        name: *replacement_name,
+                        args: merged_args,
+                        span: *span,
+                    }
+                } else {
+                    replacement.clone()
+                }
+            } else {
+                TypeExpr::Named {
+                    name: *name,
+                    args: substituted_args,
+                    span: *span,
+                }
+            }
+        }
+        TypeExpr::Tuple { elements, span } => TypeExpr::Tuple {
+            elements: elements
+                .iter()
+                .map(|elem| substitute_type_expr_for_instance(elem, subst))
+                .collect(),
+            span: *span,
+        },
+        TypeExpr::Function {
+            params,
+            ret,
+            effects,
+            span,
+        } => TypeExpr::Function {
+            params: params
+                .iter()
+                .map(|param| substitute_type_expr_for_instance(param, subst))
+                .collect(),
+            ret: Box::new(substitute_type_expr_for_instance(ret, subst)),
+            effects: effects.clone(),
+            span: *span,
+        },
+    }
+}
+
+fn specialize_type_expr_for_instance(
+    ty: &TypeExpr,
+    class_type_params: &[Identifier],
+    instance_type_args: &[TypeExpr],
+) -> TypeExpr {
+    let subst: HashMap<Identifier, TypeExpr> = class_type_params
+        .iter()
+        .copied()
+        .zip(instance_type_args.iter().cloned())
+        .collect();
+    substitute_type_expr_for_instance(ty, &subst)
+}
+
+fn preload_imported_instance_schemes(
+    symbol_table: &mut SymbolTable,
+    preloaded_imported_globals: &mut HashSet<Symbol>,
+    out: &mut HashMap<Symbol, Scheme>,
+    native_symbols: &mut HashMap<Symbol, String>,
+    instance_def: &crate::types::class_env::InstanceDef,
+    class_def: &crate::types::class_env::ClassDef,
+    interner: &mut Interner,
+) {
+    let type_key = instance_def
+        .type_args
+        .iter()
+        .map(|arg| arg.display_with(interner))
+        .collect::<Vec<_>>()
+        .join("_");
+    let class_str = interner.resolve(instance_def.class_name).to_string();
+    let method_effects: HashMap<Identifier, Vec<EffectExpr>> =
+        instance_def.method_effects.iter().cloned().collect();
+    let module_qualifier = instance_def
+        .instance_module
+        .as_identifier()
+        .map(|sym| interner.resolve(sym))
+        .and_then(|module| module.rsplit('.').next())
+        .filter(|segment| !segment.is_empty())
+        .unwrap_or("module")
+        .replace('.', "_");
+
+    for method in &class_def.methods {
+        let method_str = interner.resolve(method.name).to_string();
+        let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+        let mangled_sym = interner.intern(&mangled);
+        if !symbol_table.exists_in_current_scope(mangled_sym) {
+            symbol_table.define(mangled_sym, Span::default());
+        }
+        preloaded_imported_globals.insert(mangled_sym);
+        native_symbols.insert(mangled_sym, format!("flux_{module_qualifier}_{mangled}"));
+        let specialized_param_types = method
+            .param_types
+            .iter()
+            .map(|ty| {
+                specialize_type_expr_for_instance(
+                    ty,
+                    &class_def.type_params,
+                    &instance_def.type_args,
+                )
+            })
+            .collect::<Vec<_>>();
+        let specialized_return_type = specialize_type_expr_for_instance(
+            &method.return_type,
+            &class_def.type_params,
+            &instance_def.type_args,
+        );
+        let effects = method_effects
+            .get(&method.name)
+            .cloned()
+            .filter(|effects| !effects.is_empty())
+            .unwrap_or_else(|| method.effects.clone());
+        let specialized_method = crate::types::class_env::MethodSig {
+            name: method.name,
+            type_params: method.type_params.clone(),
+            param_types: specialized_param_types,
+            return_type: specialized_return_type,
+            arity: method.arity,
+            effects,
+        };
+        out.insert(
+            mangled_sym,
+            build_public_class_method_scheme(
+                &crate::types::class_env::ClassDef {
+                    type_params: vec![],
+                    methods: vec![],
+                    default_methods: vec![],
+                    ..class_def.clone()
+                },
+                &specialized_method,
+                interner,
+            ),
+        );
+    }
+}
+
+fn merge_imported_public_instances(
+    env: &mut crate::types::class_env::ClassEnv,
+    imported_instances: &[crate::types::class_env::InstanceDef],
+    diagnostics: &mut Vec<Diagnostic>,
+    interner: &Interner,
+) {
+    for imported in imported_instances {
+        let duplicate = env.instances.iter().find(|existing| {
+            existing.class_id == imported.class_id
+                && existing.type_args.len() == imported.type_args.len()
+                && existing
+                    .type_args
+                    .iter()
+                    .zip(imported.type_args.iter())
+                    .all(|(a, b)| a.structural_eq(b))
+        });
+        if let Some(existing) = duplicate {
+            let display_class = interner.resolve(imported.class_name);
+            let display_type: Vec<String> = imported
+                .type_args
+                .iter()
+                .map(|t| t.display_with(interner))
+                .collect();
+            let existing_module = existing
+                .instance_module
+                .as_identifier()
+                .map(|id| interner.resolve(id).to_string())
+                .unwrap_or_else(|| "<prelude>".to_string());
+            let imported_module = imported
+                .instance_module
+                .as_identifier()
+                .map(|id| interner.resolve(id).to_string())
+                .unwrap_or_else(|| "<prelude>".to_string());
+            diagnostics.push(
+                diagnostic_for(&crate::diagnostics::compiler_errors::DUPLICATE_INSTANCE)
+                    .with_span(imported.span)
+                    .with_message(format!(
+                        "Duplicate instance for `{display_class}<{}>`.",
+                        display_type.join(", ")
+                    ))
+                    .with_hint_text(format!(
+                        "Another instance of `{display_class}<{}>` already lives in module \
+                         `{existing_module}`; imported public instance came from `{imported_module}`.",
+                        display_type.join(", ")
+                    )),
+            );
+            continue;
+        }
+        env.instances.push(imported.clone());
+    }
+}
+
+fn resolve_pending_imported_public_instances(
+    imported_public_classes: &HashMap<
+        crate::types::class_id::ClassId,
+        crate::types::class_env::ClassDef,
+    >,
+    pending_entries: &mut Vec<crate::types::module_interface::PublicInstanceEntry>,
+    imported_public_instances: &mut Vec<crate::types::class_env::InstanceDef>,
+    imported_instance_method_schemes: &mut HashMap<Symbol, Scheme>,
+    imported_instance_method_native_symbols: &mut HashMap<Symbol, String>,
+    symbol_table: &mut SymbolTable,
+    preloaded_imported_globals: &mut HashSet<Symbol>,
+    interner: &mut Interner,
+) {
+    let mut still_pending = Vec::new();
+    for entry in pending_entries.drain(..) {
+        if let Some(instance_def) = imported_instance_def_from_entry(
+            &entry,
+            &HashMap::new(),
+            interner,
+            imported_public_classes,
+        ) {
+            if let Some(class_def) = imported_public_classes.get(&instance_def.class_id) {
+                preload_imported_instance_schemes(
+                    symbol_table,
+                    preloaded_imported_globals,
+                    imported_instance_method_schemes,
+                    imported_instance_method_native_symbols,
+                    &instance_def,
+                    class_def,
+                    interner,
+                );
+            }
+            imported_public_instances.push(instance_def);
+        } else {
+            still_pending.push(entry);
+        }
+    }
+    *pending_entries = still_pending;
 }
 
 #[derive(Default)]
@@ -343,6 +869,7 @@ pub struct Compiler {
     pub errors: Vec<Diagnostic>,
     pub warnings: Vec<Diagnostic>,
     pub(super) file_path: String,
+    pub(super) current_module_kind: ModuleKind,
     imported_files: HashSet<String>,
     pub(super) file_scope_symbols: HashSet<Symbol>,
     pub(super) imported_modules: HashSet<Symbol>,
@@ -387,6 +914,8 @@ pub struct Compiler {
     pub(super) adt_registry: AdtRegistry,
     pub(super) effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
     pub(super) effect_op_signatures: HashMap<(Symbol, Symbol), TypeExpr>,
+    preloaded_effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
+    preloaded_effect_op_signatures: HashMap<(Symbol, Symbol), TypeExpr>,
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     pub(super) hm_expr_types: HashMap<ExprId, InferType>,
@@ -403,6 +932,7 @@ pub struct Compiler {
     pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
     pub(super) inferred_function_effects: HashMap<ContractKey, HashSet<Symbol>>,
     strict_mode: bool,
+    strict_types: bool,
     strict_require_main: bool,
     /// When true, run two-phase inference with type-informed optimization
     /// between Phase 1 and Phase 2 (proposal 0077).
@@ -411,6 +941,21 @@ pub struct Compiler {
     profiling: bool,
     /// Cost centre metadata accumulated during compilation.
     pub cost_centre_infos: Vec<crate::bytecode::vm::profiling::CostCentreInfo>,
+    /// Type class environment — populated during collection phase.
+    pub(super) class_env: crate::types::class_env::ClassEnv,
+    /// Imported `public class` entries reconstructed from preloaded module interfaces.
+    imported_public_classes:
+        HashMap<crate::types::class_id::ClassId, crate::types::class_env::ClassDef>,
+    /// Imported `public instance` entries reconstructed from preloaded module interfaces.
+    imported_public_instances: Vec<crate::types::class_env::InstanceDef>,
+    /// Imported `public instance` entries waiting for their class interface to load.
+    pending_imported_public_instance_entries:
+        Vec<crate::types::module_interface::PublicInstanceEntry>,
+    /// Imported monomorphic `__tc_*` schemes rebuilt from public instance metadata.
+    imported_instance_method_schemes: HashMap<Symbol, Scheme>,
+    imported_instance_method_native_symbols: HashMap<Symbol, String>,
+    #[cfg(test)]
+    pub(super) hm_infer_runs: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -420,10 +965,84 @@ pub struct ModuleCacheSnapshot {
     global_definitions_len: usize,
 }
 
+struct FinalInferenceResult<'a> {
+    effective_program: Cow<'a, Program>,
+    hm_final: InferProgramResult,
+}
+
+#[derive(Clone, Copy)]
+enum LoweringPreparationMode {
+    Fresh,
+    WithPreloaded,
+}
+
 #[cfg(test)]
 mod compiler_test;
 
 impl Compiler {
+    fn is_flow_library_file(&self) -> bool {
+        self.current_module_kind == ModuleKind::FlowStdlib
+    }
+
+    pub(super) fn inject_generated_dispatch_functions(
+        &self,
+        program: &Program,
+        generated: Vec<Statement>,
+    ) -> Program {
+        let module_count = program
+            .statements
+            .iter()
+            .filter(|stmt| matches!(stmt, Statement::Module { .. }))
+            .count();
+
+        if module_count == 1 {
+            let (top_level_generated, module_generated): (Vec<_>, Vec<_>) =
+                generated.into_iter().partition(|stmt| match stmt {
+                    Statement::Function { name, .. } => self.sym(*name).starts_with("__tc_"),
+                    _ => false,
+                });
+            let statements = program
+                .statements
+                .iter()
+                .cloned()
+                .enumerate()
+                .flat_map(|(idx, stmt)| {
+                    let mut emitted = Vec::new();
+                    if idx == 0 {
+                        emitted.extend(top_level_generated.clone());
+                    }
+                    match stmt {
+                        Statement::Module { name, body, span } => {
+                            let mut module_statements = module_generated.clone();
+                            module_statements.extend(body.statements.iter().cloned());
+                            emitted.push(Statement::Module {
+                                name,
+                                body: crate::syntax::block::Block {
+                                    statements: module_statements,
+                                    span: body.span,
+                                },
+                                span,
+                            });
+                        }
+                        other => emitted.push(other),
+                    }
+                    emitted
+                })
+                .collect();
+            Program {
+                statements,
+                span: program.span,
+            }
+        } else {
+            let mut statements = generated;
+            statements.extend(program.statements.iter().cloned());
+            Program {
+                statements,
+                span: program.span,
+            }
+        }
+    }
+
     pub fn new() -> Self {
         Self::new_with_file_path("<unknown>")
     }
@@ -443,6 +1062,7 @@ impl Compiler {
             errors: Vec::new(),
             warnings: Vec::new(),
             file_path: file_path.into(),
+            current_module_kind: ModuleKind::User,
             imported_files: HashSet::new(),
             file_scope_symbols: HashSet::new(),
             imported_modules: HashSet::new(),
@@ -474,6 +1094,8 @@ impl Compiler {
             adt_registry: AdtRegistry::new(),
             effect_ops_registry: HashMap::new(),
             effect_op_signatures: HashMap::new(),
+            preloaded_effect_ops_registry: HashMap::new(),
+            preloaded_effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
             cached_member_schemes: HashMap::new(),
@@ -482,10 +1104,19 @@ impl Compiler {
             ir_function_symbols: HashMap::new(),
             inferred_function_effects: HashMap::new(),
             strict_mode: false,
+            strict_types: false,
             strict_require_main: true,
             type_optimize: false,
             profiling: false,
             cost_centre_infos: Vec::new(),
+            class_env: crate::types::class_env::ClassEnv::new(),
+            imported_public_classes: HashMap::new(),
+            imported_public_instances: Vec::new(),
+            pending_imported_public_instance_entries: Vec::new(),
+            imported_instance_method_schemes: HashMap::new(),
+            imported_instance_method_native_symbols: HashMap::new(),
+            #[cfg(test)]
+            hm_infer_runs: 0,
         }
     }
 
@@ -535,6 +1166,247 @@ impl Compiler {
         self.effect_op_signatures.clear();
     }
 
+    pub fn set_current_module_kind(&mut self, kind: ModuleKind) {
+        self.current_module_kind = kind;
+    }
+
+    fn run_hm_infer(&mut self, program: &Program) -> InferProgramResult {
+        #[cfg(test)]
+        {
+            self.hm_infer_runs += 1;
+        }
+        let hm_config = self.build_infer_config(program);
+        infer_program(program, &self.interner, hm_config)
+    }
+
+    fn infer_final_program<'a>(&mut self, program: &'a Program) -> FinalInferenceResult<'a> {
+        let hm = self.run_hm_infer(program);
+        let pre_desugar_program = if self.type_optimize {
+            Cow::Owned(type_informed_fold(program, &hm.type_env, &self.interner))
+        } else {
+            Cow::Borrowed(program)
+        };
+        let hm_pre_desugar = if self.type_optimize {
+            self.run_hm_infer(pre_desugar_program.as_ref())
+        } else {
+            hm
+        };
+        let pre_desugar_expr_types = hm_pre_desugar.expr_types.clone();
+        let desugar_changed_program = !self.is_flow_library_file()
+            && operator_desugaring_needed(
+                pre_desugar_program.as_ref(),
+                &pre_desugar_expr_types,
+                &self.interner,
+            );
+        let effective_program = if desugar_changed_program {
+            desugar_operators_if_needed(
+                pre_desugar_program,
+                &pre_desugar_expr_types,
+                &mut self.interner,
+            )
+        } else {
+            pre_desugar_program
+        };
+        #[cfg(test)]
+        let desugar_changed_program = desugar_changed_program;
+        let hm_final = match &effective_program {
+            _ if !desugar_changed_program => hm_pre_desugar,
+            Cow::Owned(_) | Cow::Borrowed(_) => self.run_hm_infer(effective_program.as_ref()),
+        };
+        FinalInferenceResult {
+            effective_program,
+            hm_final,
+        }
+    }
+
+    fn apply_hm_final(&mut self, hm_final: &InferProgramResult) {
+        self.type_env = hm_final.type_env.clone();
+        self.hm_expr_types = hm_final.expr_types.clone();
+    }
+
+    fn lower_core_from_program(
+        &self,
+        program_to_lower: &Program,
+        optimize: bool,
+        elaborate_dictionaries: bool,
+    ) -> Result<crate::core::CoreProgram, Diagnostic> {
+        let class_env_ref = if self.class_env.classes.is_empty() {
+            None
+        } else {
+            Some(&self.class_env)
+        };
+        let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
+            program_to_lower,
+            &self.hm_expr_types,
+            Some(&self.interner),
+            None,
+            None,
+            class_env_ref,
+        );
+
+        if elaborate_dictionaries && !self.class_env.classes.is_empty() {
+            let mut max_id: u32 = 0;
+            for def in &core.defs {
+                max_id = max_id.max(def.binder.id.0);
+            }
+            let mut next_id = max_id + 1;
+            crate::core::passes::elaborate_dictionaries(
+                &mut core,
+                &self.class_env,
+                &self.type_env,
+                &self.interner,
+                &mut next_id,
+            );
+        }
+
+        let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
+        crate::core::passes::run_core_passes_with_interner_and_registry(
+            &mut core,
+            &self.interner,
+            optimize,
+            preloaded_registry,
+        )?;
+        Ok(core)
+    }
+
+    fn prepare_core_program(
+        &mut self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<crate::core::CoreProgram, Diagnostic> {
+        if optimize {
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
+            let program_to_lower = rename(optimized, HashMap::new());
+            return self.lower_core_from_program(&program_to_lower, true, false);
+        }
+
+        let prepared = self.prepare_program_for_lowering(program);
+        self.apply_hm_final(&prepared.hm_final);
+        self.lower_core_from_program(prepared.effective_program.as_ref(), false, false)
+    }
+
+    fn prepare_core_program_with_preloaded(
+        &mut self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<crate::core::CoreProgram, Diagnostic> {
+        if optimize {
+            return self.prepare_core_program(program, true);
+        }
+
+        let prepared = self.prepare_program_for_lowering_with_preloaded(program);
+        self.apply_hm_final(&prepared.hm_final);
+        self.lower_core_from_program(prepared.effective_program.as_ref(), false, false)
+    }
+
+    fn prepare_program_for_lowering_internal<'a>(
+        &mut self,
+        program: &'a Program,
+        mode: LoweringPreparationMode,
+    ) -> FinalInferenceResult<'a> {
+        #[cfg(test)]
+        {
+            self.hm_infer_runs = 0;
+        }
+        let (
+            preloaded_contracts,
+            preloaded_visibility,
+            preloaded_adt_ctors,
+            preloaded_effect_ops,
+            preloaded_effect_sigs,
+        ) = match mode {
+            LoweringPreparationMode::Fresh => (
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+            ),
+            LoweringPreparationMode::WithPreloaded => (
+                self.module_contracts.clone(),
+                self.module_function_visibility.clone(),
+                self.module_adt_constructors.clone(),
+                self.effect_ops_registry.clone(),
+                self.effect_op_signatures.clone(),
+            ),
+        };
+
+        self.file_scope_symbols.clear();
+        self.imported_modules.clear();
+        self.import_aliases.clear();
+        self.imported_module_exclusions.clear();
+        self.exposed_bindings.clear();
+        self.current_module_prefix = None;
+        self.current_span = None;
+        self.static_type_scopes.clear();
+        self.static_type_scopes.push(HashMap::new());
+        self.effect_alias_scopes.clear();
+        self.effect_alias_scopes.push(HashMap::new());
+        self.module_contracts = preloaded_contracts;
+        self.module_function_visibility = preloaded_visibility;
+        self.module_adt_constructors = preloaded_adt_ctors;
+        self.type_env = TypeEnv::new();
+        self.hm_expr_types.clear();
+        self.effect_ops_registry = preloaded_effect_ops;
+        self.effect_op_signatures = preloaded_effect_sigs;
+
+        self.collect_module_function_visibility(program);
+        if matches!(mode, LoweringPreparationMode::WithPreloaded) {
+            self.collect_module_adt_constructors(program);
+        }
+        self.collect_module_contracts(program);
+        self.collect_effect_declarations(program);
+        self.auto_expose_flow_modules();
+
+        if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
+            let additional_reserved_names = self
+                .preloaded_imported_globals
+                .iter()
+                .copied()
+                .filter(|name| {
+                    !self
+                        .interner
+                        .try_resolve(*name)
+                        .is_some_and(|resolved| resolved.starts_with("__tc_"))
+                })
+                .collect::<HashSet<_>>();
+            let extra = crate::types::class_dispatch::generate_dispatch_functions(
+                &program.statements,
+                &self.class_env,
+                &mut self.interner,
+                &additional_reserved_names,
+            );
+            if extra.is_empty() {
+                self.infer_final_program(program)
+            } else {
+                let class_augmented = self.inject_generated_dispatch_functions(program, extra);
+                let final_inference = self.infer_final_program(&class_augmented);
+                FinalInferenceResult {
+                    effective_program: Cow::Owned(final_inference.effective_program.into_owned()),
+                    hm_final: final_inference.hm_final,
+                }
+            }
+        } else {
+            self.infer_final_program(program)
+        }
+    }
+
+    fn prepare_program_for_lowering<'a>(
+        &mut self,
+        program: &'a Program,
+    ) -> FinalInferenceResult<'a> {
+        self.prepare_program_for_lowering_internal(program, LoweringPreparationMode::Fresh)
+    }
+
+    fn prepare_program_for_lowering_with_preloaded<'a>(
+        &mut self,
+        program: &'a Program,
+    ) -> FinalInferenceResult<'a> {
+        self.prepare_program_for_lowering_internal(program, LoweringPreparationMode::WithPreloaded)
+    }
+
     /// Auto-expose all public members of Flow library modules.
     ///
     /// Replaces the old base function registry — every compilation unit
@@ -549,13 +1421,7 @@ impl Compiler {
             "Flow.IO",
             "Flow.Assert",
         ];
-        let skip_flow_auto_expose: Vec<(&str, &str)> = vec![
-            // Preserve existing primop behavior for unqualified calls.
-            ("Flow.List", "concat"),
-            ("Flow.List", "delete"),
-            ("Flow.List", "sort"),
-            ("Flow.List", "sort_by"),
-        ];
+        let skip_flow_auto_expose: Vec<(&str, &str)> = vec![];
         // Collect all public members for Flow modules.
         let entries: Vec<(Symbol, Symbol)> = self
             .module_function_visibility
@@ -578,6 +1444,10 @@ impl Compiler {
 
     pub fn set_strict_mode(&mut self, strict_mode: bool) {
         self.strict_mode = strict_mode;
+    }
+
+    pub fn set_strict_types(&mut self, enabled: bool) {
+        self.strict_types = enabled;
     }
 
     pub fn set_profiling(&mut self, enabled: bool) {
@@ -606,35 +1476,8 @@ impl Compiler {
         &mut self,
         program: &Program,
     ) -> HashMap<ExprId, InferType> {
-        self.file_scope_symbols.clear();
-        self.imported_modules.clear();
-        self.import_aliases.clear();
-        self.imported_module_exclusions.clear();
-        self.exposed_bindings.clear();
-        self.current_module_prefix = None;
-        self.current_span = None;
-        self.static_type_scopes.clear();
-        self.static_type_scopes.push(HashMap::new());
-        self.effect_alias_scopes.clear();
-        self.effect_alias_scopes.push(HashMap::new());
-        self.module_contracts.clear();
-        self.module_function_visibility.clear();
-        self.module_adt_constructors.clear();
-        self.type_env = TypeEnv::new();
-        self.hm_expr_types.clear();
-        self.effect_ops_registry.clear();
-        self.effect_op_signatures.clear();
-
-        self.collect_module_function_visibility(program);
-        self.collect_module_contracts(program);
-        self.collect_effect_declarations(program);
-        // Auto-expose Flow library modules so HM can resolve Flow functions.
-        self.auto_expose_flow_modules();
-
-        let hm_config = self.build_infer_config(program);
-        let hm = infer_program(program, &self.interner, hm_config);
-        self.type_env = hm.type_env;
-        self.hm_expr_types = hm.expr_types;
+        let prepared = self.prepare_program_for_lowering(program);
+        self.apply_hm_final(&prepared.hm_final);
         self.hm_expr_types.clone()
     }
 
@@ -642,41 +1485,8 @@ impl Compiler {
         &mut self,
         program: &Program,
     ) -> HashMap<ExprId, InferType> {
-        let preloaded_contracts = self.module_contracts.clone();
-        let preloaded_visibility = self.module_function_visibility.clone();
-        let preloaded_adt_ctors = self.module_adt_constructors.clone();
-        let preloaded_effect_ops = self.effect_ops_registry.clone();
-        let preloaded_effect_sigs = self.effect_op_signatures.clone();
-
-        self.file_scope_symbols.clear();
-        self.imported_modules.clear();
-        self.import_aliases.clear();
-        self.imported_module_exclusions.clear();
-        self.exposed_bindings.clear();
-        self.current_module_prefix = None;
-        self.current_span = None;
-        self.static_type_scopes.clear();
-        self.static_type_scopes.push(HashMap::new());
-        self.effect_alias_scopes.clear();
-        self.effect_alias_scopes.push(HashMap::new());
-        self.module_contracts = preloaded_contracts;
-        self.module_function_visibility = preloaded_visibility;
-        self.module_adt_constructors = preloaded_adt_ctors;
-        self.type_env = TypeEnv::new();
-        self.hm_expr_types.clear();
-        self.effect_ops_registry = preloaded_effect_ops;
-        self.effect_op_signatures = preloaded_effect_sigs;
-
-        self.collect_module_function_visibility(program);
-        self.collect_module_adt_constructors(program);
-        self.collect_module_contracts(program);
-        self.collect_effect_declarations(program);
-        self.auto_expose_flow_modules();
-
-        let hm_config = self.build_infer_config(program);
-        let hm = infer_program(program, &self.interner, hm_config);
-        self.type_env = hm.type_env;
-        self.hm_expr_types = hm.expr_types;
+        let prepared = self.prepare_program_for_lowering_with_preloaded(program);
+        self.apply_hm_final(&prepared.hm_final);
         self.hm_expr_types.clone()
     }
 
@@ -686,6 +1496,13 @@ impl Compiler {
 
     pub fn cached_member_schemes(&self) -> &HashMap<(Symbol, Symbol), Scheme> {
         &self.cached_member_schemes
+    }
+
+    /// Proposal 0151, Phase 2: read-only access to the collected class
+    /// environment so that `build_interface` can extract `public class`
+    /// and `public instance` entries owned by the current module.
+    pub fn class_env(&self) -> &crate::types::class_env::ClassEnv {
+        &self.class_env
     }
 
     pub fn preload_module_interface(
@@ -726,13 +1543,75 @@ impl Compiler {
             self.cached_member_borrow_signatures
                 .insert((module_name, member), signature.clone());
         }
+
+        for class_entry in &interface.public_classes {
+            if let Some(class_def) =
+                imported_class_def_from_entry(class_entry, &symbol_remap, &mut self.interner)
+            {
+                let class_id = class_def.class_id();
+                for method in &class_def.methods {
+                    let qualified = self.interner.intern_join(module_name, method.name);
+                    if !self.symbol_table.exists_in_current_scope(qualified) {
+                        self.symbol_table.define(qualified, Span::default());
+                    }
+                    self.preloaded_imported_globals.insert(qualified);
+                    let scheme =
+                        build_public_class_method_scheme(&class_def, method, &self.interner);
+                    self.cached_member_schemes
+                        .insert((module_name, method.name), scheme);
+                    self.module_function_visibility
+                        .insert((module_name, method.name), true);
+                }
+                self.imported_public_classes.insert(class_id, class_def);
+            }
+        }
+
+        for instance_entry in &interface.public_instances {
+            let remapped_entry = remap_public_instance_entry(instance_entry, &symbol_remap);
+            if let Some(instance_def) = imported_instance_def_from_entry(
+                &remapped_entry,
+                &HashMap::new(),
+                &mut self.interner,
+                &self.imported_public_classes,
+            ) {
+                if let Some(class_def) = self.imported_public_classes.get(&instance_def.class_id) {
+                    preload_imported_instance_schemes(
+                        &mut self.symbol_table,
+                        &mut self.preloaded_imported_globals,
+                        &mut self.imported_instance_method_schemes,
+                        &mut self.imported_instance_method_native_symbols,
+                        &instance_def,
+                        class_def,
+                        &mut self.interner,
+                    );
+                }
+                self.imported_public_instances.push(instance_def);
+            } else {
+                self.pending_imported_public_instance_entries
+                    .push(remapped_entry);
+            }
+        }
+        resolve_pending_imported_public_instances(
+            &self.imported_public_classes,
+            &mut self.pending_imported_public_instance_entries,
+            &mut self.imported_public_instances,
+            &mut self.imported_instance_method_schemes,
+            &mut self.imported_instance_method_native_symbols,
+            &mut self.symbol_table,
+            &mut self.preloaded_imported_globals,
+            &mut self.interner,
+        );
     }
 
     pub fn preload_dependency_program(&mut self, program: &Program) {
         self.collect_module_function_visibility(program);
         self.collect_module_adt_constructors(program);
         self.collect_module_contracts(program);
-        self.collect_effect_declarations(program);
+        for statement in &program.statements {
+            self.collect_effect_declarations_from_stmt(statement);
+        }
+        self.preloaded_effect_ops_registry = self.effect_ops_registry.clone();
+        self.preloaded_effect_op_signatures = self.effect_op_signatures.clone();
     }
 
     pub fn build_native_extern_symbols(
@@ -741,7 +1620,31 @@ impl Compiler {
     ) -> HashMap<String, crate::lir::lower::ImportedNativeSymbol> {
         use crate::syntax::statement::{ImportExposing, Statement};
 
-        let import_bindings = self.collect_import_module_bindings(program);
+        fn collect_local_function_names(
+            statements: &[Statement],
+            out: &mut HashSet<String>,
+            interner: &Interner,
+        ) {
+            for statement in statements {
+                match statement {
+                    Statement::Function { name, .. } => {
+                        out.insert(interner.resolve(*name).to_string());
+                    }
+                    Statement::Module { body, .. } => {
+                        collect_local_function_names(&body.statements, out, interner);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let mut import_bindings = self.collect_import_module_bindings(program);
+        for (&alias, &target) in &self.import_aliases {
+            import_bindings.insert(alias, target);
+        }
+        for &module in &self.imported_modules {
+            import_bindings.entry(module).or_insert(module);
+        }
         let mut symbols = HashMap::new();
         let flow_prefixes = [
             "Flow.Option",
@@ -751,7 +1654,13 @@ impl Compiler {
             "Flow.IO",
             "Flow.Assert",
         ];
-        let skip_flow_auto_expose = [("Flow.List", "concat"), ("Flow.List", "delete")];
+        let skip_flow_auto_expose: [(&str, &str); 0] = [];
+        let mut local_function_names = HashSet::new();
+        collect_local_function_names(
+            &program.statements,
+            &mut local_function_names,
+            &self.interner,
+        );
 
         for ((module_name, member_name), scheme) in &self.cached_member_schemes {
             let module = self.sym(*module_name);
@@ -783,6 +1692,21 @@ impl Compiler {
                         arity: Self::native_function_arity(scheme),
                     },
                 );
+            }
+
+            for class_def in self.imported_public_classes.values() {
+                if class_def.module.as_identifier() != Some(target_module) {
+                    continue;
+                }
+                for method in &class_def.methods {
+                    let member = self.sym(method.name);
+                    symbols
+                        .entry(format!("{binding_name}.{member}"))
+                        .or_insert_with(|| crate::lir::lower::ImportedNativeSymbol {
+                            symbol: format!("flux_{}_{}", target_name.replace('.', "_"), member),
+                            arity: method.arity,
+                        });
+                }
             }
         }
 
@@ -837,6 +1761,24 @@ impl Compiler {
                             );
                         }
                     }
+                    for class_def in self.imported_public_classes.values() {
+                        if class_def.module.as_identifier() != Some(*module_name) {
+                            continue;
+                        }
+                        for method in &class_def.methods {
+                            let member = self.sym(method.name);
+                            symbols.entry(member.to_string()).or_insert_with(|| {
+                                crate::lir::lower::ImportedNativeSymbol {
+                                    symbol: format!(
+                                        "flux_{}_{}",
+                                        self.sym(*module_name).replace('.', "_"),
+                                        member
+                                    ),
+                                    arity: method.arity,
+                                }
+                            });
+                        }
+                    }
                 }
                 ImportExposing::Names(names) => {
                     for member_name in names {
@@ -857,9 +1799,47 @@ impl Compiler {
                                 },
                             );
                         }
+                        for class_def in self.imported_public_classes.values() {
+                            if class_def.module.as_identifier() != Some(*module_name) {
+                                continue;
+                            }
+                            for method in &class_def.methods {
+                                if method.name != *member_name {
+                                    continue;
+                                }
+                                symbols.entry(member.to_string()).or_insert_with(|| {
+                                    crate::lir::lower::ImportedNativeSymbol {
+                                        symbol: format!(
+                                            "flux_{}_{}",
+                                            self.sym(*module_name).replace('.', "_"),
+                                            member
+                                        ),
+                                        arity: method.arity,
+                                    }
+                                });
+                            }
+                        }
                     }
                 }
             }
+        }
+
+        for (&name, scheme) in &self.imported_instance_method_schemes {
+            let mangled = self.sym(name);
+            if local_function_names.contains(mangled) {
+                continue;
+            }
+            let native_symbol = self
+                .imported_instance_method_native_symbols
+                .get(&name)
+                .cloned()
+                .unwrap_or_else(|| format!("flux_{mangled}"));
+            symbols.entry(mangled.to_string()).or_insert_with(|| {
+                crate::lir::lower::ImportedNativeSymbol {
+                    symbol: native_symbol,
+                    arity: Self::native_function_arity(scheme),
+                }
+            });
         }
 
         symbols
@@ -941,7 +1921,8 @@ impl Compiler {
     fn collect_adt_definitions_from_stmt(&mut self, statement: &Statement) {
         match statement {
             Statement::Data { name, variants, .. } => {
-                self.adt_registry.register_adt(*name, variants);
+                self.adt_registry
+                    .register_adt(*name, variants, &self.interner);
             }
             Statement::Module { body, .. } => {
                 for statement in &body.statements {
@@ -953,8 +1934,8 @@ impl Compiler {
     }
 
     fn collect_effect_declarations(&mut self, program: &Program) {
-        self.effect_ops_registry.clear();
-        self.effect_op_signatures.clear();
+        self.effect_ops_registry = self.preloaded_effect_ops_registry.clone();
+        self.effect_op_signatures = self.preloaded_effect_op_signatures.clone();
         for statement in &program.statements {
             self.collect_effect_declarations_from_stmt(statement);
         }
@@ -977,6 +1958,23 @@ impl Compiler {
             }
             _ => {}
         }
+    }
+
+    fn collect_class_declarations(&mut self, program: &Program) {
+        // Register built-in classes first so that `deriving` clauses in the
+        // program can reference them (Eq, Ord, Num, Show, Semigroup).
+        let mut env = crate::types::class_env::ClassEnv::new();
+        env.register_builtins(&mut self.interner);
+        env.classes.extend(self.imported_public_classes.clone());
+        let diagnostics = env.collect_from_statements(&program.statements, &self.interner);
+        merge_imported_public_instances(
+            &mut env,
+            &self.imported_public_instances,
+            &mut self.warnings,
+            &self.interner,
+        );
+        self.class_env = env;
+        self.warnings.extend(diagnostics);
     }
 
     fn collect_module_contracts(&mut self, program: &Program) {
@@ -1081,7 +2079,7 @@ impl Compiler {
                             arity: parameters.len(),
                         },
                         FnContract {
-                            type_params: type_params.clone(),
+                            type_params: Statement::function_type_param_names(type_params),
                             params: parameter_types.clone(),
                             ret: return_type.clone(),
                             effects: effects.clone(),
@@ -1153,7 +2151,11 @@ impl Compiler {
         let mut forall = infer_type.free_vars().into_iter().collect::<Vec<_>>();
         forall.sort_unstable();
         forall.dedup();
-        Some(Scheme { forall, infer_type })
+        Some(Scheme {
+            forall,
+            constraints: Vec::new(),
+            infer_type,
+        })
     }
 
     fn native_function_arity(scheme: &Scheme) -> usize {
@@ -1303,12 +2305,28 @@ impl Compiler {
             }
         }
 
+        // Imported instance method schemes are hidden implementation details,
+        // but HM needs them in scope so resolved class-call effect propagation
+        // can look up the instantiated `__tc_*` row in downstream modules.
+        for (&name, scheme) in &self.imported_instance_method_schemes {
+            exposed_schemes
+                .entry(name)
+                .or_insert_with(|| scheme.clone());
+        }
+
+        let class_env = if self.class_env.classes.is_empty() {
+            None
+        } else {
+            Some(self.class_env.clone())
+        };
+
         InferProgramConfig {
             file_path: Some(self.file_path.as_str().into()),
             preloaded_base_schemes: exposed_schemes,
             preloaded_module_member_schemes: preloaded_member_schemes,
             known_flow_names: HashSet::new(),
             flow_module_symbol,
+            class_env,
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
         }
     }
@@ -1332,12 +2350,17 @@ impl Compiler {
         };
         let pure = || InferEffectRow::closed_empty();
         let io = || InferEffectRow::closed_from_symbols(vec![io_sym]);
+        // Type variables for polymorphic primop signatures.
+        // IDs are arbitrary — schemes are instantiated with fresh vars at each use.
+        let var_a = || InferType::Var(9000);
+        let var_b = || InferType::Var(9001);
+        let var_c = || InferType::Var(9002);
 
         // (name, params, ret, effects, forall_count)
         let primop_sigs: Vec<(&str, Vec<InferType>, InferType, InferEffectRow, usize)> = vec![
             // I/O
-            ("print", vec![con(TC::Any)], con(TC::Any), io(), 0),
-            ("println", vec![con(TC::Any)], con(TC::Any), io(), 0),
+            ("print", vec![var_a()], con(TC::Unit), io(), 0),
+            ("println", vec![var_a()], con(TC::Unit), io(), 0),
             ("read_file", vec![con(TC::String)], con(TC::String), io(), 0),
             ("read_stdin", vec![], con(TC::String), io(), 0),
             (
@@ -1354,7 +2377,7 @@ impl Compiler {
                 io(),
                 0,
             ),
-            ("panic", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("panic", vec![var_a()], var_b(), pure(), 2),
             // String ops
             (
                 "split",
@@ -1415,23 +2438,11 @@ impl Compiler {
                 pure(),
                 0,
             ),
-            ("to_string", vec![con(TC::Any)], con(TC::String), pure(), 0),
+            ("to_string", vec![var_a()], con(TC::String), pure(), 0),
             // Numeric
-            ("abs", vec![con(TC::Any)], con(TC::Any), pure(), 0),
-            (
-                "min",
-                vec![con(TC::Any), con(TC::Any)],
-                con(TC::Any),
-                pure(),
-                0,
-            ),
-            (
-                "max",
-                vec![con(TC::Any), con(TC::Any)],
-                con(TC::Any),
-                pure(),
-                0,
-            ),
+            ("abs", vec![var_a()], var_a(), pure(), 0),
+            ("min", vec![var_a(), var_a()], var_a(), pure(), 0),
+            ("max", vec![var_a(), var_a()], var_a(), pure(), 0),
             ("parse_int", vec![con(TC::String)], con(TC::Int), pure(), 0),
             (
                 "parse_ints",
@@ -1448,120 +2459,72 @@ impl Compiler {
                 0,
             ),
             // Collection ops
-            ("len", vec![con(TC::Any)], con(TC::Int), pure(), 0),
+            ("len", vec![var_a()], con(TC::Int), pure(), 0),
+            ("array_push", vec![var_a(), var_b()], var_a(), pure(), 0),
+            ("array_concat", vec![var_a(), var_a()], var_a(), pure(), 0),
             (
-                "push",
-                vec![con(TC::Any), con(TC::Any)],
-                con(TC::Any),
+                "array_slice",
+                vec![var_a(), con(TC::Int), con(TC::Int)],
+                var_a(),
                 pure(),
                 0,
             ),
+            ("array_reverse", vec![var_a()], var_a(), pure(), 0),
             (
-                "concat",
-                vec![con(TC::Any), con(TC::Any)],
-                con(TC::Any),
-                pure(),
-                0,
-            ),
-            (
-                "slice",
-                vec![con(TC::Any), con(TC::Int), con(TC::Int)],
-                con(TC::Any),
-                pure(),
-                0,
-            ),
-            ("reverse", vec![con(TC::Any)], con(TC::Any), pure(), 0),
-            (
-                "contains",
-                vec![con(TC::Any), con(TC::Any)],
+                "array_contains",
+                vec![var_a(), var_b()],
                 con(TC::Bool),
-                pure(),
-                0,
-            ),
-            (
-                "range",
-                vec![con(TC::Int), con(TC::Int)],
-                app(TC::Array, vec![con(TC::Int)]),
                 pure(),
                 0,
             ),
             // Type checks
-            ("type_of", vec![con(TC::Any)], con(TC::String), pure(), 0),
-            ("is_int", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
-            ("is_float", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
-            ("is_string", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
-            ("is_bool", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
-            ("is_array", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
-            ("is_none", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
-            ("is_some", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
-            ("is_list", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
-            ("is_hash", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
-            ("is_map", vec![con(TC::Any)], con(TC::Bool), pure(), 0),
+            ("type_of", vec![var_a()], con(TC::String), pure(), 0),
+            ("is_int", vec![var_a()], con(TC::Bool), pure(), 0),
+            ("is_float", vec![var_a()], con(TC::Bool), pure(), 0),
+            ("is_string", vec![var_a()], con(TC::Bool), pure(), 0),
+            ("is_bool", vec![var_a()], con(TC::Bool), pure(), 0),
+            ("is_array", vec![var_a()], con(TC::Bool), pure(), 0),
+            ("is_none", vec![var_a()], con(TC::Bool), pure(), 0),
+            ("is_some", vec![var_a()], con(TC::Bool), pure(), 0),
+            ("is_list", vec![var_a()], con(TC::Bool), pure(), 0),
+            ("is_hash", vec![var_a()], con(TC::Bool), pure(), 0),
+            ("is_map", vec![var_a()], con(TC::Bool), pure(), 0),
             // List ops
-            ("to_list", vec![con(TC::Any)], con(TC::Any), pure(), 0),
-            ("to_array", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("to_list", vec![var_a()], var_b(), pure(), 0),
+            ("to_array", vec![var_a()], var_b(), pure(), 0),
             // Map ops
-            ("keys", vec![con(TC::Any)], con(TC::Any), pure(), 0),
-            ("values", vec![con(TC::Any)], con(TC::Any), pure(), 0),
-            (
-                "has_key",
-                vec![con(TC::Any), con(TC::Any)],
-                con(TC::Bool),
-                pure(),
-                0,
-            ),
-            (
-                "merge",
-                vec![con(TC::Any), con(TC::Any)],
-                con(TC::Any),
-                pure(),
-                0,
-            ),
-            (
-                "delete",
-                vec![con(TC::Any), con(TC::Any)],
-                con(TC::Any),
-                pure(),
-                0,
-            ),
-            (
-                "put",
-                vec![con(TC::Any), con(TC::Any), con(TC::Any)],
-                con(TC::Any),
-                pure(),
-                0,
-            ),
-            (
-                "get",
-                vec![con(TC::Any), con(TC::Any)],
-                con(TC::Any),
-                pure(),
-                0,
-            ),
+            ("map_keys", vec![var_a()], var_b(), pure(), 0),
+            ("map_values", vec![var_a()], var_b(), pure(), 0),
+            ("map_has", vec![var_a(), var_b()], con(TC::Bool), pure(), 0),
+            ("map_merge", vec![var_a(), var_a()], var_a(), pure(), 0),
+            ("map_delete", vec![var_a(), var_b()], var_a(), pure(), 0),
+            ("map_set", vec![var_a(), var_b(), var_c()], var_a(), pure(), 0),
+            ("map_get", vec![var_a(), var_b()], var_c(), pure(), 0),
+            ("map_size", vec![var_a()], con(TC::Int), pure(), 0),
             // Time
             ("now_ms", vec![], con(TC::Int), pure(), 0),
             (
                 "time",
-                vec![fun(vec![], con(TC::Any), pure())],
+                vec![fun(vec![], var_a(), pure())],
                 con(TC::Int),
                 pure(),
                 0,
             ),
             // Sum/Product
-            ("sum", vec![con(TC::Any)], con(TC::Any), pure(), 0),
-            ("product", vec![con(TC::Any)], con(TC::Any), pure(), 0),
+            ("sum", vec![var_a()], var_b(), pure(), 0),
+            ("product", vec![var_a()], var_b(), pure(), 0),
             // Safe arithmetic (Proposal 0135)
             (
                 "safe_div",
-                vec![con(TC::Any), con(TC::Any)],
-                app(TC::Option, vec![con(TC::Any)]),
+                vec![var_a(), var_a()],
+                app(TC::Option, vec![var_a()]),
                 pure(),
                 0,
             ),
             (
                 "safe_mod",
-                vec![con(TC::Any), con(TC::Any)],
-                app(TC::Option, vec![con(TC::Any)]),
+                vec![var_a(), var_a()],
+                app(TC::Option, vec![var_a()]),
                 pure(),
                 0,
             ),
@@ -1577,7 +2540,14 @@ impl Compiler {
             let mut forall = infer_type.free_vars().into_iter().collect::<Vec<_>>();
             forall.sort_unstable();
             forall.dedup();
-            schemes.insert(sym, Scheme { forall, infer_type });
+            schemes.insert(
+                sym,
+                Scheme {
+                    forall,
+                    constraints: Vec::new(),
+                    infer_type,
+                },
+            );
         }
     }
 
@@ -1619,7 +2589,7 @@ impl Compiler {
                         arity: parameters.len(),
                     },
                     module_name,
-                    type_params: type_params.clone(),
+                    type_params: Statement::function_type_param_names(type_params),
                     parameter_types: parameter_types.clone(),
                     return_type: return_type.clone(),
                     declared_effects,
@@ -2963,32 +3933,22 @@ impl Compiler {
     /// compile configuration. Call this after a successful `compile_with_opts`.
     #[allow(clippy::result_large_err)]
     pub fn dump_core_with_opts(
-        &self,
+        &mut self,
         program: &Program,
         optimize: bool,
         mode: crate::core::display::CoreDisplayMode,
     ) -> Result<String, Diagnostic> {
-        let program_to_lower = if optimize {
+        let core = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
-            rename(optimized, HashMap::new())
+            let program_to_lower = rename(optimized, HashMap::new());
+            self.lower_core_from_program(&program_to_lower, true, true)?
         } else {
-            program.clone()
+            let prepared = self.prepare_program_for_lowering(program);
+            self.apply_hm_final(&prepared.hm_final);
+            self.lower_core_from_program(prepared.effective_program.as_ref(), false, true)?
         };
-
-        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
-            &program_to_lower,
-            &self.hm_expr_types,
-            Some(&self.interner),
-        );
-        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
-        crate::core::passes::run_core_passes_with_interner_and_registry(
-            &mut core,
-            &self.interner,
-            optimize,
-            preloaded_registry,
-        )?;
 
         // Collect Aether stats across all definitions
         let mut total_stats = crate::aether::AetherStats::default();
@@ -3019,29 +3979,8 @@ impl Compiler {
 
     /// Lower to Core IR, then to LIR, and return a human-readable dump.
     #[allow(clippy::result_large_err)]
-    pub fn dump_lir(&self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
-        let program_to_lower = if optimize {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(program.clone());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            rename(optimized, HashMap::new())
-        } else {
-            program.clone()
-        };
-
-        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
-            &program_to_lower,
-            &self.hm_expr_types,
-            Some(&self.interner),
-        );
-        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
-        crate::core::passes::run_core_passes_with_interner_and_registry(
-            &mut core,
-            &self.interner,
-            optimize,
-            preloaded_registry,
-        )?;
-
+    pub fn dump_lir(&mut self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
+        let core = self.prepare_core_program(program, optimize)?;
         let globals_map = self.build_globals_map();
         let lir = crate::lir::lower::lower_program_with_interner(
             &core,
@@ -3051,37 +3990,39 @@ impl Compiler {
         Ok(crate::lir::lower::display_program(&lir))
     }
 
+    /// Lower to Core IR, then to CFG IR, and return a human-readable dump.
+    #[allow(clippy::result_large_err)]
+    pub fn dump_cfg(&mut self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
+        let prepared = self.prepare_program_for_lowering(program);
+        self.apply_hm_final(&prepared.hm_final);
+        let class_env_ref = if self.class_env.classes.is_empty() {
+            None
+        } else {
+            Some(&self.class_env)
+        };
+        let (mut ir_program, _) = crate::cfg::lower_program_to_ir_typed(
+            prepared.effective_program.as_ref(),
+            &self.hm_expr_types,
+            Some(&self.interner),
+            optimize,
+            Some(&self.type_env),
+            class_env_ref,
+        )?;
+        crate::cfg::run_ir_pass_pipeline(&mut ir_program, &crate::cfg::IrPassContext)?;
+        Ok(ir_program.to_string())
+    }
+
     /// Lower program through LIR to an LLVM IR module (Proposal 0132 Phase 7).
     /// Returns the `LlvmModule` struct so the caller can inject target triple
     /// and data layout before rendering.
     #[cfg(feature = "core_to_llvm")]
     #[allow(clippy::result_large_err)]
     pub fn lower_to_lir_llvm_module(
-        &self,
+        &mut self,
         program: &Program,
         optimize: bool,
     ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
-        let program_to_lower = if optimize {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(program.clone());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            rename(optimized, HashMap::new())
-        } else {
-            program.clone()
-        };
-
-        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
-            &program_to_lower,
-            &self.hm_expr_types,
-            Some(&self.interner),
-        );
-        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
-        crate::core::passes::run_core_passes_with_interner_and_registry(
-            &mut core,
-            &self.interner,
-            optimize,
-            preloaded_registry,
-        )?;
+        let core = self.prepare_core_program(program, optimize)?;
 
         // Pass None for globals_map so ALL functions are lowered to LIR
         // functions (no GetGlobal). In native mode there's no VM globals
@@ -3096,35 +4037,30 @@ impl Compiler {
     #[cfg(feature = "core_to_llvm")]
     #[allow(clippy::result_large_err)]
     pub fn lower_to_lir_llvm_module_per_module(
-        &self,
+        &mut self,
         program: &Program,
         optimize: bool,
         export_user_ctor_name_helper: bool,
     ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
-        let program_to_lower = if optimize {
+        let _ = self.phase_collection(program);
+        let prepared = self.prepare_program_for_lowering_with_preloaded(program);
+        self.apply_hm_final(&prepared.hm_final);
+        let effective_program = prepared.effective_program;
+
+        let (effective_program, core) = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(program.clone());
+            let desugared = desugar(effective_program.into_owned());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
-            rename(optimized, HashMap::new())
+            let program_to_lower = rename(optimized, HashMap::new());
+            let core = self.lower_core_from_program(&program_to_lower, true, false)?;
+            (Cow::Owned(program_to_lower), core)
         } else {
-            program.clone()
+            let core = self.lower_core_from_program(effective_program.as_ref(), false, false)?;
+            (effective_program, core)
         };
 
-        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
-            &program_to_lower,
-            &self.hm_expr_types,
-            Some(&self.interner),
-        );
-        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
-        crate::core::passes::run_core_passes_with_interner_and_registry(
-            &mut core,
-            &self.interner,
-            optimize,
-            preloaded_registry,
-        )?;
-
-        let extern_symbols = self.build_native_extern_symbols(&program_to_lower);
-        let emit_main = program_to_lower.statements.iter().any(|statement| {
+        let extern_symbols = self.build_native_extern_symbols(effective_program.as_ref());
+        let emit_main = effective_program.statements.iter().any(|statement| {
             matches!(
                 statement,
                 Statement::Function { name, .. } if self.sym(*name) == "main"
@@ -3156,7 +4092,11 @@ impl Compiler {
     /// Dump LIR as LLVM IR text (Proposal 0132 Phase 7).
     #[cfg(feature = "core_to_llvm")]
     #[allow(clippy::result_large_err)]
-    pub fn dump_lir_llvm(&self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
+    pub fn dump_lir_llvm(
+        &mut self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<String, Diagnostic> {
         let module = self.lower_to_lir_llvm_module(program, optimize)?;
         Ok(crate::core_to_llvm::render_module(&module))
     }
@@ -3195,11 +4135,19 @@ impl Compiler {
         }
 
         let mut map = HashMap::new();
-        // Sort by global index so later-compiled modules (higher indices)
-        // shadow earlier ones for unqualified names. This ensures Flow.Array's
-        // `first`/`last`/`contains`/`reverse` shadow Flow.List's versions.
+        // Sort by global index so later-defined globals overwrite earlier
+        // unqualified names. Module members from non-prelude modules remain
+        // qualified/alias-qualified only.
         let mut globals = self.symbol_table.global_definitions();
         globals.sort_by_key(|&(_, idx)| idx);
+        let flow_prelude_modules = [
+            "Flow.Option",
+            "Flow.List",
+            "Flow.String",
+            "Flow.Numeric",
+            "Flow.IO",
+            "Flow.Assert",
+        ];
         for (sym, idx) in globals {
             let name = self
                 .interner
@@ -3207,14 +4155,10 @@ impl Compiler {
                 .to_string();
             // Add qualified name (e.g. "Flow.Array.sort")
             map.insert(name.clone(), idx);
-            // Add unqualified name (last segment after last '.').
-            // Always overwrite: later-compiled modules (e.g. Flow.Array)
-            // shadow earlier ones (e.g. Flow.List) for the same unqualified
-            // name, matching the CFG compiler's resolution order.
-            if let Some(short) = name.rsplit('.').next()
-                && short != name
-            {
-                map.insert(short.to_string(), idx);
+            if let Some((module, short)) = name.rsplit_once('.') {
+                if flow_prelude_modules.contains(&module) {
+                    map.insert(short.to_string(), idx);
+                }
             }
             // Add alias-qualified names (e.g. "Array.sort" for "Flow.Array.sort"
             // when "import Flow.Array as Array" is in effect).
@@ -3233,38 +4177,17 @@ impl Compiler {
 
     #[allow(clippy::result_large_err)]
     pub fn lower_aether_report_program(
-        &self,
+        &mut self,
         program: &Program,
         optimize: bool,
     ) -> Result<crate::core::CoreProgram, Diagnostic> {
-        let program_to_lower = if optimize {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(program.clone());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            rename(optimized, HashMap::new())
-        } else {
-            program.clone()
-        };
-
-        let mut core = crate::core::lower_ast::lower_program_ast_with_interner(
-            &program_to_lower,
-            &self.hm_expr_types,
-            Some(&self.interner),
-        );
-        let preloaded_registry = self.build_preloaded_borrow_registry(&program_to_lower);
-        crate::core::passes::run_core_passes_with_interner_and_registry(
-            &mut core,
-            &self.interner,
-            optimize,
-            preloaded_registry,
-        )?;
-        Ok(core)
+        self.prepare_core_program_with_preloaded(program, optimize)
     }
 
     /// Render an Aether memory model report showing per-function optimization decisions.
     #[allow(clippy::result_large_err)]
     pub fn render_aether_report(
-        &self,
+        &mut self,
         program: &Program,
         optimize: bool,
         debug: bool,
@@ -3379,7 +4302,7 @@ impl Compiler {
     /// Dump an Aether memory model report showing per-function optimization decisions.
     #[allow(clippy::result_large_err)]
     pub fn dump_aether_report(
-        &self,
+        &mut self,
         program: &Program,
         optimize: bool,
         debug: bool,
@@ -3585,6 +4508,10 @@ impl Compiler {
         snapshot: ModuleCacheSnapshot,
     ) -> CachedModuleBytecode {
         let scope = &self.scopes[self.scope_index];
+        let constants = self.constants[snapshot.constants_len..].to_vec();
+        let instructions = scope.instructions[snapshot.instructions_len..].to_vec();
+        let referenced_globals =
+            self.referenced_global_indices_in_artifact(&instructions, &constants);
         let globals = self
             .symbol_table
             .global_bindings()
@@ -3601,6 +4528,12 @@ impl Compiler {
                     crate::bytecode::bytecode_cache::module_cache::CachedModuleBindingKind::Defined
                 },
             })
+            .filter(|binding| {
+                matches!(
+                    binding.kind,
+                    crate::bytecode::bytecode_cache::module_cache::CachedModuleBindingKind::Defined
+                ) || referenced_globals.contains(&binding.index)
+            })
             .collect();
 
         let relative_locations = scope
@@ -3615,8 +4548,8 @@ impl Compiler {
 
         CachedModuleBytecode {
             globals,
-            constants: self.constants[snapshot.constants_len..].to_vec(),
-            instructions: scope.instructions[snapshot.instructions_len..].to_vec(),
+            constants,
+            instructions,
             debug_info: FunctionDebugInfo::new(None, scope.files.clone(), relative_locations)
                 .with_effect_summary(scope.effect_summary),
         }
@@ -3624,6 +4557,10 @@ impl Compiler {
 
     pub fn build_relocatable_module_bytecode(&self) -> CachedModuleBytecode {
         let scope = &self.scopes[self.scope_index];
+        let constants = self.constants.clone();
+        let instructions = scope.instructions.clone();
+        let referenced_globals =
+            self.referenced_global_indices_in_artifact(&instructions, &constants);
         let globals = self
             .symbol_table
             .global_bindings()
@@ -3639,14 +4576,120 @@ impl Compiler {
                     crate::bytecode::bytecode_cache::module_cache::CachedModuleBindingKind::Defined
                 },
             })
+            .filter(|binding| {
+                matches!(
+                    binding.kind,
+                    crate::bytecode::bytecode_cache::module_cache::CachedModuleBindingKind::Defined
+                ) || referenced_globals.contains(&binding.index)
+            })
             .collect();
 
         CachedModuleBytecode {
             globals,
-            constants: self.constants.clone(),
-            instructions: scope.instructions.clone(),
+            constants,
+            instructions,
             debug_info: FunctionDebugInfo::new(None, scope.files.clone(), scope.locations.clone())
                 .with_effect_summary(scope.effect_summary),
+        }
+    }
+
+    fn referenced_global_indices_in_artifact(
+        &self,
+        instructions: &[u8],
+        constants: &[Value],
+    ) -> HashSet<usize> {
+        let mut referenced = HashSet::new();
+        self.collect_referenced_global_indices(instructions, constants, &mut referenced);
+        referenced
+    }
+
+    fn collect_referenced_global_indices(
+        &self,
+        instructions: &[u8],
+        constants: &[Value],
+        referenced: &mut HashSet<usize>,
+    ) {
+        let mut ip = 0usize;
+        while ip < instructions.len() {
+            let op = crate::bytecode::op_code::OpCode::from(instructions[ip]);
+            match op {
+                crate::bytecode::op_code::OpCode::OpGetGlobal
+                | crate::bytecode::op_code::OpCode::OpSetGlobal => {
+                    referenced
+                        .insert(crate::bytecode::op_code::read_u16(instructions, ip + 1) as usize);
+                }
+                _ => {}
+            }
+            ip += 1 + crate::bytecode::op_code::operand_widths(op)
+                .iter()
+                .sum::<usize>();
+        }
+
+        for constant in constants {
+            if let Value::Function(function) = constant {
+                self.collect_referenced_global_indices(&function.instructions, &[], referenced);
+            }
+        }
+    }
+
+    fn remap_cached_constant_symbols(&mut self, value: &Value) -> Value {
+        match value {
+            Value::HandlerDescriptor(desc) => Value::HandlerDescriptor(std::rc::Rc::new(
+                crate::runtime::handler_descriptor::HandlerDescriptor {
+                    effect: self.interner.intern(&desc.effect_name),
+                    effect_name: desc.effect_name.clone(),
+                    ops: desc
+                        .op_names
+                        .iter()
+                        .map(|name| self.interner.intern(name))
+                        .collect(),
+                    op_names: desc.op_names.clone(),
+                    is_discard: desc.is_discard,
+                },
+            )),
+            Value::PerformDescriptor(desc) => Value::PerformDescriptor(std::rc::Rc::new(
+                crate::runtime::perform_descriptor::PerformDescriptor {
+                    effect: self.interner.intern(&desc.effect_name),
+                    op: self.interner.intern(&desc.op_name),
+                    effect_name: desc.effect_name.clone(),
+                    op_name: desc.op_name.clone(),
+                },
+            )),
+            Value::Array(values) => Value::Array(std::rc::Rc::new(
+                values
+                    .iter()
+                    .map(|value| self.remap_cached_constant_symbols(value))
+                    .collect(),
+            )),
+            Value::Tuple(values) => Value::Tuple(std::rc::Rc::new(
+                values
+                    .iter()
+                    .map(|value| self.remap_cached_constant_symbols(value))
+                    .collect(),
+            )),
+            Value::Some(value) => {
+                Value::Some(std::rc::Rc::new(self.remap_cached_constant_symbols(value)))
+            }
+            Value::Left(value) => {
+                Value::Left(std::rc::Rc::new(self.remap_cached_constant_symbols(value)))
+            }
+            Value::Right(value) => {
+                Value::Right(std::rc::Rc::new(self.remap_cached_constant_symbols(value)))
+            }
+            Value::Cons(cell) => crate::runtime::cons_cell::ConsCell::cons(
+                self.remap_cached_constant_symbols(&cell.head),
+                self.remap_cached_constant_symbols(&cell.tail),
+            ),
+            Value::Adt(adt) => Value::Adt(std::rc::Rc::new(crate::runtime::value::AdtValue {
+                constructor: adt.constructor.clone(),
+                fields: crate::runtime::value::AdtFields::from_vec(
+                    adt.fields
+                        .iter()
+                        .map(|value| self.remap_cached_constant_symbols(value))
+                        .collect(),
+                ),
+            })),
+            _ => value.clone(),
         }
     }
 
@@ -3668,7 +4711,12 @@ impl Compiler {
             self.file_scope_symbols.insert(symbol);
         }
 
-        self.constants.extend(cached.constants.iter().cloned());
+        let remapped_constants = cached
+            .constants
+            .iter()
+            .map(|value| self.remap_cached_constant_symbols(value))
+            .collect::<Vec<_>>();
+        self.constants.extend(remapped_constants);
 
         let base_offset = self.scopes[self.scope_index].instructions.len();
         self.scopes[self.scope_index]

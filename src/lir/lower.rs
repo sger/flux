@@ -196,6 +196,7 @@ fn build_qualified_names(
                 .map(|i| i.resolve(def.name).to_string())
                 .unwrap_or_else(|| format!("def_{}", def.binder.id.0));
             match entry_qualifier {
+                Some(_) if bare.starts_with("__tc_") || bare.starts_with("__dict_") => bare,
                 Some(qual) if !bare.starts_with("lambda_") && !bare.starts_with("letrec_") => {
                     format!("{qual}_{bare}")
                 }
@@ -823,6 +824,7 @@ impl<'a> FnLower<'a> {
                             ctor_tag,
                             ctor_name: Some(name),
                             fields: Vec::new(),
+                            field_reps: Vec::new(),
                         });
                         dst
                     } else if let Some(binders) = self.name_binder_map.get(&var.name) {
@@ -1597,6 +1599,7 @@ impl<'a> FnLower<'a> {
         };
         if let Some(ref name) = resolved_name
             && let Some(op) = resolve_library_primop(name, args.len())
+                .or_else(|| CorePrimOp::from_name(name, args.len()))
         {
             let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
             self.dup_owned_call_args(&arg_vars, arg_modes);
@@ -1620,6 +1623,7 @@ impl<'a> FnLower<'a> {
                 ctor_tag,
                 ctor_name: Some(name.clone()),
                 fields: arg_vars,
+                field_reps: Vec::new(),
             });
             return dst;
         }
@@ -1725,6 +1729,7 @@ impl<'a> FnLower<'a> {
         let func_var = self.lower_expr(func);
         if let Some(name) = self.global_var_names.get(&func_var).cloned()
             && let Some(op) = resolve_library_primop(&name, arg_vars.len())
+                .or_else(|| CorePrimOp::from_name(&name, arg_vars.len()))
         {
             let dst = self.fresh_var();
             self.emit(LirInstr::PrimCall {
@@ -1926,12 +1931,18 @@ impl<'a> FnLower<'a> {
             value: LirConst::Tagged(crate::lir::nanbox_tag_int(operation.as_u32() as i64)),
         });
 
-        // Direct perform: calls handler inline with (resume, arg).
+        let arity = self.fresh_var();
+        self.emit(LirInstr::Const {
+            dst: arity,
+            value: LirConst::Int(args.len() as i64),
+        });
+
+        // Direct perform: calls handler inline with (resume, arg0, ..., argN).
         let result = self.fresh_var();
         self.emit(LirInstr::PrimCall {
             dst: Some(result),
             op: CorePrimOp::PerformDirect,
-            args: vec![htag, optag, arg, resume],
+            args: vec![htag, optag, arg, resume, arity],
         });
 
         result
@@ -2738,6 +2749,7 @@ impl<'a> FnLower<'a> {
                     ctor_tag,
                     ctor_name: None, // built-in ctors don't need a name
                     fields: field_vars,
+                    field_reps: Vec::new(),
                 });
                 dst
             }
@@ -2755,6 +2767,7 @@ impl<'a> FnLower<'a> {
                     ctor_tag,
                     ctor_name: Some(ctor_name),
                     fields: field_vars,
+                    field_reps: Vec::new(),
                 });
                 dst
             }
@@ -2889,6 +2902,7 @@ impl<'a> FnLower<'a> {
             ctor_tag,
             ctor_name,
             fields: field_vars.clone(),
+            field_reps: Vec::new(),
         });
         self.emit_copy_to_join_param(fresh_val, join_id);
         self.set_terminator(LirTerminator::Jump(join_id));
@@ -3181,6 +3195,7 @@ fn display_instr(instr: &LirInstr) -> String {
             ctor_tag,
             ctor_name,
             fields,
+            ..
         } => {
             let fs: Vec<String> = fields.iter().map(|v| format!("{v}")).collect();
             let name = ctor_name.as_deref().unwrap_or("?");

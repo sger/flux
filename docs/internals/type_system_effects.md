@@ -101,6 +101,25 @@ Primary anchors:
 - `src/bytecode/compiler/mod.rs`:
   - `with_handled_effect`.
 
+### 2.6 Effect rows on type class methods (Proposal 0151, Phase 4)
+
+Class methods can declare an effect floor via `with` clause. Instance methods must satisfy the floor (superset rule). Different instances of the same class can have different effect rows, and the resolved instance's row propagates to callers through type-directed dispatch.
+
+- Instance effect floor violation -> `E452`
+
+Primary anchors:
+
+- `src/syntax/type_class.rs`:
+  - `ClassMethod.effects`, `InstanceMethod.effects`
+- `src/types/class_dispatch.rs`:
+  - Phase 1b mangling pass forwards effects to mangled function signatures
+- `src/bytecode/compiler/statement.rs`:
+  - E452 walker validates effect floor satisfaction
+- `src/core/lower_ast/mod.rs`:
+  - `try_resolve_class_call()` propagates resolved instance's row to caller
+
+See `docs/internals/effect_row_system.md` §7 for the full reference.
+
 ### 2.4 Module ADT boundary policy (0.0.4)
 
 - ADTs are first-class inside modules.
@@ -367,6 +386,10 @@ Effects are validated at two points:
 | E422 | UNSATISFIED EFFECT SUBSET | Required effect subset not satisfied by provided row | add missing effects |
 | E423 | STRICT ANY TYPE | `Any` appears in strict-checked API types | replace `Any` with concrete type |
 | E425 | STRICT UNRESOLVED BOUNDARY TYPE | strict mode cannot resolve runtime boundary type for generic/unconverted annotation | make boundary type concrete |
+| E450 | PUBLIC INSTANCE OF PRIVATE CLASS | `public instance` of a non-public class | make the class `public` or remove `public` from the instance |
+| E451 | PUBLIC CLASS LEAKS PRIVATE TYPE | `public class` method signature references a private data type | make the data type `public` or the class private |
+| E452 | INSTANCE METHOD EFFECT FLOOR VIOLATION | instance method's effect row does not satisfy the class method's effect floor | add the missing effects to the instance method's `with` clause |
+| E455 | PUBLIC INSTANCE WITH PRIVATE HEAD TYPE | `public instance` head type is a private data type | make the data type `public` or remove `public` from the instance |
 
 Notes:
 

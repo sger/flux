@@ -101,31 +101,20 @@ Aether Memory Model Report
     _ →
       t
 ── fn my_filter ──
-  Dups: 1  Drops: 2  Reuses: 1  DropSpecs: 1  FBIP: fbip(1)
-  FreshAllocs: 1
+  Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
   verifier: ok
 λxs, f.
   case xs of
     ::(h, t) →
-      drop_spec xs {
-        unique -> let %t1 = aether_call[owned] f(h)
-          case %t1 of
-            true →
-              let %t2 = aether_call[owned, borrowed] my_filter(t, f)
-              reuse xs ::(h, %t2) @mask=0b10
-            _ →
-              drop h
-              aether_call[owned, borrowed] my_filter(t, f)
-        shared -> let %t1 = aether_call[owned] f(dup h
-          h)
-          case %t1 of
-            true →
-              let %t2 = aether_call[owned, borrowed] my_filter(t, f)
-              ::(h, %t2)
-            _ →
-              drop h
-              aether_call[owned, borrowed] my_filter(t, f)
-      }
+      let %t1 = aether_call[owned] f(h)
+      case %t1 of
+        true →
+          let %t2 = aether_call[owned, borrowed] my_filter(t, f)
+          reuse xs ::(h, %t2) @mask=0b10
+        _ →
+          drop xs
+          aether_call[owned, borrowed] my_filter(t, f)
     _ →
       []
 ── fn main ──
@@ -165,8 +154,8 @@ Aether Memory Model Report
   Print(total)
 
 ── Total ──
-  Dups: 1  Drops: 7  Reuses: 4  DropSpecs: 1  FBIP: fbip(2)
-  FreshAllocs: 2
+  Dups: 0  Drops: 6  Reuses: 4  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
 
 [cfg→vm] Running via CFG → bytecode VM backend...
 [2, 4, 6]

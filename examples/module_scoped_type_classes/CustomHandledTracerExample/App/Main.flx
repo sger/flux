@@ -1,0 +1,18 @@
+import CustomHandledTracerExample.App.SimpleTracer as SimpleTracer
+import CustomHandledTracerExample.Flow.Tracer as Tracer
+import CustomHandledTracerExample.Flow.Console as Console
+import CustomHandledTracerExample.Flow.Clock as Clock
+
+module CustomHandledTracerExample.App.Main {
+    public fn run() -> Int with IO {
+        let h = SimpleTracer.default_handle()
+        Tracer.trace(h, "starting up")
+            handle Clock {
+                now(resume) -> resume(0)
+            }
+            handle Console {
+                print(resume, _msg) -> resume(())
+            }
+        1
+    }
+}

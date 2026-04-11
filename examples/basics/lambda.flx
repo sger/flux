@@ -1,3 +1,5 @@
+import Flow.Array as Array
+
 fn main() with IO {
     // Test: Lambda shorthand syntax
     // Expected output:
@@ -56,18 +58,28 @@ fn main() with IO {
         if len(arr) == 0 {
             [||]
         } else {
-        concat([|f(first(arr))|], myMap(rest(arr), f))
+            match Array.first(arr) {
+                Some(v) -> Array.concat([|f(v)|], myMap(Array.drop(arr, 1), f)),
+                _ -> [||]
+            }
+        }
     }
-}
 
-let nums = [|1, 2, 3|];
-let tripled = myMap(nums, \x -> x * 3);
-print(first(tripled));                    // 3
-print(first(rest(tripled)));              // 6
-print(first(rest(rest(tripled))));        // 9
+    fn expectSome(value) {
+        match value {
+            Some(v) -> v,
+            _ -> panic("expected Some")
+        }
+    }
 
-// Validation parity note:
-// Both forms now use the same parameter validation path:
-//   \x -> expr
-//   \(x) -> expr
+    let nums = [|1, 2, 3|];
+    let tripled = myMap(nums, \x -> x * 3);
+    print(expectSome(Array.first(tripled)));                          // 3
+    print(expectSome(Array.first(Array.drop(tripled, 1))));          // 6
+    print(expectSome(Array.first(Array.drop(tripled, 2))));          // 9
+
+    // Validation parity note:
+    // Both forms now use the same parameter validation path:
+    //   \x -> expr
+    //   \(x) -> expr
 }

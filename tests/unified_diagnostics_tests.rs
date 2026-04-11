@@ -95,6 +95,7 @@ fn run_unified_pipeline(
             continue;
         }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
+        compiler.set_current_module_kind(node.kind);
         if let Err(mut diags) = compiler.compile(&node.program) {
             for diag in &mut diags {
                 if diag.file().is_none() {

@@ -9,8 +9,10 @@ use crate::syntax::Identifier;
 #[derive(Debug, Clone, PartialEq)]
 pub struct HandlerDescriptor {
     pub effect: Identifier,
+    pub effect_name: Box<str>,
     /// Op names in the same order as the closures left on the stack.
     pub ops: Vec<Identifier>,
+    pub op_names: Vec<Box<str>>,
     /// When `true`, all handler arms never use `resume`. `OpPerform` can skip
     /// continuation capture entirely — just unwind and call the arm directly.
     /// (Perceus Section 2.7.1: non-linear control flow safety.)

@@ -42,6 +42,33 @@ pub enum TypeConstructor {
 }
 
 impl TypeConstructor {
+    /// The kind of this type constructor (Proposal 0123 Phase 5).
+    ///
+    /// Ground types have kind `Type`, unary constructors have kind `Type -> Type`,
+    /// and binary constructors have kind `Type -> Type -> Type`.
+    pub fn kind(&self) -> super::kind::Kind {
+        use super::kind::Kind;
+        match self {
+            TypeConstructor::Int
+            | TypeConstructor::Float
+            | TypeConstructor::Bool
+            | TypeConstructor::String
+            | TypeConstructor::Unit
+            | TypeConstructor::Never
+            | TypeConstructor::Any => Kind::Type,
+
+            TypeConstructor::List | TypeConstructor::Array | TypeConstructor::Option => {
+                Kind::type1()
+            }
+
+            TypeConstructor::Map | TypeConstructor::Either => Kind::type2(),
+
+            // User-defined ADTs default to Type. Parameterized ADTs would
+            // need kind inference from their data declaration.
+            TypeConstructor::Adt(_) => Kind::Type,
+        }
+    }
+
     /// Collect all `Symbol`s contained in this constructor.
     pub fn collect_symbols(&self, out: &mut std::collections::HashSet<Symbol>) {
         if let TypeConstructor::Adt(sym) = self {

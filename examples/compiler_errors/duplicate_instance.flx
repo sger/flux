@@ -1,0 +1,21 @@
+// Two instances of the same class for the same type.
+//
+// Expected: E001 Duplicate Name
+//   "Duplicate binding: `__tc_Sizeable_Int_size` is already defined."
+//   The dispatch function generation detects the collision.
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x + 1 }
+}
+
+fn main() {
+    42
+}

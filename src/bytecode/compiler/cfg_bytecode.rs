@@ -362,7 +362,12 @@ impl Compiler {
                 let ops: Vec<_> = arms.iter().map(|a| a.operation_name).collect();
                 let descriptor = HandlerDescriptor {
                     effect: *effect,
+                    effect_name: this.sym(*effect).to_string().into(),
                     ops,
+                    op_names: arms
+                        .iter()
+                        .map(|a| this.sym(a.operation_name).to_string().into_boxed_str())
+                        .collect(),
                     is_discard: false, // TODO: detect from evidence pass
                 };
                 let const_idx = this.add_constant(Value::HandlerDescriptor(Rc::new(descriptor)));

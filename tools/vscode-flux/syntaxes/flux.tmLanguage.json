@@ -6,6 +6,7 @@
     { "include": "#comments" },
     { "include": "#strings" },
     { "include": "#numbers" },
+    { "include": "#type-annotations" },
     { "include": "#keywords" },
     { "include": "#constants" },
     { "include": "#identifiers" },
@@ -40,21 +41,20 @@
           "patterns": [
             {
               "name": "constant.character.escape.flux",
-              "match": "\\\\(?:[\\\"nrtbf]|x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]{1,6}\\})"
+              "match": "\\\\(?:[\\\\\"nrtbf0]|x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]{1,6}\\})"
             },
             {
               "name": "meta.interpolation.flux",
               "begin": "#\\{",
               "end": "\\}",
+              "beginCaptures": {
+                "0": { "name": "punctuation.section.interpolation.begin.flux" }
+              },
+              "endCaptures": {
+                "0": { "name": "punctuation.section.interpolation.end.flux" }
+              },
               "patterns": [
-                { "include": "#comments" },
-                { "include": "#strings" },
-                { "include": "#numbers" },
-                { "include": "#keywords" },
-                { "include": "#constants" },
-                { "include": "#identifiers" },
-                { "include": "#operators" },
-                { "include": "#punctuation" }
+                { "include": "source.flux" }
               ]
             }
           ]
@@ -64,20 +64,61 @@
     "numbers": {
       "patterns": [
         {
+          "name": "constant.numeric.hex.flux",
+          "match": "\\b0[xX][0-9A-Fa-f][0-9A-Fa-f_]*\\b"
+        },
+        {
+          "name": "constant.numeric.binary.flux",
+          "match": "\\b0[bB][01][01_]*\\b"
+        },
+        {
+          "name": "constant.numeric.octal.flux",
+          "match": "\\b0[oO][0-7][0-7_]*\\b"
+        },
+        {
           "name": "constant.numeric.float.flux",
-          "match": "\\b\\d+(?:_\\d+)*(?:\\.\\d+(?:_\\d+)*)?(?:[eE][+-]?\\d+)?\\b"
+          "match": "\\b\\d[\\d_]*\\.\\d[\\d_]*(?:[eE][+-]?\\d[\\d_]*)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.flux",
+          "match": "\\b\\d[\\d_]*\\b"
+        }
+      ]
+    },
+    "type-annotations": {
+      "patterns": [
+        {
+          "comment": "Type annotation after colon: x: Int, x: List<a>",
+          "match": "(?<=:)\\s*([A-Z][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "entity.name.type.flux" }
+          }
+        },
+        {
+          "comment": "Return type after arrow: -> Int",
+          "match": "(?<=->)\\s*([A-Z][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "entity.name.type.flux" }
+          }
         }
       ]
     },
     "keywords": {
       "patterns": [
         {
-          "name": "keyword.control.flux",
-          "match": "\\b(?:if|else|match|return|import|module|as)\\b"
+          "comment": "Function and binding declarations",
+          "name": "keyword.declaration.flux",
+          "match": "\\b(?:fn|let|data|effect|class|instance|deriving|type|module|public)\\b"
         },
         {
-          "name": "storage.type.function.flux",
-          "match": "\\b(?:fun|let)\\b"
+          "comment": "Control flow",
+          "name": "keyword.control.flux",
+          "match": "\\b(?:if|else|match|return|do|handle|perform|with|where)\\b"
+        },
+        {
+          "comment": "Module system",
+          "name": "keyword.control.import.flux",
+          "match": "\\b(?:import|as|exposing|except)\\b"
         }
       ]
     },
@@ -88,34 +129,88 @@
           "match": "\\b(?:true|false)\\b"
         },
         {
+          "comment": "Built-in type names",
+          "name": "support.type.primitive.flux",
+          "match": "\\b(?:Int|Float|String|Bool|Unit|Char)\\b"
+        },
+        {
+          "comment": "Built-in parameterised types",
+          "name": "support.type.flux",
+          "match": "\\b(?:List|Array|Option|Either|Map)\\b"
+        },
+        {
+          "comment": "Built-in constructors",
           "name": "support.type.variant.flux",
-          "match": "\\b(?:Some|None|Left|Right)\\b"
+          "match": "\\b(?:Some|None|Left|Right|Ok|Err)\\b"
         }
       ]
     },
     "identifiers": {
       "patterns": [
         {
-          "name": "entity.name.function.call.flux",
-          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()"
+          "comment": "Function definition: fn name",
+          "match": "\\b(fn)\\s+([a-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.flux" },
+            "2": { "name": "entity.name.function.flux" }
+          }
         },
         {
+          "comment": "Module or data declaration: module Name, data Name",
+          "match": "\\b(module|data|class|instance|effect)\\s+([A-Z][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.flux" },
+            "2": { "name": "entity.name.type.flux" }
+          }
+        },
+        {
+          "comment": "Function call: name(",
+          "match": "\\b([a-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.call.flux" }
+          }
+        },
+        {
+          "comment": "Type / constructor name (uppercase start)",
+          "name": "entity.name.type.flux",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        },
+        {
+          "comment": "Regular variable / parameter",
           "name": "variable.other.flux",
           "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
-        },
-        {
-          "name": "entity.name.type.module.flux",
-          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
         }
       ]
     },
     "operators": {
       "patterns": [
         {
-          "name": "keyword.operator.flux",
-          "match": "\\|>|->|==|!=|<=|>=|&&|\\|\\||=|\\+|-|\\*|/|%|!|<|>"
+          "comment": "Arrow operators",
+          "name": "keyword.operator.arrow.flux",
+          "match": "->|<-"
         },
         {
+          "comment": "Pipe operators",
+          "name": "keyword.operator.pipe.flux",
+          "match": "\\|>"
+        },
+        {
+          "comment": "Comparison operators",
+          "name": "keyword.operator.comparison.flux",
+          "match": "==|!=|<=|>="
+        },
+        {
+          "comment": "Logical operators",
+          "name": "keyword.operator.logical.flux",
+          "match": "&&|\\|\\|"
+        },
+        {
+          "comment": "Arithmetic and other operators",
+          "name": "keyword.operator.flux",
+          "match": "=|\\+|-|\\*|/|%|!|<|>"
+        },
+        {
+          "comment": "Dot accessor",
           "name": "keyword.operator.accessor.flux",
           "match": "\\."
         }
@@ -152,8 +247,19 @@
           "match": "\\]"
         },
         {
+          "comment": "Lambda backslash",
           "name": "keyword.operator.lambda.flux",
           "match": "\\\\"
+        },
+        {
+          "comment": "Hash for interpolation / records",
+          "name": "punctuation.definition.hash.flux",
+          "match": "#"
+        },
+        {
+          "comment": "Cons operator in patterns",
+          "name": "keyword.operator.cons.flux",
+          "match": "\\|(?!>|\\|)"
         }
       ]
     }

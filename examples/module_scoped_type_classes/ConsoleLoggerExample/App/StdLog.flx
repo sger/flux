@@ -1,0 +1,16 @@
+import ConsoleLoggerExample.Flow.Logger as Logger
+import ConsoleLoggerExample.Flow.Console as Console
+
+module ConsoleLoggerExample.App.StdLog {
+    public data StdoutHandle { Stdout }
+
+    public fn stdout() -> StdoutHandle {
+        Stdout
+    }
+
+    public instance Logger<StdoutHandle> {
+        fn log(hnd, msg) with Console {
+            perform Console.print(msg)
+        }
+    }
+}

@@ -38,6 +38,28 @@ impl ModuleId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ModuleKind {
+    #[default]
+    User,
+    FlowStdlib,
+}
+
+fn classify_module_kind(program: &Program, interner: &Interner) -> ModuleKind {
+    let module_name = program
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            crate::syntax::statement::Statement::Module { name, .. } => Some(*name),
+            _ => None,
+        });
+
+    match module_name.and_then(|name| interner.try_resolve(name)) {
+        Some(name) if name.starts_with("Flow.") => ModuleKind::FlowStdlib,
+        _ => ModuleKind::User,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ImportEdge {
     pub name: String,
@@ -50,6 +72,7 @@ pub struct ImportEdge {
 pub struct ModuleNode {
     pub id: ModuleId,
     pub path: PathBuf,
+    pub kind: ModuleKind,
     pub program: Program,
     pub imports: Vec<ImportEdge>,
 }
@@ -141,6 +164,7 @@ impl ModuleGraph {
                 ModuleNode {
                     id,
                     path: canonical_path,
+                    kind: classify_module_kind(&program, &interner),
                     program,
                     imports,
                 },

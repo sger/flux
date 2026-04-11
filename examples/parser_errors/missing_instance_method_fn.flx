@@ -1,0 +1,16 @@
+// Missing `fn` keyword before method in instance declaration.
+//
+// Expected: E034 Unexpected Closing Delimiter
+//   Instance methods must start with `fn`.
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    size(x) { x }
+}
+
+fn main() {
+    42
+}

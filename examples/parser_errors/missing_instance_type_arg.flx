@@ -1,0 +1,16 @@
+// Missing type argument closing `>` in instance declaration.
+//
+// Expected: E034 Unexpected Token
+//   "Expected `>` after instance type arguments."
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int {
+    fn size(x) { x }
+}
+
+fn main() {
+    42
+}

@@ -159,6 +159,7 @@ impl CoreType {
             InferType::Tuple(elems) => {
                 CoreType::Tuple(elems.iter().map(CoreType::from_infer).collect())
             }
+            InferType::HktApp(_, _) => CoreType::Any,
         }
     }
 }
@@ -224,6 +225,44 @@ impl FluxRep {
     /// Whether this rep needs reference counting (Aether dup/drop).
     pub fn needs_rc(self) -> bool {
         matches!(self, FluxRep::BoxedRep | FluxRep::TaggedRep)
+    }
+
+    /// Derive the runtime representation from a syntactic `TypeExpr`.
+    ///
+    /// Requires an interner to resolve named types (e.g. `Int`, `Float`).
+    /// Type variables and unknown types default to `TaggedRep`.
+    pub fn from_type_expr(
+        ty: &crate::syntax::type_expr::TypeExpr,
+        interner: &crate::syntax::interner::Interner,
+    ) -> Self {
+        use crate::syntax::type_expr::TypeExpr;
+        match ty {
+            TypeExpr::Named { name, args, .. } => {
+                let resolved = interner.resolve(*name);
+                match resolved {
+                    "Int" => FluxRep::IntRep,
+                    "Float" => FluxRep::FloatRep,
+                    "Bool" => FluxRep::BoolRep,
+                    "Unit" | "Never" => FluxRep::UnitRep,
+                    "String" | "Array" | "List" | "Map" | "Option" | "Either" => FluxRep::BoxedRep,
+                    _ => {
+                        // Named type with no args could be an ADT (boxed) or a
+                        // type variable (tagged). Single-char names are likely
+                        // type params; anything else is an ADT.
+                        if args.is_empty()
+                            && resolved.len() == 1
+                            && resolved.chars().next().is_some_and(|c| c.is_lowercase())
+                        {
+                            FluxRep::TaggedRep
+                        } else {
+                            FluxRep::BoxedRep
+                        }
+                    }
+                }
+            }
+            TypeExpr::Tuple { .. } => FluxRep::BoxedRep,
+            TypeExpr::Function { .. } => FluxRep::BoxedRep,
+        }
     }
 }
 
@@ -435,8 +474,8 @@ pub enum CorePrimOp {
 
     // ── Collection helpers (promoted for native compilation) ─────────
     // First (104), Rest (105), Last (112) removed — stdlib is source of truth.
-    Reverse = 106,
-    Contains = 107,
+    ArrayReverse = 106,
+    ArrayContains = 107,
     Sort = 108,
     SortBy = 109,
     HoMap = 110,
@@ -495,12 +534,16 @@ impl CorePrimOp {
     /// Resolve a function name + arity to a `CorePrimOp`, if it names a
     /// built-in primitive.  Used by the bytecode compiler to emit `OpPrimOp`.
     pub fn from_name(name: &str, arity: usize) -> Option<Self> {
-        // Sorted by (name, arity) for binary search.  Includes aliases from
-        // the legacy PrimOp table so all existing Flux code keeps working.
+        // Sorted by (name, arity) for binary search.
         static TABLE: &[(&str, usize, CorePrimOp)] = &[
             ("abs", 1, CorePrimOp::Abs),
+            ("array_contains", 2, CorePrimOp::ArrayContains),
+            ("array_concat", 2, CorePrimOp::ArrayConcat),
             ("array_get", 2, CorePrimOp::ArrayGet),
             ("array_len", 1, CorePrimOp::ArrayLen),
+            ("array_push", 2, CorePrimOp::ArrayPush),
+            ("array_reverse", 1, CorePrimOp::ArrayReverse),
+            ("array_slice", 3, CorePrimOp::ArraySlice),
             ("array_set", 3, CorePrimOp::ArraySet),
             ("assert_throws", 1, CorePrimOp::AssertThrows),
             ("assert_throws", 2, CorePrimOp::AssertThrows),
@@ -508,9 +551,6 @@ impl CorePrimOp {
             ("clock_now", 0, CorePrimOp::ClockNow),
             ("cmp_eq", 2, CorePrimOp::CmpEq),
             ("cmp_ne", 2, CorePrimOp::CmpNe),
-            ("concat", 2, CorePrimOp::ArrayConcat),
-            ("contains", 2, CorePrimOp::Contains),
-            ("delete", 2, CorePrimOp::HamtDelete),
             ("ends_with", 2, CorePrimOp::EndsWith),
             ("fadd", 2, CorePrimOp::FAdd),
             ("fcmp_eq", 2, CorePrimOp::FCmpEq),
@@ -522,8 +562,6 @@ impl CorePrimOp {
             ("fdiv", 2, CorePrimOp::FDiv),
             ("fmul", 2, CorePrimOp::FMul),
             ("fsub", 2, CorePrimOp::FSub),
-            ("get", 2, CorePrimOp::HamtGet),
-            ("has_key", 2, CorePrimOp::HamtContains),
             ("iadd", 2, CorePrimOp::IAdd),
             ("icmp_eq", 2, CorePrimOp::ICmpEq),
             ("icmp_ge", 2, CorePrimOp::ICmpGe),
@@ -546,14 +584,17 @@ impl CorePrimOp {
             ("is_string", 1, CorePrimOp::IsString),
             ("isub", 2, CorePrimOp::ISub),
             ("join", 2, CorePrimOp::Join),
-            ("keys", 1, CorePrimOp::HamtKeys),
             ("len", 1, CorePrimOp::Len),
             ("lower", 1, CorePrimOp::Lower),
+            ("map_delete", 2, CorePrimOp::HamtDelete),
             ("map_get", 2, CorePrimOp::HamtGet),
             ("map_has", 2, CorePrimOp::HamtContains),
+            ("map_keys", 1, CorePrimOp::HamtKeys),
+            ("map_merge", 2, CorePrimOp::HamtMerge),
             ("map_set", 3, CorePrimOp::HamtSet),
+            ("map_size", 1, CorePrimOp::HamtSize),
+            ("map_values", 1, CorePrimOp::HamtValues),
             ("max", 2, CorePrimOp::Max),
-            ("merge", 2, CorePrimOp::HamtMerge),
             ("min", 2, CorePrimOp::Min),
             ("now_ms", 0, CorePrimOp::ClockNow),
             ("panic", 1, CorePrimOp::Panic),
@@ -561,17 +602,12 @@ impl CorePrimOp {
             ("parse_ints", 1, CorePrimOp::ParseInts),
             ("print", 1, CorePrimOp::Print),
             ("println", 1, CorePrimOp::Println),
-            ("push", 2, CorePrimOp::ArrayPush),
-            ("put", 3, CorePrimOp::HamtSet),
             ("read_file", 1, CorePrimOp::ReadFile),
             ("read_lines", 1, CorePrimOp::ReadLines),
             ("read_stdin", 0, CorePrimOp::ReadStdin),
             ("replace", 3, CorePrimOp::Replace),
-            ("reverse", 1, CorePrimOp::Reverse),
             ("safe_div", 2, CorePrimOp::SafeDiv),
             ("safe_mod", 2, CorePrimOp::SafeMod),
-            ("size", 1, CorePrimOp::HamtSize),
-            ("slice", 3, CorePrimOp::ArraySlice),
             ("split", 2, CorePrimOp::Split),
             ("split_ints", 2, CorePrimOp::SplitInts),
             ("starts_with", 2, CorePrimOp::StartsWith),
@@ -590,14 +626,12 @@ impl CorePrimOp {
             ("type_of", 1, CorePrimOp::TypeOf),
             ("unwrap", 1, CorePrimOp::Unwrap),
             ("upper", 1, CorePrimOp::Upper),
-            ("values", 1, CorePrimOp::HamtValues),
             ("write_file", 2, CorePrimOp::WriteFile),
         ];
-        let key = (name, arity);
         TABLE
-            .binary_search_by(|(n, a, _)| (*n, *a).cmp(&key))
-            .ok()
-            .map(|idx| TABLE[idx].2)
+            .iter()
+            .find(|(n, a, _)| *n == name && *a == arity)
+            .map(|(_, _, op)| *op)
     }
 
     /// Number of arguments this primop expects.
@@ -609,13 +643,13 @@ impl CorePrimOp {
             | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | ParseInts | Print
             | Println | ReadFile | ReadLines | StringLength | ToArray | ToList | ToString
             | Trim | Try | AssertThrows | TypeOf | Upper | HamtKeys | HamtValues | HamtSize
-            | Neg | Not | Reverse | Sort | Flatten | Unwrap => 1,
+            | Neg | Not | ArrayReverse | Sort | Flatten | Unwrap => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
             | And | Or | Concat | ArrayGet | ArrayPush | ArrayConcat | HamtGet | HamtContains
             | HamtDelete | HamtMerge | Index | Join | Max | Min | Split | SplitInts
-            | StartsWith | EndsWith | StringConcat | StrContains | WriteFile | Contains
+            | StartsWith | EndsWith | StringConcat | StrContains | WriteFile | ArrayContains
             | SortBy | HoMap | HoFilter | HoAny | HoAll | HoEach | HoFind | HoCount | HoFlatMap
             | Zip | SafeDiv | SafeMod => 2,
             HoFold => 3,
@@ -629,7 +663,7 @@ impl CorePrimOp {
             YieldTo => 3,
             EvvInsert => 4,
             YieldPrompt => 3,
-            PerformDirect => 4,
+            PerformDirect => 5,
         }
     }
 
@@ -900,6 +934,20 @@ pub enum CoreTopLevelItem {
     EffectDecl {
         name: Identifier,
         ops: Vec<EffectOp>,
+        span: Span,
+    },
+    Class {
+        name: Identifier,
+        type_params: Vec<Identifier>,
+        superclasses: Vec<crate::syntax::type_class::ClassConstraint>,
+        methods: Vec<crate::syntax::type_class::ClassMethod>,
+        span: Span,
+    },
+    Instance {
+        class_name: Identifier,
+        type_args: Vec<TypeExpr>,
+        context: Vec<crate::syntax::type_class::ClassConstraint>,
+        methods: Vec<crate::syntax::type_class::InstanceMethod>,
         span: Span,
     },
 }

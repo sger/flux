@@ -99,7 +99,49 @@ fn main() -> Unit with IO {
 
 #[test]
 fn compiler_emits_op_primop_for_concat_array() {
-    assert_contains_primop("concat(#[1], #[2]);");
+    assert_contains_primop("array_concat([|1|], [|2|]);");
+}
+
+#[test]
+fn compiler_emits_op_primop_for_explicit_array_reverse_and_contains() {
+    assert_contains_primop("array_reverse([|1, 2, 3|]);");
+    assert_contains_primop("array_contains([|1, 2, 3|], 2);");
+}
+
+#[test]
+fn compiler_emits_op_primop_for_explicit_map_builtins() {
+    assert_contains_primop(r#"map_get({"x": 1}, "x");"#);
+    assert_contains_primop(r#"map_set({}, "x", 1);"#);
+    assert_contains_primop(r#"map_has({"x": 1}, "x");"#);
+    assert_contains_primop(r#"map_delete({"x": 1}, "x");"#);
+}
+
+#[test]
+fn compiler_does_not_emit_op_primop_for_stdlib_facing_reverse_and_contains() {
+    assert_not_contains_primop(
+        r#"
+fn reverse(xs) { xs }
+reverse([1, 2, 3]);
+"#,
+    );
+    assert_not_contains_primop(
+        r#"
+fn contains(xs, x) { false }
+contains([1, 2, 3], 2);
+"#,
+    );
+    assert_not_contains_primop(
+        r#"
+fn get(m, key) { None }
+get({}, "x");
+"#,
+    );
+    assert_not_contains_primop(
+        r#"
+fn put(m, key, value) { m }
+put({}, "x", 1);
+"#,
+    );
 }
 
 #[test]

@@ -1,0 +1,18 @@
+import CustomHandledTracerExample.Flow.Tracer as Tracer
+import CustomHandledTracerExample.Flow.Console as Console
+import CustomHandledTracerExample.Flow.Clock as Clock
+
+module CustomHandledTracerExample.App.SimpleTracer {
+    public data Handle { H }
+
+    public fn default_handle() -> Handle {
+        H
+    }
+
+    public instance Tracer<Handle> {
+        fn trace(hnd, msg) with Console, Clock {
+            let _t = perform Clock.now()
+            perform Console.print(msg)
+        }
+    }
+}

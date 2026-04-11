@@ -12,7 +12,7 @@ This match arm needs `->`, not `=>`.
   examples/type_system/failing/121_match_fat_arrow.flx:2:25
   |
 2 |     let x = match 1 { 0 => 0, _ => 1 }
-  |                         ^
+  |                         ^^
 
 Note:
   while parsing function `main` > `match` expression
@@ -28,7 +28,7 @@ This match arm needs `->`, not `=>`.
   examples/type_system/failing/121_match_fat_arrow.flx:2:33
   |
 2 |     let x = match 1 { 0 => 0, _ => 1 }
-  |                                 ^
+  |                                 ^^
 
 Note:
   while parsing function `main` > `match` expression

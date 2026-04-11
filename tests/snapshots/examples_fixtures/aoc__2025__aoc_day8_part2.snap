@@ -7,6 +7,188 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
+I can't find a value named `slice`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:24:20
+   |
+24 |         let left = slice(arr, 0, idx)
+   |                    ^^^^^
+
+Hint:
+  Define it first: let slice = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `slice`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:25:21
+   |
+25 |         let right = slice(arr, idx + 1, len(arr))
+   |                     ^^^^^
+
+Hint:
+  Define it first: let slice = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `concat`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:26:9
+   |
+26 |         concat(concat(left, [|value|]), right)
+   |         ^^^^^^
+
+Hint:
+  Define it first: let concat = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `push`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:45:13
+   |
+45 |             push(acc, (d * 1000000) + pair_code(i, j))
+   |             ^^^^
+
+Hint:
+  Define it first: let push = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `put`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:57:14
+   |
+57 |     let s1 = put({}, "p", parents)
+   |              ^^^
+
+Hint:
+  Define it first: let put = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `put`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:58:14
+   |
+58 |     let s2 = put(s1, "sz", sizes)
+   |              ^^^
+
+Hint:
+  Define it first: let put = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `put`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:59:14
+   |
+59 |     let s3 = put(s2, "c", comps)
+   |              ^^^
+
+Hint:
+  Define it first: let put = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `put`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:60:14
+   |
+60 |     let s4 = put(s3, "a", last_a)
+   |              ^^^
+
+Hint:
+  Define it first: let put = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `put`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:61:5
+   |
+61 |     put(s4, "b", last_b)
+   |     ^^^
+
+Hint:
+  Define it first: let put = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `get`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:65:11
+   |
+65 |     match get(state, "p") {
+   |           ^^^
+
+Hint:
+  Define it first: let get = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `get`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:72:11
+   |
+72 |     match get(state, "sz") {
+   |           ^^^
+
+Hint:
+  Define it first: let get = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `get`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:79:11
+   |
+79 |     match get(state, "c") {
+   |           ^^^
+
+Hint:
+  Define it first: let get = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `get`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:86:11
+   |
+86 |     match get(state, "a") {
+   |           ^^^
+
+Hint:
+  Define it first: let get = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `get`.
+
+  examples/aoc/2025/aoc_day8_part2.flx:93:11
+   |
+93 |     match get(state, "b") {
+   |           ^^^
+
+Hint:
+  Define it first: let get = ...;
+
+
+error[E004]: Undefined Variable
+
 I can't find a value named `range`.
 
   examples/aoc/2025/aoc_day8_part2.flx:128:16
@@ -82,6 +264,6 @@ I can't find a value named `map`.
 Hint:
   Define it first: let map = ...;
 
-Found 6 errors.
+Found 20 errors.
 == stdout ==
 <not executed>

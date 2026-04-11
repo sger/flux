@@ -1131,7 +1131,7 @@ impl VM {
                 //   where n = descriptor.ops.len()
                 // Stack after:  [...]  (closures consumed)
                 // Side effect: HandlerFrame pushed onto handler_stack
-                let const_idx = Self::read_u8_fast(instructions, ip + 1);
+                let const_idx = Self::read_u16_fast(instructions, ip + 1);
                 let const_val = self.const_get(const_idx);
                 let (effect, ops, desc_is_discard) = match &const_val {
                     Value::HandlerDescriptor(desc) => {
@@ -1175,11 +1175,11 @@ impl VM {
                     is_direct: false,
                     is_discard: desc_is_discard,
                 });
-                Ok(2)
+                Ok(3)
             }
             OpCode::OpHandleDirect => {
                 // Identical to OpHandle but marks the handler as tail-resumptive.
-                let const_idx = Self::read_u8_fast(instructions, ip + 1);
+                let const_idx = Self::read_u16_fast(instructions, ip + 1);
                 let const_val = self.const_get(const_idx);
                 let (effect, ops) = match &const_val {
                     Value::HandlerDescriptor(desc) => (desc.effect, desc.ops.clone()),
@@ -1219,7 +1219,7 @@ impl VM {
                     is_direct: true,
                     is_discard: false,
                 });
-                Ok(2)
+                Ok(3)
             }
             OpCode::OpEndHandle => {
                 // No operands. Pops the top handler from handler_stack.
@@ -1227,13 +1227,13 @@ impl VM {
                 Ok(1)
             }
             OpCode::OpPerform => {
-                // Operands: const_idx: u8, arity: u8
+                // Operands: const_idx: u16, arity: u8
                 // Stack before: [..., arg_0, ..., arg_{arity-1}]
                 // After:  captures continuation, unwinds to handler frame,
                 //         calls arm closure(resume_cont, arg_0, ..., arg_{arity-1})
                 // ip_delta = 0 (frame change)
-                let const_idx = Self::read_u8_fast(instructions, ip + 1);
-                let arity = Self::read_u8_fast(instructions, ip + 2);
+                let const_idx = Self::read_u16_fast(instructions, ip + 1);
+                let arity = Self::read_u8_fast(instructions, ip + 3);
 
                 let const_val = self.const_get(const_idx);
                 let (effect, op, effect_name, op_name) = match &const_val {
@@ -1287,10 +1287,10 @@ impl VM {
                     // without capturing a continuation. resume(v) returns v
                     // via the identity closure passed as the resume parameter.
                     //
-                    // Advance the caller's IP past OpPerform (3 bytes) BEFORE
+                    // Advance the caller's IP past OpPerform (4 bytes) BEFORE
                     // pushing the arm frame, so that when the arm returns,
                     // execution continues at the instruction after perform.
-                    self.frames[self.frame_index].ip += 3;
+                    self.frames[self.frame_index].ip += 4;
 
                     self.push(Value::Closure(arm_closure))?;
                     let identity_fn = self.make_identity_closure();
@@ -1331,7 +1331,7 @@ impl VM {
                     let mut captured_frames: Vec<crate::runtime::frame::Frame> =
                         self.frames[entry_frame_index + 1..=self.frame_index].to_vec();
                     if let Some(last) = captured_frames.last_mut() {
-                        last.ip += 3;
+                        last.ip += 4;
                     }
 
                     let captured_sp = self.sp;
@@ -1371,8 +1371,8 @@ impl VM {
                 // Tail-resumptive perform: no continuation capture.
                 // The arm closure is called directly; `resume(v)` inside the
                 // arm simply returns `v` which becomes the perform result.
-                let const_idx = Self::read_u8_fast(instructions, ip + 1);
-                let arity = Self::read_u8_fast(instructions, ip + 2);
+                let const_idx = Self::read_u16_fast(instructions, ip + 1);
+                let arity = Self::read_u8_fast(instructions, ip + 3);
 
                 let const_val2 = self.const_get(const_idx);
                 let (effect, op, effect_name, op_name) = match &const_val2 {

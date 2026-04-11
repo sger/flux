@@ -34,11 +34,11 @@ The name reflects data flowing through pipelines — the core metaphor of functi
 | Evaluation | Lazy | Strict | Strict | Strict | **Strict** |
 | Effects | IO monad | Algebraic | Cmd/Sub | None | **Algebraic** |
 | Purity | Enforced | Enforced | Enforced | Not enforced | **Enforced** |
-| Type inference | HM + type classes | HM + rows | HM | HM | **HM + effect rows** |
+| Type inference | HM + type classes | HM + rows | HM | HM | **HM + effect rows + type classes** |
 | Target audience | FP experts | Researchers | Web devs | Systems/FP | **JS/Rust developers** |
 | Backends | NCG/LLVM | C codegen | JS | Native | **VM + JIT + LLVM** |
 
-The gap Flux fills: **no existing language offers algebraic effects with Rust-like syntax**. Haskell uses monads (complex). Koka uses ML syntax (unfamiliar). Elm has no general-purpose effects. Flux makes algebraic effects accessible to developers from imperative backgrounds.
+The gap Flux fills: **no existing language combines type classes with algebraic effects in a way that allows per-instance effect rows**. Haskell has type classes but uses monads for effects (no per-instance effect signatures). Koka has algebraic effects but no type classes (uses implicit parameters instead). Flux integrates both: a class method call dispatches to the right instance by type, and the resolved instance's effect row flows to the caller. This is unique to Flux.
 
 ---
 
@@ -171,7 +171,62 @@ let result = Math.square(5)
 // Aliased import
 import Long.Module.Name as M
 let x = M.function()
+
+// Selective import — unqualified access
+import Flow.Foldable exposing (fold, length)
+let total = fold([1, 2, 3], 0, fn(acc, x) { acc + x })
 ```
+
+### Type Classes (Proposal 0145, 0151)
+
+```flux
+// Define a class inside a module
+module Flow.Comparable {
+    public class Comparable<a> {
+        fn same(x: a, y: a) -> Bool
+    }
+
+    public instance Comparable<Int> {
+        fn same(x, y) { x == y }
+    }
+}
+
+// Use class methods through module alias
+import Flow.Comparable as Comparable
+
+let equal = Comparable.same(1, 2)
+```
+
+Type classes use GHC-style dictionary passing under the hood. The compiler resolves monomorphic calls directly to mangled instance functions at compile time.
+
+#### Effectful Type Class Methods
+
+Class methods can declare an effect floor. Different instances can have different effect rows:
+
+```flux
+module Flow.Comparable {
+    public class Comparable<a> {
+        fn same(x: a, y: a) -> Bool    // no floor — pure by default
+    }
+
+    // Pure instance
+    public instance Comparable<Int> {
+        fn same(x, y) { x == y }
+    }
+}
+
+// In another module — effectful instance
+module App.Users {
+    public instance Comparable<UserId> {
+        fn same(a, b) with AuditLog {
+            perform AuditLog.record("comparing users")
+            match (a, b) { (Id(x), Id(y)) -> x == y }
+        }
+    }
+}
+```
+
+The compiler propagates the resolved instance's effect row to callers: `Comparable.same(1, 2)` is pure, `Comparable.same(user1, user2)` requires `AuditLog`.
 
 ### Pattern Matching
 
@@ -256,6 +311,8 @@ fn main() with IO {
 }
 ```
 
+Effect rows interact with type classes: different instances of the same class can carry different effect rows, and the compiler propagates the correct row through type-directed dispatch. See the Type Classes section above for examples.
+
 ---
 
 ## Execution Backends
@@ -325,6 +382,7 @@ Hint:
 | Syntax | Brace-style | Familiar to JS/Rust developers |
 | Type inference | HM + gradual | Safety with incremental adoption |
 | Effects | Algebraic (row-polymorphic) | Composable, interceptable, testable |
+| Ad-hoc polymorphism | Type classes (Haskell-style, dictionary passing) | Familiar, expressive, integrates with effect rows |
 | Semicolons | Optional | Expression-based, newlines sufficient |
 | Backend | VM + JIT + LLVM | Development speed + release performance |
 | Collections | Persistent (HAMT, cons lists) | Immutable with structural sharing |
@@ -341,23 +399,27 @@ Hint:
 
 ## Roadmap
 
-### Implemented (v0.0.3)
+### Implemented (v0.0.4)
 - Hindley-Milner type inference with effect rows
 - Algebraic effects with `perform`/`handle`
+- Type classes with GHC-style dictionary passing (Proposal 0145)
+- Module-scoped type classes with ClassId-keyed storage, orphan rule, coherence (Proposal 0151, Phases 1–4)
+- Effectful type class methods — per-instance effect rows with type-directed propagation
+- Row-polymorphic class methods (`with |e`) end-to-end
 - ADTs with exhaustiveness checking
 - Pattern matching (nested, guards, wildcards)
 - Persistent collections (HAMT maps, cons lists)
 - Three execution backends (VM, JIT, LLVM)
 - 77 built-in base functions
-- Elm-style diagnostics (E001–E425)
+- Elm-style diagnostics (E001–E458)
 - Bytecode cache (.fxc files)
-- Module system with imports, aliases, visibility
+- Module system with imports, aliases, visibility, `exposing`
 - Tail call optimization
 - Built-in test runner
 
 ### Planned (v0.0.5+)
-- Traits/typeclasses (proposal 0053) — enables `Show`, `Eq`, `Ord` constraints
 - `Any` elimination (proposal 0099) — full static typing once traits cover ad-hoc polymorphism
 - Standalone binary emission (proposal 0106) — `flux build program.flx -o program`
 - Perceus reference counting (proposals 0068-0070) — in-place mutation when refcount=1
 - Package system (proposal 0015) — module distribution and dependency management
+- Stdlib migration to module-scoped classes (Proposal 0151, Phase 6)

@@ -1,4 +1,5 @@
 import Flow.Array as Array
+import Flow.Map as Map
 
 module Day06Solver {
     // AoC 2024 Day 6 - Guard Gallivant
@@ -8,7 +9,7 @@ module Day06Solver {
     //      → eliminates substring allocations in the hot loop
     //   2. Jump between obstacles/edges for Part B instead of step-by-step replay
     //   3. Pattern matching on Dir ADT for idiomatic direction handling
-    //   4. Primops: array_get for O(1) grid access, put/has_key for maps
+    //   4. Primops: array_get for O(1) grid access, explicit Flow.Map APIs
 
     data Dir {
         Up,
@@ -48,14 +49,14 @@ module Day06Solver {
     }
 
     fn map_arr_at(m, key) {
-        match get(m, key) {
+        match Map.get(m, key) {
             Some(v) -> v,
             _ -> [||],
         }
     }
 
     fn insert_sorted(m, key, value) {
-        put(m, key, Array.sort(push(map_arr_at(m, key), value)))
+        Map.set(m, key, Array.sort(array_push(map_arr_at(m, key), value)))
     }
 
     // ── Grid pre-processing ───────────────────────────────────────────
@@ -69,7 +70,7 @@ module Day06Solver {
         if c >= len(line) {
             acc
         } else {
-            line_to_row(line, c + 1, push(acc, char_to_int(char_at(line, c))))
+            line_to_row(line, c + 1, array_push(acc, char_to_int(char_at(line, c))))
         }
     }
 
@@ -278,10 +279,10 @@ module Day06Solver {
 
     fn drive_loop_jump(axis, rows, cols, obr, obc, r, c, d, seen) {
         let key = state_key(cols, r, c, d)
-        if has_key(seen, key) {
+        if Map.has(seen, key) {
             true
         } else {
-            let seen2 = put(seen, key, true)
+            let seen2 = Map.set(seen, key, true)
             match jump_step(axis, rows, cols, obr, obc, r, c, d) {
                 JumpExit -> false,
                 JumpNext(nr, nc, nd) -> drive_loop_jump(axis, rows, cols, obr, obc, nr, nc, nd, seen2),
@@ -293,7 +294,7 @@ module Day06Solver {
     // ctx = (grid, rows, cols)
     fn walk_collect(ctx, r, c, d, visited) {
         let cols = ctx.2
-        let visited2 = put(visited, r * cols + c, true)
+        let visited2 = Map.set(visited, r * cols + c, true)
         let step = delta(d)
         let nr = r + step.0
         let nc = c + step.1
@@ -335,7 +336,7 @@ module Day06Solver {
         let grid = build_grid(lines)
         let ctx = (grid, rows, cols)
         let visited = walk_collect(ctx, guard.0, guard.1, Up, {})
-        len(keys(visited))
+        len(Map.keys(visited))
     }
 
     public fn day06b_from_lines(lines: Array<String>) -> Int {
@@ -347,7 +348,7 @@ module Day06Solver {
         let sc = guard.1
         let grid = build_grid(lines)
         let visited = walk_collect((grid, rows, cols), sr, sc, Up, {})
-        let candidates = keys(visited)
+        let candidates = Map.keys(visited)
         count_loops((parsed.0, parsed.1), rows, cols, sr, sc, candidates, 0, 0)
     }
 }

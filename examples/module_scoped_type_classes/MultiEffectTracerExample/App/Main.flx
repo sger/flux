@@ -1,0 +1,9 @@
+import MultiEffectTracerExample.App.SimpleTracer as SimpleTracer
+import MultiEffectTracerExample.Flow.Tracer as Tracer
+
+module MultiEffectTracerExample.App.Main {
+    public fn run() with IO, Time {
+        let h = SimpleTracer.default_handle()
+        Tracer.trace(h, "starting up")
+    }
+}

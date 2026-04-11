@@ -3,62 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/lambda.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `first`.
-
-  examples/basics/lambda.flx:59:20
-   |
-59 |         concat([|f(first(arr))|], myMap(rest(arr), f))
-   |                    ^^^^^
-
-Hint:
-  Define it first: let first = ...;
-
-Help:
-  Did you mean `f`?
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `first`.
-
-  examples/basics/lambda.flx:65:7
-   |
-65 | print(first(tripled));
-   |       ^^^^^
-
-Hint:
-  Define it first: let first = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `first`.
-
-  examples/basics/lambda.flx:66:7
-   |
-66 | print(first(rest(tripled)));
-   |       ^^^^^
-
-Hint:
-  Define it first: let first = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `first`.
-
-  examples/basics/lambda.flx:67:7
-   |
-67 | print(first(rest(rest(tripled))));
-   |       ^^^^^
-
-Hint:
-  Define it first: let first = ...;
-
-Found 4 errors.
+<none>
 == stdout ==
 <not executed>
