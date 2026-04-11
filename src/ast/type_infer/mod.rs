@@ -23,14 +23,14 @@ use crate::{
         expression::{ExprId, Expression, MatchArm},
         interner::Interner,
         program::Program,
-        statement::Statement,
+        statement::{FunctionTypeParam, Statement},
         type_expr::TypeExpr,
     },
     types::{
         TypeVarId,
         infer_effect_row::InferEffectRow,
         infer_type::InferType,
-        scheme::{Scheme, generalize},
+        scheme::{Scheme, generalize, generalize_with_constraints},
         type_constructor::TypeConstructor,
         type_env::TypeEnv,
         type_subst::TypeSubst,
@@ -40,13 +40,14 @@ use crate::{
 };
 
 mod adt;
-mod constraint;
+pub mod constraint;
 mod display;
 mod effects;
 mod expression;
 mod function;
 mod solver;
 mod statement;
+pub mod strict_types;
 mod unification;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,7 +67,7 @@ struct AdtConstructorTypeInfo {
 
 /// Reporting mode for HM unification diagnostics.
 #[derive(Debug, Clone)]
-enum ReportContext {
+pub enum ReportContext {
     Plain,
     IfBranch {
         then_span: Span,
@@ -94,7 +95,7 @@ enum ReportContext {
 struct FnInferInput<'a> {
     name: Identifier,
     fn_span: Span,
-    type_params: &'a [Identifier],
+    type_params: &'a [FunctionTypeParam],
     parameters: &'a [Identifier],
     parameter_types: &'a [Option<TypeExpr>],
     return_type: &'a Option<TypeExpr>,
@@ -162,6 +163,16 @@ struct InferCtx<'a> {
     /// Deferred constraints awaiting batch solving. Empty under the current
     /// eager model; used by [`Self::solve_deferred_constraints`].
     deferred_constraints: Vec<constraint::Constraint>,
+    /// Type class environment for constraint generation (Proposal 0145).
+    class_env: Option<crate::types::class_env::ClassEnv>,
+    /// Accumulated type class constraints (e.g., `Num<a>` from `x + y`).
+    class_constraints: Vec<constraint::WantedClassConstraint>,
+    /// Pre-resolved class name symbols for constraint emission in operators.
+    /// `None` if the class is not declared in the current program.
+    class_sym_eq: Option<Identifier>,
+    class_sym_ord: Option<Identifier>,
+    class_sym_num: Option<Identifier>,
+    class_sym_semigroup: Option<Identifier>,
 }
 
 impl<'a> InferCtx<'a> {
@@ -227,6 +238,12 @@ impl<'a> InferCtx<'a> {
             seen_error_keys: HashSet::new(),
             contraint_log: Vec::new(),
             deferred_constraints: Vec::new(),
+            class_env: None,
+            class_constraints: Vec::new(),
+            class_sym_eq: None,
+            class_sym_ord: None,
+            class_sym_num: None,
+            class_sym_semigroup: None,
         }
     }
 
@@ -238,6 +255,135 @@ impl<'a> InferCtx<'a> {
     /// Record a constraint in the log for observability and future deferred solving.
     fn record_constraint(&mut self, constraint: constraint::Constraint) {
         self.contraint_log.push(constraint);
+    }
+
+    /// Emit a type class constraint (e.g., `Num<a>` from `x + y`).
+    ///
+    /// The constraint is recorded for downstream phases (Step 4: solving).
+    /// Currently informational — does not affect type inference behavior.
+    fn emit_class_constraint(
+        &mut self,
+        class_name: Identifier,
+        type_arg: InferType,
+        span: Span,
+        origin: constraint::WantedClassConstraintOrigin,
+    ) {
+        self.emit_class_constraint_args(class_name, vec![type_arg], span, origin);
+    }
+
+    /// Emit a type class constraint with the full resolved class head.
+    ///
+    /// This is used for multi-parameter classes such as `Convert<a, b>`,
+    /// where a method call may constrain more than one type argument.
+    fn emit_class_constraint_args(
+        &mut self,
+        class_name: Identifier,
+        type_args: Vec<InferType>,
+        span: Span,
+        origin: constraint::WantedClassConstraintOrigin,
+    ) {
+        self.class_constraints
+            .push(constraint::WantedClassConstraint {
+                class_name,
+                type_args: type_args.clone(),
+                span,
+                origin,
+                originated_from_concrete_type: type_args.iter().all(Self::is_concrete_non_any),
+            });
+        self.record_constraint(constraint::Constraint::Class {
+            class_name,
+            type_args,
+            span,
+        });
+    }
+
+    /// Re-emit instantiated scheme constraints into the current inference state.
+    ///
+    /// Generalized constraints are attached to schemes at definition sites, and
+    /// this helper materializes them again when a constrained binding is used so
+    /// downstream solving and dictionary elaboration can see the call-site
+    /// obligations.
+    fn emit_scheme_constraints(
+        &mut self,
+        constraints: &[constraint::SchemeConstraint],
+        span: Span,
+    ) {
+        for constraint in constraints {
+            let type_args = constraint
+                .type_vars
+                .iter()
+                .map(|v| InferType::Var(*v))
+                .collect::<Vec<_>>();
+            self.class_constraints
+                .push(constraint::WantedClassConstraint {
+                    class_name: constraint.class_name,
+                    type_args: type_args.clone(),
+                    span,
+                    origin: constraint::WantedClassConstraintOrigin::SchemeUse,
+                    originated_from_concrete_type: true,
+                });
+            self.record_constraint(constraint::Constraint::Class {
+                class_name: constraint.class_name,
+                type_args,
+                span,
+            });
+        }
+    }
+
+    /// Extract `SchemeConstraint`s from the global constraint list for a type
+    /// that is about to be generalized.
+    ///
+    /// Applies the current substitution to each constraint's type_args, then
+    /// keeps only those whose resolved types are all type variables in the
+    /// type being generalized.
+    fn collect_scheme_constraints(&self, ty: &InferType) -> Vec<constraint::SchemeConstraint> {
+        let ty_free = ty.free_vars();
+        let mut result = Vec::new();
+        let mut seen = HashSet::new();
+        for wc in &self.class_constraints {
+            if wc.origin == constraint::WantedClassConstraintOrigin::InferredOperator {
+                continue;
+            }
+            let resolved: Vec<InferType> = wc
+                .type_args
+                .iter()
+                .map(|t| t.apply_type_subst(&self.subst))
+                .collect();
+            // All type args must resolve to type variables in the generalizing type.
+            let vars: Vec<TypeVarId> = resolved
+                .iter()
+                .filter_map(|t| {
+                    if let InferType::Var(v) = t {
+                        Some(*v)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if vars.len() == resolved.len()
+                && vars.iter().all(|v| ty_free.contains(v))
+                && seen.insert((wc.class_name, vars.clone()))
+            {
+                result.push(constraint::SchemeConstraint {
+                    class_name: wc.class_name,
+                    type_vars: vars,
+                });
+            }
+        }
+        result
+    }
+
+    /// Check if a name is a known class method. Returns the class name if so.
+    fn lookup_class_method(&self, name: Identifier) -> Option<Identifier> {
+        let class_env = self.class_env.as_ref()?;
+        // Phase 1b Step 3: storage is keyed on ClassId now, but this lookup
+        // only needs the class's short name. Iterate values directly.
+        for class_def in class_env.classes.values() {
+            if class_def.methods.iter().any(|m| m.name == name) {
+                return Some(class_def.name);
+            }
+        }
+        None
     }
 }
 
@@ -267,6 +413,8 @@ pub struct InferProgramConfig {
     pub known_flow_names: HashSet<Identifier>,
     pub flow_module_symbol: Identifier,
     pub preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
+    /// Type class environment for constraint generation.
+    pub class_env: Option<crate::types::class_env::ClassEnv>,
 }
 
 /// Run Algorithm W (Hindley-Milner) over the entire program.
@@ -309,13 +457,15 @@ pub fn infer_program(
         config.flow_module_symbol,
         config.preloaded_effect_op_signatures,
     );
+    init_class_env(&mut ctx, config.class_env, interner);
     ctx.infer_program(program);
-    // Solve any deferred constraints (no-op under current eager model).
     ctx.solve_deferred_constraints();
+    build_infer_result(ctx)
+}
+
+/// Apply final substitution to all inferred types and build the result.
+fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
     let constraint_count = ctx.contraint_log.len();
-    // Apply the final substitution to module member schemes so type
-    // variables are resolved to their concrete types before being cached
-    // for downstream modules.
     let resolved_schemes: HashMap<(Identifier, Identifier), Scheme> = ctx
         .module_member_schemes
         .into_iter()
@@ -328,18 +478,59 @@ pub fn infer_program(
                 key,
                 Scheme {
                     forall,
+                    constraints: Vec::new(),
                     infer_type: resolved_type,
                 },
             )
         })
         .collect();
-
+    let resolved_expr_types: HashMap<ExprId, InferType> = ctx
+        .expr_types
+        .into_iter()
+        .map(|(id, ty)| (id, ty.apply_type_subst(&ctx.subst)))
+        .collect();
+    let resolved_class_constraints: Vec<constraint::WantedClassConstraint> = ctx
+        .class_constraints
+        .into_iter()
+        .map(|mut c| {
+            c.type_args = c
+                .type_args
+                .iter()
+                .map(|t| t.apply_type_subst(&ctx.subst))
+                .collect();
+            c
+        })
+        .collect();
     InferProgramResult {
         type_env: ctx.env,
         diagnostics: ctx.errors,
-        expr_types: ctx.expr_types,
+        expr_types: resolved_expr_types,
         module_member_schemes: resolved_schemes,
         constraint_count,
+        class_constraints: resolved_class_constraints,
+    }
+}
+
+/// Initialize the class environment and pre-resolve well-known class name
+/// symbols for constraint emission in operators.
+fn init_class_env(
+    ctx: &mut InferCtx<'_>,
+    class_env: Option<crate::types::class_env::ClassEnv>,
+    interner: &Interner,
+) {
+    ctx.class_env = class_env;
+    if let Some(ref env) = ctx.class_env {
+        // Phase 1b Step 3: keys are ClassId now; project to the short name.
+        for class_id in env.classes.keys() {
+            let class_name = class_id.name;
+            match interner.resolve(class_name) {
+                "Eq" => ctx.class_sym_eq = Some(class_name),
+                "Ord" => ctx.class_sym_ord = Some(class_name),
+                "Num" => ctx.class_sym_num = Some(class_name),
+                "Semigroup" => ctx.class_sym_semigroup = Some(class_name),
+                _ => {}
+            }
+        }
     }
 }
 
@@ -359,6 +550,12 @@ pub struct InferProgramResult {
     pub module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     /// Total number of type/effect constraints generated during inference.
     pub constraint_count: usize,
+    /// Type class constraints collected during inference (Proposal 0145, Step 3).
+    ///
+    /// Each entry records a `ClassName<Type>` constraint arising from operator
+    /// usage or class method calls. Currently informational — Step 4 (solving)
+    /// will resolve these against known instances.
+    pub class_constraints: Vec<constraint::WantedClassConstraint>,
 }
 
 /// Stable identifier for one expression node within a single inference run.

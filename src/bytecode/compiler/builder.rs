@@ -31,6 +31,7 @@ impl Compiler {
         let pos = self.add_instruction(&instruction, self.current_span);
         self.record_effect_summary(op_code, operands);
         self.set_last_instruction(op_code, pos);
+        self.try_fuse_trailing_superinstructions();
         pos
     }
 

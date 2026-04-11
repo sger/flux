@@ -17,14 +17,24 @@
 
 use std::collections::BTreeSet;
 
-use crate::core::{CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreVarRef};
+use crate::core::{CoreBinder, CoreBinderId, CoreVarRef};
 use crate::diagnostics::position::Span;
 
-use super::analysis::{pat_binders, use_counts};
+use super::{
+    AetherAlt as CoreAlt, AetherExpr, AetherHandler,
+    analysis::{pat_binders, use_counts_aether},
+};
+
+type CoreExpr = AetherExpr;
 
 /// Run drop specialization on a Core IR expression.
 pub fn specialize_drops(expr: CoreExpr) -> CoreExpr {
     transform(expr)
+}
+
+/// Run drop specialization on a backend-only Aether expression.
+pub fn specialize_drops_aether(expr: CoreExpr) -> CoreExpr {
+    specialize_drops(expr)
 }
 
 fn transform(expr: CoreExpr) -> CoreExpr {
@@ -87,6 +97,18 @@ fn transform(expr: CoreExpr) -> CoreExpr {
         } => CoreExpr::LetRec {
             var,
             rhs: Box::new(transform(*rhs)),
+            body: Box::new(transform(*body)),
+            span,
+        },
+        CoreExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => CoreExpr::LetRecGroup {
+            bindings: bindings
+                .into_iter()
+                .map(|(var, rhs)| (var, Box::new(transform(*rhs))))
+                .collect(),
             body: Box::new(transform(*body)),
             span,
         },
@@ -323,9 +345,10 @@ fn validate_skeleton(
                 acc,
             )
         }
-        CoreExpr::LetRec { .. } | CoreExpr::Perform { .. } | CoreExpr::Handle { .. } => {
-            Err(DropSpecFailureReason::EffectfulBoundary)
-        }
+        CoreExpr::LetRec { .. }
+        | CoreExpr::LetRecGroup { .. }
+        | CoreExpr::Perform { .. }
+        | CoreExpr::Handle { .. } => Err(DropSpecFailureReason::EffectfulBoundary),
         CoreExpr::Dup { var, body, .. } => {
             if var.binder == Some(scrutinee_id) {
                 return Err(DropSpecFailureReason::ScrutineeEscapes);
@@ -446,9 +469,10 @@ fn validate_after_drop_body(
             validate_after_drop_body(rhs, scrutinee_id, field_binders, acc)?;
             validate_after_drop_body(body, scrutinee_id, field_binders, acc)
         }
-        CoreExpr::LetRec { .. } | CoreExpr::Perform { .. } | CoreExpr::Handle { .. } => {
-            Err(DropSpecFailureReason::EffectfulBoundary)
-        }
+        CoreExpr::LetRec { .. }
+        | CoreExpr::LetRecGroup { .. }
+        | CoreExpr::Perform { .. }
+        | CoreExpr::Handle { .. } => Err(DropSpecFailureReason::EffectfulBoundary),
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
@@ -650,7 +674,7 @@ fn rewrite_mode(
             effect: *effect,
             handlers: handlers
                 .iter()
-                .map(|handler| crate::core::CoreHandler {
+                .map(|handler| AetherHandler {
                     operation: handler.operation,
                     params: handler.params.clone(),
                     resume: handler.resume,
@@ -692,7 +716,7 @@ fn rewrite_mode(
 }
 
 fn uses_binder(expr: &CoreExpr, binder_id: CoreBinderId) -> bool {
-    use_counts(expr).contains_key(&binder_id)
+    use_counts_aether(expr).contains_key(&binder_id)
 }
 
 fn merge_candidate_acc(acc: &mut CandidateAccumulator, branch_acc: CandidateAccumulator) {
@@ -704,6 +728,7 @@ fn is_safe_wrapper_rhs(expr: &CoreExpr) -> bool {
         CoreExpr::Perform { .. }
         | CoreExpr::Handle { .. }
         | CoreExpr::LetRec { .. }
+        | CoreExpr::LetRecGroup { .. }
         | CoreExpr::DropSpecialized { .. }
         | CoreExpr::Lam { .. } => false,
         CoreExpr::Var { .. }
@@ -725,7 +750,8 @@ fn is_safe_wrapper_rhs(expr: &CoreExpr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::{CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreLit, CorePat, CoreTag};
+    use crate::aether::{AetherAlt as CoreAlt, AetherExpr as CoreExpr};
+    use crate::core::{CoreBinder, CoreBinderId, CoreLit, CorePat, CoreTag};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 
@@ -758,6 +784,13 @@ mod tests {
             }
             CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
                 here + count_matching(rhs, predicate) + count_matching(body, predicate)
+            }
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                here + bindings
+                    .iter()
+                    .map(|(_, rhs)| count_matching(rhs, predicate))
+                    .sum::<usize>()
+                    + count_matching(body, predicate)
             }
             CoreExpr::Case {
                 scrutinee, alts, ..

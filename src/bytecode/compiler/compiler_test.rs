@@ -1,11 +1,20 @@
 use crate::{
     bytecode::compiler::Compiler,
-    bytecode::op_code::OpCode,
+    bytecode::op_code::{OpCode, disassemble},
     diagnostics::render_diagnostics,
     runtime::value::Value,
-    syntax::{interner::Interner, lexer::Lexer, parser::Parser},
+    syntax::{
+        effect_expr::EffectExpr, interner::Interner, lexer::Lexer, parser::Parser,
+        statement::Statement, type_expr::TypeExpr,
+    },
     types::{
-        infer_type::InferType, module_interface::ModuleInterface, scheme::Scheme,
+        infer_effect_row::InferEffectRow,
+        infer_type::InferType,
+        module_interface::{
+            ModuleInterface, PublicClassEntry, PublicClassMethodEntry, PublicInstanceEntry,
+            PublicInstanceMethodEntry,
+        },
+        scheme::Scheme,
         type_constructor::TypeConstructor,
     },
 };
@@ -39,6 +48,14 @@ fn parse_program_with_interner(
     (program, interner)
 }
 
+fn top_level_has_function(statements: &[Statement], name: &str, interner: &Interner) -> bool {
+    statements.iter().any(|statement| match statement {
+        Statement::Function { name: sym, .. } => interner.try_resolve(*sym) == Some(name),
+        Statement::Module { body, .. } => top_level_has_function(&body.statements, name, interner),
+        _ => false,
+    })
+}
+
 fn find_compiled_function(
     constants: &[Value],
     name: &str,
@@ -55,6 +72,18 @@ fn find_compiled_function(
         }
         _ => None,
     })
+}
+
+fn compile_function_asm(source: &str, name: &str) -> String {
+    let (program, interner) = parse_program(source);
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(source), None)));
+
+    let function = find_compiled_function(&compiler.bytecode().constants, name)
+        .unwrap_or_else(|| panic!("expected compiled function constant for {name}"));
+    disassemble(&function.instructions)
 }
 
 #[test]
@@ -205,6 +234,192 @@ fn compile_with_opts_skips_tail_call_analysis_without_optimization() {
     assert!(compiler.tail_calls.is_empty());
 }
 
+#[test]
+fn infer_expr_types_for_program_keeps_borrowed_program_when_untransformed() {
+    let (program, interner) = parse_program("fn f() { 1 }");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+
+    let prepared = compiler.prepare_program_for_lowering(&program);
+
+    assert!(
+        matches!(prepared.effective_program, std::borrow::Cow::Borrowed(_)),
+        "expected borrowed final AST on the no-op inference path"
+    );
+}
+
+#[test]
+fn infer_expr_types_for_program_skips_final_hm_pass_without_type_optimization() {
+    let (program, interner) = parse_program("fn f() { 1 }");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+
+    compiler.infer_expr_types_for_program(&program);
+
+    assert_eq!(compiler.hm_infer_runs, 1, "expected a single HM pass");
+}
+
+#[test]
+fn infer_expr_types_for_program_stores_owned_program_when_desugared() {
+    let (program, interner) = parse_program(
+        r#"
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool
+}
+
+instance Eq<Int> {
+    fn eq(x, y) { true }
+}
+
+fn different<A: Eq>(x: A, y: A) -> Bool {
+    x != y
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+
+    let prepared = compiler.prepare_program_for_lowering(&program);
+
+    assert!(
+        matches!(prepared.effective_program, std::borrow::Cow::Owned(_)),
+        "expected desugaring to materialize an owned final AST"
+    );
+}
+
+#[test]
+fn infer_expr_types_for_program_runs_final_hm_pass_when_desugared() {
+    let (program, interner) = parse_program(
+        r#"
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool
+}
+
+instance Eq<Int> {
+    fn eq(x, y) { true }
+}
+
+fn different<A: Eq>(x: A, y: A) -> Bool {
+    x != y
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+
+    compiler.infer_expr_types_for_program(&program);
+
+    assert_eq!(
+        compiler.hm_infer_runs, 2,
+        "expected the final HM pass after operator desugaring"
+    );
+}
+
+#[test]
+fn infer_expr_types_for_program_skips_final_hm_pass_when_type_optimized_but_unchanged() {
+    let (program, interner) = parse_program("fn f() { 1 }");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.type_optimize = true;
+
+    compiler.infer_expr_types_for_program(&program);
+
+    assert_eq!(
+        compiler.hm_infer_runs, 2,
+        "expected only original and post-fold HM passes"
+    );
+}
+
+#[test]
+fn infer_expr_types_for_program_runs_three_hm_passes_when_type_optimized_and_desugared() {
+    let (program, interner) = parse_program(
+        r#"
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool
+}
+
+instance Eq<Int> {
+    fn eq(x, y) { true }
+}
+
+fn different<A: Eq>(x: A, y: A) -> Bool {
+    x != y
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.type_optimize = true;
+
+    compiler.infer_expr_types_for_program(&program);
+
+    assert_eq!(
+        compiler.hm_infer_runs, 3,
+        "expected original, post-fold, and post-desugar HM passes"
+    );
+}
+
+#[test]
+fn compile_function_fuses_add_locals() {
+    let asm = compile_function_asm("fn f(a, b) { a + b }", "f");
+    assert!(
+        asm.contains("OpAddLocals 0 1"),
+        "expected fused add:\n{asm}"
+    );
+}
+
+#[test]
+fn compile_function_fuses_sub_locals() {
+    let asm = compile_function_asm("fn f(a, b) { a - b }", "f");
+    assert!(
+        asm.contains("OpSubLocals 0 1"),
+        "expected fused sub:\n{asm}"
+    );
+}
+
+#[test]
+fn compile_function_fuses_get_local_index() {
+    let asm = compile_function_asm("fn f(arr, i) { arr[i] }", "f");
+    assert!(
+        asm.contains("OpGetLocalIndex"),
+        "expected fused local index:\n{asm}"
+    );
+}
+
+#[test]
+fn compile_function_fuses_get_local_call1() {
+    // Use a non-tail-position call so OpGetLocalCall1 fusion applies.
+    // Tail-position calls emit OpTailCall instead (which is better).
+    let asm = compile_function_asm("fn f(x) { let g = fn(n) { n }; g(x) + 1 }", "f");
+    assert!(
+        asm.contains("OpGetLocalCall1"),
+        "expected fused local call1:\n{asm}"
+    );
+}
+
+#[test]
+fn compile_function_fuses_get_local_get_local() {
+    let asm = compile_function_asm("fn f(a, b) { let c = 0; let d = 1; (c, d) }", "f");
+    assert!(
+        asm.contains("OpGetLocalGetLocal"),
+        "expected fused local pair:\n{asm}"
+    );
+}
+
+#[test]
+fn compile_function_fuses_call_arities() {
+    let source = r#"
+fn zero() { 0 }
+fn one(x) { x }
+fn two(a, b) { a + b }
+fn main() { zero(); one(1); two(1, 2) }
+"#;
+    let asm = compile_function_asm(source, "main");
+    assert!(asm.contains("OpCall0"), "expected OpCall0:\n{asm}");
+    assert!(asm.contains("OpCall1"), "expected OpCall1:\n{asm}");
+    assert!(asm.contains("OpCall2"), "expected OpCall2:\n{asm}");
+}
+
+#[test]
+fn compile_function_fuses_tail_call1() {
+    let asm = compile_function_asm("fn f(n) { if n == 0 { 0 } else { return f(n - 1); } }", "f");
+    assert!(asm.contains("OpTailCall1"), "expected OpTailCall1:\n{asm}");
+}
+
 // Base function registry tests removed — Proposal 0120 replaced
 // Rust base functions with Flux stdlib in lib/Flow/*.flx.
 
@@ -250,17 +465,139 @@ fn main() {
 }
 
 #[test]
+fn preload_module_interface_remaps_adt_symbols_across_sessions() {
+    use crate::syntax::symbol::Symbol;
+
+    // Simulate session 1: ADT "Color" was interned as Symbol(5).
+    let old_adt_id = 5u32;
+    let interface = ModuleInterface {
+        module_name: "Example.Types".to_string(),
+        source_hash: "hash".to_string(),
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
+        schemes: std::collections::HashMap::from([(
+            "make_color".to_string(),
+            Scheme {
+                forall: vec![],
+                constraints: vec![],
+                infer_type: InferType::Con(TypeConstructor::Adt(Symbol::new(old_adt_id))),
+            },
+        )]),
+        borrow_signatures: std::collections::HashMap::new(),
+        dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::from([(old_adt_id, "Color".to_string())]),
+        public_classes: Vec::new(),
+        public_instances: Vec::new(),
+    };
+
+    // Session 2: fresh compiler. "Color" will get a different symbol ID.
+    let mut compiler = Compiler::new();
+    // Pre-intern some other strings so "Color" gets a different ID
+    let _ = compiler.interner.intern("Alpha");
+    let _ = compiler.interner.intern("Beta");
+    let _ = compiler.interner.intern("Gamma");
+    compiler.preload_module_interface(&interface);
+
+    let module = compiler.interner.intern("Example.Types");
+    let member = compiler.interner.intern("make_color");
+    let scheme = compiler
+        .cached_member_schemes()
+        .get(&(module, member))
+        .cloned()
+        .expect("scheme should be cached");
+
+    // The ADT symbol in the scheme should now point to the correct
+    // "Color" symbol in this session's interner.
+    let color_sym = compiler.interner.intern("Color");
+    match &scheme.infer_type {
+        InferType::Con(TypeConstructor::Adt(sym)) => {
+            assert_eq!(
+                *sym, color_sym,
+                "ADT symbol should be remapped to this session's Color symbol"
+            );
+        }
+        other => panic!("expected Adt constructor, got: {:?}", other),
+    }
+}
+
+#[test]
+fn preload_module_interface_remaps_effect_symbols_across_sessions() {
+    use crate::syntax::symbol::Symbol;
+
+    let old_effect_id = 3u32;
+    let interface = ModuleInterface {
+        module_name: "Example.IO".to_string(),
+        source_hash: "hash".to_string(),
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
+        schemes: std::collections::HashMap::from([(
+            "run".to_string(),
+            Scheme {
+                forall: vec![],
+                constraints: vec![],
+                infer_type: InferType::Fun(
+                    vec![InferType::Con(TypeConstructor::Unit)],
+                    Box::new(InferType::Con(TypeConstructor::Unit)),
+                    InferEffectRow::closed_from_symbols([Symbol::new(old_effect_id)]),
+                ),
+            },
+        )]),
+        borrow_signatures: std::collections::HashMap::new(),
+        dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::from([(old_effect_id, "IO".to_string())]),
+        public_classes: Vec::new(),
+        public_instances: Vec::new(),
+    };
+
+    let mut compiler = Compiler::new();
+    let _ = compiler.interner.intern("Foo");
+    let _ = compiler.interner.intern("Bar");
+    compiler.preload_module_interface(&interface);
+
+    let module = compiler.interner.intern("Example.IO");
+    let member = compiler.interner.intern("run");
+    let scheme = compiler
+        .cached_member_schemes()
+        .get(&(module, member))
+        .cloned()
+        .expect("scheme should be cached");
+
+    let io_sym = compiler.interner.intern("IO");
+    match &scheme.infer_type {
+        InferType::Fun(_, _, effects) => {
+            assert!(
+                effects.concrete().contains(&io_sym),
+                "effect row should contain remapped IO symbol, got: {:?}",
+                effects.concrete()
+            );
+        }
+        other => panic!("expected Fun type, got: {:?}", other),
+    }
+}
+
+#[test]
 fn preload_module_interface_inserts_cached_public_schemes() {
     let mut compiler = Compiler::new();
     let interface = ModuleInterface {
         module_name: "Example.Math".to_string(),
         source_hash: "hash".to_string(),
         compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
         schemes: std::collections::HashMap::from([(
             "double".to_string(),
             Scheme::mono(InferType::Con(TypeConstructor::Int)),
         )]),
         borrow_signatures: std::collections::HashMap::new(),
+        dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::new(),
+        public_classes: Vec::new(),
+        public_instances: Vec::new(),
     };
 
     compiler.preload_module_interface(&interface);
@@ -285,11 +622,18 @@ fn preload_module_interface_inserts_cached_borrow_signatures() {
         module_name: "Example.Math".to_string(),
         source_hash: "hash".to_string(),
         compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
         schemes: std::collections::HashMap::new(),
         borrow_signatures: std::collections::HashMap::from([(
             "double".to_string(),
             signature.clone(),
         )]),
+        dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::new(),
+        public_classes: Vec::new(),
+        public_instances: Vec::new(),
     };
 
     compiler.preload_module_interface(&interface);
@@ -300,6 +644,280 @@ fn preload_module_interface_inserts_cached_borrow_signatures() {
     assert_eq!(
         registry.lookup_member_access(module_binding, member),
         Some(&signature)
+    );
+}
+
+#[test]
+fn preload_module_interface_allows_imported_public_class_in_instance_head() {
+    let (program, interner) = parse_program(
+        r#"
+import Example.Logger as Logger
+
+module Local {
+    public data StdoutHandle { Stdout }
+
+    public instance Logger<StdoutHandle> {
+        fn log(hnd, msg) { None }
+    }
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let logger_h = compiler.interner.intern("h");
+    let logger_name = compiler.interner.intern("Logger");
+    let log_name = compiler.interner.intern("log");
+    let string_name = compiler.interner.intern("String");
+
+    let interface = ModuleInterface {
+        module_name: "Example.Logger".to_string(),
+        source_hash: "hash".to_string(),
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
+        schemes: std::collections::HashMap::new(),
+        borrow_signatures: std::collections::HashMap::new(),
+        dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::new(),
+        public_classes: vec![PublicClassEntry {
+            class_module: "Example.Logger".to_string(),
+            name: "Logger".to_string(),
+            type_param_arity: 1,
+            type_params: vec![logger_h],
+            superclasses: vec![],
+            methods: vec![PublicClassMethodEntry {
+                name: log_name,
+                type_params: vec![],
+                param_types: vec![
+                    TypeExpr::Named {
+                        name: logger_h,
+                        args: vec![],
+                        span: Default::default(),
+                    },
+                    TypeExpr::Named {
+                        name: string_name,
+                        args: vec![],
+                        span: Default::default(),
+                    },
+                ],
+                return_type: TypeExpr::Tuple {
+                    elements: vec![],
+                    span: Default::default(),
+                },
+                effects: vec![],
+            }],
+            default_methods: vec![],
+            method_names: vec!["log".to_string()],
+            pinned_row_placeholder: None,
+        }],
+        public_instances: Vec::new(),
+    };
+
+    compiler.preload_module_interface(&interface);
+    compiler
+        .compile(&program)
+        .expect("imported public class should be usable in downstream instance heads");
+
+    assert!(
+        compiler
+            .class_env()
+            .instances
+            .iter()
+            .any(|inst| inst.class_name == logger_name),
+        "local instance should resolve against the imported class env"
+    );
+}
+
+#[test]
+fn preload_module_interface_propagates_imported_instance_effect_row() {
+    let (_program, interner) = parse_program(
+        r#"
+import Example.Logger as Logger
+import Example.StdLog as StdLog
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let logger_h = compiler.interner.intern("h");
+    let log_name = compiler.interner.intern("log");
+    let string_name = compiler.interner.intern("String");
+    let int_name = compiler.interner.intern("Int");
+    let console_name = compiler.interner.intern("Console");
+
+    let class_interface = ModuleInterface {
+        module_name: "Example.Logger".to_string(),
+        source_hash: "hash".to_string(),
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
+        schemes: std::collections::HashMap::new(),
+        borrow_signatures: std::collections::HashMap::new(),
+        dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::new(),
+        public_classes: vec![PublicClassEntry {
+            class_module: "Example.Logger".to_string(),
+            name: "Logger".to_string(),
+            type_param_arity: 1,
+            type_params: vec![logger_h],
+            superclasses: vec![],
+            methods: vec![PublicClassMethodEntry {
+                name: log_name,
+                type_params: vec![],
+                param_types: vec![
+                    TypeExpr::Named {
+                        name: logger_h,
+                        args: vec![],
+                        span: Default::default(),
+                    },
+                    TypeExpr::Named {
+                        name: string_name,
+                        args: vec![],
+                        span: Default::default(),
+                    },
+                ],
+                return_type: TypeExpr::Tuple {
+                    elements: vec![],
+                    span: Default::default(),
+                },
+                effects: vec![],
+            }],
+            default_methods: vec![],
+            method_names: vec!["log".to_string()],
+            pinned_row_placeholder: None,
+        }],
+        public_instances: Vec::new(),
+    };
+    let instance_interface = ModuleInterface {
+        module_name: "Example.StdLog".to_string(),
+        source_hash: "hash".to_string(),
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
+        schemes: std::collections::HashMap::new(),
+        borrow_signatures: std::collections::HashMap::new(),
+        dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::new(),
+        public_classes: Vec::new(),
+        public_instances: vec![PublicInstanceEntry {
+            class_module: "Example.Logger".to_string(),
+            class_name: "Logger".to_string(),
+            instance_module: "Example.StdLog".to_string(),
+            head_type_repr: "Int".to_string(),
+            type_args: vec![TypeExpr::Named {
+                name: int_name,
+                args: vec![],
+                span: Default::default(),
+            }],
+            context: vec![],
+            methods: vec![PublicInstanceMethodEntry {
+                name: log_name,
+                effects: vec![EffectExpr::Named {
+                    name: console_name,
+                    span: Default::default(),
+                }],
+            }],
+            pinned_row_placeholder: None,
+        }],
+    };
+
+    compiler.preload_module_interface(&class_interface);
+    compiler.preload_module_interface(&instance_interface);
+    let mangled = compiler.interner.intern("__tc_Logger_Int_log");
+    let scheme = compiler
+        .imported_instance_method_schemes
+        .get(&mangled)
+        .expect("expected imported instance method scheme to be preloaded");
+    match &scheme.infer_type {
+        InferType::Fun(_, _, effects) => {
+            assert!(
+                effects.concrete().contains(&console_name),
+                "expected imported instance row to include Console, got: {:?}",
+                effects
+            );
+        }
+        other => panic!("expected function scheme for imported instance method, got {other:?}"),
+    }
+}
+
+#[test]
+fn prepare_program_for_lowering_synthesizes_imported_class_instance_dispatch_after_compile() {
+    let (program, interner) = parse_program(
+        r#"
+import Example.Logger as Logger
+
+module Local {
+    public data StdoutHandle { Stdout }
+
+    public instance Logger<StdoutHandle> {
+        fn log(hnd, msg) { None }
+    }
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let logger_h = compiler.interner.intern("h");
+    let log_name = compiler.interner.intern("log");
+    let string_name = compiler.interner.intern("String");
+
+    let interface = ModuleInterface {
+        module_name: "Example.Logger".to_string(),
+        source_hash: "hash".to_string(),
+        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+        semantic_config_hash: "cfg".to_string(),
+        interface_fingerprint: "abi".to_string(),
+        schemes: std::collections::HashMap::new(),
+        borrow_signatures: std::collections::HashMap::new(),
+        dependency_fingerprints: Vec::new(),
+        symbol_table: std::collections::HashMap::new(),
+        public_classes: vec![PublicClassEntry {
+            class_module: "Example.Logger".to_string(),
+            name: "Logger".to_string(),
+            type_param_arity: 1,
+            type_params: vec![logger_h],
+            superclasses: vec![],
+            methods: vec![PublicClassMethodEntry {
+                name: log_name,
+                type_params: vec![],
+                param_types: vec![
+                    TypeExpr::Named {
+                        name: logger_h,
+                        args: vec![],
+                        span: Default::default(),
+                    },
+                    TypeExpr::Named {
+                        name: string_name,
+                        args: vec![],
+                        span: Default::default(),
+                    },
+                ],
+                return_type: TypeExpr::Tuple {
+                    elements: vec![],
+                    span: Default::default(),
+                },
+                effects: vec![],
+            }],
+            default_methods: vec![],
+            method_names: vec!["log".to_string()],
+            pinned_row_placeholder: None,
+        }],
+        public_instances: Vec::new(),
+    };
+
+    compiler.preload_module_interface(&interface);
+    compiler
+        .compile(&program)
+        .expect("program with imported public class instance should compile");
+
+    let prepared = compiler.prepare_program_for_lowering_with_preloaded(&program);
+    assert!(
+        top_level_has_function(
+            &prepared.effective_program.statements,
+            "__tc_Logger_StdoutHandle_log",
+            &compiler.interner,
+        ),
+        "expected imported-class instance dispatch to be synthesized in the effective program"
     );
 }
 
@@ -513,6 +1131,35 @@ fn main() { first(1, 2) }
     assert!(report.contains("reuse:"));
     assert!(report.contains("first"));
     assert!(report.contains("line"));
+}
+
+#[test]
+fn dump_core_with_opts_does_not_depend_on_prior_compiler_state() {
+    let (program, interner) = parse_program(
+        r#"
+fn sum(x) { x + 1 }
+"#,
+    );
+    let mut warmed = Compiler::new_with_interner("<test>", interner.clone());
+    warmed.compile(&program).expect("program should compile");
+    let warmed_dump = warmed
+        .dump_core_with_opts(
+            &program,
+            false,
+            crate::core::display::CoreDisplayMode::Readable,
+        )
+        .expect("dump_core should succeed after compile");
+
+    let mut fresh = Compiler::new_with_interner("<test>", interner);
+    let fresh_dump = fresh
+        .dump_core_with_opts(
+            &program,
+            false,
+            crate::core::display::CoreDisplayMode::Readable,
+        )
+        .expect("dump_core should succeed without prior compile");
+
+    assert_eq!(fresh_dump, warmed_dump);
 }
 
 #[test]

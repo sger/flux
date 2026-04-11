@@ -13,7 +13,8 @@ use crate::diagnostics::{
 };
 
 use super::{
-    import_binding_name, is_valid_module_alias, is_valid_module_name, module_binding_name,
+    ImportEdge, ModuleGraph, ModuleId, ModuleKind, ModuleNode, import_binding_name,
+    is_valid_module_alias, is_valid_module_name, module_binding_name,
     module_resolution::{normalize_roots, resolve_imports, validate_file_kind},
 };
 
@@ -226,6 +227,129 @@ fn resolve_imports_missing_module() {
 
     let err = resolve_imports(path, &program, &roots, &interner).unwrap_err();
     assert_eq!(err[0].code(), Some(IMPORT_NOT_FOUND.code));
+}
+
+#[test]
+fn topo_levels_group_independent_dependencies() {
+    let leaf_a = ModuleId("/tmp/A.flx".to_string());
+    let leaf_b = ModuleId("/tmp/B.flx".to_string());
+    let entry = ModuleId("/tmp/Main.flx".to_string());
+
+    let graph = ModuleGraph {
+        entry: entry.clone(),
+        nodes: std::collections::HashMap::from([
+            (
+                leaf_a.clone(),
+                ModuleNode {
+                    id: leaf_a.clone(),
+                    path: PathBuf::from("/tmp/A.flx"),
+                    kind: ModuleKind::User,
+                    program: Program::new(),
+                    imports: vec![],
+                },
+            ),
+            (
+                leaf_b.clone(),
+                ModuleNode {
+                    id: leaf_b.clone(),
+                    path: PathBuf::from("/tmp/B.flx"),
+                    kind: ModuleKind::User,
+                    program: Program::new(),
+                    imports: vec![],
+                },
+            ),
+            (
+                entry.clone(),
+                ModuleNode {
+                    id: entry.clone(),
+                    path: PathBuf::from("/tmp/Main.flx"),
+                    kind: ModuleKind::User,
+                    program: Program::new(),
+                    imports: vec![
+                        ImportEdge {
+                            name: "A".to_string(),
+                            position: Position::default(),
+                            target: leaf_a.clone(),
+                            target_path: PathBuf::from("/tmp/A.flx"),
+                        },
+                        ImportEdge {
+                            name: "B".to_string(),
+                            position: Position::default(),
+                            target: leaf_b.clone(),
+                            target_path: PathBuf::from("/tmp/B.flx"),
+                        },
+                    ],
+                },
+            ),
+        ]),
+        order: vec![leaf_a, leaf_b, entry],
+    };
+
+    let levels = graph.topo_levels();
+    assert_eq!(levels.len(), 2);
+    assert_eq!(levels[0].len(), 2);
+    assert_eq!(levels[1].len(), 1);
+    assert_eq!(levels[1][0].path, PathBuf::from("/tmp/Main.flx"));
+}
+
+#[test]
+fn build_graph_marks_flow_modules_as_stdlib() {
+    let root = temp_dir("flow_kind");
+    let lib_root = root.join("lib");
+    let flow_dir = lib_root.join("Flow");
+    std::fs::create_dir_all(&flow_dir).unwrap();
+    let entry_path = flow_dir.join("List.flx");
+    std::fs::write(&entry_path, "module Flow.List {}\n").unwrap();
+
+    let mut interner = Interner::new();
+    let module_sym = interner.intern("Flow.List");
+    let program = Program {
+        statements: vec![Statement::Module {
+            name: module_sym,
+            body: Block {
+                statements: vec![],
+                span: Span::default(),
+            },
+            span: span(1, 0),
+        }],
+        span: Span::default(),
+    };
+
+    let result =
+        ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[lib_root]);
+    assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+    let node = result.graph.topo_order()[0];
+    assert_eq!(node.kind, ModuleKind::FlowStdlib);
+}
+
+#[test]
+fn build_graph_marks_non_flow_modules_as_user() {
+    let root = temp_dir("user_kind");
+    let app_root = root.join("app");
+    let app_module_dir = app_root.join("App");
+    std::fs::create_dir_all(&app_module_dir).unwrap();
+    let entry_path = app_module_dir.join("Main.flx");
+    std::fs::write(&entry_path, "module App.Main {}\n").unwrap();
+
+    let mut interner = Interner::new();
+    let module_sym = interner.intern("App.Main");
+    let program = Program {
+        statements: vec![Statement::Module {
+            name: module_sym,
+            body: Block {
+                statements: vec![],
+                span: Span::default(),
+            },
+            span: span(1, 0),
+        }],
+        span: Span::default(),
+    };
+
+    let result =
+        ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[app_root]);
+    assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+    let node = result.graph.topo_order()[0];
+    assert_eq!(node.kind, ModuleKind::User);
 }
 
 #[test]

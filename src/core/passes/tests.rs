@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     core::{
         CoreAlt, CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat,
-        CorePrimOp, CoreProgram, CoreTag,
+        CorePrimOp, CoreProgram, CoreTag, CoreTopLevelItem, CoreVarRef,
     },
     diagnostics::position::Span,
     syntax::interner::Interner,
@@ -239,17 +239,11 @@ fn run_core_passes_reports_aether_contract_stage() {
     let mut interner = Interner::new();
     let x = interner.intern("x");
     let x_binder = binder(0, x);
-
-    let malformed = CoreExpr::Drop {
-        var: crate::core::CoreVarRef::resolved(x_binder),
-        body: Box::new(var_ref(x_binder)),
-        span: s(),
-    };
     let mut program = CoreProgram {
         defs: vec![CoreDef {
             name: x,
             binder: x_binder,
-            expr: malformed,
+            expr: var_ref(x_binder),
             borrow_signature: None,
             result_ty: None,
             is_anonymous: false,
@@ -260,14 +254,160 @@ fn run_core_passes_reports_aether_contract_stage() {
         top_level_items: Vec::new(),
     };
 
-    let err =
-        run_core_passes_with_interner(&mut program, &interner, false).expect_err("should fail");
-    let message = err.message.clone().unwrap_or_default();
-    assert!(
-        message.contains("after `beta_reduce`"),
-        "expected stage label in contract error, got: {}",
-        message
-    );
+    run_core_passes_with_interner(&mut program, &interner, false)
+        .expect("semantic core passes should succeed without Aether validation");
+}
+
+#[test]
+fn primop_promote_keeps_bare_delete_bound_to_flow_list_delete() {
+    let mut interner = Interner::new();
+    let flow = interner.intern("Flow");
+    let list = interner.intern("List");
+    let delete = interner.intern("delete");
+    let main = interner.intern("main");
+    let xs = interner.intern("xs");
+    let x = interner.intern("x");
+
+    let delete_binder = binder(0, delete);
+    let xs_binder = binder(1, xs);
+    let x_binder = binder(2, x);
+    let main_binder = binder(3, main);
+
+    let delete_def = CoreDef {
+        name: delete,
+        binder: delete_binder,
+        expr: CoreExpr::Lam {
+            params: vec![xs_binder, x_binder],
+            body: Box::new(CoreExpr::Lit(CoreLit::Unit, s())),
+            span: s(),
+        },
+        borrow_signature: None,
+        result_ty: None,
+        is_anonymous: false,
+        is_recursive: false,
+        fip: None,
+        span: s(),
+    };
+
+    let main_def = CoreDef {
+        name: main,
+        binder: main_binder,
+        expr: CoreExpr::App {
+            func: Box::new(CoreExpr::Var {
+                var: CoreVarRef {
+                    name: delete,
+                    binder: Some(delete_binder.id),
+                },
+                span: s(),
+            }),
+            args: vec![
+                CoreExpr::Lit(CoreLit::Int(1), s()),
+                CoreExpr::Lit(CoreLit::Int(2), s()),
+            ],
+            span: s(),
+        },
+        borrow_signature: None,
+        result_ty: None,
+        is_anonymous: false,
+        is_recursive: false,
+        fip: None,
+        span: s(),
+    };
+
+    let mut program = CoreProgram {
+        defs: vec![delete_def, main_def],
+        top_level_items: vec![
+            CoreTopLevelItem::Module {
+                name: flow,
+                body: vec![CoreTopLevelItem::Module {
+                    name: list,
+                    body: vec![CoreTopLevelItem::Function {
+                        is_public: true,
+                        name: delete,
+                        type_params: Vec::new(),
+                        parameters: vec![xs, x],
+                        parameter_types: Vec::new(),
+                        return_type: None,
+                        effects: Vec::new(),
+                        span: s(),
+                    }],
+                    span: s(),
+                }],
+                span: s(),
+            },
+            CoreTopLevelItem::Function {
+                is_public: true,
+                name: main,
+                type_params: Vec::new(),
+                parameters: Vec::new(),
+                parameter_types: Vec::new(),
+                return_type: None,
+                effects: Vec::new(),
+                span: s(),
+            },
+        ],
+    };
+
+    promote_builtins(&mut program, &interner);
+
+    match &program.defs[1].expr {
+        CoreExpr::App { .. } => {}
+        other => panic!("expected bare delete to remain a stdlib call, got {other:?}"),
+    }
+}
+
+#[test]
+fn primop_promote_promotes_explicit_map_delete_name() {
+    let mut interner = Interner::new();
+    let map_delete = interner.intern("map_delete");
+    let main = interner.intern("main");
+    let main_binder = binder(0, main);
+
+    let main_def = CoreDef {
+        name: main,
+        binder: main_binder,
+        expr: CoreExpr::App {
+            func: Box::new(CoreExpr::Var {
+                var: CoreVarRef {
+                    name: map_delete,
+                    binder: None,
+                },
+                span: s(),
+            }),
+            args: vec![
+                CoreExpr::Lit(CoreLit::Int(1), s()),
+                CoreExpr::Lit(CoreLit::Int(2), s()),
+            ],
+            span: s(),
+        },
+        borrow_signature: None,
+        result_ty: None,
+        is_anonymous: false,
+        is_recursive: false,
+        fip: None,
+        span: s(),
+    };
+
+    let mut program = CoreProgram {
+        defs: vec![main_def],
+        top_level_items: vec![CoreTopLevelItem::Function {
+            is_public: true,
+            name: main,
+            type_params: Vec::new(),
+            parameters: Vec::new(),
+            parameter_types: Vec::new(),
+            return_type: None,
+            effects: Vec::new(),
+            span: s(),
+        }],
+    };
+
+    promote_builtins(&mut program, &interner);
+
+    match &program.defs[0].expr {
+        CoreExpr::PrimOp { op, .. } => assert_eq!(*op, CorePrimOp::HamtDelete),
+        other => panic!("expected explicit map_delete promotion, got {other:?}"),
+    }
 }
 
 #[test]
@@ -878,32 +1018,18 @@ fn anf_normalizes_app_func_and_args() {
 #[test]
 fn run_core_passes_rejects_malformed_aether_before_lowering() {
     let mut interner = Interner::new();
-    let main_name = interner.intern("main");
     let xs = binder(1, interner.intern("xs"));
 
-    let mut program = crate::core::CoreProgram {
-        defs: vec![crate::core::CoreDef {
-            name: main_name,
-            binder: binder(0, main_name),
-            expr: CoreExpr::Drop {
-                var: crate::core::CoreVarRef::resolved(xs),
-                body: Box::new(var_ref(xs)),
-                span: s(),
-            },
-            borrow_signature: None,
-            result_ty: None,
-            is_anonymous: false,
-            is_recursive: false,
-            fip: None,
-            span: s(),
-        }],
-        top_level_items: Vec::new(),
+    let expr = crate::aether::AetherExpr::Drop {
+        var: crate::core::CoreVarRef::resolved(xs),
+        body: Box::new(crate::aether::AetherExpr::bound_var(xs, s())),
+        span: s(),
     };
-
-    let err = run_core_passes(&mut program).expect_err("expected malformed Aether to fail");
+    let err = crate::aether::verify::verify_contract_aether(&expr)
+        .expect_err("expected malformed Aether to fail");
     assert!(
-        err.message()
-            .is_some_and(|message| message.contains("malformed Aether")),
-        "unexpected diagnostic: {err:?}"
+        err.iter()
+            .any(|e| matches!(e.kind, crate::aether::verify::AetherErrorKind::UnsafeDrop)),
+        "unexpected Aether verification errors: {err:?}"
     );
 }

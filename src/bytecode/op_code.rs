@@ -74,10 +74,8 @@ pub enum OpCode {
     /// Generic primop dispatch: operands are `[primop_id: u8, arity: u8]`.
     /// Consumes `arity` arguments from the stack and pushes one result.
     OpPrimOp = 62,
-    /// Direct built-in function call: operands are `[base_fn_index: u8, arity: u8]`.
-    /// Unlike `OpCall`, no callee value is read from the stack.
-    /// Consumes `arity` arguments from the stack and pushes one result.
-    OpCallBase = 63,
+    // OpCallBase = 63 was removed (deprecated). Slot intentionally left empty
+    // to preserve bytecode compatibility with cached .fxc/.fxm files.
     /// Construct a user-defined ADT value.
     /// Operands: `[const_idx: u16, arity: u8]`.
     /// Pops `arity` values (the constructor fields), then pushes `Value::Adt { constructor, fields }`.
@@ -90,14 +88,14 @@ pub enum OpCode {
     /// Operand: `[field_idx: u8]`. Replaces top-of-stack with `fields[field_idx]`.
     OpAdtField = 66,
     /// Install a handler for an effect.
-    /// Operand: `[const_idx: u8]` — index of a `Value::HandlerDescriptor` in constants.
+    /// Operand: `[const_idx: u16]` — index of a `Value::HandlerDescriptor` in constants.
     /// Pushes a `HandlerFrame` onto the handler stack and falls through to the handled expression.
     OpHandle = 67,
     /// Remove the innermost handler frame.
     /// No operands. Pops one `HandlerFrame` from the handler stack.
     OpEndHandle = 68,
     /// Perform an effect operation (suspends the current computation).
-    /// Operands: `[const_idx: u8, arity: u8]`.
+    /// Operands: `[const_idx: u16, arity: u8]`.
     /// `constants[const_idx]` is a `Value::PerformDescriptor`.
     /// Pops `arity` arguments from the stack, searches handler_stack for a matching handler,
     /// captures a continuation, and calls the matching handler arm.
@@ -135,12 +133,12 @@ pub enum OpCode {
     /// Operands: `[local_idx: u8, const_idx: u16, jump_offset: u16]`.
     OpIsAdtJumpLocal = 80,
     /// Install a tail-resumptive handler for an effect.
-    /// Operand: `[const_idx: u8]` — index of a `Value::HandlerDescriptor`.
+    /// Operand: `[const_idx: u16]` — index of a `Value::HandlerDescriptor`.
     /// Identical to `OpHandle` but marks the handler frame as `is_direct = true`
     /// so that `OpPerformDirect` skips continuation capture.
     OpHandleDirect = 81,
     /// Perform an effect operation on a tail-resumptive handler (no continuation).
-    /// Operands: `[const_idx: u8, arity: u8]`.
+    /// Operands: `[const_idx: u16, arity: u8]`.
     /// Like `OpPerform` but the matching handler arm is called directly — no
     /// continuation is captured and `resume(v)` simply returns `v`.
     OpPerformDirect = 82,
@@ -180,7 +178,37 @@ pub enum OpCode {
     /// Operand: `[local_idx: u8]`.
     /// Immediate `Int`/`Float`/`Bool` locals are left unchanged.
     OpAetherDropLocal = 91,
+    /// Superinstruction: `GetLocal(a) + GetLocal(b) + Add`.
+    OpAddLocals = 92,
+    /// Superinstruction: `GetLocal(a) + GetLocal(b) + Sub`.
+    OpSubLocals = 93,
+    /// Superinstruction: `GetLocal(n) + Call(1)`.
+    OpGetLocalCall1 = 94,
+    /// Superinstruction: `Constant(idx) + Add`.
+    OpConstantAdd = 95,
+    /// Superinstruction: `GetLocal(n) + Index`.
+    OpGetLocalIndex = 96,
+    /// Superinstruction: `GetLocal(n) + IsAdt(tag)`.
+    OpGetLocalIsAdt = 97,
+    /// Superinstruction: `SetLocal(n) + Pop`.
+    OpSetLocalPop = 98,
+    /// Superinstruction: `GetLocal(a) + GetLocal(b)`.
+    OpGetLocalGetLocal = 99,
+    /// Superinstruction: `Call(0)`.
+    OpCall0 = 100,
+    /// Superinstruction: `Call(1)`.
+    OpCall1 = 101,
+    /// Superinstruction: `Call(2)`.
+    OpCall2 = 102,
+    /// Superinstruction: `TailCall(1)`.
+    OpTailCall1 = 103,
+    /// Profiling: enter a cost centre at function entry. Operand: `[cc_index: u16]`.
+    /// Only emitted when `--prof` is passed. The VM tracks call counts and timing.
+    OpEnterCC = 104,
 }
+
+/// Maximum valid opcode value (inclusive). Must be updated when adding new opcodes.
+pub const MAX_OPCODE: u8 = OpCode::OpEnterCC as u8;
 
 impl From<u8> for OpCode {
     fn from(byte: u8) -> Self {
@@ -248,7 +276,7 @@ impl From<u8> for OpCode {
             60 => OpCode::OpTupleIndex,
             61 => OpCode::OpIsTuple,
             62 => OpCode::OpPrimOp,
-            63 => OpCode::OpCallBase,
+            // 63 was OpCallBase (removed)
             64 => OpCode::OpMakeAdt,
             65 => OpCode::OpIsAdt,
             66 => OpCode::OpAdtField,
@@ -277,6 +305,19 @@ impl From<u8> for OpCode {
             89 => OpCode::OpReuseRight,
             90 => OpCode::OpIsUnique,
             91 => OpCode::OpAetherDropLocal,
+            92 => OpCode::OpAddLocals,
+            93 => OpCode::OpSubLocals,
+            94 => OpCode::OpGetLocalCall1,
+            95 => OpCode::OpConstantAdd,
+            96 => OpCode::OpGetLocalIndex,
+            97 => OpCode::OpGetLocalIsAdt,
+            98 => OpCode::OpSetLocalPop,
+            99 => OpCode::OpGetLocalGetLocal,
+            100 => OpCode::OpCall0,
+            101 => OpCode::OpCall1,
+            102 => OpCode::OpCall2,
+            103 => OpCode::OpTailCall1,
+            104 => OpCode::OpEnterCC,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -317,8 +358,14 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpGetBase
         | OpCode::OpReturnLocal
         | OpCode::OpTupleIndex
-        | OpCode::OpAetherDropLocal => vec![1],
-        OpCode::OpPrimOp | OpCode::OpCallBase => vec![1, 1],
+        | OpCode::OpAetherDropLocal
+        | OpCode::OpGetLocalCall1
+        | OpCode::OpGetLocalIndex
+        | OpCode::OpSetLocalPop => vec![1],
+        OpCode::OpAddLocals | OpCode::OpSubLocals | OpCode::OpGetLocalGetLocal => vec![1, 1],
+        OpCode::OpConstantAdd => vec![2],
+        OpCode::OpGetLocalIsAdt => vec![1, 2],
+        OpCode::OpPrimOp => vec![1, 1],
         OpCode::OpClosure => vec![2, 1],
         OpCode::OpClosureLong => vec![4, 1],
         // ADT opcodes
@@ -329,9 +376,9 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpIsAdtJumpLocal => vec![1, 2, 2], // local_idx: u8, const_idx: u16, jump_offset: u16
         // OpAdtFields2: no operands, covered by _ => vec![]
         // Effect handler opcodes
-        OpCode::OpHandle | OpCode::OpHandleDirect => vec![1], // const_idx: u8
+        OpCode::OpHandle | OpCode::OpHandleDirect => vec![2], // const_idx: u16
         OpCode::OpEndHandle => vec![],                        // no operands
-        OpCode::OpPerform | OpCode::OpPerformDirect => vec![1, 1], // const_idx: u8, arity: u8
+        OpCode::OpPerform | OpCode::OpPerformDirect => vec![2, 1], // const_idx: u16, arity: u8
         OpCode::OpPerformDirectIndexed => vec![1, 1, 1], // handler_depth: u8, arm_index: u8, arity: u8
         OpCode::OpConsumeLocal0 | OpCode::OpConsumeLocal1 => vec![],
         // Aether reuse opcodes
@@ -340,6 +387,8 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpReuseAdt => vec![2, 1, 1], // const_idx: u16, arity: u8, field_mask: u8
         OpCode::OpReuseSome | OpCode::OpReuseLeft | OpCode::OpReuseRight => vec![],
         OpCode::OpIsUnique => vec![],
+        OpCode::OpCall0 | OpCode::OpCall1 | OpCode::OpCall2 | OpCode::OpTailCall1 => vec![],
+        OpCode::OpEnterCC => vec![2], // cc_index: u16
         _ => vec![],
     }
 }

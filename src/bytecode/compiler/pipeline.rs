@@ -1,5 +1,8 @@
+use std::borrow::Cow;
+
 use crate::diagnostics::Diagnostic;
 use crate::syntax::program::Program;
+use crate::types::class_dispatch::generate_dispatch_functions;
 
 use super::{Compiler, MainValidationState};
 
@@ -9,8 +12,8 @@ pub(super) struct CollectionResult {
 }
 
 /// Result of Phase 3 (type inference), consumed by Phases 4–6.
-pub(super) struct TypeInferenceResult {
-    pub(super) type_optimized_program: Option<Program>,
+pub(super) struct TypeInferenceResult<'a> {
+    pub(super) final_program: Cow<'a, Program>,
     pub(super) hm_diagnostics: Vec<Diagnostic>,
 }
 
@@ -26,6 +29,32 @@ impl Compiler {
         // Phase 1: Collect definitions + validate structure
         let collection = self.phase_collection(program);
 
+        // Phase 1b: Generate dispatch functions for type class instances.
+        // This injects mangled instance methods + dispatch functions into the
+        // program AST so they compile through the normal pipeline.
+        let class_augmented;
+        let program = if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
+            let additional_reserved_names = self
+                .symbol_table
+                .all_symbol_names()
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>();
+            let extra = generate_dispatch_functions(
+                &program.statements,
+                &self.class_env,
+                &mut self.interner,
+                &additional_reserved_names,
+            );
+            if !extra.is_empty() {
+                class_augmented = self.inject_generated_dispatch_functions(program, extra);
+                &class_augmented
+            } else {
+                program
+            }
+        } else {
+            program
+        };
+
         // Phase 2: Predeclare function names
         self.phase_predeclaration(program, &collection);
 
@@ -33,7 +62,7 @@ impl Compiler {
         let ti = self.phase_type_inference(program);
 
         // Phase 4: IR lowering (uses the possibly-optimized program)
-        let effective_program = ti.type_optimized_program.as_ref().unwrap_or(program);
+        let effective_program = ti.final_program.as_ref();
         let ir_program = self.phase_ir_lowering(effective_program)?;
 
         // Phase 5: Code generation

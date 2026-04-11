@@ -104,7 +104,10 @@ impl<'a> super::AstLowerer<'a> {
                 let inner = self.lower_block(block);
                 // Preserve the span wrapper.
                 match inner {
-                    CoreExpr::Let { .. } | CoreExpr::LetRec { .. } | CoreExpr::Case { .. } => inner,
+                    CoreExpr::Let { .. }
+                    | CoreExpr::LetRec { .. }
+                    | CoreExpr::LetRecGroup { .. }
+                    | CoreExpr::Case { .. } => inner,
                     other => CoreExpr::Let {
                         var: self.fresh_binder(crate::syntax::symbol::Symbol::new(
                             3_000_000 + self.fresh,
@@ -120,9 +123,10 @@ impl<'a> super::AstLowerer<'a> {
                 parameters,
                 body,
                 span,
+                id,
                 ..
             } => {
-                let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                let params: Vec<_> = self.bind_lambda_params(parameters, *id);
                 let body_expr = self.lower_block(body);
                 if parameters.is_empty() {
                     // Nullary lambda — keep the Lam wrapper so the Core→IR
@@ -144,10 +148,43 @@ impl<'a> super::AstLowerer<'a> {
                 span,
                 ..
             } => {
+                // Phase 4 Step 5: compile-time class method dispatch.
+                // If the callee is a class method and the argument type is known,
+                // resolve directly to the mangled instance function.
+                if let Some(mangled) = self.try_resolve_class_call_expr(function, arguments) {
+                    let method_name = match function.as_ref() {
+                        Expression::Identifier { name, .. } => *name,
+                        Expression::MemberAccess { member, .. } => *member,
+                        _ => unreachable!("class call resolution only succeeds for direct callees"),
+                    };
+                    let mut args = self.resolve_direct_class_call_dict_args(method_name, arguments);
+                    args.extend(arguments.iter().map(|a| self.lower_expr(a)));
+                    return CoreExpr::App {
+                        func: Box::new(CoreExpr::external_var(mangled, *span)),
+                        args,
+                        span: *span,
+                    };
+                }
+
+                // Step 5b: Dictionary passing for constrained functions.
+                // If the callee is a function with class constraints in its scheme,
+                // resolve concrete dictionaries and prepend them as arguments.
+                if let Expression::Identifier { name, id, .. } = function.as_ref() {
+                    let dict_args = self.resolve_dict_args_for_call(*name, *id, arguments);
+                    if !dict_args.is_empty() {
+                        let func = self.lower_expr(function);
+                        let mut all_args = dict_args;
+                        all_args.extend(arguments.iter().map(|a| self.lower_expr(a)));
+                        return CoreExpr::App {
+                            func: Box::new(func),
+                            args: all_args,
+                            span: *span,
+                        };
+                    }
+                }
+
                 let func = self.lower_expr(function);
                 let args: Vec<CoreExpr> = arguments.iter().map(|a| self.lower_expr(a)).collect();
-                // Always emit App, even for zero-arg calls — Flux functions
-                // must be invoked explicitly (they can have side effects).
                 CoreExpr::App {
                     func: Box::new(func),
                     args,
@@ -248,8 +285,13 @@ impl<'a> super::AstLowerer<'a> {
                 span,
                 ..
             } => {
+                // Look up the scrutinee's HM-inferred type for typed pattern binders.
+                let scrutinee_ty = self.hm_expr_types.get(&scrutinee.expr_id()).cloned();
                 let scrut = self.lower_expr(scrutinee);
-                let alts: Vec<CoreAlt> = arms.iter().map(|arm| self.lower_match_arm(arm)).collect();
+                let alts: Vec<CoreAlt> = arms
+                    .iter()
+                    .map(|arm| self.lower_match_arm_typed(arm, scrutinee_ty.as_ref()))
+                    .collect();
                 CoreExpr::Case {
                     scrutinee: Box::new(scrut),
                     alts,
@@ -326,8 +368,10 @@ impl<'a> super::AstLowerer<'a> {
                 ..
             } => {
                 let body = self.lower_expr(expr);
-                let handlers: Vec<CoreHandler> =
-                    arms.iter().map(|arm| self.lower_handle_arm(arm)).collect();
+                let handlers: Vec<CoreHandler> = arms
+                    .iter()
+                    .map(|arm| self.lower_handle_arm_typed(arm, *effect))
+                    .collect();
                 CoreExpr::Handle {
                     body: Box::new(body),
                     effect: *effect,
@@ -374,6 +418,11 @@ impl<'a> super::AstLowerer<'a> {
         let is_float = matches!(result_ty, Some(InferType::Con(TypeConstructor::Float)))
             && matches!(left_ty, Some(InferType::Con(TypeConstructor::Float)))
             && matches!(right_ty, Some(InferType::Con(TypeConstructor::Float)));
+        // For comparisons the result is Bool, so only check operand types.
+        let operands_int = matches!(left_ty, Some(InferType::Con(TypeConstructor::Int)))
+            && matches!(right_ty, Some(InferType::Con(TypeConstructor::Int)));
+        let operands_float = matches!(left_ty, Some(InferType::Con(TypeConstructor::Float)))
+            && matches!(right_ty, Some(InferType::Con(TypeConstructor::Float)));
 
         let op = match operator {
             // Arithmetic — specialized by result type when known.
@@ -391,12 +440,24 @@ impl<'a> super::AstLowerer<'a> {
             "/" => CorePrimOp::Div,
             "%" if is_int => CorePrimOp::IMod,
             "%" => CorePrimOp::Mod,
-            // Comparisons and logical — always generic (result is Bool).
+            // Comparisons — specialized when both operands are provably Int or Float.
+            "==" if operands_int => CorePrimOp::ICmpEq,
+            "==" if operands_float => CorePrimOp::FCmpEq,
             "==" => CorePrimOp::Eq,
+            "!=" if operands_int => CorePrimOp::ICmpNe,
+            "!=" if operands_float => CorePrimOp::FCmpNe,
             "!=" => CorePrimOp::NEq,
+            "<" if operands_int => CorePrimOp::ICmpLt,
+            "<" if operands_float => CorePrimOp::FCmpLt,
             "<" => CorePrimOp::Lt,
+            "<=" if operands_int => CorePrimOp::ICmpLe,
+            "<=" if operands_float => CorePrimOp::FCmpLe,
             "<=" => CorePrimOp::Le,
+            ">" if operands_int => CorePrimOp::ICmpGt,
+            ">" if operands_float => CorePrimOp::FCmpGt,
             ">" => CorePrimOp::Gt,
+            ">=" if operands_int => CorePrimOp::ICmpGe,
+            ">=" if operands_float => CorePrimOp::FCmpGe,
             ">=" => CorePrimOp::Ge,
             "&&" => CorePrimOp::And,
             "||" => CorePrimOp::Or,

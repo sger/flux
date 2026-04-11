@@ -1,0 +1,16 @@
+import MultiEffectTracerExample.Flow.Tracer as Tracer
+
+module MultiEffectTracerExample.App.SimpleTracer {
+    public data Handle { H }
+
+    public fn default_handle() -> Handle {
+        H
+    }
+
+    public instance Tracer<Handle> {
+        fn trace(hnd, msg) with IO, Time {
+            let _t = now_ms()
+            print(msg)
+        }
+    }
+}

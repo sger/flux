@@ -37,10 +37,10 @@ int32_t  flux_yield_conts_count = 0;
 
 /*
  * Evidence vector: a heap-allocated array of evidence entries.
- * Each entry is 4 NaN-boxed words (32 bytes):
- *   [0] htag       — effect tag (NaN-boxed int)
- *   [1] marker     — handler instance id (NaN-boxed int)
- *   [2] handler    — handler clause closure (NaN-boxed closure)
+ * Each entry is 4 pointer-tagged words (32 bytes):
+ *   [0] htag       — effect tag (tagged int)
+ *   [1] marker     — handler instance id (tagged int)
+ *   [2] handler    — handler clause closure (tagged pointer)
  *   [3] parent_evv — saved evidence vector
  *
  * The vector itself is stored as a FluxArray (obj_tag FLUX_OBJ_EVIDENCE)
@@ -59,7 +59,7 @@ typedef struct {
     int64_t data[]; /* count * EVV_ENTRY_WORDS words */
 } EvvArray;
 
-static int64_t current_evv = 0;  /* NaN-boxed ptr to EvvArray (0 = empty) */
+static int64_t current_evv = 0;  /* tagged ptr to EvvArray (0 = empty/FLUX_NONE) */
 static int32_t marker_counter = 0;
 
 /* ── Helpers ───────────────────────────────────────────────────────── */
@@ -143,9 +143,9 @@ static int evv_lookup(EvvArray *arr, int64_t htag) {
 /*
  * Perform an effect: set yield state and return sentinel.
  *
- * htag:  effect tag (NaN-boxed int)
- * optag: operation tag (NaN-boxed int) — currently unused for single-op dispatch
- * arg:   the performed argument (NaN-boxed)
+ * htag:  effect tag (tagged int)
+ * optag: operation tag (tagged int) — currently unused for single-op dispatch
+ * arg:   the performed argument (tagged value)
  *
  * The caller must check flux_yield_yielding after every call and propagate
  * the sentinel + extend continuations as needed.
@@ -185,7 +185,7 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg) {
  * This is correct when the handler always calls resume in tail position.
  * For the general case (non-tail-resumptive), use flux_yield_to + yield checks.
  */
-int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t resume) {
+int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t resume, int64_t arity) {
     (void)optag;  /* reserved for multi-op dispatch */
 
     EvvArray *arr = evv_unbox(current_evv);
@@ -200,7 +200,20 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
     int64_t *entry = &arr->data[idx * EVV_ENTRY_WORDS];
     int64_t clause = entry[EVV_HANDLER_OFF];
 
-    /* Direct call: clause(resume, arg) */
+    /*
+     * Direct call: clause(resume, arg0, ..., argN).
+     *
+     * Today native direct-perform lowering only materializes zero-arg and
+     * one-arg effect operations:
+     *   - arity == 0: clause(resume)
+     *   - arity == 1: clause(resume, arg)
+     */
+    int64_t argc = flux_untag_int(arity);
+    if (argc <= 0) {
+        int64_t args[1] = { resume };
+        return flux_call_closure_c(clause, args, 1);
+    }
+
     int64_t args[2] = { resume, arg };
     return flux_call_closure_c(clause, args, 2);
 }
@@ -279,7 +292,7 @@ int32_t flux_is_yielding(void) {
 /*
  * Prompt loop: check if a yield is targeted at this handler.
  *
- * marker:      this handler's marker (NaN-boxed int)
+ * marker:      this handler's marker (tagged int)
  * saved_evv:   the evidence vector before this handler was installed
  * body_result: the result of the handled body expression
  *

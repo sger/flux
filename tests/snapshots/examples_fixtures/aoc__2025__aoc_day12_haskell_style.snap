@@ -20,15 +20,28 @@ Hint:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `str_at`.
+I can't find a value named `push`.
 
-  examples/aoc/2025/aoc_day12_haskell_style.flx:60:13
+  examples/aoc/2025/aoc_day12_haskell_style.flx:42:23
    |
-60 |     let t = str_at(tokens, idx)
-   |             ^^^^^^
+42 |         if in_block { push(acc, cur_size) } else { acc }
+   |                       ^^^^
 
 Hint:
-  Define it first: let str_at = ...;
+  Define it first: let push = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `push`.
+
+  examples/aoc/2025/aoc_day12_haskell_style.flx:64:40
+   |
+64 |     parse_area_counts(tokens, idx + 1, push(acc, parse_int(t)))
+   |                                        ^^^^
+
+Hint:
+  Define it first: let push = ...;
 
 
 error[E004]: Undefined Variable
@@ -42,6 +55,19 @@ I can't find a value named `filter`.
 
 Hint:
   Define it first: let filter = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `push`.
+
+  examples/aoc/2025/aoc_day12_haskell_style.flx:92:37
+   |
+92 |         parse_areas(lines, idx + 1, push(acc, [|w, h, counts|]))
+   |                                     ^^^^
+
+Hint:
+  Define it first: let push = ...;
 
 
 error[E300]: Argument Type Mismatch
@@ -75,6 +101,6 @@ Note:
 Help:
   Pass a `Array<Int>` value as the 2nd argument.
 
-Found 4 errors.
+Found 6 errors.
 == stdout ==
 <not executed>

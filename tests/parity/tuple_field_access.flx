@@ -1,0 +1,16 @@
+// parity: vm, llvm
+// expect: success
+// bug: tuple field access (.0, .1) may produce wrong values when the
+//       native backend indexes into the NaN-boxed tuple representation
+//       incorrectly.
+
+fn main() with IO {
+    let pair = (10, "hello");
+    print(pair.0);
+    print(pair.1);
+
+    let triple = (true, 42, "world");
+    print(triple.0);
+    print(triple.1);
+    print(triple.2);
+}

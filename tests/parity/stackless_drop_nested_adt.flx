@@ -1,0 +1,23 @@
+// parity: vm, llvm
+// expect: success
+// bug: recursive flux_drop stack-overflows on deeply nested ADTs.
+//      stackless drop uses tail-call optimization for single-field chains.
+
+fn nest(n, acc) {
+    if n <= 0 { acc }
+    else { nest(n - 1, Some(acc)) }
+}
+
+fn depth(x, acc) {
+    match x {
+        Some(inner) -> depth(inner, acc + 1),
+        _ -> acc,
+    }
+}
+
+fn main() with IO {
+    // 150K nested Some(Some(Some(...))) — single-field chain.
+    let deep = nest(150000, None)
+    let d = depth(deep, 0)
+    print(d)
+}

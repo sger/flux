@@ -80,6 +80,7 @@ fn compile_program(input: &str, with_prelude: bool) -> Result<Bytecode, String> 
     );
     for node in graph_result.graph.topo_order() {
         compiler.set_file_path(node.path.to_string_lossy().to_string());
+        compiler.set_current_module_kind(node.kind);
         if let Err(diags) = compiler.compile(&node.program) {
             return Err(render_diagnostics(
                 &diags,
@@ -391,7 +392,7 @@ fn test_base_array_functions() {
     assert_eq!(run("first(rest([1, 2, 3]));"), Value::Integer(2));
     // push still works on arrays
     assert_eq!(
-        run("push(#[1, 2], 3);"),
+        run("array_push(#[1, 2], 3);"),
         Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3),].into())
     );
 }
@@ -1342,6 +1343,22 @@ fn test_cons_syntax() {
 fn test_cons_first_rest() {
     assert_eq!(run("first([1 | [2 | []]]);"), Value::Integer(1));
     assert_eq!(run("first(rest([1 | [2 | []]]));"), Value::Integer(2));
+}
+
+#[test]
+fn test_array_does_not_match_list_pattern() {
+    assert_eq!(
+        run(r#"match [|1, 2, 3|] { [h | t] -> "list", _ -> "array" };"#),
+        make_string("array")
+    );
+}
+
+#[test]
+fn test_tuple_does_not_match_option_pattern() {
+    assert_eq!(
+        run(r#"match (1, 2) { Some(x) -> "option", _ -> "tuple" };"#),
+        make_string("tuple")
+    );
 }
 
 #[test]

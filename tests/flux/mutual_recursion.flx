@@ -1,0 +1,74 @@
+// Tests for mutually recursive nested functions.
+// Verifies that sibling reconstruction works correctly on the VM backend.
+
+fn test_basic_mutual_recursion() {
+    fn f(n) { if n <= 0 { 42 } else { g(n - 1) } }
+    fn g(n) { if n <= 0 { 99 } else { f(n - 1) } }
+    assert_eq(f(0), 42)
+    assert_eq(g(0), 99)
+    assert_eq(f(1), 99)
+    assert_eq(g(1), 42)
+    assert_eq(f(4), 42)
+    assert_eq(f(5), 99)
+}
+
+fn test_mutual_recursion_with_captures() {
+    let offset = 10
+    fn f(n) { if n <= 0 { offset } else { g(n - 1) } }
+    fn g(n) { if n <= 0 { offset + 1 } else { f(n - 1) } }
+    assert_eq(f(0), 10)
+    assert_eq(g(0), 11)
+    assert_eq(f(1), 11)
+    assert_eq(g(1), 10)
+}
+
+fn test_three_way_mutual_recursion() {
+    fn a(n) { if n <= 0 { "a" } else { b(n - 1) } }
+    fn b(n) { if n <= 0 { "b" } else { c(n - 1) } }
+    fn c(n) { if n <= 0 { "c" } else { a(n - 1) } }
+    assert_eq(a(0), "a")
+    assert_eq(a(1), "b")
+    assert_eq(a(2), "c")
+    assert_eq(a(3), "a")
+    assert_eq(b(0), "b")
+    assert_eq(c(0), "c")
+}
+
+fn test_mutual_recursion_accumulator() {
+    fn parse_line(line, rest, acc) {
+        let cleaned = trim(line)
+        if cleaned == "" {
+            parse_items(rest, acc)
+        } else {
+            parse_items(rest, [cleaned | acc])
+        }
+    }
+    fn parse_items(lines, acc) {
+        match lines {
+            [line | rest] -> parse_line(line, rest, acc),
+            _ -> reverse(acc),
+        }
+    }
+    let result = parse_items(["hello", "world", "", "!"], [])
+    assert_eq(result, ["hello", "world", "!"])
+}
+
+fn test_mutual_recursion_deep() {
+    // Test with enough depth to verify no stack issues with reconstruction.
+    fn even(n) { if n <= 0 { true } else { odd(n - 1) } }
+    fn odd(n) { if n <= 0 { false } else { even(n - 1) } }
+    assert_eq(even(0), true)
+    assert_eq(even(1), false)
+    assert_eq(even(100), true)
+    assert_eq(odd(100), false)
+    assert_eq(even(999), false)
+    assert_eq(odd(999), true)
+}
+
+fn test_non_mutual_in_same_block_unchanged() {
+    // Non-mutual consecutive functions should still work normally.
+    fn double(x) { x * 2 }
+    fn triple(x) { x * 3 }
+    assert_eq(double(5), 10)
+    assert_eq(triple(5), 15)
+}

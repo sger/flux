@@ -1,5 +1,5 @@
 // Advent of Code - Day 9 Part 2
-// Input-specific answer for examples/io/aoc_day9.txt.
+// Input-specific answer for examples/aoc/2025/aoc_day9.txt.
 // (Largest rectangle with red corners and only red/green tiles inside.)
 
 fn main() with IO, Time {

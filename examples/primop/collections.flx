@@ -1,10 +1,12 @@
+import Flow.Array as Array
+
 fn main() with IO {
     print("== PrimOps: collections (array + list) ==");
     let arr = [|10, 20, 30|];
-    print(first(arr));
-    print(last(arr));
-    print(rest(arr));
-    print(contains(arr, 20));
+    print(Array.first(arr));
+    print(Array.last(arr));
+    print(Array.drop(arr, 1));
+    print(Array.contains(arr, 20));
 
     let lst = list(1, 2, 3);
     print(first(lst));

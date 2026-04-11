@@ -2,7 +2,7 @@
 // Count regions that can fit the requested presents using the rule:
 //   width * height >= 9 * sum(counts)
 // This mirrors the provided Rust solution logic, implemented in Flux.
-// Input: examples/io/aoc_day12.txt
+// Input: examples/aoc/2025/aoc_day12.txt
 
 fn main() with IO, Time {
     fn line_at(lines, idx) {
@@ -54,7 +54,7 @@ fn region_fits(line) {
     area >= needed
 }
 
-let lines = read_lines("examples/io/aoc_day12.txt")
+let lines = read_lines("examples/aoc/2025/aoc_day12.txt")
 let region_lines = [trim(line) | line <- lines, trim(line) != "", has_char(trim(line), "x"), has_char(trim(line), ":")]
 let fits = [if region_fits(line) { 1 } else { 0 } | line <- region_lines]
 print(sum(fits))

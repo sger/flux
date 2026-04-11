@@ -10,12 +10,12 @@
 
 module Flow.Array {
 
-    public fn map(arr, f) {
+    public fn map<a, b>(arr: Array<a>, f: (a) -> b) -> Array<b> {
         fn map_go(idx, acc) {
             if idx >= len(arr) { acc }
             else {
                 match arr[idx] {
-                    Some(v) -> map_go(idx + 1, push(acc, f(v))),
+                    Some(v) -> map_go(idx + 1, array_push(acc, f(v))),
                     _ -> map_go(idx + 1, acc)
                 }
             }
@@ -23,12 +23,12 @@ module Flow.Array {
         map_go(0, [||])
     }
 
-    public fn filter(arr, pred) {
+    public fn filter<a>(arr: Array<a>, pred: (a) -> Bool) -> Array<a> {
         fn filter_go(idx, acc) {
             if idx >= len(arr) { acc }
             else {
                 match arr[idx] {
-                    Some(v) -> if pred(v) { filter_go(idx + 1, push(acc, v)) } else { filter_go(idx + 1, acc) },
+                    Some(v) -> if pred(v) { filter_go(idx + 1, array_push(acc, v)) } else { filter_go(idx + 1, acc) },
                     _ -> filter_go(idx + 1, acc)
                 }
             }
@@ -36,7 +36,7 @@ module Flow.Array {
         filter_go(0, [||])
     }
 
-    public fn fold(arr, acc, f) {
+    public fn fold<a, b>(arr: Array<a>, acc: b, f: (b, a) -> b) -> b {
         fn fold_go(idx, a) {
             if idx >= len(arr) { a }
             else {
@@ -49,7 +49,7 @@ module Flow.Array {
         fold_go(0, acc)
     }
 
-    public fn each(arr, f) with IO {
+    public fn each<a>(arr: Array<a>, f: (a) -> Unit) with IO {
         fn each_go(idx) {
             if idx >= len(arr) { () }
             else {
@@ -65,7 +65,7 @@ module Flow.Array {
         each_go(0)
     }
 
-    public fn any(arr, pred) {
+    public fn any<a>(arr: Array<a>, pred: (a) -> Bool) -> Bool {
         fn any_go(idx) {
             if idx >= len(arr) { false }
             else {
@@ -78,7 +78,7 @@ module Flow.Array {
         any_go(0)
     }
 
-    public fn all(arr, pred) {
+    public fn all<a>(arr: Array<a>, pred: (a) -> Bool) -> Bool {
         fn all_go(idx) {
             if idx >= len(arr) { true }
             else {
@@ -91,7 +91,7 @@ module Flow.Array {
         all_go(0)
     }
 
-    public fn find(arr, pred) {
+    public fn find<a>(arr: Array<a>, pred: (a) -> Bool) -> Option<a> {
         fn find_go(idx) {
             if idx >= len(arr) { None }
             else {
@@ -104,7 +104,7 @@ module Flow.Array {
         find_go(0)
     }
 
-    public fn count(arr, pred) {
+    public fn count<a>(arr: Array<a>, pred: (a) -> Bool) -> Int {
         fn count_go(idx, n) {
             if idx >= len(arr) { n }
             else {
@@ -117,12 +117,12 @@ module Flow.Array {
         count_go(0, 0)
     }
 
-    public fn flat_map(arr, f) {
+    public fn flat_map<a, b>(arr: Array<a>, f: (a) -> Array<b>) -> Array<b> {
         fn flat_map_go(idx, acc) {
             if idx >= len(arr) { acc }
             else {
                 match arr[idx] {
-                    Some(v) -> flat_map_go(idx + 1, concat(acc, f(v))),
+                    Some(v) -> flat_map_go(idx + 1, array_concat(acc, f(v))),
                     _ -> flat_map_go(idx + 1, acc)
                 }
             }
@@ -130,12 +130,12 @@ module Flow.Array {
         flat_map_go(0, [||])
     }
 
-    public fn flatten(arr) {
+    public fn flatten<a>(arr: Array<Array<a>>) -> Array<a> {
         fn flatten_go(idx, acc) {
             if idx >= len(arr) { acc }
             else {
                 match arr[idx] {
-                    Some(v) -> flatten_go(idx + 1, concat(acc, v)),
+                    Some(v) -> flatten_go(idx + 1, array_concat(acc, v)),
                     _ -> flatten_go(idx + 1, acc)
                 }
             }
@@ -143,14 +143,14 @@ module Flow.Array {
         flatten_go(0, [||])
     }
 
-    public fn zip(a, b) {
-        let min_len = if len(a) < len(b) { len(a) } else { len(b) }
+    public fn zip<a, b>(a_arr: Array<a>, b_arr: Array<b>) -> Array<(a, b)> {
+        let min_len = if len(a_arr) < len(b_arr) { len(a_arr) } else { len(b_arr) }
         fn zip_go(idx, acc) {
             if idx >= min_len { acc }
             else {
-                match a[idx] {
-                    Some(va) -> match b[idx] {
-                        Some(vb) -> zip_go(idx + 1, push(acc, (va, vb))),
+                match a_arr[idx] {
+                    Some(va) -> match b_arr[idx] {
+                        Some(vb) -> zip_go(idx + 1, array_push(acc, (va, vb))),
                         _ -> acc
                     },
                     _ -> acc
@@ -160,66 +160,69 @@ module Flow.Array {
         zip_go(0, [||])
     }
 
-    public fn contains(arr, x) {
-        any(arr, fn(item) { cmp_eq(item, x) })
+    public fn contains<a: Eq>(arr: Array<a>, x: a) -> Bool {
+        array_contains(arr, x)
     }
 
-    public fn reverse(arr) {
-        fn reverse_go(idx, acc) {
-            if idx < 0 { acc }
-            else {
-                match arr[idx] {
-                    Some(v) -> reverse_go(idx - 1, push(acc, v)),
-                    _ -> reverse_go(idx - 1, acc)
-                }
-            }
-        }
-        reverse_go(len(arr) - 1, [||])
+    public fn concat<a>(left: Array<a>, right: Array<a>) -> Array<a> {
+        array_concat(left, right)
     }
 
-    public fn sum(arr) {
+    public fn length<a>(arr: Array<a>) -> Int {
+        len(arr)
+    }
+
+    public fn reverse<a>(arr: Array<a>) -> Array<a> {
+        array_reverse(arr)
+    }
+
+    public fn slice<a>(arr: Array<a>, start: Int, end: Int) -> Array<a> {
+        array_slice(arr, start, end)
+    }
+
+    public fn sum(arr: Array<Int>) -> Int {
         fold(arr, 0, \(a, x) -> a + x)
     }
 
-    public fn product(arr) {
+    public fn product(arr: Array<Int>) -> Int {
         fold(arr, 1, \(a, x) -> a * x)
     }
 
-    public fn first(arr) {
+    public fn first<a>(arr: Array<a>) -> Option<a> {
         arr[0]
     }
 
-    public fn last(arr) {
+    public fn last<a>(arr: Array<a>) -> Option<a> {
         let n = len(arr)
         if n == 0 { None } else { arr[n - 1] }
     }
 
-    public fn range(start, stop) {
+    public fn range(start: Int, stop: Int) -> Array<Int> {
         fn range_go(i, acc) {
             if i >= stop { acc }
-            else { range_go(i + 1, push(acc, i)) }
+            else { range_go(i + 1, array_push(acc, i)) }
         }
         range_go(start, [||])
     }
 
-    public fn sort(arr) {
+    public fn sort<a: Ord>(arr: Array<a>) -> Array<a> {
         sort_by(arr, \v -> v)
     }
 
-    public fn sort_by(arr, f) {
+    public fn sort_by<a, b: Ord>(arr: Array<a>, f: (a) -> b) -> Array<a> {
         fn insert_tagged(sorted, pair, idx) {
             if idx >= len(sorted) {
-                push(sorted, pair)
+                array_push(sorted, pair)
             } else {
                 match sorted[idx] {
                     Some(current) -> if pair.0 <= current.0 {
-                        let left = slice(sorted, 0, idx)
-                        let right = slice(sorted, idx, len(sorted))
-                        concat(concat(left, [|pair|]), right)
+                        let left = array_slice(sorted, 0, idx)
+                        let right = array_slice(sorted, idx, len(sorted))
+                        array_concat(array_concat(left, [|pair|]), right)
                     } else {
                         insert_tagged(sorted, pair, idx + 1)
                     },
-                    _ -> push(sorted, pair)
+                    _ -> array_push(sorted, pair)
                 }
             }
         }
@@ -236,21 +239,21 @@ module Flow.Array {
         map(sort_by_go(0, [||]), \p -> p.1)
     }
 
-    public fn take(arr, n) {
-        slice(arr, 0, if n > len(arr) { len(arr) } else { n })
+    public fn take<a>(arr: Array<a>, n: Int) -> Array<a> {
+        array_slice(arr, 0, if n > len(arr) { len(arr) } else { n })
     }
 
-    public fn drop(arr, n) {
-        slice(arr, if n > len(arr) { len(arr) } else { n }, len(arr))
+    public fn drop<a>(arr: Array<a>, n: Int) -> Array<a> {
+        array_slice(arr, if n > len(arr) { len(arr) } else { n }, len(arr))
     }
 
-    public fn update(arr, i, val) {
-        let left = slice(arr, 0, i)
-        let right = slice(arr, i + 1, len(arr))
-        concat(concat(left, [|val|]), right)
+    public fn update<a>(arr: Array<a>, i: Int, val: a) -> Array<a> {
+        let left = array_slice(arr, 0, i)
+        let right = array_slice(arr, i + 1, len(arr))
+        array_concat(array_concat(left, [|val|]), right)
     }
 
-    public fn swap(arr, i, j) {
+    public fn swap<a>(arr: Array<a>, i: Int, j: Int) -> Array<a> {
         match arr[i] {
             Some(vi) -> match arr[j] {
                 Some(vj) -> update(update(arr, i, vj), j, vi),
@@ -260,12 +263,12 @@ module Flow.Array {
         }
     }
 
-    public fn enumerate(arr) {
+    public fn enumerate<a>(arr: Array<a>) -> Array<(Int, a)> {
         fn enumerate_go(idx, acc) {
             if idx >= len(arr) { acc }
             else {
                 match arr[idx] {
-                    Some(v) -> enumerate_go(idx + 1, push(acc, (idx, v))),
+                    Some(v) -> enumerate_go(idx + 1, array_push(acc, (idx, v))),
                     _ -> enumerate_go(idx + 1, acc)
                 }
             }
@@ -273,19 +276,19 @@ module Flow.Array {
         enumerate_go(0, [||])
     }
 
-    public fn tabulate(n, f) {
+    public fn tabulate<a>(n: Int, f: (Int) -> a) -> Array<a> {
         fn tabulate_go(i, acc) {
             if i >= n { acc }
-            else { tabulate_go(i + 1, push(acc, f(i))) }
+            else { tabulate_go(i + 1, array_push(acc, f(i))) }
         }
         tabulate_go(0, [||])
     }
 
-    public fn from_list(xs) {
+    public fn from_list<a>(xs: List<a>) -> Array<a> {
         to_array(xs)
     }
 
-    public fn find_index(arr, pred) {
+    public fn find_index<a>(arr: Array<a>, pred: (a) -> Bool) -> Option<Int> {
         fn find_index_go(idx) {
             if idx >= len(arr) { None }
             else {
@@ -298,7 +301,7 @@ module Flow.Array {
         find_index_go(0)
     }
 
-    public fn each_indexed(arr, f) with IO {
+    public fn each_indexed<a>(arr: Array<a>, f: (Int, a) -> Unit) with IO {
         fn each_indexed_go(idx) {
             if idx >= len(arr) { () }
             else {
@@ -314,7 +317,7 @@ module Flow.Array {
         each_indexed_go(0)
     }
 
-    public fn update_many(arr, pairs) {
+    public fn update_many<a>(arr: Array<a>, pairs: List<(Int, a)>) -> Array<a> {
         fn update_many_go(a, ps) {
             match ps {
                 [p | rest] -> update_many_go(update(a, p.0, p.1), rest),
@@ -324,7 +327,7 @@ module Flow.Array {
         update_many_go(arr, pairs)
     }
 
-    public fn accum(size, init, pairs, f) {
+    public fn accum<a, b>(size: Int, init: a, pairs: List<(Int, b)>, f: (a, b) -> a) -> Array<a> {
         let base = tabulate(size, \_ -> init)
         fn accum_go(a, ps) {
             match ps {
@@ -340,7 +343,7 @@ module Flow.Array {
 
     // ── Conversion (Phase 3) ────────────────────────────────────────
 
-    public fn to_list(arr) {
+    public fn to_list<a>(arr: Array<a>) -> List<a> {
         fn to_list_go(idx) {
             if idx >= len(arr) { [] }
             else {

@@ -1,0 +1,19 @@
+// parity: vm, llvm
+// expect: success
+// bug: basic handle/perform for algebraic effects may crash the native
+//       backend when evidence passing lowers incorrectly.
+
+effect Greet {
+    fn greet(name: String) -> String
+}
+
+fn hello(name) with Greet {
+    greet(name)
+}
+
+fn main() with IO {
+    let result = hello("world") handle Greet {
+        greet(resume, name) -> resume("Hello, " ++ name ++ "!")
+    };
+    print(result);
+}

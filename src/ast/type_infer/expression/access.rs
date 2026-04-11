@@ -64,10 +64,11 @@ impl<'a> InferCtx<'a> {
                 .get(&(*module_name, member))
                 .cloned()
         {
-            let (ty, mapping) = scheme.instantiate(&mut self.env.counter);
+            let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
             for &fresh in mapping.values() {
                 self.env.record_var_level(fresh);
             }
+            self.emit_scheme_constraints(&constraints, expr.span());
             return ty;
         }
 

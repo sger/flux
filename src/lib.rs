@@ -1,12 +1,14 @@
 pub mod aether;
 pub mod ast;
 pub mod bytecode;
+pub mod cache_paths;
 pub mod cfg;
 pub mod core;
 #[cfg(feature = "native")]
 pub mod core_to_llvm;
 pub mod diagnostics;
 pub mod lir;
+pub mod parity;
 pub mod runtime;
 pub mod shared_ir;
 pub mod syntax;

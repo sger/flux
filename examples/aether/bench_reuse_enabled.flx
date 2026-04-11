@@ -34,5 +34,5 @@ fn main() with IO {
     let iterations = 100
     let xs = build_list(size)
     let mapped = bench_map(xs, iterations)
-    print("enabled: result head = #{unwrap(first(mapped))}")
+    print("enabled: result head = #{first(mapped)}")
 }

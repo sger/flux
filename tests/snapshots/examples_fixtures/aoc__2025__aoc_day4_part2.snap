@@ -7,109 +7,29 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
-I can't find a value named `first`.
+I can't find a value named `push`.
 
-  examples/aoc/2025/aoc_day4_part2.flx:6:9
-  |
-6 |         first(arr)
-  |         ^^^^^
+  examples/aoc/2025/aoc_day4_part2.flx:63:42
+   |
+63 |     step_round(lines, rows, cols, r + 1, push(next_lines, next_line), removed_total + removed_row)
+   |                                          ^^^^
 
 Hint:
-  Define it first: let first = ...;
-
-Help:
-  Did you mean `first2`?
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `last`.
-
-  examples/aoc/2025/aoc_day4_part2.flx:10:9
-   |
-10 |         last(arr)
-   |         ^^^^
-
-Hint:
-  Define it first: let last = ...;
-
-
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/aoc/2025/aoc_day4_part2.flx:54:80
-   |
-54 |             build_row_after_round(lines, rows, cols, r, c + 1, acc_line + ".", removed + 1)
-   |                                                                                ^^^^^^^^^^^
-   |                                                                                ----------- this expression has type `String and Int`
-
-   |                                                                                ----------- operator operands are known at compile time
-
-Note:
-  expected type: matching '+' operands (Int+Int, Float+Float, or String+String)
-  found type: String and Int
-
-Help:
-  These two types are not compatible.
-  adjust operand types or add explicit conversion
-
-
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 7th argument to `build_row_after_round`.
-
-  examples/aoc/2025/aoc_day4_part2.flx:68:73
-   |
-45 | fn build_row_after_round(lines, rows, cols, r, c, acc_line, removed) {
-46 |     if c >= cols {
-47 |         [|acc_line, removed|]
-48 |     } else {
-49 |     let line = line_at(lines, r)
-50 |     let ch = char_at(line, c)
-51 |     if ch == "@" {
-52 |         let adj = adjacent_rolls(lines, rows, cols, r, c)
-53 |         if adj < 4 {
-54 |             build_row_after_round(lines, rows, cols, r, c + 1, acc_line + ".", removed + 1)
-55 |         } else {
-56 |         build_row_after_round(lines, rows, cols, r, c + 1, acc_line + "@", removed)
-57 |     }
-58 | } else {
-59 | build_row_after_round(lines, rows, cols, r, c + 1, acc_line + ch, removed)
-60 | }
-61 | }
-62 | }
-63 | 
-64 | fn step_round(lines, rows, cols, r, next_lines, removed_total) {
-... |
-66 |         [|next_lines, removed_total|]
-67 |     } else {
-68 |     let row_result = build_row_after_round(lines, rows, cols, r, 0, "", 0)
-   |                                                                         ^
-   |                                                                         - this argument has type `Int`
-
-Note:
-  expected argument type: String
-  found argument type: Int
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
-
-Help:
-  Try `to_string(...)` to convert a `Int` into a `String`.
+  Define it first: let push = ...;
 
 
 error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/aoc/2025/aoc_day4_part2.flx:87:13
+  examples/aoc/2025/aoc_day4_part2.flx:79:13
    |
-87 | let lines = [line | line <- raw_lines, line != ""]
+79 | let lines = [line | line <- raw_lines, line != ""]
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
   Define it first: let map = ...;
 
-Found 5 errors.
+Found 2 errors.
 == stdout ==
 <not executed>

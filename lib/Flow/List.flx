@@ -7,244 +7,129 @@
 
 module Flow.List {
 
-    public fn map(xs, f) {
-        if is_array(xs) {
-            fn map_arr(i, acc) {
-                if i >= len(xs) { acc }
-                else {
-                    match xs[i] {
-                        Some(v) -> map_arr(i + 1, push(acc, f(v))),
-                        _ -> map_arr(i + 1, acc)
-                    }
-                }
-            }
-            map_arr(0, [||])
-        } else {
-            match xs {
-                [h | t] -> [f(h) | map(t, f)],
-                _ -> []
+    public fn map<a, b>(xs: List<a>, f: (a) -> b) -> List<b> {
+        fn map_acc(ys, acc) {
+            match ys {
+                [h | t] -> map_acc(t, [f(h) | acc]),
+                _ -> reverse(acc)
             }
         }
+        map_acc(xs, [])
     }
 
-    public fn filter(xs, pred) {
-        if is_array(xs) {
-            fn filter_arr(i, acc) {
-                if i >= len(xs) { acc }
-                else {
-                    match xs[i] {
-                        Some(v) -> if pred(v) { filter_arr(i + 1, push(acc, v)) } else { filter_arr(i + 1, acc) },
-                        _ -> filter_arr(i + 1, acc)
-                    }
-                }
-            }
-            filter_arr(0, [||])
-        } else {
-            match xs {
-                [h | t] -> if pred(h) { [h | filter(t, pred)] } else { filter(t, pred) },
-                _ -> []
+    public fn filter<a>(xs: List<a>, pred: (a) -> Bool) -> List<a> {
+        fn filter_acc(ys, acc) {
+            match ys {
+                [h | t] -> if pred(h) { filter_acc(t, [h | acc]) } else { filter_acc(t, acc) },
+                _ -> reverse(acc)
             }
         }
+        filter_acc(xs, [])
     }
 
-    public fn fold(xs, acc, f) {
-        if is_array(xs) {
-            fn fold_arr(i, a) {
-                if i >= len(xs) { a }
-                else {
-                    match xs[i] {
-                        Some(v) -> fold_arr(i + 1, f(a, v)),
-                        _ -> fold_arr(i + 1, a)
-                    }
-                }
-            }
-            fold_arr(0, acc)
-        } else {
-            match xs {
-                [h | t] -> fold(t, f(acc, h), f),
-                _ -> acc
+    public fn fold<a, b>(xs: List<a>, acc: b, f: (b, a) -> b) -> b {
+        fn fold_list(ys, a) {
+            match ys {
+                [h | t] -> fold_list(t, f(a, h)),
+                _ -> a
             }
         }
+        fold_list(xs, acc)
     }
 
-    public fn foldr(xs, acc, f) {
+    public fn foldr<a, b>(xs: List<a>, acc: b, f: (a, b) -> b) -> b {
         match xs {
             [h | t] -> f(h, foldr(t, acc, f)),
             _ -> acc
         }
     }
 
-    public fn fold1(xs, f) {
+    public fn fold1<a>(xs: List<a>, f: (a, a) -> a) -> a {
         match xs {
             [h | t] -> fold(t, h, f),
             _ -> panic("fold1 called on empty list")
         }
     }
 
-    public fn flat_map(xs, f) {
-        if is_array(xs) {
-            fn flat_map_arr(i, acc) {
-                if i >= len(xs) { acc }
-                else {
-                    match xs[i] {
-                        Some(v) -> flat_map_arr(i + 1, concat(acc, f(v))),
-                        _ -> flat_map_arr(i + 1, acc)
-                    }
-                }
-            }
-            flat_map_arr(0, [||])
-        } else {
-            match xs {
-                [h | t] -> append(f(h), flat_map(t, f)),
-                _ -> []
+    public fn flat_map<a, b>(xs: List<a>, f: (a) -> List<b>) -> List<b> {
+        fn flat_map_acc(ys, acc) {
+            match ys {
+                [h | t] -> flat_map_acc(t, append(reverse(f(h)), acc)),
+                _ -> reverse(acc)
             }
         }
+        flat_map_acc(xs, [])
     }
 
-    public fn flatten(xs) {
-        if is_array(xs) {
-            fn flatten_arr(i, acc) {
-                if i >= len(xs) { acc }
-                else {
-                    match xs[i] {
-                        Some(v) -> flatten_arr(i + 1, concat(acc, v)),
-                        _ -> flatten_arr(i + 1, acc)
-                    }
-                }
-            }
-            flatten_arr(0, [||])
-        } else {
-            match xs {
-                [h | t] -> append(h, flatten(t)),
-                _ -> []
+    public fn flatten<a>(xs: List<List<a>>) -> List<a> {
+        fn flatten_acc(ys, acc) {
+            match ys {
+                [h | t] -> flatten_acc(t, append(reverse(h), acc)),
+                _ -> reverse(acc)
             }
         }
+        flatten_acc(xs, [])
     }
 
-    public fn concat(xss) {
+    public fn concat<a>(xss: List<List<a>>) -> List<a> {
         flatten(xss)
     }
 
-    public fn any(xs, pred) {
-        if is_array(xs) {
-            fn any_arr(i) {
-                if i >= len(xs) { false }
-                else {
-                    match xs[i] {
-                        Some(v) -> if pred(v) { true } else { any_arr(i + 1) },
-                        _ -> any_arr(i + 1)
-                    }
-                }
-            }
-            any_arr(0)
-        } else {
-            match xs {
-                [h | t] -> if pred(h) { true } else { any(t, pred) },
-                _ -> false
-            }
+    public fn any<a>(xs: List<a>, pred: (a) -> Bool) -> Bool {
+        match xs {
+            [h | t] -> if pred(h) { true } else { any(t, pred) },
+            _ -> false
         }
     }
 
-    public fn all(xs, pred) {
-        if is_array(xs) {
-            fn all_arr(i) {
-                if i >= len(xs) { true }
-                else {
-                    match xs[i] {
-                        Some(v) -> if pred(v) { all_arr(i + 1) } else { false },
-                        _ -> all_arr(i + 1)
-                    }
-                }
-            }
-            all_arr(0)
-        } else {
-            match xs {
-                [h | t] -> if pred(h) { all(t, pred) } else { false },
-                _ -> true
-            }
+    public fn all<a>(xs: List<a>, pred: (a) -> Bool) -> Bool {
+        match xs {
+            [h | t] -> if pred(h) { all(t, pred) } else { false },
+            _ -> true
         }
     }
 
-    public fn find(xs, pred) {
-        if is_array(xs) {
-            fn find_arr(i) {
-                if i >= len(xs) { None }
-                else {
-                    match xs[i] {
-                        Some(v) -> if pred(v) { Some(v) } else { find_arr(i + 1) },
-                        _ -> find_arr(i + 1)
-                    }
-                }
-            }
-            find_arr(0)
-        } else {
-            match xs {
-                [h | t] -> if pred(h) { Some(h) } else { find(t, pred) },
-                _ -> None
-            }
+    public fn find<a>(xs: List<a>, pred: (a) -> Bool) -> Option<a> {
+        match xs {
+            [h | t] -> if pred(h) { Some(h) } else { find(t, pred) },
+            _ -> None
         }
     }
 
-    public fn count(xs, pred) {
-        if is_array(xs) {
-            fn count_arr(i, n) {
-                if i >= len(xs) { n }
-                else {
-                    match xs[i] {
-                        Some(v) -> if pred(v) { count_arr(i + 1, n + 1) } else { count_arr(i + 1, n) },
-                        _ -> count_arr(i + 1, n)
-                    }
-                }
+    public fn count<a>(xs: List<a>, pred: (a) -> Bool) -> Int {
+        fn count_go(ys, n) {
+            match ys {
+                [h | t] -> if pred(h) { count_go(t, n + 1) } else { count_go(t, n) },
+                _ -> n
             }
-            count_arr(0, 0)
-        } else {
-            fn count_go(ys, n) {
+        }
+        count_go(xs, 0)
+    }
+
+    public fn each<a>(xs: List<a>, f: (a) -> Unit) with IO {
+        match xs {
+            [h | t] -> do {
+                f(h)
+                each(t, f)
+            },
+            _ -> ()
+        }
+    }
+
+    public fn take<a>(xs: List<a>, n: Int) -> List<a> {
+        fn take_acc(ys, remaining, acc) {
+            if remaining <= 0 { reverse(acc) }
+            else {
                 match ys {
-                    [h | t] -> if pred(h) { count_go(t, n + 1) } else { count_go(t, n) },
-                    _ -> n
+                    [h | t] -> take_acc(t, remaining - 1, [h | acc]),
+                    _ -> reverse(acc)
                 }
             }
-            count_go(xs, 0)
         }
+        take_acc(xs, n, [])
     }
 
-    public fn each(xs, f) with IO {
-        if is_array(xs) {
-            fn each_arr(i) {
-                if i >= len(xs) { () }
-                else {
-                    match xs[i] {
-                        Some(v) -> do {
-                            f(v)
-                            each_arr(i + 1)
-                        },
-                        _ -> each_arr(i + 1)
-                    }
-                }
-            }
-            each_arr(0)
-        } else {
-            match xs {
-                [h | t] -> do {
-                    f(h)
-                    each(t, f)
-                },
-                _ -> ()
-            }
-        }
-    }
-
-    public fn take(xs, n) {
-        if n <= 0 { [] }
-        else {
-            match xs {
-                [h | t] -> [h | take(t, n - 1)],
-                _ -> []
-            }
-        }
-    }
-
-    public fn drop(xs, n) {
+    public fn drop<a>(xs: List<a>, n: Int) -> List<a> {
         if n <= 0 { xs }
         else {
             match xs {
@@ -254,21 +139,24 @@ module Flow.List {
         }
     }
 
-    public fn take_while(xs, pred) {
-        match xs {
-            [h | t] -> if pred(h) { [h | take_while(t, pred)] } else { [] },
-            _ -> []
+    public fn take_while<a>(xs: List<a>, pred: (a) -> Bool) -> List<a> {
+        fn take_while_acc(ys, acc) {
+            match ys {
+                [h | t] -> if pred(h) { take_while_acc(t, [h | acc]) } else { reverse(acc) },
+                _ -> reverse(acc)
+            }
         }
+        take_while_acc(xs, [])
     }
 
-    public fn drop_while(xs, pred) {
+    public fn drop_while<a>(xs: List<a>, pred: (a) -> Bool) -> List<a> {
         match xs {
             [h | t] -> if pred(h) { drop_while(t, pred) } else { xs },
             _ -> []
         }
     }
 
-    public fn split_at(xs, n) {
+    public fn split_at<a>(xs: List<a>, n: Int) -> (List<a>, List<a>) {
         if n <= 0 { ([], xs) }
         else {
             match xs {
@@ -281,7 +169,7 @@ module Flow.List {
         }
     }
 
-    public fn span(xs, pred) {
+    public fn span<a>(xs: List<a>, pred: (a) -> Bool) -> (List<a>, List<a>) {
         match xs {
             [h | t] -> if pred(h) {
                 match span(t, pred) {
@@ -293,62 +181,52 @@ module Flow.List {
         }
     }
 
-    public fn scanl(xs, acc, f) {
+    public fn scanl<a, b>(xs: List<a>, acc: b, f: (b, a) -> b) -> List<b> {
         [acc | scanl_rest(xs, acc, f)]
     }
 
-    public fn scanr(xs, acc, f) {
+    public fn scanr<a, b>(xs: List<a>, acc: b, f: (a, b) -> b) -> List<b> {
         match scanr_go(xs, acc, f) {
             (result, last_acc) -> result,
             _ -> [acc]
         }
     }
 
-    public fn sort(xs) {
+    public fn sort<a: Ord>(xs: List<a>) -> List<a> {
         merge_sort_by(xs, fn(x) { x })
     }
 
-    public fn sort_by(xs, f) {
+    public fn sort_by<a, b: Ord>(xs: List<a>, f: (a) -> b) -> List<a> {
         merge_sort_by(xs, f)
     }
 
+    // first/last return the value directly or None — mixed return type
+    // prevents full typing. Leave untyped for backward compatibility.
     public fn first(xs) {
-        if is_array(xs) {
-            if len(xs) == 0 { None } else { match xs[0] { Some(v) -> v, _ -> None } }
-        } else {
-            match xs {
-                [h | t] -> h,
-                _ -> None
-            }
+        match xs {
+            [h | t] -> h,
+            _ -> None
         }
     }
 
     public fn last(xs) {
-        if is_array(xs) {
-            if len(xs) == 0 { None } else { match xs[len(xs) - 1] { Some(v) -> v, _ -> None } }
-        } else {
-            match xs {
-                [h | t] -> match t {
-                    [h2 | t2] -> last(t),
-                    _ -> h
-                },
-                _ -> None
-            }
+        match xs {
+            [h | t] -> match t {
+                [h2 | t2] -> last(t),
+                _ -> h
+            },
+            _ -> None
         }
     }
 
-    public fn rest(xs) {
-        if is_array(xs) {
-            if len(xs) <= 1 { [||] } else { slice(xs, 1, len(xs)) }
-        } else {
-            match xs {
-                [h | t] -> t,
-                _ -> []
-            }
+    public fn rest<a>(xs: List<a>) -> List<a> {
+        match xs {
+            [h | t] -> t,
+            _ -> []
         }
     }
 
-    public fn length(xs) {
+    public fn length<a>(xs: List<a>) -> Int {
         fn length_go(ys, acc) {
             match ys {
                 [h | t] -> length_go(t, acc + 1),
@@ -358,7 +236,7 @@ module Flow.List {
         length_go(xs, 0)
     }
 
-    public fn init(xs) {
+    public fn init<a>(xs: List<a>) -> List<a> {
         match xs {
             [h | t] -> match t {
                 [h2 | t2] -> [h | init(t)],
@@ -368,67 +246,39 @@ module Flow.List {
         }
     }
 
-    public fn null(xs) {
+    public fn null<a>(xs: List<a>) -> Bool {
         match xs {
             [h | t] -> false,
             _ -> true
         }
     }
 
+    // range: return type annotation conflicts with cons literal inference —
+    // the [start | range(...)] cons is inferred as Array. Leave untyped.
     public fn range(start, stop) {
         if start >= stop { [] }
         else { [start | range(start + 1, stop)] }
     }
 
-    public fn reverse(xs) {
-        if is_array(xs) {
-            fn rev_arr_go(i, acc) {
-                if i < 0 { acc }
-                else {
-                    match xs[i] {
-                        Some(v) -> rev_arr_go(i - 1, push(acc, v)),
-                        _ -> rev_arr_go(i - 1, acc)
-                    }
-                }
+    public fn reverse<a>(xs: List<a>) -> List<a> {
+        fn rev_acc(ys, acc) {
+            match ys {
+                [h | t] -> rev_acc(t, [h | acc]),
+                _ -> acc
             }
-            rev_arr_go(len(xs) - 1, [||])
-        } else {
-            fn rev_acc(ys, acc) {
-                match ys {
-                    [h | t] -> rev_acc(t, [h | acc]),
-                    _ -> acc
-                }
-            }
-            rev_acc(xs, [])
         }
+        rev_acc(xs, [])
     }
 
-    public fn zip(xs, ys) {
-        if is_array(xs) {
-            let min_len = if len(xs) < len(ys) { len(xs) } else { len(ys) }
-            fn zip_arr(i, acc) {
-                if i >= min_len { acc }
-                else {
-                    match xs[i] {
-                        Some(va) -> match ys[i] {
-                            Some(vb) -> zip_arr(i + 1, push(acc, (va, vb))),
-                            _ -> acc
-                        },
-                        _ -> acc
-                    }
-                }
-            }
-            zip_arr(0, [||])
-        } else {
-            reverse(zip_go(xs, ys, []))
-        }
+    public fn zip<a, b>(xs: List<a>, ys: List<b>) -> List<(a, b)> {
+        reverse(zip_go(xs, ys, []))
     }
 
-    public fn zip_with(xs, ys, f) {
+    public fn zip_with<a, b, c>(xs: List<a>, ys: List<b>, f: (a, b) -> c) -> List<c> {
         reverse(zip_with_go(xs, ys, f, []))
     }
 
-    public fn unzip(xs) {
+    public fn unzip<a, b>(xs: List<(a, b)>) -> (List<a>, List<b>) {
         match xs {
             [(a, b) | t] -> match unzip(t) {
                 (left, right) -> ([a | left], [b | right]),
@@ -438,35 +288,22 @@ module Flow.List {
         }
     }
 
-    public fn enumerate(xs) {
+    public fn enumerate<a>(xs: List<a>) -> List<(Int, a)> {
         enumerate_go(xs, 0)
     }
 
-    public fn contains(xs, x) {
-        if is_array(xs) {
-            fn arr_contains_go(i) {
-                if i >= len(xs) { false }
-                else {
-                    match xs[i] {
-                        Some(v) -> if cmp_eq(v, x) { true } else { arr_contains_go(i + 1) },
-                        _ -> arr_contains_go(i + 1)
-                    }
-                }
-            }
-            arr_contains_go(0)
-        } else {
-            match xs {
-                [h | t] -> if cmp_eq(h, x) { true } else { contains(t, x) },
-                _ -> false
-            }
+    public fn contains<a: Eq>(xs: List<a>, x: a) -> Bool {
+        match xs {
+            [h | t] -> if h == x { true } else { contains(t, x) },
+            _ -> false
         }
     }
 
-    public fn nub(xs) {
+    public fn nub<a: Eq>(xs: List<a>) -> List<a> {
         unique_by(xs, fn(x) { x })
     }
 
-    public fn partition(xs, pred) {
+    public fn partition<a>(xs: List<a>, pred: (a) -> Bool) -> (List<a>, List<a>) {
         match xs {
             [h | t] -> match partition(t, pred) {
                 (yes, no) -> if pred(h) { ([h | yes], no) } else { (yes, [h | no]) },
@@ -476,7 +313,7 @@ module Flow.List {
         }
     }
 
-    public fn delete(xs, x) {
+    public fn delete<a: Eq>(xs: List<a>, x: a) -> List<a> {
         delete_go(xs, x)
     }
 
@@ -486,7 +323,7 @@ module Flow.List {
 
     fn delete_go_acc(xs, x, acc) {
         match xs {
-            [h | t] -> if cmp_eq(h, x) {
+            [h | t] -> if h == x {
                 append(reverse(acc), clone_list(t))
             } else {
                 delete_go_acc(t, x, [h | acc])
@@ -502,32 +339,32 @@ module Flow.List {
         }
     }
 
-    public fn intersperse(xs, sep) {
+    public fn intersperse<a>(xs: List<a>, sep: a) -> List<a> {
         match xs {
             [h | t] -> [h | intersperse_rest(t, sep)],
             _ -> []
         }
     }
 
-    public fn intercalate(xss, sep) {
+    public fn intercalate<a>(xss: List<List<a>>, sep: List<a>) -> List<a> {
         concat(intersperse(xss, sep))
     }
 
-    public fn is_prefix(prefix, xs) {
+    public fn is_prefix<a: Eq>(prefix: List<a>, xs: List<a>) -> Bool {
         match prefix {
             [p | pt] -> match xs {
-                [x | xt] -> if cmp_eq(p, x) { is_prefix(pt, xt) } else { false },
+                [x | xt] -> if p == x { is_prefix(pt, xt) } else { false },
                 _ -> false
             },
             _ -> true
         }
     }
 
-    public fn is_suffix(suffix, xs) {
+    public fn is_suffix<a: Eq>(suffix: List<a>, xs: List<a>) -> Bool {
         is_prefix(reverse(suffix), reverse(xs))
     }
 
-    public fn nth(xs, n) {
+    public fn nth<a>(xs: List<a>, n: Int) -> Option<a> {
         if n < 0 { None }
         else {
             match xs {
@@ -537,49 +374,49 @@ module Flow.List {
         }
     }
 
-    public fn replicate(n, x) {
+    public fn replicate<a>(n: Int, x: a) -> List<a> {
         if n <= 0 { [] }
         else { [x | replicate(n - 1, x)] }
     }
 
-    public fn iterate(x, f, n) {
+    public fn iterate<a>(x: a, f: (a) -> a, n: Int) -> List<a> {
         if n <= 0 { [] }
         else { [x | iterate(f(x), f, n - 1)] }
     }
 
-    public fn unfold(seed, f) {
+    public fn unfold<a, b>(seed: b, f: (b) -> Option<(a, b)>) -> List<a> {
         match f(seed) {
             Some(step) -> [step.0 | unfold(step.1, f)],
             _ -> []
         }
     }
 
-    public fn group_by(xs, eq) {
+    public fn group_by<a>(xs: List<a>, eq: (a, a) -> Bool) -> List<List<a>> {
         match xs {
             [h | t] -> group_by_head(h, t, eq),
             _ -> []
         }
     }
 
-    public fn unique_by(xs, f) {
+    public fn unique_by<a, b: Eq>(xs: List<a>, f: (a) -> b) -> List<a> {
         reverse(unique_by_go(xs, f, [], []))
     }
 
-    public fn maximum(xs) {
+    public fn maximum<a: Ord>(xs: List<a>) -> Option<a> {
         match xs {
             [h | t] -> Some(maximum_go(t, h)),
             _ -> None
         }
     }
 
-    public fn minimum(xs) {
+    public fn minimum<a: Ord>(xs: List<a>) -> Option<a> {
         match xs {
             [h | t] -> Some(minimum_go(t, h)),
             _ -> None
         }
     }
 
-    public fn sum(xs) {
+    public fn sum(xs: List<Int>) -> Int {
         fn sum_go(ys, acc) {
             match ys {
                 [h | t] -> sum_go(t, acc + h),
@@ -589,7 +426,7 @@ module Flow.List {
         sum_go(xs, 0)
     }
 
-    public fn product(xs) {
+    public fn product(xs: List<Int>) -> Int {
         fn product_go(ys, acc) {
             match ys {
                 [h | t] -> product_go(t, acc * h),

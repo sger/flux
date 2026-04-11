@@ -27,8 +27,8 @@ Run representative examples/tests on both backends and compare outputs/errors.
 cargo run -- --test examples/tests/math_test.flx
 cargo run --features jit -- --test examples/tests/math_test.flx --jit
 
-scripts/run_examples.sh --all
-scripts/run_examples.sh --all --jit
+cargo run -- parity-check examples
+cargo run -- parity-check examples --ways vm
 ```
 
 Minimum parity checks:

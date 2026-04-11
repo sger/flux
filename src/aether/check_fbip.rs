@@ -1,8 +1,9 @@
-//! Semantic FBIP checking pass (Perceus Section 2.6).
+//! FBIP checking pass (Perceus Section 2.6).
 //!
-//! Verifies `@fip` / `@fbip` contracts from Aether-transformed Core behavior
-//! instead of constructor/reuse counts.
+//! Verifies `@fip` / `@fbip` contracts from semantic Core or backend-only
+//! Aether lowering behavior instead of constructor/reuse counts.
 
+use crate::aether::AetherProgram;
 use crate::core::CoreProgram;
 use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, ErrorType,
@@ -11,6 +12,7 @@ use crate::syntax::{interner::Interner, statement::FipAnnotation};
 
 use super::fbip_analysis::{
     FbipCallDetail, FbipCallKind, FbipCallOutcome, FbipFailureReason, FbipOutcome, analyze_program,
+    analyze_program_aether,
 };
 
 #[derive(Debug, Clone)]
@@ -33,13 +35,32 @@ pub struct FbipCheckResult {
 
 pub fn check_fbip(program: &CoreProgram, interner: &Interner) -> FbipCheckResult {
     let summaries = analyze_program(program, interner);
+    build_check_result(&program.defs, summaries, interner)
+}
+
+pub fn check_fbip_aether(program: &AetherProgram, interner: &Interner) -> FbipCheckResult {
+    let summaries = analyze_program_aether(program, interner);
+    build_check_result(&program.defs, summaries, interner)
+}
+
+fn build_check_result<D>(
+    defs: &[D],
+    summaries: std::collections::HashMap<
+        crate::core::CoreBinderId,
+        super::fbip_analysis::FbipSummary,
+    >,
+    interner: &Interner,
+) -> FbipCheckResult
+where
+    D: FbipDefView,
+{
     let mut result = FbipCheckResult::default();
 
-    for def in &program.defs {
-        let Some(annotation) = def.fip else {
+    for def in defs {
+        let Some(annotation) = def.fip_annotation() else {
             continue;
         };
-        let Some(summary) = summaries.get(&def.binder.id) else {
+        let Some(summary) = summaries.get(&def.binder().id) else {
             continue;
         };
 
@@ -80,7 +101,7 @@ pub fn check_fbip(program: &CoreProgram, interner: &Interner) -> FbipCheckResult
             .join("\n");
         let message = format!(
             "@{annotation_name} on `{}` analysis result {:?}:\n{}",
-            interner.resolve(def.name),
+            interner.resolve(def.name()),
             summary.outcome,
             details_text
         );
@@ -90,7 +111,7 @@ pub fn check_fbip(program: &CoreProgram, interner: &Interner) -> FbipCheckResult
                 .with_category(DiagnosticCategory::Internal)
                 .with_error_type(ErrorType::Compiler)
                 .with_phase(DiagnosticPhase::Validation)
-                .with_span(def.span)
+                .with_span(def.span())
                 .with_message(message.clone()),
             FipAnnotation::Fbip => Diagnostic::make_error_dynamic(
                 "E999",
@@ -102,14 +123,14 @@ pub fn check_fbip(program: &CoreProgram, interner: &Interner) -> FbipCheckResult
                         .to_string(),
                 ),
                 "",
-                def.span,
+                def.span(),
             )
             .with_category(DiagnosticCategory::Internal)
             .with_phase(DiagnosticPhase::Validation),
         };
 
         let fbip_diag = FbipDiagnostic {
-            function_name: interner.resolve(def.name).to_string(),
+            function_name: interner.resolve(def.name()).to_string(),
             annotation,
             outcome: summary.outcome.clone(),
             reasons: reasons.clone(),
@@ -133,10 +154,10 @@ pub fn check_fbip(program: &CoreProgram, interner: &Interner) -> FbipCheckResult
                             .with_category(DiagnosticCategory::Internal)
                             .with_error_type(ErrorType::Compiler)
                             .with_phase(DiagnosticPhase::Validation)
-                            .with_span(def.span)
+                            .with_span(def.span())
                             .with_message(format!(
                                 "@fbip on `{}` is vacuous: no heap constructor sites were found",
-                                interner.resolve(def.name)
+                                interner.resolve(def.name())
                             )),
                     );
                 }
@@ -152,10 +173,10 @@ pub fn check_fbip(program: &CoreProgram, interner: &Interner) -> FbipCheckResult
                     .with_category(DiagnosticCategory::Internal)
                     .with_error_type(ErrorType::Compiler)
                     .with_phase(DiagnosticPhase::Validation)
-                    .with_span(def.span)
+                    .with_span(def.span())
                     .with_message(format!(
                         "@fip on `{}` is vacuous: no heap constructor sites were found",
-                        interner.resolve(def.name)
+                        interner.resolve(def.name())
                     )),
             );
         }
@@ -164,6 +185,49 @@ pub fn check_fbip(program: &CoreProgram, interner: &Interner) -> FbipCheckResult
     }
 
     result
+}
+
+trait FbipDefView {
+    fn name(&self) -> crate::syntax::Identifier;
+    fn binder(&self) -> crate::core::CoreBinder;
+    fn span(&self) -> crate::diagnostics::position::Span;
+    fn fip_annotation(&self) -> Option<FipAnnotation>;
+}
+
+impl FbipDefView for crate::core::CoreDef {
+    fn name(&self) -> crate::syntax::Identifier {
+        self.name
+    }
+
+    fn binder(&self) -> crate::core::CoreBinder {
+        self.binder
+    }
+
+    fn span(&self) -> crate::diagnostics::position::Span {
+        self.span
+    }
+
+    fn fip_annotation(&self) -> Option<FipAnnotation> {
+        self.fip
+    }
+}
+
+impl FbipDefView for crate::aether::AetherDef {
+    fn name(&self) -> crate::syntax::Identifier {
+        self.name
+    }
+
+    fn binder(&self) -> crate::core::CoreBinder {
+        self.binder
+    }
+
+    fn span(&self) -> crate::diagnostics::position::Span {
+        self.span
+    }
+
+    fn fip_annotation(&self) -> Option<FipAnnotation> {
+        self.fip
+    }
 }
 
 fn detail_for_reason(reason: FbipFailureReason, call_details: &[FbipCallDetail]) -> String {

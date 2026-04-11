@@ -87,6 +87,24 @@ impl InferEffectRow {
         vars
     }
 
+    /// Collect all `Symbol`s (effect names) in this row.
+    pub fn collect_symbols(&self, out: &mut HashSet<Identifier>) {
+        out.extend(self.concrete.iter().copied());
+    }
+
+    /// Replace Symbol IDs according to `remap`. Returns a new row.
+    pub fn remap_symbols(&self, remap: &std::collections::HashMap<Identifier, Identifier>) -> Self {
+        let concrete = self
+            .concrete
+            .iter()
+            .map(|sym| *remap.get(sym).unwrap_or(sym))
+            .collect();
+        Self {
+            concrete,
+            tail: self.tail,
+        }
+    }
+
     /// Apply row-variable substitution to this row.
     ///
     /// Follows row-tail bindings transitively, unions concrete effects along the
@@ -273,5 +291,53 @@ mod tests {
         assert!(applied.concrete().contains(&sym(20)));
         assert!(applied.concrete().contains(&sym(30)));
         assert_eq!(applied.tail(), Some(1));
+    }
+
+    #[test]
+    fn collect_symbols_gathers_concrete_effects() {
+        let row = InferEffectRow::closed_from_symbols([sym(10), sym(20), sym(30)]);
+        let mut out = std::collections::HashSet::new();
+        row.collect_symbols(&mut out);
+        assert_eq!(out.len(), 3);
+        assert!(out.contains(&sym(10)));
+        assert!(out.contains(&sym(20)));
+        assert!(out.contains(&sym(30)));
+    }
+
+    #[test]
+    fn collect_symbols_empty_for_empty_row() {
+        let row = InferEffectRow::closed_empty();
+        let mut out = std::collections::HashSet::new();
+        row.collect_symbols(&mut out);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn remap_symbols_rewrites_concrete_effects() {
+        let row = InferEffectRow::closed_from_symbols([sym(5), sym(10)]);
+        let remap = HashMap::from([(sym(5), sym(50)), (sym(10), sym(100))]);
+        let remapped = row.remap_symbols(&remap);
+        assert!(remapped.concrete().contains(&sym(50)));
+        assert!(remapped.concrete().contains(&sym(100)));
+        assert!(!remapped.concrete().contains(&sym(5)));
+        assert!(!remapped.concrete().contains(&sym(10)));
+    }
+
+    #[test]
+    fn remap_symbols_preserves_tail_variable() {
+        let row = InferEffectRow::open_from_symbols([sym(5)], 42);
+        let remap = HashMap::from([(sym(5), sym(50))]);
+        let remapped = row.remap_symbols(&remap);
+        assert!(remapped.concrete().contains(&sym(50)));
+        assert_eq!(remapped.tail(), Some(42));
+    }
+
+    #[test]
+    fn remap_symbols_preserves_unmapped_effects() {
+        let row = InferEffectRow::closed_from_symbols([sym(5), sym(10)]);
+        let remap = HashMap::from([(sym(5), sym(50))]);
+        let remapped = row.remap_symbols(&remap);
+        assert!(remapped.concrete().contains(&sym(50)));
+        assert!(remapped.concrete().contains(&sym(10)));
     }
 }

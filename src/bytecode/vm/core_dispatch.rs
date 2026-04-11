@@ -55,6 +55,10 @@ pub fn execute_core_primop(
             "imod",
         ),
 
+        // ── Safe arithmetic (Proposal 0135) ──────────────────────────
+        SafeDiv => safe_arith_div(&args),
+        SafeMod => safe_arith_mod(&args),
+
         // ── Typed float arithmetic ────────────────────────────────────
         FAdd => float2(&args, |a, b| Value::Float(a + b), "fadd"),
         FSub => float2(&args, |a, b| Value::Float(a - b), "fsub"),
@@ -412,6 +416,10 @@ pub fn execute_core_primop(
         }
 
         // ── Control ───────────────────────────────────────────────────
+        Unwrap => match &args[0] {
+            Value::None => Err("unwrap called on None".into()),
+            other => Ok(other.clone()),
+        },
         Panic => Err(format!("panic: {}", args[0].to_string_value())),
         ClockNow => {
             let now = SystemTime::now()
@@ -554,60 +562,26 @@ pub fn execute_core_primop(
             other => Err(terr("len", "String, Array, Tuple, or Map", other)),
         },
 
-        // ── Collection helpers (promoted for both VM and native) ──────
-        Reverse => match &args[0] {
+        // ── Array helpers promoted through explicit builtin names ──────
+        ArrayReverse => match &args[0] {
             Value::Array(arr) => {
                 let mut v: Vec<Value> = arr.iter().cloned().collect();
                 v.reverse();
                 Ok(Value::Array(Rc::new(v)))
             }
-            Value::Cons(_) => {
-                let mut elems = Vec::new();
-                let mut cur = args[0].clone();
-                loop {
-                    match &cur {
-                        Value::None | Value::EmptyList => break,
-                        Value::Cons(cell) => {
-                            elems.push(cell.head.clone());
-                            cur = cell.tail.clone();
-                        }
-                        _ => break,
-                    }
-                }
-                let mut list = Value::EmptyList;
-                for e in &elems {
-                    list = ConsCell::cons(e.clone(), list);
-                }
-                Ok(list)
-            }
-            Value::None | Value::EmptyList => Ok(Value::EmptyList),
-            other => Err(terr("reverse", "Array or List", other)),
+            other => Err(terr("array_reverse", "Array", other)),
         },
-        Contains => {
+        ArrayContains => {
             let (collection, target) = (&args[0], &args[1]);
             match collection {
                 Value::Array(arr) => Ok(Value::Boolean(arr.iter().any(|e| e == target))),
-                Value::Cons(_) => {
-                    let mut cur = collection.clone();
-                    loop {
-                        match &cur {
-                            Value::None | Value::EmptyList => break Ok(Value::Boolean(false)),
-                            Value::Cons(cell) => {
-                                if &cell.head == target {
-                                    break Ok(Value::Boolean(true));
-                                }
-                                cur = cell.tail.clone();
-                            }
-                            _ => break Ok(Value::Boolean(false)),
-                        }
-                    }
-                }
-                Value::None | Value::EmptyList => Ok(Value::Boolean(false)),
-                other => Err(terr("contains", "Array or List", other)),
+                other => Err(terr("array_contains", "Array", other)),
             }
         }
-        Sort | SortBy | HoMap | HoFilter | HoAny | HoAll | HoEach | HoFind | HoCount | Zip
-        | Flatten | HoFlatMap => {
+        Sort => sort_collection(&args[0]),
+        SortBy => sort_by_collection(ctx, &args[0], args[1].clone()),
+        HoMap | HoFilter | HoFold | HoAny | HoAll | HoEach | HoFind | HoCount | Zip | Flatten
+        | HoFlatMap => {
             // These higher-order ops require closure calls; in VM they go through
             // the prelude Flow.* modules (not OpPrimOp). If we reach here, it
             // means the bytecode compiler emitted them — fall through gracefully.
@@ -687,6 +661,124 @@ fn ehamt<'a>(v: &'a Value, op: &str) -> Result<&'a Rc<rc_hamt::HamtNode>, String
     }
 }
 
+fn sort_collection(collection: &Value) -> Result<Value, String> {
+    match collection {
+        Value::Array(items) => {
+            let mut sorted: Vec<Value> = items.iter().cloned().collect();
+            stable_insertion_sort_values(&mut sorted)?;
+            Ok(Value::Array(sorted.into()))
+        }
+        Value::Cons(_) | Value::EmptyList => {
+            let mut sorted = list_to_vec(collection);
+            stable_insertion_sort_values(&mut sorted)?;
+            Ok(vec_to_list(sorted))
+        }
+        other => Err(terr("sort", "Array or List", other)),
+    }
+}
+
+fn sort_by_collection(
+    ctx: &mut dyn RuntimeContext,
+    collection: &Value,
+    func: Value,
+) -> Result<Value, String> {
+    match collection {
+        Value::Array(items) => {
+            let mut sorted: Vec<Value> = items.iter().cloned().collect();
+            let mut keys = compute_sort_keys(ctx, &sorted, &func)?;
+            stable_insertion_sort_by_keys(&mut sorted, &mut keys)?;
+            Ok(Value::Array(sorted.into()))
+        }
+        Value::Cons(_) | Value::EmptyList => {
+            let mut sorted = list_to_vec(collection);
+            let mut keys = compute_sort_keys(ctx, &sorted, &func)?;
+            stable_insertion_sort_by_keys(&mut sorted, &mut keys)?;
+            Ok(vec_to_list(sorted))
+        }
+        other => Err(terr("sort_by", "Array or List", other)),
+    }
+}
+
+fn compute_sort_keys(
+    ctx: &mut dyn RuntimeContext,
+    values: &[Value],
+    func: &Value,
+) -> Result<Vec<Value>, String> {
+    values
+        .iter()
+        .map(|value| ctx.invoke_value(func.clone(), vec![value.clone()]))
+        .collect()
+}
+
+fn stable_insertion_sort_values(values: &mut [Value]) -> Result<(), String> {
+    for i in 1..values.len() {
+        let value = values[i].clone();
+        let key = value.clone();
+        let mut j = i;
+        while j > 0 && value_gt(&values[j - 1], &key)? {
+            values[j] = values[j - 1].clone();
+            j -= 1;
+        }
+        values[j] = value;
+    }
+    Ok(())
+}
+
+fn stable_insertion_sort_by_keys(values: &mut [Value], keys: &mut [Value]) -> Result<(), String> {
+    for i in 1..values.len() {
+        let value = values[i].clone();
+        let key = keys[i].clone();
+        let mut j = i;
+        while j > 0 && value_gt(&keys[j - 1], &key)? {
+            values[j] = values[j - 1].clone();
+            keys[j] = keys[j - 1].clone();
+            j -= 1;
+        }
+        values[j] = value;
+        keys[j] = key;
+    }
+    Ok(())
+}
+
+fn list_to_vec(value: &Value) -> Vec<Value> {
+    let mut out = Vec::new();
+    let mut cur = value.clone();
+    loop {
+        match cur {
+            Value::Cons(cell) => {
+                out.push(cell.head.clone());
+                cur = cell.tail.clone();
+            }
+            Value::EmptyList | Value::None => break,
+            _ => break,
+        }
+    }
+    out
+}
+
+fn vec_to_list(values: Vec<Value>) -> Value {
+    values
+        .into_iter()
+        .rev()
+        .fold(Value::EmptyList, |tail, head| ConsCell::cons(head, tail))
+}
+
+fn value_gt(left: &Value, right: &Value) -> Result<bool, String> {
+    match (left, right) {
+        (Value::Integer(l), Value::Integer(r)) => Ok(l > r),
+        (Value::Float(l), Value::Float(r)) => Ok(l > r),
+        (Value::Integer(l), Value::Float(r)) => Ok((*l as f64) > *r),
+        (Value::Float(l), Value::Integer(r)) => Ok(*l > (*r as f64)),
+        (Value::String(l), Value::String(r)) => Ok(l.as_str() > r.as_str()),
+        (Value::Boolean(l), Value::Boolean(r)) => Ok((*l as u8) > (*r as u8)),
+        _ => Err(format!(
+            "sort comparison only supports Int, Float, String, or Bool keys; got {} and {}",
+            left.type_name(),
+            right.type_name()
+        )),
+    }
+}
+
 fn int2(args: &[Value], f: impl FnOnce(i64, i64) -> Value, op: &str) -> Result<Value, String> {
     Ok(f(eint(&args[0], op)?, eint(&args[1], op)?))
 }
@@ -745,5 +837,83 @@ fn hash_key_to_value(key: &HashKey) -> Value {
         HashKey::Integer(v) => Value::Integer(*v),
         HashKey::Boolean(v) => Value::Boolean(*v),
         HashKey::String(v) => Value::String(v.clone().into()),
+    }
+}
+
+// ── Safe arithmetic (Proposal 0135) ─────────────────────────────────────────
+
+fn safe_arith_div(args: &[Value]) -> Result<Value, String> {
+    match (&args[0], &args[1]) {
+        (Value::Integer(a), Value::Integer(b)) => {
+            if *b == 0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Integer(a / b))))
+            }
+        }
+        (Value::Float(a), Value::Float(b)) => {
+            if *b == 0.0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Float(a / b))))
+            }
+        }
+        (Value::Integer(a), Value::Float(b)) => {
+            if *b == 0.0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Float(*a as f64 / b))))
+            }
+        }
+        (Value::Float(a), Value::Integer(b)) => {
+            if *b == 0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Float(a / *b as f64))))
+            }
+        }
+        (a, b) => Err(format!(
+            "safe_div expects (Number, Number), got ({}, {})",
+            a.type_name(),
+            b.type_name()
+        )),
+    }
+}
+
+fn safe_arith_mod(args: &[Value]) -> Result<Value, String> {
+    match (&args[0], &args[1]) {
+        (Value::Integer(a), Value::Integer(b)) => {
+            if *b == 0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Integer(a % b))))
+            }
+        }
+        (Value::Float(a), Value::Float(b)) => {
+            if *b == 0.0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Float(a % b))))
+            }
+        }
+        (Value::Integer(a), Value::Float(b)) => {
+            if *b == 0.0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Float(*a as f64 % b))))
+            }
+        }
+        (Value::Float(a), Value::Integer(b)) => {
+            if *b == 0 {
+                Ok(Value::None)
+            } else {
+                Ok(Value::Some(Rc::new(Value::Float(*a % *b as f64))))
+            }
+        }
+        (a, b) => Err(format!(
+            "safe_mod expects (Number, Number), got ({}, {})",
+            a.type_name(),
+            b.type_name()
+        )),
     }
 }

@@ -33,6 +33,21 @@ fn compile_disassembly(input: &str) -> String {
     output
 }
 
+fn compile_error(input: &str) -> String {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    if !parser.errors.is_empty() {
+        return render_diagnostics(&parser.errors, Some(input), None);
+    }
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    match compiler.compile(&program) {
+        Ok(_) => panic!("expected compile error"),
+        Err(diags) => render_diagnostics(&diags, Some(input), None),
+    }
+}
+
 fn assert_contains_primop(input: &str) {
     let asm = compile_disassembly(input);
     assert!(asm.contains("OpPrimOp"), "expected OpPrimOp:\n{}", asm);
@@ -45,16 +60,6 @@ fn assert_not_contains_primop(input: &str) {
         "did not expect OpPrimOp:\n{}",
         asm
     );
-}
-
-fn assert_contains_call_base(input: &str) {
-    let asm = compile_disassembly(input);
-    assert!(asm.contains("OpCallBase"), "expected OpCallBase:\n{}", asm);
-}
-
-fn assert_contains_get_base(input: &str) {
-    let asm = compile_disassembly(input);
-    assert!(asm.contains("OpGetBase"), "expected OpGetBase:\n{}", asm);
 }
 
 #[test]
@@ -71,8 +76,7 @@ fn main() -> Unit with IO {
 }
 
 #[test]
-#[ignore = "uses base functions not in standalone compiler"]
-fn print_arity_split_routes_one_arg_to_primop_and_multi_arg_to_generic_base_call() {
+fn print_arity_split_routes_one_arg_to_primop_and_multi_arg_to_unresolved_call() {
     assert_contains_primop(
         r#"
 fn main() -> Unit with IO {
@@ -81,7 +85,7 @@ fn main() -> Unit with IO {
 "#,
     );
 
-    let asm = compile_disassembly(
+    let rendered = compile_error(
         r#"
 fn main() -> Unit with IO {
     print("a", "b", "c")
@@ -89,68 +93,56 @@ fn main() -> Unit with IO {
 "#,
     );
     assert!(
-        !asm.contains("OpPrimOp"),
-        "did not expect OpPrimOp for multi-arg print:\n{}",
-        asm
+        rendered.contains("I can't find a value named `print`."),
+        "expected unresolved multi-arg print call:\n{}",
+        rendered
     );
-    assert!(
-        !asm.contains("OpCallBase"),
-        "did not expect OpCallBase for multi-arg print:\n{}",
-        asm
-    );
-    assert_contains_get_base(
-        r#"
-fn main() -> Unit with IO {
-    print("a", "b", "c")
-}
-"#,
-    );
-}
-
-#[test]
-#[ignore = "uses base functions not in standalone compiler"]
-fn compiler_emits_op_call_base_for_previous_mirrored_base_mappings() {
-    let programs = [
-        "first(#[1, 2]);",
-        "last(#[1, 2]);",
-        "rest(#[1, 2]);",
-        "contains(#[1, 2], 1);",
-        "slice(#[1, 2, 3], 0, 2);",
-        r#"trim("  hi  ");"#,
-        r#"upper("hi");"#,
-        r#"lower("HI");"#,
-        r#"starts_with("hello", "he");"#,
-        r#"ends_with("hello", "lo");"#,
-        r#"replace("banana", "na", "X");"#,
-        r#"chars("ab");"#,
-        "keys({});",
-        "values({});",
-        r#"delete({}, "k");"#,
-        "merge({}, {});",
-        "is_map({});",
-        r#"parse_int("1");"#,
-        r#"parse_ints(#["1", "2"]);"#,
-        r#"split_ints("1,2", ",");"#,
-        r#"len("abc");"#,
-        r#"type_of(1);"#,
-        r#"is_int(1);"#,
-        r#"to_string(1);"#,
-    ];
-
-    for program in programs {
-        assert_not_contains_primop(program);
-        assert_contains_call_base(program);
-    }
 }
 
 #[test]
 fn compiler_emits_op_primop_for_concat_array() {
-    assert_contains_primop("concat(#[1], #[2]);");
-    let asm = compile_disassembly("concat(#[1], #[2]);");
-    assert!(
-        !asm.contains("OpCallBase"),
-        "unexpected OpCallBase:\n{}",
-        asm
+    assert_contains_primop("array_concat([|1|], [|2|]);");
+}
+
+#[test]
+fn compiler_emits_op_primop_for_explicit_array_reverse_and_contains() {
+    assert_contains_primop("array_reverse([|1, 2, 3|]);");
+    assert_contains_primop("array_contains([|1, 2, 3|], 2);");
+}
+
+#[test]
+fn compiler_emits_op_primop_for_explicit_map_builtins() {
+    assert_contains_primop(r#"map_get({"x": 1}, "x");"#);
+    assert_contains_primop(r#"map_set({}, "x", 1);"#);
+    assert_contains_primop(r#"map_has({"x": 1}, "x");"#);
+    assert_contains_primop(r#"map_delete({"x": 1}, "x");"#);
+}
+
+#[test]
+fn compiler_does_not_emit_op_primop_for_stdlib_facing_reverse_and_contains() {
+    assert_not_contains_primop(
+        r#"
+fn reverse(xs) { xs }
+reverse([1, 2, 3]);
+"#,
+    );
+    assert_not_contains_primop(
+        r#"
+fn contains(xs, x) { false }
+contains([1, 2, 3], 2);
+"#,
+    );
+    assert_not_contains_primop(
+        r#"
+fn get(m, key) { None }
+get({}, "x");
+"#,
+    );
+    assert_not_contains_primop(
+        r#"
+fn put(m, key, value) { m }
+put({}, "x", 1);
+"#,
     );
 }
 

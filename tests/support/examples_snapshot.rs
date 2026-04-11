@@ -146,6 +146,10 @@ pub fn build_transcript(
         if let Some(parent) = fixture.parent() {
             roots.push(parent.to_path_buf());
         }
+        let lib_root = workspace_root.join("lib");
+        if lib_root.exists() {
+            roots.push(lib_root);
+        }
         let src_root = workspace_root.join("src");
         if src_root.exists() {
             roots.push(src_root);
@@ -162,6 +166,7 @@ pub fn build_transcript(
             let mut compiler = Compiler::new_with_interner(fixture_rel, graph_result.interner);
             for node in graph_result.graph.topo_order() {
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
+                compiler.set_current_module_kind(node.kind);
                 if let Err(mut diags) = compiler.compile(&node.program) {
                     for diag in &mut diags {
                         if diag.file().is_none() {

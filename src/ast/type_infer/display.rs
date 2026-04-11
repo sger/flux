@@ -52,6 +52,14 @@ pub fn display_infer_type(ty: &InferType, interner: &Interner) -> String {
                 .collect();
             format!("({})", elems_str.join(", "))
         }
+        InferType::HktApp(head, args) => {
+            let head_str = display_infer_type(head, interner);
+            let args_str: Vec<String> = args
+                .iter()
+                .map(|a| display_infer_type(a, interner))
+                .collect();
+            format!("{}<{}>", head_str, args_str.join(", "))
+        }
     }
 }
 

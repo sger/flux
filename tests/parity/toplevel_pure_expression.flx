@@ -1,0 +1,19 @@
+// parity: vm, llvm
+// expect: success
+// bug: top-level pure expressions (no main) may fail on the native backend
+//       when top-level bindings are not emitted before their use sites.
+
+let a = 10
+let b = a + 5
+let c = b * 2
+
+fn square(x) { x * x }
+
+let d = square(c)
+
+fn main() with IO {
+    print(a);
+    print(b);
+    print(c);
+    print(d);
+}

@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
-use crate::core::{CoreAlt, CoreBinderId, CoreExpr, CoreTag, CoreVarRef};
+use crate::core::{CoreBinderId, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
 
-use super::analysis::use_counts;
-use super::{into_constructor_shape_for_tag, is_heap_tag};
+use super::{AetherAlt as CoreAlt, AetherExpr, into_constructor_shape_for_tag_aether, is_heap_tag};
+
+type CoreExpr = AetherExpr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReuseOrigin {
@@ -1207,8 +1208,8 @@ fn build_reuse_expr(
     let Some(token_binder) = token.binder else {
         return Err(ReuseFailureReason::ProvenanceLost);
     };
-    let (tag, fields, span) =
-        into_constructor_shape_for_tag(body, pat_tag).ok_or(ReuseFailureReason::ShapeMismatch)?;
+    let (tag, fields, span) = into_constructor_shape_for_tag_aether(body, pat_tag)
+        .ok_or(ReuseFailureReason::ShapeMismatch)?;
     if pat_tag.is_some_and(|expected| expected != &tag) {
         return Err(ReuseFailureReason::ShapeMismatch);
     }
@@ -1500,7 +1501,7 @@ fn build_child_reuse_expr(
         }
         other => {
             let token_binder = token.binder?;
-            let (tag, fields, span) = into_constructor_shape_for_tag(other, None)?;
+            let (tag, fields, span) = into_constructor_shape_for_tag_aether(other, None)?;
             if !is_heap_tag(&tag)
                 || blocked_outer_token == Some(token_binder)
                 || fields
@@ -1534,7 +1535,7 @@ fn constructor_shape_for_expr(
     expr: &CoreExpr,
     expected_tag: Option<&CoreTag>,
 ) -> Option<(CoreTag, Vec<CoreExpr>, Span)> {
-    into_constructor_shape_for_tag(expr.clone(), expected_tag).or_else(|| match expr {
+    into_constructor_shape_for_tag_aether(expr.clone(), expected_tag).or_else(|| match expr {
         CoreExpr::App { func, args, span }
         | CoreExpr::AetherCall {
             func, args, span, ..
@@ -1658,7 +1659,7 @@ fn choose_reason(reasons: &[ReuseFailureReason]) -> ReuseFailureReason {
 }
 
 fn token_appears_in_expr(token_binder: CoreBinderId, expr: &CoreExpr) -> bool {
-    use_counts(expr).contains_key(&token_binder)
+    super::analysis::use_counts_aether(expr).contains_key(&token_binder)
 }
 
 fn is_alias_preserving_rhs(expr: &CoreExpr) -> bool {
@@ -1676,6 +1677,7 @@ fn is_alias_preserving_rhs(expr: &CoreExpr) -> bool {
         | CoreExpr::Lam { .. }
         | CoreExpr::Let { .. }
         | CoreExpr::LetRec { .. }
+        | CoreExpr::LetRecGroup { .. }
         | CoreExpr::Case { .. }
         | CoreExpr::Dup { .. }
         | CoreExpr::Drop { .. }
@@ -1725,6 +1727,7 @@ fn is_safe_precompute_rhs(token_binder: CoreBinderId, expr: &CoreExpr) -> bool {
         | CoreExpr::Handle { .. }
         | CoreExpr::Lam { .. }
         | CoreExpr::LetRec { .. }
+        | CoreExpr::LetRecGroup { .. }
         | CoreExpr::DropSpecialized { .. } => false,
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             is_safe_precompute_rhs(token_binder, object)
@@ -1735,7 +1738,8 @@ fn is_safe_precompute_rhs(token_binder: CoreBinderId, expr: &CoreExpr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{ReuseFailureReason, diagnose_drop_body, rewrite_drop_body};
-    use crate::core::{CoreBinder, CoreBinderId, CoreExpr, CoreTag, CoreVarRef};
+    use crate::aether::{AetherAlt as CoreAlt, AetherExpr as CoreExpr};
+    use crate::core::{CoreBinder, CoreBinderId, CoreTag, CoreVarRef};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 
@@ -1762,6 +1766,12 @@ mod tests {
             }
             CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
                 collect_reuses(rhs, out);
+                collect_reuses(body, out);
+            }
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                for (_, rhs) in bindings {
+                    collect_reuses(rhs, out);
+                }
                 collect_reuses(body, out);
             }
             CoreExpr::Case {
@@ -2340,7 +2350,7 @@ mod tests {
         let joined = env.provenance_of_expr(&CoreExpr::Case {
             scrutinee: Box::new(v(flag)),
             alts: vec![
-                crate::core::CoreAlt {
+                CoreAlt {
                     pat: crate::core::CorePat::Lit(crate::core::CoreLit::Bool(true)),
                     guard: None,
                     rhs: CoreExpr::Con {
@@ -2350,7 +2360,7 @@ mod tests {
                     },
                     span: s(),
                 },
-                crate::core::CoreAlt {
+                CoreAlt {
                     pat: crate::core::CorePat::Wildcard,
                     guard: None,
                     rhs: CoreExpr::Let {
@@ -2396,7 +2406,7 @@ mod tests {
             rhs: Box::new(CoreExpr::Case {
                 scrutinee: Box::new(v(flag)),
                 alts: vec![
-                    crate::core::CoreAlt {
+                    CoreAlt {
                         pat: crate::core::CorePat::Lit(crate::core::CoreLit::Bool(true)),
                         guard: None,
                         rhs: CoreExpr::Con {
@@ -2406,7 +2416,7 @@ mod tests {
                         },
                         span: s(),
                     },
-                    crate::core::CoreAlt {
+                    CoreAlt {
                         pat: crate::core::CorePat::Wildcard,
                         guard: None,
                         rhs: CoreExpr::Let {
@@ -2479,7 +2489,7 @@ mod tests {
         let body = CoreExpr::Case {
             scrutinee: Box::new(v(flag)),
             alts: vec![
-                crate::core::CoreAlt {
+                CoreAlt {
                     pat: crate::core::CorePat::Lit(crate::core::CoreLit::Bool(true)),
                     guard: None,
                     rhs: CoreExpr::Con {
@@ -2496,7 +2506,7 @@ mod tests {
                     },
                     span: s(),
                 },
-                crate::core::CoreAlt {
+                CoreAlt {
                     pat: crate::core::CorePat::Wildcard,
                     guard: None,
                     rhs: CoreExpr::Con {

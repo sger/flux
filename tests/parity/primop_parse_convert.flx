@@ -1,0 +1,13 @@
+// parity: vm, llvm
+// expect: success
+// Tests parsing and conversion primops.
+
+fn main() with IO {
+    print(parse_int("42"))
+    print(len([1, 2, 3]))
+    print(len("hello"))
+    print(len([|10, 20, 30|]))
+    print(reverse([1, 2, 3]))
+    print(contains([1, 2, 3], 2))
+    print(contains([1, 2, 3], 5))
+}

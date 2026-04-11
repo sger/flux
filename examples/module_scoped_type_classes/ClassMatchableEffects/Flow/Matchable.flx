@@ -1,0 +1,14 @@
+import ClassMatchableEffects.Flow.Audit as Audit
+
+module ClassMatchableEffects.Flow.Matchable {
+    public class Matchable<a> {
+        fn same(x: a, y: a) -> Bool with Audit
+    }
+
+    public instance Matchable<Int> {
+        fn same(x, y) with Audit {
+            perform Audit.mark("compare")
+            x == y
+        }
+    }
+}

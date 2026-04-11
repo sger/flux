@@ -5,25 +5,56 @@ Fixture: examples/aoc/2025/aoc_day11_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Type Mismatch
+error[E004]: Undefined Variable
 
-I found a type mismatch.
+I can't find a value named `put`.
 
-  examples/aoc/2025/aoc_day11_part2.flx:66:13
+  examples/aoc/2025/aoc_day11_part2.flx:44:13
    |
-66 |     [|name, outs|]
-   |             ^^^^
-   |             ---- this expression has type `Array<String>`
+44 |     let r = put({}, "count", count)
+   |             ^^^
 
-   |             ---- this type mismatch is reported here
+Hint:
+  Define it first: let put = ...;
 
-Note:
-  expected type: String
-  found type: Array<String>
-  the conflicting types meet at this expression
 
-Help:
-  These two types are not compatible.
+error[E004]: Undefined Variable
+
+I can't find a value named `put`.
+
+  examples/aoc/2025/aoc_day11_part2.flx:45:5
+   |
+45 |     put(r, "memo", memo)
+   |     ^^^
+
+Hint:
+  Define it first: let put = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `get`.
+
+  examples/aoc/2025/aoc_day11_part2.flx:49:11
+   |
+49 |     match get(r, "count") {
+   |           ^^^
+
+Hint:
+  Define it first: let get = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `get`.
+
+  examples/aoc/2025/aoc_day11_part2.flx:56:11
+   |
+56 |     match get(r, "memo") {
+   |           ^^^
+
+Hint:
+  Define it first: let get = ...;
 
 
 error[E004]: Undefined Variable
@@ -45,7 +76,7 @@ I can't find a value named `fold`.
 
   examples/aoc/2025/aoc_day11_part2.flx:71:5
    |
-71 |     fold(entries, {}, /(g, e) -> put(g, str_at(e, 0), arr_at(e, 1)))
+71 |     fold(entries, {}, /(g, e) -> put(g, e.0, e.1))
    |     ^^^^
 
 Hint:
@@ -54,16 +85,55 @@ Hint:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `dfs_count2`.
+I can't find a value named `put`.
 
-  examples/aoc/2025/aoc_day11_part2.flx:91:13
-   |
-91 |     let r = dfs_count2(nxt, seen_dac, seen_fft, graph, memo)
-   |             ^^^^^^^^^^
+  examples/aoc/2025/aoc_day11_part2.flx:102:17
+    |
+102 |     let memo3 = put(memo2, key, total)
+    |                 ^^^
 
 Hint:
-  Define it first: let dfs_count2 = ...;
+  Define it first: let put = ...;
 
-Found 4 errors.
+
+error[E004]: Undefined Variable
+
+I can't find a value named `put`.
+
+  examples/aoc/2025/aoc_day11_part2.flx:107:17
+    |
+107 |     let memo2 = put(memo, key, 0)
+    |                 ^^^
+
+Hint:
+  Define it first: let put = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `get`.
+
+  examples/aoc/2025/aoc_day11_part2.flx:112:11
+    |
+112 |     match get(graph, node) {
+    |           ^^^
+
+Hint:
+  Define it first: let get = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `get`.
+
+  examples/aoc/2025/aoc_day11_part2.flx:127:11
+    |
+127 |     match get(memo, key) {
+    |           ^^^
+
+Hint:
+  Define it first: let get = ...;
+
+Found 10 errors.
 == stdout ==
 <not executed>

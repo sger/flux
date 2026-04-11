@@ -1,9 +1,11 @@
 ---
 source: tests/aether_cli_snapshots.rs
 ---
+[1 of 1] Compiling  verify_aether
 Warning: FBIP Contract Not Proven
 
 @fip on `my_map` analysis result NotProvable:
+- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
@@ -26,6 +28,7 @@ Warning: FBIP Contract Not Proven
 Warning: FBIP Contract Not Proven
 
 @fip on `option_map` analysis result NotProvable:
+- fresh heap allocation remains on at least one path
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
@@ -57,8 +60,8 @@ analyze: off
 strict: off
 modules: 1
 ────────────────────────
-Aether Memory Model Report
-==========================
+Aether Ownership Report
+=======================
 
 ── fn my_map @fip ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
@@ -67,14 +70,16 @@ Aether Memory Model Report
   fbip: NotProvable
     - calls indirect or opaque callee `f` whose FBIP behavior is unknown
     - control-flow join loses a precise allocation bound across paths
-λxs, f.
-  case xs of
-    ::(h, t) →
-      let %t1 = aether_call[owned] f(h)
-      let %t2 = aether_call[borrowed, borrowed] my_map(t, f)
-      reuse xs ::(%t1, %t2)
-    _ →
-      []
+lam(xs, f) ->
+  case xs#1 of
+    Cons(h, t) ->
+      let <sym:4000043> =
+        aether_call[owned] f#2(h#3)
+      let <sym:4000044> =
+        aether_call[borrowed, borrowed] my_map#0(t#4, f#2)
+      reuse xs#1 as Cons(<sym:4000043>#43, <sym:4000044>#44)
+    _ ->
+      Nil
 ── fn option_map @fip ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
   FreshAllocs: 0
@@ -82,90 +87,103 @@ Aether Memory Model Report
   fbip: NotProvable
     - calls indirect or opaque callee `f` whose FBIP behavior is unknown
     - control-flow join loses a precise allocation bound across paths
-λopt, f.
-  case opt of
-    Some(x) →
-      let %t1 = aether_call[owned] f(x)
-      reuse opt Some(%t1)
-    _ →
+lam(opt, f) ->
+  case opt#6 of
+    Some(x) ->
+      let <sym:4000045> =
+        aether_call[owned] f#7(x#8)
+      reuse opt#6 as Some(<sym:4000045>#45)
+    _ ->
       None
 ── fn set_black ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
-λt.
-  case t of
-    Node(_, left, key, right) →
-      reuse t Node(Black, left, key, right) @mask=0b1
-    _ →
-      t
+lam(t) ->
+  case t#10 of
+    Node(_, left, key, right) ->
+      reuse t#10 as Node mask=0x1(Black, left#11, key#12, right#13)
+    _ ->
+      t#10
 ── fn my_filter ──
-  Dups: 1  Drops: 2  Reuses: 1  DropSpecs: 1  FBIP: fbip(1)
-  FreshAllocs: 1
+  Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  FBIP: fip
+  FreshAllocs: 0
   verifier: ok
-λxs, f.
-  case xs of
-    ::(h, t) →
-      drop_spec xs {
-        unique -> let %t1 = aether_call[owned] f(h)
-          case %t1 of
-            true →
-              let %t2 = aether_call[borrowed, borrowed] my_filter(t, f)
-              reuse xs ::(h, %t2) @mask=0b10
-            _ →
-              drop h
-              aether_call[borrowed, borrowed] my_filter(t, f)
-        shared -> let %t1 = aether_call[owned] f(dup h
-          h)
-          case %t1 of
-            true →
-              let %t2 = aether_call[borrowed, borrowed] my_filter(t, f)
-              ::(h, %t2)
-            _ →
-              drop h
-              aether_call[borrowed, borrowed] my_filter(t, f)
-      }
-    _ →
-      []
+lam(xs, f) ->
+  case xs#18 of
+    Cons(h, t) ->
+      let <sym:4000047> =
+        aether_call[owned] f#19(h#20)
+      case <sym:4000047>#47 of
+        true ->
+          let <sym:4000048> =
+            aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
+          reuse xs#18 as Cons mask=0x2(h#20, <sym:4000048>#48)
+        _ ->
+          drop xs#18 in
+            aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
+    _ ->
+      Nil
 ── fn main ──
   Dups: 0  Drops: 5  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
-λ.
-  let %t1 = (let %t2 = (let %t3 = MakeList(1, 2, 3)
-  let %t4 = (λx.
-    Mul(x, 2))
-  aether_call[borrowed, borrowed] my_map(%t3, %t4))
-  Print(%t2))
-  drop %t1
-  let %t5 = (let %t6 = (let %t7 = Some(42)
-  let %t8 = (λx.
-    Add(x, 1))
-  aether_call[borrowed, borrowed] option_map(%t7, %t8))
-  Print(%t6))
-  drop %t5
-  let %t9 = (let %t10 = (let %t11 = aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
-  aether_call[owned] set_black(%t11))
-  Print(%t10))
-  drop %t9
-  let %t12 = (let %t13 = (let %t14 = MakeList(1, 2, 3, 4, 5)
-  aether_call[borrowed] my_len(%t14))
-  Print(%t13))
-  drop %t12
-  let %t15 = (let %t16 = (let %t17 = MakeList(1, 2, 3, 4, 5, 6)
-  let %t18 = (λx.
-    let %t19 = Mod(x, 2)
-    Eq(%t19, 0))
-  aether_call[borrowed, borrowed] my_filter(%t17, %t18))
-  Print(%t16))
-  drop %t15
-  let %t20 = (let %t21 = MakeList(1, 2, 3, 4, 5)
-  aether_call[borrowed] my_sum(%t21))
-  Print(%t20)
+lam() ->
+  let result =
+    let <sym:4000050> =
+      MakeList(1, 2, 3)
+    let <sym:4000051> =
+      lam(x) ->
+        IMul(x#42, 2)
+    aether_call[borrowed, borrowed] my_map#0(<sym:4000050>#50, <sym:4000051>#51)
+  let <sym:2000004> =
+    Print(result#41)
+  drop <sym:2000004>#40 in
+    let opt =
+      let <sym:4000052> =
+        Some(42)
+      let <sym:4000053> =
+        lam(x) ->
+          IAdd(x#39, 1)
+      aether_call[borrowed, borrowed] option_map#5(<sym:4000052>#52, <sym:4000053>#53)
+    let <sym:2000003> =
+      Print(opt#38)
+    drop <sym:2000003>#37 in
+      let tree =
+        aether_call[owned, owned, owned, owned] Node(Red, Leaf, 5, Leaf)
+      let blk =
+        aether_call[owned] set_black#9(tree#36)
+      let <sym:2000002> =
+        Print(blk#35)
+      drop <sym:2000002>#34 in
+        let n =
+          let <sym:4000054> =
+            MakeList(1, 2, 3, 4, 5)
+          aether_call[borrowed] my_len#14(<sym:4000054>#54)
+        let <sym:2000001> =
+          Print(n#32)
+        drop <sym:2000001>#31 in
+          let evens =
+            let <sym:4000055> =
+              MakeList(1, 2, 3, 4, 5, 6)
+            let <sym:4000057> =
+              lam(x) ->
+                let <sym:4000056> =
+                  IMod(x#30, 2)
+                ICmpEq(<sym:4000056>#56, 0)
+            aether_call[borrowed, borrowed] my_filter#17(<sym:4000055>#55, <sym:4000057>#57)
+          let <sym:2000000> =
+            Print(evens#29)
+          drop <sym:2000000>#28 in
+            let total =
+              let <sym:4000058> =
+                MakeList(1, 2, 3, 4, 5)
+              aether_call[borrowed] my_sum#22(<sym:4000058>#58)
+            Print(total#27)
 
 ── Total ──
-  Dups: 1  Drops: 7  Reuses: 4  DropSpecs: 1  FBIP: fbip(2)
-  FreshAllocs: 2
+  Dups: 0  Drops: 6  Reuses: 4  DropSpecs: 0  FBIP: fbip(1)
+  FreshAllocs: 1
 
 [cfg→vm] Running via CFG → bytecode VM backend...
 [2, 4, 6]

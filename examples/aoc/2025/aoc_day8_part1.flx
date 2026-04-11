@@ -1,7 +1,7 @@
 // Advent of Code - Day 8 Part 1 (Playground)
 // Connect the 1000 closest pairs and multiply the sizes of the 3 largest circuits.
 // Performance: prune edges by distance threshold (from the Rust approach).
-// Input: examples/io/aoc_day8.txt
+// Input: examples/aoc/2025/aoc_day8.txt
 
 import Flow.Array as Array
 
@@ -102,7 +102,7 @@ fn union_key(state, key) {
 }
 }
 
-let lines = read_lines("examples/io/aoc_day8.txt")
+let lines = read_lines("examples/aoc/2025/aoc_day8.txt")
 let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
 let n = len(points)
 let idxs = range(0, n)
@@ -117,8 +117,8 @@ fold(idxs, [||], \(acc, i) -> {
 let sorted_keys = Array.sort(all_keys)
 let top_keys = slice(sorted_keys, 0, 1000)
 
-let parents0 = range(0, n)
-let sizes0 = map(range(0, n), \_ -> 1)
+let parents0 = to_array(range(0, n))
+let sizes0 = to_array(map(range(0, n), \_ -> 1))
 let state0 = dsu_state(parents0, sizes0)
 let state1 = fold(top_keys, state0, \(st, k) -> union_key(st, k))
 

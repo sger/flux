@@ -1,0 +1,5 @@
+import MultiEffectTracerExample.App.Main as Main
+
+fn main() with IO, Time {
+    Main.run()
+}

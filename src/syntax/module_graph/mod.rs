@@ -38,6 +38,28 @@ impl ModuleId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ModuleKind {
+    #[default]
+    User,
+    FlowStdlib,
+}
+
+fn classify_module_kind(program: &Program, interner: &Interner) -> ModuleKind {
+    let module_name = program
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            crate::syntax::statement::Statement::Module { name, .. } => Some(*name),
+            _ => None,
+        });
+
+    match module_name.and_then(|name| interner.try_resolve(name)) {
+        Some(name) if name.starts_with("Flow.") => ModuleKind::FlowStdlib,
+        _ => ModuleKind::User,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ImportEdge {
     pub name: String,
@@ -50,6 +72,7 @@ pub struct ImportEdge {
 pub struct ModuleNode {
     pub id: ModuleId,
     pub path: PathBuf,
+    pub kind: ModuleKind,
     pub program: Program,
     pub imports: Vec<ImportEdge>,
 }
@@ -141,6 +164,7 @@ impl ModuleGraph {
                 ModuleNode {
                     id,
                     path: canonical_path,
+                    kind: classify_module_kind(&program, &interner),
                     program,
                     imports,
                 },
@@ -174,6 +198,44 @@ impl ModuleGraph {
             .iter()
             .filter_map(|id| self.nodes.get(id))
             .collect()
+    }
+
+    pub fn entry_node(&self) -> Option<&ModuleNode> {
+        self.nodes.get(&self.entry)
+    }
+
+    pub fn topo_levels(&self) -> Vec<Vec<&ModuleNode>> {
+        let mut levels: HashMap<&ModuleId, usize> = HashMap::new();
+        for module_id in &self.order {
+            let node = self
+                .nodes
+                .get(module_id)
+                .expect("topo order should reference known modules");
+            let level = node
+                .imports
+                .iter()
+                .filter_map(|edge| levels.get(&edge.target))
+                .max()
+                .map_or(0, |dep_level| dep_level + 1);
+            levels.insert(module_id, level);
+        }
+
+        let max_level = levels.values().copied().max().unwrap_or(0);
+        let mut grouped: Vec<Vec<&ModuleNode>> = vec![Vec::new(); max_level + 1];
+        for module_id in &self.order {
+            let level = *levels
+                .get(module_id)
+                .expect("topo level should exist for ordered module");
+            grouped[level].push(
+                self.nodes
+                    .get(module_id)
+                    .expect("topo order should reference known modules"),
+            );
+        }
+        for level in &mut grouped {
+            level.sort_by(|left, right| left.path.cmp(&right.path));
+        }
+        grouped
     }
 
     pub fn imported_files(&self) -> Vec<String> {

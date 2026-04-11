@@ -1,0 +1,20 @@
+// parity: vm, llvm
+// expect: success
+// bug: Array.sort returns unsorted input on the native backend when
+//       higher-order map/insert_tagged lowering diverges.
+
+import Flow.Array as Array
+
+fn main() with IO {
+    let xs = [|5, 3, 1, 4, 2|];
+    print(Array.sort(xs));
+
+    let ys = [|100, 20, 30|];
+    print(Array.sort(ys));
+
+    let single = [|42|];
+    print(Array.sort(single));
+
+    let empty = [||];
+    print(Array.sort(empty));
+}

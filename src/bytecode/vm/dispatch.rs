@@ -188,6 +188,9 @@ impl VM {
                 Ok(1)
             }
             OpCode::OpReturnValue => {
+                if self.profiling {
+                    self.exit_cost_centre();
+                }
                 let mut return_value = self.pop()?;
                 // Internal sentinel values must not escape to user-observable results.
                 if matches!(return_value, Value::Uninit) {
@@ -221,6 +224,9 @@ impl VM {
                 Ok(0)
             }
             OpCode::OpReturn => {
+                if self.profiling {
+                    self.exit_cost_centre();
+                }
                 if let Some(contract) = self.current_frame().closure.function.contract.as_ref()
                     && let Some(expected) = contract.ret.as_ref()
                     && !expected.matches_value(&Value::None, self)
@@ -267,11 +273,27 @@ impl VM {
                 self.push(value)?;
                 Ok(1)
             }
+            OpCode::OpGetLocalGetLocal => {
+                let bp = self.frames[self.frame_index].base_pointer;
+                let a = Self::read_u8_fast(instructions, ip + 1);
+                let b = Self::read_u8_fast(instructions, ip + 2);
+                self.push(self.stack_get(bp + a))?;
+                self.push(self.stack_get(bp + b))?;
+                Ok(3)
+            }
             OpCode::OpSetLocal => {
                 let idx = Self::read_u8_fast(instructions, ip + 1);
                 let bp = self.current_frame().base_pointer;
                 let val = self.pop()?;
                 self.stack_set(bp + idx, val);
+                Ok(2)
+            }
+            OpCode::OpSetLocalPop => {
+                let idx = Self::read_u8_fast(instructions, ip + 1);
+                let bp = self.current_frame().base_pointer;
+                let val = self.pop()?;
+                self.stack_set(bp + idx, val);
+                self.discard_top()?;
                 Ok(2)
             }
             OpCode::OpAetherDropLocal => {
@@ -383,6 +405,27 @@ impl VM {
                 let value = self.const_get(idx);
                 self.push(value)?;
                 Ok(5)
+            }
+            OpCode::OpConstantAdd => {
+                let idx = Self::read_u16_fast(instructions, ip + 1);
+                let value = self.const_get(idx);
+                self.push(value)?;
+                self.execute_binary_operation(OpCode::OpAdd)?;
+                Ok(3)
+            }
+            OpCode::OpAddLocals | OpCode::OpSubLocals => {
+                let bp = self.frames[self.frame_index].base_pointer;
+                let a = Self::read_u8_fast(instructions, ip + 1);
+                let b = Self::read_u8_fast(instructions, ip + 2);
+                self.push(self.stack_get(bp + a))?;
+                self.push(self.stack_get(bp + b))?;
+                let base = match op {
+                    OpCode::OpAddLocals => OpCode::OpAdd,
+                    OpCode::OpSubLocals => OpCode::OpSub,
+                    _ => unreachable!(),
+                };
+                self.execute_binary_operation(base)?;
+                Ok(3)
             }
             OpCode::OpAdd | OpCode::OpSub | OpCode::OpMul | OpCode::OpDiv | OpCode::OpMod => {
                 // Inline integer fast-path: avoid pop_pair + push overhead for the common case.
@@ -544,18 +587,43 @@ impl VM {
                     Ok(2)
                 }
             }
+            OpCode::OpCall0 | OpCode::OpCall1 | OpCode::OpCall2 => {
+                let num_args = match op {
+                    OpCode::OpCall0 => 0,
+                    OpCode::OpCall1 => 1,
+                    OpCode::OpCall2 => 2,
+                    _ => unreachable!(),
+                };
+                let callee_idx = self.sp - 1 - num_args;
+                if matches!(self.stack_get(callee_idx), Value::Continuation(_)) {
+                    self.execute_resume(num_args)?;
+                } else {
+                    self.execute_call(num_args)?;
+                }
+                Ok(
+                    if matches!(op, OpCode::OpCall0 | OpCode::OpCall1 | OpCode::OpCall2) {
+                        1
+                    } else {
+                        0
+                    },
+                )
+            }
+            OpCode::OpGetLocalCall1 => {
+                if self.sp == 0 {
+                    return Err(Self::stack_underflow_err());
+                }
+                let idx = Self::read_u8_fast(instructions, ip + 1);
+                let bp = self.frames[self.frame_index].base_pointer;
+                let arg = self.pop_untracked()?;
+                self.push(self.stack_get(bp + idx))?;
+                self.push(arg)?;
+                self.execute_call(1)?;
+                Ok(2)
+            }
             OpCode::OpCallSelf => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
                 self.execute_call_self(num_args)?;
                 Ok(2)
-            }
-            OpCode::OpCallBase => {
-                // OpCallBase is no longer emitted by the compiler.
-                // Base functions are resolved as module members from lib/Flow/.
-                Err(
-                    "OpCallBase is deprecated; base functions are now compiled from lib/Flow/"
-                        .to_string(),
-                )
             }
             OpCode::OpPrimOp => {
                 // Encoded as [OpPrimOp, primop_id, arity].
@@ -567,10 +635,12 @@ impl VM {
             }
             OpCode::OpTailCall => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
-                let callee_idx = self.sp - 1 - num_args;
-                let is_base_function = matches!(self.stack_get(callee_idx), Value::BaseFunction(_));
                 self.execute_tail_call(num_args)?;
-                if is_base_function { Ok(2) } else { Ok(0) }
+                Ok(0)
+            }
+            OpCode::OpTailCall1 => {
+                self.execute_tail_call(1)?;
+                Ok(0)
             }
             OpCode::OpPop => {
                 self.pop_and_track()?;
@@ -652,6 +722,14 @@ impl VM {
                 let left = self.pop_untracked()?;
                 self.execute_index_expression(left, index)?;
                 Ok(1)
+            }
+            OpCode::OpGetLocalIndex => {
+                let local_idx = Self::read_u8_fast(instructions, ip + 1);
+                let bp = self.frames[self.frame_index].base_pointer;
+                let index = self.pop_untracked()?;
+                let left = self.stack_get(bp + local_idx);
+                self.execute_index_expression(left, index)?;
+                Ok(2)
             }
             OpCode::OpNone => {
                 self.push(Value::None)?;
@@ -808,6 +886,9 @@ impl VM {
                 Ok(1)
             }
             OpCode::OpReturnLocal => {
+                if self.profiling {
+                    self.exit_cost_centre();
+                }
                 // Superinstruction: GetLocal(n) + ReturnValue fused into one dispatch.
                 // Avoids clone + push + pop cycle, and can move because the frame is discarded.
                 let idx = Self::read_u8_fast(instructions, ip + 1);
@@ -890,6 +971,34 @@ impl VM {
 
                 self.stack_set(idx, Value::Boolean(is_adt));
                 Ok(3) // 1 opcode + 2 const_idx
+            }
+            OpCode::OpGetLocalIsAdt => {
+                let local_idx = Self::read_u8_fast(instructions, ip + 1);
+                let const_idx = Self::read_u16_fast(instructions, ip + 2);
+                let const_val = self.const_get(const_idx);
+                let construct_name_owned;
+                let construct_name = match &const_val {
+                    Value::String(s) => {
+                        construct_name_owned = s.as_ref().to_string();
+                        construct_name_owned.as_str()
+                    }
+                    other => {
+                        return Err(format!(
+                            "OpGetLocalIsAdt: expected string constant for constructor name, got {}",
+                            other
+                        ));
+                    }
+                };
+
+                let bp = self.frames[self.frame_index].base_pointer;
+                let local_val = self.stack_get(bp + local_idx);
+                let is_adt = match &local_val {
+                    value if value.adt_constructor() == Some(construct_name) => true,
+                    Value::AdtUnit(name) => name.as_ref() == construct_name,
+                    _ => false,
+                };
+                self.push(Value::Boolean(is_adt))?;
+                Ok(4)
             }
             OpCode::OpAdtField => {
                 // Operands: field_idx: u8
@@ -1022,7 +1131,7 @@ impl VM {
                 //   where n = descriptor.ops.len()
                 // Stack after:  [...]  (closures consumed)
                 // Side effect: HandlerFrame pushed onto handler_stack
-                let const_idx = Self::read_u8_fast(instructions, ip + 1);
+                let const_idx = Self::read_u16_fast(instructions, ip + 1);
                 let const_val = self.const_get(const_idx);
                 let (effect, ops, desc_is_discard) = match &const_val {
                     Value::HandlerDescriptor(desc) => {
@@ -1066,11 +1175,11 @@ impl VM {
                     is_direct: false,
                     is_discard: desc_is_discard,
                 });
-                Ok(2)
+                Ok(3)
             }
             OpCode::OpHandleDirect => {
                 // Identical to OpHandle but marks the handler as tail-resumptive.
-                let const_idx = Self::read_u8_fast(instructions, ip + 1);
+                let const_idx = Self::read_u16_fast(instructions, ip + 1);
                 let const_val = self.const_get(const_idx);
                 let (effect, ops) = match &const_val {
                     Value::HandlerDescriptor(desc) => (desc.effect, desc.ops.clone()),
@@ -1110,7 +1219,7 @@ impl VM {
                     is_direct: true,
                     is_discard: false,
                 });
-                Ok(2)
+                Ok(3)
             }
             OpCode::OpEndHandle => {
                 // No operands. Pops the top handler from handler_stack.
@@ -1118,13 +1227,13 @@ impl VM {
                 Ok(1)
             }
             OpCode::OpPerform => {
-                // Operands: const_idx: u8, arity: u8
+                // Operands: const_idx: u16, arity: u8
                 // Stack before: [..., arg_0, ..., arg_{arity-1}]
                 // After:  captures continuation, unwinds to handler frame,
                 //         calls arm closure(resume_cont, arg_0, ..., arg_{arity-1})
                 // ip_delta = 0 (frame change)
-                let const_idx = Self::read_u8_fast(instructions, ip + 1);
-                let arity = Self::read_u8_fast(instructions, ip + 2);
+                let const_idx = Self::read_u16_fast(instructions, ip + 1);
+                let arity = Self::read_u8_fast(instructions, ip + 3);
 
                 let const_val = self.const_get(const_idx);
                 let (effect, op, effect_name, op_name) = match &const_val {
@@ -1178,10 +1287,10 @@ impl VM {
                     // without capturing a continuation. resume(v) returns v
                     // via the identity closure passed as the resume parameter.
                     //
-                    // Advance the caller's IP past OpPerform (3 bytes) BEFORE
+                    // Advance the caller's IP past OpPerform (4 bytes) BEFORE
                     // pushing the arm frame, so that when the arm returns,
                     // execution continues at the instruction after perform.
-                    self.frames[self.frame_index].ip += 3;
+                    self.frames[self.frame_index].ip += 4;
 
                     self.push(Value::Closure(arm_closure))?;
                     let identity_fn = self.make_identity_closure();
@@ -1222,7 +1331,7 @@ impl VM {
                     let mut captured_frames: Vec<crate::runtime::frame::Frame> =
                         self.frames[entry_frame_index + 1..=self.frame_index].to_vec();
                     if let Some(last) = captured_frames.last_mut() {
-                        last.ip += 3;
+                        last.ip += 4;
                     }
 
                     let captured_sp = self.sp;
@@ -1262,8 +1371,8 @@ impl VM {
                 // Tail-resumptive perform: no continuation capture.
                 // The arm closure is called directly; `resume(v)` inside the
                 // arm simply returns `v` which becomes the perform result.
-                let const_idx = Self::read_u8_fast(instructions, ip + 1);
-                let arity = Self::read_u8_fast(instructions, ip + 2);
+                let const_idx = Self::read_u16_fast(instructions, ip + 1);
+                let arity = Self::read_u8_fast(instructions, ip + 3);
 
                 let const_val2 = self.const_get(const_idx);
                 let (effect, op, effect_name, op_name) = match &const_val2 {
@@ -1531,6 +1640,13 @@ impl VM {
                 self.push(val)?;
                 self.push(Value::Boolean(unique))?;
                 Ok(1)
+            }
+            OpCode::OpEnterCC => {
+                if self.profiling {
+                    let cc_idx = Self::read_u16_fast(instructions, ip + 1) as u16;
+                    self.enter_cost_centre(cc_idx);
+                }
+                Ok(3)
             }
         }
     }

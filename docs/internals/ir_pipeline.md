@@ -409,7 +409,7 @@ Execution via JitContext (shared with Cranelift JIT)
 
 ### Parity with VM
 
-Backend parity is enforced by `scripts/release/check_parity.sh`, which runs all
+Backend parity is enforced by `cargo run -- parity-check ...`, which runs all
 example programs through VM, JIT, and LLVM and compares output. The only expected
 differences are stack traces (VM-only). These are normalized by the `runtime_no_stack`
 exception mode in `check_parity_exceptions.tsv`.

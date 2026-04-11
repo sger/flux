@@ -114,10 +114,7 @@ pub fn emit_adt_support(module: &mut LlvmModule, _metadata: &AdtMetadata) {
     emit_make_adt(module);
     emit_make_cons(module);
     emit_make_tuple(module);
-    emit_adt_tag(module);
-    emit_adt_field_ptr(module);
     emit_tuple_len(module);
-    emit_tuple_field_ptr(module);
 }
 
 pub fn adt_type() -> LlvmType {
@@ -165,7 +162,9 @@ fn collect_items(
             }
             CoreTopLevelItem::Function { .. }
             | CoreTopLevelItem::Import { .. }
-            | CoreTopLevelItem::EffectDecl { .. } => {}
+            | CoreTopLevelItem::EffectDecl { .. }
+            | CoreTopLevelItem::Class { .. }
+            | CoreTopLevelItem::Instance { .. } => {}
         }
     }
     Ok(())
@@ -256,9 +255,9 @@ fn emit_make_adt(module: &mut LlvmModule) {
                 LlvmInstr::Call {
                     dst: Some(LlvmLocal("mem".into())),
                     tail: false,
-                    call_conv: Some(CallConv::Ccc),
+                    call_conv: Some(CallConv::Fastcc),
                     ret_ty: LlvmType::ptr(),
-                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc_header")),
+                    callee: LlvmOperand::Global(GlobalId("flux_bump_alloc_inline".into())),
                     args: vec![
                         (LlvmType::i32(), local_operand("alloc.bytes")),
                         (LlvmType::i32(), local_operand("field_count")), // scan_fsize
@@ -418,9 +417,9 @@ fn emit_make_tuple(module: &mut LlvmModule) {
                 LlvmInstr::Call {
                     dst: Some(LlvmLocal("mem".into())),
                     tail: false,
-                    call_conv: Some(CallConv::Ccc),
+                    call_conv: Some(CallConv::Fastcc),
                     ret_ty: LlvmType::ptr(),
-                    callee: LlvmOperand::Global(flux_closure_symbol("flux_gc_alloc_header")),
+                    callee: LlvmOperand::Global(GlobalId("flux_bump_alloc_inline".into())),
                     args: vec![
                         (LlvmType::i32(), local_operand("alloc.bytes")),
                         (LlvmType::i32(), local_operand("arity")), // scan_fsize
@@ -493,87 +492,6 @@ fn emit_make_tuple(module: &mut LlvmModule) {
     });
 }
 
-fn emit_adt_tag(module: &mut LlvmModule) {
-    let name = "flux_adt_tag";
-    if has_function(module, name) {
-        return;
-    }
-    module.functions.push(LlvmFunction {
-        linkage: Linkage::Internal,
-        name: flux_adt_symbol(name),
-        sig: LlvmFunctionSig {
-            ret: LlvmType::i32(),
-            params: vec![LlvmType::i64()],
-            varargs: false,
-            call_conv: CallConv::Fastcc,
-        },
-        params: vec![LlvmLocal("value".into())],
-        attrs: helper_attrs(),
-        blocks: vec![LlvmBlock {
-            label: LabelId("entry".into()),
-            instrs: vec![
-                untag_boxed_ptr_call("ptr", local_operand("value")),
-                gep_struct_field(
-                    "tag.ptr",
-                    adt_type(),
-                    local_operand("ptr"),
-                    FLUX_ADT_TAG_FIELD,
-                ),
-                LlvmInstr::Load {
-                    dst: LlvmLocal("tag".into()),
-                    ty: LlvmType::i32(),
-                    ptr: local_operand("tag.ptr"),
-                    align: Some(4),
-                },
-            ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i32(),
-                value: local_operand("tag"),
-            },
-        }],
-    });
-}
-
-fn emit_adt_field_ptr(module: &mut LlvmModule) {
-    let name = "flux_adt_field_ptr";
-    if has_function(module, name) {
-        return;
-    }
-    module.functions.push(LlvmFunction {
-        linkage: Linkage::Internal,
-        name: flux_adt_symbol(name),
-        sig: LlvmFunctionSig {
-            ret: LlvmType::ptr(),
-            params: vec![LlvmType::i64(), LlvmType::i32()],
-            varargs: false,
-            call_conv: CallConv::Fastcc,
-        },
-        params: vec![LlvmLocal("value".into()), LlvmLocal("index".into())],
-        attrs: helper_attrs(),
-        blocks: vec![LlvmBlock {
-            label: LabelId("entry".into()),
-            instrs: vec![
-                untag_boxed_ptr_call("ptr", local_operand("value")),
-                gep_payload(
-                    "payload.ptr",
-                    adt_type(),
-                    local_operand("ptr"),
-                    FLUX_ADT_PAYLOAD_FIELD,
-                ),
-                gep_i64(
-                    "field.ptr",
-                    local_operand("payload.ptr"),
-                    local_operand("index"),
-                ),
-            ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::ptr(),
-                value: local_operand("field.ptr"),
-            },
-        }],
-    });
-}
-
 fn emit_tuple_len(module: &mut LlvmModule) {
     let name = "flux_tuple_len";
     if has_function(module, name) {
@@ -610,46 +528,6 @@ fn emit_tuple_len(module: &mut LlvmModule) {
             term: LlvmTerminator::Ret {
                 ty: LlvmType::i32(),
                 value: local_operand("arity"),
-            },
-        }],
-    });
-}
-
-fn emit_tuple_field_ptr(module: &mut LlvmModule) {
-    let name = "flux_tuple_field_ptr";
-    if has_function(module, name) {
-        return;
-    }
-    module.functions.push(LlvmFunction {
-        linkage: Linkage::Internal,
-        name: flux_adt_symbol(name),
-        sig: LlvmFunctionSig {
-            ret: LlvmType::ptr(),
-            params: vec![LlvmType::i64(), LlvmType::i32()],
-            varargs: false,
-            call_conv: CallConv::Fastcc,
-        },
-        params: vec![LlvmLocal("value".into()), LlvmLocal("index".into())],
-        attrs: helper_attrs(),
-        blocks: vec![LlvmBlock {
-            label: LabelId("entry".into()),
-            instrs: vec![
-                untag_boxed_ptr_call("ptr", local_operand("value")),
-                gep_payload(
-                    "payload.ptr",
-                    tuple_type(),
-                    local_operand("ptr"),
-                    FLUX_TUPLE_PAYLOAD_FIELD,
-                ),
-                gep_i64(
-                    "field.ptr",
-                    local_operand("payload.ptr"),
-                    local_operand("index"),
-                ),
-            ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::ptr(),
-                value: local_operand("field.ptr"),
             },
         }],
     });

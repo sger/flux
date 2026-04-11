@@ -1,0 +1,32 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_instance_method_name.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Missing Method Name
+
+Expected method name after `fn` in instance declaration.
+
+  examples/parser_errors/missing_instance_method_name.flx:12:8
+   |
+12 |     fn (x) { x }
+   |        ^
+
+Hint:
+  Instance methods use `fn name(x, y) { body }`.
+
+
+error[E034]: Unexpected Closing Delimiter
+
+Unexpected `}` outside of a block.
+
+  examples/parser_errors/missing_instance_method_name.flx:13:1
+   |
+13 | }
+   | ^
+
+Found 2 errors.
+== stdout ==
+<not executed>
