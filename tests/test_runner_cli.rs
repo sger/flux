@@ -782,6 +782,34 @@ fn dump_core_debug_preserves_raw_identity_details() {
 }
 
 #[test]
+fn dump_cfg_prints_cfg_ir_and_exits_before_execution() {
+    let file = example_path("basics/arithmetic.flx");
+    let output = run_flux(&["--dump-cfg", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected dump-cfg success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("fn #") || text.contains("fn <anon>"),
+        "expected CFG function header, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("Return"),
+        "expected CFG terminator, output:\n{}",
+        text
+    );
+    assert!(
+        !text.contains("\n3\n"),
+        "dump-cfg should not execute the program, output:\n{}",
+        text
+    );
+}
+
+#[test]
 fn dump_core_reports_drop_specialized_stats() {
     // Phase 7e: typed pattern binders make DropSpecialized unnecessary for
     // integer list patterns (h in [h|t] is IntRep — no dup/drop divergence).

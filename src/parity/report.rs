@@ -1,6 +1,8 @@
 //! Structured parity mismatch reporting with optional color output.
 
-use super::{MismatchDetail, ParityResult, Verdict, Way};
+use super::{MismatchDetail, ParityResult, Verdict, Way, backend_spec};
+use std::collections::BTreeSet;
+use std::fs;
 
 /// Filter which results to display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,7 +54,7 @@ fn cyan(s: &str) -> String {
 // ── Per-file reporting ─────────────────────────────────────────────────────
 
 /// Print the result for a single fixture, respecting the display filter.
-pub fn print_result(result: &ParityResult, filter: DisplayFilter) {
+pub fn print_result(result: &ParityResult, filter: DisplayFilter, explain: bool) {
     let dominated = matches!(
         (&result.verdict, filter),
         (Verdict::Pass, DisplayFilter::FailOnly)
@@ -86,6 +88,9 @@ pub fn print_result(result: &ParityResult, filter: DisplayFilter) {
             if let Some(summary) = diagnose_mismatch(details) {
                 println!("  {} {summary}", cyan("diagnosis:"));
             }
+            if explain {
+                print_explain_block(result);
+            }
             for detail in details {
                 print_mismatch_detail(detail);
             }
@@ -109,15 +114,26 @@ pub fn print_debug_first_failure(result: &ParityResult) {
                 println!("  {} {summary}", cyan("diagnosis:"));
             }
             for detail in details {
-                if let MismatchDetail::CoreMismatch {
-                    left_way,
-                    left,
-                    right_way,
-                    right,
-                } = detail
-                {
-                    println!("  {}", cyan("core_mismatch_summary:"));
-                    print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
+                match detail {
+                    MismatchDetail::CoreMismatch {
+                        left_way,
+                        left,
+                        right_way,
+                        right,
+                    } => {
+                        println!("  {}", cyan("core_mismatch_summary:"));
+                        print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
+                    }
+                    MismatchDetail::RepresentationMismatch {
+                        left_way,
+                        left,
+                        right_way,
+                        right,
+                    } => {
+                        println!("  {}", cyan("representation_mismatch_summary:"));
+                        print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
+                    }
+                    _ => {}
                 }
             }
             for run in &result.results {
@@ -139,22 +155,29 @@ pub fn print_debug_first_failure(result: &ParityResult) {
             }
             if !result.artifacts.is_empty() {
                 for (way, arts) in &result.artifacts {
-                    let core_state = if arts.normalized_dump_core.is_some() {
+                    let core_state = if arts.core.normalized.is_some() {
                         "captured"
                     } else {
                         "none"
                     };
-                    let aether_state = if arts.normalized_dump_aether.is_some() {
+                    let aether_state = if arts.aether.normalized.is_some() {
+                        "captured"
+                    } else {
+                        "none"
+                    };
+                    let repr_state = if arts.repr.normalized.is_some() {
                         "captured"
                     } else {
                         "none"
                     };
                     println!(
-                        "  {} {} core={} aether={}",
+                        "  {} {} core={} aether={} repr={} backend_ir={}",
                         cyan("artifacts:"),
                         way,
                         core_state,
-                        aether_state
+                        aether_state,
+                        repr_state,
+                        arts.backend_ir.len()
                     );
                 }
             }
@@ -170,6 +193,15 @@ pub fn diagnose_mismatch(details: &[MismatchDetail]) -> Option<&'static str> {
     let has_aether = details
         .iter()
         .any(|d| matches!(d, MismatchDetail::AetherMismatch { .. }));
+    let has_repr = details
+        .iter()
+        .any(|d| matches!(d, MismatchDetail::RepresentationMismatch { .. }));
+    let has_backend_ir = details
+        .iter()
+        .any(|d| matches!(d, MismatchDetail::BackendIrMismatch { .. }));
+    let has_backend_runtime = details
+        .iter()
+        .any(|d| matches!(d, MismatchDetail::BackendRuntimeMismatch { .. }));
     let has_backend_surface = details.iter().any(|d| {
         matches!(
             d,
@@ -216,6 +248,18 @@ pub fn diagnose_mismatch(details: &[MismatchDetail]) -> Option<&'static str> {
     }
     if has_aether {
         return Some("likely ownership/Aether lowering divergence");
+    }
+    if has_repr && has_backend_surface {
+        return Some("likely backend representation mismatch after Core/Aether parity");
+    }
+    if has_repr {
+        return Some("likely backend representation contract drift");
+    }
+    if has_backend_ir {
+        return Some("likely backend-specific IR divergence after shared parity");
+    }
+    if has_backend_runtime {
+        return Some("likely backend/runtime divergence after shared parity");
     }
     if has_backend_surface {
         return Some("likely backend/runtime divergence; capture Core to confirm frontend parity");
@@ -341,6 +385,46 @@ fn print_mismatch_detail(detail: &MismatchDetail) {
             );
             print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
         }
+        MismatchDetail::RepresentationMismatch {
+            left_way,
+            left,
+            right_way,
+            right,
+        } => {
+            println!(
+                "  {} backend representation contract differs",
+                cyan("representation_mismatch:")
+            );
+            print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
+        }
+        MismatchDetail::BackendIrMismatch {
+            baseline_way,
+            backend,
+            surface,
+            summary,
+        } => {
+            println!(
+                "  {} baseline {} vs backend {}.ir({})",
+                cyan("backend_ir_mismatch:"),
+                baseline_way,
+                backend,
+                surface
+            );
+            println!("    {summary}");
+        }
+        MismatchDetail::BackendRuntimeMismatch {
+            baseline_way,
+            backend,
+            summary,
+        } => {
+            println!(
+                "  {} baseline {} vs backend {}",
+                cyan("backend_runtime_mismatch:"),
+                baseline_way,
+                backend
+            );
+            println!("    {summary}");
+        }
         MismatchDetail::CacheMismatch {
             fresh_way,
             cached_way,
@@ -382,6 +466,196 @@ fn print_mismatch_detail(detail: &MismatchDetail) {
     }
 }
 
+fn print_explain_block(result: &ParityResult) {
+    let Some(Verdict::Mismatch { details }) = Some(&result.verdict) else {
+        return;
+    };
+    let baseline_way = result.results.first().map(|run| run.way).unwrap_or(Way::Vm);
+    println!("  {}", cyan("ladder:"));
+    println!("    core: {}", layer_status(details, "core"));
+    println!("    aether: {}", layer_status(details, "aether"));
+    println!("    repr: {}", layer_status(details, "repr"));
+    let baseline_spec = backend_spec(baseline_way.backend_id());
+    println!(
+        "    {}.ir({}): match",
+        baseline_way.backend_id(),
+        baseline_spec.ir_surface
+    );
+    for run in result.results.iter().skip(1) {
+        let backend = run.way.backend_id();
+        let spec = backend_spec(backend);
+        let status = details.iter().find_map(|detail| match detail {
+            MismatchDetail::BackendIrMismatch {
+                backend: detail_backend,
+                ..
+            } if *detail_backend == backend => Some("suspect divergence"),
+            MismatchDetail::BackendRuntimeMismatch {
+                backend: detail_backend,
+                ..
+            } if *detail_backend == backend => Some("runtime diverged"),
+            _ => None,
+        });
+        let fallback = if backend == baseline_way.backend_id() {
+            "match"
+        } else {
+            "captured"
+        };
+        println!(
+            "    {}.ir({}): {}",
+            backend,
+            spec.ir_surface,
+            status.unwrap_or(fallback)
+        );
+    }
+
+    let likely_source = likely_source_expressions(result);
+    if !likely_source.is_empty() {
+        println!("  {}", cyan("likely source:"));
+        for source in likely_source {
+            println!("    {source}");
+        }
+    }
+    let symbols = extract_symbols(result);
+    let likely_files = likely_rust_files(details, &symbols);
+    if !likely_files.is_empty() {
+        println!("  {}", cyan("likely rust code:"));
+        for path in likely_files {
+            println!("    {path}");
+        }
+    }
+    let next = next_commands(result, &symbols);
+    if !next.is_empty() {
+        println!("  {}", cyan("next:"));
+        for cmd in next {
+            println!("    {cmd}");
+        }
+    }
+}
+
+fn layer_status(details: &[MismatchDetail], layer: &str) -> &'static str {
+    let mismatch = details.iter().any(|detail| match (layer, detail) {
+        ("core", MismatchDetail::CoreMismatch { .. }) => true,
+        ("aether", MismatchDetail::AetherMismatch { .. }) => true,
+        ("repr", MismatchDetail::RepresentationMismatch { .. }) => true,
+        _ => false,
+    });
+    if mismatch { "differs" } else { "match" }
+}
+
+fn likely_source_expressions(result: &ParityResult) -> Vec<String> {
+    let Ok(source) = fs::read_to_string(&result.file) else {
+        return Vec::new();
+    };
+    let print_lines = source
+        .lines()
+        .enumerate()
+        .filter_map(|(idx, line)| {
+            line.contains("print(")
+                .then_some((idx + 1, line.trim().to_string()))
+        })
+        .collect::<Vec<_>>();
+    let mut candidates = BTreeSet::new();
+    if let Verdict::Mismatch { details } = &result.verdict {
+        for detail in details {
+            if let MismatchDetail::Stdout { left, right, .. } = detail {
+                let left_lines = left.lines().collect::<Vec<_>>();
+                let right_lines = right.lines().collect::<Vec<_>>();
+                let max = left_lines.len().max(right_lines.len());
+                for idx in 0..max {
+                    let left_line = left_lines.get(idx).copied().unwrap_or("");
+                    let right_line = right_lines.get(idx).copied().unwrap_or("");
+                    if left_line != right_line
+                        && let Some((lineno, line)) = print_lines.get(idx)
+                    {
+                        candidates.insert(format!("line {lineno}: {line}"));
+                    }
+                }
+            }
+        }
+    }
+    candidates.into_iter().take(3).collect()
+}
+
+fn extract_symbols(result: &ParityResult) -> Vec<String> {
+    let mut symbols = BTreeSet::new();
+    for source in likely_source_expressions(result) {
+        for candidate in ["reverse", "contains", "slice", "Some", "Cons", "ArrayPush"] {
+            if source.contains(candidate) {
+                symbols.insert(candidate.to_string());
+            }
+        }
+    }
+    symbols.into_iter().collect()
+}
+
+fn likely_rust_files(details: &[MismatchDetail], symbols: &[String]) -> Vec<String> {
+    let mut files = BTreeSet::new();
+    for detail in details {
+        match detail {
+            MismatchDetail::CoreMismatch { .. } => {
+                files.insert("src/ast/".to_string());
+                files.insert("src/core/".to_string());
+                files.insert("src/core/lower_ast/".to_string());
+            }
+            MismatchDetail::AetherMismatch { .. } => {
+                files.insert("src/aether/".to_string());
+            }
+            MismatchDetail::RepresentationMismatch { .. } => {
+                files.insert("src/bytecode/vm/".to_string());
+                files.insert("src/lir/emit_llvm.rs".to_string());
+                files.insert("runtime/c/flux_rt.c".to_string());
+            }
+            MismatchDetail::BackendIrMismatch { backend, .. }
+            | MismatchDetail::BackendRuntimeMismatch { backend, .. } => {
+                let spec = backend_spec(*backend);
+                for file in spec.lowering_files {
+                    files.insert((*file).to_string());
+                }
+                for file in spec.runtime_files {
+                    files.insert((*file).to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    if symbols
+        .iter()
+        .any(|s| matches!(s.as_str(), "reverse" | "contains" | "slice"))
+    {
+        files.insert("src/bytecode/vm/core_dispatch.rs".to_string());
+        files.insert("src/lir/emit_llvm.rs".to_string());
+        files.insert("runtime/c/flux_rt.c".to_string());
+        files.insert("runtime/c/array.c".to_string());
+    }
+    files.into_iter().collect()
+}
+
+fn next_commands(result: &ParityResult, symbols: &[String]) -> Vec<String> {
+    let mut commands = Vec::new();
+    if let Verdict::Mismatch { details } = &result.verdict {
+        if details.iter().any(|d| {
+            matches!(
+                d,
+                MismatchDetail::BackendIrMismatch { .. }
+                    | MismatchDetail::BackendRuntimeMismatch { .. }
+            )
+        }) {
+            commands.push(format!("cargo run -- --dump-cfg {}", result.file.display()));
+            commands.push(format!(
+                "cargo run --features core_to_llvm -- --dump-lir {} --native",
+                result.file.display()
+            ));
+        }
+    }
+    if !symbols.is_empty() {
+        commands.push(format!(
+            "rg -n \"{}\" src/lir src/bytecode/vm runtime/c --glob '!target'",
+            symbols.join("|")
+        ));
+    }
+    commands
+}
+
 fn print_inline_diff(left_label: String, left: &str, right_label: String, right: &str) {
     let left_lines: Vec<&str> = left.lines().collect();
     let right_lines: Vec<&str> = right.lines().collect();
@@ -409,6 +683,40 @@ fn print_inline_diff(left_label: String, left: &str, right_label: String, right:
     let total = left_lines.len().max(right_lines.len());
     if total > max_lines {
         println!("    ... ({} more lines)", total - max_lines);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::diagnose_mismatch;
+    use crate::parity::{MismatchDetail, Way};
+
+    #[test]
+    fn diagnose_representation_mismatch() {
+        let details = vec![MismatchDetail::RepresentationMismatch {
+            left_way: Way::Vm,
+            left: "rule.match_ctor = ok".to_string(),
+            right_way: Way::Llvm,
+            right: "rule.match_ctor = bad".to_string(),
+        }];
+
+        assert_eq!(
+            diagnose_mismatch(&details),
+            Some("likely backend representation contract drift")
+        );
+    }
+
+    #[test]
+    fn diagnose_backend_runtime_mismatch() {
+        let details = vec![MismatchDetail::BackendRuntimeMismatch {
+            baseline_way: Way::Vm,
+            backend: crate::parity::BackendId::Llvm,
+            summary: "llvm diverged from baseline vm".to_string(),
+        }];
+        assert_eq!(
+            diagnose_mismatch(&details),
+            Some("likely backend/runtime divergence after shared parity")
+        );
     }
 }
 

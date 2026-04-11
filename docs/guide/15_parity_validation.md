@@ -124,14 +124,15 @@ When a mismatch is found, the runner classifies it to help localize the bug:
 |---|---|---|
 | `core_mismatch` | Core IR differs across ways | `src/core/`, `src/ast/` — frontend bug |
 | `aether_mismatch` | Aether ownership differs | `src/aether/` — Perceus insertion bug |
+| `representation_mismatch` | Backend runtime-family contract differs | VM: `src/bytecode/`; LLVM: `src/lir/`, `src/core_to_llvm/` |
 | `stdout differs` / `exit_kind` | Backend execution diverges | VM: `src/cfg/`, `src/bytecode/`; LLVM: `src/lir/`, `src/core_to_llvm/` |
 | `cache_mismatch` | Fresh vs cached run differ | Cache logic in `src/bytecode/`, `.fxc`/`.flxi` files |
 | `strict_mode_mismatch` | Strict mode changes behavior beyond diagnostics | Strict-mode checks in the compiler |
 
-Use `--capture-core` and `--capture-aether` to enable the deeper classifications:
+Use `--capture-core`, `--capture-aether`, and `--capture-repr` to enable the deeper classifications:
 
 ```bash
-cargo run -- parity-check tests/parity --capture-core --capture-aether
+cargo run -- parity-check tests/parity --capture-core --capture-aether --capture-repr
 ```
 
 ## Debugging a parity failure
@@ -169,6 +170,10 @@ cargo run -- parity-check path/to/failing.flx --capture-aether
 Core and Aether are identical — the bug is in how the backend lowers or executes:
 
 ```bash
+# Backend representation contract
+cargo run -- path/to/failing.flx --dump-repr
+cargo run --features native -- path/to/failing.flx --native --dump-repr
+
 # VM: instruction trace
 cargo run -- path/to/failing.flx --trace
 
@@ -245,6 +250,7 @@ Options:
   --ways <w1,w2,...>     Ways to compare (default: vm,llvm)
   --capture-core         Capture --dump-core per way and compare Core IR
   --capture-aether       Capture --dump-aether=debug per way and compare ownership
+  --capture-repr         Capture --dump-repr per way and compare backend contracts
   --vm-binary <path>     Path to VM binary (default: target/parity_vm/debug/flux)
   --llvm-binary <path>   Path to native binary (default: target/parity_native/debug/flux)
   --timeout <secs>       Timeout per file per way (default: 15)

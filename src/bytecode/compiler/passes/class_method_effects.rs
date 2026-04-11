@@ -85,16 +85,16 @@ impl Compiler {
                         continue;
                     }
                     // Fallback: look up via class_env for cross-module classes.
-                    let cloned_effects = self
-                        .class_env
-                        .lookup_class(*class_name)
-                        .and_then(|class_def| {
-                            class_def
-                                .methods
-                                .iter()
-                                .find(|s| s.name == instance_method.name)
-                                .map(|s| s.effects.clone())
-                        });
+                    let cloned_effects =
+                        self.class_env
+                            .lookup_class(*class_name)
+                            .and_then(|class_def| {
+                                class_def
+                                    .methods
+                                    .iter()
+                                    .find(|s| s.name == instance_method.name)
+                                    .map(|s| s.effects.clone())
+                            });
                     if let Some(effects) = cloned_effects {
                         self.check_floor_against_sig(&effects, instance_method);
                     }

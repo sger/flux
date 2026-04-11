@@ -181,8 +181,7 @@ my_eq([1], [1]);
 
 #[test]
 fn hkt_functor_list_dispatches_at_runtime() {
-    let value = run(
-        r#"
+    let value = run(r#"
 class Functor<f> {
     fn fmap<a, b>(x: f<a>, func: (a) -> b): f<b>
 }
@@ -200,8 +199,7 @@ instance Functor<List> {
 }
 
 to_string(fmap([1, 2, 3], \x -> x * 2));
-"#,
-    );
+"#);
 
     assert_eq!(value, Value::String("[2, 4, 6]".to_string().into()));
 }

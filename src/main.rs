@@ -1220,6 +1220,8 @@ fn main() {
     let strict_mode = args.iter().any(|arg| arg == "--strict");
     let strict_types = args.iter().any(|arg| arg == "--strict-types");
     let all_errors = args.iter().any(|arg| arg == "--all-errors");
+    let dump_repr = args.iter().any(|arg| arg == "--dump-repr");
+    let dump_cfg = args.iter().any(|arg| arg == "--dump-cfg");
     let dump_aether = if args.iter().any(|arg| arg == "--dump-aether=debug") {
         AetherDumpMode::Debug
     } else if args.iter().any(|arg| arg == "--dump-aether") {
@@ -1284,6 +1286,12 @@ fn main() {
     if all_errors {
         args.retain(|arg| arg != "--all-errors");
     }
+    if dump_repr {
+        args.retain(|arg| arg != "--dump-repr");
+    }
+    if dump_cfg {
+        args.retain(|arg| arg != "--dump-cfg");
+    }
     if dump_aether != AetherDumpMode::None {
         args.retain(|arg| arg != "--dump-aether" && arg != "--dump-aether=debug");
     }
@@ -1329,6 +1337,8 @@ fn main() {
 
     if trace_aether
         && (!matches!(dump_core, CoreDumpMode::None)
+            || dump_repr
+            || dump_cfg
             || dump_aether != AetherDumpMode::None
             || test_mode)
     {
@@ -1380,6 +1390,8 @@ fn main() {
                 profiling,
                 diagnostics_format,
                 all_errors,
+                dump_repr,
+                dump_cfg,
                 dump_core,
                 dump_aether,
                 dump_lir,
@@ -1446,6 +1458,8 @@ fn main() {
                     profiling,
                     diagnostics_format,
                     all_errors,
+                    dump_repr,
+                    dump_cfg,
                     dump_core,
                     dump_aether,
                     dump_lir,
@@ -1683,6 +1697,8 @@ Flags:
   --prof             Print per-function profiling report (call counts, time, allocations)
   --strict           Enable strict type/effect boundary checks
   --all-errors       Show diagnostics from all phases (disable stage-aware filtering)
+  --dump-repr        Print the backend representation contract summary and exit
+  --dump-cfg         Lower to Flux CFG IR, print a readable dump, and exit
   --dump-core        Lower to Flux Core IR, print a readable dump, and exit
   --dump-core=debug  Lower to Flux Core IR, print a raw debug dump, and exit
   --dump-aether      Show Aether memory model report (per-function reuse/drop stats)
@@ -1699,6 +1715,40 @@ Optimization & Analysis:
   --optimize         Apply transformations (faster bytecode)
   --analyze          Collect analysis data (free vars, tail calls)
   -O -A              Both optimization and analysis
+"
+    );
+}
+
+fn print_backend_representation_contract() {
+    println!(
+        "\
+Flux Backend Representation Contract
+===================================
+
+family.none = sentinel:none
+family.empty_list = sentinel:empty_list
+family.list_cons = boxed:adt:ctor=Cons
+family.tuple = boxed:tuple
+family.user_adt = boxed:adt:user_ctor
+family.array = boxed:array
+family.string = boxed:string
+family.float = boxed:float
+family.closure = boxed:closure
+family.hashmap = boxed:hamt
+
+rule.match_ctor = decode_ctor_only_after_family_proof
+rule.list_pattern = require_family:list_cons_or_empty_list
+rule.tuple_pattern = require_family:tuple
+rule.adt_pattern = require_family:user_adt_or_builtin_adt
+rule.none_pattern = require_family:none
+rule.empty_list_pattern = require_family:empty_list
+
+vm.proof = shape_opcodes_only_accept_corresponding_Value_variants
+native.proof = ctor_dispatch_requires_heap_obj_tag_before_layout_reads
+
+debug.core = frontend_bug_if_mismatch
+debug.aether = ownership_bug_if_mismatch
+debug.repr = backend_representation_bug_if_core_and_aether_match
 "
     );
 }
@@ -1723,6 +1773,8 @@ fn run_file(
     profiling: bool,
     diagnostics_format: DiagnosticOutputFormat,
     all_errors: bool,
+    dump_repr: bool,
+    dump_cfg: bool,
     dump_core: CoreDumpMode,
     dump_aether: AetherDumpMode,
     dump_lir: bool,
@@ -1785,6 +1837,11 @@ fn run_file(
             let entry_path = Path::new(path);
             let roots = collect_roots(entry_path, extra_roots, roots_only);
 
+            if dump_repr {
+                print_backend_representation_contract();
+                return;
+            }
+
             // --- Build module graph (always returns, may have diagnostics) ---
             let graph_result =
                 ModuleGraph::build_with_entry_and_roots(entry_path, &program, interner, &roots);
@@ -1829,6 +1886,7 @@ fn run_file(
                 && !emit_llvm
                 && !emit_binary
                 && matches!(dump_core, CoreDumpMode::None)
+                && !dump_cfg
                 && dump_aether == AetherDumpMode::None
                 && !dump_lir
                 && !dump_lir_llvm
@@ -2486,6 +2544,7 @@ fn run_file(
             let merged_program = if is_multimodule
                 && (dump_aether != AetherDumpMode::None
                     || !matches!(dump_core, CoreDumpMode::None)
+                    || dump_cfg
                     || dump_lir
                     || dump_lir_llvm)
             {
@@ -2553,6 +2612,27 @@ fn run_file(
 
             if dump_lir {
                 let dumped = compiler.dump_lir(&merged_program, enable_optimize);
+                match dumped {
+                    Ok(dumped) => println!("{dumped}"),
+                    Err(diag) => {
+                        emit_diagnostics(
+                            &[diag],
+                            Some(path),
+                            Some(source.as_str()),
+                            is_multimodule,
+                            max_errors,
+                            diagnostics_format,
+                            all_errors,
+                            true,
+                        );
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+
+            if dump_cfg {
+                let dumped = compiler.dump_cfg(&merged_program, enable_optimize);
                 match dumped {
                     Ok(dumped) => println!("{dumped}"),
                     Err(diag) => {

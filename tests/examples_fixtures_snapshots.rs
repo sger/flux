@@ -18,7 +18,11 @@ fn examples_fixtures_compile_snapshots() {
         .filter(|case| !case.snapshot_name.starts_with("parser_errors__"))
         .filter(|case| !case.snapshot_name.starts_with("compiler_errors__"))
         .filter(|case| !case.snapshot_name.starts_with("runtime_errors__"))
-        .filter(|case| !case.snapshot_name.starts_with("module_scoped_type_classes__"))
+        .filter(|case| {
+            !case
+                .snapshot_name
+                .starts_with("module_scoped_type_classes__")
+        })
     {
         insta::with_settings!({
             snapshot_path => "snapshots/examples_fixtures",

@@ -68,7 +68,8 @@ impl<'a> InferCtx<'a> {
         };
 
         // Check if callee is a class method (for post-inference constraint emission).
-        let class_method_info = self.class_method_call_info(input.function, input.arguments, input.span);
+        let class_method_info =
+            self.class_method_call_info(input.function, input.arguments, input.span);
 
         if let InferType::Fun(param_tys, ret_ty, fn_effects) = fn_ty_resolved {
             let result = self.infer_call_typed_callee(CallTypedCalleeSpec {
@@ -284,7 +285,10 @@ impl<'a> InferCtx<'a> {
                 else {
                     return None;
                 };
-                if !self.module_member_schemes.contains_key(&(*module_name, *member)) {
+                if !self
+                    .module_member_schemes
+                    .contains_key(&(*module_name, *member))
+                {
                     return None;
                 }
                 let class_name = self.lookup_class_method(*member)?;
@@ -321,11 +325,13 @@ impl<'a> InferCtx<'a> {
             let Some(class_env) = self.class_env.as_ref() else {
                 return None;
             };
-            let Some((instance, concrete_type_args)) = class_env.resolve_method_call_instance_from_first_arg(
-                info.class_name,
-                &first_arg_ty,
-                self.interner,
-            ) else {
+            let Some((instance, concrete_type_args)) = class_env
+                .resolve_method_call_instance_from_first_arg(
+                    info.class_name,
+                    &first_arg_ty,
+                    self.interner,
+                )
+            else {
                 return None;
             };
 

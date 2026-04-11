@@ -5,16 +5,17 @@ use crate::{
     runtime::value::Value,
     syntax::{
         effect_expr::EffectExpr, interner::Interner, lexer::Lexer, parser::Parser,
-        statement::Statement,
-        type_expr::TypeExpr,
+        statement::Statement, type_expr::TypeExpr,
     },
     types::{
-        infer_effect_row::InferEffectRow, infer_type::InferType,
+        infer_effect_row::InferEffectRow,
+        infer_type::InferType,
         module_interface::{
             ModuleInterface, PublicClassEntry, PublicClassMethodEntry, PublicInstanceEntry,
             PublicInstanceMethodEntry,
         },
-        scheme::Scheme, type_constructor::TypeConstructor,
+        scheme::Scheme,
+        type_constructor::TypeConstructor,
     },
 };
 
@@ -48,12 +49,10 @@ fn parse_program_with_interner(
 }
 
 fn top_level_has_function(statements: &[Statement], name: &str, interner: &Interner) -> bool {
-    statements.iter().any(|statement| {
-        match statement {
-            Statement::Function { name: sym, .. } => interner.try_resolve(*sym) == Some(name),
-            Statement::Module { body, .. } => top_level_has_function(&body.statements, name, interner),
-            _ => false,
-        }
+    statements.iter().any(|statement| match statement {
+        Statement::Function { name: sym, .. } => interner.try_resolve(*sym) == Some(name),
+        Statement::Module { body, .. } => top_level_has_function(&body.statements, name, interner),
+        _ => false,
     })
 }
 
