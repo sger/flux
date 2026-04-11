@@ -4,13 +4,6 @@ source: tests/aether_cli_snapshots.rs
 Aether Ownership Report
 =======================
 
-── fn __tc_Sizeable_Int_size ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
-  FreshAllocs: 0
-  verifier: ok
-lam(x) ->
-  drop x#1 in
-    1
 ── fn size ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
   FreshAllocs: 0
@@ -492,23 +485,6 @@ lam(xs) ->
           false
     _ ->
       true
-── fn range ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
-  FreshAllocs: 1
-  verifier: ok
-lam(start, stop) ->
-  let <sym:4000771> =
-    ICmpGe(start#382, stop#383)
-  case <sym:4000771>#771 of
-    true ->
-      drop start#382 in
-        Nil
-    _ ->
-      let <sym:4000773> =
-        let <sym:4000772> =
-          IAdd(start#382, 1)
-        aether_call[owned, borrowed] range#381(<sym:4000772>#772, stop#383)
-      Cons(start#382, <sym:4000773>#773)
 ── fn unzip ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  FBIP: fbip(2)
   FreshAllocs: 2
@@ -1050,8 +1026,8 @@ lam() ->
     Print(<sym:4000926>#926)
 
 ── Total ──
-  Dups: 15  Drops: 77  Reuses: 9  DropSpecs: 0  FBIP: fbip(20)
-  FreshAllocs: 20
+  Dups: 15  Drops: 75  Reuses: 9  DropSpecs: 0  FBIP: fbip(19)
+  FreshAllocs: 19
 
 [1 of 7] Compiling  Assert
 [2 of 7] Compiling  IO

@@ -1,0 +1,56 @@
+---
+source: tests/runtime_error_fixtures_snapshots.rs
+---
+Fixture: examples/runtime_errors/runtime_trace_error.flx
+== vm ==
+status: 1
+stdout:
+<empty>
+stderr:
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+[7 of 7] Compiling  runtime_trace_error
+[cfg→vm] Running via CFG → bytecode VM backend...
+• 1 error • examples/runtime_errors/runtime_trace_error.flx
+error[E1009]: Invalid Operation
+
+Cannot add Int and None values.
+
+  examples/runtime_errors/runtime_trace_error.flx:3:3
+  |
+3 |   1 + None;
+  |   ^^^^^^^^
+
+Stack trace:
+  at boom (examples/runtime_errors/runtime_trace_error.flx:3:3)
+  at <main> (examples/runtime_errors/runtime_trace_error.flx:6:1)
+== jit ==
+status: 1
+stdout:
+<empty>
+stderr:
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+[7 of 7] Compiling  runtime_trace_error
+[cfg→vm] Running via CFG → bytecode VM backend...
+• 1 error • examples/runtime_errors/runtime_trace_error.flx
+error[E1009]: Invalid Operation
+
+Cannot add Int and None values.
+
+  examples/runtime_errors/runtime_trace_error.flx:3:3
+  |
+3 |   1 + None;
+  |   ^^^^^^^^
+
+Stack trace:
+  at boom (examples/runtime_errors/runtime_trace_error.flx:3:3)
+  at <main> (examples/runtime_errors/runtime_trace_error.flx:6:1)
