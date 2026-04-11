@@ -6,6 +6,7 @@ repository today.
 For detailed IR semantics, see:
 - `docs/internals/ir_pipeline.md`
 - `docs/internals/aether.md`
+- `docs/internals/core_aether_backend_boundaries.md`
 - `docs/internals/bytecode.md`
 
 ## Current Shape
@@ -18,7 +19,7 @@ Source
   -> Program AST
   -> HM inference   (ast/type_infer + types/)
   -> core/          (canonical semantic IR)
-  -> aether/        (Core-stage ownership/reuse transform)
+  -> aether/        (backend-only ownership/reuse lowering product)
 
 Production backend path:
   -> cfg/           (backend-neutral CFG IR)
@@ -29,11 +30,11 @@ Native backend path:
   -> core_to_llvm/  (LLVM IR + native compilation pipeline)
 ```
 
-The key boundary is:
+The key boundaries are:
 
 ```text
-AST -> Core -> cfg -> bytecode/VM
-AST -> Core -> lir -> LLVM/native
+AST -> Core -> Aether -> cfg -> bytecode/VM
+AST -> Core -> Aether -> lir -> LLVM/native
 ```
 
 `src/shared_ir/` is shared ID/plumbing support. It is not a compiler stage.
@@ -61,7 +62,8 @@ For the native backend, the CLI calls native-specific helpers on
 - `src/cfg/` is the backend IR for the VM-oriented production pipeline.
 - `src/lir/` is a separate native backend IR used only for the LLVM/native path.
 - `structured_ir` is retired and should not be reintroduced into production paths.
-- Aether is not a standalone IR. It rewrites and verifies Core.
+- Aether is not a second semantic IR. It is a backend-only lowering product
+  derived from Core for maintained RC backends.
 
 ## Directory Map
 
@@ -165,16 +167,16 @@ When `-O` is enabled, this simplifier stage iterates up to a small fixed point.
 - `evidence_pass`
 - `anf_normalize`
 
-### Stage 3: Aether and FBIP
-- borrow-mode inference
-- Aether pass
-- FBIP checking and warnings/errors
+### Stage 3: handoff to Aether
+- semantic Core is complete at this point
+- borrow-mode inference and Aether lowering happen after `run_core_passes*`
+- Aether verification / FBIP checks operate on Aether-owned data
 
 Important implementation points:
 - `run_core_passes_with_interner`
 - `run_core_passes_with_interner_and_warnings`
 
-### 3. Aether on Core
+### 3. Aether after Core
 
 `src/aether/` runs after the standard Core passes and before backend lowering.
 
@@ -185,13 +187,18 @@ Aether:
 - verifies ownership/reuse invariants
 - performs FBIP/FIP-related checks and diagnostics
 
-Aether rewrites Core. It does not define a separate production IR layer.
+Aether no longer lives inside `CoreExpr`. It produces a backend-only lowering
+product:
+- `AetherExpr`
+- `AetherDef`
+- `AetherProgram`
 
-Operationally, `run_core_passes_with_optional_interner()` runs the Aether pass
-after the standard Core simplifier and ANF normalization, not as a separate
-top-level pipeline owned by the CLI.
+Operationally:
+- `run_core_passes*` produces clean semantic Core
+- `lower_core_to_aether_program(...)` produces `AetherProgram`
+- maintained RC backends lower from `AetherProgram`
 
-## Production Backend Path: Core -> CFG -> Bytecode -> VM
+## Production Backend Path: Core -> Aether -> CFG -> Bytecode -> VM
 
 This is the default execution path.
 
@@ -203,8 +210,8 @@ This is the default execution path.
 Program AST
   -> core::lower_ast
   -> core passes
-  -> Aether-enriched Core
-  -> core::to_ir::lower_core_to_ir
+  -> lower_core_to_aether_program
+  -> core::to_ir::lower_aether_to_ir
   -> IrProgram
 ```
 

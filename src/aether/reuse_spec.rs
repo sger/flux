@@ -1,6 +1,8 @@
-use crate::core::{CoreBinderId, CoreExpr, CorePat, CoreTag, CoreVarRef};
+use crate::core::{CoreBinderId, CorePat, CoreTag, CoreVarRef};
 
-use super::reuse_analysis::ReuseEnv;
+use super::{AetherExpr, reuse_analysis::ReuseEnv};
+
+type CoreExpr = AetherExpr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReuseSpecCandidate {
@@ -30,6 +32,10 @@ pub enum ReuseSpecReason {
 
 pub fn specialize_reuse(expr: CoreExpr) -> CoreExpr {
     specialize_with_env(expr, &ReuseEnv::default())
+}
+
+pub fn specialize_reuse_aether(expr: CoreExpr) -> CoreExpr {
+    specialize_with_env_aether(expr, &ReuseEnv::default())
 }
 
 fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
@@ -262,6 +268,238 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
     }
 }
 
+fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
+    match expr {
+        AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => expr,
+        AetherExpr::Lam { params, body, span } => AetherExpr::Lam {
+            params,
+            body: Box::new(specialize_with_env_aether(*body, &ReuseEnv::default())),
+            span,
+        },
+        AetherExpr::App { func, args, span } => AetherExpr::App {
+            func: Box::new(specialize_with_env_aether(*func, env)),
+            args: args
+                .into_iter()
+                .map(|arg| specialize_with_env_aether(arg, env))
+                .collect(),
+            span,
+        },
+        AetherExpr::AetherCall {
+            func,
+            args,
+            arg_modes,
+            span,
+        } => AetherExpr::AetherCall {
+            func: Box::new(specialize_with_env_aether(*func, env)),
+            args: args
+                .into_iter()
+                .map(|arg| specialize_with_env_aether(arg, env))
+                .collect(),
+            arg_modes,
+            span,
+        },
+        AetherExpr::Let {
+            var,
+            rhs,
+            body,
+            span,
+        } => {
+            let rhs = specialize_with_env_aether(*rhs, env);
+            let body_env = env.with_alias(var.id, &rhs);
+            AetherExpr::Let {
+                var,
+                rhs: Box::new(rhs),
+                body: Box::new(specialize_with_env_aether(*body, &body_env)),
+                span,
+            }
+        }
+        AetherExpr::LetRec {
+            var,
+            rhs,
+            body,
+            span,
+        } => {
+            let rhs = specialize_with_env_aether(*rhs, env);
+            let body_env = env.with_alias(var.id, &rhs);
+            AetherExpr::LetRec {
+                var,
+                rhs: Box::new(rhs),
+                body: Box::new(specialize_with_env_aether(*body, &body_env)),
+                span,
+            }
+        }
+        AetherExpr::LetRecGroup {
+            bindings,
+            body,
+            span,
+        } => {
+            let bindings: Vec<_> = bindings
+                .into_iter()
+                .map(|(var, rhs)| {
+                    let rhs = specialize_with_env_aether(*rhs, env);
+                    (var, Box::new(rhs))
+                })
+                .collect();
+            AetherExpr::LetRecGroup {
+                bindings,
+                body: Box::new(specialize_with_env_aether(*body, env)),
+                span,
+            }
+        }
+        AetherExpr::Case {
+            scrutinee,
+            alts,
+            span,
+        } => {
+            let scrutinee = specialize_with_env_aether(*scrutinee, env);
+            let scrutinee_var = match &scrutinee {
+                AetherExpr::Var { var, .. } => Some(*var),
+                _ => None,
+            };
+            let alts = alts
+                .into_iter()
+                .map(|mut alt| {
+                    let alt_pat_binders = pat_field_binder_ids(&alt.pat);
+                    let alt_pat_tag = match &alt.pat {
+                        CorePat::Con { tag, .. } => Some(tag),
+                        _ => None,
+                    };
+                    let alt_env = scrutinee_var
+                        .as_ref()
+                        .map(|var| {
+                            env.with_pattern_bindings(var, alt_pat_binders.as_deref(), alt_pat_tag)
+                        })
+                        .unwrap_or_else(|| env.clone());
+                    alt.rhs = specialize_with_env_aether(alt.rhs, &alt_env);
+                    alt.guard = alt
+                        .guard
+                        .map(|guard| specialize_with_env_aether(guard, env));
+                    alt
+                })
+                .collect();
+            AetherExpr::Case {
+                scrutinee: Box::new(scrutinee),
+                alts,
+                span,
+            }
+        }
+        AetherExpr::Con { tag, fields, span } => AetherExpr::Con {
+            tag,
+            fields: fields
+                .into_iter()
+                .map(|field| specialize_with_env_aether(field, env))
+                .collect(),
+            span,
+        },
+        AetherExpr::PrimOp { op, args, span } => AetherExpr::PrimOp {
+            op,
+            args: args
+                .into_iter()
+                .map(|arg| specialize_with_env_aether(arg, env))
+                .collect(),
+            span,
+        },
+        AetherExpr::Return { value, span } => AetherExpr::Return {
+            value: Box::new(specialize_with_env_aether(*value, env)),
+            span,
+        },
+        AetherExpr::Perform {
+            effect,
+            operation,
+            args,
+            span,
+        } => AetherExpr::Perform {
+            effect,
+            operation,
+            args: args
+                .into_iter()
+                .map(|arg| specialize_with_env_aether(arg, env))
+                .collect(),
+            span,
+        },
+        AetherExpr::Handle {
+            body,
+            effect,
+            handlers,
+            span,
+        } => AetherExpr::Handle {
+            body: Box::new(specialize_with_env_aether(*body, env)),
+            effect,
+            handlers: handlers
+                .into_iter()
+                .map(|mut handler| {
+                    handler.body = specialize_with_env_aether(handler.body, &ReuseEnv::default());
+                    handler
+                })
+                .collect(),
+            span,
+        },
+        AetherExpr::Dup { var, body, span } => AetherExpr::Dup {
+            var,
+            body: Box::new(specialize_with_env_aether(*body, env)),
+            span,
+        },
+        AetherExpr::Drop { var, body, span } => AetherExpr::Drop {
+            var,
+            body: Box::new(specialize_with_env_aether(*body, env)),
+            span,
+        },
+        AetherExpr::Reuse {
+            token,
+            tag,
+            fields,
+            field_mask: _,
+            span,
+        } => {
+            let fields: Vec<AetherExpr> = fields
+                .into_iter()
+                .map(|field| specialize_with_env_aether(field, env))
+                .collect();
+            let decision = decide_specialization(&token, &tag, &fields, env);
+            let field_mask = match decision {
+                ReuseSpecDecision::PlainReuse => None,
+                ReuseSpecDecision::SelectiveWrite { field_mask, .. } => Some(field_mask),
+            };
+            AetherExpr::Reuse {
+                token,
+                tag,
+                fields,
+                field_mask,
+                span,
+            }
+        }
+        AetherExpr::MemberAccess {
+            object,
+            member,
+            span,
+        } => AetherExpr::MemberAccess {
+            object: Box::new(specialize_with_env_aether(*object, env)),
+            member,
+            span,
+        },
+        AetherExpr::TupleField {
+            object,
+            index,
+            span,
+        } => AetherExpr::TupleField {
+            object: Box::new(specialize_with_env_aether(*object, env)),
+            index,
+            span,
+        },
+        AetherExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            span,
+        } => AetherExpr::DropSpecialized {
+            scrutinee,
+            unique_body: Box::new(specialize_with_env_aether(*unique_body, env)),
+            shared_body: Box::new(specialize_with_env_aether(*shared_body, env)),
+            span,
+        },
+    }
+}
+
 fn decide_specialization(
     token: &CoreVarRef,
     tag: &CoreTag,
@@ -363,7 +601,8 @@ fn pat_field_binder_ids(pat: &CorePat) -> Option<Vec<Option<CoreBinderId>>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::{CoreAlt, CoreBinder, CoreExpr, CorePat, CoreTag, CoreVarRef};
+    use crate::aether::{AetherAlt as CoreAlt, AetherExpr as CoreExpr};
+    use crate::core::{CoreBinder, CorePat, CoreTag, CoreVarRef};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 

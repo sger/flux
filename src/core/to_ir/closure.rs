@@ -38,7 +38,7 @@ fn collect_used_candidate_binders(
                 bound.remove(&p.id);
             }
         }
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+        CoreExpr::App { func, args, .. } => {
             collect_used_candidate_binders(func, bound, candidates, used);
             for arg in args {
                 collect_used_candidate_binders(arg, bound, candidates, used);
@@ -125,41 +125,6 @@ fn collect_used_candidate_binders(
                     bound.remove(&binder);
                 }
             }
-        }
-        CoreExpr::Dup { var, body, .. } | CoreExpr::Drop { var, body, .. } => {
-            if let Some(binder) = var.binder
-                && candidates.contains(&binder)
-                && !bound.contains(&binder)
-            {
-                used.insert(binder);
-            }
-            collect_used_candidate_binders(body, bound, candidates, used);
-        }
-        CoreExpr::Reuse { token, fields, .. } => {
-            if let Some(binder) = token.binder
-                && candidates.contains(&binder)
-                && !bound.contains(&binder)
-            {
-                used.insert(binder);
-            }
-            for field in fields {
-                collect_used_candidate_binders(field, bound, candidates, used);
-            }
-        }
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
-            if let Some(binder) = scrutinee.binder
-                && candidates.contains(&binder)
-                && !bound.contains(&binder)
-            {
-                used.insert(binder);
-            }
-            collect_used_candidate_binders(unique_body, bound, candidates, used);
-            collect_used_candidate_binders(shared_body, bound, candidates, used);
         }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             collect_used_candidate_binders(object, bound, candidates, used);
